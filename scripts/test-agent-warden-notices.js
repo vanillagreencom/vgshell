@@ -252,12 +252,17 @@ function verify(n) {
     assert.throws(() => n.notices([{ key: "odd:s", kind: "odd" }], "everything", true, NOW), /episode kind="odd" unknown/);
 
     // Each notice uses the core, with buttons only when vsys is available.
-    for (const [label, episode, want] of [
-        ["tasks", COPY[0][1][0], { title: COPY[0][3], message: COPY[0][4], urgency: "normal", transient: false, actions: [{ id: "open", label: "Open vsys" }] }],
-        ["cleanup", { key: "reaped:s", kind: "reaped", processes: 2 }, { title: "Cleaned up after a finished agent", message: "A finished agent left 2 processes running. Agent Warden stopped them.", urgency: "low", transient: false, actions: [] }],
-        ["moved", { key: "moved:s", kind: "moved", tools: ["claude"] }, { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true, actions: [] }]
+    for (const [label, episode, vsys, want] of [
+        ["tasks", COPY[0][1][0], true, { title: COPY[0][3], message: COPY[0][4], urgency: "normal", transient: false, wait: false, actions: [{ id: "open", label: "Open vsys" }] }],
+        ["tasks without vsys", COPY[1][1][0], false, { title: COPY[1][3], message: COPY[1][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["memory without vsys", COPY[4][1][0], false, { title: COPY[4][3], message: COPY[4][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["held off without vsys", COPY[5][1][0], false, { title: COPY[5][3], message: COPY[5][4], urgency: "critical", transient: false, wait: false, actions: [] }],
+        ["partial move without vsys", COPY[7][1][0], false, { title: COPY[7][3], message: COPY[7][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["stopped checking", COPY[15][1][0], true, { title: COPY[15][3], message: COPY[15][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["cleanup", { key: "reaped:s", kind: "reaped", processes: 2 }, true, { title: "Cleaned up after a finished agent", message: "A finished agent left 2 processes running. Agent Warden stopped them.", urgency: "low", transient: false, wait: false, actions: [] }],
+        ["moved", { key: "moved:s", kind: "moved", tools: ["claude"] }, true, { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true, wait: false, actions: [] }]
     ]) {
-        const [notice] = n.notices([episode], "everything", true, NOW);
+        const [notice] = n.notices([episode], "everything", vsys, NOW);
         same(n.shellOptions(notice), want, label);
     }
     assert.equal(n.HEARTBEAT_MS, 60000, "the heartbeat is touched well inside the warden's 120 s");

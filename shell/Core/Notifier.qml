@@ -27,6 +27,7 @@ Singleton {
     // the core's NotificationHub. Answers "ok" once the run is handed to
     // Quickshell or the message is dropped. DONE receives the chosen id
     // (empty on dismissal or failure), then "delivered" or "failed".
+    // With no actions, wait:false completes after delivery instead of dismissal.
     function send(ctx, appName, options, hub, done) {
         if (done !== undefined && typeof done !== "function") return "refused: notify=done want=function";
         const judged = Logic.notifyOptions(options);
@@ -45,12 +46,16 @@ Singleton {
             if (done !== undefined) complete(ctx.id, done, "", "failed");
             return "ok";
         }
-        run.command = Logic.notifyArgv(ctx.id, appName, judged.value, done !== undefined);
+        const wait = done !== undefined && judged.value.wait;
+        run.command = Logic.notifyArgv(ctx.id, appName, judged.value, wait);
         run.actions = judged.value.actions;
         run.done = done === undefined ? null : (action, delivery) => { if (ctx.active) done(action, delivery); };
         // Only a waiting send borrows an instance lifetime. Core messages
         // and fire-and-forget sends retain the singleton's short run.
-        if (judged.value.actions.length > 0 || done !== undefined) {
+        // notify-send --help states that --action implies --wait.
+        // Without actions wait:false
+        // observes delivery without holding a run until History is cleared.
+        if (judged.value.actions.length > 0 || wait) {
             run.release = ctx.onDispose(() => {
                 run.done = null;
                 run.cancelled = true;

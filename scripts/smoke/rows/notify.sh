@@ -124,7 +124,7 @@ notify_completed() { ipc smoke readInstance service acme.notifier completed; }
 notify_card_present() { plugin_cards Notifier | py_reply 'import json,sys; print(any(r[0] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
 expect "duplicate public action ids are refused before sending" 'refused: notify=actions want=unique nonblank id (at most 64) and label (at most 120)' ipc acme.notifier invoke notify-actions '{"title":"Notifier refused","actions":[{"id":"open","label":"Open"},{"id":"open","label":"Again"}]}'
 expect "a refused action send invokes no callback" 0 notify_completed
-expect "an action notification starts" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier action","urgency":"critical","actions":[{"id":"open","label":"Open"},{"id":"default","label":"Other"}]}'
+expect "an action notification starts" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier action","urgency":"critical","wait":false,"actions":[{"id":"open","label":"Open"},{"id":"default","label":"Other"}]}'
 expect_poll "the action card arrives" True notify_card_present "Notifier action"
 expect "the callback waits for the press" '"pending"' notify_action
 click_item vgs:layer vgs.notifications NotificationCard summary "Notifier action" 24 - || fail "notify: the action card click failed"

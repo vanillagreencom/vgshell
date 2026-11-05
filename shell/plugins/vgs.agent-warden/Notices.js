@@ -336,8 +336,9 @@ function copy(kind, episodes, vsys, now) {
 
 // The options shell.notify.send takes for NOTICE. A move back into limits
 // needs no answer, so it requests the transient hint and offers no action.
+// A notice with no action observes delivery without waiting for dismissal.
 function shellOptions(notice) {
-    var options = { title: notice.title, message: notice.body, urgency: notice.urgency, transient: notice.transient,
+    var options = { title: notice.title, message: notice.body, urgency: notice.urgency, transient: notice.transient, wait: false,
         actions: notice.action ? [{ id: ACTION, label: ACTION_LABEL }] : [] };
     if (notice.tone !== "") options.tone = notice.tone;
     if (notice.icon !== "") options.icon = notice.icon;

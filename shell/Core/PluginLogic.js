@@ -30,7 +30,7 @@ var CAPABILITIES = ["compositor", "configure", "cover", "idle", "ipc", "lock", "
 // (shell/plugins/vgs.notifications/developer.md § Hints). A title is one
 // line and a message a few. At most NOTIFY_RUNS_MAX notify-send runs are in
 // flight at once, so waiting actions cannot grow the process set unbounded.
-var NOTIFY_KEYS = ["title", "message", "tone", "icon", "urgency", "transient", "actions"];
+var NOTIFY_KEYS = ["title", "message", "tone", "icon", "urgency", "transient", "actions", "wait"];
 var NOTIFY_TONES = ["success", "warning", "danger", "info"];
 var NOTIFY_URGENCIES = ["low", "normal", "critical"];
 var NOTIFY_ICON = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -6170,7 +6170,8 @@ function lendRefusal(held, manifest) {
 // string `title`, an optional string `message`, `tone` from NOTIFY_TONES,
 // `icon` a Lucide name, `urgency` from NOTIFY_URGENCIES and a boolean
 // `transient`, the server's transient hint, and optional `actions` of
-// unique ids and nonblank labels. Answers { ok: true,
+// unique ids and nonblank labels. Boolean wait defaults true for a callback
+// to wait for dismissal without actions. Answers { ok: true,
 // value } with every key present, or { ok: false, error } whose first word
 // is the offending key.
 function notifyOptions(raw) {
@@ -6192,6 +6193,8 @@ function notifyOptions(raw) {
         return { ok: false, error: "urgency want=" + NOTIFY_URGENCIES.join("|") };
     if (raw.transient !== undefined && typeof raw.transient !== "boolean")
         return { ok: false, error: "transient want=boolean" };
+    if (raw.wait !== undefined && typeof raw.wait !== "boolean")
+        return { ok: false, error: "wait want=boolean" };
     var actions = [];
     if (raw.actions !== undefined) {
         if (!Array.isArray(raw.actions)) return { ok: false, error: "actions want=list of { id, label }" };
@@ -6205,7 +6208,7 @@ function notifyOptions(raw) {
             actions.push({ id: action.id, label: action.label });
         }
     }
-    return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, urgency: raw.urgency === undefined ? "normal" : raw.urgency, transient: raw.transient === true, actions: actions } };
+    return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, urgency: raw.urgency === undefined ? "normal" : raw.urgency, transient: raw.transient === true, actions: actions, wait: raw.wait !== false } };
 }
 
 // The notify-send argv for JUDGED, notifyOptions' value, sent as APP_NAME

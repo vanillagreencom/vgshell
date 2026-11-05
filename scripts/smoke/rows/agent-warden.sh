@@ -39,7 +39,7 @@
 # next tick.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml
 set -euo pipefail
 warden_probe_was="$(plugin_enabled acme.probe)"
 expect "the fixture holds the notification server for Warden core sends" ok ipc shell setPluginEnabled acme.probe true
@@ -843,6 +843,44 @@ warden_put near-limit 0 >/dev/null
 expect_poll "the failed-delivery control retains both failed episodes" '[0, 2]' warden_retry_state
 rm -f -- "$warden_delivery_fails"
 warden_uncontrol
+
+# A real action-free notification completes delivery while its nontransient
+# card stays on screen or in History. The stand-in retry matrix above does
+# not exercise notify-send's native --wait lifetime.
+rm -f -- "$shim/notify-send"
+expect "enabling Warden for real delivery is allowed" ok ipc shell setPluginEnabled vgs.agent-warden true
+expect_poll "the real-delivery Warden owns its directory and reads no status" '["not-set-up", null, 0, []]' warden_state
+notes_on "Warden delivery lifetime"
+warden_delivery_state() {
+  local runs episodes cards
+  runs="$(ipc smoke themeNoticeRuns)" || return
+  episodes="$(ipc smoke readInstance service vgs.agent-warden episodes)" || return
+  cards="$(ipc smoke modelRows vgs.notifications rows app,summary,leaving)" || return
+  python3 - "$runs" "$episodes" "$cards" "$home/.local/state/vgshell/notifications/state.json" "$1" <<'PY'
+import json, pathlib, sys
+runs, episodes, cards, state, title = sys.argv[1:]
+rows = [] if cards == "absent" else json.loads(cards)
+present = any(r[0] == "Agent Warden" and r[1] == title and r[2] == "" for r in rows)
+path = pathlib.Path(state)
+if path.exists():
+    present = present or any(r["app"] == "Agent Warden" and r["summary"] == title for r in json.loads(path.read_text())["history"])
+print(json.dumps([int(runs), len(json.loads(episodes)), present]))
+PY
+}
+while IFS='|' read -r warden_lifetime_fixture warden_lifetime_age warden_lifetime_title; do
+  warden_put calm 0 >/dev/null
+  expect_poll "${warden_lifetime_fixture}: real delivery starts with no episodes or core runs" '[0, 0]' warden_retry_state
+  warden_put "$warden_lifetime_fixture" "$warden_lifetime_age" >/dev/null
+  expect_poll "${warden_lifetime_fixture}: real Warden delivery releases its run with the card retained" '[0, 1, true]' warden_delivery_state "$warden_lifetime_title"
+  notes_clear "${warden_lifetime_fixture}: delivery assertion finished"
+done <<'LIFETIMES'
+reaped|0|Cleaned up after a finished agent
+calm|600|Agent Warden has stopped checking
+LIFETIMES
+notes_off "Warden delivery lifetime"
+expect "disabling Warden after real delivery is allowed" ok ipc shell setPluginEnabled vgs.agent-warden false
+expect_poll "the real-delivery Warden releases its status" null warden_lent
+rm -rf -- "$warden_dir"
 
 rm -f -- "$shim/vsys" "$shim/notify-send"
 expect "the Warden notification fixture returns to its incoming enablement" ok ipc shell setPluginEnabled acme.probe "${warden_probe_was,,}"

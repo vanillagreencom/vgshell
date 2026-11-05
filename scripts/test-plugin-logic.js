@@ -2194,12 +2194,13 @@ function suite(ctx, configLogic, check) {
     // error starts with.
     const actions = [{ id: "diagnose", label: "Diagnose" }, { id: "default", label: "Mute" }];
     const notifyRows = [
-        ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
-        ["ordinary public actions", { title: "Crash", message: "<b>&", actions }, { ok: true, value: { title: "Crash", message: "<b>&", tone: "", icon: "", urgency: "normal", transient: false, actions } }],
-        ["explicit empty actions", { title: "t", actions: [] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
-        ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true, actions: [] } }],
-        ["a message at the ceiling", { title: "t", message: "x".repeat(600) }, { ok: true, value: { title: "t", message: "x".repeat(600), tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
-        ["an action at both ceilings", { title: "t", actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] } }],
+        ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [], wait: true } }],
+        ["ordinary public actions", { title: "Crash", message: "<b>&", actions }, { ok: true, value: { title: "Crash", message: "<b>&", tone: "", icon: "", urgency: "normal", transient: false, actions, wait: true } }],
+        ["explicit empty actions", { title: "t", actions: [] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [], wait: true } }],
+        ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true, wait: true }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true, actions: [], wait: true } }],
+        ["delivery completion", { title: "t", wait: false }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [], wait: false } }],
+        ["a message at the ceiling", { title: "t", message: "x".repeat(600) }, { ok: true, value: { title: "t", message: "x".repeat(600), tone: "", icon: "", urgency: "normal", transient: false, actions: [], wait: true } }],
+        ["an action at both ceilings", { title: "t", actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [{ id: "i".repeat(64), label: "l".repeat(120) }], wait: true } }],
         ["not an object", "Saved", "options"],
         ["an unknown key", { title: "Saved", duration: 0 }, "duration"],
         ["a missing title", { message: "x" }, "title"],
@@ -2214,6 +2215,7 @@ function suite(ctx, configLogic, check) {
         ["an icon past the ceiling", { title: "t", icon: "a".repeat(65) }, "icon"],
         ["an unknown urgency", { title: "t", urgency: "high" }, "urgency"],
         ["a transient that is not a boolean", { title: "t", transient: "yes" }, "transient"],
+        ["a wait that is not a boolean", { title: "t", wait: "no" }, "wait"],
         ...[
             ["not a list", {}], ["not an object", ["open"]], ["missing id", [{ label: "Open" }]],
             ["blank id", [{ id: " ", label: "Open" }]], ["long id", [{ id: "x".repeat(65), label: "Open" }]],
