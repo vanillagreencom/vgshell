@@ -81,7 +81,9 @@ function ports(root, engine, state) {
                 gates.drop("device-back");
                 const final = collect;
                 collect = null;
-                const finish = () => { done(); if (final !== null) final("final", "scripted utterance"); };
+                const silent = fs.existsSync(path.join(root, "silent-capture"));
+                if (silent) fs.unlinkSync(path.join(root, "silent-capture"));
+                const finish = () => { done({ speech: !silent }); if (final !== null) final("final", silent ? "" : "scripted utterance"); };
                 if (fs.existsSync(path.join(root, "hold-close"))) wait("close", finish);
                 else finish();
             }
@@ -129,10 +131,10 @@ function ports(root, engine, state) {
         },
         playback: {
             start: (e, done) => {
-                // Key and bubble rows gate assistant playback. Their local
-                // start cue completes before that capture can begin.
-                if (state().playback.kind === "feedback" && state().playback.cue === "start") {
-                    record("feedback-start", e);
+                // Key and bubble rows gate replies. Conversation cues complete
+                // independently so a close cannot retain the next capture.
+                if (state().playback.kind === "feedback" && ["start", "stop"].includes(state().playback.cue)) {
+                    record("feedback-" + state().playback.cue, e);
                     done();
                     return;
                 }
@@ -373,7 +375,7 @@ let consoleRows = [
 const consoleFailures = [
     { time: "2026-10-11T09:30:00.000Z", tool: "files.delete", effect: "destructive", decision: "refuse", outcome: "cancelled", refusal: null, cause: null },
     { time: "2026-10-11T09:35:00.000Z", tool: "release", effect: null, decision: "withhold", outcome: "cancelled", refusal: "source", cause: null },
-    { time: "2026-10-11T09:40:00.000Z", tool: "release", effect: "external", decision: "send", outcome: "failed", refusal: null, cause: "unheard" }
+    { time: "2026-10-11T09:40:00.000Z", tool: "release", effect: "external", decision: "send", outcome: "failed", refusal: null, cause: "voice-stopped" }
 ];
 function consoleTasks() { return consoleRows; }
 function consoleAudit() { return consoleFailures; }

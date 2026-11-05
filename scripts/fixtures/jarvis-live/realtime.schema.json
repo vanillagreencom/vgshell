@@ -10,7 +10,9 @@
    "https://developers.openai.com/api/docs/guides/realtime-conversations",
    "https://developers.openai.com/api/docs/guides/realtime-vad",
    "https://developers.openai.com/api/docs/guides/realtime-transcription"
-  ]
+  ],
+  "nativeInputReference": "https://developers.openai.com/api/docs/guides/realtime-conversations",
+  "nativeInputRead": "2026-11-05"
  },
  "rule": [
   "Each schema transcribes the interface of the same name in the types file to the checker's keyword set. String literals become enums; optional members stay optional.",
@@ -20,7 +22,7 @@
   "The checker closes every other object."
  ],
  "omitted": [
-  "Client events the duplex engine does not send: input_audio_buffer.commit and clear, conversation.item.create, retrieve, truncate and delete, response.cancel, output_audio_buffer.clear.",
+  "Client events the duplex engine does not send: conversation.item.create, retrieve, truncate and delete, response.cancel, output_audio_buffer.clear.",
   "Server events this session does not cause: those only a tool, a text reply, an MCP server, SIP or WebRTC produce. The function call arguments event is kept for the refusal it proves.",
   "The transcription session branch, the G.711 formats, custom voices, prompt references and reasoning settings."
  ],
@@ -1466,6 +1468,40 @@
     "type",
     "event_id",
     "rate_limits"
+   ]
+  },
+  "InputAudioBufferCommitEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "input_audio_buffer.commit"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type"
+   ]
+  },
+  "InputAudioBufferClearEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "input_audio_buffer.clear"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type"
    ]
   }
  }

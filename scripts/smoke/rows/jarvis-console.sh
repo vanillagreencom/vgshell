@@ -1,7 +1,7 @@
 # Jarvis console window. Scripted daemon fixtures only: no audio, account,
 # provider or network runs. Under a voice that takes speech only (a duplex
 # engine) the Conversation tab shows no message box and no Send, one line
-# in their place and Stop; under mute Send names why it is off. The row has no latency ceiling. It polls once
+# in their place and Stop; voice mute keeps Send available. The row has no latency ceiling. It polls once
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
 # inputs: scripts/smoke/jarvis-console.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Ui/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js
 set -euo pipefail
@@ -254,16 +254,25 @@ expect_poll "the console sends typed text to the daemon" "$((say_before + 1))" j
 expect_poll "the console shows the typed user line" "user:typed from console:final" jarvis_console_state last
 jarvis_key_gate brain
 expect_poll "the console shows the scripted Jarvis reply" "assistant:scripted utterance:partial" jarvis_console_state last
-jarvis_key_mute
-expect_poll "muted state reaches the console" on jarvis_key_state mute
-type_keys " stays in field" || fail "typing while muted failed"
-type_keys -k Return || fail "pressing Enter while muted failed"
-expect_poll "muted Send is refused in the composer" shown jarvis_console_hint_has "Jarvis is muted. Unmute Jarvis before typing."
-expect "muted Send names why it is off" '"Jarvis is muted. Unmute Jarvis before typing."' jarvis_console_send_reason
-expect 'muted refusal keeps the typed text' '" stays in field"' jarvis_console_field_text
-expect "muted refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
-jarvis_key_mute
-expect_poll "the console controls start unmuted" off jarvis_key_state mute
+expect "voice mute reaches the daemon" ok ipc vgs.jarvis invoke voice-mute ""
+expect_poll "the console sees independent voice mute" on jarvis_key_state voiceMute
+expect_poll "the preceding reply is still playing" playing jarvis_key_state playback
+type_keys "typed from console" || fail "typing under voice mute failed"
+type_keys -k Return || fail "pressing Enter during playback failed"
+expect_poll "playback refusal reaches the composer" shown jarvis_console_hint_has "Jarvis is speaking. Wait for it to finish, or press Stop."
+expect "Send names the playback refusal" '"Jarvis is speaking. Wait for it to finish, or press Stop."' jarvis_console_send_reason
+expect "playback refusal keeps the typed text" '"typed from console"' jarvis_console_field_text
+expect "playback refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
+jarvis_key_gate played
+expect_poll "the preceding reply finishes before the next typed input" idle jarvis_key_state playback
+expect_poll "the previous typed turn completes" none jarvis_key_state turn
+expect_poll "voice mute leaves Send available" '""' jarvis_console_send_reason
+type_keys -k Return || fail "sending under voice mute failed"
+expect_poll "voice mute permits typed input" "$((say_before + 2))" jarvis_console_say_count
+expect "the typed-input case stops its pending reply" ok ipc vgs.jarvis invoke stop ""
+expect_poll "the typed-input case releases its pending turn" none jarvis_key_state turn
+expect "voice mute toggles off" ok ipc vgs.jarvis invoke voice-mute ""
+expect_poll "the console controls leave voice mute off" off jarvis_key_state voiceMute
 type_keys -k Escape || fail "typing Escape into the console failed"
 expect_poll "Escape closes the console" 0 jarvis_console_client_count
 jarvis_console_open
@@ -456,7 +465,7 @@ cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
 cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
 cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
-rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
+rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js"
 jarvis_rescan
 cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config.next" && mv -T -- "$jarvis_console_config.next" "$jarvis_console_config"
 cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
@@ -470,7 +479,7 @@ expect_poll "the restored stock daemon remains unconfigured" session jarvis_sess
 expect "the console row leaves no scripted fixture" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$jarvis_console_plugin/backend/scripted-fixture.js"
 expect "the console row restores Console.qml" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 expect "the console row restores ChainedEngine.js" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
-expect "the console row leaves no Jarvis mute state" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
+
 jarvis_disable
 jarvis_notice_close
 # Rows share the harness process. Waiting for EXIT keeps this keyboard

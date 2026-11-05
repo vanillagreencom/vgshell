@@ -32,7 +32,7 @@ function isPlainObject(value) {
 // Any other entry carries neither key.
 // The schema keys of a field the page draws beyond a plain control, which
 // an item's field cannot declare.
-var ITEM_PLAIN_KEYS = ["groupLabel", "addChoice", "preview"];
+var ITEM_PLAIN_KEYS = ["groupLabel", "addChoice", "preview", "underKey"];
 function listEntryError(entry, at, status, schemaError) {
     if (entry.type !== "list")
         return entry.items !== undefined || entry.defaults !== undefined ? at + ".items and .defaults need type list" : "";

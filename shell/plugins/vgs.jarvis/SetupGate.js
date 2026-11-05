@@ -119,7 +119,6 @@ var TODO = {
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Set up the local voice again",
     "speech=local-ready-timeout": "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
-    "speech=always-local-voice": "Always talk mode needs Local: [choose Local as Voice provider](page:vgs.jarvis/Settings), or Hold or Toggle as Talk mode"
 };
 // Local voice that did not get ready in time is set up: its step states
 // that result in place of To do, and the bar shows the step's hint for it
@@ -146,7 +145,7 @@ var DICTATION = {
 // Causes whose step the voice setup action cannot complete: the user
 // changes a setting, adds a key or fixes the ElevenLabs key instead.
 function setupActs(cause) {
-    return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
+    return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0;
 }
 var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model" };
 // The path reader resolves the selected folder even when its contents are
@@ -324,14 +323,12 @@ function voiceCheck(value, check, talk) {
     return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis", action: "check" };
 }
 
-// The sentence that says how to talk to Jarvis now, for MODE, the Talk mode
-// setting, and TALK, its key as people read it, or null while no key is set:
+// The sentence that says how to talk to Jarvis now, for HOLD_TO_TALK and
+// TALK, its key as people read it, or null while no key is set:
 // the one sentence the Voice step, the bar and the console say it with.
-function talkHint(mode, talk) {
-    if (talk === null) return (mode === "always" ? "Say Hey Jarvis, or set" : "Set") + " the [Talk key](page:vgs.jarvis/Settings) in the Keys section";
-    if (mode === "hold") return "Tap or hold " + talk + ", then speak";
-    if (mode === "toggle") return "Press " + talk + ", then speak";
-    return "Say Hey Jarvis, or press " + talk;
+function talkHint(holdToTalk, talk) {
+    if (talk === null) return "Set the [Talk key](page:vgs.jarvis/Settings) in the Keys section";
+    return holdToTalk ? "Hold " + talk + " while you speak" : "Press " + talk + " to open or close the conversation";
 }
 
 // Each cause a failed local voice setup records (setup-local
@@ -449,7 +446,7 @@ var START_CAUSES = [
     [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
     // jarvisd exits 78 when it cannot read or save mute.json or
     // voice-mute.json, so the press that changed it did not take.
-    [/^jarvis: (voice-)?mute=/, { kind: "mute-not-saved", title: "Jarvis mute setting not saved", detail: "Jarvis could not read or save its microphone or voice mute setting.", action: "The mute setting was not kept. " + START_RESTART + "." }],
+    [/^jarvis: voice-mute=/, { kind: "mute-not-saved", title: "Jarvis voice mute not saved", detail: "Jarvis could not read or save its voice mute setting.", action: "The voice mute setting was not kept. " + START_RESTART + "." }],
     [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_RESTART }],
     [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", detail: "Jarvis could not read a message from its service.", action: START_RESTART }]
 ];
@@ -481,10 +478,6 @@ function startStatus(cause, retrying) {
 function stoppedNotice(cause) {
     var problem = startCause(cause);
     return { title: problem.title, message: sentence(problem.action), tone: "danger", icon: "vgs-letter-j" };
-}
-function muteRefusedNotice(cause) {
-    return { title: "Jarvis mute not saved", message: "Mute request could not be saved: " + startCause(cause).title + ".",
-        tone: "danger", icon: "vgs-letter-j" };
 }
 function voiceMuteRefusedNotice(cause) {
     return { title: "Jarvis voice mute not saved", message: "Voice mute request could not be saved: " + startCause(cause).title + ".",
@@ -622,17 +615,6 @@ function copilotMemory(accounts) {
 
 // The provider a Voice provider stored as "auto" before VGS-1953 becomes,
 // the migration the service runs on its first read of SETTINGS (D107):
-// Realtime while the Voice key setting names a key and Talk mode is not
-// Always, which listens on this computer, else Local. Auto promised
-// Realtime once an OpenAI key was stored. The rewrite reads only the
-// settings file, so it never waits on the account probe: a key's id does
-// not tell its provider, and a Gemini or ElevenLabs key named under Auto
-// leaves Realtime asking for an OpenAI key, which the daemon never sends
-// another provider's key to (ChainedEngine voiceKey).
-function autoVoiceProvider(settings) {
-    return settings.mode !== "always" && settings.voiceAccount !== "" ? "realtime" : "local";
-}
-
 // The Voice key choices from KEYS, the account reader's stored cloud voice
 // keys, for VOICE, the selected voice as AccountProviders.cloudVoice gives
 // it: the keys of its provider, none for Local, which takes no key.

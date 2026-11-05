@@ -12,6 +12,12 @@ world(() => {
     const today = Date.parse("2026-09-30T12:00:00.000Z");
     let serial = 0;
     function state() { return path.join(base, "audit-" + ++serial); }
+    function currentState() {
+        const root = state();
+        fs.mkdirSync(path.join(root, "audit"), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(path.join(root, "audit-cause-version.json"), '{"version":1}\n', { mode: 0o600 });
+        return root;
+    }
     const event = { kind: "action", gen: 2, op: 3, tool: "files.write",
         args: { path: "/synthetic", text: "planted-arbitrary-credential" },
         effect: "persistent", decision: "allow", confirmed: "none", outcome: "pending" };
@@ -27,7 +33,7 @@ world(() => {
         try { check(writer); } finally { writer.close(); }
     }
     function checkFailures(logic) {
-        const root = state();
+        const root = currentState();
         const folder = path.join(root, "audit");
         fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
         const saved = (op, changes = {}) => ({ ...event, time: "2026-09-30T12:00:00.000Z", op,
@@ -43,11 +49,12 @@ world(() => {
         let writer;
         const reads = [];
         fsFault("readSync", (original, fd, buffer, offset, length, position) => {
-            reads.push({ length, position });
+            reads.push({ length, position, file: fs.readlinkSync("/proc/self/fd/" + fd) });
             return original(fd, buffer, offset, length, position);
         }, () => { writer = logic.create({ state: root, now: () => today }); });
         try {
-            assert.deepEqual(reads, [{ length: 65536, position: Buffer.byteLength(content) - 65536 }],
+            assert.deepEqual(reads.filter(read => read.file.endsWith(".jsonl")).map(({ length, position }) => ({ length, position })),
+                [{ length: 65536, position: Buffer.byteLength(content) - 65536 }],
                 "seed requests only the bounded tail of the oversized daily file");
             const rows = writer.failures();
             assert.equal(rows.length, 20);
@@ -63,7 +70,7 @@ world(() => {
             assert.equal(changes.length, 0);
             for (const change of [{ outcome: "failed" }, { outcome: "unknown" }, { decision: "refuse" },
                 { kind: "release", decision: "withhold", refusal: "expired" },
-                { kind: "release", decision: "send", outcome: "failed", cause: "unheard" }]) {
+                { kind: "release", decision: "send", outcome: "failed", cause: "voice-stopped" }]) {
                 assert.equal(writer.record({ ...event, ...change }).kind, "recorded");
                 const rows = writer.failures();
                 assert.equal(rows.length, 20);
@@ -106,12 +113,12 @@ world(() => {
             const result = writer.before(event, () => { starts++; });
             assert.equal(starts, 0, "failed write refuses the action");
             assert.deepEqual(result, { kind: "refuse", reason: "audit-write", cause: "directory-type" });
-            for (const kind of ["stop", "mute", "teardown"]) {
+            for (const kind of ["stop", "teardown"]) {
                 const shutdown = writer.cleanup(kind, () => { starts++; });
                 assert.equal(shutdown.kind, "started");
                 assert.equal(shutdown.audit.kind, "refuse");
             }
-            assert.equal(starts, 3, "all privacy shutdown paths remain available");
+            assert.equal(starts, 2, "all privacy shutdown paths remain available");
         });
     }
     function checkPrivacy(logic) {
@@ -241,7 +248,7 @@ world(() => {
     for (const [, setup, cause] of hazards) checkUnsafe(Audit, setup, cause);
 
     function checkFault(logic, method, replacement, cause) {
-        const root = state();
+        const root = currentState();
         withWriter(logic, { state: root }, writer => {
             let starts = 0;
             fsFault(method, replacement, () => {
@@ -256,7 +263,7 @@ world(() => {
     checkFault(Audit, "fsyncSync", ioError("EIO"), "EIO");
     checkFault(Audit, "fchmodSync", ioError("EPERM"), "EPERM");
     function checkShort(logic) {
-        const root = state();
+        const root = currentState();
         withWriter(logic, { state: root }, writer => {
             let starts = 0;
             fsFault("writeSync", (original, fd, buffer) => original(fd, buffer, 0, 2), () => {
@@ -331,18 +338,87 @@ world(() => {
         const root = state();
         const stream = { ...event, kind: "release", effect: "external", decision: "send", outcome: "failed" };
         withWriter(logic, { state: root }, writer => {
-            for (const cause of ["input-silent", "unheard", "key-refused", "voice-stopped"])
+            for (const cause of ["key-refused", "voice-stopped"])
                 assert.equal(writer.record({ ...stream, cause }).kind, "recorded", cause);
             assert.equal(writer.record(stream).kind, "recorded");
-            assert.deepEqual(records(root).map(record => record.cause), ["input-silent", "unheard", "key-refused", "voice-stopped", undefined]);
-            for (const [name, value] of [["fault text", { ...stream, cause: "live=unheard" }],
+            assert.deepEqual(records(root).map(record => record.cause), ["key-refused", "voice-stopped", undefined]);
+            for (const [name, value] of [["retired silence", { ...stream, cause: "input-silent" }],
+                ["retired unheard", { ...stream, cause: "unheard" }],
+                ["fault text", { ...stream, cause: "live=key-refused" }],
                 ["caller text", { ...stream, cause: "planted-arbitrary-credential" }],
-                ["completed stream", { ...stream, outcome: "completed", cause: "unheard" }],
-                ["action", { ...event, outcome: "failed", cause: "unheard" }]])
+                ["completed stream", { ...stream, outcome: "completed", cause: "key-refused" }],
+                ["action", { ...event, outcome: "failed", cause: "voice-stopped" }]])
                 assert.deepEqual(writer.record(value), { kind: "refuse", reason: "audit-write", cause: "cause" }, name);
-            assert.equal(records(root).length, 5, "a refused cause writes nothing");
+            assert.equal(records(root).length, 3, "a refused cause writes nothing");
         });
     }
+    function legacyStore() {
+        const root = state();
+        fs.mkdirSync(path.join(root, "audit"), { recursive: true, mode: 0o700 });
+        const rows = ["unheard", "input-silent"].map((cause, index) => ({
+            time: "2026-09-" + (29 + index) + "T12:00:00.000Z", kind: "release", gen: 2, op: index + 1,
+            tool: "release", args: { labels: "[redacted]", recipients: "[redacted]" }, effect: "external",
+            decision: "send", confirmed: "none", outcome: "failed", cause
+        }));
+        for (let index = 0; index < rows.length; index++)
+            fs.writeFileSync(path.join(root, "audit", "2026-09-" + (29 + index) + ".jsonl"), JSON.stringify(rows[index]) + "\n", { mode: 0o600 });
+        return { root, rows };
+    }
+    function checkCauseMigration(logic) {
+        const { root, rows } = legacyStore();
+        withWriter(logic, { state: root }, writer => {
+            assert.doesNotThrow(() => writer.failures(), "converted records pass the current judge");
+            assert.equal(writer.failures().at(-1).cause, null);
+        });
+        for (let index = 0; index < rows.length; index++) {
+            const { cause, ...current } = rows[index];
+            assert.deepEqual(records(root, "2026-09-" + (29 + index)), [current], "every old daily file converts, including the unread older day");
+        }
+        const file = path.join(root, "audit", "2026-09-29.jsonl");
+        const before = fs.statSync(file).ino;
+        withWriter(logic, { state: root }, writer => assert.doesNotThrow(() => writer.failures()));
+        assert.equal(fs.statSync(file).ino, before, "a current marker prevents repeated daily rewrites");
+        assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "audit-cause-version.json"), "utf8")), { version: 1 });
+    }
+    function checkMigrationAtomic(logic) {
+        const { root } = legacyStore();
+        const daily = path.join(root, "audit", "2026-09-29.jsonl");
+        const before = fs.readFileSync(daily);
+        fsFault("renameSync", (original, source, target) => {
+            if (target.endsWith(".jsonl")) { const error = new Error("fixture rename failure"); error.code = "EIO"; throw error; }
+            return original(source, target);
+        }, () => withWriter(logic, { state: root }, writer => {
+            assert.throws(() => writer.failures(), error => error.code === "EIO");
+        }));
+        assert.deepEqual(fs.readFileSync(daily), before, "a failed atomic replacement preserves the old daily file");
+        assert.equal(fs.existsSync(path.join(root, "audit-cause-version.json")), false, "failed conversion publishes no current marker");
+        withWriter(logic, { state: root }, writer => assert.doesNotThrow(() => writer.failures(), "the next owner retries the retained conversion"));
+        assert.equal(records(root, "2026-09-29")[0].cause, undefined);
+    }
+    function checkFormatRefusal(logic) {
+        for (const [value, cause] of [["broken", "format-json"], ['{"version":2}', "format-version"]]) {
+            const root = state();
+            fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+            fs.writeFileSync(path.join(root, "audit-cause-version.json"), value, { mode: 0o600 });
+            withWriter(logic, { state: root }, writer => {
+                assert.throws(() => writer.failures(), error => error.code === cause);
+                assert.deepEqual(writer.record(event), { kind: "refuse", reason: "audit-write", cause });
+                let cleaned = false;
+                writer.cleanup("teardown", () => { cleaned = true; });
+                assert.equal(cleaned, true, "format refusal never delays privacy teardown");
+            });
+            assert.equal(fs.existsSync(path.join(root, "audit")), false, "refused format creates no daily store");
+            assert.equal(fs.readFileSync(path.join(root, "audit-cause-version.json"), "utf8"), value);
+        }
+    }
+    checkCauseMigration(Audit);
+    checkMigrationAtomic(Audit);
+    checkFormatRefusal(Audit);
+    mutant(file, "retired audit cause conversion", "if (convert) migrate(file);", "if (false) migrate(file);", checkCauseMigration);
+    mutant(file, "atomic audit conversion", "fs.renameSync(candidate, file);",
+        "fs.writeFileSync(file, fs.readFileSync(candidate)); fs.renameSync(candidate, file);", checkMigrationAtomic);
+    mutant(file, "refused audit format", "if (seedError !== null) throw seedError;\n        Private.directory(state);",
+        "Private.directory(state);", checkFormatRefusal);
     // A vision capture's facts: numbers and a digest, never image bytes.
     const capture = { box: [0, 0, 320, 200], scale: 1.25, width: 400, height: 250, bytes: 1024, sha256: "0a".repeat(32), masks: 2 };
     const vision = { ...event, tool: "vision.screen", args: {}, effect: "read", outcome: "completed", capture };
@@ -482,9 +558,9 @@ world(() => {
     mutant(file, "bounded emitted line", "const line = Buffer.from(JSON.stringify(record) + \"\\n\");\n    if (line.length > LINE_BYTES)",
         "const line = Buffer.from(JSON.stringify({ ...record, padding: 'x'.repeat(4096) }) + \"\\n\");\n    if (false && line.length > LINE_BYTES)",
         checkOrder);
-    for (const kind of ["stop", "mute", "teardown"])
+    for (const kind of ["stop", "teardown"])
         mutant(file, "privacy shutdown " + kind, 'return { kind: "started", audit, value: start() };\n        },\n        close()',
             'if (kind === "' + kind + '" && audit.kind === "refuse") return audit;\n            return { kind: "started", audit, value: start() };\n        },\n        close()', checkRefusal);
-    console.log("jarvis-audit: acceptance=passed controls=" + (controls.length + 13)
+    console.log("jarvis-audit: acceptance=passed controls=" + (controls.length + 15)
         + " planted-keys=absent failed-write=refused");
 });

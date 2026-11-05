@@ -21,7 +21,8 @@
    {
     "serverContent": {
      "inputTranscription": {
-      "text": " the time?"
+      "text": " the time?",
+      "finished": true
      }
     }
    },
@@ -325,6 +326,16 @@
     },
     "voiceActivity": {
      "type": "ACTIVITY_END"
+    }
+   }
+  ],
+  "input-empty": [
+   {
+    "serverContent": {
+     "inputTranscription": {
+      "text": "",
+      "finished": true
+     }
     }
    }
   ]

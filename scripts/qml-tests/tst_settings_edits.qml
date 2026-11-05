@@ -57,6 +57,8 @@ Item {
         schema: ({}),
         settings: ({}),
         settingChoices: ({}),
+        withheldFields: [],
+        fieldProblems: ({}),
         status: [],
         secretLabel: "",
         guide: null,
@@ -92,12 +94,18 @@ Item {
         property var installFailures: ({})
         property var capture: pageCapture
         property var keyWrites: []
+        property var settingWrites: []
         property bool refusesKeys: false
         function writeKey(id, shortcut, key) {
             keyWrites.push([id, shortcut, key]);
             return refusesKeys ? "refused: key=" + shortcut : "ok";
         }
-        function writeSetting() { return "ok"; }
+        function writeSetting(id, key, value) {
+            settingWrites.push([id, key, value]);
+            if (!root.accepts) return "refused: setting=" + key;
+            root.pageRow = Object.assign({}, root.pageRow, { settings: Object.assign({}, root.pageRow.settings, { [key]: value }) });
+            return "ok";
+        }
         function setEnabled() { return "ok"; }
         function setPlaced() { return "ok"; }
         function installRequirements() { return "ok"; }
@@ -213,6 +221,7 @@ Item {
             keyRow.editable = true;
             root.writes = [];
             root.keys = [];
+            fakePanel.settingWrites = [];
             saved.clear();
             elsewhere.forceActiveFocus(Qt.TabFocusReason);
         }
@@ -227,7 +236,48 @@ Item {
         // The Repeater builds its delegates after the model answers; wait for
         // READY, then let the comparison that follows report what is shown.
         function settle(ready) { for (let i = 0; i < 20 && !ready(); i++) wait(50); }
-        function keyFields(item) { return descendants(item).filter(child => child.pluginId === "acme.unit" && child.bind !== undefined && child.shortcutField !== undefined); }
+        function keyFields(item) { return descendants(item).filter(child => child instanceof KeyField && child.pluginId === "acme.unit"); }
+        function test_under_key_checkbox_writes_keeps_binding_and_obeys_disabled_state() {
+            const original = root.pageRow;
+            let page = null;
+            try {
+                root.pageRow = Object.assign({}, original, {
+                    schema: { held: { type: "boolean", label: "Hold to talk", underKey: "tap" } },
+                    settings: { held: false }, withheldFields: [], fieldProblems: ({})
+                });
+                page = createTemporaryObject(pluginPageComponent, root);
+                verify(page !== null);
+                settle(() => descendants(page).some(child => child.objectName === "keySetting"));
+                const box = descendants(page).find(child => child.objectName === "keySetting");
+                verify(box !== undefined);
+                compare(page.fields, []);
+                compare(page.sections, []);
+                compare(box.checked, false);
+                const key = keyFields(page)[0];
+                verify(waitForPolish(root.Window.window));
+                const keyAt = key.shortcutField.mapToItem(page, 0, 0), boxAt = box.mapToItem(page, 0, 0);
+                compare(boxAt.x, keyAt.x, "the checkbox starts at the shortcut value column");
+                verify(boxAt.y > keyAt.y + key.shortcutField.height, "the checkbox follows the shortcut");
+                box.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Space);
+                compare(fakePanel.settingWrites, [["acme.unit", "held", true]]);
+                compare(box.checked, true);
+                root.pageRow = Object.assign({}, root.pageRow, { settings: Object.assign({}, root.pageRow.settings, { unrelated: 1 }) });
+                compare(descendants(page).find(child => child.objectName === "keySetting"), box);
+                verify(box.activeFocus, "an unrelated update preserves checkbox focus");
+                root.accepts = false;
+                keyClick(Qt.Key_Space);
+                compare(box.checked, true, "a refused write restores the saved checked value");
+                root.pageRow = Object.assign({}, root.pageRow, { enabled: false });
+                verify(box.disabledReason !== "");
+                const writes = fakePanel.settingWrites.length;
+                keyClick(Qt.Key_Space);
+                compare(fakePanel.settingWrites.length, writes, "the disabled checkbox writes nothing");
+            } finally {
+                if (page !== null) releasePage(page, original);
+                else root.pageRow = original;
+            }
+        }
         // destroy() defers deletion until this script block ends. Detach
         // the page before restoring the shared model, so cleanup creates
         // no new shortcut fields on a page that is leaving.

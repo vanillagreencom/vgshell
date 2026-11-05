@@ -48,7 +48,7 @@ world(async () => {
         let at = 0, locked = false, transcript, waiting;
         const results = [], statuses = [], deadlines = new Map();
         const audit = Audit.create({ state: fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "shell-audit-")) });
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (_e, done) => done(), close: (_e, done) => done(), collect: (_e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (_e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at,
@@ -63,7 +63,7 @@ world(async () => {
             status: value => statuses.push(value), failed: error => { throw error; },
             clock: { set: (fn, ms) => { const key = {}; deadlines.set(key, { fn, ms }); return key; },
                 clear: key => deadlines.delete(key) } });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", shown: true });
         const turn = () => { runner.dispatch({ type: "talk-down" }); transcript("final", "synthetic user"); };
         turn();

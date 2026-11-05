@@ -1,1 +1,1 @@
-{"input": {"tts": "Please turn the volume up."},"mode": "toggle","confirm": "key","heard": ["volume","up"],"tool": "media.volumeStep","said": ["done"]}
+{"input": {"tts": "Please turn the volume up."},"confirm": "key","heard": ["volume","up"],"tool": "media.volumeStep","said": ["done"]}

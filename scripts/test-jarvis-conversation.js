@@ -58,9 +58,16 @@ assert.equal(shown.title, "Deleting a file was refused.");
 assert.equal(shown.body, "The request changed before approval.");
 assert.equal(shown.action, "Ask Jarvis again");
 assert.equal(History.problems([refusal], "missing filename").length, 0, "the audit never supplies an invented filename");
-const voice = History.problems([{ ...refusal, cause: "input-silent" }], "microphone")[0];
-assert.equal(voice.title, "Voice stopped.");
-assert.equal(voice.settings, true);
+// Audit publishes only current voice failure categories after its migration.
+for (const cause of ["key-refused", "voice-stopped"]) {
+    const voice = History.problems([{ ...refusal, tool: "release", decision: "send", outcome: "failed", refusal: null, cause }], "voice")[0];
+    assert.equal(voice.title, "Voice stopped.");
+    assert.equal(typeof voice.body, "string");
+    assert.equal(voice.settings, true);
+}
+const failedRelease = History.problem({ ...refusal, tool: "release", decision: "send", outcome: "failed", refusal: null });
+assert.equal(failedRelease.settings, false, "a failed release without a current cause offers no voice setting");
+assert.equal(typeof failedRelease.body, "string");
 assert.equal(History.tasks([{ goal: "Fix console", agent: "runtime", state: "working" }], "RUNTIME").length, 1);
 
 function operationContract(history) {

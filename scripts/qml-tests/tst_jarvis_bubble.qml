@@ -20,6 +20,7 @@ Item {
     QtObject {
         id: service
         property var sessionState: null
+        property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "SMOKE-1"
         property var consoleBox: null
@@ -52,6 +53,7 @@ Item {
             // focused item stops taking Tab as its fault clears.
             bubble.forceActiveFocus();
             service.sessionState = null;
+            service.microphoneMute = { kind: "ready", muted: false };
         }
 
         function collect(node, test, out) {
@@ -64,6 +66,28 @@ Item {
         }
         function links() {
             return collect(bubble, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
+        }
+
+        function test_digital_silence_is_a_reading_with_a_microphone_link() {
+            const state = Object.assign(JSON.parse(JSON.stringify(Session.initial())), {
+                gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" },
+                capture: { kind: "open", gen: 1, op: 2, mode: "conversation" },
+                sound: { kind: "silent", device: "fixture microphone" }
+            });
+            service.sessionState = state;
+            verify(renderedFrame(bubble));
+            compare(bubble.fault, null, "digital silence does not draw a fault");
+            const line = links().find(item => item.plain.indexOf("fixture microphone") !== -1);
+            verify(line !== undefined && line.linked, "the silent source has a useful setting link");
+            verify(bubble.inputItems.indexOf(line) !== -1, "the setting link takes the pointer");
+            const span = line.underlined[0];
+            verify(span !== undefined, "the setting link lays out");
+            mouseClick(line, (span.left + span.right) / 2, (span.line + 0.5) * line.linePitch);
+            compare(JSON.stringify(root.opened), '[["vgs.jarvis","Settings/microphone"]]');
+            service.microphoneMute = { kind: "ready", muted: true };
+            compare(bubble.stateText, "Microphone muted");
+            compare(line.visible, false, "system mute replaces the silent-source reading");
+            compare(bubble.active, true, "the conversation remains open");
         }
 
         // Faults whose action names a page, each with the reference's words

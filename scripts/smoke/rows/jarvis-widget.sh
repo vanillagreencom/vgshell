@@ -1,9 +1,5 @@
-# The Jarvis bar widget against private scripted Session ports: its
-# section, every state read back as drawn, its icon beside the Voice
-# widget's, a click on the widget that opens the console, and privacy mute
-# by the Mute row of its right-click menu and by the physical Mute key. Its
-# unconfigured tooltip draws a link that opens Jarvis's Setup tab; plain
-# words fail the link reading.
+# The Jarvis widget draws its status, opens the console and controls its
+# independent voice mute through the shared menu.
 # No audio, account, provider or
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
@@ -41,34 +37,30 @@ jarvis_widget_tones="$(python3 -c 'import json,sys; print(json.dumps(dict(zip(["
   "$(ipc smoke themeValue bar.foreground)" "$(ipc smoke themeValue color.textMuted)" \
   "$(ipc smoke themeValue color.accent)" "$(ipc smoke themeValue color.info)" \
   "$(ipc smoke themeValue color.danger)")" || fail "the widget tones are unreadable"
-# The widget as drawn: [icon, tone, tooltip], the tone named by the token
+# The widget as drawn: [icon, tone, state, status-line count], the tone named by the token
 # whose colour the icon draws in, or `absent`.
 jarvis_widget() {
-  local icon colours tip details
+  local icon colours tip details view
   icon="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Icon name)" \
     && colours="$(ipc smoke itemColours "$jarvis_widget_key" vgs.jarvis Widget Icon)" \
     && tip="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip text)" \
-    && details="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip details)" || return
-  python3 - "$icon" "$colours" "$tip" "$details" "$jarvis_widget_tones" <<'PY'
+    && details="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip details)" \
+    && view="$(ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis view)" || return
+  python3 - "$icon" "$colours" "$tip" "$details" "$jarvis_widget_tones" "$view" <<'PY'
 import json, sys
 icon, colours, tip, details, tones = sys.argv[1:6]
 if "absent" in (icon, colours, tip, details):
     print("absent"); sys.exit()
 colour = json.loads(colours)[0][0]
 names = [name for name, value in json.loads(tones).items() if "#" + value[3:9] + value[1:3] == colour]
-tip_text = json.loads(tip)
-detail_lines = json.loads(details)
-if detail_lines:
-    tip_text += "\n" + "\n".join(str(line) for line in detail_lines)
-print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, tip_text]))
+view = json.loads(sys.argv[6])
+drawn = json.loads(tip) == view["tooltip"] and json.loads(details) == view["tooltipDetails"]
+print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, view["state"] if drawn else "draw-mismatch", len(json.loads(details))]))
 PY
 }
-# One fact a line after the state's first: the AI model, then the voice
-# (the scripted brain, the default Local), then what a click does.
-jarvis_widget_facts='AI model: Scripted\nVoice: Local\nClick or press Super+Alt+C to open the console.'
-jarvis_widget_ready="[\"vgs-letter-j\", \"calm\", \"Ready to talk\\nTap or hold Super+J, then speak.\\n${jarvis_widget_facts}\"]"
-jarvis_widget_listening="[\"audio-lines\", \"accent\", \"Jarvis is listening\\nSpeak now.\\n${jarvis_widget_facts}\"]"
-jarvis_widget_muted="[\"mic-off\", \"neutral\", \"Jarvis is muted\\nPress Super+Shift+J to unmute.\\n${jarvis_widget_facts}\"]"
+jarvis_widget_ready='["vgs-letter-j", "calm", "ready", 0]'
+jarvis_widget_listening='["audio-lines", "accent", "listening", 0]'
+jarvis_widget_voice_muted='["vgs-letter-j", "calm", "ready", 1]'
 jarvis_widget_click() { click_centre "$jarvis_widget_key" vgs.jarvis || fail "the click on the Jarvis widget failed"; }
 jarvis_widget_consoles() { window_count Jarvis; }
 jarvis_widget_click_opens() { expect_poll "a click on the widget opens the console" 1 jarvis_widget_consoles; }
@@ -103,12 +95,6 @@ jarvis_widget_menu_choose() { # ROW [ENTRIES]: ENTRIES, the open menu's rows
   type_keys -k Return || fail "Return on the Jarvis widget's menu failed"
   expect_poll "$1 closes the Jarvis widget's menu" false jarvis_widget_menu frameMenuOpen
 }
-jarvis_widget_menu_mutes() { expect_poll "the menu's Mute row mutes Jarvis" "$jarvis_widget_muted" jarvis_widget; }
-jarvis_widget_menu_control() {
-  (failures=0 behaviour_failures=0
-   jarvis_widget_menu_mutes >"$sandbox/jarvis-widget-menu-control.log"
-   echo "$failures")
-}
 # The icon each widget's BarItem draws.
 jarvis_widget_item_icon() { ipc smoke readDescendant "$jarvis_widget_key" "$1" BarItem iconName; }
 jarvis_widget_notice_moved() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print(str(s is None or s["plugin"] != sys.argv[1]).lower())' "$1"; }
@@ -124,31 +110,6 @@ jarvis_widget_notices_close() {
     expect_poll "Escape closes the notice of $shown" true jarvis_widget_notice_moved "$shown"
   done
   expect_poll "no notice is left after the Voice widget's icon read" null notice_shown
-}
-jarvis_widget_closing() { expect_poll "the widget reads listening while muting closes capture" "$jarvis_widget_listening" jarvis_widget; }
-jarvis_widget_closing_control() {
-  (failures=0 behaviour_failures=0
-   jarvis_widget_closing >"$sandbox/jarvis-widget-closing-control.log"
-   echo "$failures")
-}
-jarvis_widget_closing_control_check() { expect "a view that ignores capture fails the closing assertion" 1 jarvis_widget_closing_control; }
-# A toggle conversation, then the physical Mute key while the scripted
-# capture holds its close; ASSERTION reads the widget before the close.
-jarvis_widget_mute_while_listening() { # ASSERTION
-  jarvis_key_mode toggle
-  jarvis_key_talk_down
-  jarvis_key_talk_up
-  expect_poll "a toggle press opens a conversation" listening jarvis_key_state phase
-  jarvis_widget_gate hold-close
-  jarvis_key_mute
-  expect_poll "mute waits for the scripted capture teardown" muting jarvis_key_state mute
-  "$1"
-  jarvis_widget_gate close
-  expect_poll "mute completes once capture closes" on jarvis_key_state mute
-  rm -- "$jarvis_widget_gates/hold-close"
-  jarvis_widget_menu_choose "Turn on microphone"
-  expect_poll "the menu's Unmute row unmutes after the conversation" off jarvis_key_state mute
-  jarvis_key_mode hold
 }
 # With Jarvis disabled, put FILE's copy from before the row back with each
 # NEEDLE replaced by its REPLACEMENT once, and rescan.
@@ -180,7 +141,7 @@ import json, sys
 t, p = sys.argv[1], sys.argv[2]
 r = None if t == "absent" else json.loads(t)
 d = None if p in ("absent", "missing") else json.loads(p)
-ok = (r is not None and d is not None and r[:2] == ["circle-alert", "danger"]
+ok = (r is not None and d is not None and r[:3] == ["circle-alert", "danger", "problem"]
       and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning"
       and d["status"]["daemon"].get("hint") == "Jarvis is trying again by itself")
 print("restarting" if ok else t)
@@ -188,29 +149,6 @@ PY
 }
 # The widget's icon and tone alone.
 jarvis_widget_look() { jarvis_widget | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if t == "absent" else json.dumps(json.loads(t)[:2]))'; }
-# The widget's icon, tone and tooltip line, beside whether the service
-# offers the local voice step, for the line WidgetView.js says while that
-# step is to do.
-jarvis_widget_setup() {
-  local widget process
-  widget="$(jarvis_widget)" && process="$(ipc smoke jarvisProcess)" || return
-  python3 - "$widget" "$process" <<'PY'
-import json, sys
-t, p = sys.argv[1], sys.argv[2]
-if "absent" in (t, p) or p == "missing":
-    print("absent"); sys.exit()
-r, d = json.loads(t), json.loads(p)
-step = d["status"].get("setupVoice") or {}
-print(json.dumps([r[0], r[1], r[2].split("\n")[0], step.get("action")], separators=(",", ":")))
-PY
-}
-jarvis_widget_voice_line() {
-  "$node_bin" -e 'const { load } = require(process.argv[1]);
-const PageReference = load(process.argv[3]);
-const view = load(process.argv[2], { "qs.Commons 1.0": { PageReference } });
-process.stdout.write(JSON.stringify(["vgs-letter-j", "neutral", view.SETUP_TEXT.find(row => row[0] === "setupVoice")[1].title, "setup"]));' \
-    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/WidgetView.js" "$repo/shell/Commons/PageReference.js"
-}
 jarvis_widget_restart_assertion() { expect_poll "the widget reads loading after the daemon ends" restarting jarvis_widget_restarting; }
 jarvis_widget_restart_control() {
   (failures=0 behaviour_failures=0
@@ -241,11 +179,11 @@ rm -f -- "$jarvis_gate" "$jarvis_seen"
 expect "the gated widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "enabling places the widget in the bar's right section" right jarvis_widget_section
 expect_poll "the startup daemon consumes hello" seen jarvis_seen_hello
-expect_poll "the widget reads loading before the first state" '["loader", "info", "Jarvis is starting\nWait for Jarvis to start.\nClick or press Super+Alt+C to open the console."]' jarvis_widget
+expect_poll "the widget reads loading before the first state" '["loader", "info", "loading", 0]' jarvis_widget
 : >"$jarvis_gate"
 expect "the gated daemon answers hello" ready jarvis_wait_ready
 expect_poll "the widget reads ready" "$jarvis_widget_ready" jarvis_widget
-jarvis_key_mode hold
+jarvis_key_hold true
 # Jarvis draws its own J; the Voice widget beside it keeps the microphone.
 expect "the Jarvis widget draws the J" '"vgs-letter-j"' jarvis_widget_item_icon vgs.jarvis
 jarvis_widget_voice_before="$(plugin_enabled vgs.voice)" || jarvis_widget_voice_before=unread
@@ -261,31 +199,26 @@ expect_poll "talk down opens capture" listening jarvis_key_state phase
 expect_poll "the widget reads listening while Jarvis listens" "$jarvis_widget_listening" jarvis_widget
 jarvis_key_talk_up
 expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase
-expect_poll "the widget reads working while Jarvis thinks" "[\"brain\", \"info\", \"Jarvis is thinking\\nPress Super+Ctrl+X to stop.\\n${jarvis_widget_facts}\"]" jarvis_widget
+expect_poll "the widget reads working while Jarvis thinks" '["brain", "info", "working", 0]' jarvis_widget
 jarvis_widget_gate brain
 expect_poll "the scripted brain speaks" speaking jarvis_key_state phase
-expect_poll "the widget reads speaking during playback" "[\"volume-2\", \"accent\", \"Jarvis is speaking\\nPress Super+Ctrl+X to stop.\\n${jarvis_widget_facts}\"]" jarvis_widget
+expect_poll "the widget reads speaking during playback" '["volume-2", "accent", "speaking", 0]' jarvis_widget
 jarvis_widget_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 expect_poll "the widget reads ready after the answer" "$jarvis_widget_ready" jarvis_widget
 
 jarvis_widget_click
 jarvis_widget_click_opens
-expect "a click on the widget leaves mute off" off jarvis_key_state mute
 jarvis_widget_console_close
-jarvis_widget_menu_choose "Mute microphone" "[\"Hide\",\"Mute microphone\",\"Mute Jarvis's voice\",\"Stop Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
-jarvis_widget_menu_mutes
-expect "the menu's Mute row reached the service's mute" on jarvis_key_state mute
-jarvis_key_mute
-expect_poll "the physical Mute key unmutes what the menu muted" "$jarvis_widget_ready" jarvis_widget
-jarvis_key_mute
-expect_poll "the physical Mute key mutes again" "$jarvis_widget_muted" jarvis_widget
-jarvis_widget_menu_choose "Turn on microphone"
-expect_poll "the menu's Unmute row unmutes Jarvis" "$jarvis_widget_ready" jarvis_widget
-expect "unmute alone keeps capture closed" closed jarvis_key_state capture
-jarvis_widget_mute_while_listening jarvis_widget_closing
-expect_poll "the widget reads ready after the toggle case" "$jarvis_widget_ready" jarvis_widget
-
+jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+expect_poll "the menu toggles independent voice mute" on jarvis_key_state voiceMute
+expect_poll "the status-only tooltip includes voice mute" "$jarvis_widget_voice_muted" jarvis_widget
+jarvis_disable
+jarvis_enable
+expect_poll "voice mute survives daemon restart" on jarvis_key_state voiceMute
+jarvis_widget_menu_choose "Unmute Jarvis's voice"
+expect_poll "the menu unmutes Jarvis's voice" off jarvis_key_state voiceMute
+expect_poll "the tooltip removes the voice mute status" "$jarvis_widget_ready" jarvis_widget
 jarvis_disable
 jarvis_widget_plant Service.qml "$jarvis_widget_retry_needle" "$jarvis_widget_retry_delay"
 jarvis_enable
@@ -299,8 +232,8 @@ jarvis_widget_restore Service.qml
 # Keep the retry. Drop only the report hint that makes a retry a problem
 # with plain action text.
 jarvis_widget_plant Service.qml "$jarvis_widget_retry_needle" "$jarvis_widget_retry_delay" \
-  $'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };\n        publishDaemon(Gate.startStatus(cause, true));' \
-  'lifetime = { kind: "retry", pendingMute: lifetime.pendingMute }; publish("warning", Gate.startStatus(cause, true).text);'
+  $'lifetime = { kind: "retry" };\n        publishDaemon(Gate.startStatus(cause, true));' \
+  'lifetime = { kind: "retry" }; publish("warning", Gate.startStatus(cause, true).text);'
 jarvis_enable
 expect_poll "the clear control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_kill
@@ -316,41 +249,20 @@ jarvis_widget_click
 expect "a widget click that calls nothing fails the click assertion" 1 jarvis_widget_click_control
 jarvis_widget_restore Widget.qml
 
-# Keep the IPC handler and its reply. Drop only the mute intent it sends.
-jarvis_widget_plant Service.qml 'intent("mute"); return "ok";' 'return "ok";'
-jarvis_enable
-expect_poll "the handler control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
-jarvis_widget_menu_choose "Mute microphone"
-expect "a handler that sends no intent fails the menu's Mute assertion" 1 jarvis_widget_menu_control
-jarvis_widget_restore Service.qml
-
-# Judge the microphone by the phase instead of the capture region.
-jarvis_widget_plant WidgetView.js 'microphoneOpen(state.capture)) return' '(detail.phase === "listening" || detail.phase === "armed")) return'
-jarvis_enable
-jarvis_widget_mute_while_listening jarvis_widget_closing_control_check
-jarvis_widget_restore WidgetView.js
-
 cp -- "$sandbox/jarvis-widget-before-jarvisd.js" "$jarvis_widget_dir/backend/jarvisd.js"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_widget_dir/backend/jarvisd.js"
 jarvis_rescan
-# The permanent stop and the Mute refusal send Jarvis cards. Have their
-# recipient ready first, with Silence off, then restore its disabled state.
-notes_on "the problem-state refusal"
 expect "the permanent-problem widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
 expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]' jarvis_widget_look
-read_count jarvis_widget_refused "jarvis-widget: refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
-jarvis_widget_menu_choose "Mute microphone"
-expect_poll "the menu's Mute row in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
-notes_off "the problem-state refusal"
 
 hold_stop_keyboard
 for jarvis_widget_file in "${jarvis_widget_files[@]}"; do
   cp -- "$sandbox/jarvis-widget-before-${jarvis_widget_file##*/}" "$jarvis_widget_dir/$jarvis_widget_file"
 done
 rm -- "$jarvis_widget_dir/backend/scripted-fixture.js"
-rm -- "$home/.local/state/vgshell/jarvis/mute.json"
+rm -f -- "$home/.local/state/vgshell/jarvis/voice-mute.json"
 jarvis_rescan
 user_config_restore "$sandbox/jarvis-widget-config-before.json"
 cp -- "$sandbox/jarvis-widget-lua-before" "$jarvis_widget_lua"
@@ -358,9 +270,7 @@ expect "restore the Jarvis widget configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
-jarvis_widget_voice_expected="$(jarvis_widget_voice_line)" || fail "WidgetView.js's local voice line is unreadable"
-expect_poll "the widget names the remaining setup step for the unconfigured daemon" "$jarvis_widget_voice_expected" jarvis_widget_setup
-
+expect_poll "the unconfigured widget keeps its status-only tooltip" '["vgs-letter-j", "neutral", "off", 1]' jarvis_widget
 # Tooltip links live in the popup, so read their screen box there. The
 # click rests on the first underlined span through click_item, which waits
 # for the link to report the pointer and restores a reset hold.
@@ -413,8 +323,6 @@ expect "plain tooltip words fail the rendered-link assertion" 1 jarvis_widget_pl
 jarvis_widget_restore WidgetView.js
 jarvis_enable
 expect "the restored nested keys have no configuration errors" '[]' hypr_reload_errors
-expect "the widget row leaves no Jarvis state file" False \
-  python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
 expect_poll "disable removes the widget" absent ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis moduleName
 jarvis_notice_close

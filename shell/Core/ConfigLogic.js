@@ -47,7 +47,8 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // saved package review choices to the package owner; version 4 replaces
 // retired shortcut defaults. Retained converters run in saved-version order.
 // Version 5 also records retirement of a saved shortcut with null.
-var CONFIG_VERSION = 5;
+// Version 6 retires a conversation mode and its private microphone key.
+var CONFIG_VERSION = 6;
 
 // A newer build produces whole-number versions this build cannot read.
 // Classify them before inspecting any fields of that unknown format.
@@ -95,6 +96,18 @@ function configError(config) {
             if (!hyprlandKey(replacement.from).ok || !(replacement.targetVersion === 5 && replacement.to === null) && !hyprlandKey(replacement.to).ok)
                 return "shortcutKeyMigrations." + m + " must name valid from and to keys";
         }
+    }
+    if (config.conversationSettingsMigration !== undefined) {
+        var migration = config.conversationSettingsMigration;
+        if (!isPlainObject(migration) || typeof migration.id !== "string" || migration.id === "")
+            return "conversationSettingsMigration must name a plugin id";
+        var fields = ["mode", "holdToTalk", "voiceProvider", "voiceAccount", "retiredKey"];
+        for (var f = 0; f < fields.length; f++) {
+            if (typeof migration[fields[f]] !== "string" || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(migration[fields[f]]))
+                return "conversationSettingsMigration." + fields[f] + " must name a field";
+        }
+        if (!isPlainObject(migration.modeValues) || Object.keys(migration.modeValues).length === 0 || Object.keys(migration.modeValues).some(function (key) { return typeof migration.modeValues[key] !== "boolean"; }))
+            return "conversationSettingsMigration.modeValues must map modes to booleans";
     }
     var rows = function (list, at) {
         if (!Array.isArray(list))
@@ -307,7 +320,7 @@ function migrateShortcutKeysV4(config, packageReviewSettingsSource, shortcutKeyM
 // A current version 4 key can be a deliberate choice of a formerly retired
 // default. Select by the original saved version, before retained converters
 // stamp the current version. Only the shipped table supplies replacements.
-function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations) {
+function migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations) {
     var same = { config: config, migrated: false };
     if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4].indexOf(config.version) === -1)) return same;
     var replacements = shortcutKeyMigrations === undefined ? [] : shortcutKeyMigrations;
@@ -344,6 +357,50 @@ function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigration
     });
     if (config.version === undefined && !moved) return same;
     return { config: Object.assign(out, { version: CONFIG_VERSION }), migrated: true };
+}
+
+// Select the retained chain by the saved version, since its converters
+// stamp CONFIG_VERSION. Only shipped data grants authority over a row.
+// Resolve automatic voice selection before removing the mode it used.
+function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5].indexOf(config.version) === -1)) return same;
+    var previous = migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations);
+    if (previous.error !== undefined) return previous;
+    var out = clone(previous.config), moved = previous.migrated;
+    var migration = conversationSettingsMigration;
+    if (migration !== undefined && Array.isArray(out.plugins)) {
+        for (var i = 0; i < out.plugins.length; i++) {
+            var row = out.plugins[i];
+            if (!isPlainObject(row) || row.id !== migration.id) continue;
+            var oldMode = row[migration.mode];
+            if (hasOwn(row, migration.holdToTalk) && typeof row[migration.holdToTalk] !== "boolean")
+                return { config: config, migrated: false, error: "conversation-setting-type field=" + migration.holdToTalk };
+            if (hasOwn(row, migration.mode)) {
+                if (!hasOwn(migration.modeValues, oldMode))
+                    return { config: config, migrated: false, error: "conversation-setting-value field=" + migration.mode };
+                if (!hasOwn(row, migration.holdToTalk)) row[migration.holdToTalk] = migration.modeValues[oldMode];
+            }
+            if (row[migration.voiceProvider] === "auto") {
+                var account = row[migration.voiceAccount];
+                if (account !== undefined && typeof account !== "string")
+                    return { config: config, migrated: false, error: "conversation-setting-type field=" + migration.voiceAccount };
+                row[migration.voiceProvider] = oldMode !== "always" && typeof account === "string" && account !== "" ? "realtime" : "local";
+                moved = true;
+            }
+            if (hasOwn(row, migration.mode)) {
+                delete row[migration.mode];
+                moved = true;
+            }
+            if (isPlainObject(row.keys) && hasOwn(row.keys, migration.retiredKey)) {
+                delete row.keys[migration.retiredKey];
+                moved = true;
+            }
+        }
+    }
+    if (config.version === undefined && !moved) return same;
+    out.version = CONFIG_VERSION;
+    return { config: out, migrated: true };
 }
 
 function packageReviewError(settings) {

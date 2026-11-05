@@ -169,7 +169,6 @@ var TOKENS = {
     state: {
         // Waiting for the wake word, possibly all day: a slow drift and one
         // turn in 36 s.
-        armed: state({ brightness: 0.9, frameRate: 30 }),
         // Up with capture closed: the lattice gathers and drifts slower.
         idle: state({ presence: 0.55, brightness: 0.72, flow: 0.04, quarterTurn: 10000, frameRate: 30 }),
         // The silent room drifts a little faster than waiting; the

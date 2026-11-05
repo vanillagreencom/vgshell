@@ -3552,7 +3552,7 @@ a=json.load(sys.stdin)["status"]["detail"]["state"]["approval"]
 print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else a["kind"])
 '
   }
-  jarvis_console_mute() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["status"]["detail"]["state"]["mute"]["kind"])'; }
+  jarvis_console_voice_mute() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["status"]["detail"]["state"]["voiceMute"]["kind"])'; }
   jarvis_console_focused() {
     ipc smoke itemValues window vgs.jarvis TextArea activeFocus | py_reply '
 import json,sys
@@ -3619,8 +3619,8 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   park_pointer
   take_posed "jarvis-console-$1-reply"
   jarvis_console_approved_sheets "$1"
-  expect "the Jarvis console mutes Jarvis" ok ipc vgs.jarvis invoke mute ''
-  expect_poll "muted Jarvis reaches the console" on jarvis_console_mute
+  expect "the Jarvis console mutes Jarvis's voice" ok ipc vgs.jarvis invoke voice-mute ''
+  expect_poll "muted Jarvis reaches the console" on jarvis_console_voice_mute
   # The README images are cut from this shot, so it waits for rest chrome:
   # the tour above leaves the scroll bar fading.
   take "jarvis-console-$1-muted"

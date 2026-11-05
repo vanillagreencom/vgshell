@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local speech sidecar: wake word, captions, turn end and text to speech for the daemon.
+"""Local speech sidecar: microphone check, captions, turn end and text to speech for the daemon.
 
 LocalSpeech.js starts it as the selected runtime's interpreter, inside a
 private network namespace, as `python -I local-speech.py --state DIR --data DIR
@@ -13,19 +13,18 @@ the reference's voice and ignoring the speaker. Its end ends the sidecar.
 Wire, both directions: frames of a u32be header length, a u32be payload length,
 a UTF-8 JSON object header and the payload bytes. Audio is float32 little-endian
 mono. Ids are positive integers; each new request takes a larger id.
-  in:  {type:"listen", id, detect}; {type:"wake", id}; {type:"check", id}; {type:"audio", id} + 16 kHz samples;
+  in:  {type:"listen", id, detect}; {type:"check", id}; {type:"audio", id} + 16 kHz samples;
        {type:"end", id}; {type:"abort", id};
        {type:"speak", id, speaker} + one sentence's UTF-8 text
   out: {type:"ready"} once; {type:"partial", id, text, rev}; {type:"ended", id, speech};
-       {type:"woke", id}; {type:"checked", id, result}; {type:"audio", id} + samples;
+       {type:"checked", id, result}; {type:"audio", id} + samples;
        {type:"spoken", id, rate}; {type:"failed", id?, cause}
 A listen answers ended once, at its turn end or its end: speech says whether
 voice activity found speech. The utterance's words are the core's dictation
 recording's (D064), so no offline decode runs.
 A speaker is the name of one of the voice artifact's `speakers`, whose index
 is the model's sid; a name the loaded voice lacks answers failed speaker-unknown.
-A wake request spots the keyword in its audio and answers woke once; it has no
-end, only abort. A check uses that same detector until end, then answers ready,
+A check uses the keyword detector until end, then answers ready,
 silent (only zero or no samples), or not-heard. One input request is open at a time.
 A failed frame without an id ends the sidecar. A message for an utterance the
 sidecar already answered crossed that answer and is dropped. Stdin EOF exits 0;
@@ -184,6 +183,14 @@ class Utterance:
         speech.vad.reset()
 
     def push(self, received):
+        # Quiet listening has no utterance to retain. The turn model reads
+        # only the last eight seconds, so discard older leading silence.
+        if not self.has_segment and not self.speech.vad.is_speech_detected():
+            discard = max(0, len(self.samples) - 8 * RATE)
+            if discard:
+                del self.samples[:discard]
+                self.offset = max(0, self.offset - discard)
+                self.last_turn = max(0, self.last_turn - discard)
         if len(self.samples) + len(received) > UTTERANCE_SAMPLES:
             raise Failed("utterance-too-long")
         self.samples.extend(received)
@@ -233,13 +240,11 @@ class Utterance:
         return self.has_segment
 
 
-class Wake:
-    """One wake capture on one keyword stream; its state is the stream's, so
-    memory stays fixed however long the capture runs."""
+class Check:
+    """One explicit microphone check on one keyword stream."""
 
-    def __init__(self, speech, check=False):
+    def __init__(self, speech):
         self.speech = speech
-        self.check = check
         self.heard = False
         self.sound = False
         # None is a keyword the model cannot encode, as measure-local's probe reads it.
@@ -250,7 +255,7 @@ class Wake:
     def push(self, received):
         """Whether the keyword ended in these samples."""
         self.sound = self.sound or any(received)
-        if self.check and self.heard:
+        if self.heard:
             return False
         spotter = self.speech.spotter
         self.stream.accept_waveform(RATE, self.speech.waveform(received))
@@ -258,7 +263,7 @@ class Wake:
             spotter.decode_stream(self.stream)
             if spotter.get_result(self.stream):
                 self.heard = True
-                return not self.check
+                return False
         return False
 
     def result(self):
@@ -312,7 +317,7 @@ def send(writer, header, payload=b""):
 
 
 # The keys each inbound type carries, and whether it carries a payload.
-SHAPES = {"listen": ({"type", "id", "detect"}, False), "wake": ({"type", "id"}, False),
+SHAPES = {"listen": ({"type", "id", "detect"}, False),
           "check": ({"type", "id"}, False),
           "audio": ({"type", "id"}, True), "end": ({"type", "id"}, False),
           "abort": ({"type", "id"}, False), "speak": ({"type", "id", "speaker"}, True)}
@@ -336,11 +341,11 @@ def serve(reader, writer, speech):
                 raise Protocol("listen=invalid")
             utterances[ident] = Utterance(speech, header["detect"])
             continue
-        if kind in ("wake", "check"):
+        if kind == "check":
             if not fresh or utterances:
-                raise Protocol("wake=invalid")
+                raise Protocol("check=invalid")
             try:
-                utterances[ident] = Wake(speech, kind == "check")
+                utterances[ident] = Check(speech)
             except Failed as failure:
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
             continue
@@ -375,16 +380,13 @@ def serve(reader, writer, speech):
                 raise Protocol("audio=partial-sample")
             received = array("f")
             received.frombytes(payload)
-            if isinstance(utterances[ident], Wake):
+            if isinstance(utterances[ident], Check):
                 try:
-                    woke = utterances[ident].push(little(received))
+                    utterances[ident].push(little(received))
                 except (RuntimeError, ValueError):
                     utterances.pop(ident)
                     send(writer, {"type": "failed", "id": ident, "cause": "wake-failed"})
                     continue
-                if woke:
-                    utterances.pop(ident)
-                    send(writer, {"type": "woke", "id": ident})
                 continue
             try:
                 partial, ended = utterances[ident].push(little(received))
@@ -396,11 +398,9 @@ def serve(reader, writer, speech):
             except Failed as failure:
                 utterances.pop(ident, None)
                 send(writer, {"type": "failed", "id": ident, "cause": str(failure)})
-        elif isinstance(utterances[ident], Wake):
-            wake = utterances.pop(ident)
-            if not wake.check:
-                raise Protocol("end=wake")
-            send(writer, {"type": "checked", "id": ident, "result": wake.result()})
+        elif isinstance(utterances[ident], Check):
+            check = utterances.pop(ident)
+            send(writer, {"type": "checked", "id": ident, "result": check.result()})
         else:
             send(writer, {"type": "ended", "id": ident, "speech": utterances.pop(ident).heard()})
 

@@ -1,1 +1,1 @@
-{"input": {"tts": "Please list the open windows and tell me which one is focused."},"mode": "toggle","confirm": "none","heard": ["windows","focused"],"tool": "windows.list","said": ["focus|focused"]}
+{"input": {"tts": "Please list the open windows and tell me which one is focused."},"confirm": "none","heard": ["windows","focused"],"tool": "windows.list","said": ["focus|focused"]}

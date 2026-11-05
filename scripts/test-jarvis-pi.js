@@ -77,7 +77,7 @@ world(async () => {
         let transcript;
         const starts = [];
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 8) });
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => 0, set: () => ({}), clear() {} }, () => {});
@@ -91,7 +91,7 @@ world(async () => {
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
             release: { prepare: () => Promise.resolve([]) } });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", shown: true });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");

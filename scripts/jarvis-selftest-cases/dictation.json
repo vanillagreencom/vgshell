@@ -1,1 +1,1 @@
-{"input": {"tts": "Tell me the capital of Italy."},"mode": "toggle","confirm": "none","heard": ["tell","capital","italy"],"tool": "none","said": ["rome"]}
+{"input": {"tts": "Tell me the capital of Italy."},"confirm": "none","heard": ["tell","capital","italy"],"tool": "none","said": ["rome"]}

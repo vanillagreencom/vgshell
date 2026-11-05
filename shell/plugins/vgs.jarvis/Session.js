@@ -7,7 +7,7 @@
 // speech session per conversation; its callbacks carry the session's gen/op.
 // A dictation engine is the chained engine whose final words come from the
 // core's dictation recording (D064).
-var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
+var SESSION_SETTINGS = ["holdToTalk", "voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 // A thinking turn's bound on a stalled brain: a running tool call holds it
 // past the call's own limit and a finished one starts a fresh interval, so a
 // brain that keeps working outlives one interval.
@@ -18,48 +18,35 @@ var PLAYBACK_TIMEOUT_MS = 300000;
 var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
-// How long a wake-word request, or a spoken follow-up window, waits for its
-// first words. The captions model decodes in 560 ms chunks (artifacts.json,
-// nemotron), so speech shows as a partial within about a second; the rest is
-// the pause a speaker takes after the start tone. Keeping the window short
-// also keeps the time a television or another person can reach the AI model
-// without a wake word short. A design choice, not a measurement.
-var WAKE_SILENCE_MS = 6000;
-// How long a tapped request listens after its last words, or after the tap
-// while none came: the end of speech that sends it. About 6 s, chosen, not
-// measured, so a speaker can pause mid-request without it being sent.
-var TAP_SILENCE_MS = 6000;
-// A Talk press released sooner than this is a tap: the microphone stays open
-// until the next press or the end of speech. Hyprland's default
-// input:repeat_delay, 600 ms, is the bound the core's tap tracker uses for a
-// tap (HyprlandLayer.tapTrackerLines), so a key held longer than a repeat
-// would start counts as a hold here too.
+var CONVERSATION_QUIET_MS = 30 * 60 * 1000;
+// A shorter press is a close request only if its capture heard no speech.
+// The boundary follows HyprlandLayer's hold/tap repeat-delay convention.
 var TAP_MS = 600;
 var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
-    "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "voice-mute", "voice-mute-toggle",
+    "snapshot", "indicator", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
-    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed",
-    "preview"
+    "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound",
+    "preview", "speech-input-ended"
 ];
 
 function initial() {
     return {
         gen: 0, nextOp: 1, stale: 0, settings: {},
         gate: { kind: "down", reason: "starting" },
-        mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" },
+        voiceMute: { kind: "off" }, capture: { kind: "closed" },
         turn: { kind: "none" }, brain: { kind: "closed" }, playback: { kind: "idle" },
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" }, cue: { kind: "none" },
-        conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
+        conversation: { kind: "ended" }, input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
         indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
     };
 }
 
 // One phase judge for the wire and the shell. Closing/flushing do not claim
-// listening/speaking; mute completion waits for capture's close acknowledgment.
+// listening/speaking.
 function phaseOf(s) {
     if (s.check.kind === "recording" && s.capture.kind === "open") return "listening";
     if (s.gate.kind === "down") return "down";
@@ -72,8 +59,7 @@ function phaseOf(s) {
     if (s.playback.kind === "playing" || s.playback.kind === "feedback" && s.playback.reply.kind === "waiting"
             || s.speech.kind === "open" && s.speech.reply.kind === "due") return "speaking";
     if (s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "thinking";
-    if (s.capture.kind === "open" && s.capture.mode !== "armed") return "listening";
-    if (s.capture.kind === "open") return "armed";
+    if (s.capture.kind === "open") return "listening";
     return "idle";
 }
 
@@ -84,8 +70,7 @@ function indicatorWanted(s) {
     if (s.capture.kind !== "closed") return true;
     var phase = phaseOf(s);
     if (phase !== "idle" && phase !== "down") return true;
-    return canEngage(s) && (s.input.kind === "armed"
-        || s.conversation.kind !== "ended" && s.input.kind !== "released");
+    return canEngage(s) && s.conversation.kind !== "ended";
 }
 
 function operation(s) { return s.nextOp++; }
@@ -155,10 +140,16 @@ function requestToolCancel(s, effects) {
     s.action.cancellation = { kind: "requested" };
 }
 
+function previewConversation(s) {
+    return s.conversation.kind !== "ended" && s.conversation.purpose === "preview";
+}
+
 function end(s, effects, at, reason, stopTool) {
-    var soundedClose = s.conversation.kind !== "ended" && s.settings.sounds === true && s.fault.kind === "none"
+    var soundedClose = s.conversation.kind !== "ended" && !previewConversation(s) && s.settings.sounds === true && s.fault.kind === "none"
         && ["lease", "gate", "settings", "voice-unavailable"].indexOf(reason) === -1;
     s.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };
+    s.quiet = { kind: "none" };
+    s.sound = { kind: "none" };
     if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
     if (s.conversation.kind !== "ended") {
         s.gen++;
@@ -176,43 +167,28 @@ function end(s, effects, at, reason, stopTool) {
 }
 
 function canEngage(s) {
-    return s.gate.kind === "up" && s.mute.kind === "off" && s.fault.kind !== "error";
+    return s.gate.kind === "up" && s.fault.kind !== "error";
 }
 
 function canCheck(s) {
-    return s !== null && ["ready", "again", "done", "failed"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none" && s.mute.kind === "off"
+    return s !== null && ["ready", "again", "done", "failed"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none"
         && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
         && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind !== "running" && s.approval.kind !== "held";
 }
 
 function canCapture(s) {
     var checking = s.input.kind === "check" && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
-        && s.fault.kind === "none" && s.mute.kind === "off" && ["waiting", "recording"].indexOf(s.check.kind) !== -1;
+        && s.fault.kind === "none" && ["waiting", "recording"].indexOf(s.check.kind) !== -1;
     return (canEngage(s) || checking) && s.indicator.kind === "shown"
-        && s.playback.kind === "idle" && s.cue.kind === "none" && s.turn.kind !== "cancelling" && s.input.kind !== "released"
-        && (s.conversation.kind !== "ended" || s.input.kind === "armed" || checking);
-}
-
-// Always mode listens for the wake word only while Jarvis is otherwise
-// idle: no turn, sound, action or held request, and never for a duplex
-// engine, whose capture streams to its provider. A wake capture is the
-// local chained engine's alone; it collects no utterance.
-function armedWanted(s) {
-    return s.settings.mode === "always" && s.engine.kind !== "duplex" && canEngage(s)
-        && ["waiting", "recording", "finishing"].indexOf(s.check.kind) === -1
-        && s.turn.kind === "none" && s.playback.kind === "idle"
-        && s.approval.kind === "none" && s.action.kind === "none";
-}
-
-function closeArmed(s, effects) {
-    if ((s.capture.kind === "open" || s.capture.kind === "opening") && s.capture.mode === "armed")
-        closeCapture(s, effects);
+        && s.playback.kind === "idle" && s.cue.kind === "none" && s.turn.kind !== "cancelling"
+        && ["held", "conversation", "check"].indexOf(s.input.kind) !== -1
+        && (s.conversation.kind !== "ended" && !previewConversation(s) || checking);
 }
 
 function sayRefusal(s) {
     if (s === null || s.gate.kind !== "up") return "down";
-    if (s.mute.kind !== "off") return "muted";
     if (s.engine.kind === "duplex") return "duplex";
+    if (previewConversation(s)) return null;
     if (s.approval.kind === "held") return "held";
     if (s.playback.kind !== "idle") return "speaking";
     if (s.action.kind === "running" || s.turn.kind === "thinking" || s.turn.kind === "cancelling") return "busy";
@@ -229,7 +205,6 @@ function captionText(value) {
 // leaves the line to a desktop notification (TaskVoice.js).
 function relayRefusal(s) {
     if (s.gate.kind !== "up") return "down";
-    if (s.mute.kind !== "off") return "muted";
     if (s.engine.kind === "duplex") return "duplex";
     if (s.fault.kind !== "none") return "fault";
     if (s.conversation.kind === "ended") return "ended";
@@ -242,7 +217,6 @@ function relayRefusal(s) {
 // never over one, and a duplex voice speaks it in a session of its own.
 function previewRefusal(s) {
     if (s === null || s.gate.kind !== "up") return "down";
-    if (s.mute.kind !== "off") return "muted";
     if (s.turn.kind !== "none" || s.playback.kind !== "idle" || s.approval.kind !== "none" || s.action.kind !== "none"
             || ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1
             || s.engine.kind === "duplex" && s.conversation.kind !== "ended") return "busy";
@@ -259,23 +233,44 @@ function userTranscript(s, effects, text, rev) {
     if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
 }
 
-function commitUserText(s, effects, text, at, rev, voiceRequest) {
-    if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
+function commitUserText(s, effects, text, at, rev) {
+    promotePreview(s, effects, at);
+    if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
     if (s.conversation.kind === "ended") {
         s.gen += 1;
-        s.conversation = { kind: "active" };
+        s.conversation = { kind: "active", purpose: "conversation" };
     }
-    if (voiceRequest === true && s.settings.mode === "always" && s.engine.kind !== "duplex")
-        s.followUp = { kind: "asked", gen: s.gen };
-    if (s.input.kind === "held" || s.settings.mode === "always") s.input = { kind: "released" };
+    if (s.input.kind === "held" || s.input.kind === "closing-tap") s.input = { kind: "released" };
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
     think(s, effects, { text: text }, at);
 }
 
+function activity(s, at) {
+    if (s.conversation.kind === "ended") return;
+    s.quiet = { kind: "waiting", gen: s.gen,
+        op: s.quiet.kind === "waiting" ? s.quiet.op : operation(s), deadline: at + CONVERSATION_QUIET_MS };
+}
+
+function releasedInput(s) {
+    return s.conversation.kind !== "ended" && !previewConversation(s) && s.settings.holdToTalk !== true
+        ? { kind: "conversation" } : { kind: "released" };
+}
+
+function promotePreview(s, effects, at) {
+    if (!previewConversation(s)) return;
+    if (s.conversation.kind !== "interrupted") interrupt(s, effects, at);
+    // The preview's provider session has its own voice/idle behavior. A user
+    // conversation takes a fresh speech owner, within this generation.
+    closeSpeech(s, effects, "abort");
+    s.conversation = { kind: "active", purpose: "conversation" };
+    if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
+}
+
 // One thinking turn of the conversation's brain owner. A relay turn holds the
 // owner too, so a later user turn keeps the conversation's history.
 function think(s, effects, values, at) {
+    activity(s, at);
     var brain = effect(s, effects, "brain-send", values);
     if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
     brain.owner = s.brain.op;
@@ -295,6 +290,8 @@ function canSpeak(s) {
 }
 
 function reconcile(s, effects, at) {
+    if (previewConversation(s) && s.engine.kind !== "duplex" && s.turn.kind === "none" && s.playback.kind === "idle")
+        end(s, effects, at, "preview", false);
     // Conversation cues wait for capture cleanup and the old player.
     // The stop cue owns only playback; the conversation is already ended.
     if (s.cue.kind === "pending" && s.playback.kind === "idle") {
@@ -303,18 +300,6 @@ function reconcile(s, effects, at) {
             admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS, reply: { kind: "none" } };
         s.cue = { kind: "none" };
     }
-    // The window opens only as the reply ends. A turn that ends while
-    // something else holds Jarvis, such as a tool past its limit, drops it,
-    // so it never opens later with no reply just spoken.
-    if (s.followUp.kind !== "none" && s.turn.kind === "none" && s.playback.kind === "idle") {
-        if (s.followUp.kind === "spoken" && s.followUp.gen === s.gen && s.input.kind === "released"
-                && s.action.kind === "none" && s.approval.kind === "none" && canEngage(s)
-                && s.conversation.kind === "active" && s.settings.mode === "always" && s.engine.kind !== "duplex")
-            s.input = { kind: "follow-up" };
-        s.followUp = { kind: "none" };
-    }
-    if (s.input.kind === "armed" && !armedWanted(s)) s.input = { kind: "released" };
-    else if (s.input.kind === "released" && armedWanted(s)) s.input = { kind: "armed" };
     if (s.speech.kind === "open" && s.speech.reply.kind === "waiting" && canSpeak(s)) {
         s.playback = { kind: "playing", gen: s.gen, op: operation(s), source: s.speech.op,
             interruptible: true, admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS };
@@ -327,37 +312,35 @@ function reconcile(s, effects, at) {
     }
     if (!canCapture(s)) closeCapture(s, effects);
     else if (s.capture.kind === "closed") {
-        var mode = s.input.kind === "held" || s.input.kind === "tapped" ? "hold" : s.input.kind === "woken" ? "conversation" : s.input.kind;
+        var mode = s.input.kind === "held" ? "hold" : s.input.kind;
         var e = effect(s, effects, "capture-open", { mode: mode });
         s.capture = { kind: "opening", gen: e.gen, op: e.op, mode: mode };
+        s.sound = { kind: "none" };
         if (mode === "check") s.check = { kind: "waiting", gen: e.gen, op: e.op, deadline: at + COLLECTION_TIMEOUT_MS };
     }
-    if (s.turn.kind === "collecting" && s.capture.kind === "closing" && s.turn.deadline === null)
-        s.turn.deadline = at + COLLECTION_TIMEOUT_MS;
     // The duplex voice model owns turn-taking; no utterance is collected.
-    if (s.engine.kind !== "duplex" && canCapture(s) && s.input.kind !== "armed" && s.input.kind !== "check"
+    if (s.engine.kind !== "duplex" && canCapture(s) && s.input.kind !== "check"
             && (s.capture.kind === "opening" || s.capture.kind === "open") && s.turn.kind === "none") {
         var collect = effect(s, effects, "collect", {});
-        s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: at + COLLECTION_TIMEOUT_MS };
+        s.turn = { kind: "collecting", gen: collect.gen, op: collect.op, partial: "", deadline: null };
     }
     if (["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.admission.kind === "waiting" && canPlayback(s)) {
         effect(s, effects, "playback-start", { gen: s.playback.gen, op: s.playback.op, source: s.playback.source });
         s.playback.admission = { kind: "started" };
     }
-    if (s.mute.kind === "muting" && s.capture.kind === "closed") s.mute = { kind: "on" };
 }
 
 function start(s, effects, mode, at) {
     if (!canEngage(s)) return;
+    promotePreview(s, effects, at);
     if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, at, "talk", false);
     if (s.conversation.kind === "ended") {
         s.gen++;
-        s.conversation = { kind: "active" };
+        s.conversation = { kind: "active", purpose: "conversation" };
         if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
-    } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
-    // A wake capture feeds the spotter, not a transcription.
-    closeArmed(s, effects);
-    s.input = mode === "held" ? { kind: "held", since: at } : { kind: mode };
+    } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
+    s.input = mode === "held" ? { kind: "held", since: at, heard: false } : { kind: mode };
+    activity(s, at);
     reconcile(s, effects, at);
 }
 
@@ -396,7 +379,7 @@ function toolDuration(e) {
 
 function interrupt(s, effects, at) {
     if (s.conversation.kind === "ended") return;
-    s.conversation = { kind: "interrupted" };
+    s.conversation = { kind: "interrupted", purpose: s.conversation.purpose };
     cancelTurn(s, effects, at);
     flushPlayback(s, effects);
     // A duplex engine drops its waiting words and the rest of the interrupted
@@ -411,7 +394,7 @@ function interrupt(s, effects, at) {
 // A failed turn's fault stays shown until the next Talk press, which ends
 // what is left of that conversation so the press starts a new one.
 function recover(s, effects, at) {
-    if (s.fault.kind !== "error" || s.gate.kind !== "up" || s.mute.kind !== "off") return;
+    if (s.fault.kind !== "error" || s.gate.kind !== "up") return;
     end(s, effects, at, "recover", false);
     s.fault = { kind: "none" };
 }
@@ -425,34 +408,15 @@ function toggle(s, effects, at) {
     recover(s, effects, at);
     if (!canEngage(s)) return;
     s.toggleAt = at;
-    if (s.conversation.kind === "ended" || s.input.kind === "released" && s.turn.kind === "none" && s.approval.kind === "none" && s.action.kind === "none") start(s, effects, "conversation", at);
+    if (s.conversation.kind === "ended" || previewConversation(s) || s.input.kind === "stopped") start(s, effects, "conversation", at);
     else end(s, effects, at, "toggle", false);
 }
 
-// Always mode's Talk listens now, as Hold's press does: it stops a reply,
-// cancels a turn or clears a fault first. A press while a request is being
-// heard ends the conversation, as Toggle does, and the word is awaited again.
-function listenNow(s, effects, at) {
-    if (bounced(s, at)) return;
-    if ((s.input.kind === "conversation" || s.input.kind === "woken" || s.input.kind === "follow-up")
-            && s.turn.kind === "collecting") {
-        s.toggleAt = at;
-        end(s, effects, at, "toggle", false);
-        return;
-    }
-    recover(s, effects, at);
-    if (!canEngage(s)) return;
-    s.toggleAt = at;
-    interrupt(s, effects, at);
-    start(s, effects, "conversation", at);
-}
-
 function expire(s, effects, at) {
-    // A tapped request ends at the end of speech, for every engine: the
-    // bound the tapped input holds while its microphone is open.
-    if (s.input.kind === "tapped" && s.input.deadline !== null && s.capture.kind === "open" && at >= s.input.deadline) {
-        s.input = { kind: "released" };
-        closeCapture(s, effects);
+    if (s.quiet.kind === "waiting" && at >= s.quiet.deadline) {
+        if (s.turn.kind === "thinking" || s.turn.kind === "cancelling" || s.action.kind === "running"
+                || s.approval.kind === "held" || s.playback.kind !== "idle") activity(s, at);
+        else end(s, effects, at, "idle", false);
     }
     if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1 && at >= s.check.deadline) {
         if (s.check.kind === "recording") {
@@ -462,20 +426,6 @@ function expire(s, effects, at) {
         } else {
             end(s, effects, at, "check-timeout", false);
             s.check = { kind: "failed", reason: "check-timeout", device: s.checkSource };
-        }
-    }
-    // A woken request that heard nothing was a false wake: Always mode goes
-    // back to waiting for the word, with no fault to clear first.
-    if (s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline) {
-        if (s.input.kind === "woken") end(s, effects, at, "wake-silence", false);
-        else if (s.input.kind === "follow-up") {
-            s.input = { kind: "released" };
-            closeCapture(s, effects);
-            s.turn = { kind: "none" };
-        }
-        else {
-            s.fault = { kind: "error", reason: "speech=collect-timeout", retry: 0 };
-            end(s, effects, at, "collect-timeout", false);
         }
     }
     if (["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline) {
@@ -497,7 +447,7 @@ function expire(s, effects, at) {
     }
     if (s.approval.kind === "held" && at >= s.approval.deadline) {
         dropApproval(s, effects, "timeout", at);
-        s.input = { kind: "released" };
+        s.input = releasedInput(s);
         closeCapture(s, effects);
     }
     if (s.action.kind === "running" && s.action.limit.kind === "pending" && at >= s.action.limit.deadline) {
@@ -596,30 +546,21 @@ function reduce(state, e) {
             }
             break;
         }
-        if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }
-        if (s.settings.mode === "always") { listenNow(s, effects, e.at); break; }
+        if (s.settings.holdToTalk !== true) { toggle(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
-        // The press after a tap sends the words, as a release does.
-        if (s.input.kind === "tapped") {
-            s.input = { kind: "released" };
-            closeCapture(s, effects);
-            break;
-        }
         recover(s, effects, e.at);
         interrupt(s, effects, e.at);
         start(s, effects, "held", e.at);
         break;
     case "talk-up":
-        if (s.settings.mode === "toggle" && s.approval.kind !== "held") break;
+        if (s.settings.holdToTalk !== true && s.approval.kind !== "held") break;
         if (s.input.kind !== "held") break;
-        // A tap keeps the microphone open for the request, or has it open
-        // once the start sound and the bubble allow (canCapture), as a tap
-        // usually ends before them; a held answer to a request on screen
-        // ends with its hold, and a capture that failed leaves nothing to
-        // keep open.
-        if (s.approval.kind !== "held" && (s.capture.kind === "opening" || s.capture.kind === "open" || (s.capture.kind === "closed" && s.fault.kind === "none"))
-                && e.at - s.input.since < TAP_MS) {
-            s.input = { kind: "tapped", deadline: s.capture.kind === "open" ? e.at + TAP_SILENCE_MS : null };
+        if (s.approval.kind !== "held" && e.at - s.input.since < TAP_MS && !s.input.heard && s.fault.kind === "none") {
+            if (["opening", "open"].indexOf(s.capture.kind) === -1) end(s, effects, e.at, "tap", false);
+            else {
+                s.input = { kind: "closing-tap", source: s.capture.op };
+                closeCapture(s, effects);
+            }
             break;
         }
         s.input = { kind: "released" };
@@ -627,24 +568,6 @@ function reduce(state, e) {
         break;
     case "toggle":
         toggle(s, effects, e.at);
-        break;
-    case "mute-toggle":
-        if (s.mute.kind === "on") {
-            s.mute = { kind: "off" };
-            effect(s, effects, "mute-store", { muted: false });
-        } else if (s.mute.kind === "off") {
-            end(s, effects, e.at, "mute", false);
-            s.mute = { kind: "muting" };
-            effect(s, effects, "mute-store", { muted: true });
-        }
-        break;
-    case "mute":
-        end(s, effects, e.at, "mute", false);
-        if (s.mute.kind === "off") s.mute = { kind: "muting" };
-        break;
-    case "unmute":
-        // An in-flight close must finish before a new capture can open.
-        if (s.mute.kind === "on") s.mute = { kind: "off" };
         break;
     // Voice mute changes no other region: Audio's paced write reads it and
     // sends silence, so the reply, its playback and its deadline run as when
@@ -659,11 +582,20 @@ function reduce(state, e) {
         s.voiceMute = { kind: "on" };
         break;
     case "stop":
+        if (previewConversation(s)) {
+            end(s, effects, e.at, "preview", true);
+            break;
+        }
         var faulted = s.fault.kind !== "none" || s.input.kind === "stopped";
-        end(s, effects, e.at, "stop", true);
+        if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
+        interrupt(s, effects, e.at);
+        requestToolCancel(s, effects);
+        closeCapture(s, effects);
+        s.cue = { kind: "none" };
+        if (s.conversation.kind !== "ended") s.conversation = { kind: "active", purpose: s.conversation.purpose };
+        s.input = releasedInput(s);
         s.fault = { kind: "none" };
-        // A fault's Stop dismisses its retry as well as the conversation.
-        // Always mode waits for Talk instead of reopening the lost device.
+        activity(s, e.at);
         if (faulted) s.input = { kind: "stopped" };
         break;
     case "lease-ended":
@@ -688,45 +620,34 @@ function reduce(state, e) {
         if (!live(s, e, "capture", ["opening"])) { stale(s); break; }
         s.capture.kind = "open";
         if (s.capture.mode === "check") s.check = { kind: "recording", gen: e.gen, op: e.op, deadline: e.at + VOICE_CHECK_MS };
-        if (s.turn.kind === "collecting") s.turn.deadline = s.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null;
-        if (s.input.kind === "tapped") s.input.deadline = e.at + TAP_SILENCE_MS;
+        if (s.turn.kind === "collecting") s.turn.deadline = null;
         if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
     case "capture-failed": {
-        if (!live(s, e, "capture", ["opening", "open"])) { stale(s); break; }
+        if (!live(s, e, "capture", ["opening", "open", "closing"])) { stale(s); break; }
         var retry = s.fault.kind === "retrying" ? s.fault.retry : 0;
         s.fault = deviceLost(e.reason) && retry < 3
             ? { kind: "retrying", reason: e.reason, retry: retry + 1 }
             : { kind: "error", reason: e.reason, retry: retry };
-        closeCapture(s, effects);
+        if (s.capture.kind === "closing") s.capture = { kind: "closed" };
+        else closeCapture(s, effects);
         if (s.input.kind === "check") end(s, effects, e.at, "capture-failed", false);
-        // A failed capture ends a tap: the next press recovers and listens.
-        if (s.input.kind === "tapped") s.input = { kind: "released" };
+        if (s.input.kind === "closing-tap") end(s, effects, e.at, "capture-failed", false);
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
         break;
     }
-    // The wake word opens a conversation as a Talk press does, with its
-    // start sound, through a fresh capture that collects the utterance.
-    case "wake":
-        if (!live(s, e, "capture", ["open"]) || s.capture.mode !== "armed") { stale(s); break; }
-        start(s, effects, "woken", e.at);
-        break;
     case "capture-closed":
         if (!live(s, e, "capture", ["closing"])) { stale(s); break; }
         s.capture = { kind: "closed" };
-        if (s.turn.kind === "collecting") s.turn.deadline = e.at + COLLECTION_TIMEOUT_MS;
+        if (s.engine.kind === "duplex" && s.input.kind === "closing-tap") {
+            if (typeof e.speech !== "boolean") throw new Error("jarvis: session=capture-speech");
+            if (!e.speech) end(s, effects, e.at, "tap", false);
+        }
         break;
     case "partial":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn.partial = e.text;
-        // A tapped request ends once its words stop: each partial moves the
-        // silence bound.
-        if (s.input.kind === "tapped" && s.capture.kind === "open") s.input.deadline = e.at + TAP_SILENCE_MS;
-        // Words were heard: the request is collected as a Talk-started one.
-        if (s.input.kind === "woken" || s.input.kind === "follow-up") {
-            s.input = { kind: "conversation" };
-            if (s.capture.kind === "open") s.turn.deadline = null;
-        }
+        if (String(e.text).trim() !== "") activity(s, e.at);
         break;
     case "delegation":
     case "final":
@@ -736,24 +657,24 @@ function reduce(state, e) {
             dropApproval(s, effects, "replaced", e.at);
             // A new request drops the words the voice held for the old one.
             if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
-            if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
-            // A tap is one request: the voice's end of speech hands it to
-            // the brain, and the microphone stays closed after the reply.
-            if (s.input.kind === "tapped") {
-                s.input = { kind: "released" };
-                closeCapture(s, effects);
-            }
+            if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
             think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
-            commitUserText(s, effects, e.text, e.at, e.op, true);
+            if (String(e.text).trim() === "") {
+                s.turn = { kind: "none" };
+                if (s.input.kind === "closing-tap") end(s, effects, e.at, "tap", false);
+                break;
+            }
+            commitUserText(s, effects, e.text, e.at, e.op);
         }
+        activity(s, e.at);
         break;
     case "say":
         if (sayRefusal(s) !== null) break;
         if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "say", false);
         recover(s, effects, e.at);
-        commitUserText(s, effects, e.text, e.at, 1, false);
+        commitUserText(s, effects, e.text, e.at, 1);
         break;
     // A preview speaks the engine's fixed sentence as a turn of its own; a
     // duplex voice opens its session for it with no capture.
@@ -761,8 +682,11 @@ function reduce(state, e) {
         if (previewRefusal(s) !== null) break;
         recover(s, effects, e.at);
         // A new conversation takes a new gen; one between turns keeps its own.
-        if (s.conversation.kind === "ended") s.gen += 1;
-        if (s.conversation.kind !== "active") s.conversation = { kind: "active" };
+        if (s.conversation.kind === "ended") {
+            s.gen += 1;
+            s.conversation = { kind: "active", purpose: "preview" };
+        } else if (s.conversation.kind !== "active") s.conversation = { kind: "active", purpose: s.conversation.purpose };
+        activity(s, e.at);
         // A preview names one offer of the Voice list; the engine plays the
         // chosen voice for a voice its provider does not offer.
         var preview = { preview: true, voice: e.voice };
@@ -777,7 +701,7 @@ function reduce(state, e) {
         if (typeof e.text !== "string" || e.text.trim() === "" || !relayAsk(e.ask))
             throw new Error("jarvis: session=relay");
         if (relayRefusal(s) !== null) { stale(s); break; }
-        s.conversation = { kind: "active" };
+        s.conversation = { kind: "active", purpose: s.conversation.purpose };
         think(s, effects, { relay: { text: e.text, ask: e.ask } }, e.at);
         break;
     // A transcription that fails after its capture closed still owns the turn.
@@ -797,6 +721,7 @@ function reduce(state, e) {
     case "brain-failed":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
         s.turn = { kind: "none" };
+        if (e.type === "brain-done") activity(s, e.at);
         if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)
             s.playback.deadline = e.at + PLAYBACK_TIMEOUT_MS;
         if (e.type === "brain-done" && (s.playback.kind === "flushing" || s.playback.kind === "feedback")
@@ -838,13 +763,12 @@ function reduce(state, e) {
         break;
     case "played":
         if (!live(s, e, "playback", ["playing", "feedback"])) { stale(s); break; }
-        if (s.playback.kind === "playing" && s.followUp.kind === "asked" && s.followUp.gen === s.gen)
-            s.followUp = { kind: "spoken", gen: s.gen };
         var lineReply = s.playback.kind === "feedback" ? s.playback.reply : { kind: "none" };
         s.playback = lineReply.kind === "waiting" && lineReply.gen === s.gen && s.conversation.kind === "active" && canEngage(s)
             ? { kind: "playing", gen: lineReply.gen, op: operation(s), source: lineReply.source,
                 interruptible: lineReply.interruptible, admission: { kind: "waiting" }, deadline: lineReply.deadline }
             : { kind: "idle" };
+        activity(s, e.at);
         break;
     case "flushed":
         if (!live(s, e, "playback", ["flushing"])) { stale(s); break; }
@@ -893,6 +817,7 @@ function reduce(state, e) {
             source: s.action.op, tool: s.action.tool, outcome: e.outcome });
         if (s.turn.kind === "thinking" && s.turn.op === s.action.brain) s.turn.deadline = e.at + RESPONSE_TIMEOUT_MS;
         s.action = { kind: "none" };
+        activity(s, e.at);
         break;
     case "approval":
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
@@ -935,7 +860,8 @@ function reduce(state, e) {
         }
         s.approval = { kind: "none" };
         if (s.turn.kind === "thinking") s.turn.deadline = e.at + RESPONSE_TIMEOUT_MS;
-        s.input = { kind: "released" };
+        s.input = releasedInput(s);
+        activity(s, e.at);
         closeCapture(s, effects);
         if (approval.purpose === "release") {
             effect(s, effects, "release-confirmed", { id: approval.id, target: approval.brain, confirmed: e.source });
@@ -952,14 +878,16 @@ function reduce(state, e) {
     case "approval-cancel":
         if (e.id !== s.approval.id || e.gen !== s.approval.gen) { stale(s); break; }
         dropApproval(s, effects, "cancel", e.at);
-        s.input = { kind: "released" };
+        s.input = releasedInput(s);
+        activity(s, e.at);
         closeCapture(s, effects);
         break;
     case "speak":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
         // New output after an interruption answers new input.
-        if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
+        if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
         s.speech.reply = { kind: "waiting" };
+        activity(s, e.at);
         break;
     // The voice holds words no reply carries yet, or has dropped them. A
     // waiting reply's own audio already holds the speaker.
@@ -977,18 +905,36 @@ function reduce(state, e) {
             break;
         }
         effect(s, effects, "transcript", { role: e.role, text: e.text, stage: e.stage, rev: e.rev });
-        // The voice's captions of the user's words move a tap's end of
-        // speech, as a chained engine's partials do.
-        if (e.role === "user" && s.input.kind === "tapped" && s.capture.kind === "open") s.input.deadline = e.at + TAP_SILENCE_MS;
+        if (String(e.text).trim() !== "") activity(s, e.at);
+        break;
+    case "input-silent":
+    case "input-sound":
+        if (!live(s, e, "capture", ["open"])) { stale(s); break; }
+        if (typeof e.device !== "string" || e.device === "") throw new Error("jarvis: session=input-device");
+        s.sound = e.type === "input-silent" ? { kind: "silent", device: e.device } : { kind: "none" };
+        break;
+    case "speech-input-ended":
+        if (!live(s, e, "speech", ["open"])) { stale(s); break; }
+        if (typeof e.empty !== "boolean") throw new Error("jarvis: session=input-ended");
+        // A native result can precede release. Keep real words against the
+        // same capture, so a short spoken hold is never mistaken for empty.
+        if (s.input.kind === "held" && ["opening", "open"].indexOf(s.capture.kind) !== -1 && s.capture.op === e.capture && !e.empty) {
+            s.input.heard = true;
+            activity(s, e.at);
+            break;
+        }
+        if (s.input.kind !== "closing-tap" || s.input.source !== e.capture) { stale(s); break; }
+        if (e.empty) end(s, effects, e.at, "tap", false);
+        else { s.input = { kind: "released" }; activity(s, e.at); }
         break;
     case "speech-idle":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
-        // A turn in flight ends by its own deadline, with its own fault or
-        // reason: thinking, a held approval, or an action inside its limit.
-        // The engine's idle wait runs again.
-        if (s.turn.kind === "thinking" || s.approval.kind === "held"
-                || s.action.kind === "running" && s.action.limit.kind === "pending") break;
-        end(s, effects, e.at, "idle", false);
+        if (previewConversation(s)) {
+            end(s, effects, e.at, "preview", false);
+            break;
+        }
+        // Session owns the shared quiet deadline; a provider idle event
+        // cannot shorten it or close a still-open conversation.
         break;
     case "speech-failed":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
@@ -1002,7 +948,7 @@ function reduce(state, e) {
                 || live(s, e, "check", ["waiting", "recording", "finishing"])
                 || live(s, e, "playback", ["playing", "feedback"])
                 || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"])
-                || s.input.kind === "tapped" && live(s, e, "capture", ["open"]))
+                || live(s, e, "quiet", ["waiting"]))
             expire(s, effects, e.at);
         else stale(s);
         break;
@@ -1014,7 +960,7 @@ function reduce(state, e) {
 // The state wire contains this exact record. This table is its sole region
 // shape definition; both endpoints use it through JarvisProtocol.
 var REGIONS = {
-    gate: { down: "reason", up: "" }, mute: { off: "", muting: "", on: "" }, voiceMute: { off: "", on: "" },
+    gate: { down: "reason", up: "" }, voiceMute: { off: "", on: "" },
     capture: { closed: "", opening: "gen op mode", open: "gen op mode", closing: "gen op" },
     turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
@@ -1022,9 +968,9 @@ var REGIONS = {
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
-    fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
-    input: { released: "", stopped: "", held: "since", tapped: "deadline", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
-    followUp: { none: "", asked: "gen", spoken: "gen" },
+    fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
+    input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
+    quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
     check: { unavailable: "", kept: "result device", ready: "", again: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result device", failed: "reason device" }
@@ -1055,11 +1001,11 @@ function validate(s) {
             } else if (f === "since") {
                 if (!Number.isFinite(r[f]) || r[f] < 0) return false;
             } else if (f === "deadline" || f === "shownAt") {
-                if (f === "deadline" && r[f] === null && (region === "playback" || r.kind === "collecting" || r.kind === "tapped")) continue;
+                if (f === "deadline" && r[f] === null && (region === "playback" || r.kind === "collecting")) continue;
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;
-            } else if (["interruptible", "physical", "cancellable"].indexOf(f) !== -1) {
+            } else if (["interruptible", "physical", "cancellable", "heard"].indexOf(f) !== -1) {
                 if (typeof r[f] !== "boolean") return false;
             } else if (f === "cancellation") {
                 if (!exact(r[f], ["kind"]) || ["available", "unavailable", "requested"].indexOf(r[f].kind) === -1) return false;
@@ -1084,8 +1030,10 @@ function validate(s) {
             } else if (typeof r[f] !== "string") return false;
         }
         if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
+        if (region === "conversation" && r.kind !== "ended" && ["conversation", "preview"].indexOf(r.purpose) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1
-                && ["hold", "conversation", "follow-up", "armed", "check"].indexOf(r.mode) === -1) return false;
+                && ["hold", "conversation", "check"].indexOf(r.mode) === -1) return false;
+        if (region === "sound" && r.kind === "silent" && (typeof r.device !== "string" || r.device === "")) return false;
         if (region === "check" && (r.kind === "done" || r.kind === "kept") && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
         if (region === "playback" && r.kind === "feedback" && ["start", "stop", "working", "line"].indexOf(r.cue) === -1) return false;
         if (region === "cue" && r.kind === "pending" && ["start", "stop"].indexOf(r.cue) === -1) return false;

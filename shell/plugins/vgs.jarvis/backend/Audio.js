@@ -36,6 +36,16 @@ function sourceLimit(objectMode, duplex) {
 // passes it within seconds. A classification floor, about -60 dBFS, chosen
 // by rule and not measured on a device.
 const SILENT_PEAK = 32;
+// A classification window, chosen in captured samples rather than elapsed
+// time: a source that sends only digital silence for this window gets a hint.
+const SILENT_FRAMES = PCM_RATE * 2;
+// Cloud input uses a plain level rule, not a recognizer. The chosen floor
+// aims to reject quiet room noise; 200 ms of captured hangover keeps endings.
+// These are rule parameters, not measured noise or latency claims.
+const CLOUD_SPEECH_PEAK = 512;
+const CLOUD_HANGOVER_FRAMES = PCM_RATE / 5;
+// Bound the gate's frame independently of pipe read coalescing under load.
+const CLOUD_FRAME_BYTES = PCM_RATE * 2 / 50;
 
 /** The largest sample magnitude of whole 16-bit little-endian PCM. */
 function peak(pcm) {
@@ -75,7 +85,7 @@ function storeDefaults(node) {
 }
 
 class Audio {
-    constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource }) {
+    constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource, input = () => {} }) {
         this.session = session;
         this.environment = {};
         for (const key of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
@@ -87,6 +97,7 @@ class Audio {
         this.fault = fault;
         this.captureSink = captureSink;
         this.playbackSource = playbackSource;
+        this.input = input;
         this.children = new Map();
         this.state = null;
         this.lifetime = { kind: "open" };
@@ -107,7 +118,20 @@ class Audio {
         this.release = Promise.resolve();
         this.capturePort = {
             open: (e, done, failed) => this.openCapture(e, done, failed),
-            close: (e, done) => this.teardown("capture-close", ["capture"]).then(done)
+            close: (e, done, failed) => {
+                const capture = this.capture, feed = this.feed;
+                const release = this.teardown("capture-close", ["capture"]);
+                // The recorder stops independently of native turn completion.
+                // This records audio sent/queued, never words recognized.
+                let result = {};
+                try {
+                    if (capture?.gate !== null && capture?.gate !== undefined) {
+                        this.finishCloudInput(capture, feed);
+                        result = { speech: capture.gate.committed };
+                    }
+                } catch (error) { return release.then(() => failed(error)); }
+                return release.then(() => done(result));
+            }
         };
         this.playbackPort = {
             start: (e, done, failed) => this.startPlayback(e, done, failed),
@@ -366,7 +390,7 @@ class Audio {
     // The device of GROUP that ENGINE (a Session engine kind) uses under
     // SETTINGS: the one SETTING names, else the default, null before
     // discovery names it. A dictation engine's words are voxtype's, which
-    // records the default source, so its captions, turn end and wake word
+    // records the default source, so its captions, turn end and microphone check
     // hear that source too. The daemon's snapshot carries the microphone,
     // so Session keeps a microphone check's result with the source it heard.
     device(group, setting, settings, engine) {
@@ -411,7 +435,8 @@ class Audio {
         try {
             await this.release;
             if (!this.allowed("capture")) throw new Error("capture-refused");
-            capture = { kind: "opening", owner: null, e, failed, target: null, from: null };
+            capture = { kind: "opening", owner: null, e, failed, target: null, from: null, sound: "waiting", frames: 0,
+                gate: this.state.engine.kind === "duplex" ? { active: false, remaining: 0, committed: false } : null };
             this.capture = capture;
             await this.discover();
             if (!this.allowed("capture") || this.capture !== capture) return;
@@ -447,14 +472,30 @@ class Audio {
                     opened = true;
                     if (this.allowed("capture")) done();
                 }
+                if (this.capture !== capture) return;
                 if (pcm.length > BUFFER_BYTES || feed.writableLength + pcm.length > BUFFER_BYTES) {
                     this.failCapture("capture-overflow", "");
                     return;
                 }
-                if (!feed.write(pcm)) owner.child.stdout.pause();
-                // A wake capture can wait all day for a word that is not
-                // speech to Jarvis yet; its room sound publishes no level.
-                if (e.mode !== "armed") this.reportLevel(e.gen, "capture", pcm);
+                const inputPeak = peak(pcm);
+                if (capture.gate === null) {
+                    if (!feed.write(pcm)) owner.child.stdout.pause();
+                } else {
+                    try { if (!this.feedCloudInput(capture, feed, pcm)) owner.child.stdout.pause(); }
+                    catch (error) { this.failCapture("input-end", error.message); }
+                }
+                if (this.capture !== capture) return;
+                this.reportLevel(e.gen, "capture", pcm);
+                if (e.mode !== "check") {
+                    capture.frames += pcm.length / 2;
+                    if (inputPeak > SILENT_PEAK) {
+                        if (capture.sound === "silent") this.input({ type: "input-sound", gen: e.gen, op: e.op, device: target });
+                        capture.sound = "heard";
+                    } else if (capture.sound === "waiting" && capture.frames >= SILENT_FRAMES) {
+                        capture.sound = "silent";
+                        this.input({ type: "input-silent", gen: e.gen, op: e.op, device: target });
+                    }
+                }
             });
             feed.on("drain", () => { if (!owner.stopping) owner.child.stdout.resume(); });
             owner.closed.then(() => {
@@ -467,6 +508,31 @@ class Audio {
             await this.teardown("capture-failed", ["capture"]);
             failed(error.message.startsWith("device-lost ") ? error.message : "audio-start: " + error.message);
         }
+    }
+
+    finishCloudInput(capture, feed) {
+        const gate = capture.gate;
+        if (!gate.active) return;
+        gate.active = false;
+        gate.remaining = 0;
+        gate.committed = feed.endInput() || gate.committed;
+    }
+
+    feedCloudInput(capture, feed, pcm) {
+        let ready = true;
+        const gate = capture.gate;
+        for (let offset = 0; offset < pcm.length; offset += CLOUD_FRAME_BYTES) {
+            if (this.capture !== capture) return false;
+            const frame = pcm.subarray(offset, offset + CLOUD_FRAME_BYTES);
+            if (peak(frame) >= CLOUD_SPEECH_PEAK) {
+                gate.active = true;
+                gate.remaining = CLOUD_HANGOVER_FRAMES;
+            } else gate.remaining = Math.max(0, gate.remaining - frame.length / 2);
+            if (!gate.active) continue;
+            ready = feed.write(frame) && ready;
+            if (gate.remaining === 0) this.finishCloudInput(capture, feed);
+        }
+        return ready;
     }
 
     // A stream exit and a node-removal message arrive on separate pipes.

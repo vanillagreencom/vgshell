@@ -10,8 +10,7 @@ written independently of LocalSpeech.js. DATA/scenario.json scripts it:
     optional streaming: {partials:[{text,rev}], turnEnd:true} answered on
     successive audio frames, the turn end only for a detecting listen
   speech: per speak, {rate, samples, tone?, value?} | {failed} | {raw}
-  wakes: per wake, {afterFrames} answered woke on that audio frame | {failed}
-    answered on the first; with none left a wake waits for its abort
+  checks: per check, {afterFrames} recognizes the microphone check phrase
 DATA/log.jsonl records what it observed: its start facts, then one line per
 ended, aborted or spoken request. Given --state, it holds STATE's
 local-setup.lock shared, as the sidecar does. No model, device or network is
@@ -119,10 +118,8 @@ if start == "foreign-id":
 
 utterances = list(scenario.get("utterances", []))
 speech = list(scenario.get("speech", []))
-wakes = list(scenario.get("wakes", []))
 received = {}
 listening = {}
-spotting = {}
 checking = {}
 checks = list(scenario.get("checks", []))
 while True:
@@ -137,33 +134,19 @@ while True:
     if kind == "listen":
         record({"listen": ident, "detect": header["detect"]})
         listening[ident] = {"detect": header["detect"], "count": 0}
-    elif kind == "wake":
-        record({"wake": ident})
-        spotting[ident] = 0
     elif kind == "check":
         record({"check": ident})
-        checking[ident] = {"heard": False, "sound": False, "frames": 0, "action": checks.pop(0) if checks else {}}
+        checking[ident] = {"heard": False, "sound": False, "frames": 0, "samples": 0, "squares": 0.0,
+                           "action": checks.pop(0) if checks else {}}
     elif kind == "audio" and ident in checking:
         check = checking[ident]
-        check["sound"] |= any(v for (v,) in struct.iter_unpack("<f", payload))
+        samples = [v for (v,) in struct.iter_unpack("<f", payload)]
+        check["sound"] |= any(samples)
+        check["samples"] += len(samples)
+        check["squares"] += sum(v * v for v in samples)
         check["frames"] += 1
         if "afterFrames" in check["action"] and check["frames"] >= check["action"]["afterFrames"]:
             check["heard"] = True
-    elif kind == "audio" and ident in spotting:
-        received.setdefault(ident, []).extend(v for (v,) in struct.iter_unpack("<f", payload))
-        spotting[ident] += 1
-        action = wakes[0] if wakes else {}
-        if "failed" in action:
-            wakes.pop(0)
-            del spotting[ident]
-            send({"type": "failed", "id": ident, "cause": action["failed"]})
-        elif "afterFrames" in action and spotting[ident] >= action["afterFrames"]:
-            wakes.pop(0)
-            del spotting[ident]
-            samples = received.pop(ident)
-            record({"woke": ident, "samples": len(samples),
-                    "rms": math.sqrt(sum(v * v for v in samples) / len(samples))})
-            send({"type": "woke", "id": ident})
     elif kind == "audio":
         received.setdefault(ident, []).extend(v for (v,) in struct.iter_unpack("<f", payload))
         live = listening.get(ident)
@@ -181,14 +164,14 @@ while True:
                 del listening[ident]
                 utterances.pop(0)
     elif kind == "abort":
-        spotting.pop(ident, None)
         checking.pop(ident, None)
         record({"abort": ident, "samples": len(received.pop(ident, []))})
     elif kind == "end":
         if ident in checking:
             check = checking.pop(ident)
             result = "ready" if check["heard"] else "not-heard" if check["sound"] else "silent"
-            record({"checked": ident, "result": result})
+            rms = math.sqrt(check["squares"] / check["samples"]) if check["samples"] else 0.0
+            record({"checked": ident, "result": result, "samples": check["samples"], "rms": rms})
             send({"type": "checked", "id": ident, "result": result})
             continue
         if ident not in listening:

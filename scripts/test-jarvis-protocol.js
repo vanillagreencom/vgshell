@@ -10,11 +10,11 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: false, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito", mainHost: "" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
+keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -42,17 +42,20 @@ assert.deepEqual(Object.keys(manifest.settings).filter(key => !kept.includes(key
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options.map(option => option.value)], ["ask", ["ask", "allow", "never"]]);
 assert.equal(typeof manifest.settings.privateWindows, "string");
-assert.deepEqual(manifest.schema.mode.options.map(option => option.value), ["hold", "toggle", "always"]);
+assert.equal(manifest.settings.holdToTalk, false);
+assert.equal(manifest.schema.holdToTalk.type, "boolean");
+assert.equal(Object.hasOwn(manifest.settings, "mode"), false);
+assert.equal(Object.hasOwn(manifest.schema, "mode"), false);
 assert.deepEqual(manifest.schema.taskTerminal.options.map(option => option.value), ["auto", "tmux", "floating"]);
 assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis coding task", presentation: "plain", requires: ["python3", "node"] });
 assert.deepEqual(manifest.status.tasks.type, "count");
 assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string" && bind.info !== ""), true);
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:44", hold: true },
-    { shortcut: "mute", key: "SUPER+SHIFT+code:44" },
     { shortcut: "voice-mute", key: "SUPER+CTRL+M" },
     { shortcut: "stop", key: "SUPER+CTRL+X" },
     { shortcut: "confirm", key: "SUPER+CTRL+Y" },
+    { shortcut: "deny", key: null },
     { shortcut: "console", key: "SUPER+ALT+C" }
 ]);
 assert.equal(manifest.capabilities.includes("shortcut") && manifest.capabilities.includes("surfaces"), true);
@@ -272,7 +275,15 @@ const cases = [
     ["settings", changed(hello, { settings: {} }), "shell", "shape-settings"],
     ...[false, true].map(echoCancel => ["echo-setting-" + echoCancel,
         changed(hello, { settings: { ...hello.settings, echoCancel } }), "shell", "shape-settings"]),
-    ["mode", changed(hello, { settings: { ...hello.settings, mode: "continuous" } }), "shell", "mode"],
+    ...[null, "true", 0].map(holdToTalk =>
+        ["hold-to-talk-" + holdToTalk, changed(hello, { settings: { ...hello.settings, holdToTalk } }), "shell", "hold-to-talk"]),
+    ...["hold", "toggle", "always"].map(mode =>
+        ["retired-mode-" + mode, changed(hello, { settings: { ...hello.settings, mode } }), "shell", "shape-settings"]),
+    ["retired-mute-key", changed(hello, { keys: { ...hello.keys, mute: null } }), "shell", "shape-keys"],
+    ...["mute", "unmute", "mute-toggle", "wake"].map(name =>
+        ["retired-intent-" + name, changed(intent, { intent: name }), "shell", "intent"]),
+    ...["input-silent", "unheard"].map(cause =>
+        ["retired-audit-cause-" + cause, changed(auditFailures, { rows: [{ ...auditRow, cause }] }), "daemon", "audit-row"]),
     ["extra-setting", changed(hello, { settings: { ...hello.settings, extra: "" } }), "shell", "shape-settings"],
     ["missing-brain", changed(hello, { settings: { ...hello.settings, brain: undefined } }), "shell", "shape-settings"],
     ["brain-setting", changed(hello, { settings: { ...hello.settings, brain: 1 } }), "shell", "shape-settings"],
@@ -470,8 +481,42 @@ const dueState = (() => {
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(dueState), "daemon")), JSON.stringify(dueState), "a due reply is a wire state");
 rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: { ...dueState.state, speech: { ...dueState.state.speech, reply: { kind: "coming" } } } }),
     "daemon", "state"]);
-for (const name of ["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check"])
+// New Session regions cross through the same state judge at both endpoints.
+{
+    const Session = Protocol.Session;
+    let s = dueState.state;
+    s = Session.reduce(s, { type: "capture-opened", at: 3, gen: s.capture.gen, op: s.capture.op }).state;
+    s = Session.reduce(s, { type: "input-silent", at: 4, gen: s.capture.gen, op: s.capture.op,
+        device: "fixture.mic" }).state;
+    assert.equal(s.sound.kind, "silent");
+    const silent = { ...state, gen: s.gen, state: JSON.parse(JSON.stringify(s)), phase: Session.phaseOf(s) };
+    assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(silent), "daemon"))), silent);
+    for (const [name, patch] of [["retired-mute", { mute: { kind: "off" } }], ["retired-follow-up", { followUp: { kind: "none" } }],
+        ["silent-device", { sound: { kind: "silent", device: "" } }], ["quiet-time", { quiet: { ...s.quiet, deadline: -1 } }]])
+        rejected(Protocol, [name, JSON.stringify({ ...silent, state: { ...silent.state, ...patch } }), "daemon", "state"]);
+}
+for (const name of ["talk-down", "talk-up", "voice-mute", "stop", "voice-check"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
+// The conversation owns preview purpose. The speech owner carries no
+// second preview discriminator on the daemon-to-shell wire.
+{
+    const Session = Protocol.Session;
+    for (const engine of ["chained", "duplex"]) {
+        let s = Session.reduce(Session.initial(), { type: "snapshot", at: 1, locked: false, configured: true,
+            engine, settings: {} }).state;
+        s = Session.reduce(s, { type: "preview", at: 2, voice: "marin" }).state;
+        assert.deepEqual(JSON.parse(JSON.stringify(s.conversation)), { kind: "active", purpose: "preview" });
+        for (const interrupted of [false, true]) {
+            const current = interrupted ? Session.reduce(s, { type: "interrupt", at: 3 }).state : s;
+            const wire = { ...state, gen: current.gen, state: JSON.parse(JSON.stringify(current)), phase: Session.phaseOf(current) };
+            assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(wire), "daemon"))), wire);
+            for (const conversation of [{ kind: current.conversation.kind }, { kind: current.conversation.kind, purpose: "unknown" }])
+                rejected(Protocol, ["conversation-purpose", JSON.stringify({ ...wire, state: { ...wire.state, conversation } }), "daemon", "state"]);
+            if (engine === "duplex") rejected(Protocol, ["speech-preview-field", JSON.stringify({ ...wire,
+                state: { ...wire.state, speech: { ...wire.state.speech, preview: true } } }), "daemon", "state"]);
+        }
+    }
+}
 // A preview always names the voice it plays (Service.previewVoice).
 assert.equal(Protocol.accept(changed(intent, { intent: "preview", voice: "marin" }), "shell").voice, "marin");
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
@@ -505,7 +550,7 @@ for (const [message, direction] of [
     [{ ...taskList, rows: Array(16).fill({ ...taskRow, id: "a".repeat(64), goal: "g".repeat(200), agent: "a".repeat(128),
         failure: "f".repeat(128), createdAt: Number.MAX_SAFE_INTEGER, endedAt: Number.MAX_SAFE_INTEGER }) }, "daemon"],
     [{ ...auditFailures, rows: Array(20).fill({ ...auditRow, tool: "t".repeat(128) }) }, "daemon"],
-    [{ ...auditFailures, rows: ["input-silent", "unheard", "key-refused", "voice-stopped"].map(cause => ({ ...auditRow, tool: "release", decision: "send", cause })) }, "daemon"]
+    [{ ...auditFailures, rows: ["key-refused", "voice-stopped"].map(cause => ({ ...auditRow, tool: "release", decision: "send", cause })) }, "daemon"]
 ]) assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), direction)), JSON.stringify(message));
 for (const failure of [null, 1, -1, Number.MAX_SAFE_INTEGER, "lost", "reported-failed"])
     assert.equal(Protocol.accept(changed(taskList, { rows: [{ ...taskRow, failure }] }), "daemon").rows[0].failure, failure);
@@ -513,10 +558,13 @@ for (const message of [confirm, { ...confirm, source: "button" }, cancel, memory
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
-assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "toggle" },
-    keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.mode, "toggle");
-assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "always" },
-    keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.mode, "always");
+for (const holdToTalk of [false, true])
+    assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, holdToTalk },
+        keys: { talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.holdToTalk, holdToTalk);
+// Deny uses the existing identity-bound cancellation. A key name alone is
+// not a cancellation command, and a stale request cannot name a new hold.
+rejected(Protocol, ["deny-intent", changed(intent, { intent: "deny" }), "shell", "intent"]);
+rejected(Protocol, ["cancel-without-id", changed(intent, { intent: "cancel" }), "shell", "shape-cancel"]);
 for (const message of [devices, homes, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
     { ...memoryInbox, entries: [{ ...memoryEntry, problem: "write" }] },
     taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 }, localReleased,
@@ -699,12 +747,12 @@ try {
             'if (false) fail("indicator");', "indicator-shown"],
         ["indicator-shape", 'keys(message, ["v", "type", "gen", "revision", "shown"], "indicator");',
             'void message;', "indicator-shape"],
-        ["mode", 'if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");',
-            'if (false) fail("mode");', "mode"],
+        ["hold-to-talk", 'if (typeof message.settings.holdToTalk !== "boolean") fail("hold-to-talk");',
+            'if (false) fail("hold-to-talk");', "hold-to-talk-null"],
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],
@@ -764,8 +812,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
+            'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -852,6 +900,10 @@ try {
         ["start-text-layer-tokens", " || layers[i].tokens < 0) return false;", ") return false;", "start-text-layer-tokens"],
         ["start-text-layer-shape", '|| Object.keys(layers[i]).sort().join(",") !== "layer,tokens"', "", "start-text-layer-shape"]
     ];
+    for (const cause of ["input-silent", "unheard"])
+        control("retired-audit-" + cause, '["key-refused", "voice-stopped"].indexOf(row.cause)',
+            '["key-refused", "voice-stopped", "' + cause + '"].indexOf(row.cause)',
+            logic => rejected(logic, cases.find(row => row[0] === "retired-audit-cause-" + cause)));
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
     control("voice-provider-gemini", '["local", "realtime", "gemini", "elevenlabs"]', '["local", "realtime", "elevenlabs"]', voiceProviders);
@@ -860,8 +912,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
+        'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

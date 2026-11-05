@@ -516,7 +516,7 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");
+        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");
         if (!["local", "realtime", "gemini", "elevenlabs"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");
@@ -536,7 +536,7 @@ function accept(line, direction) {
             if (typeof fallback.name !== "string" || typeof fallback.brain !== "string" || typeof fallback.model !== "string")
                 fail("fallbacks");
         }
-        if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");
+        if (typeof message.settings.holdToTalk !== "boolean") fail("hold-to-talk");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");
         if (typeof message.settings.privateWindows !== "string"
@@ -549,7 +549,7 @@ function accept(line, direction) {
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
-        keys(message.keys, ["talk", "mute", "voice-mute", "stop", "confirm", "console"], "keys");
+        keys(message.keys, ["talk", "voice-mute", "stop", "confirm", "deny", "console"], "keys");
         for (var shortcut of Object.keys(message.keys)) {
             var key = message.keys[shortcut];
             // The core shortcut provider owns normalization and conflicts.
@@ -621,7 +621,7 @@ function accept(line, direction) {
             if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -708,7 +708,7 @@ function accept(line, direction) {
                     || ["pending", "completed", "failed", "unknown", "cancelled"].indexOf(row.outcome) === -1
                     || (["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)
                     || !(row.refusal === null || ["expired", "no-hold", "identity", "source", "early", "voice-physical", "voice-timing"].indexOf(row.refusal) !== -1)
-                    || !(row.cause === null || ["input-silent", "unheard", "key-refused", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
+                    || !(row.cause === null || ["key-refused", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
         }
         break;
     case "input-ready":

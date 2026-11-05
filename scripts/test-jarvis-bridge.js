@@ -81,7 +81,7 @@ world(async () => {
         const auditFile = path.join(root, "state/audit/2026-10-01.jsonl");
         const rows = () => fs.existsSync(auditFile)
             ? fs.readFileSync(auditFile, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: (fn, ms) => {
@@ -98,7 +98,7 @@ world(async () => {
             router.register(executor, { commands: ["hyprctl", "bwrap", ...(options.vision ? ["grim"] : [])], timeoutMs: 1000, cancellable: true,
                 start: (call, done) => { starts.push({ call, audit: rows().at(-1) }); answers.push(done); },
                 cancel: () => {} });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", shown: true });
         const newTurn = () => { runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user"); };
         newTurn();

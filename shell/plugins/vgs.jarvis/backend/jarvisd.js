@@ -2,7 +2,7 @@
 // jarvisd --tree ABSOLUTE_VGS_TREE
 // Stdin is the service's lease. EOF exits 0; a partial line or a refused
 // message exits 65. Task-store or confirmation-audit failure exits 74. Node below 22 or a
-// mute or voice mute record failure exits 78. Stdout carries status/state
+// voice mute record or retired-state cleanup failure exits 78. Stdout carries status/state
 // messages and shell requests judged by JarvisProtocol; stderr carries keyed jarvis: failures.
 // A reply for a request that awaits none exits 65 like any refused message.
 // Startup validates coding-task records and publishes their durable producer,
@@ -150,7 +150,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             causes: configuration.kind === "ready" ? [] : configuration.causes, cautions: configuration.cautions });
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
-        // Session still owns lock, mute, fault and indicator admission.
+        // Session still owns lock, fault and indicator admission.
         lastConfiguration = configuration;
         snapshot();
     }
@@ -235,7 +235,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         void audio.close("protocol");
         refuse(error.message.startsWith("jarvis: tasks=") || error.message.startsWith("jarvis: task=")
             || error.message.startsWith("jarvis: audit=") ? 74
-            : /^jarvis: (voice-)?mute=/.test(error.message) ? 78 : 65, error.message);
+            : /^jarvis: (voice-mute=|state=retired-mute-)/.test(error.message) ? 78 : 65, error.message);
     }
 
     // Adapt the shared request result to the task display's text contract.
@@ -353,8 +353,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         }
     }
 
-    // The microphone's mute and Jarvis's voice mute each keep their own
-    // record of one field, { muted }.
+    // The retired microphone mute record grants no state. Unlink the entry
+    // itself so a link cannot delete its target; never read or restore it.
+    function retireMute() {
+        try { fs.unlinkSync(path.join(context.directories.state, "mute.json")); }
+        catch (error) {
+            if (error.code !== "ENOENT") throw new Error("jarvis: state=retired-mute-remove-failed");
+        }
+    }
+
+    // Jarvis's voice mute keeps one field, { muted }.
     function readMuted(area, name) {
         return readRecord(area, name, 64, value => {
             if (value === null || typeof value !== "object" || Array.isArray(value)
@@ -364,9 +372,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         }, false);
     }
 
-    const readMute = () => readMuted("mute", "mute.json");
     const readVoiceMute = () => readMuted("voice-mute", "voice-mute.json");
-    function storeMute(muted) { storeRecord("mute", "mute.json", { muted }); }
     function storeVoiceMute(muted) { storeRecord("voice-mute", "voice-mute.json", { muted }); }
 
     function readHomes() {
@@ -490,12 +496,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             if (!ending && context !== null) write({ v: 1, type: "level", gen,
                 revision: context.revision, level });
         },
-        fault, captureSink: null, playbackSource: null
+        fault, captureSink: null, playbackSource: null, input: event => runner.dispatch(event)
     });
     const ports = unavailable();
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.playback = audio.playbackPort;
-    ports.mute = { store: storeMute };
     ports.voiceMute = { store: storeVoiceMute };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
@@ -629,13 +634,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         // takes the request, and the voices are read again.
                         if ((message.intent === "talk-down" || message.intent === "say") && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();
                         const dispatch = () => {
-                            runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
-                                : message.intent === "voice-mute" ? { type: "voice-mute-toggle" }
+                            runner.dispatch(message.intent === "voice-mute" ? { type: "voice-mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }
                                 : message.intent === "preview" ? { type: "preview", voice: message.voice }
                                 : { type: message.intent });
                         };
-                        if (["mute", "stop"].includes(message.intent)) audit.cleanup(message.intent, dispatch);
+                        if (message.intent === "stop") audit.cleanup(message.intent, dispatch);
                         else dispatch();
                     }
                     continue;
@@ -820,7 +824,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     audio.captureSink = engine.captureSink;
                     audio.playbackSource = engine.playbackSource;
                 }
-                if (first && readMute()) runner.dispatch({ type: "mute" });
+                if (first) retireMute();
                 if (first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });
                 judgeSetup();
                 if (first) startFleetCutover();

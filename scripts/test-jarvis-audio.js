@@ -46,7 +46,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     });
     const dispatch = (type, values = {}) => runner.dispatch({ type, ...values });
     dispatch("snapshot", { locked: false, engine: "chained", configured: true,
-        settings: { microphone: "", speaker: "" } });
+        settings: { microphone: "", speaker: "", holdToTalk: true } });
     dispatch("indicator", { shown: true });
     // A Talk release that ends a hold: past Session's tap bound, so it
     // closes the capture.
@@ -61,34 +61,73 @@ async function capture(w) {
         "fixture descendant actually holds its lock");
 }
 
-// Always mode's wake capture reads the microphone but publishes no level.
-async function armedLevels(Implementation) {
-    const w = setup(Implementation);
+// Exercise Audio's real capture feed with a held recorder close. No child or
+// device runs; the fake boundary supplies only raw PCM and its exit receipt.
+async function cloudInput(Implementation = Audio) {
+    const writes = [], ends = [], readings = [], failures = [];
+    let finish;
+    const closed = new Promise(resolve => { finish = resolve; });
+    const stdout = new PassThrough(), lease = new PassThrough();
+    const child = { stdout, stdin: new PassThrough(), stdio: [null, null, null, lease] };
+    const owner = { child, kind: "capture", stopping: false, closed };
+    const feed = new Writable({ write(pcm, encoding, done) { writes.push(Buffer.from(pcm)); done(); } });
+    feed.endInput = () => { ends.push(writes.length); return true; };
+    const audio = new Implementation({ session: { canCapture: () => true }, environment: {},
+        clock: { now: () => 0, set: () => ({}), clear() {} }, offers() {}, level() {}, fault: value => failures.push(value),
+        captureSink: () => feed, playbackSource: null, input: value => readings.push(value) });
+    audio.observe({ engine: { kind: "duplex" }, settings: {} });
+    audio.discover = async () => {};
+    audio.selected = async () => ({ target: "fixture.mic", from: "default" });
+    audio.spawn = async () => { audio.children.set(child, owner); return owner; };
+    void closed.then(() => audio.children.delete(child));
+    const pcm = value => {
+        const bytes = Buffer.alloc(960);
+        for (let at = 0; at < bytes.length; at += 2) bytes.writeInt16LE(value, at);
+        return bytes;
+    };
+    const send = (value, count) => { for (let i = 0; i < count; i++) stdout.emit("data", pcm(value)); };
     try {
-        w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
-            settings: { microphone: "", speaker: "", mode: "always" } });
-        await until(() => w.runner.state.capture.kind === "open" && w.runner.state.capture.mode === "armed", "wake capture opens");
-        await until(() => w.frames() >= 15, "wake capture PCM");
-        assert.deepEqual(w.levels, [], "a wake capture publishes no level");
-    } finally { w.runner.close(); await w.audio.close("test-end"); }
+        await audio.openCapture({ gen: 3, op: 7, mode: "conversation" }, () => {}, reason => failures.push(reason));
+        send(0, 110);
+        assert.deepEqual(writes, [], "digital silence never leaves for the cloud");
+        assert.deepEqual(readings, [{ type: "input-silent", gen: 3, op: 7, device: "fixture.mic" }],
+            "one nonblocking hint belongs to the microphone capture");
+        send(128, 20);
+        assert.deepEqual(writes, [], "quiet background frames stay on this computer");
+        send(8192, 1);
+        send(0, 30);
+        assert.equal(ends.length, 1, "the captured hangover ends one native input");
+        assert.ok(ends[0] >= 6 && ends[0] <= 26, "a short actual hangover follows the speech frame");
+        assert.deepEqual(writes[0], pcm(8192), "the real speech frame is forwarded");
+        assert.ok(writes.slice(1).every(bytes => bytes.equals(pcm(0))), "hangover contains only actual captured frames");
+        assert.equal(readings.filter(value => value.type === "input-sound").length, 1, "sound clears the hint once");
+        send(8192, 1);
+        let result = null;
+        const ending = audio.capturePort.close({ gen: 3, op: 8, target: 7 }, value => { result = value; }, error => { throw error; });
+        assert.equal(owner.stopping, true, "microphone shutdown starts before native-end acknowledgement");
+        assert.equal(ends.length, 2, "recorder close finishes the active native input");
+        assert.equal(result, null, "capture-close waits for the held recorder exit");
+        finish();
+        await ending;
+        assert.deepEqual(result, { speech: true }, "the close reports queued audio, not recognition");
+        assert.equal(feed.destroyed, true);
+        assert.deepEqual(failures, []);
+    } finally { finish(); await audio.close("test-end"); }
 }
 
 async function trigger(Implementation, type) {
     const w = setup(Implementation);
     try {
         await capture(w);
-        if (type === "mute") w.dispatch("mute");
-        else if (type === "indicator") w.dispatch("indicator", { shown: false });
+        if (type === "indicator") w.dispatch("indicator", { shown: false });
         else if (type === "provider") w.audio.failCapture("provider-disconnected", "");
         else if (type === "lease") w.runner.close();
         else w.dispatch("snapshot", { locked: type === "unknown" ? null : true, engine: "chained", configured: true,
             settings: w.runner.state.settings });
-        if (type === "mute") assert.equal(w.runner.state.mute.kind, "muting");
         await until(() => w.runner.state.capture.kind === "closed", type + " acknowledgment");
         assert.equal([...w.audio.children.values()].filter(owner => owner.kind !== "discovery").length, 0,
             type + " leaves no audio process");
         assert.equal(unlocked(), true, type + " leaves no detached descendant");
-        if (type === "mute") assert.equal(w.runner.state.mute.kind, "on");
         if (type === "provider") assert.equal(w.runner.state.fault.reason, "provider-disconnected");
     } finally { w.runner.close(); await w.audio.close("test-end"); }
 }
@@ -108,6 +147,7 @@ async function inside() {
             await until(() => w.runner.state.capture.kind === "open", "capture starts after feedback drains");
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
+    await cloudInput();
     await firstPlayback();
     async function desktopDefaults(Implementation = Audio) {
         const w = setup(Implementation);
@@ -213,8 +253,7 @@ async function inside() {
         }
     }
     await defaultRemoval();
-    await armedLevels(Audio);
-    for (const type of ["mute", "locked", "unknown", "indicator", "provider", "lease"])
+    for (const type of ["locked", "unknown", "indicator", "provider", "lease"])
         await trigger(Audio, type);
     const retired = setup();
     retired.runner.close();
@@ -366,7 +405,9 @@ async function inside() {
         const source = new PassThrough();
         const w = setup(Implementation, null, source);
         try {
-            w.dispatch("toggle");
+            w.dispatch("snapshot", { configured: true, locked: false, engine: "chained",
+                settings: { ...w.runner.state.settings, holdToTalk: false } });
+            w.dispatch("talk-down");
             await until(() => w.runner.state.capture.kind === "open", "conversation capture opens");
             w.dispatch("final", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, text: "fixture" });
             await until(() => w.runner.state.capture.kind === "open", "conversation capture reopens after final");
@@ -382,7 +423,7 @@ async function inside() {
             assert.equal(sink.closed, true, "speech receives no microphone feed during playback");
             assert.equal([...w.audio.children.values()].some(owner => owner.kind === "capture"), false);
             const playback = w.runner.state.playback;
-            const resumes = ["complete", "interrupt", "talk"].includes(operation);
+            const resumes = ["complete", "interrupt", "stop"].includes(operation);
             if (operation === "complete") source.end();
             else if (operation === "interrupt") w.dispatch("interrupt");
             else if (operation === "talk") w.dispatch("talk-down");
@@ -394,7 +435,7 @@ async function inside() {
             else if (operation === "provider") source.destroy(new Error("synthetic provider disconnect"));
             else if (operation === "device") w.audio.snapshot([{ id: 12, info: null }]);
             else if (operation === "lease") w.runner.close();
-            else if (operation === "mute" || operation === "stop") w.dispatch(operation);
+            else if (operation === "stop") w.dispatch(operation);
             else if (operation === "locked" || operation === "unknown") {
                 w.dispatch("snapshot", { locked: operation === "unknown" ? null : true, engine: "chained", configured: true,
                     settings: w.runner.state.settings });
@@ -411,7 +452,7 @@ async function inside() {
             if (resumes) {
                 await until(() => w.runner.state.capture.kind === "open", operation + " resumes permitted demand");
                 assert.notEqual(w.audio.feed, sink, "resume acquires a new speech feed");
-                assert.equal(w.runner.state.input.kind, operation === "talk" ? "held" : "conversation");
+                assert.equal(w.runner.state.input.kind, "conversation");
             } else {
                 assert.equal(w.runner.state.capture.kind, "closed", operation + " cannot revive capture");
                 assert.equal(w.audio.capture, null);
@@ -423,7 +464,7 @@ async function inside() {
             assert.equal(calls.some(row => row.command === "pw-cli"), false, "half duplex loads no module");
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
-    for (const operation of ["complete", "interrupt", "talk", "release", "mute", "stop", "locked", "unknown",
+    for (const operation of ["complete", "interrupt", "talk", "release", "stop", "locked", "unknown",
         "indicator", "provider", "device", "lease"]) await halfDuplex(Audio, operation);
 
     // Voice mute sends the speaker silence of the length of Jarvis's spoken
@@ -749,6 +790,10 @@ async function inside() {
         await assert.rejects(() => check(require(path.join(folder, "Audio.js")).Audio), assert.AssertionError);
         controls++;
     }
+    await control("cloud-level-gate", 'gate: this.state.engine.kind === "duplex" ?',
+        'gate: false ?', cloudInput);
+    await control("silent-hint", "capture.frames >= SILENT_FRAMES", "false", cloudInput);
+    await control("native-close-result", "speech: capture.gate.committed", "speech: false", cloudInput);
     await control("desktop-default", 'if (!before.unsettled.includes(group)) return before[group];',
         'if (!before.unsettled.includes(group)) return this.devices[group][0] && this.devices[group][0].value;', desktopDefaults);
     // The base rule: an empty delta read as a cleared store.
@@ -758,17 +803,17 @@ async function inside() {
     await control("read-order", "if (this.defaults !== before) return", "if (false) return", defaultRemoval);
     await control("first-playback-discovery", 'await this.discover();\n            if (this.playback !== playback) return;',
         'if (this.playback !== playback) return;', firstPlayback);
-    await control("early-muted", "return this.release;", "return Promise.resolve();", async impl => {
+    await control("early-capture-ack", "return this.release;", "return Promise.resolve();", async impl => {
         let released;
         const sink = new Writable({ write(frame, encoding, done) { done(); },
             destroy(error, done) { released = () => done(error); } });
         const w = setup(impl, sink);
         try {
             await capture(w);
-            w.dispatch("mute");
+            w.release();
             await until(() => released !== undefined, "feed close requested");
             await new Promise(resolve => setImmediate(resolve));
-            assert.equal(w.runner.state.mute.kind, "muting", "mute waits for feed and process exits");
+            assert.equal(w.runner.state.capture.kind, "closing", "capture acknowledgement waits for feed and process exits");
         } finally {
             if (released) released();
             w.runner.close();
@@ -783,8 +828,6 @@ async function inside() {
             assert.ok(w.levels[1].at - w.levels[0].at >= 1000 / 30);
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     });
-    await control("armed-level", 'if (e.mode !== "armed") this.reportLevel(e.gen, "capture", pcm);',
-        'this.reportLevel(e.gen, "capture", pcm);', armedLevels);
     await control("env-scrub", "this.environment = {};", "this.environment = { ...environment };", async impl => {
         const w = setup(impl);
         try {
@@ -860,7 +903,7 @@ async function inside() {
     await control("default-offer", "if (read.microphones !== before.microphones) this.offers(this.devices);",
         "if (false) this.offers(this.devices);", defaultRemoval);
     await control("empty-read", 'text.trim() === "" ? [] : JSON.parse(text)', "JSON.parse(text)", defaultRemoval);
-    console.log("test-jarvis-audio: ok triggers=6 controls=" + controls);
+    console.log("test-jarvis-audio: ok triggers=5 controls=" + controls);
 }
 
 if (process.argv[2] !== "--inside") hungWorld();

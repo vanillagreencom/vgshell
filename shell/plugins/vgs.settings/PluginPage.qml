@@ -108,11 +108,14 @@ FocusScope {
         return Steps.featureRow(field, row).length > 0;
     }
     function placed(field) {
-        return !field.list && !(row.schema[field.key].shownWhen !== undefined && row.withheldFields.indexOf(field.key) !== -1)
+        return row.schema[field.key].underKey === undefined && !field.list && !(row.schema[field.key].shownWhen !== undefined && row.withheldFields.indexOf(field.key) !== -1)
             && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
     }
     function fieldRow(key) {
         return row === null ? null : row.fieldRows.find(field => field.key === key) || null;
+    }
+    function underKey(shortcut) {
+        return row === null ? [] : row.fieldRows.filter(field => row.schema[field.key].underKey === shortcut).map(field => field.key);
     }
     readonly property var fields: row === null ? [] : row.fieldRows.filter(field => field.section === "" && placed(field)).map(field => field.key)
     readonly property var sections: {
@@ -412,7 +415,7 @@ FocusScope {
         if (tab === "Settings" && key === "Keys") return keysDrawn ? "" : "undrawn";
         if (tab === "Settings") {
             const field = fieldRow(key);
-            return field === null ? "unknown" : field.list || placed(field) ? "" : "undrawn";
+            return field === null ? "unknown" : field.list || placed(field) || (row.schema[key].underKey !== undefined && row.withheldFields.indexOf(key) === -1) ? "" : "undrawn";
         }
         const entry = statusEntry(key);
         if (entry === null) return "unknown";
@@ -840,6 +843,15 @@ FocusScope {
                                 editable: page.editable
                                 capture: page.panel.capture
                                 edits: unsaved
+                                settingKeys: page.underKey(modelData.shortcut)
+                                schema: page.row === null ? ({}) : page.row.schema
+                                settings: page.row === null ? ({}) : page.row.settings
+                                withheldFields: page.row === null ? [] : page.row.withheldFields
+                                fieldProblems: page.row === null ? ({}) : page.row.fieldProblems
+                                settingDisabledReason: page.editable || page.row === null ? "" : "Turn on " + page.row.name + " to change this setting"
+                                onApplySetting: (key, value) => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, value); }
+                                onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                                onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                 onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
                                 onLineAsked: row => page.panel.openUserLine(row)
                                 onApplyKey: key => {

@@ -30,8 +30,8 @@ Item {
             screens: { current: null },
             status: { values: values },
             session: { locked: false },
-            settings: { mode: "hold", voiceProvider: "gemini", home: "" },
-            shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
+            settings: { holdToTalk: true, voiceProvider: "gemini", home: "" },
+            shortcut: { keys: { talk: "SUPER+code:44", "voice-mute": "SUPER+CTRL+M", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
             ipc: { handle: (name, fn) => {}, call: (name, arg) => "ok" },
             surfaces: { openPage: (page, tab) => {} }
         };
@@ -298,14 +298,11 @@ Item {
             verify(jarvisConsole.askRecoveryText.indexOf(ask.what) !== -1, jarvisConsole.askRecoveryText);
         }
 
-        // Real Session regions: mute and gate can refuse before duplex, and
-        // engine changes arrive while the same Console instance stays open.
+        // Gate and engine changes arrive while the same Console stays open.
         function test_composer_transition_data() {
             const typed = { engine: { kind: "chained" } };
             const speech = { engine: { kind: "duplex" } };
             const rows = [
-                { tag: "unmute-duplex", from: Object.assign({}, speech, { mute: { kind: "on" } }), to: speech, focus: "speechStop", expected: "speechStop" },
-                { tag: "mute-duplex", from: speech, to: Object.assign({}, speech, { mute: { kind: "on" } }), focus: "speechStop", expected: "speechStop" },
                 { tag: "ready-duplex", from: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), to: speech, focus: "speechStop", expected: "speechStop" },
                 { tag: "unready-duplex", from: speech, to: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), focus: "speechStop", expected: "speechStop" },
                 { tag: "dictation", from: typed, to: { engine: { kind: "dictation" } }, focus: "entry", expected: "entry" }
@@ -356,6 +353,34 @@ Item {
                 verify(!focused.activeFocus, "replaced control releases focus");
                 compare(expected.focusReason, Qt.TabFocusReason, "replacement keeps the keyboard reason");
             }
+        }
+
+        function test_system_mute_keeps_the_typed_composer_available() {
+            const values = root.values({ engine: { kind: "chained" } });
+            values.microphoneMute = { kind: "ready", muted: true };
+            jarvisConsole.shell = root.shellWith(values);
+            compare(jarvisConsole.ready, true);
+            compare(jarvisConsole.speechOnly, false);
+            const controls = composerControls();
+            verify(controls.entry.visible);
+            controls.entry.text = "Fixture message";
+            compare(controls.send.disabledReason, "", "system microphone mute cannot refuse typed input");
+        }
+
+        function test_cloud_voice_keeps_its_own_guidance_data() {
+            return [{ tag: "toggle", hold: false }, { tag: "hold", hold: true }];
+        }
+        function test_cloud_voice_keeps_its_own_guidance(data) {
+            const values = root.values({ engine: { kind: "duplex" } });
+            values.voiceRoute = { tone: "ok", text: "Fixture cloud voice" };
+            const shell = root.shellWith(values);
+            shell.settings.holdToTalk = data.hold;
+            jarvisConsole.shell = shell;
+            const controls = composerControls();
+            verify(controls.speechHint.visible);
+            verify(controls.speechHint.text.indexOf("Fixture cloud voice") !== -1, "Console retains its voice reading");
+            verify(controls.speechHint.text.indexOf(jarvisConsole.talkLine) !== -1, "Console retains the current Talk guidance");
+            verify(jarvisConsole.talkLine.indexOf("Super+J") !== -1);
         }
 
         function test_tabs_enter_visible_composer_data() {

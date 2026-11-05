@@ -1,1 +1,1 @@
-{"input": {"tts": "What is two plus five?"},"mode": "toggle","confirm": "none","heard": ["two|2","plus","five|5"],"tool": "none","said": ["seven|7"]}
+{"input": {"tts": "What is two plus five?"},"confirm": "none","heard": ["two|2","plus","five|5"],"tool": "none","said": ["seven|7"]}

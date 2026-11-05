@@ -1,1 +1,0 @@
-{"input":{"tts":"Hey Jarvis. What is the capital of France?"},"followUp":{"tts":"And what about Germany?"},"mode":"always","confirm":"none","heard":["germany"],"tool":"none","said":["berlin"]}

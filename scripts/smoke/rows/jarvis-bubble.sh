@@ -466,6 +466,13 @@ jarvis_bubble_click() { # LABEL
   click "$x" "$y" || fail "the labelled $1 button click is not delivered"
 }
 jarvis_bubble_begin() {
+  if [[ $(jarvis_key_state conversation) != ended ]]; then
+    jarvis_key_talk_up
+    [[ $(jarvis_key_state holdToTalk) != true ]] || jarvis_key_gate silent-capture
+    jarvis_key_tap
+    expect_poll "the prior conversation closes through Talk" ended jarvis_key_state conversation
+    rm -f -- "$jarvis_key_gates/silent-capture"
+  fi
   jarvis_key_talk_down
   expect_poll "capture waits for the bubble then listens" listening jarvis_key_state phase
   expect_poll "the listening bubble has presented on its own host" presented jarvis_bubble_state
@@ -689,25 +696,24 @@ expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble
 # A right click on the listening orb's centre opens the Jarvis menu at the
 # click, with the overlay's four entries; Escape closes it.
 right_click "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))" || fail "the right click on the listening orb is not delivered"
-expect_poll "a right click on the listening orb opens the Jarvis menu" "[\"Mute microphone\", \"Mute Jarvis's voice\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+expect_poll "a right click on the listening orb opens the Jarvis menu" "[\"Mute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
 type_keys -k Escape || fail "Escape on the Jarvis menu failed"
 expect_poll "Escape closes the Jarvis menu" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the Jarvis menu"
-expect "decorative clicks and the menu cannot mute" off jarvis_key_state mute
 expect "decorative clicks and the menu keep capture live" open jarvis_key_state capture
 jarvis_bubble_click "Stop Jarvis"
 jarvis_key_talk_up
 jarvis_key_stop_assertion
-expect_poll "Stop removes the idle bubble" 0 layer_count vgs:layer
+expect_poll "Stop keeps the open conversation visible" presented jarvis_bubble_state
 
 # The capture fake loses its device after opening, then holds the retry's
 # open callback. The real daemon/Session owns the fault and cancellation.
-for jarvis_bubble_stop_mode in hold toggle always; do
+for jarvis_bubble_hold in true false; do
   for jarvis_bubble_stop_trigger in button key ipc; do
-    jarvis_key_mode "$jarvis_bubble_stop_mode"
+    jarvis_key_hold "$jarvis_bubble_hold"
     jarvis_bubble_begin
     jarvis_key_gate device-lost
-    expect_poll "device loss enters retry before $jarvis_bubble_stop_trigger Stop in $jarvis_bubble_stop_mode" retrying jarvis_key_state fault
+    expect_poll "device loss enters retry before $jarvis_bubble_stop_trigger Stop in $jarvis_bubble_hold" retrying jarvis_key_state fault
     expect_poll "the retry card remains presented" presented jarvis_bubble_state
     case "$jarvis_bubble_stop_trigger" in
       button) jarvis_bubble_click "Stop Jarvis" ;;
@@ -715,7 +721,7 @@ for jarvis_bubble_stop_mode in hold toggle always; do
       ipc) expect "Stop IPC is accepted during retry" ok ipc vgs.jarvis invoke stop '' ;;
     esac
     jarvis_key_stop_assertion
-    expect_poll "Stop closes the retry card in $jarvis_bubble_stop_mode" 0 layer_count vgs:layer
+    expect_poll "Stop keeps the conversation after clearing retry in $jarvis_bubble_hold" presented jarvis_bubble_state
     expect "Stop clears the retry fault" none jarvis_key_state fault
     jarvis_key_gate device-back
     expect "a late device callback cannot reopen capture" closed jarvis_key_state capture
@@ -723,32 +729,13 @@ for jarvis_bubble_stop_mode in hold toggle always; do
     rm -f -- "$jarvis_key_gates/device-gone" "$jarvis_key_gates/device-back"
   done
 done
-jarvis_key_mode hold
-jarvis_bubble_begin
-# Capture's close waits for the close gate, so the bubble holds the
-# muting look, which the bubble selects itself, long enough to read it.
-jarvis_key_gate hold-close
-jarvis_bubble_click "Mute microphone"
-expect_poll "the Mute button waits for capture to close" muting jarvis_key_state mute
-expect_poll "a closing microphone draws the muting look" muting jarvis_bubble_look
-rest_pointer || fail "the pointer leaves the Mute button before the motion reading"
-expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
-expect_poll "the muting orb swaps frames" advancing jarvis_bubble_advancing
-jarvis_key_gate close
-rm -- "${jarvis_key_gates:?}/hold-close"
-expect_poll "the labelled Mute button turns privacy mute on" on jarvis_key_state mute
-expect_poll "the Mute button closes capture before hiding" closed jarvis_key_state capture
-jarvis_key_talk_up
-jarvis_key_mute
-expect_poll "explicit unmute does not restore capture" off jarvis_key_state mute
-expect "unmute still leaves no capture" closed jarvis_key_state capture
+jarvis_key_hold true
 # Voice mute stays on from here through the mutation controls, so Jarvis's
 # words draw; the words section turns it off and on again.
 jarvis_bubble_begin
 jarvis_bubble_click "Mute Jarvis's voice"
 expect_poll "the voice button mutes Jarvis's voice" on jarvis_key_state voiceMute
 expect_poll "the voice button names its next action" 1 jarvis_bubble_buttons "Unmute Jarvis's voice"
-expect "voice mute leaves the microphone on" off jarvis_key_state mute
 expect "voice mute keeps capture live" open jarvis_key_state capture
 jarvis_key_talk_up
 jarvis_key_stop
@@ -826,40 +813,25 @@ read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.
 # Jarvis's words take the pointer while they show in an active state: a
 # right click on them opens the Jarvis menu.
 hover "$words_x" "$words_y" && right_click "$words_x" "$words_y" || fail "the right click on Jarvis's words is not delivered"
-expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Mute microphone\", \"Unmute Jarvis's voice\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Unmute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
 type_keys -k Escape || fail "Escape on the Jarvis menu over the words failed"
 expect_poll "Escape closes the Jarvis menu over the words" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the words' menu"
-# Motion. Every state moves at its own rate; muting's reading is taken
-# while the Mute button's capture close is held, and the fault's look is
-# read again at motion scale 0, where it must stand still.
+# Motion uses the active reply, the open quiet conversation and a fault.
+# Motion scale 0 must still the same fault look.
 expect_poll "the reply speaks behind the played gate" speaking jarvis_key_state phase
 expect_poll "speaking draws its own look" speaking jarvis_bubble_look
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
 expect_poll "speaking swaps frames" advancing jarvis_bubble_advancing
-jarvis_bubble_rate="$(jarvis_bubble_look_value state.armed.frameRate)" || fail "the waiting look's frame rate is unreadable"
+jarvis_bubble_rate="$(jarvis_bubble_look_value state.idle.frameRate)" || fail "the waiting look's frame rate is unreadable"
 expect "control: speaking swaps faster than the waiting look's rate" unpaced jarvis_bubble_paced "$jarvis_bubble_rate"
 jarvis_key_stop
 jarvis_key_stop_assertion
-jarvis_key_mode always
-expect_poll "Always mode waits for the word" armed jarvis_key_state phase
-expect_poll "the waiting bubble has presented on its own host" presented jarvis_bubble_state
-expect_poll "waiting draws the armed look" armed jarvis_bubble_look
-expect "the waiting bubble shows no words" none jarvis_bubble_shown
-expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
-expect_poll "the waiting orb swaps frames" advancing jarvis_bubble_advancing
-expect "the waiting orb swaps at most its look's rate" paced jarvis_bubble_paced "$jarvis_bubble_rate"
-# Waiting for the word, the overlay takes no pointer on the orb and shows
-# no icon row.
-if waiting_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
-  read -r waiting_x waiting_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2), round(y+h/2))' "$waiting_box")
-  jarvis_bubble_pass "$waiting_x" "$waiting_y"
-  expect "the waiting overlay shows no icon row under the pointer" 0 jarvis_bubble_buttons "Stop Jarvis"
-else
-  fail "the waiting orb is unreadable: $waiting_box"
-fi
-jarvis_key_mode hold
-expect_poll "Hold mode ends the wait" 0 layer_count vgs:layer
+expect_poll "the open conversation keeps its bubble" presented jarvis_bubble_state
+expect_poll "the quiet conversation draws the idle look" idle jarvis_bubble_look
+expect "observe the quiet conversation's own window" ok ipc smoke watchLayerFrames vgs.jarvis
+expect_poll "the quiet orb swaps frames" advancing jarvis_bubble_advancing
+expect "the quiet orb swaps at most its look's rate" paced jarvis_bubble_paced "$jarvis_bubble_rate"
 jarvis_bubble_begin
 jarvis_key_gate device-lost
 expect_poll "device loss shows the fault" retrying jarvis_key_state fault
@@ -1018,12 +990,12 @@ needle,replacement={
     "lines": ("readonly property int window: look.words.lines", "readonly property int window: look.words.lines + 1"),
     "head": ("y: (root.window - 1 - index) * root.lineBox + root.lift", "y: index * root.lineBox + root.lift"),
     "generation": ("caption.gen === state.gen", "true"),
-    "look": ("readonly property var tone: look.state[phase]", "readonly property var tone: look.state.armed"),
+    "look": ("readonly property var tone: look.state[phase]", "readonly property var tone: look.state.idle"),
     "approval-key": ('() => confirmApproval(displayedApproval(), "key")', '() => {}'),
     "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
     "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
     "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;'),
-    "approval-caption": ('|| root.hold !== null || phase === "armed" ? ""', '|| phase === "armed" ? ""'),
+    "approval-caption": ('|| root.hold !== null ? ""', '? ""'),
     "approval-kind": ('id: "files.delete", args:', 'id: "files.read", args:'),
     "approval-path": ('path: "/home/fixture/draft.txt"', 'path: "/home/fixture/other.txt"'),
     "approval-role": ('variant: bare ? "ghost" : "secondary"', 'variant: bare ? "secondary" : "ghost"'),
@@ -1297,5 +1269,5 @@ cp -- "$jarvis_bubble_snapshots/engine" "$jarvis_bubble_engine"
 cp -- "$jarvis_bubble_snapshots/backend" "$jarvis_key_backend"
 jarvis_rescan
 jarvis_enable
-jarvis_key_mode hold
+jarvis_key_hold true
 jarvis_bubble_close_client

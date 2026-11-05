@@ -27,7 +27,7 @@ world(async () => {
         const audit = Audit.create({ state: directory, now: () => Date.UTC(2026, 9, 1) });
         const rows = () => fs.existsSync(path.join(directory, "audit/2026-10-01.jsonl"))
             ? fs.readFileSync(path.join(directory, "audit/2026-10-01.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [];
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => {
                 if (options.ackCancel !== false) done();
@@ -63,7 +63,7 @@ world(async () => {
             assert.ok(lease, "setup-verified browser registers its real executors");
             cleanups.push(() => lease.close());
         }
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", shown: true });
         function newTurn() { runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user"); }
         newTurn();

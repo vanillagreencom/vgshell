@@ -21,7 +21,7 @@ Item {
     id: root
 
     // A key of the look's `state` group.
-    property string phase: "armed"
+    property string phase: "idle"
     property real capture: 0
     property real playback: 0
     property bool active: false

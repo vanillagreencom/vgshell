@@ -6,6 +6,7 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
+import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's approval prompt and fault line as the overlay draws them: the
 // question and the fault's title in the shared bodyStrong role, the state
@@ -27,6 +28,7 @@ Item {
     QtObject {
         id: service
         property var sessionState: null
+        property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
         property var consoleBox: null
@@ -55,9 +57,7 @@ Item {
     }
 
     function session(over) {
-        const s = { gen: 1, check: { kind: "none" }, gate: { kind: "up" }, fault: { kind: "none" }, approval: { kind: "none" },
-            action: { kind: "none" }, playback: { kind: "none" }, speech: { kind: "none" }, turn: { kind: "none" },
-            capture: { kind: "closed" }, mute: { kind: "off" }, voiceMute: { kind: "off" }, engine: { kind: "chained" } };
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
         for (const key in over) s[key] = over[key];
         return s;
     }
@@ -148,7 +148,7 @@ Item {
             return [
                 { tag: "the approval question", state: root.held, text: "Delete draft.txt?", role: "bodyStrong" },
                 { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), title: true, role: "bodyStrong" },
-                { tag: "the state line", state: root.session({ capture: { kind: "open", mode: "armed" } }), text: "Say Hey Jarvis", role: "label" }
+                { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk", role: "label" }
             ];
         }
 
@@ -197,7 +197,7 @@ Item {
                 { tag: "the payload", state: root.write("p", 3), payload: true },
                 { tag: "Cancel", state: root.held, answer: "Cancel" },
                 { tag: "Confirm", state: root.held, answer: "Confirm" },
-                { tag: "the state line", state: root.session({ capture: { kind: "open", mode: "armed" } }), text: "Say Hey Jarvis" },
+                { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk" },
                 { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), title: true },
                 { tag: "the fault action", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), action: true }
             ];
@@ -250,8 +250,8 @@ Item {
             compare(String(labelOf("Use the button or key to confirm.").color), String(Qt.color(dark.ink.hint)));
             compare(String(answer("Cancel").foreground), String(Qt.color(dark.answer.bareInk)));
             compare(String(answer("Confirm").foreground), String(Qt.color(dark.answer.ink)));
-            put(root.session({ capture: { kind: "open", mode: "armed" } }));
-            compare(String(labelOf("Say Hey Jarvis").color), String(Qt.color(root.look.ink.state)));
+            put(root.session({ conversation: { kind: "active", purpose: "conversation" } }));
+            compare(String(labelOf("Ready to talk").color), String(Qt.color(root.look.ink.state)));
         }
 
         // On a layer narrower than the prompt's width the prompt reflows to

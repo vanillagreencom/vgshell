@@ -37,7 +37,7 @@ function service(source = serviceSource, values = {}, policy = publication) {
     // The Qt Timer surface the copied methods call: start, stop and restart.
     const timer = { start() {}, stop() {}, restart() {} };
     const root = { shell: { status, settings: { home: "" }, manifest: { ...manifest, __revision: "a".repeat(64) } },
-        selectedHome: "", lifetime: { kind: "ready", pendingMute: "none" }, cause: "", locked: false,
+        selectedHome: "", lifetime: { kind: "ready" }, cause: "", locked: false,
         child: { running: true }, childSerial: 1, retries: 0, outputTail: "", errorTail: "",
         helloDeadline: timer, stopDeadline: timer, startWait: timer, retry: { ...timer },
         cancelDictation() {}, shellStatus() { return true; }, publishDaemon() {}, publishSetup() { return true; },
@@ -247,7 +247,7 @@ function client(extra = {}) {
             assert.equal(h.sent.length, 1, "restart never replays an action");
             uncertain = connect();
             await uncertain.owner.setHome(uncertainHome);
-            h.root.lifetime = { kind: "ready", pendingMute: "none" };
+            h.root.lifetime = { kind: "ready" };
             h.root.cause = "";
             assert.equal(h.status.values.ownerAsks.kind, "unavailable");
             control("--mode", uncertainHome, "ready");

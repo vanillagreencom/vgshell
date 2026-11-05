@@ -151,7 +151,7 @@ Singleton {
             console.error("config: " + label + " does not parse: " + e.message);
             return { state: "unparseable" };
         }
-        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations) : { config: value, migrated: false };
+        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, shipped.conversationSettingsMigration) : { config: value, migrated: false };
         const result = moved.error ? { state: "malformed", error: moved.error } : ConfigLogic.configResult(moved.config);
         if (result.state !== "loaded") {
             console.error("config: " + label + " " + result.state + ": " + (result.state === "newer" ? "version=" + result.version + " supported=" + ConfigLogic.CONFIG_VERSION : result.error));

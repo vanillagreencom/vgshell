@@ -2,35 +2,10 @@
 .import qs.Commons 1.0 as Commons
 .import "SetupGate.js" as Gate
 
-// What the Jarvis bar widget shows, pure so scripts/test-jarvis-widget.js
-// runs it under node. This is the one judge from the service status values
-// (`daemon`, `detail`, `audio` and Setup steps), the spelled shortcut keys
-// and the talk mode to the widget state, icon, tone and tooltip. The state
-// table is closed: off, loading, ready, listening, working, speaking,
-// muted and problem. The first matching rule wins:
-//   listening  capture is not closed: an open microphone always shows
-//   problem    the daemon or audio report danger, or Session reads `error`
-//   loading    no Session state yet, or the gate is starting
-//   muted      privacy mute is on, or turning on
-//   off        a refused home folder needs a settings action
-//   loading    setup checks or local voice loads
-//   off        a gate reason or setup step needs an action before Jarvis can listen
-//   working    Jarvis thinks, waits for confirmation or runs a task
-//   speaking   playback is speaking
-//   ready      Session is idle
-// An offered setup step whose state names its own result, local voice
-// that timed out, keeps its setup title and shows its hint while Jarvis is
-// off; a ready Setup summary's caution shows under ready.
-// A tone is `calm` or a Theme.color state role, `neutral` being textMuted.
-// The Jarvis session's reading (`jarvisSession`, SetupGate.sessionRecord)
-// adds to the state's tooltip: since when it runs, each step of
-// a resume after a machine restart, and, once the service stopped reading
-// the steps still pending, when it read them last. While the Resume offer
-// stands, the tooltip names it first and `click` is "resume": a click
-// resumes. Else `click` is "console": a click opens the console, and the
-// Mute key and the right-click menu mute.
-// A value outside the shapes the service and Session.js produce throws a
-// keyed error; nothing falls back.
+// One state classification for the widget from the service and Session.
+// view() draws status and the existing recovery link. The console owns
+// its own information and does not read the bar tooltip.
+// Unsupported values refuse instead of manufacturing a ready state.
 
 var LOOKS = {
     "off": { icon: "vgs-letter-j", tone: "neutral" },
@@ -81,8 +56,7 @@ function keyRefusedText(voice) {
 // first turn (home=link, guidance=home-skills-too-large; a home text over
 // its budget is no fault) and Audio's capture and
 // playback failures (audio-start: ..., device-probe: ..., playback-busy),
-// and a cloud voice that never answered the captured audio (Realtime.js and
-// GeminiLive.js: live=input-silent, live=unheard).
+// and a cloud voice whose transport failed.
 // A model its app refused carries the model's name (ClaudeCode:
 // brain=harness-model-refused model=claude-fable-5-1), and a lost device
 // what was missing and what Audio's read held (device-lost target=...).
@@ -94,8 +68,6 @@ function modelFallbackNotice(choice, field) {
 }
 var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
-    [/^live=input-silent$/, "inputSilent"],
-    [/^live=unheard$/, "unheard"],
     [/^live=key-refused$/, "keyRefused"],
     [/^device-lost /, "device"],
     [/^(home=|guidance=home-)/, "home"],
@@ -132,12 +104,8 @@ var FAULT_TEXT = {
     "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
     "dictation": { title: "Dictation did not record", action: "Check dictation in [Settings > Voice](page:vgs.voice/Setup), then talk again." },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
-    // A voice that heard no speech in the captured audio ends the
-    // conversation; the next Talk press clears the fault.
-    "inputSilent": { title: "The microphone sent only silence", action: "Choose a working microphone in [Microphone](page:vgs.jarvis/Settings/microphone), then talk again." },
     // A cloud voice refused the key at its handshake; the next key clears it.
     "keyRefused": { title: "The voice service refused your key", action: KEY_REFUSED_ACTION },
-    "unheard": { title: "The voice service heard no words", action: "Talk again, closer to the microphone." },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
 // While Session retries a lost device, Jarvis acts by itself.
@@ -175,27 +143,12 @@ function report(name, value, tones) {
 // enabled or disabled, before the registry holds its binds.
 function spelledKeys(keys, caps) {
     var out = {};
-    var names = ["talk", "mute", "stop", "confirm", "console"];
+    var names = ["talk", "voice-mute", "stop", "confirm", "deny", "console"];
     for (var i = 0; i < names.length; i++) {
         var key = keys === null ? null : keys[names[i]];
         out[names[i]] = key === null || key === undefined ? null : caps(key).join("+");
     }
     return out;
-}
-
-function shortcutKeys(value) {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("keys", value);
-    var names = ["talk", "mute", "stop", "confirm", "console"];
-    for (var i = 0; i < names.length; i++) {
-        var name = names[i];
-        if (!hasOwn(value, name) || (value[name] !== null && typeof value[name] !== "string")) refuse("keys", value);
-    }
-    return value;
-}
-
-function talkMode(value) {
-    if (["hold", "toggle", "always"].indexOf(value) === -1) refuse("mode", value);
-    return value;
 }
 
 // Whether CAPTURE, Session's capture region, holds the microphone.
@@ -207,13 +160,13 @@ function microphoneOpen(capture) {
     }
 }
 
-// Whether MUTE, Session's mute region, is on or turning on.
-function muted(mute) {
-    switch (mute === null || typeof mute !== "object" ? undefined : mute.kind) {
-    case "off": return false;
-    case "muting": case "on": return true;
-    default: refuse("mute", mute);
-    }
+// The service's current system input reading. Absence is the initial
+// unpublished observation; an unbound or missing node stays unknown.
+function microphoneMuted(value) {
+    if (value === undefined) return null;
+    if (value !== null && value.kind === "unavailable") return null;
+    if (value === null || value.kind !== "ready" || typeof value.muted !== "boolean") refuse("microphoneMute", value);
+    return value.muted;
 }
 
 // Whether GATE, Session's gate region, is down.
@@ -304,15 +257,6 @@ function unconfiguredText(values) {
     return GATE_TEXT.unconfigured;
 }
 
-// The caution of a ready Setup summary: SetupGate gives a ready summary a
-// hint only for a cause that leaves Jarvis taking requests.
-function setupCaution(values) {
-    var setup = values.setup;
-    return !!setup && setup.tone === "ok" && typeof setup.hint === "string" ? setup.hint : null;
-}
-
-// Only the published Checking and Done steps can explain a closed gate
-// without asking the owner to change setup. Missing requirements stay off.
 function setupChecking(values) {
     var checking = false;
     for (var i = 0; i < SETUP_TEXT.length; i++) {
@@ -323,8 +267,6 @@ function setupChecking(values) {
     return checking;
 }
 
-// Voice loading is distinct from the unanswered initial setup check. The
-// ready AI step and the absence of setup actions identify the selected plan.
 function voiceLoading(values) {
     var voice = values.setupVoice;
     var model = values.setupModel;
@@ -332,261 +274,83 @@ function voiceLoading(values) {
         && !!model && model.tone === "ok" && !offered(model);
 }
 
-// The daemon has not answered for the voice: no status yet, Checking or
-// Loading. A ready voice's microphone check row is info too, and offers its
-// action.
-function voicePending(values) {
-    var voice = values.setupVoice;
-    return !voice || (voice.tone === "info" && !offered(voice));
-}
-
-function keySetting(name) {
-    return "Set " + name + " key in [Settings > Jarvis > Keys](page:vgs.jarvis/Settings/Keys).";
-}
-
-
-function stopAction(keys) {
-    return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";
-}
-
-function confirmAction(keys) {
-    return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys)."
-        : "Confirm on screen, or press " + keys.confirm + ".";
-}
-
-// The last tooltip line names what a click does, whatever state the icon
-// shows: it opens the console.
-function clickLine(keys) {
-    return keys.console === null ? "Click to open the console."
-        : "Click or press " + keys.console + " to open the console.";
-}
-
-// The muted state's line: the Mute key unmutes, as the right-click menu's
-// Turn on microphone does (menuEntries).
-function unmuteLine(keys) {
-    return keys.mute === null ? "Turn on the microphone from its right-click menu." : "Press " + keys.mute + " to unmute.";
-}
-
-// The Jarvis menu, which the overlay's right-click menu and the bar
-// widget's right-click menu both draw, in this order: each { label, icon }
-// and either `intent`, the intent the entry's key sends, which the bar
-// widget reaches through the service's IPC handler of the same name, or
-// `page` and `tab`, the Settings page reference it opens: Key hints opens
-// the Keys section of Jarvis's Settings tab. MIC_MUTED and VOICE_MUTED,
-// the microphone's and the voice's mute, name each toggle's next action.
-// Stop ends what Jarvis is doing, a held request included, as the Stop
-// key does. The overlay's icon row takes its labels from here too. Turn on
-// microphone draws Jarvis's own J: the microphone glyph is the Voice
-// widget's.
 function menuEntries(micMuted, voiceMuted) {
     return [
-        { label: micMuted ? "Turn on microphone" : "Mute microphone", icon: micMuted ? "vgs-letter-j" : "mic-off", intent: "mute" },
         { label: voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice", icon: voiceMuted ? "volume-2" : "volume-x", intent: "voice-mute" },
+        { label: micMuted === true ? "Unmute microphone" : "Mute microphone", icon: micMuted === true ? "mic-off" : "mic", intent: "microphone-mute",
+            disabledReason: micMuted === null ? "Connect a microphone or choose one in Sound" : "" },
         { label: "Stop Jarvis", icon: "square", intent: "stop" },
         { label: "Key hints", icon: "keyboard", page: "vgs.jarvis", tab: "Settings/Keys" }
     ];
 }
 
-// A tooltip line is a sentence: one taken from a status hint, which ends
-// with no full stop while it is one sentence, takes one here.
-function line(text) {
-    return /\.$/.test(text) ? text : text + ".";
-}
-
-function look(state, title, details, muteOn, keys) {
-    var out = LOOKS[state];
-    var lines = details.map(line);
-    lines.push(clickLine(keys));
-    return { state: state, icon: out.icon, tone: out.tone,
-        tooltip: title, tooltipDetails: lines };
-}
-
-function textLook(state, text, muteOn, keys) {
-    return look(state, text.title, [text.action], muteOn, keys);
-}
-
-// A report's lines hold its keyed cause for the Daemon row; the tooltip
-// says its title and hint.
-function reportLook(state, report, muteOn, keys) {
-    return look(state, report.text, [report.hint === undefined ? RESTART : report.hint], muteOn, keys);
-}
-
-// The Resume offer's words. A step's kind names it in the tooltip.
 var RESUME_TITLE = "Resume Jarvis from before the restart";
-var RESUME_CLICK = "Click to resume the Jarvis session, then the agent fleets and coding tasks it ran, one at a time.";
-var RESUME_UNLOCK = { "1password": "Resume asks you once to unlock 1Password first." };
-var STEP_NAMES = {
-    "delegate": function () { return "the Jarvis session"; },
-    "overseer": function (name) { return "the agent fleet for project " + name; },
-    "lane": function (name) { return "coding task " + name; }
-};
 
-// VALUE, the `jarvisSession` status, or null while the service has
-// published none.
-function sessionReading(value) {
-    if (value === undefined || value === null) return null;
-    var text = function (field) { return field === null || typeof field === "string"; };
-    if (typeof value !== "object" || !text(value.model) || !text(value.since) || !text(value.checkedAt) || !Array.isArray(value.steps)
-            || (value.offer !== null && (typeof value.offer !== "object" || (value.offer.unlock !== null && !hasOwn(RESUME_UNLOCK, value.offer.unlock)))))
-        refuse("jarvisSession", value);
-    for (var i = 0; i < value.steps.length; i++) {
-        var step = value.steps[i];
-        if (step === null || typeof step !== "object" || !hasOwn(STEP_NAMES, step.kind) || typeof step.name !== "string"
-                || ["pending", "resumed", "failed"].indexOf(step.outcome) === -1 || !text(step.cause))
-            refuse("jarvisSession", value);
+function look(state, title, action) {
+    var style = LOOKS[state];
+    var recovery = [];
+    if ((state === "problem" || state === "off") && typeof action === "string") {
+        var parsed = Commons.PageReference.references(action);
+        if (parsed.links.length > 0) {
+            var first = parsed.links[0];
+            recovery.push(parsed.text.slice(0, first.start) + first.reference + parsed.text.slice(first.end));
+        }
     }
-    return value;
+    return { state: state, icon: style.icon, tone: style.tone, tooltip: title, tooltipDetails: recovery };
 }
 
-// One tooltip line for STEP, a resume step.
-function stepLine(step) {
-    var name = STEP_NAMES[step.kind](step.name);
-    if (step.outcome === "pending") return "Waiting to resume " + name + ".";
-    if (step.outcome === "resumed") return "Resumed " + name + ".";
-    return "Could not resume " + name + (step.cause === null || step.cause === "" ? "." : ": " + line(step.cause));
-}
+function textLook(state, text) { return look(state, text.title, text.action); }
+function reportLook(state, value) { return look(state, value.text, value.hint === undefined ? RESTART : value.hint); }
 
-// The line in place of the pending steps once the service stopped reading
-// them at CHECKED_AT, "HH:MM". Opening the page reads the session again.
-function checkedLine(checkedAt) {
-    return "Jarvis stopped checking the resume at " + checkedAt + ". Open [Settings > Jarvis](page:vgs.jarvis/Details) to check it again.";
-}
-
-// What the Mute key does while a click resumes.
-function keyLine(muteOn, keys) {
-    var action = muteOn ? "unmute" : "mute";
-    return keys.mute === null ? "Set [Mute key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys) to " + action + "."
-        : "Press " + keys.mute + " to " + action + ".";
-}
-
-// LINES with their first reference alone kept as a link: every later
-// reference, on that line or another, draws its words alone, so a tooltip
-// offers one next action. A row that names several files links them on
-// its page (design-system.md, file references).
-function oneLink(lines) {
-    var linked = false;
-    return lines.map(function (text) {
-        var found = Commons.PageReference.references(text);
-        if (found.links.length === 0) return text;
-        if (linked) return found.text;
-        linked = true;
-        var first = found.links[0];
-        return found.text.slice(0, first.start) + first.reference + found.text.slice(first.end);
-    });
-}
-
-// The widget's { state, icon, tone, tooltip, tooltipDetails, click } for
-// VALUES, the plugin's status values, KEYS, the already-spelled effective
-// shortcut keys, MODE, the talk mode, and VOICE, the Voice provider setting
-// as AccountProviders.cloudVoice gives it. A key the service has not
-// published yet is undefined. A tooltip holds one link at most.
-function view(values, keys, mode, voice) {
-    var out = sessionView(values, keys, mode, voice);
-    out.tooltipDetails = oneLink(out.tooltipDetails);
+// One status reading for the bar. Key hints and the console's model and
+// voice information belong to their own views.
+function view(values, voice) {
+    var out = stateView(values, voice);
+    var detail = values.detail === undefined ? null : values.detail;
+    var state = detail === null ? null : detail.state;
+    var session = values.jarvisSession;
+    out.click = "console";
+    if (session !== undefined && session !== null) {
+        if (typeof session !== "object" || !hasOwn(session, "offer")
+                || session.offer !== null && (typeof session.offer !== "object" || Array.isArray(session.offer))) refuse("jarvisSession", session);
+        if (session.offer !== null) {
+            out.click = "resume";
+            out.tooltip = RESUME_TITLE;
+        }
+    }
+    var lines = [];
+    if (state !== null && state.voiceMute.kind === "on") lines.push("Jarvis's voice muted");
+    if (microphoneMuted(values.microphoneMute) === true && out.tooltip !== "Microphone muted") lines.push("Microphone muted");
+    out.tooltipDetails = lines.concat(out.tooltipDetails);
     return out;
 }
 
-// The state's look with the Jarvis session's reading.
-function sessionView(values, keys, mode, voice) {
-    var base = stateView(values, keys, mode, voice);
-    var session = sessionReading(values.jarvisSession);
-    var out = { state: base.state, icon: base.icon, tone: base.tone, tooltip: base.tooltip,
-        tooltipDetails: base.tooltipDetails, click: "console" };
-    if (session === null) return out;
-    // The state's last line names what a click does (clickLine).
-    var details = base.tooltipDetails.slice(0, -1);
-    if (session.offer !== null) {
-        var detail = values.detail === undefined ? null : values.detail;
-        var muteOn = detail !== null && muted(detail.state.mute);
-        out.tooltip = RESUME_TITLE;
-        out.tooltipDetails = [RESUME_CLICK].concat(session.offer.unlock === null ? [] : [RESUME_UNLOCK[session.offer.unlock]],
-            [line(base.tooltip)], details, [keyLine(muteOn, shortcutKeys(keys))]);
-        out.click = "resume";
-        return out;
-    }
-    var running = [];
-    if (session.since !== null) running.push("Jarvis session running since " + session.since + ".");
-    out.tooltipDetails = details.concat(running, session.steps.map(stepLine), session.checkedAt === null ? [] : [checkedLine(session.checkedAt)],
-        base.tooltipDetails.slice(-1));
-    return out;
-}
-
-// The state's look, without the Jarvis session's reading.
-function stateView(values, keys, mode, voice) {
-    var effectiveKeys = shortcutKeys(keys);
-    var effectiveMode = talkMode(mode);
+function stateView(values, voice) {
     var daemon = report("daemon", values.daemon, DAEMON_TONES);
     var audio = report("audio", values.audio, AUDIO_TONES);
     var detail = values.detail === undefined ? null : values.detail;
     if (detail !== null && (typeof detail !== "object" || typeof detail.phase !== "string"
-            || detail.state === null || typeof detail.state !== "object"
-            || (detail.brain !== undefined && typeof detail.brain !== "string")))
-        refuse("detail", detail);
+            || detail.state === null || typeof detail.state !== "object")) refuse("detail", detail);
     var state = detail === null ? null : detail.state;
-    var brain = detail === null || detail.brain === undefined ? "" : detail.brain;
-    // The AI model, then the voice, each a line of its own after the state's
-    // first line, which says what to do.
-    var route = values.voiceRoute === undefined || values.voiceRoute === null ? "" : values.voiceRoute.text;
-    function withBrain(value) {
-        var facts = (brain === "" ? [] : ["AI model: " + brain]).concat(route === "" ? [] : ["Voice: " + route]);
-        if (facts.length === 0) return value;
-        var details = value.tooltipDetails;
-        return { state: value.state, icon: value.icon, tone: value.tone, tooltip: value.tooltip,
-            tooltipDetails: details.slice(0, 1).concat(facts, details.slice(1)) };
-    }
-    var muteOn = state !== null && muted(state.mute);
-    // The wake-word capture, from its opening: Session's phase reads armed
-    // only once it is open.
-    var armed = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.mode === "armed"
-        && (state.capture.kind === "opening" || (state.capture.kind === "open" && detail.phase === "armed"));
-    var followUp = state !== null && state.capture !== null && typeof state.capture === "object" && state.capture.mode === "follow-up"
-        && (state.capture.kind === "opening" || state.capture.kind === "open");
-    // The local sidecar drops every wake frame until its voice is ready, so
-    // an armed capture over a pending voice reads loading below.
-    var tapped = state !== null && state.input !== undefined && state.input !== null && state.input.kind === "tapped";
-    if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture)) return withBrain(look("listening",
-        armed ? "Jarvis is listening for Hey Jarvis" : followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening",
-        [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed."
-            : tapped && effectiveKeys.talk !== null ? "Speak now. Tap " + effectiveKeys.talk + " again to stop." : "Speak now."], muteOn, effectiveKeys));
-    if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
-    if (daemon !== null && daemon.tone === "warning" && daemon.hint !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
-    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind, voice), muteOn, effectiveKeys));
-    if (audio !== null && audio.tone === "danger") return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys));
-    if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);
+    var micMuted = microphoneMuted(values.microphoneMute) === true;
+    if (state !== null && microphoneOpen(state.capture)) return look(micMuted ? "muted" : "listening", micMuted ? "Microphone muted" : "Jarvis is listening");
+    if (daemon !== null && (daemon.tone === "danger" || daemon.tone === "warning" && daemon.hint !== undefined)) return reportLook("problem", daemon);
+    if (detail !== null && detail.phase === "error") return textLook("problem", faultText(state.fault, state.engine.kind, voice));
+    if (audio !== null && audio.tone === "danger") return textLook("problem", AUDIO_TEXT);
+    if (state === null) return textLook("loading", GATE_TEXT.starting);
     var down = gateDown(state.gate);
-    if (down && state.gate.reason === "starting") return withBrain(textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys));
-    if (muteOn) return withBrain(look("muted", "Jarvis is muted", [unmuteLine(effectiveKeys)], muteOn, effectiveKeys));
-    // No voice or setup state reads over a home folder the daemon refuses.
-    if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return withBrain(textLook("off", homeText(values), muteOn, effectiveKeys));
-    if (down && state.gate.reason === "unconfigured" && setupChecking(values))
-        return withBrain(look("loading", "Jarvis is checking setup", ["Wait for the check to finish."], muteOn, effectiveKeys));
-    if ((!down || state.gate.reason === "unconfigured") && (armed || voiceLoading(values)))
-        return withBrain(values.setupVoice && values.setupVoice.text === Gate.SETTING_UP.text
-            ? look("loading", "Jarvis is setting up its local voice", ["Wait for the setup to finish."], muteOn, effectiveKeys)
-            : look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));
-    // A cloud voice that refused its key is a problem to fix, not a step.
-    if (down && state.gate.reason === "unconfigured" && values.setupVoice && values.setupVoice.text === Gate.KEY_REFUSED)
-        return withBrain(textLook("problem", keyRefusedText(voice), muteOn, effectiveKeys));
-    if (down) return withBrain(textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn, effectiveKeys));
+    if (down && state.gate.reason === "starting") return textLook("loading", GATE_TEXT.starting);
+    if (micMuted) return look("muted", "Microphone muted");
+    if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return textLook("off", homeText(values));
+    if (down && state.gate.reason === "unconfigured" && setupChecking(values)) return look("loading", "Jarvis is checking setup");
+    if ((!down || state.gate.reason === "unconfigured") && voiceLoading(values)) return look("loading",
+        values.setupVoice && values.setupVoice.text === Gate.SETTING_UP.text ? "Jarvis is setting up its local voice" : "Jarvis is loading its voice");
+    if (down && state.gate.reason === "unconfigured" && values.setupVoice && values.setupVoice.text === Gate.KEY_REFUSED) return textLook("problem", keyRefusedText(voice));
+    if (down) return textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]);
     switch (detail.phase) {
-    case "thinking":
-        return withBrain(look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys));
-    case "confirming":
-        return withBrain(look("working", WORK_TEXT[detail.phase], [confirmAction(effectiveKeys)], muteOn, effectiveKeys));
-    case "acting":
-        return withBrain(look("working", WORK_TEXT[detail.phase], [stopAction(effectiveKeys)], muteOn, effectiveKeys));
-    case "speaking":
-        return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));
-    case "idle":
-        var hint = setupCaution(values);
-        var ready = withBrain(look("ready", "Ready to talk", [Gate.talkHint(effectiveMode, effectiveKeys.talk) + "."], muteOn, effectiveKeys));
-        // A caution, such as a Jarvis session that cannot start, stands
-        // before the click line: one fact, one link.
-        if (hint !== null) ready.tooltipDetails = ready.tooltipDetails.slice(0, -1).concat([line(hint)], ready.tooltipDetails.slice(-1));
-        return ready;
-    default:
-        // Listening and armed hold capture open, which reads listening above;
-        // down holds the gate down.
-        refuse("phase", detail.phase);
+    case "thinking": case "confirming": case "acting": return look("working", WORK_TEXT[detail.phase]);
+    case "speaking": return look("speaking", "Jarvis is speaking");
+    case "idle": return look("ready", state.conversation.kind === "ended" ? "Conversation closed" : "Conversation open");
+    default: refuse("phase", detail.phase);
     }
 }

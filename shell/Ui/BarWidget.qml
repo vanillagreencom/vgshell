@@ -279,6 +279,7 @@ Item {
                         required property int index
                         text: modelData.label
                         iconName: modelData.icon
+                        disabledReason: modelData.disabledReason || ""
                         // Read from the list itself: a model entry is a copy
                         // that need not keep the function.
                         onTriggered: root.frameActions[index].action()

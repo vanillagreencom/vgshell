@@ -226,7 +226,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             }
 
             world = make({});
-            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, childSerial: 0, lifetime: { kind: "retry", pendingMute: "none" },
+            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, childSerial: 0, lifetime: { kind: "retry" },
                 child: { running: false }, Conversation: load(path.join(JARVIS, "Conversation.js")),
                 publishHomes: () => true, publishInput: () => true, publishSetup: () => true, shellStatus: () => true, publish: () => true },
             sources.Service, ["start"]);
@@ -238,7 +238,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             world = make({});
             let retried = 0;
             const stoppedTimer = { stop: () => {} };
-            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, lifetime: { kind: "ready", pendingMute: "none" },
+            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, lifetime: { kind: "ready" },
                 cause: "", outputTail: "", errorTail: "", retries: 0,
                 helloDeadline: stoppedTimer, stopDeadline: stoppedTimer, startWait: stoppedTimer,
                 cancelDictation: () => {}, publishPreview: () => {}, shellStatus: () => {},
@@ -267,7 +267,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["audit-failures", { rows: [] }, ["request"]],
                 ["level", { level: { capture: 0, playback: 0 } }, ["request"]],
                 ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1 }, ["request"]],
-                ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["mute", "request"]],
+                ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["request"]],
                 ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "main-host", "request"]]
             ]) {
                 world = make({});
@@ -275,12 +275,12 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 const events = [], broken = [], queue = [];
                 root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
                     Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "", childSerial: 1,
-                    lifetime: { kind: "starting", pendingMute: "none" }, sessionState: protocol.Session.initial(),
+                    lifetime: { kind: "starting" }, sessionState: protocol.Session.initial(),
                     setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },
                     voiceProvider: world.shell.settings.voiceProvider, accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
-                    deliverMute: () => events.push("mute"), sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
+                    sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
                     deliverMainHost: () => events.push("main-host"),
                     helloDeadline: { stop: () => {} }, indicatorPresented: false, sendIndicator: () => {},
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },

@@ -45,7 +45,6 @@ Item {
         // frames a second it draws, 0 for every frame the screen draws.
         function test_each_state_moves_at_its_base_rate_data() {
             return [
-                { tag: "armed", phase: "armed", flow: 0.05, quarterTurn: 9000, frameRate: 30 },
                 { tag: "idle", phase: "idle", flow: 0.04, quarterTurn: 10000, frameRate: 30 },
                 { tag: "muting", phase: "muting", flow: 0.03, quarterTurn: 10000, frameRate: 30 },
                 { tag: "stopping", phase: "down", flow: 0.03, quarterTurn: 10000, frameRate: 0 },
@@ -91,7 +90,7 @@ Item {
         // A state that can show all day draws at most its look's rate,
         // while the frames run faster than that; it still moves.
         function test_a_paced_state_draws_at_most_its_rate_data() {
-            return ["armed", "idle", "muting", "error"].map(phase => ({ tag: phase, phase: phase }));
+            return ["idle", "muting", "error"].map(phase => ({ tag: phase, phase: phase }));
         }
 
         function test_a_paced_state_draws_at_most_its_rate(data) {
@@ -119,7 +118,7 @@ Item {
         // above 0 and advance the field, and stop at 0.
         function test_every_state_runs_its_driver_data() {
             const out = [];
-            for (const phase of ["armed", "idle", "muting", "down", "listening", "thinking", "acting", "speaking", "confirming", "error"]) {
+            for (const phase of ["idle", "muting", "down", "listening", "thinking", "acting", "speaking", "confirming", "error"]) {
                 out.push({ tag: phase, phase: phase, scale: 1, runs: true });
                 out.push({ tag: phase + " at motion scale 0", phase: phase, scale: 0, runs: false });
             }
@@ -158,7 +157,7 @@ Item {
             return [
                 { tag: "listening to a voice", phase: "listening", capture: 0.3, target: 0.3 },
                 { tag: "speaking", phase: "speaking", playback: 0.3, target: 0.3 },
-                { tag: "a level the look does not read", phase: "armed", capture: 0.5, playback: 0.5, target: 0 }
+                { tag: "a level the look does not read", phase: "idle", capture: 0.5, playback: 0.5, target: 0 }
             ];
         }
 

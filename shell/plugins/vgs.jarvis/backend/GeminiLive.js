@@ -17,7 +17,7 @@ const Providers = require("./Providers.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
-const { sourceLimit, peak, SILENT_PEAK, PCM_RATE } = require("./Audio.js");
+const { sourceLimit, PCM_RATE } = require("./Audio.js");
 
 // The Live API hears 16 kHz PCM and speaks 24 kHz PCM (capabilities guide).
 // Audio captures and plays at PCM_RATE, so speech plays as it comes and the
@@ -26,19 +26,10 @@ const OUTPUT_RATE = 24000;
 const INPUT_MIME = "audio/pcm;rate=16000";
 if (PCM_RATE !== OUTPUT_RATE) throw new Error("jarvis: live=audio-rate");
 // Recovery bounds and grouping rules, not measured latency budgets.
-const IDLE_MS = 60000;            // plan § 3.5
 const START_WAIT_MS = 20000;      // connect, open and setupComplete
 const RESPONSE_WAIT_MS = 30000;   // asked words, or words held for the voice's own turn, to that turn's turnComplete
-// The first captured frame of a running session to the voice's first heard
-// words: an interim or a final input transcription that holds any. The
-// reference sends inputTranscription independently of the other messages,
-// with no guaranteed order, so a long request's words can come late; its
-// voiceActivity start pauses the bound and its end runs the bound again from
-// there. This leaves a user room to start talking.
-const UNHEARD_MS = 15000;
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
-const SILENCE_TICK_MS = 100;
-const SILENCE_MAX_MS = 1000;      // no catch-up past this after a stalled event loop
+const PUMP_MS = 100;
 const PENDING_BYTES = PCM_RATE * 2 * START_WAIT_MS / 1000;  // queued input, opening words included
 const APPEND_BYTES = PCM_RATE * 2;
 const SEND_BACKLOG_BYTES = 256 * 1024;
@@ -263,74 +254,62 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     // setupComplete, and new input waits behind queued input. Returns
     // false once the session has failed.
     function input(session, pcm) {
-        if (session.state.kind === "running" && session.pending.length === 0) return append(session, pcm);
+        if (session.state.kind === "running" && session.pending.length === 0 && session.channel.bufferedAmount === 0) return append(session, pcm);
         session.pendingBytes += pcm.length;
         if (session.pendingBytes > PENDING_BYTES) { failed(session, "live=input-overflow"); return false; }
         session.pending.push(Buffer.from(pcm));
         return pump(session);
     }
-    // Queued input leaves one APPEND_BYTES chunk at a time, each once the
-    // socket has written everything before it, so a long opening never meets
-    // the send backlog. New input and silence ticks drain it.
+    // One FIFO holds PCM and native turn boundaries, so an end can never
+    // overtake audio still waiting for connection or socket backpressure.
     function pump(session) {
         while (session.state.kind === "running" && session.pending.length > 0 && session.channel.bufferedAmount === 0) {
-            const queued = Buffer.concat(session.pending);
+            const queued = session.pending[0];
+            if (!Buffer.isBuffer(queued)) {
+                session.pending.shift();
+                try {
+                    if (queued.start) {
+                        // Automatic transcription can finish before the local
+                        // hangover ends, so bind its result before sending PCM.
+                        if (session.commits.length >= 128) fail("input-results-overflow");
+                        session.commits.push(queued.capture);
+                    } else {
+                        send(session, { realtimeInput: { audioStreamEnd: true } });
+                        session.carry = Buffer.alloc(0);
+                    }
+                } catch (error) { failed(session, reasonOf(error)); return false; }
+                continue;
+            }
             const pcm = queued.subarray(0, APPEND_BYTES);
-            session.pending = queued.length > pcm.length ? [queued.subarray(pcm.length)] : [];
-            session.pendingBytes = queued.length - pcm.length;
+            if (pcm.length === queued.length) session.pending.shift();
+            else session.pending[0] = queued.subarray(pcm.length);
+            session.pendingBytes -= pcm.length;
             if (!append(session, pcm)) return false;
         }
+        if (session.pending.length !== 0) progress(session);
         return true;
     }
-    // The provider ends a user turn when its voice activity detection hears
-    // the speech end. While no microphone feeds it, silence gives it that end.
-    function silence(session) {
-        session.timers.silence = clock.set(() => {
-            session.timers.silence = null;
+    // Drain bounded socket backpressure without generating microphone audio.
+    // No periodic wake remains once the pending input and speech drain.
+    function progress(session) {
+        if (session.timers.pump !== null || session.state.kind === "ended") return;
+        session.timers.pump = clock.set(() => {
+            session.timers.pump = null;
             if (!pump(session) || !speak(session)) return;
-            if (session.capture === null) {
-                const now = clock.now();
-                const samples = Math.floor(Math.min(now - session.inputAt, SILENCE_MAX_MS) * PCM_RATE / 1000);
-                session.inputAt = now;
-                if (samples > 0 && !input(session, Buffer.alloc(samples * 2))) return;
-            }
-            silence(session);
-        }, SILENCE_TICK_MS);
+            if (session.pending.length !== 0 || session.speech.queue.length !== 0) progress(session);
+        }, PUMP_MS);
     }
-    function activity(session) {
-        if (session.state.kind !== "running") return;
-        clear(session, "idle");
-        session.timers.idle = clock.set(() => {
-            session.timers.idle = null;
-            // Words and their audio hold the session: a turn's end and a
-            // reply's close each restart this wait.
-            if (session.playing !== null || session.next !== null || !quiet(session)) return;
-            session.events.idle();
-            // Session leaves a turn in flight to its own deadline and keeps
-            // this session open; the wait then runs again.
-            activity(session);
-        }, IDLE_MS);
+    function inputResult(session, capture, text) {
+        if (capture === undefined || capture === null) return;
+        capture.pending--;
+        capture.words ||= text.trim() !== "";
+        reportInput(session, capture);
     }
-    // Captured audio the voice never answers ends the conversation at
-    // UNHEARD_MS with the cause its frames' peak names, rather than at the
-    // idle wait with no cause. The user's voice activity pauses the watch and
-    // its end runs it again; the first heard words end it for the session's
-    // life: a quiet answered conversation ends at idle.
-    function watch(session) {
-        if (session.answered || session.talking || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
-        session.timers.unheard = clock.set(() => {
-            session.timers.unheard = null;
-            failed(session, session.peak <= SILENT_PEAK ? "live=input-silent" : "live=unheard");
-        }, UNHEARD_MS);
-    }
-    function answered(session) {
-        session.answered = true;
-        clear(session, "unheard");
-    }
-    function talking(session, value) {
-        session.talking = value;
-        if (value) clear(session, "unheard");
-        else watch(session);
+    function reportInput(session, capture) {
+        if (capture.discarded || capture.reported || !capture.committed
+                || !capture.words && (!capture.closed || capture.pending !== 0)) return;
+        capture.reported = true;
+        session.events.inputEnded({ capture: capture.op, empty: !capture.words });
     }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
     function replyPending(session) {
@@ -442,7 +421,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     // (speak) until a turnComplete arrives while none are asked for, that
     // turn's end.
     function hearing(session, text) {
-        activity(session);
+
         conclude(session, "assistant");
         if (session.turn === null) {
             session.turn = { id: "turn-" + ++session.turns, text: "", delegated: false };
@@ -452,7 +431,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (turn.text.length + text.length > TURN_CHARS) fail("turn-size");
         turn.text += text;
         caption(session, "user", text);
-        if (text.trim() !== "") answered(session);
+
     }
     // The user's words go to the brain once.
     function delegate(session) {
@@ -478,14 +457,18 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     // can end the session, as a brain that fails at once does.
     function content(session, event) {
         const active = session.speech.active;
-        // Interim words show the user was heard; the final ones carry the turn.
-        if (event.interim.trim() !== "") {
-            activity(session);
-            answered(session);
+        const currentInput = session.commits[0];
+        const discarded = currentInput === undefined || currentInput.discarded;
+        if (!discarded && event.heard !== "") {
+            if (session.inputText.length + event.heard.length > TURN_CHARS) fail("turn-size");
+            session.inputText += event.heard;
+            hearing(session, event.heard);
         }
-        if (event.heard !== "") hearing(session, event.heard);
         if (event.finished) {
-            delegate(session);
+            const capture = session.commits.shift();
+            inputResult(session, capture, session.inputText);
+            session.inputText = "";
+            if (!discarded) delegate(session);
             if (session.state.kind === "ended") return;
         }
         if (event.model) {
@@ -522,7 +505,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             session.speech.active = null;
             clear(session, "words");
         }
-        activity(session);
+
         if (speak(session)) settle(session);
     }
     function receive(session, data) {
@@ -537,11 +520,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (kind !== "starting") fail("event-order");
                 clear(session, "start");
                 session.state = { kind: "running" };
-                session.inputAt = clock.now();
+
                 if (!pump(session)) return;
-                silence(session);
-                activity(session);
-                watch(session);
+
                 if (session.preview !== null) {
                     session.delegation = PREVIEW;
                     commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));
@@ -550,11 +531,6 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             case "content": content(session, event); break;
             case "ignored": break;
             default: throw new Error("jarvis: live=event-kind");
-            }
-            // After the kind, so words in the same message end the watch first.
-            if (event.voice !== null && session.state.kind === "running") {
-                if (event.voice === "start") activity(session);
-                talking(session, event.voice === "start");
             }
         } catch (error) { failed(session, reasonOf(error)); }
     }
@@ -631,9 +607,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, setup: null, reader: "",
-                timers: { start: null, silence: null, idle: null, gap: null, words: null, hold: null, preview: null, unheard: null },
-                pending: [], pendingBytes: 0, carry: Buffer.alloc(0), inbox: [], reading: false, inputAt: clock.now(), capture: null,
-                captured: false, peak: 0, answered: false, talking: false,
+                timers: { start: null, pump: null, gap: null, words: null, hold: null, preview: null },
+                pending: [], pendingBytes: 0, carry: Buffer.alloc(0), inbox: [], reading: false, capture: null,
+                commits: [], inputText: "",
                 playing: null, next: null, speech: { queue: [], chars: 0, active: null }, hold: false, turn: null, turns: 0,
                 delegation: null, said: [], taken: null, segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;
@@ -658,6 +634,12 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         flush(e) {
             const session = live;
             if (session === null || session.op !== e.target) return;
+            for (const capture of session.commits) capture.discarded = true;
+            if (session.capture !== null) session.capture.inputRecord.discarded = true;
+            session.pending = [];
+            session.pendingBytes = 0;
+            session.inputText = "";
+            session.turn = null;
             session.delegation = null;
             conclude(session, "assistant");
             session.speech.queue = [];
@@ -669,7 +651,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             // Audio's flush releases the reply it holds.
             session.playing = null;
             session.taken = null;
-            activity(session);
+
         }
     };
 
@@ -702,34 +684,47 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         // shows the reply as due. A waiting or open reply carries them.
         if (session.next === null && !(session.playing !== null && session.playing.kind === "open")) session.events.due(true);
         speak(session);
+        if (session.speech.queue.length !== 0) progress(session);
         return true;
     }
 
-    function captureSink() {
+    function captureSink(e) {
         const session = live;
         if (session === null) return null;
+        const capture = { op: e.op, bytes: 0, committed: false, pending: 0,
+            closed: false, words: false, reported: false, discarded: false };
         const sink = new Writable({
             write(pcm, encoding, done) {
-                done();
-                // Frames in flight after the session ended; Session closes capture.
-                if (session.capture !== sink || session.state.kind === "ended") return;
-                if (pcm.length % 2 !== 0) { failed(session, "live=input-frame"); return; }
-                session.inputAt = clock.now();
-                // Only the loudest sample is kept, for the cause; no audio is.
-                if (!session.answered) {
-                    session.captured = true;
-                    session.peak = Math.max(session.peak, peak(pcm));
+                if (session.capture !== sink || session.state.kind === "ended") { done(); return; }
+                if (pcm.length % 2 !== 0) { done(new Error("jarvis: live=input-frame")); return; }
+                if (capture.bytes === 0 && pcm.length !== 0) {
+                    capture.pending++;
+                    session.pending.push({ start: true, capture });
                 }
-                if (input(session, pcm)) watch(session);
+                capture.bytes += pcm.length;
+                input(session, pcm);
+                done();
             }
         });
+        sink.inputRecord = capture;
+        // Audio calls this only when its level gate closes. A true answer
+        // records a native boundary queued locally, not provider acceptance
+        // or recognized words. Native results retain the capture identity.
+        sink.endInput = () => {
+            if (session.state.kind === "ended" || capture.discarded || capture.bytes === 0) return false;
+            capture.bytes = 0;
+            capture.committed = true;
+            session.pending.push({ capture });
+            pump(session);
+            reportInput(session, capture);
+            return true;
+        };
         session.capture = sink;
         sink.once("close", () => {
-            if (session.capture !== sink) return;
-            session.capture = null;
-            session.inputAt = clock.now();
+            capture.closed = true;
+            reportInput(session, capture);
+            if (session.capture === sink) session.capture = null;
         });
-        activity(session);
         return sink;
     }
 
@@ -744,7 +739,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             if (session.playing !== reply) return;
             session.playing = null;
             clear(session, "gap");
-            activity(session);
+
         });
         settle(session);
         // A preview's words are no reply, so voice mute leaves them audible.

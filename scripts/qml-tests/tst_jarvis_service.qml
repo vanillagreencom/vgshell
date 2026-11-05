@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell.Services.Pipewire
 import Quickshell.Io
 import "../../shell/plugins/vgs.jarvis"
 
@@ -9,9 +10,58 @@ import "../../shell/plugins/vgs.jarvis"
 // Quickshell.env answers "env:NAME", so each value also names its source.
 Item {
     Service { id: service }
+    QtObject {
+        id: firstSource
+        property bool ready: true
+        property QtObject audio: QtObject { property bool muted: false }
+    }
+    QtObject {
+        id: secondSource
+        property bool ready: true
+        property QtObject audio: QtObject { property bool muted: true }
+    }
+
+    QtObject {
+        id: nonAudioSource
+        property bool ready: true
+        property var audio: null
+    }
 
     TestCase {
         name: "jarvisService"
+
+        function init() {
+            Pipewire.ready = false;
+            Pipewire.defaultAudioSource = null;
+            firstSource.ready = true;
+            firstSource.audio.muted = false;
+            secondSource.ready = true;
+            if (secondSource.audio !== null) secondSource.audio.muted = true;
+        }
+
+        function test_default_microphone_observation_and_toggle() {
+            compare(service.microphoneMute.kind, "unavailable");
+            compare(service.toggleMicrophoneMute(), "refused: microphone=unavailable");
+            Pipewire.defaultAudioSource = firstSource;
+            compare(service.microphoneMute.kind, "unavailable", "an unsynced PipeWire server gives no mute reading");
+            Pipewire.ready = true;
+            compare(service.microphoneMute.kind, "ready");
+            compare(service.microphoneMute.muted, false);
+            firstSource.audio.muted = true;
+            compare(service.microphoneMute.muted, true, "external mute follows the source");
+            Pipewire.defaultAudioSource = secondSource;
+            compare(service.microphoneSource, secondSource);
+            compare(service.toggleMicrophoneMute(), "ok");
+            compare(secondSource.audio.muted, false, "toggle acts on the new default");
+            compare(firstSource.audio.muted, true, "toggle leaves the former default alone");
+            secondSource.ready = false;
+            compare(service.microphoneMute.kind, "unavailable", "a source still syncing stays unknown");
+            compare(service.toggleMicrophoneMute(), "refused: microphone=unavailable");
+            Pipewire.defaultAudioSource = nonAudioSource;
+            compare(service.microphoneMute.kind, "unavailable", "a source without an audio interface stays unknown");
+            Pipewire.defaultAudioSource = null;
+            compare(service.microphoneMute.kind, "unavailable", "a missing default stays unknown");
+        }
 
         function daemonProcess() {
             const found = ProcessRegistry.processes.filter(process =>

@@ -350,7 +350,6 @@ jarvis_disable
 cp -- "$sandbox/jarvis-desktop-engine-before" "$jd_engine"
 rm -- "$jd_standin" "$jd_entry" "$shim/hyprctl.jarvis-noop" "$jd_dir/backend/desktop-driver-fixture.js" "$jd_dir/backend/scripted-fixture.js"
 cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
-rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"
 [[ $jd_audit_before == true ]] || rm -rf -- "${jd_audit:?}"
 jarvis_rescan
 jarvis_notice_close

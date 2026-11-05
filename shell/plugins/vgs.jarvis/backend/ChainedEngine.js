@@ -68,7 +68,7 @@ const RELEASE_EFFECT = "external";
 // The cause a failed duplex stream's closing release row keeps, by the
 // adapters' keyed fault (Realtime.js, GeminiLive.js); any other fault keeps
 // voice-stopped. Audit.js refuses any other cause.
-const STREAM_CAUSES = Object.freeze({ "live=input-silent": "input-silent", "live=unheard": "unheard", "live=key-refused": "key-refused" });
+const STREAM_CAUSES = Object.freeze({ "live=key-refused": "key-refused" });
 // One local working sound for a still-silent turn, without a speech request.
 const WORKING_AFTER_MS = 1200;
 // Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
@@ -202,7 +202,7 @@ function signal() {
  * refused is the identity of the cloud voice key its provider refused, or null.
  */
 function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false }), models = () => ({ kind: "none" }), refused = null) {
-    const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed, refused);
+    const { list = null, ...speech } = selectVoice(settings, accounts, directories, listed, refused);
     const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
         ? unconfigured(settings.dictation) : { kind: "ready" };
     const brain = selectBrain(settings, accounts, models);
@@ -243,15 +243,6 @@ function heldByHome(plan, home) {
     if (cause === null) return { plan, cautions };
     return { plan: { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list, modelLists: plan.modelLists },
         cautions };
-}
-
-// Always mode listens for the wake word on this computer, so it needs a row
-// that spots it locally; any other voice would stream the room to a provider.
-function selectSpeech(settings, accounts, directories, listed, refused) {
-    const speech = selectVoice(settings, accounts, directories, listed, refused);
-    if (settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind === "ready" && speech.wake !== true))
-        return unconfigured("speech=always-local-voice");
-    return speech;
 }
 
 // A stored key's identity: its reference and the stored list's revision
@@ -303,7 +294,7 @@ function selectVoice(settings, accounts, directories, listed, refused) {
 }
 
 /**
- * The ElevenLabs voice: the ready speech row hears the user, wake word and
+ * The ElevenLabs voice: the ready speech row hears the user, captions and
  * turn detection included, and ElevenLabs speaks with the stored key. Its
  * recipients are that row's and ElevenLabs's. LISTED(reference) answers the
  * key's voice list as {voices, known, reading}: voices the offers of the
@@ -792,7 +783,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             record?.cancel();
         }, begin() { record?.begin(); } };
         // Audio's teardown ends the utterance. A conversation that ended
-        // with it, as by mute or stop, aborts the utterance in end().
+        // with it aborts the utterance in end().
         const input = captured(() => utterance.state === "running");
         const { sink, frames } = input;
         utterance.sink = sink;
@@ -877,19 +868,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return utterance;
     }
 
-    // Always mode and the setup check share the daemon-owned local spotter.
-    // Neither starts a conversation or sends audio to a brain.
+    // The explicit setup check uses the daemon-owned keyword detector.
+    // It starts no conversation and sends no audio to a brain.
     function spotting(e) {
-        if (plan.speech?.wake !== true || e.mode !== "check" && plan.kind !== "ready") fail("wake-unavailable");
+        if (plan.speech?.check !== true) fail("check-unavailable");
         const owner = daemonOwner(plan.speech);
         const { sink, frames } = captured(() => true);
-        void owner.spot(frames, { check: e.mode === "check" }).outcome.then(result => {
+        void owner.check(frames).outcome.then(result => {
             if (result.kind === "checked") dispatch({ type: "voice-checked", gen: e.gen, op: e.op, result: result.result });
-            else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
             // Final detector work completes after Audio closes the sink.
-            else if (result.kind === "failed" && e.mode === "check")
+            else if (result.kind === "failed")
                 dispatch({ type: "voice-check-failed", gen: e.gen, op: e.op, reason: keyed(result.error) });
-            else if (result.kind === "failed" && !sink.destroyed) sink.destroy(result.error);
         });
         return sink;
     }
@@ -1913,7 +1902,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // A failed local catalog or a model no longer offered is read again
         // by the daemon's existing Talk judgement, after the server recovers.
         modelsHeld,
-        checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
+        checkReady: () => plan.speech?.check === true && daemonSpeech?.status().kind === "ready",
         /**
          * A local voice setup run started (RUNNING true) or ended. A start
          * takes Talk down with the cause speech=local-setting-up, so Session
@@ -2025,7 +2014,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // A live collection adopts the new utterance; otherwise it waits
         // unbound, replacing and abandoning any earlier unbound one.
         captureSink(e) {
-            if (e.mode === "armed" || e.mode === "check") return spotting(e);
+            if (e.mode === "check") return spotting(e);
             const c = current(e.gen);
             if (c.live !== null) return c.live.captureSink(e);
             const utterance = transcription(c, e);

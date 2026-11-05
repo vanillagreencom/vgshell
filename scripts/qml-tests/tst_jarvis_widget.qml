@@ -27,8 +27,8 @@ Item {
     function shellWith(values) {
         return {
             status: { values: values },
-            settings: { mode: "hold" },
-            shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
+            settings: { holdToTalk: false, voiceProvider: "local" },
+            shortcut: { keys: { talk: "SUPER+code:44", "voice-mute": "SUPER+CTRL+M", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
             ipc: { call: (name, arg) => { root.calls = root.calls.concat([[name, arg]]); return root.reply; } },
             surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([[page, tab]]); return "ok"; } }
         };
@@ -36,7 +36,7 @@ Item {
     // Status values over Session's initial record with REGIONS set.
     function ready(regions) {
         const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gate: { kind: "up" } }, regions);
-        return { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
+        return { microphoneMute: { kind: "ready", muted: false }, daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
             detail: { phase: Session.phaseOf(s), seq: 1, state: s } };
     }
 
@@ -81,15 +81,18 @@ Item {
         }
         function test_states_draw_their_icon_tone_and_tooltip(data) {
             compare(UnitTheme.override(themeTokens(data.theme)), "ok");
-            const click = "Click or press Super+Alt+C to open the console.";
+            // This is the bar's status-only output contract. Console's
+            // independent voice and Talk guidance are checked in its suite.
+            const muted = root.ready({});
+            muted.microphoneMute = { kind: "ready", muted: true };
             const rows = [
-                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.color.info, "Jarvis is starting\nWait for Jarvis to start.\n" + click],
-                [root.ready({}), "vgs-letter-j", Theme.bar.foreground, "Ready to talk\nTap or hold Super+J, then speak.\n" + click],
-                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.color.accent, "Jarvis is listening\nSpeak now.\n" + click],
-                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.color.info, "Jarvis is thinking\nPress Super+Ctrl+X to stop.\n" + click],
-                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.color.accent, "Jarvis is speaking\nPress Super+Ctrl+X to stop.\n" + click],
-                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.color.textMuted, "Jarvis is muted\nPress Super+Shift+J to unmute.\n" + click],
-                [{ daemon: { tone: "danger", text: "Jarvis needs Node 22 or later", hint: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis", lines: ["jarvis: node=21.0.0 need=22"] }, detail: null }, "circle-alert", Theme.color.danger, "Jarvis needs Node 22 or later\nUpdate Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.\n" + click]
+                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.color.info, "Jarvis is starting"],
+                [root.ready({}), "vgs-letter-j", Theme.bar.foreground, "Conversation closed"],
+                [root.ready({ conversation: { kind: "active", purpose: "conversation" } }), "vgs-letter-j", Theme.bar.foreground, "Conversation open"],
+                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }), "audio-lines", Theme.color.accent, "Jarvis is listening"],
+                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.color.info, "Jarvis is thinking"],
+                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.color.accent, "Jarvis is speaking"],
+                [muted, "mic-off", Theme.color.textMuted, "Microphone muted"]
             ];
             const badges = [Theme.badge.tone.info, Theme.badge.tone.accent, Theme.badge.tone.neutral, Theme.badge.tone.danger].map(t => String(Qt.color(t.foreground)));
             for (const [values, name, colour, text] of rows) {
@@ -115,8 +118,8 @@ Item {
         // and each toggle names its next action.
         function test_the_menu_holds_the_jarvis_menu_data() {
             return [
-                { tag: "Mute microphone", index: 0, calls: '[["mute",""]]', pages: "[]" },
-                { tag: "Mute Jarvis's voice", index: 1, calls: '[["voice-mute",""]]', pages: "[]" },
+                { tag: "Mute microphone", index: 1, calls: '[["microphone-mute",""]]', pages: "[]" },
+                { tag: "Mute Jarvis's voice", index: 0, calls: '[["voice-mute",""]]', pages: "[]" },
                 { tag: "Stop Jarvis", index: 2, calls: '[["stop",""]]', pages: "[]" },
                 { tag: "Key hints", index: 3, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
             ];
@@ -124,15 +127,46 @@ Item {
         function test_the_menu_holds_the_jarvis_menu(data) {
             let framePages = [];
             widget.frame = { hide: () => "ok", openPage: (page, tab) => { framePages = framePages.concat([[page, tab]]); return "ok"; } };
-            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute microphone", "Mute Jarvis's voice", "Stop Jarvis", "Key hints"]));
+            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "Key hints"]));
             widget.frameActions[data.index].action();
             compare(JSON.stringify(root.calls), data.calls);
             compare(JSON.stringify(root.pages), data.pages);
             compare(JSON.stringify(framePages), "[]", "the menu opens its page through shell.surfaces, as the overlay's does");
             widget.frame = null;
-            widget.shell = root.shellWith(root.ready({ mute: { kind: "on" }, voiceMute: { kind: "on" } }));
-            compare(widget.frameActions[0].label, "Turn on microphone");
-            compare(widget.frameActions[1].label, "Unmute Jarvis's voice");
+            const values = root.ready({ voiceMute: { kind: "on" } });
+            values.microphoneMute = { kind: "ready", muted: true };
+            widget.shell = root.shellWith(values);
+            compare(widget.frameActions[0].label, "Unmute Jarvis's voice");
+            compare(widget.frameActions[1].label, "Unmute microphone");
+        }
+
+        function test_unknown_microphone_is_inert_in_the_real_frame_menu() {
+            widget.frame = {
+                hide: () => "ok",
+                describe: () => ({ name: "Jarvis", page: "", readme: "", keys: [], stops: false, builtin: false, owner: "" })
+            };
+            const values = root.ready({});
+            values.microphoneMute = { kind: "unavailable" };
+            widget.shell = root.shellWith(values);
+            mouseClick(button(), button().width / 2, button().height / 2, Qt.RightButton);
+            tryCompare(widget, "frameMenuOpen", true);
+            const menu = find(widget, node => node.triggerCurrent !== undefined && node.items !== undefined);
+            verify(menu !== null, "the shared frame menu is built");
+            const mic = menu.items().find(item => item.text === "Mute microphone");
+            verify(mic !== undefined && mic.disabledReason !== "", "the real menu carries the source's unavailable reason");
+            mouseClick(mic);
+            compare(root.calls.length, 0, "the disabled menu entry sends no request");
+            menu.close();
+            tryCompare(widget, "frameMenuOpen", false);
+            values.microphoneMute = { kind: "ready", muted: false };
+            widget.shell = root.shellWith(values);
+            mouseClick(button(), button().width / 2, button().height / 2, Qt.RightButton);
+            tryCompare(widget, "frameMenuOpen", true);
+            const readyMenu = find(widget, node => node.triggerCurrent !== undefined && node.items !== undefined);
+            const available = readyMenu.items().find(item => item.text === "Mute microphone");
+            compare(available.disabledReason, "");
+            mouseClick(available);
+            compare(JSON.stringify(root.calls), '[["microphone-mute",""]]');
         }
 
         // While the Resume offer stands, a click asks for the resume once and
@@ -159,10 +193,10 @@ Item {
             }
         }
 
-        // expected-log: jarvis widget: mute unknown: mute -- the widget reports a reply other than ok
+        // expected-log: jarvis widget: microphone-mute unknown: microphone-mute -- the widget reports a reply other than ok
         function test_a_refused_reply_is_reported() {
-            root.reply = "unknown: mute";
-            compare(widget.offer("mute"), "unknown: mute");
+            root.reply = "unknown: microphone-mute";
+            compare(widget.offer("microphone-mute"), "unknown: microphone-mute");
         }
 
         function test_an_unknown_tone_throws() {

@@ -6,6 +6,7 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
+import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's overlay draws every content item where its field is dark: each
 // line, answer, the words and the icon row sit where the field's alpha is
@@ -26,6 +27,7 @@ Item {
     QtObject {
         id: service
         property var sessionState: null
+        property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
         property var consoleBox: null
@@ -51,9 +53,7 @@ Item {
     QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
 
     function session(over) {
-        const s = { gen: 1, check: { kind: "none" }, gate: { kind: "up" }, fault: { kind: "none" }, approval: { kind: "none" },
-            action: { kind: "none" }, playback: { kind: "none" }, speech: { kind: "none" }, turn: { kind: "none" },
-            capture: { kind: "closed" }, mute: { kind: "off" }, voiceMute: { kind: "off" }, engine: { kind: "chained" } };
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
         for (const key in over) s[key] = over[key];
         return s;
     }
@@ -227,7 +227,7 @@ Item {
                 { tag: "the widest prompt, light", state: root.held(widest, true), light: true },
                 { tag: "a narrow prompt, dark", state: root.held("Open Firefox?", false), light: false },
                 { tag: "a narrow prompt, light", state: root.held("Open Firefox?", false), light: true },
-                { tag: "listening with its icons, dark", light: false, hover: true, state: root.session({ capture: { kind: "open", mode: "hold" } }) },
+                { tag: "listening with its icons, dark", light: false, hover: true, state: root.session({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" }, conversation: { kind: "active", purpose: "conversation" } }) },
                 { tag: "speaking with its words and icons, light", light: true, hover: true, words: true,
                   state: root.session({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }) }
             ];
@@ -256,9 +256,9 @@ Item {
                     { text: "Use the button or key to confirm.", ink: "#e6e8ee" }, // 4.84:1
                     { answer: "Cancel", ink: "#f4f5f8" },                           // 4.97:1
                     { answer: "Confirm", ink: "#ffffff" }] },                       // 4.83:1
-                { tag: "waiting for the word", state: root.session({ capture: { kind: "open", mode: "armed" } }), inks: [
-                    { text: "Say Hey Jarvis", ink: "#ffffff" }] },                  // 4.79:1
-                { tag: "listening", state: root.session({ capture: { kind: "open", mode: "hold" } }), inks: [
+                { tag: "conversation open at rest", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), inks: [
+                    { text: "Ready to talk", ink: "#ffffff" }] },                  // 4.79:1
+                { tag: "listening", state: root.session({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" }, conversation: { kind: "active", purpose: "conversation" } }), inks: [
                     { text: "Listening", ink: "#ffffff" }] },                       // 4.98:1
                 { tag: "speaking with its words", words: true, state: root.session({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }), inks: [
                     { text: "Speaking", ink: "#ffffff" },                           // 5.02:1

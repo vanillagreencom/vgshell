@@ -18,7 +18,7 @@ cp -R -- "$repo/bin" "$tree/"
 cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
 cp -- "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$tree/shell/Ui/icons/"
-printf '{ "version": 5, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
+printf '{ "version": 6, "plugins": [], "disabledPlugins": [], "conversationSettingsMigration": { "id": "acme.talk", "mode": "mode", "holdToTalk": "holdToTalk", "modeValues": { "hold": true, "toggle": false, "always": false }, "voiceProvider": "voiceProvider", "voiceAccount": "voiceAccount", "retiredKey": "mute" } }\n' >"$tree/config/shell.json"
 
 cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"
@@ -26,6 +26,9 @@ mkdir -p "$probe"
 manifest acme.probe 0.1.0 ', "settings": { "mode": "fast", "count": 2, "trust": false },
   "schema": { "mode": { "type": "enum", "label": "Mode", "options": [{ "value": "fast", "label": "Fast" }, { "value": "slow", "label": "Slow" }] }, "count": { "type": "number", "label": "Count", "min": 1, "max": 9 }, "trust": { "type": "boolean", "label": "Trust" } }' >"$probe/manifest.json"
 printf 'import QtQuick\nItem { property var shell: null }\n' >"$probe/Service.qml"
+mkdir -p "$cfg/vgshell/plugins/acme.talk"
+manifest acme.talk 0.1.0 ', "settings": { "holdToTalk": false }, "schema": { "holdToTalk": { "type": "boolean", "label": "Hold to talk" } }' >"$cfg/vgshell/plugins/acme.talk/manifest.json"
+printf 'import QtQuick\nItem { property var shell: null }\n' >"$cfg/vgshell/plugins/acme.talk/Service.qml"
 user_file() { printf '%s\n' "$1" >"$cfg/vgshell/shell.json"; } # JSON
 
 # settings_of BIN ID...: `BIN plugin settings ID...` against $cfg; stdout
@@ -45,6 +48,7 @@ rows=(
   "the manifest's defaults with no user file|-|acme.probe|0|{\"mode\":\"fast\",\"count\":2,\"trust\":false}|"
   "the user's plugins row over the defaults|{ \"plugins\": [{ \"id\": \"acme.probe\", \"count\": 5, \"trust\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":5,\"trust\":true}|"
   "a version 1 file's layout entry setting, read as migrated into the row|{ \"version\": 1, \"bar\": { \"layout\": { \"right\": [{ \"id\": \"acme.probe\", \"count\": 7 }] } }, \"plugins\": [{ \"id\": \"acme.probe\", \"trust\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":7,\"trust\":true}|"
+  "the offline reader passes shipped conversation migration data|{ \"version\": 5, \"plugins\": [{ \"id\": \"acme.talk\", \"mode\": \"hold\" }] }|acme.talk|0|{\"holdToTalk\":true}|"
   "a value the schema refuses|{ \"plugins\": [{ \"id\": \"acme.probe\", \"trust\": \"yes\" }] }|acme.probe|1||vgshell: refused: setting=trust want=boolean id=acme.probe"
   "a number past the schema's bound|{ \"plugins\": [{ \"id\": \"acme.probe\", \"count\": 12 }] }|acme.probe|1||vgshell: refused: setting=count want=at-most:9 id=acme.probe"
   "an id no plugin has|-|acme.none|1||vgshell: refused: unknown=acme.none"
@@ -95,6 +99,7 @@ control() { # NAME FILE NEEDLE REPLACEMENT
 }
 control ignores-user bin/vgshell-plugin-judge 'settingsFor(configLogic.effectiveConfig(shipped, user)' 'settingsFor(configLogic.effectiveConfig(shipped, null)'
 control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
-control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations);' 'const moved = { config: config, migrated: false };'
+control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);' 'const moved = { config: config, migrated: false };'
+control conversation-data bin/lib/judge-files.js 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration)' 'logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations)'
 
 rows_done test-vgshell-plugin-settings

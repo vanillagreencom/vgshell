@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import qs.Commons
 import qs.Ui
 
 // One row of a plugin's Keys section, one per shortcut: the bind row of
@@ -39,159 +41,256 @@ import qs.Ui
 // page's set of unsaved edits (EditSet), which the row joins while edited
 // and tells of each typed key the manager accepted; a pressed key is no
 // edit, so the set hears of none.
-BindField {
-    id: root
+Column {
+    id: row
 
-    property var edits: null
-    readonly property bool edited: shortcutField.edited
-    // The manifest's keys, from one key or a list.
-    readonly property var defaultKeys: bind["default"] === null || bind["default"] === undefined ? []
-        : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
-    // The manifest's keys as the field's caps spell them, such as
-    // `Right Alt or Right Ctrl`.
-    readonly property string defaultLabel: defaultKeys.map(key => KeyNavLogic.keyCaps(key).join("+")).join(" or ")
-    readonly property bool userHolds: found !== null && found.user === true
-    // The one user line that binds the key as a whole `hl.bind` call, which
-    // Remove my line takes out; null when there is none or more than one.
-    readonly property var userLine: {
-        const rows = found === null || !userHolds ? [] : (found.userBinds || []).filter(row => row.removable);
-        return rows.length === 1 ? rows[0] : null;
+    property alias pluginId: root.pluginId
+    property alias bind: root.bind
+    property alias editable: root.editable
+    property alias capture: root.capture
+    property alias edits: root.edits
+    property alias label: root.label
+    property alias actions: root.actions
+    property alias hint: root.hint
+    property alias error: root.error
+    readonly property alias shortcutField: root.shortcutField
+    readonly property alias edited: root.edited
+    readonly property alias userHolds: root.userHolds
+    readonly property alias keys: root.keys
+    readonly property alias found: root.found
+    // Schema fields whose underKey names this shortcut. Values and schema
+    // are read again after each manager update, preserving a focused box.
+    property var settingKeys: []
+    property var schema: ({})
+    property var settings: ({})
+    property var withheldFields: []
+    property var fieldProblems: ({})
+    property string settingDisabledReason: ""
+    readonly property bool keyValueRow: true
+    readonly property bool subText: {
+        const shown = children.filter(child => child instanceof Item && child.visible && child.height > 0);
+        return shown.length > 0 && shown[shown.length - 1].subText === true;
     }
-    // { token, place, line } of the line Remove my line took out, which
-    // Undo puts back; null before a removal and after the undo. The
-    // capture keeps the token's record until the undo or the field's
-    // destruction releases it.
-    property var removed: null
-    // Plain state a removal's or an undo's reply reads: set when the field
-    // is destroyed, so a reply that comes later touches no property of the
-    // field, and a removal's releases its record.
-    readonly property var life: ({ gone: false })
-    property string problem: ""
-    // The first user line holding the key, whose file and line the
-    // conflict line cites as a link that opens it in the user's editor.
-    readonly property var citedLine: found === null || !userHolds || !found.userBinds || found.userBinds.length === 0 ? null : found.userBinds[0]
-    signal removalAsked(var row)
-    signal lineAsked(var row)
+    spacing: Theme.stack.row
+    bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
+    signal applyKey(var key)
+    signal applySetting(string key, bool value)
+    signal removalAsked(var target)
+    signal lineAsked(var target)
+    signal openPage(string id, string tab)
+    signal openLink(var link)
 
-    function save() { shortcutField.acceptTyped(); }
-    function discard() { shortcutField.stopTyping(); }
-    function settle(key, accepted) {
-        sent.accepted = accepted;
-        const asked = alternative === undefined ? key : alternative;
-        if (!accepted && typeof asked === "string") shortcutField.startTyping(asked);
-    }
-
-    // Take ROW, the user line the page confirmed, out of its file.
-    function removeLine(row) {
-        problem = "";
-        const keyCapture = capture;
-        const life = root.life;
-        keyCapture.removeUserBind(found.key, reply => {
-            if (life.gone) {
-                if (reply.ok) keyCapture.releaseUserBind(reply.token);
-                return;
-            }
-            if (!reply.ok) {
-                console.warn("settings: remove-bind " + reply.error);
-                root.problem = "VGS could not remove that line.";
-                return;
-            }
-            root.removed = { token: reply.token, place: row.place, line: reply.line };
-        });
+    function save() { root.save(); }
+    function discard() { root.discard(); }
+    function settle(key, accepted) { root.settle(key, accepted); }
+    function removeLine(target) { root.removeLine(target); }
+    function lineBelow() {
+        const shown = children.filter(child => child instanceof Item && child.visible && child.height > 0);
+        const last = shown[shown.length - 1];
+        return bottomPadding + (last === undefined ? 0 : last.lineBelow());
     }
 
-    function undoRemoval() {
-        const token = removed.token;
-        const life = root.life;
-        problem = "";
-        capture.restoreUserBind(token, reply => {
-            if (life.gone) return;
-            if (!reply.ok) {
-                console.warn("settings: restore-bind " + reply.error);
-                root.problem = "VGS could not put that line back.";
-                return;
-            }
-            root.removed = null;
-        });
-    }
+    BindField {
+        id: root
+        width: row.width
+        onApplyKey: key => row.applyKey(key)
+        onRemovalAsked: target => row.removalAsked(target)
+        onLineAsked: target => row.lineAsked(target)
 
-    function pickAnotherKey() {
-        shortcutField.forceActiveFocus(Qt.TabFocusReason);
-        shortcutField.edit(keys.indexOf(found.key));
-    }
-
-    Component.onDestruction: {
-        life.gone = true;
-        if (removed !== null && capture !== null) capture.releaseUserBind(removed.token);
-        if (edits !== null) edits.forget(root);
-    }
-    onEditedChanged: if (edits !== null) edits.track(root)
-    onEditableChanged: if (!editable) discard()
-
-    QtObject {
-        id: sent
-        // Whether the manager accepted the key the row sent last.
-        property bool accepted: false
-    }
-
-    // BindField's own handler of `typed` is connected first, so the typed
-    // key is sent and settled before this one runs.
-    Connections {
-        target: root.shortcutField
-        function onTyped() { if (root.edits !== null && sent.accepted) root.edits.wrote(); }
-    }
-
-    hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place
-        : defaultKeys.length === 0 ? "No default shortcut" : "Default shortcut: " + defaultLabel
-    error: problem
-    hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
-    onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
-
-    hintActions: [
-        RowAction {
-            objectName: "removeUserLine"
-            text: "Remove my line"
-            visible: root.editable && root.userLine !== null && root.removed === null
-            onClicked: root.removalAsked(root.userLine)
-        },
-        RowAction {
-            objectName: "pickAnotherKey"
-            text: "Pick another key"
-            visible: root.editable && root.userHolds && root.capture !== null
-            onClicked: root.pickAnotherKey()
-        },
-        RowAction {
-            objectName: "useMyBinding"
-            text: "Use my binding"
-            visible: root.editable && root.userHolds
-            onClicked: root.remove(root.keys.indexOf(root.found.key))
-        },
-        RowAction {
-            objectName: "undoUserLine"
-            text: "Undo"
-            visible: root.editable && root.removed !== null
-            onClicked: root.undoRemoval()
+        property var edits: null
+        readonly property bool edited: shortcutField.edited
+        // The manifest's keys, from one key or a list.
+        readonly property var defaultKeys: bind["default"] === null || bind["default"] === undefined ? []
+            : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
+        // The manifest's keys as the field's caps spell them, such as
+        // `Right Alt or Right Ctrl`.
+        readonly property string defaultLabel: defaultKeys.map(key => KeyNavLogic.keyCaps(key).join("+")).join(" or ")
+        readonly property bool userHolds: found !== null && found.user === true
+        // The one user line that binds the key as a whole `hl.bind` call, which
+        // Remove my line takes out; null when there is none or more than one.
+        readonly property var userLine: {
+            const rows = found === null || !userHolds ? [] : (found.userBinds || []).filter(row => row.removable);
+            return rows.length === 1 ? rows[0] : null;
         }
-    ]
+        // { token, place, line } of the line Remove my line took out, which
+        // Undo puts back; null before a removal and after the undo. The
+        // capture keeps the token's record until the undo or the field's
+        // destruction releases it.
+        property var removed: null
+        // Plain state a removal's or an undo's reply reads: set when the field
+        // is destroyed, so a reply that comes later touches no property of the
+        // field, and a removal's releases its record.
+        readonly property var life: ({ gone: false })
+        property string problem: ""
+        // The first user line holding the key, whose file and line the
+        // conflict line cites as a link that opens it in the user's editor.
+        readonly property var citedLine: found === null || !userHolds || !found.userBinds || found.userBinds.length === 0 ? null : found.userBinds[0]
+        signal removalAsked(var row)
+        signal lineAsked(var row)
 
-    actions: [
-        IconButton {
-            iconName: "plus"
-            label: "Add another key"
-            size: "sm"
-            visible: root.editable && root.capture !== null && !root.shortcutField.typing
-            onClicked: root.shortcutField.add()
-        },
-        IconButton {
-            iconName: "rotate-ccw"
-            label: "Reset to " + root.defaultLabel
-            size: "sm"
-            visible: root.editable && root.defaultKeys.length > 0 && JSON.stringify(root.keys) !== JSON.stringify(root.defaultKeys)
-            onClicked: {
-                root.shortcutField.cancel();
-                root.shortcutField.stopTyping();
-                root.applyKey(undefined);
-            }
+        function save() { shortcutField.acceptTyped(); }
+        function discard() { shortcutField.stopTyping(); }
+        function settle(key, accepted) {
+            sent.accepted = accepted;
+            const asked = alternative === undefined ? key : alternative;
+            if (!accepted && typeof asked === "string") shortcutField.startTyping(asked);
         }
-    ]
+
+        // Take ROW, the user line the page confirmed, out of its file.
+        function removeLine(row) {
+            problem = "";
+            const keyCapture = capture;
+            const life = root.life;
+            keyCapture.removeUserBind(found.key, reply => {
+                if (life.gone) {
+                    if (reply.ok) keyCapture.releaseUserBind(reply.token);
+                    return;
+                }
+                if (!reply.ok) {
+                    console.warn("settings: remove-bind " + reply.error);
+                    root.problem = "VGS could not remove that line.";
+                    return;
+                }
+                root.removed = { token: reply.token, place: row.place, line: reply.line };
+            });
+        }
+
+        function undoRemoval() {
+            const token = removed.token;
+            const life = root.life;
+            problem = "";
+            capture.restoreUserBind(token, reply => {
+                if (life.gone) return;
+                if (!reply.ok) {
+                    console.warn("settings: restore-bind " + reply.error);
+                    root.problem = "VGS could not put that line back.";
+                    return;
+                }
+                root.removed = null;
+            });
+        }
+
+        function pickAnotherKey() {
+            shortcutField.forceActiveFocus(Qt.TabFocusReason);
+            shortcutField.edit(keys.indexOf(found.key));
+        }
+
+        Component.onDestruction: {
+            life.gone = true;
+            if (removed !== null && capture !== null) capture.releaseUserBind(removed.token);
+            if (edits !== null) edits.forget(root);
+        }
+        onEditedChanged: if (edits !== null) edits.track(root)
+        onEditableChanged: if (!editable) discard()
+
+        QtObject {
+            id: sent
+            // Whether the manager accepted the key the row sent last.
+            property bool accepted: false
+        }
+
+        // BindField's own handler of `typed` is connected first, so the typed
+        // key is sent and settled before this one runs.
+        Connections {
+            target: root.shortcutField
+            function onTyped() { if (root.edits !== null && sent.accepted) root.edits.wrote(); }
+        }
+
+        hint: removed !== null ? "Removed line " + removed.line + " of " + removed.place
+            : defaultKeys.length === 0 ? "No default shortcut" : "Default shortcut: " + defaultLabel
+        error: problem
+        hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
+        onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
+
+        hintActions: [
+            RowAction {
+                objectName: "removeUserLine"
+                text: "Remove my line"
+                visible: root.editable && root.userLine !== null && root.removed === null
+                onClicked: root.removalAsked(root.userLine)
+            },
+            RowAction {
+                objectName: "pickAnotherKey"
+                text: "Pick another key"
+                visible: root.editable && root.userHolds && root.capture !== null
+                onClicked: root.pickAnotherKey()
+            },
+            RowAction {
+                objectName: "useMyBinding"
+                text: "Use my binding"
+                visible: root.editable && root.userHolds
+                onClicked: root.remove(root.keys.indexOf(root.found.key))
+            },
+            RowAction {
+                objectName: "undoUserLine"
+                text: "Undo"
+                visible: root.editable && root.removed !== null
+                onClicked: root.undoRemoval()
+            }
+        ]
+
+        actions: [
+            IconButton {
+                iconName: "plus"
+                label: "Add another key"
+                size: "sm"
+                visible: root.editable && root.capture !== null && !root.shortcutField.typing
+                onClicked: root.shortcutField.add()
+            },
+            IconButton {
+                iconName: "rotate-ccw"
+                label: "Reset to " + root.defaultLabel
+                size: "sm"
+                visible: root.editable && root.defaultKeys.length > 0 && JSON.stringify(root.keys) !== JSON.stringify(root.defaultKeys)
+                onClicked: {
+                    root.shortcutField.cancel();
+                    root.shortcutField.stopTyping();
+                    root.applyKey(undefined);
+                }
+            }
+        ]
+    }
+
+    Repeater {
+        id: settingRows
+        // Stable keys retain the control when another setting changes.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell/ScriptModel
+        model: ScriptModel { values: row.settingKeys }
+        Field {
+            id: option
+            required property string modelData
+            readonly property string fieldKey: modelData
+            readonly property var spec: row.schema[modelData]
+            width: row.width
+            inline: true
+            standsWithoutLabel: true
+            visible: spec !== undefined && row.withheldFields.indexOf(modelData) === -1
+            hint: spec === undefined || spec.description === undefined ? "" : spec.description
+            hintLink: spec === undefined || spec.link === undefined ? "" : spec.link.text
+            error: row.fieldProblems[modelData] || ""
+            Row {
+                spacing: Theme.stack.inline
+                Checkbox {
+                    objectName: "keySetting"
+                    text: option.spec === undefined ? "" : option.spec.label
+                    checked: row.settings[option.modelData] === true
+                    disabledReason: row.settingDisabledReason
+                    onToggled: {
+                        checked = Qt.binding(() => row.settings[option.modelData] === true);
+                        row.applySetting(option.modelData, row.settings[option.modelData] !== true);
+                    }
+                    Tooltip { text: option.spec === undefined ? "" : option.spec.tooltip || "" }
+                }
+                InfoButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: info !== ""
+                    title: option.spec === undefined ? "" : option.spec.label
+                    info: option.spec === undefined ? "" : option.spec.info || ""
+                    onInfoPageActivated: (id, tab) => row.openPage(id, tab)
+                }
+            }
+            onHintPageActivated: (id, tab) => row.openPage(id, tab)
+            onHintLinkActivated: row.openLink(spec.link)
+        }
+    }
 }

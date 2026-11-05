@@ -64,7 +64,7 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "groupLabel", "addChoice", "preview"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "groupLabel", "addChoice", "preview", "underKey"];
 // A status-fed select's last entry, which opens the plugin's own screen
 // that adds an offer, such as a key, and stores nothing itself.
 var ADD_CHOICE_KEYS = ["label", "tui"];
@@ -477,6 +477,13 @@ function schemaError(schema, settings, status) {
         }
         if (SETTING_TYPES.indexOf(entry.type) === -1)
             return at + ".type must be one of " + SETTING_TYPES.join(", ") + ", got " + JSON.stringify(entry.type);
+        // A key's checkbox is still a normal saved setting. Its placement
+        // needs a declared bind, checked after hyprlandError below.
+        if (entry.underKey !== undefined) {
+            if (entry.type !== "boolean") return at + ".underKey needs type boolean";
+            if (typeof entry.underKey !== "string" || !ConfigLogic.NAME_PATTERN.test(entry.underKey)) return at + ".underKey must name a shortcut";
+            if (entry.group !== undefined) return at + ".underKey supplies its Keys group";
+        }
         if (typeof entry.label !== "string" || entry.label.length === 0)
             return at + ".label must be a non-empty string";
         if (entry.description !== undefined && typeof entry.description !== "string")
@@ -5119,6 +5126,11 @@ function validateManifest(raw, sourceDir) {
                 return { ok: false, error: badMonitorDefault.replace("refused: monitors", "hyprland.monitors default") };
         }
     }
+    var unboundSetting = Object.keys(schema).find(function (key) {
+        return schema[key].underKey !== undefined && !(raw.hyprland && Array.isArray(raw.hyprland.binds) && raw.hyprland.binds.some(function (bind) { return bind.shortcut === schema[key].underKey; }));
+    });
+    if (unboundSetting !== undefined)
+        return { ok: false, error: "schema." + unboundSetting + ".underKey must name a declared shortcut" };
     if (raw.tui !== undefined) {
         var badTui = tuiError(raw.tui, capabilities, requirements);
         if (badTui !== "")
@@ -6397,6 +6409,7 @@ function pagePlacementError(status, schema, secrets) {
         if (entry.setting !== undefined) {
             if (entry.type !== "presenceList" || !secrets) return at + ".setting needs a stored key list; Settings draws only values the user changes";
             if (typeof entry.setting !== "string" || !hasOwn(schema, entry.setting)) return at + ".setting must name a schema field";
+            if (schema[entry.setting].underKey !== undefined) return at + ".setting needs a regular setting field";
             if (entry.hidden === true) return at + ".setting needs a displayed status";
         }
         if (entry.step !== undefined) {
@@ -6504,7 +6517,7 @@ function fieldRows(schema, status) {
     return Object.keys(schema).map(function (key) {
         return {
             key: key,
-            section: schema[key].group === undefined ? "" : schema[key].group,
+            section: schema[key].underKey !== undefined ? "Keys" : schema[key].group === undefined ? "" : schema[key].group,
             list: schema[key].type === "list",
             keyLists: Object.keys(status).filter(function (name) { return status[name].setting === key; }),
             groups: schema[key].type !== "enum" ? [] : groupsOf(schema[key]).map(function (group) {

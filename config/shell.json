@@ -1,6 +1,15 @@
 {
-  "version": 5,
+  "version": 6,
   "packageReviewSettingsSource": "vgs.updates",
+  "conversationSettingsMigration": {
+    "id": "vgs.jarvis",
+    "mode": "mode",
+    "holdToTalk": "holdToTalk",
+    "modeValues": { "hold": true, "toggle": false, "always": false },
+    "voiceProvider": "voiceProvider",
+    "voiceAccount": "voiceAccount",
+    "retiredKey": "mute"
+  },
   "shortcutKeyMigrations": [
     { "id": "vgs.jarvis", "shortcut": "talk", "from": "SUPER+code:108", "to": "SUPER+code:44" },
     { "id": "vgs.jarvis", "shortcut": "mute", "from": "SUPER+SHIFT+code:108", "to": "SUPER+SHIFT+code:44" },

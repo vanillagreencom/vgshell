@@ -76,7 +76,7 @@ world(async () => {
         const starts = [], answers = [], brain = [], timers = [];
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 2) });
         const rows = () => lines(path.join(root, "state/audit/2026-10-02.jsonl"));
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         let engine = null;
@@ -91,7 +91,7 @@ world(async () => {
             router.register(executor, { commands: ["hyprctl", "bwrap"], timeoutMs: 1000, cancellable: true,
                 start: (call, done) => { starts.push({ call, audit: rows().at(-1) }); answers.push(done); },
                 cancel: () => {} });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", shown: true });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");

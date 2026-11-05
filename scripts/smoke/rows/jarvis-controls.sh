@@ -19,7 +19,7 @@
 # held. With Voice on too, Voice's toggle during a Jarvis recording answers
 # busy and changes neither recording. With both off, no voxtype process
 # runs. Each read polls once per nested IPC round trip.
-# inputs: scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh
 set -euo pipefail
 expected_errors+=("${dictation_absent_errors[@]}")
 expected_errors+=("${jarvis_provoked_errors[@]}")
@@ -221,23 +221,23 @@ jarvis_audio_recovered_assertion() {
    echo "$failures")
 }
 
-# The mute the service holds from the daemon's Session state.
-jarvis_mute_held() {
+# The voice mute the service holds from the daemon's Session state.
+jarvis_voice_mute_held() {
   ipc smoke readInstance service vgs.jarvis sessionState | py_reply '
 import json,sys
 s=json.load(sys.stdin)
-print("pending" if s is None else s["mute"]["kind"])
+print("pending" if s is None else s["voiceMute"]["kind"])
 '
 }
 
 # A daemon that writes a warning to stderr and keeps running still takes
-# intents. The mute round trip ends unmuted, so later cases start unmuted.
+# intents. The voice-mute round trip ends unmuted, so later cases start unmuted.
 jarvis_stderr_case() {
   expect_poll "the daemon's warning reaches the log" logged jarvis_logged "jarvis: fixture=warning" "$jarvis_warnings"
-  expect "mute reaches the daemon after its warning" ok ipc vgs.jarvis invoke mute ""
-  expect_poll "the daemon mutes after its warning" on jarvis_mute_held
-  expect "unmute reaches the daemon after its warning" ok ipc vgs.jarvis invoke mute ""
-  expect_poll "the daemon unmutes after its warning" off jarvis_mute_held
+  expect "mute reaches the daemon after its warning" ok ipc vgs.jarvis invoke voice-mute ""
+  expect_poll "the daemon mutes after its warning" on jarvis_voice_mute_held
+  expect "unmute reaches the daemon after its warning" ok ipc vgs.jarvis invoke voice-mute ""
+  expect_poll "the daemon unmutes after its warning" off jarvis_voice_mute_held
   expect "the warning neither restarts nor ends the daemon" ready jarvis_ready 0
 }
 
@@ -1055,7 +1055,7 @@ PY
 jarvis_rescan
 jarvis_warnings="$(jarvis_log_count "jarvis: fixture=warning")"
 jarvis_enable
-expect "a warning that sets the cause breaks the delivered-mute assertion" 1 jarvis_stderr_assertion
+expect "a warning that sets the cause breaks the delivered-voice-mute assertion" 1 jarvis_stderr_assertion
 jarvis_disable
 cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
 cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
@@ -1525,6 +1525,15 @@ jarvis_kill_daemon() {
 # A held Talk recording through the core, from a fresh note log. Talk
 # comes up through jarvis_talk_up_held, 300 ms past Session's tap bound,
 # so the release ends the recording.
+cp -- "$home/.config/vgshell/shell.json" "$sandbox/jarvis-dictation-config-before.json"
+user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json,sys
+value=json.load(open(sys.argv[1]))
+row=next(row for row in value["plugins"] if row["id"]=="vgs.jarvis")
+row["holdToTalk"]=True
+print(json.dumps(value))
+PY
+expect "dictation release cases select Hold to talk" ok ipc shell reloadConfig
 jarvis_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$repo/shell/plugins/vgs.jarvis/Session.js")"
 [[ $jarvis_tap_ms =~ ^[0-9]+$ ]] || fail "Session names no tap bound: '$jarvis_tap_ms'"
 jarvis_dictation_talk() { # LABEL
@@ -1649,4 +1658,6 @@ rm -f -- "${jarvis_local_marker:?}" "${jarvis_voxtype:?}" "${jarvis_voice_bridge
   "$sandbox/voxtype-follow.log" "$sandbox/jarvis-voice-feedback-sets" "$jarvis_voice_installed"
 dictation_stand_ins off
 jarvis_rescan
+user_config_restore "$sandbox/jarvis-dictation-config-before.json"
+expect "restore the talk preference after dictation cases" ok ipc shell reloadConfig
 jarvis_notice_close

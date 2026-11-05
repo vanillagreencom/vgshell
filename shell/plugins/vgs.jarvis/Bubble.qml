@@ -6,6 +6,7 @@ import "Appearance.js" as Appearance
 import "Field.js" as Field
 import "Session.js" as Session
 import "WidgetView.js" as View
+import "AccountProviders.js" as Providers
 
 // Jarvis's overlay at the bottom centre of the focused screen: the particle
 // orb in the look of the Session's phase, its icon row at the orb's top
@@ -24,10 +25,8 @@ import "WidgetView.js" as View
 // hit square to the row's far corner, and the look's `icon.hold` keep it
 // shown on the way to an icon. A right click on any of them opens the
 // Jarvis menu (WidgetView.menuEntries) at the click; the overlay stays
-// shown while it is open. In the waiting states (waiting for the word,
-// getting ready, muted, stopping) the overlay takes no pointer and shows
-// no icon row: the bar widget's right-click menu is the way to the same
-// entries.
+// shown while it is open. A conversation at rest keeps its icon row
+// reachable. An unavailable service takes no pointer.
 Item {
     id: root
     property var screen: null
@@ -104,11 +103,13 @@ Item {
         function onAfterSynchronizing() { root.approvalSynchronized(); }
         function onFrameSwapped() { root.approvalSwapped(); }
     }
-    readonly property bool micMuted: state !== null && state.mute.kind !== "off"
+    readonly property var microphoneMute: service === null ? null : View.microphoneMuted(service.microphoneMute)
+    readonly property bool micMuted: microphoneMute === true
     readonly property bool voiceMuted: state !== null && state.voiceMute.kind === "on"
     // A fault reads as the bar says it: what went wrong, then what to do.
-    readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind, service.shell === null ? {} : service.shell.status.values) : null
-    readonly property string stateText: state === null ? "" : micMuted ? "Microphone off"
+    readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind,
+        service.shell === null ? null : Providers.cloudVoice(service.shell.settings.voiceProvider)) : null
+    readonly property string stateText: state === null ? "" : micMuted ? "Microphone muted"
         : fault !== null ? fault.title
         : stateWords[phase]
     readonly property var levels: service === null || service.shell === null ? {}
@@ -119,17 +120,16 @@ Item {
     // muted. The caption is the conversation's latest line, the user's or
     // Jarvis's; only Jarvis's draws, so the user's words clear it. The
     // status keeps an ended conversation's caption until the next one.
-    // Waiting for the word shows no words: a reply left on screen could
-    // stand there until the next request, however long that is. A held
-    // request shows its own question in their place.
-    readonly property string words: state === null || !voiceMuted || root.hold !== null || phase === "armed" ? ""
+    // A held request shows its own question in their place.
+    readonly property string words: state === null || !voiceMuted || root.hold !== null ? ""
         : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""
     readonly property var shortcutKeys: service === null ? null : service.effectiveKeys
     // The ring of the orb at rest, which the icon row and the line under
     // the orb stand against.
-    readonly property real ring: look.state.armed.radius * look.orb.size / 2
+    readonly property real ring: look.state.idle.radius * look.orb.size / 2
     readonly property string orbPhase: micMuted ? "muting" : phase
-    readonly property bool active: ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
+    readonly property bool active: state !== null && state.conversation.kind !== "ended"
+        || ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
     // The pointer rests on the orb, the bridge or an icon; the icons stay
     // `icon.hold` after it leaves all three.
     readonly property bool pointerOver: orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
@@ -138,7 +138,7 @@ Item {
     property real iconOpacity: iconsWanted ? 1 : 0
     Behavior on iconOpacity { NumberAnimation { duration: root.look.icon.fade; easing.type: root.look.icon.easing } }
     readonly property bool iconsShown: iconOpacity > 0
-    readonly property var menuEntries: View.menuEntries(micMuted, voiceMuted)
+    readonly property var menuEntries: View.menuEntries(microphoneMute, voiceMuted)
     // The Jarvis menu's entry that sends INTENT.
     function entryFor(intent) {
         return menuEntries.find(entry => entry.intent === intent);
@@ -147,7 +147,7 @@ Item {
     // The open menu's entries, which scripts/smoke/rows/jarvis-bubble.sh
     // reads, [] while it is closed.
     readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
-    readonly property var textItems: [words, stateLine, faultAction, question, fullPath, payloadArea, physicalHint]
+    readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea, physicalHint]
     readonly property var inputItems: (active ? [orbHit] : [])
         .concat(active && iconsShown ? [bridge] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
@@ -168,7 +168,7 @@ Item {
         else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
     }
     readonly property var stateWords: ({
-        armed: "Say Hey Jarvis", idle: "Getting ready", listening: "Listening", thinking: "Thinking",
+        idle: "Ready to talk", listening: "Listening", thinking: "Thinking",
         acting: "Working", speaking: "Speaking", confirming: "Waiting for you", error: "", down: "Stopping"
     })
 
@@ -192,6 +192,7 @@ Item {
         activeColor: look.icon.active
         onColor: look.palette.accent
         ringColor: look.icon.ring
+        disabledReason: entry.disabledReason || ""
         onClicked: if (service !== null) service.intent(entry.intent)
     }
 
@@ -288,9 +289,7 @@ Item {
             text: root.words
         }
 
-        // Waiting for the wake word is the resting look: the room's sound is
-        // not speech to Jarvis, so it draws no level and drifts at its slow
-        // base rate (Appearance.js, the motion model).
+        // An open conversation at rest uses the look's idle pacing.
         ParticleOrb {
             id: orb
             look: root.look
@@ -339,15 +338,6 @@ Item {
             opacity: root.iconOpacity
             visible: root.iconsShown
             RowButton {
-                id: mic
-                look: root.look
-                service: root.service
-                keys: root.shortcutKeys
-                entry: root.entryFor("mute")
-                iconName: root.micMuted ? "mic-off" : "mic"
-                checked: root.micMuted
-            }
-            RowButton {
                 id: voice
                 look: root.look
                 service: root.service
@@ -355,6 +345,15 @@ Item {
                 entry: root.entryFor("voice-mute")
                 iconName: root.voiceMuted ? "volume-x" : "volume-2"
                 checked: root.voiceMuted
+            }
+            RowButton {
+                id: mic
+                look: root.look
+                service: root.service
+                keys: root.shortcutKeys
+                entry: root.entryFor("microphone-mute")
+                iconName: root.micMuted ? "mic-off" : "mic"
+                checked: root.micMuted
             }
             RowButton {
                 id: stop
@@ -383,6 +382,22 @@ Item {
                 text: root.stateText
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
+            }
+            LinkText {
+                id: silenceLine
+                width: parent.width
+                visible: root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
+                layer.enabled: true
+                layer.effect: TextShadow { shadow: root.look.shadow }
+                role: "body"
+                color: root.look.ink.action
+                linkColor: root.look.ink.link
+                text: visible ? "Jarvis hears no sound from " + root.state.sound.device + ". [Microphone](page:vgs.jarvis/Settings/microphone)" : ""
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                onPageActivated: (page, tab) => {
+                    if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
+                }
             }
             // The fault's action, its page reference drawn as a link that
             // opens the page (design-system.md § Copy).
@@ -531,7 +546,7 @@ Item {
         // icons take the left button alone, so a right click anywhere the
         // layer takes the pointer reaches this handler.
         // pointer-cursor-exempt: a right click on the orb or its text, which show no control
-        // keyboard-path: each entry has its own key (Mute, Voice mute, Stop) or is the Keys section itself; the bar widget's menu holds the same entries
+        // keyboard-path: voice mute and Stop have shortcuts; the bar widget's menu holds the same system microphone action
         TapHandler {
             acceptedButtons: Qt.RightButton
             enabled: root.active
@@ -578,6 +593,7 @@ Item {
                             required property var modelData
                             text: modelData.label
                             iconName: modelData.icon
+                            disabledReason: modelData.disabledReason || ""
                             onTriggered: root.runEntry(modelData)
                         }
                     }

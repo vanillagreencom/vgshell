@@ -7,7 +7,7 @@ import "AccountProviders.js" as Providers
 // The Jarvis icon in the bar. It draws the status the service publishes
 // and runs nothing itself: one closed state table decides off, loading,
 // ready, listening, working, speaking, muted and problem. The tooltip
-// names what happens, the next action and what a click does. A click,
+// names the current status. A click,
 // Space (which the button turns into a click), Return and keypad Enter
 // call the service's `console` IPC handler, which opens the console; while
 // the Resume offer stands (WidgetView `click`) they call `resume-session`
@@ -21,22 +21,21 @@ BarWidget {
     id: root
 
     // Core/Plugins.qml createWidget hands this widget the plugin's shell,
-    // whose settings hold the talk mode and the voice from the first frame;
+    // whose settings hold the Talk preference and voice from the first frame;
     // the Session's own settings arrive only after the daemon's hello.
-    readonly property var view: shell === null ? View.view({}, View.spelledKeys(null, KeyNavLogic.keyCaps), "hold", null)
-        : View.view(shell.status.values, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps), shell.settings.mode,
-            Providers.cloudVoice(shell.settings.voiceProvider))
+    readonly property var view: shell === null ? View.view({}, null)
+        : View.view(shell.status.values, Providers.cloudVoice(shell.settings.voiceProvider))
 
     readonly property var ownerAsks: shell === null || shell.status.values.ownerAsks === undefined ? null : shell.status.values.ownerAsks
     readonly property bool hasAsks: ownerAsks !== null && ownerAsks.kind === "ready" && ownerAsks.activeCount > 0
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
     readonly property var detail: shell === null || shell.status.values.detail === undefined ? null : shell.status.values.detail
-    // Whether Jarvis is muted or turning muted, and whether its voice is
-    // muted, as the service last read them.
-    readonly property bool muted: detail !== null && View.muted(detail.state.mute)
+    // System microphone and independent voice mute, as the service read them.
+    readonly property var microphoneMuted: View.microphoneMuted(shell === null ? undefined : shell.status.values.microphoneMute)
     readonly property bool voiceMuted: detail !== null && detail.state.voiceMute.kind === "on"
-    frameActions: View.menuEntries(root.muted, root.voiceMuted).map(entry => ({ label: entry.label, icon: entry.icon,
+    frameActions: View.menuEntries(root.microphoneMuted, root.voiceMuted).map(entry => ({ label: entry.label, icon: entry.icon,
+        disabledReason: entry.disabledReason || "",
         action: entry.intent !== undefined ? () => root.offer(entry.intent) : () => root.shell.surfaces.openPage(entry.page, entry.tab) }))
         .concat(view.click === "resume" ? [{ label: "Do not resume", icon: "x", action: () => root.offer("dismiss-resume") }] : [])
 
