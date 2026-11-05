@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Drive real recorder events and smoke_row boundaries with owned fixtures."""
 import contextlib
+import inspect
+import io
 import json
 import os
 from pathlib import Path
@@ -14,6 +16,7 @@ import subprocess
 import tempfile
 import threading
 import types
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 BASH = shutil.which("bash")
@@ -29,6 +32,17 @@ def function(name):
     found = re.search(r"(?ms)^" + name + r"\(\).*?^}\n", source)
     assert found, name
     return found.group()
+
+
+def write_clients(path, data):
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            json.dump(data, output)
+            output.close()
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 class OwnedDialog:
@@ -71,6 +85,30 @@ class OwnedDialog:
 
 with tempfile.TemporaryDirectory(prefix="smoke-anr-") as scratch:
     root = Path(scratch)
+    path = root / "clients.json"
+    snapshots = []
+    payloads = [[], [{"pid": 1}], [{"pid": 2, "title": "x" * 100000}]]
+    write_clients(path, payloads[0])
+    native_open = io.open
+
+    def poll_during_open(*args, **kwargs):
+        output = native_open(*args, **kwargs)
+        if output.writable():
+            reader = threading.Thread(target=lambda: snapshots.append(path.read_text()))
+            reader.start()
+            reader.join(timeout=3)
+            assert not reader.is_alive(), "clients reader did not finish"
+        return output
+
+    with mock.patch("io.open", poll_during_open):
+        for data in payloads[1:]:
+            write_clients(path, data)
+            assert json.loads(path.read_text()) == data
+    assert len(snapshots) == len(payloads) - 1
+    assert all(json.loads(snapshot) in payloads for snapshot in snapshots)
+    print("smoke-anr: clients-publication=whole concurrent-reader=pass")
+    (root / "fixture_json.py").write_text(
+        "import json,os,tempfile\nfrom pathlib import Path\n" + inspect.getsource(write_clients))
     namespace = {"__name__": "fixture"}
     exec(compile(recorder, "display-recorder", "exec"), namespace)
     request = namespace["request"]
@@ -200,10 +238,11 @@ with socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET) as s:
 ''')
     dialog = root / "dialog.py"
     dialog.write_text('''import json,os,pathlib,signal,sys
+from fixture_json import write_clients
 path=pathlib.Path(sys.argv[1])
 def end(*_):
  data=[c for c in json.loads(path.read_text()) if c["pid"] != os.getpid()]
- path.write_text(json.dumps(data))
+ write_clients(path,data)
  raise SystemExit(0)
 if os.fork(): os._exit(0)
 signal.signal(signal.SIGTERM,end)
@@ -225,7 +264,7 @@ while True: signal.pause()
         if candidates == 2:
             clients.append(dict(clients[0], address="0x2", pid=unrelated.pid))
         path = sandbox / "clients.json"
-        path.write_text(json.dumps(clients))
+        write_clients(path, clients)
         nested = socket.socket(socket.AF_UNIX)
         # The parent holds this directory across subscription. A child
         # addresses that parent's fd, so no case label enters sun_path.
@@ -275,16 +314,16 @@ while True: signal.pause()
                             held_dialogs.append(process)
                             parent = int((Path("/proc") / str(process.pid) / "stat").read_text().rsplit(")", 1)[1].split()[1])
                             assert parent != os.getpid(), "fixture did not detach"
-                            path.write_text(json.dumps(clients + [dict(address="0xd", pid=process.pid,
-                                title="", **{"class": "hyprland-dialog"}, mapped=True)]))
+                            write_clients(path, clients + [dict(address="0xd", pid=process.pid,
+                                title="", **{"class": "hyprland-dialog"}, mapped=True)])
                             stream.sendall(b"openwindow>>d,1,hyprland-dialog,\n")
                         elif action == b"close":
                             process = held_dialogs[-1]
                             process.terminate()
                             process.wait_ended()
                             if reuse:
-                                path.write_text(json.dumps(clients + [dict(address="0xd", pid=unrelated.pid,
-                                    title="Other", **{"class": "org.fixture"}, mapped=True)]))
+                                write_clients(path, clients + [dict(address="0xd", pid=unrelated.pid,
+                                    title="Other", **{"class": "org.fixture"}, mapped=True)])
                             stream.sendall(b"closewindow>>d\n")
                         else:
                             raise AssertionError(action)
