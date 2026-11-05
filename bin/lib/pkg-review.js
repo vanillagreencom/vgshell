@@ -657,7 +657,7 @@ function transaction(dir) {
 // https://github.com/Morganamilo/paru/blob/v2.1.0/src/order.rs
 // Skip its review only when every AUR recipe belongs to the VGS decision.
 // Unknown output or a new dependency keeps the helper's own review.
-function helperReviewCovered(step, packages, skipped) {
+function helperReviewCovered(step, state) {
     if (step.manager !== "aur" || path.basename(step.binary) !== "paru") return false;
     const targets = step.action === "upgrade" ? step.binding.pending.map(p => p.name).filter(n => !step.ignored.includes(n)) : step.names.concat(step.installs);
     if (!targets.length) return false;
@@ -672,7 +672,20 @@ function helperReviewCovered(step, packages, skipped) {
     if (order.signal) return unavailable("signal");
     if (order.status !== 0) return unavailable("exit-status");
     if (order.stderr) return unavailable("stderr");
-    const covered = new Set(packages.filter(p => p.aur && !skipped.includes(p.name)).map(p => p.name));
+    // An update can replace this reader between consumers of one receipt.
+    // Its final steps and bound origins already hold the permitted set.
+    const permitted = new Set();
+    for (const decision of state.steps) {
+        const names = decision.action === "upgrade"
+            ? decision.binding === null ? [] : decision.binding.pending.map(p => p.name).filter(name => !decision.ignored.includes(name))
+            : decision.names.concat(decision.installs).map(name => name.split("/").pop());
+        for (const name of names) permitted.add(name);
+    }
+    const origins = state.steps.flatMap(decision => decision.binding === null ? [] : decision.binding.origins);
+    for (const name of permitted)
+        for (const origin of origins)
+            if (origin.neededBy === name) permitted.add(origin.target.split("/").pop());
+    const covered = new Set(state.packages.filter(p => p.aur && permitted.has(p.name)).map(p => p.name));
     let aur = false;
     for (const line of order.stdout.trim().split(/\r?\n/)) {
         if (/^REPO (TARGET|DEP|MAKE) [^\s]+ [A-Za-z0-9@_+.-]+$/.test(line)) continue;
@@ -718,7 +731,7 @@ async function prepare(requestPath, resultPath) {
         const result = await review(request, storage);
         if (result.decision === "proceed") {
             const receipt = crypto.randomBytes(24).toString("hex");
-            const record = { version: 1, coverage: result.coverage, skipped: result.skipped, owner: processIdentity(process.ppid), transaction: tx, request, state: result.state, consumed: [] };
+            const record = { version: 1, coverage: result.coverage, owner: processIdentity(process.ppid), transaction: tx, request, state: result.state, consumed: [] };
             fs.writeFileSync(path.join(storage, receipt), JSON.stringify(record), { flag: "wx", mode: 0o600 });
             result.receipt = path.basename(storage) + "/" + receipt;
             kept = true;
@@ -772,7 +785,7 @@ function consume(receipt, request, customArgv) {
         if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
         record.consumed.push(index);
         fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
-        return { ...step, coverage: record.coverage, dependenciesCovered: helperReviewCovered(step, record.state.packages, record.skipped) };
+        return { ...step, coverage: record.coverage, dependenciesCovered: helperReviewCovered(step, record.state) };
     } catch (e) {
         if (e instanceof files.Refusal) throw e;
         refuse("review=authority-unreadable");
