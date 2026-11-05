@@ -84,8 +84,9 @@ Item {
     // covers the output less the edges Hyprland reserves; null otherwise.
     property var consoleBox: null
     // The hold key the last finished read answers, the box's, none's or a
-    // failure's alike: the bubble acknowledges no frame drawn before the
-    // placement for the current hold is known.
+    // failure's alike: the bubble neither draws nor acknowledges a new
+    // hold until its placement is known. A later read keeps this key, so
+    // an already shown hold stays drawn while the console moves.
     property string consoleKey: ""
     property int consoleReads: 0
     readonly property string heldKey: sessionState !== null && sessionState.approval.kind === "held"

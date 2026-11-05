@@ -55,8 +55,8 @@ Item {
         && consoleBox.y < height - look.layout.margin
         && consoleBox.x < overlay.x + overlay.width && consoleBox.x + consoleBox.width > overlay.x
     // The current hold's placement is known: the service's last finished
-    // read answers this hold. Until then no frame acknowledges the request,
-    // so the drawn frame is the placed one.
+    // read answers this hold. Until then the request neither draws nor
+    // acknowledges a frame, so its first drawn frame is the placed one.
     readonly property bool placed: service !== null && service.consoleKey === service.heldKey
     property var displayedHold: null
     property var approvalFrames: []
@@ -233,7 +233,7 @@ Item {
         return Field.boxes(look.field, { x: overlay.x + overlay.centre, y: overlay.y + overlay.orbCentre }, ring, rects, width);
     }
 
-    visible: shown
+    visible: shown && (hold === null ? true : placed)
     Component.onCompleted: if (service !== null) service.attachBubble(root)
 
     // The field, drawn only over the boxes' reach inside this layer.

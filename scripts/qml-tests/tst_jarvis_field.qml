@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -36,7 +37,8 @@ Item {
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) {}
-        function shownApproval(item, hold) {}
+        property var acknowledged: []
+        function shownApproval(item, hold) { acknowledged = acknowledged.concat([hold]); }
         function cancelApproval(hold) {}
         function confirmApproval(hold, how) {}
     }
@@ -46,6 +48,7 @@ Item {
     // content.
     property real layerWidth: width
     Bubble { id: bubble; width: root.layerWidth; height: root.height; screen: ({ name: "unit" }); service: service }
+    QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
 
     function session(over) {
         const s = { gen: 1, check: { kind: "none" }, gate: { kind: "up" }, fault: { kind: "none" }, approval: { kind: "none" },
@@ -66,10 +69,17 @@ Item {
             UnitTheme.reset();
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             root.layerWidth = root.width;
+            ground.color = "#ffffff";
+            service.bubbleWanted = true;
+            service.consoleBox = null;
+            service.consoleKey = "";
+            service.heldKey = "";
+            service.acknowledged = [];
             service.values = {};
             service.sessionState = null;
             mouseMove(root, 1, 1);
         }
+        function cleanup() { QsWindow.window = null; }
         function all(item, out) {
             for (const child of item.children) {
                 out.push(child);
@@ -78,6 +88,61 @@ Item {
             return out;
         }
         function named(name) { return all(bubble, []).find(item => item.objectName === name); }
+
+        // Service publishes the existing asynchronous console answer after
+        // the hold arrives. Pixels from the window must stay empty until
+        // then; this file's software OpenGL paints the real shadow layers.
+        // A failed read and no console both publish null in Service.
+        function test_a_late_console_answer_gates_the_first_painted_frame_data() {
+            const rows = [];
+            for (const light of [false, true])
+                for (const result of ["over-console", "none-or-failed"])
+                    rows.push({ tag: (light ? "light-" : "dark-") + result, light: light, result: result });
+            return rows;
+        }
+
+        function test_a_late_console_answer_gates_the_first_painted_frame(data) {
+            if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
+            QsWindow.window = presentedHost;
+            service.bubbleWanted = false;
+            verify(renderedFrame(root));
+            const empty = grabImage(root);
+            service.heldKey = "1:a";
+            service.sessionState = root.held("Delete draft.txt?\n/home/fixture/draft.txt", true);
+            service.bubbleWanted = true;
+            const overlay = named("overlay");
+            verify(overlay !== undefined);
+            for (let frame = 0; frame < 2; frame++) {
+                verify(renderedFrame(root), "the window paints while the console answer is pending");
+                verify(grabImage(root).equals(empty), "no bottom frame paints before the current hold's console answer");
+                compare(service.acknowledged.length, 0, "an unplaced hold is not acknowledged");
+            }
+            const over = { output: "unit", x: 0, y: 0, width: root.width, height: root.height };
+            service.consoleBox = data.result === "over-console" ? over : null;
+            service.consoleKey = service.heldKey;
+            verify(renderedFrame(root), "the first ready frame paints");
+            verify(!grabImage(root).equals(empty), "the answered hold paints its prompt");
+            const top = () => fuzzyCompare(overlay.y, root.look.layout.margin, 0.5);
+            const bottom = () => fuzzyCompare(overlay.y + overlay.height, root.height - root.look.layout.margin, 0.5);
+            if (data.result === "over-console") top(); else bottom();
+            tryVerify(() => service.acknowledged.some(hold => hold.id === "a"), 2000, "the placed frame acknowledges the hold");
+
+            // A later window event retains this hold's consoleKey, so its
+            // read keeps the card painted and re-places it on completion.
+            verify(renderedFrame(root));
+            verify(!grabImage(root).equals(empty), "a same-hold read keeps the card painted");
+            service.consoleBox = data.result === "over-console" ? null : over;
+            verify(renderedFrame(root));
+            verify(!grabImage(root).equals(empty), "a moved console does not hide the card");
+            if (data.result === "over-console") bottom(); else top();
+
+            service.heldKey = "1:b";
+            const next = root.held("Delete notes.txt?\n/home/fixture/notes.txt", true);
+            next.approval.id = "b";
+            service.sessionState = next;
+            verify(renderedFrame(root));
+            verify(grabImage(root).equals(empty), "a new hold cannot use the previous hold's placement");
+        }
         // Each content item that shows, with the peak of the box it sits in.
         function contents() {
             const out = bubble.textItems.filter(item => bubble.drawn(item) && item.height > 0)
