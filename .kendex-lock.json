@@ -3723,6 +3723,102 @@
         }
       ]
     },
+    "hook:docs-writing-note:claude": {
+      "name": "docs-writing-note",
+      "kind": "hook",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "4e2287105685b1f29926c128639b88d67f299574c93a93e6b7c4df1f23ca892c",
+      "sourceCommit": "89cc40a4dee8bd8e033fa6b9b4b5fcf94726a073",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "31c76e5eec37eab77348e309a92af49236afbb6cd6fe795321bc0c0b7d1d71f5",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "docs-writing-note",
+        "paths": [
+          ".claude/hooks/docs-writing-note.sh"
+        ]
+      },
+      "registration": {
+        "event": "PreToolUse",
+        "command": "[ -z \"${COPILOT_PROJECT_DIR-}\" ] || exit 0; bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/docs-writing-note.sh\"",
+        "matcher": "Edit|MultiEdit|Write"
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "hook:docs-writing-note:codex": {
+      "name": "docs-writing-note",
+      "kind": "hook",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "4e2287105685b1f29926c128639b88d67f299574c93a93e6b7c4df1f23ca892c",
+      "sourceCommit": "89cc40a4dee8bd8e033fa6b9b4b5fcf94726a073",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "31c76e5eec37eab77348e309a92af49236afbb6cd6fe795321bc0c0b7d1d71f5",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "docs-writing-note",
+        "paths": [
+          ".codex/hooks/docs-writing-note.sh"
+        ]
+      },
+      "registration": {
+        "event": "PreToolUse",
+        "command": "p='.codex/hooks/docs-writing-note.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
+        "matcher": "Edit|MultiEdit|Write"
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "hook:docs-writing-note:pi": {
+      "name": "docs-writing-note",
+      "kind": "hook",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "4e2287105685b1f29926c128639b88d67f299574c93a93e6b7c4df1f23ca892c",
+      "sourceCommit": "89cc40a4dee8bd8e033fa6b9b4b5fcf94726a073",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "31c76e5eec37eab77348e309a92af49236afbb6cd6fe795321bc0c0b7d1d71f5",
+      "enabled": true,
+      "emitted": {
+        "kind": "hook",
+        "name": "docs-writing-note",
+        "paths": [
+          ".pi/kendex/hooks/docs-writing-note.sh"
+        ]
+      },
+      "registration": {
+        "event": "tool_call",
+        "command": "p='.pi/kendex/hooks/docs-writing-note.sh'; r=$({ cd -P . && pwd; } 2>/dev/null); case $r in /*) ;; *) r=;; esac; while [ -n \"$r\" ] && ! [ -f \"$r/$p\" ]; do [ \"$r\" = / ] && r= || { r=${r%/*}; [ -n \"$r\" ] || r=/; }; done; [ -n \"$r\" ] || { printf 'kendex-hook-missing: %s\\nNo directory above %s holds this script. Run kendex refresh in the project.\\n' \"$p\" \"$PWD\" >&2; exit 1; }; bash \"$r/$p\"",
+        "matcher": "Edit|MultiEdit|Write"
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
     "hook:lane-mail-check:claude": {
       "name": "lane-mail-check",
       "kind": "hook",
@@ -7094,6 +7190,15 @@
             "name": "reviewer",
             "harness": "claude"
           }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "hook",
+            "name": "docs-writing-note",
+            "harness": "claude"
+          }
         }
       ]
     },
@@ -7146,6 +7251,15 @@
             "source": "kendex",
             "kind": "skill",
             "name": "reviewer",
+            "harness": "codex"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "hook",
+            "name": "docs-writing-note",
             "harness": "codex"
           }
         }
@@ -7254,6 +7368,15 @@
             "source": "kendex",
             "kind": "skill",
             "name": "reviewer",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "hook",
+            "name": "docs-writing-note",
             "harness": "pi"
           }
         }

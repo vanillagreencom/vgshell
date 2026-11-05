@@ -429,6 +429,14 @@ source = "kendex"
 source = "kendex"
 enabled = true
 
+[hooks.docs-writing-note]
+source = "kendex"
+harnesses = [
+    "claude",
+    "codex",
+    "pi",
+]
+
 [agent-skills]
 maintainer = [
     "decider",
