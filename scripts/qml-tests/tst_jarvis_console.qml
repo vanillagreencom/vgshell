@@ -6,18 +6,14 @@ import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
-// The Jarvis console's state lines under its purpose, over a stand-in
-// `shell`: the bar's state, the action a problem names and the AI model
-// each draw as a line of their own, and the action's page reference
-// reaches a link, never its raw form. Composer replacements retain a visible
-// keyboard target and leave another tab or control's focus alone. Each
-// History task row offers its own Open and Stop, with no selection.
+// Composer replacements retain a visible keyboard target and leave another
+// tab or control's focus alone. Each History task row offers its own Open
+// and Stop, with no selection.
 Item {
     id: root
     width: 760
     height: 900
 
-    property var opened: []
     property var recoveryConsole: null
     property int destroyedRecoveryConsoles: 0
 
@@ -37,7 +33,7 @@ Item {
             settings: { mode: "hold", voiceProvider: "gemini", home: "" },
             shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
             ipc: { call: (name, arg) => "ok" },
-            surfaces: { openPage: (page, tab) => { root.opened = root.opened.concat([[page, tab]]); } }
+            surfaces: { openPage: (page, tab) => {} }
         };
     }
 
@@ -57,7 +53,6 @@ Item {
 
         function init() {
             UnitTheme.reset();
-            root.opened = [];
             jarvisConsole.tab = 0;
             jarvisConsole.historyType = 0;
             jarvisConsole.shell = root.shellWith(root.values({}));
@@ -70,13 +65,6 @@ Item {
             for (const child of node.children) collect(child, test, out);
             return out;
         }
-        function shownText() {
-            return collect(jarvisConsole, n => n instanceof Text && n.visible && n.opacity > 0 && n.text !== "", []).map(n => n.text);
-        }
-        function links() {
-            return collect(jarvisConsole, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
-        }
-
         function composerControls() {
             const all = collect(jarvisConsole, n => true, []);
             const stops = all.filter(n => n.label === "Stop Jarvis");
@@ -426,22 +414,6 @@ Item {
             const loose = collect(jarvisConsole, n => n instanceof Button && n.visible, []).filter(n => !inRow(n));
             compare(loose.length, 0, "every shown button belongs to a task row: " + loose.map(n => n.text));
             compare(collect(jarvisConsole, n => n.highlighted === true && n.visible, []).length, 0, "no row holds a selection");
-        }
-
-        // A refused key is a problem whose action links the Voice key field.
-        function test_a_problem_draws_its_facts_as_lines_and_its_action_as_a_link() {
-            jarvisConsole.shell = root.shellWith(root.values({ fault: { kind: "error", reason: "live=key-refused", retry: 0 } }));
-            const reference = "(page:vgs.jarvis/Settings/voiceAccount)";
-            const drawn = shownText();
-            verify(drawn.length > 0, "the console draws text");
-            for (const text of drawn)
-                compare(PageReference.parse(text).page, "", "no drawn line shows a page reference's raw form: " + text);
-            verify(drawn.indexOf("AI model: Claude Opus 5.5") !== -1, "the AI model is a line of its own: " + JSON.stringify(drawn));
-            const link = links().find(n => n.text.indexOf(reference) !== -1);
-            verify(link !== undefined, "a link holds the action's page reference");
-            verify(link.text.indexOf("AI model: ") === -1, "the action's link holds no other fact");
-            link.pageActivated("vgs.jarvis/Settings", "voiceAccount");
-            compare(JSON.stringify(root.opened), '[["vgs.jarvis/Settings","voiceAccount"]]');
         }
 
         // The main Jarvis's reading draws one line on Now alone, in the

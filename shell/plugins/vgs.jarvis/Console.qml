@@ -6,7 +6,6 @@ import qs.Ui
 import "Session.js" as Session
 import "WidgetView.js" as WidgetView
 import "SetupGate.js" as Gate
-import "AccountProviders.js" as Providers
 import "History.js" as History
 
 // Jarvis console: a keyboard-first window for typed turns. It asks the
@@ -200,10 +199,6 @@ FocusScope {
     readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps)
     // How to talk now: the sentence the Voice step and the bar say it with.
     readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."
-    // What the bar shows (WidgetView), whose title and first action the
-    // status line under the console's purpose repeats.
-    readonly property var barView: WidgetView.view(values, spelledKeys, shell === null ? "hold" : shell.settings.mode,
-        shell === null ? null : Providers.cloudVoice(shell.settings.voiceProvider))
     // The Conversation tab's first control: the message box, or Stop where
     // one line stands in its place.
     readonly property Item composerFocus: speechOnly ? speechStop : entryField
@@ -298,17 +293,6 @@ FocusScope {
     }
     onTabChanged: { problem = ""; Qt.callLater(focusTab); }
 
-    // The bar's state line, the action of a state that needs one, then the
-    // AI model, one fact a line in the bar tooltip's order. The action's
-    // page reference stays whole for the LinkText that draws it.
-    function stateLines() {
-        const view = barView;
-        const isModel = line => String(line).indexOf("AI model: ") === 0;
-        const model = view.tooltipDetails.find(isModel);
-        const action = view.state === "problem" || view.state === "off" ? view.tooltipDetails.find(line => !isModel(line)) : undefined;
-        return [view.tooltip].concat(action === undefined ? [] : [action], model === undefined ? [] : [model]);
-    }
-
     // The line in place of the message box under a voice that takes speech
     // only (ROUTE, the Voice provider reading), saying how to talk (TALK).
     function speechOnlyLine(route, talk) {
@@ -319,12 +303,6 @@ FocusScope {
     // voice that takes speech only (SPEECH), by talking (TALK).
     function emptyText(speech, talk) {
         return "No conversation yet. " + (speech ? PageReference.plain(talk) : "Type a message to start.");
-    }
-
-    // The status line's color for STATE, the bar's state: a warning only
-    // while it says Jarvis cannot take a request, a problem or off.
-    function stateColor(state) {
-        return state === "problem" || state === "off" ? Theme.color.warning : Theme.color.textMuted;
     }
 
     // The Now line for REACH, the daemon's reading of the main Jarvis
@@ -482,35 +460,6 @@ FocusScope {
         Component.onCompleted: scrollArea.keyboardScroll = true
 
         title: "Jarvis console"
-        subtitle: [
-            Column {
-                width: layout.contentWidth
-                spacing: Theme.row.lineGap
-                // The console's three jobs, so a first look says what it is for.
-                Label {
-                    width: parent.width
-                    role: "hint"
-                    text: (root.speechOnly ? "Talk to Jarvis" : "Type to Jarvis") + " in Now. Needs you holds your asks. History shows conversations, tasks and problems."
-                    color: Theme.color.textMuted
-                    wrapMode: Text.Wrap
-                }
-                Repeater {
-                    model: root.stateLines()
-                    // A Repeater builds its delegate before it parents it, so
-                    // the width reads the pane, not `parent`.
-                    LinkText {
-                        required property string modelData
-                        width: layout.contentWidth
-                        role: "hint"
-                        text: modelData
-                        color: root.stateColor(root.barView.state)
-                        wrapMode: Text.Wrap
-                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
-                    }
-                }
-            }
-        ]
-
         header: Column {
             width: layout.contentWidth
             spacing: Theme.stack.group

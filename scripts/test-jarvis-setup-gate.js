@@ -955,14 +955,12 @@ function firstRead(serviceSource, gate, manifest, changed, reply) {
 
 // The console under a voice that takes speech only: its line and its empty
 // state say how to talk in the talk sentence (SetupGate.talkHint) of the
-// Talk mode, and its status line reads as a warning only while the bar's
-// state says Jarvis cannot take a request.
+// Talk mode.
 function verifyConsoleTalk(gate, consoleSource) {
-    const named = ["speechOnlyLine", "emptyText", "stateColor"].map(name =>
+    const named = ["speechOnlyLine", "emptyText"].map(name =>
         consoleSource.match(new RegExp("^    function " + name + "\\([a-z, ]*\\) \\{\\n[\\s\\S]*?^    \\}", "m")));
     assert.ok(named.every(found => found !== null), "the console's talk functions");
-    const theme = { color: { warning: "warning", textMuted: "muted" } };
-    const scope = { Gate: gate, PageReference: pageReference, Theme: theme };
+    const scope = { Gate: gate, PageReference: pageReference };
     vm.runInNewContext(named.map(found => found[0]).join("\n"), scope);
     assert.ok(/readonly property string talkLine: Gate\.talkHint\(shell === null \? "hold" : shell\.settings\.mode, spelledKeys\.talk\) \+ "\."/.test(consoleSource),
         "the console's talk line is the talk sentence of the Talk mode");
@@ -976,8 +974,6 @@ function verifyConsoleTalk(gate, consoleSource) {
             assert.ok(empty.endsWith(" " + pageReference.plain(talk)), mode + " " + key + ": the empty state says how to talk");
             assert.equal(scope.emptyText(false, talk).includes(pageReference.plain(talk)), false, mode + " " + key + ": the typed console's empty state asks for a message");
         }
-    assert.deepEqual(["ready", "loading", "listening", "working", "speaking", "muted", "off", "problem"].map(scope.stateColor),
-        ["muted", "muted", "muted", "muted", "muted", "muted", "warning", "warning"], "the status line warns only while Jarvis cannot take a request");
 }
 
 // The account reader's shipped publication as a script over `root`: publish
@@ -2607,8 +2603,7 @@ try {
         ["console-talk-line-fixed", 'readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."',
             'readonly property string talkLine: "Tap or hold " + spelledKeys.talk + ", then speak."'],
         ["console-speech-line-drops-talk", 'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;',
-            'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only.";'],
-        ["console-status-warns-while-busy", 'return state === "problem" || state === "off" ? Theme.color.warning : Theme.color.textMuted;', 'return state !== "ready" ? Theme.color.warning : Theme.color.textMuted;']]) {
+            'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only.";']]) {
         assert.equal(consoleText.split(needle).length, 2, label + ": the text to replace occurs once");
         assert.throws(() => verifyConsoleTalk(load(file), consoleText.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
