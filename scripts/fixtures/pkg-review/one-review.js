@@ -18,6 +18,8 @@ try{
  const reply=JSON.parse(fs.readFileSync(result));
  fs.writeFileSync(path.join(root,"one-review-result.json"),JSON.stringify(reply));
  if(reply.decision!=="proceed")process.exit(0);
- for(const [action,manager,names] of [["upgrade","pacman",[]],["upgrade","aur",[]],["reinstall","aur",["vgshell-git"]]])
-  run(["run",action,"--manager",manager,"--review-receipt",reply.receipt,"--config",config,...names]);
+ for(const [action,manager,names] of [["upgrade","pacman",[]],["upgrade","aur",[]],["reinstall","aur",["vgshell-git"]]]){
+  if(action==="reinstall"&&reply.skipped.includes("vgshell-git"))continue;
+  run(["run",action,"--manager",manager,"--review-receipt",reply.receipt,"--config",config,...(action==="upgrade"&&reply.skipped.length?["--ignore",...reply.skipped]:[]),...names]);
+ }
 }finally{fs.rmSync(env.VGS_PACKAGE_TRANSACTION,{recursive:true,force:true});}

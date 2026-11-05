@@ -47,32 +47,43 @@ try{
  if(!only&&(select("control")||surface==="one-review-control")){
   const owner="bin/lib/pkg-review.js";
   control("generated-config","one-review",[[owner,'if (!p.complete) state.unknown.push("pending=config-correspondence");','if (true) state.unknown.push("pending=config-correspondence");']],/clean:/,"clean");
-  control("review-agent-return","review-again",[[owner,'if (answer.value === "No") continue reviewChoice;','if (answer.value === "No") return { ...result, decision: "stop" };']],/No: review agents/);
+  control("review-agent-return","review-again",[[owner,'continue reviewChoice;','return { ...result, decision: "stop" };']],/No: review agents/);
+  control("review-offer-return","review-again",[[owner,'if (!reviewable || !["agent", "command"].includes(plan.state)) choice = null;','if (false) choice = null;']],/no-agent-No:/,"no-agent-No");
+  control("helper-repo-format","one-review",[[owner,'/^REPO (TARGET|DEP|MAKE)', '/^INSTALL (TARGET|DEP|MAKE)']],/clean: helper review prompts/,"clean");
+  control("helper-skipped-coverage","one-review",[[owner,'p.aur && !skipped.includes(p.name)','p.aur']],/skipped: helper review prompts/,"skipped");
+  control("helper-order-diagnostic","one-review",[[owner,'process.stderr.write("package-review: " + JSON.stringify','void ("package-review: " + JSON.stringify']],/unread-order: order diagnostics/,"unread-order");
   control("helper-review-once","one-review",[["bin/vgshell-pkg",'if (receipt !== undefined) r.plan = table.reviewedBuild','if (false && receipt !== undefined) r.plan = table.reviewedBuild']],/declined: helper review prompts/,"declined");
  }
- if(!only&&select("review-again"))for(const decision of ["No","Yes","Stop"]){
-  const choices=["Review","Use Claude Code",decision,...(decision==="No"?["Customize","AI agent","Codex\tcodex","Save","Use Codex"]:[])];
-  const w=create(path.join(scratch,"review-again-"+decision),{choices});
+ if(!only&&select("review-again"))for(const kind of ["failed-agent","no-agent","unreviewable"])for(const decision of ["No","Yes","Stop"]){
+  const label=kind==="failed-agent"?decision:kind+"-"+decision;
+  if(caseName!==null&&caseName!==label)continue;
+  const choices=["Review",...(kind==="failed-agent"?["Use Claude Code"]:[]),decision,...(decision==="No"?(kind==="failed-agent"?["Customize","AI agent","Codex\tcodex","Save","Use Codex"]:["Install without review"]):[])];
+  const w=create(path.join(scratch,"review-again-"+label),{choices,agents:kind!=="no-agent"});
   fs.writeFileSync(path.join(w.root,"aur-pending"),"");fs.writeFileSync(path.join(w.root,"agent-failed-once"),"");
-  const r=tty(w,["run","upgrade","--manager","aur","--config",w.config]),calls=w.calls();
-  assert.equal(r.status,0,decision+": "+r.stdout+r.stderr);
+  const r=tty(w,["run",kind==="unreviewable"?"reinstall":"upgrade","--manager","aur","--config",w.config,...(kind==="unreviewable"?["vgshell-git"]:[])]),calls=w.calls();
+  assert.equal(r.status,0,label+": "+r.stdout+r.stderr);
   const agents=calls.filter(c=>c.kind==="agent");
-  assert.deepEqual(agents.map(c=>c.name),decision==="No"?["claude","codex"]:["claude"],decision+": review agents");
-  if(decision==="No"){
+  assert.deepEqual(agents.map(c=>c.name),kind!=="failed-agent"?[]:decision==="No"?["claude","codex"]:["claude"],label+": review agents");
+  if(decision==="No"&&kind==="failed-agent"){
    assert.deepEqual(agents[1].packages,agents[0].packages,"retry keeps packages and resets failed notes");
    assert.equal(calls.filter(c=>c.kind==="offer"&&c.offered.includes("Review")).length,1,"retry returns directly to agent choice");
   }
+  if(kind!=="failed-agent")assert.equal(calls.filter(c=>c.kind==="offer"&&c.offered.includes("Review")).length,decision==="No"?2:1,label+": return to offer");
   assert.equal(calls.some(c=>c.kind==="mutation"),decision!=="Stop",decision+": mutation");
   console.log("package-review-again-proof: "+JSON.stringify({decision,agents:agents.map(c=>c.name),installs:decision!=="Stop"}));
  }
- if(!only&&select("one-review"))for(const scenario of ["clean","declined","unknown","retry","dependency","unread-order"]){
+ if(!only&&select("one-review"))for(const scenario of ["clean","declined","unknown","retry","dependency","skipped","propagated-skip","unread-order","signal-order","stderr-order","unknown-order"]){
   if(caseName!==null&&caseName!==scenario)continue;
-  const w=create(path.join(scratch,"one-review-"+scenario),{choices:scenario==="declined"?["Install without review"]:["Review","Use Claude Code",...(scenario==="unknown"?["Yes"]:scenario==="retry"?["No","Customize","AI agent","Codex\tcodex","Save","Use Codex"]:[])]});
+  const skips=["skipped","propagated-skip"].includes(scenario);
+  const w=create(path.join(scratch,"one-review-"+scenario),{choices:scenario==="declined"?["Install without review"]:["Review","Use Claude Code",...(scenario==="unknown"?["Yes"]:scenario==="retry"?["No","Customize","AI agent","Codex\tcodex","Save","Use Codex"]:skips?["Skip"]:[])]});
   if(scenario==="unknown")fs.writeFileSync(path.join(w.root,"agent-failed"),"");
   if(scenario==="retry")fs.writeFileSync(path.join(w.root,"agent-failed-once"),"");
   fs.writeFileSync(path.join(w.root,"aur-pending"),"");fs.writeFileSync(path.join(w.root,"config-corresponds"),"");
-  const order="INSTALL MAKE core cmake\nAUR TARGET foreign foreign\nAUR TARGET second second"+(scenario==="dependency"?"\nAUR DEP extra extra":"");
-  fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify({pending:["foreign","second"],prompts:true,buildOrder:scenario==="unread-order"?null:{upgrade:order,"vgshell-git":"AUR TARGET vgshell-git vgshell-git"}}));
+  // paru v2.1.0 src/order.rs emits REPO rows, including make dependencies.
+  const order=(skips?"":"REPO MAKE core cmake\n")+"AUR TARGET second second\n"+(scenario==="propagated-skip"?"AUR DEP vgshell-git vgshell-git":"AUR DEP foreign foreign")+(scenario==="dependency"?"\nAUR DEP extra extra":"");
+  const unavailable={"unread-order":"exit-status","signal-order":"signal","stderr-order":"stderr","unknown-order":"unknown-output"}[scenario];
+  const failure=scenario==="unread-order"?{status:7,stderr:"order read failed"}:scenario==="signal-order"?{signal:"SIGTERM"}:scenario==="stderr-order"?{stderr:"order warning"}:scenario==="unknown-order"?{stdout:"SRCINFO TARGET /recipes local second second"}:{};
+  fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify({pending:["foreign","second"],prompts:true,flag:skips?"foreign":undefined,...(scenario==="propagated-skip"?{info:{"vgshell-git":{"Depends On":"foreign"}},missing:["foreign"],order:{foreign:"AUR TARGET foreign foreign"}}:{}),buildOrder:{upgrade:unavailable?failure:order,foreign:"AUR TARGET foreign foreign","vgshell-git":"AUR TARGET vgshell-git vgshell-git"}}));
   const argv=[process.execPath,path.join(__dirname,"one-review.js"),w.root,ownerOverride||w.owner,scenario];
   const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:60000}),calls=w.calls();
   assert.equal(r.status,0,scenario+": "+r.stdout+r.stderr);
@@ -80,11 +91,15 @@ try{
   assert.equal(reply.coverage,scenario==="declined"?"declined":scenario==="unknown"?"unknown":"complete",scenario+": generated config coverage");
   assert.ok(!calls.some(c=>c.kind==="agent"&&c.packages.some(line=>line.includes("pending=config-correspondence"))),scenario+": generated wrapper has complete pending list");
   assert.equal(calls.filter(c=>c.kind==="offer"&&c.offered.includes("Yes")).length,["unknown","retry"].includes(scenario)?1:0,scenario+": unavailable question");
-  const mutations=calls.filter(c=>c.kind==="mutation");assert.equal(mutations.length,3,scenario+": all update steps install");
+  const mutations=calls.filter(c=>c.kind==="mutation");assert.equal(mutations.length,scenario==="propagated-skip"?2:3,scenario+": permitted update steps install");
+  if(skips)assert.deepEqual(reply.skipped,scenario==="propagated-skip"?["foreign","vgshell-git"]:["foreign"],scenario+": skipped packages");
   const prompts=calls.filter(c=>c.kind==="helper-prompt"),confirmations=calls.filter(c=>c.kind==="pacman-confirmation");
   const covered=["clean","declined","unknown","retry"].includes(scenario);
-  assert.equal(prompts.length,covered?0:scenario==="dependency"?3:6,scenario+": helper review prompts");
-  assert.equal(confirmations.length,covered?4:5,scenario+": pacman transaction confirmations");
+  assert.equal(prompts.length,covered?0:3,scenario+": helper review prompts");
+  assert.equal(confirmations.length,covered||scenario==="propagated-skip"?4:5,scenario+": pacman transaction confirmations");
+  const diagnostics=[...r.stdout.matchAll(/^package-review: (.+)\r?$/gm)].map(m=>JSON.parse(m[1]));
+  assert.equal(diagnostics.length,unavailable?1:0,scenario+": order diagnostics");
+  if(unavailable){assert.equal(diagnostics[0].review,"helper-order-unavailable");assert.equal(diagnostics[0].operation,"paru-build-order");assert.equal(diagnostics[0].cause,unavailable);assert.ok(diagnostics[0].command.includes("-Po"));if(failure.stderr)assert.equal(diagnostics[0].stderr,failure.stderr);if(failure.signal)assert.equal(diagnostics[0].signal,failure.signal);if(failure.status)assert.equal(diagnostics[0].status,failure.status);}
   assert.ok(mutations.filter(c=>c.name==="paru").every(c=>!c.args.includes("--noconfirm")&&!c.args.includes("-y")));
   console.log("package-one-review-proof: "+JSON.stringify({scenario,coverage:reply.coverage,helperPrompts:prompts.length,confirmations:confirmations.map(c=>c.transaction),mutations:mutations.map(c=>c.args)}));
  }
@@ -451,7 +466,7 @@ try{
   const w=create(path.join(scratch,"updates-"+kind),{choices,helper:kind!=="helper"}),fixture=path.join(__dirname,"pipeline.js");
   if(kind==="one-review"){
    for(const marker of ["aur-pending","config-corresponds"])fs.writeFileSync(path.join(w.root,marker),"");
-   fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify({pending:["foreign","second"],prompts:true,buildOrder:{upgrade:"INSTALL MAKE core cmake\nAUR TARGET foreign foreign\nAUR TARGET second second","vgshell-git":"AUR TARGET vgshell-git vgshell-git"}}));
+   fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify({pending:["foreign","second"],prompts:true,buildOrder:{upgrade:"REPO MAKE core cmake\nAUR TARGET foreign foreign\nAUR TARGET second second","vgshell-git":"AUR TARGET vgshell-git vgshell-git"}}));
   }
   if(kind==="recognized-skip")fs.writeFileSync(path.join(w.root,"agent-concern"),"");
   const command=[process.execPath,fixture,w.root,kind].map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");

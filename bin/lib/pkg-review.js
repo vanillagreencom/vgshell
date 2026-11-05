@@ -604,7 +604,10 @@ async function reviewRequest(request, storage) {
                     result.coverage = "unknown";
                     const answer = await ui("unavailable", failures.join("\n"), "retry");
                     if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
-                    if (answer.value === "No") continue reviewChoice;
+                    if (answer.value === "No") {
+                        if (!reviewable || !["agent", "command"].includes(plan.state)) choice = null;
+                        continue reviewChoice;
+                    }
                     if (answer.value === "Stop") return { ...result, decision: "stop" };
                     if (answer.value !== "Yes") refuse("review=choice-invalid");
                 }
@@ -650,20 +653,32 @@ function transaction(dir) {
     return { dir, identity: ownedDirectory(dir) };
 }
 // paru(8) -Po reports the full build order, including AUR dependencies.
+// The emitted REPO/AUR rows are defined by paru v2.1.0 src/order.rs:
+// https://github.com/Morganamilo/paru/blob/v2.1.0/src/order.rs
 // Skip its review only when every AUR recipe belongs to the VGS decision.
 // Unknown output or a new dependency keeps the helper's own review.
-function helperReviewCovered(step, packages) {
+function helperReviewCovered(step, packages, skipped) {
     if (step.manager !== "aur" || path.basename(step.binary) !== "paru") return false;
     const targets = step.action === "upgrade" ? step.binding.pending.map(p => p.name).filter(n => !step.ignored.includes(n)) : step.names.concat(step.installs);
     if (!targets.length) return false;
-    const order = query([step.binary, "--config", step.config, "-Po", "--", ...targets]);
-    if (order.error || order.signal || order.status !== 0 || order.stderr) return false;
-    const covered = new Set(packages.filter(p => p.aur).map(p => p.name));
+    const command = [step.binary, "--config", step.config, "-Po", "--", ...targets];
+    const order = query(command);
+    const unavailable = cause => {
+        process.stderr.write("package-review: " + JSON.stringify({ review: "helper-order-unavailable", operation: "paru-build-order", cause,
+            command, status: order.status, signal: order.signal, error: order.error?.code || null, stderr: order.stderr }) + "\n");
+        return false;
+    };
+    if (order.error) return unavailable("query-error");
+    if (order.signal) return unavailable("signal");
+    if (order.status !== 0) return unavailable("exit-status");
+    if (order.stderr) return unavailable("stderr");
+    const covered = new Set(packages.filter(p => p.aur && !skipped.includes(p.name)).map(p => p.name));
     let aur = false;
     for (const line of order.stdout.trim().split(/\r?\n/)) {
-        if (/^INSTALL (TARGET|DEP|MAKE) [^\s]+ [A-Za-z0-9@_+.-]+$/.test(line)) continue;
+        if (/^REPO (TARGET|DEP|MAKE) [^\s]+ [A-Za-z0-9@_+.-]+$/.test(line)) continue;
         const row = /^AUR (?:TARGET|DEP|MAKE) [A-Za-z0-9@_+.-]+ ([A-Za-z0-9@_+.-]+(?: [A-Za-z0-9@_+.-]+)*)$/.exec(line);
-        if (!row || !row[1].split(" ").every(name => covered.has(name))) return false;
+        if (!row) return unavailable("unknown-output");
+        if (!row[1].split(" ").every(name => covered.has(name))) return false;
         aur = true;
     }
     return aur;
@@ -703,7 +718,7 @@ async function prepare(requestPath, resultPath) {
         const result = await review(request, storage);
         if (result.decision === "proceed") {
             const receipt = crypto.randomBytes(24).toString("hex");
-            const record = { version: 1, coverage: result.coverage, owner: processIdentity(process.ppid), transaction: tx, request, state: result.state, consumed: [] };
+            const record = { version: 1, coverage: result.coverage, skipped: result.skipped, owner: processIdentity(process.ppid), transaction: tx, request, state: result.state, consumed: [] };
             fs.writeFileSync(path.join(storage, receipt), JSON.stringify(record), { flag: "wx", mode: 0o600 });
             result.receipt = path.basename(storage) + "/" + receipt;
             kept = true;
@@ -757,7 +772,7 @@ function consume(receipt, request, customArgv) {
         if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
         record.consumed.push(index);
         fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
-        return { ...step, coverage: record.coverage, dependenciesCovered: helperReviewCovered(step, record.state.packages) };
+        return { ...step, coverage: record.coverage, dependenciesCovered: helperReviewCovered(step, record.state.packages, record.skipped) };
     } catch (e) {
         if (e instanceof files.Refusal) throw e;
         refuse("review=authority-unreadable");

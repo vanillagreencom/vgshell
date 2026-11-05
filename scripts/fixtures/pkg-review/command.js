@@ -66,7 +66,17 @@ if(name==="pacman"||name==="paru"||name==="yay"){
   process.stderr.write("error: target not found: "+entry+"\n");process.exit(1);
  }
  if(args.includes("-Po")){
-  if(dependencies.buildOrder){console.log(dependencies.buildOrder[args.at(-1)]||dependencies.buildOrder.upgrade);process.exit(0);}
+  if(dependencies.buildOrder){
+   const order=dependencies.buildOrder[args.at(-1)]||dependencies.buildOrder.upgrade;
+   if(typeof order==="string")console.log(order);
+   else{
+    if(order.stdout)process.stdout.write(order.stdout);
+    if(order.stderr)process.stderr.write(order.stderr);
+    if(order.signal)process.kill(process.pid,order.signal);
+    process.exit(order.status||0);
+   }
+   process.exit(0);
+  }
   const row=dependencies.order?.[args.at(-1)];
   if(row===undefined){console.log("MISSING "+args.at(-1));process.exit(1);}
   console.log(row);process.exit(0);

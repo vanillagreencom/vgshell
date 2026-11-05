@@ -88,7 +88,7 @@ case "$kind" in
     vgs_tui_warn 'The package review is unavailable or incomplete.' >&2
     vgs_tui_text "Review could not finish: $1" >&2
     if [[ ${2:-} == retry ]]; then
-      vgs_tui_text 'No returns to the review agent choice. Yes continues without a review. Stop ends this update.' >&2
+      vgs_tui_text 'No returns to the review choices. Yes continues without a review. Stop ends this update.' >&2
       vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes Stop
     else
       vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes
