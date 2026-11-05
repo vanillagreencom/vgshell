@@ -279,7 +279,7 @@ done
 # A sink that exited before the teardown: a child sources the teardown
 # and harness.sh's own sink_alive, starts a stand-in sink that exits 7 or
 # keeps running, and exits; its teardown prints the sink's exit with its
-# status once, and nothing for a sink that still runs. The control drops
+# status once, and no sink failure for one that still runs. The control drops
 # the teardown's sink line.
 if ! sink_alive_text="$(sed -n '/^sink_alive() {/,/^}/p' "$repo/scripts/smoke/harness.sh")" || [[ $sink_alive_text != "sink_alive() {"*$'\n}' ]]; then
   fail "sink exit: sink_alive is not extracted from harness.sh"
@@ -311,10 +311,11 @@ else
 fi
 exit 0
 SH
-  # sink_case TEARDOWN MODE: the child's stdout; sink_dir is the case's
-  # directory, made before the call.
+  # Compare sink records, not the separate typed elapsed-cost reading.
+  # Every other line and the child's status still reach the assertion.
   sink_case() {
-    timeout -k 2 20 env -i PATH="$PATH" VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" source_repo="$repo" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$sink_dir" "$2" 2>/dev/null
+    timeout -k 2 20 env -i PATH="$PATH" VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" source_repo="$repo" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$sink_dir" "$2" 2>/dev/null |
+      sed -E '/^qml-smoke: fixed-us phase=teardown us=[0-9]+$/d'
   }
   want_sink='qml-smoke: sink=exited status=7 last=[sink: refused: stand-in]'
   sink_dir="$(mktemp -d "$tmp/sink-case.XXXXXX")"
@@ -324,7 +325,7 @@ SH
   started=$EPOCHREALTIME
   got="$(sink_case "$teardown" running)" || got="exit=$?"
   elapsed_ms=$(( (${EPOCHREALTIME/./} - ${started/./}) / 1000 ))
-  if [[ -z $got ]]; then ok "the teardown prints nothing for a sink that runs"; else fail "the teardown prints nothing for a sink that runs: got [$got]"; fi
+  if [[ -z $got ]]; then ok "the teardown reports no failure for a sink that runs"; else fail "the teardown reports no failure for a sink that runs: got [$got]"; fi
   # The stand-in took the teardown's TERM and the child's stdout closed
   # with it, well inside the stand-in's own life.
   if [[ -e $sink_dir/termed && $elapsed_ms -lt 10000 ]]; then

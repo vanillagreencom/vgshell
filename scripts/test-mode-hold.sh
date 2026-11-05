@@ -66,6 +66,8 @@ PYEXTRACT
 set -euo pipefail
 source "$1/scripts/smoke/verdict.sh"
 source "$2"
+# The extracted startup block reports elapsed setup of the whole harness.
+smoke_harness_started_us="${EPOCHREALTIME/./}"
 # The stub state carries a prefix: a local of the subject shadows a global
 # of the same name inside every function it calls, the stub hypr included.
 repo="$1"; stub_dir="$3"; stub_reply="$4"; stub_call="$6"
@@ -275,7 +277,7 @@ printf "result status=%s failures=%s held=[%s] state=%s file=%s\n" "$status" "$f
   case "$call" in
     startup-*|run-base*)
       if [[ $want_status != qml-smoke:* ]]; then
-        [[ $out == *"logical=1755x933"*$'\n'"shell-started reading="* ]] || return 1
+        [[ $out == *"logical=1755x933"*"shell-started reading="* ]] || return 1
       else [[ $out != *shell-started* ]] || return 1; fi ;;
   esac
   if [[ $want_status == 'qml-smoke: failed='* ]]; then
