@@ -2808,7 +2808,7 @@ copy_tree capture-unturned
 edit_tree capture-unturned shell/Hosts/FreezeHost.qml \
   $'                anchors.fill: parent\n                captureSource: surface.modelData' \
   $'                readonly property bool turned: surface.modelData.name === "'"$capture_turned"$'"\n                anchors.centerIn: parent\n                width: turned ? parent.height : parent.width\n                height: turned ? parent.width : parent.height\n                rotation: turned ? 90 : 0\n                captureSource: surface.modelData'
-edit_tree capture-unturned shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 1000000000;'
+edit_tree capture-unturned shell/Core/FreezeBands.js 'var BAND_PIXELS = 500000;' 'var BAND_PIXELS = 1000000000;'
 capture_restart "$sandbox/tree-capture-unturned" unturned
 rest_pointer || fail "capture: parking the pointer failed"
 capture_turned_case unturned "$capture_turned"

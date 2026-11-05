@@ -2036,7 +2036,8 @@ def still_timing_holds(root, helper, when):
     """An area capture whose still line comes WHEN: `pick`, read while the
     selector runs, proved by the pipe draining before the selector is
     released, after which the box is saved from that line's frames; or
-    `cancel`, never, with a cancel once the selection ended, which ends
+    `written`, after the selection ended; or `cancel`, never, with a
+    cancel once the selection ended, which ends
     the capture with no file."""
     payload = request(root, "screenshot-area")
     (root / "clipboard").write_bytes(b"previous clipboard")
@@ -2056,6 +2057,9 @@ def still_timing_holds(root, helper, when):
         (root / "slurp-release").touch()
         while not lines.closed and time.monotonic() < deadline:
             names += [message["event"] for message in lines.read(0.05)]
+            if when == "written" and names[-1:] == ["selection-ended"]:
+                os.write(writer, still_line(root, payload["outputs"]))
+                when = "received"
             if when == "cancel" and names[-1:] == ["selection-ended"]:
                 os.write(writer, b"cancel\n")
                 when = "cancelled"
@@ -2063,7 +2067,7 @@ def still_timing_holds(root, helper, when):
             return False
         proc.wait(timeout=5)
         pictures = list((root / "pictures").glob("*.png"))
-        if when == "pick":
+        if when in ("pick", "received"):
             return (proc.returncode == 0 and names == ["freeze", "selection-ended", "thaw", "saved"] and len(pictures) == 1
                     and png_rows(pictures[0].read_bytes()) == fixture_crop("10,20 80x60", payload["outputs"]))
         return (proc.returncode == 0 and names == ["freeze", "selection-ended", "thaw", "cancelled"] and not pictures
@@ -2129,7 +2133,7 @@ def freeze_cases(base, world):
     line = still_line(root, payload_outputs, drop=nested[0]["name"])
     result = freeze_wait(root, base / "freeze-frozen.py", b"frozen\n" + line, payload_outputs)
     assert result is not None and result[1:] == (1, unwritten) and not list((root / "pictures").glob("*.png")), "missing output"
-    for when in ("pick", "cancel"):
+    for when in ("pick", "written", "cancel"):
         assert still_timing_holds(world(f"still-{when}", slurpRelease=True), base / "freeze-frozen.py", when), when
     for name, case, before, after in [
         # The selector starts without the service's answer.
@@ -2143,6 +2147,11 @@ def freeze_cases(base, world):
     ]:
         assert quick.count(before) == 1, name
         assert not holds(case, quick.replace(before, after), name), f"control did not fail: {name}"
+    before = "include_still=True"
+    assert quick.count(before) == 1, "late still completion control"
+    waiting = base / "unreturned-still.py"
+    waiting.write_text(quick.replace(before, "include_still=False"))
+    assert not still_timing_holds(world("unreturned-still", slurpRelease=True), waiting, "written"), "control did not fail: unreturned-still"
     dropping = base / "dropped-still-pick.py"
     dropping.write_text(quick.replace("            self.still_answer = line\n", "            pass\n"))
     assert not still_timing_holds(world("dropped-still-pick", slurpRelease=True), dropping, "pick"), "control did not fail: dropped-still-pick"
@@ -2305,9 +2314,10 @@ def crop_holds(source, recordings):
 
 def bands_hold(source):
     """FreezeBands.frame, from SOURCE under node, cuts each frame of a
-    table of screens into bands of at most BAND_PIXELS device pixels that
-    abut on whole logical rows and sum to the frame, each band but the last
-    exactly its device rows with a whole target: the owner's 3008x1692 at
+    table of screens into bands that abut on whole logical rows and sum to
+    the frame. Each band fits BAND_PIXELS unless one whole-row unit already
+    exceeds it; each band but the last is exactly its device rows with a
+    whole target: the owner's 3008x1692 at
     2, a turned 1080x1920 at 1, a 1366x768 panel at 1 written at 1.25, and
     a 3600x2025 screen at 1.0667 written at its own scale and at 1.25 and
     1.75."""
@@ -2318,11 +2328,13 @@ def bands_hold(source):
     read = json.loads(done.stdout)
     for (width, height, own, at), frame in zip(asks, read["frames"]):
         bands = frame["bands"]
+        unit = math.lcm(own // math.gcd(own, 120), at // math.gcd(at, 120))
+        limit = max(read["limit"], frame["width"] * unit)
         if sum(band["height"] for band in bands) != frame["height"] or sum(band["rows"] for band in bands) != height:
             return False
         y = 0
         for index, band in enumerate(bands):
-            if band["y"] != y or band["y"] != int(band["y"]) or band["height"] * frame["width"] > read["limit"]:
+            if band["y"] != y or band["y"] != int(band["y"]) or band["height"] * frame["width"] > limit:
                 return False
             if index + 1 < len(bands) and (band["height"] * 120 != band["rows"] * at or band["targetHeight"] * own != band["height"] * 120):
                 return False
@@ -2523,7 +2535,7 @@ def main():
             mutant = base / (name + ".py")
             mutant.write_text(crop_source.replace(before, after))
             assert not crop_holds(mutant, recordings), "control did not fail: " + name
-        assert bands_hold(BANDS), "the core cuts each frame into bands of at most BAND_PIXELS on whole rows"
+        assert bands_hold(BANDS), "the core cuts each frame on whole rows within BAND_PIXELS or one indivisible row unit"
         bands_source = BANDS.read_text()
         # Round 1's cut, whole multiples of the logical step at which the
         # target is whole too, which made 5.4 MP bands at 1.0667 written at 1.25.
@@ -2644,7 +2656,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,half-pixel,vertical-coverage,edge-over,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,half-pixel,vertical-coverage,edge-over,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unreturned-still,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
