@@ -6530,7 +6530,6 @@ scene_bluetooth() { # MODE
   type_keys -k Escape || fail "closing the Bluetooth widget menu failed"
   expect_poll "the Bluetooth widget menu is closed" false ipc smoke readInstance "$(bar_key)" vgs.bluetooth frameMenuOpen
   park_pointer
-  expect "disabling vgs.system after the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "disabling vgs.bluetooth after its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
 }
 # The System window's Printers section over the CUPS stand-ins
@@ -6600,7 +6599,6 @@ scene_printers() { # MODE
   expect "disabling the not-installed Printers copy is allowed" ok ipc shell setPluginEnabled vgs.printers false
   rm -rf -- "${printers_copy:?}"
   rescan "a scan drops the not-installed Printers copy"
-  expect "disabling vgs.system after the Printers shots is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "the printers world is empty again" world=set cups_world '{"printers": [], "default": "", "devices": []}'
 }
 bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
@@ -6867,7 +6865,6 @@ power_shot_pane() { # MODE
   expect "the shot refreshes its restored sleep capabilities" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
   settings_close
   expect "Power's section's wired fake devices go" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" unwired
-  expect "disabling vgs.system after Power's section is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "the dim owner fixture disables" ok ipc shell setPluginEnabled acme.power-dim false
   expect "the away owner fixture disables" ok ipc shell setPluginEnabled acme.power-away false
   rm -rf -- "${plugins:?}/acme.power-dim" "${plugins:?}/acme.power-away"
@@ -6975,7 +6972,6 @@ scene_focus-open() { # MODE
   expect "the comparison forgets its saved fake profile" ok ipc vgs.network invoke action '{"kind":"forget","key":"[\"wlan0\",\"VGS Smoke Wi-Fi\"]"}'
   expect_poll "the comparison releases its saved fake profile" False network_shot_known
   expect "Network disables after the comparison" ok ipc shell setPluginEnabled vgs.network false
-  expect "System disables after the comparison" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear nmcli
   device_reply_clear systemctl
 }
@@ -7198,7 +7194,6 @@ scene_network() { # MODE
   expect_poll "the network shot releases its saved fake profile" False network_shot_known
   expect "the network shot removes its wired fake devices" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" unwired
   expect "Network disables after its shot" ok ipc shell setPluginEnabled vgs.network false
-  expect "System disables after the network shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear nmcli
   device_reply_clear systemctl
 }
@@ -7268,7 +7263,6 @@ scene_tailscale-starting() { # MODE
 scene_tailscale() { # MODE
   tailscale_shot_prepare || return 0
   tailscale_shot_views "$1"
-  expect "System disables after the Tailscale shot" ok ipc shell setPluginEnabled vgs.system false
   tailscale_shot_finish
 }
 # The pane, dropdown and widget shots of scene_tailscale. A step that
@@ -7814,7 +7808,6 @@ TSSECTION
   fi
   mv -- "$dir/hidden-tailscale" "$shim/tailscale"
   expect "System closes after the section shots" ok ipc shell hide window vgs.system
-  expect "System disables after the section shots" ok ipc shell setPluginEnabled vgs.system false
   tailscale_shot_finish
   device_reply_clear systemctl
   tree_rescan "the section shots release their system-step fixtures"
@@ -7929,7 +7922,6 @@ scene_vpn() { # MODE
   take "vpn-$1-pane-empty"
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
-  expect "System disables after the VPN shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear nmcli
 }
 # vpn_shot_dropdown_password MODE: in the open flyout, Travel L2TP's
