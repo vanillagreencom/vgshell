@@ -2,20 +2,39 @@
 
 ## Use temporary desktop access
 
-For tools that use the Temporary unlock permission in [Lock settings](../shell/plugins/vgs.lock/README.md#setup).
+Use this procedure for tools that use the Temporary unlock permission in [Lock settings](../shell/plugins/vgs.lock/README.md#setup).
 
-A tool that uses temporary access must wait until both lock readings report unlocked before it uses the desktop, and must finish its work within the time it asked for. When its step ends, even after an error, it must request a lock and wait until both readings confirm the lock. A refusal or a missed transition ends the step. The tool must not ask for another grant on its own or restart VGS to recover.
+A refusal or a missed transition ends the step. The tool must not ask for another grant on its own or restart VGS to recover.
 
 <details>
 <summary>Show command</summary>
 
-```sh
-vgshell lock
-vgshell ipc call vgs.lock invoke delegate-unlock '{"seconds":60}'
-vgshell ipc call vgs.lock invoke status ''
-vgshell ipc call vgs.lock invoke lock ''
-```
+1. Lock the session.
 
-`seconds` is a whole number from 1 through 60. Wait for `locked:false` and `secure:false` before the step, then for `locked:true` and `secure:true` after the final lock call.
+   ```sh
+   vgshell lock
+   ```
+
+2. Request temporary access. Set `seconds` to a whole number from 1 through 60.
+
+   ```sh
+   vgshell ipc call vgs.lock invoke delegate-unlock '{"seconds":60}'
+   ```
+
+3. Read the lock status. Repeat the status call until both `locked:false` and `secure:false` confirm that the desktop is unlocked. Do not use the desktop before both readings confirm it.
+
+   ```sh
+   vgshell ipc call vgs.lock invoke status ''
+   ```
+
+4. Finish the work within the time requested.
+
+5. When the step ends, even after an error, request a lock.
+
+   ```sh
+   vgshell ipc call vgs.lock invoke lock ''
+   ```
+
+6. Repeat the status call until both `locked:true` and `secure:true` confirm the lock.
 
 </details>
