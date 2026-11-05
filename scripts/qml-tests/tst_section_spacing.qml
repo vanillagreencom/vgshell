@@ -65,6 +65,15 @@ Item {
     }
 
     Component {
+        id: overhangingRow
+        Row {
+            width: 40
+            height: 20
+            Rectangle { width: 20; height: 40; color: Theme.color.text }
+        }
+    }
+
+    Component {
         id: wrappedListThenSection
         Column {
             property alias wrapper: wrapper.sourceComponent
@@ -581,6 +590,13 @@ Item {
             verify(renderedFrame(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the device list, not " + Theme.stack.heading);
+        }
+
+        function test_a_row_reports_ink_below_its_box() {
+            const row = createTemporaryObject(overhangingRow, root);
+            verify(row !== null);
+            verify(renderedFrame(row));
+            compare(Theme.inkBelow(row), -20);
         }
 
         function test_heading_space_after_a_wrapped_list_data() {
