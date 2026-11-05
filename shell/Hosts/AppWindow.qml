@@ -58,7 +58,8 @@ FloatingWindow {
     function focusInitial() {
         slot.focusInitial();
         // A menu's trigger also restores its opener's native focus in this
-        // turn. The summoned window takes focus after that close finishes.
+        // turn. Register this target after that restoration; Compositor
+        // then waits for any animated opener's actual native-grab release.
         Qt.callLater(() => {
             if (win === null || !backingWindowVisible) return;
             // The current screen follows a user's move; the original

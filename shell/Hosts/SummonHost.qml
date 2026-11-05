@@ -102,12 +102,14 @@ Scope {
         return "ok";
     }
 
-    // Panels and bar flyouts sit above application windows. A successful
-    // window open dismisses them on its screen through their normal close
-    // path, preserving plugin close() and anchored-popup motion.
+    // A popup's keyboard grab is seat-wide, including when its action
+    // opens an existing window on another output. Yield every anchored
+    // panel/menu, plus layers on the target output, through normal hide.
+    // Hyprland v0.57.0 CFocusState::rawSurfaceFocus rejects a surface
+    // outside m_seatGrab (src/desktop/state/FocusState.cpp).
     function yieldToWindow(screen) {
         for (const id of openIds.slice()) {
-            if (requests[id].screen === screen) hide(id);
+            if (requests[id].anchored || requests[id].screen === screen) hide(id);
         }
     }
 

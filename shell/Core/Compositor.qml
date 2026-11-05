@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
+import qs.Ui
 import "Dispatch.js" as Dispatch
 
 // The one place the shell dispatches to Hyprland. Dispatch.js builds every
@@ -113,11 +114,25 @@ Singleton {
         // Layer openers have no toplevel title. Their host owns layer focus.
         if (window === null || !window.visible || window.title === undefined) return;
         activationWaiting = true;
+        readActivation();
+    }
+
+    // SummonPopup keeps its grab through close motion and releases its
+    // OverlayState count only after the native window hides. The existing
+    // typed target and epoch own this wait too: a newer target replaces it,
+    // and destruction or hide makes both the read and queued dispatch inert.
+    function readActivation() {
+        if (!activationWaiting || !activationLive(activationEpoch)) return;
         activationReader.read(["hyprctl", "--batch", Dispatch.ACTIVATION_STATE_REQUEST], activationEpoch);
     }
 
     function activationLive(epoch) {
-        return epoch === activationEpoch && activationWindow !== null && activationWindow.visible;
+        return epoch === activationEpoch && activationWindow !== null && activationWindow.visible && OverlayState.grabs === 0;
+    }
+
+    Connections {
+        target: OverlayState
+        function onGrabsChanged() { if (OverlayState.grabs === 0) root.readActivation(); }
     }
 
     HyprctlReader {
@@ -560,8 +575,7 @@ Singleton {
             // openwindow announces the map; HyprctlReader coalesces it
             // with an in-flight pre-map read, dropping that older reply.
             // https://wiki.hypr.land/ipc/#events-list
-            if (event.name === "openwindow" && root.activationWaiting && root.activationLive(root.activationEpoch))
-                activationReader.read(["hyprctl", "--batch", Dispatch.ACTIVATION_STATE_REQUEST], root.activationEpoch);
+            if (event.name === "openwindow") root.readActivation();
             // Invalidate before any asynchronous read: a closed client's pid
             // or address may be reused while an older read is still running.
             if (event.name === "openwindow" || event.name === "closewindow" || event.name === "configreloaded")
