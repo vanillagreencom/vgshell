@@ -108,6 +108,8 @@ notification_hold_cases() {
     [[ $mode != deadline ]] || notification_hold_restore_delivery
   done
   notification_hold_install
+  expect_poll "the production policy has an acquired writer after the timer fixture" acquired notification_hold_writer
+  expect "the timer fixture restores the published production duration" 15000 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deadlineMs"])' "$sandbox/notification-writer.json"
   expect "Sound returns on after native hold cases" on notes sound on
 }
 

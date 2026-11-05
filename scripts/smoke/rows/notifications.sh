@@ -46,6 +46,26 @@ cp -p -- "$home/.config/vgshell/shell.json" "$note_row_config"
 note_audio_backup=""
 note_audio_profile=""
 note_audio_shell_stopped=no
+note_geometry_keys=()
+# Geometry reads may outlive a toast's sender timeout. Use the same
+# per-card hold the inbox uses, without changing urgency or painted hover.
+notification_geometry_note() {
+  local summary="$3" key
+  notify "$@" >/dev/null || return 1
+  expect_poll "the geometry fixture $summary is published" True has_row live "$summary"
+  key="$(key_of "$summary")" || return 1
+  [[ $key != none ]] || return 1
+  expect "the geometry fixture $summary is held for measurement" ok notes hover "{\"key\":\"$key\",\"on\":true}"
+  note_geometry_keys+=("$key")
+  expect_poll "the geometry fixture $summary acknowledges its paused clock" paused clock_state "$summary"
+}
+notification_geometry_release() {
+  local key
+  for key in "${note_geometry_keys[@]}"; do
+    expect "the geometry measurement releases its card hold" ok notes hover "{\"key\":\"$key\",\"on\":false}"
+  done
+  note_geometry_keys=()
+}
 note_audio_paths=(
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-smoke.conf"
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
@@ -122,6 +142,7 @@ notifications_abandon() {
     note_audio_shell_stopped=no
   fi
   notifications_restore_standins
+  notification_geometry_release
   ipc shell hide window vgs.settings >/dev/null
   cp -p -- "$note_row_config" "$home/.config/vgshell/shell.json.next"
   mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
@@ -1250,7 +1271,7 @@ fi
 # Images: a sender's file is copied for the stored entry; a missing one is
 # skipped and the card draws no image.
 python3 -c 'import base64,sys; open(sys.argv[1], "wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))' "$home/avatar.png"
-notify smoke-chat 0 "Pictured" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 30000 >/dev/null
+notification_geometry_note smoke-chat 0 "Pictured" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 30000
 expect_poll "a toast with an image shows" True has_row live "Pictured"
 pictured_key="$(key_of Pictured)"
 expect_poll "the sender's image was copied for the stored entry" True test_file "$note_images/$pictured_key-image"
@@ -1281,7 +1302,7 @@ expect "the icon is the copy out of Slack's cache" "$(file_url_json "$slack_icon
 expect "the copy is the cached image's body" "370 89504e470d0a1a0a" bash -c 'printf "%s %s\n" "$(stat -c %s -- "$1")" "$(od -An -tx1 -N8 -- "$1" | tr -d " ")"' _ "$slack_icon"
 expect "the workspace's name gives way to its icon" '"from Ada Lovelace"' card_value "[acme] from Ada Lovelace" title
 expect "a direct message shows its sender's face" '{"rule": "slack", "source": "desktop", "workspace": "acme", "title": "from Ada Lovelace", "faces": ["Ada Lovelace"], "more": 0}' card_value "[acme] from Ada Lovelace" enrichment
-notify Slack 0 "[acme] in ada, grace, alan, edsger, barbara" "alan: lunch at noon?" '[]' '{"desktop-entry": <"slack">}' 30000 >/dev/null
+notification_geometry_note Slack 0 "[acme] in ada, grace, alan, edsger, barbara" "alan: lunch at noon?" '[]' '{"desktop-entry": <"slack">}' 30000
 expect_poll "a group message reads four people, its sender first, and the rest as more" '{"rule": "slack", "source": "desktop", "workspace": "acme", "title": "in ada, grace, alan, edsger, barbara", "faces": ["alan", "ada", "grace", "edsger"], "more": 1}' card_value "[acme] in ada, grace, alan, edsger, barbara" enrichment
 expect "the group message's card draws its faces" true card_value "[acme] in ada, grace, alan, edsger, barbara" showsFaces
 # The group draws three faces and a chip past four people: alan, ada and
@@ -1562,13 +1583,13 @@ grab_glass() { # LABEL SUMMARY PNG
   render expect "the $1 card's slot is grabbed" grabbing ipc smoke grabLayerItem vgs.notifications CardSlot summary "$2" "$3"
   render expect_poll "the grab of the $1 card's slot is saved" "saved $3" ipc smoke grabbed
 }
-notify smoke-app 0 "Even one" "" '[]' '{}' 0 >/dev/null
-notify smoke-app 0 "Even two" "One line of body text" '[]' '{}' 0 >/dev/null
-notify smoke-app 0 "Even multi" $'The first line of the body\nthe second line\nand the third' '[]' '{}' 0 >/dev/null
-notify "Google Chrome" 0 "Weekly eStaff" $'calendar.google.com\n\n10:30am – 11:30am' '[]' '{}' 0 >/dev/null
-notify "" 0 "New message in master-operator" $'app.slack.com\n\nada: the deployment note is in the channel.' '[]' '{}' 0 >/dev/null
-notify smoke-app 0 "Even max" "$(printf 'A body long enough to run past every line the card may show. %.0s' $(seq 1 12))" '[]' '{}' 0 >/dev/null
-notify smoke-chat 0 "Hover geometry" "Pick one" '["default", "Open", "reply", "Reply"]' '{}' 30000 >/dev/null
+notification_geometry_note smoke-app 0 "Even one" "" '[]' '{}' 0
+notification_geometry_note smoke-app 0 "Even two" "One line of body text" '[]' '{}' 0
+notification_geometry_note smoke-app 0 "Even multi" $'The first line of the body\nthe second line\nand the third' '[]' '{}' 0
+notification_geometry_note "Google Chrome" 0 "Weekly eStaff" $'calendar.google.com\n\n10:30am – 11:30am' '[]' '{}' 0
+notification_geometry_note "" 0 "New message in master-operator" $'app.slack.com\n\nada: the deployment note is in the channel.' '[]' '{}' 0
+notification_geometry_note smoke-app 0 "Even max" "$(printf 'A body long enough to run past every line the card may show. %.0s' $(seq 1 12))" '[]' '{}' 0
+notification_geometry_note smoke-chat 0 "Hover geometry" "Pick one" '["default", "Open", "reply", "Reply"]' '{}' 30000
 expect_poll "the hover geometry card shows" True has_row live "Hover geometry"
 rest_on_card "Hover geometry" || fail "the pointer never rested on the hover geometry toast"
 expect_poll "the hover geometry card shows actions" '["Open", "Reply", "Dismiss"]' shown_pills "Hover geometry"
@@ -1754,6 +1775,7 @@ note_card_reading "hover action card geometry measured" "Hover geometry"
 note_card_reading "image avatar card geometry measured" Pictured
 note_card_reading "Slack faces card geometry measured" "[acme] in ada, grace, alan, edsger, barbara"
 note_header_reading
+notification_geometry_release
 expect "the inbox closes after header geometry" ok notes close
 
 # The media slot: every card, of one line or more, draws one slot the
