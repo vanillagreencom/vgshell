@@ -217,7 +217,10 @@ function effectiveConfig(request, binary) {
     return JSON.parse(r.stdout).config;
 }
 function pending(group, config, binary) {
-    const found = managers.reviewCheckFor(group.manager, binary, config);
+    const found = managers.reviewCheckFor(group.manager, binary, config, file => ({
+        repositories: output(["pacman-conf", "--config", file, "--repo-list"]).trim().split(/\s+/).filter(Boolean),
+        dbPath: output(["pacman-conf", "--config", file, "DBPath"]).trim()
+    }));
     if (!found.check) throw new Error("pending=query-unavailable");
     const check = found.check;
     const r = query(check.argv);
@@ -517,95 +520,111 @@ async function reviewRequest(request, storage) {
         // unavailable-evidence question follows at once.
         const reviewable = thirdParty.length > 0;
         let choice = null;
+        const gatheredUnknown = state.unknown.slice(), gatheredLines = state.lines.slice();
+        let evidenceCreated = false;
         if (!judge.initialChoice(settings, foundAgents(settings)).ask) {
             const shown = await ui("saved-decline", packageList);
             if (shown.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shown.status };
             choice = { value: "Install without review" };
         }
-        while (choice === null) {
-            const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
-            choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList, reviewable ? "reviewable" : "unreviewable");
+        reviewChoice: for (;;) {
+            if (choice === null) {
+                const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
+                choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList, reviewable ? "reviewable" : "unreviewable");
+            }
             if (choice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: choice.status };
-            if (choice.value !== "Review" || !reviewable) break;
-            // The offer above names the packages until the editor's views
-            // stand between it and the agent choice.
-            let edited = false;
-            for (;;) {
+            if (choice.value === "Review" && reviewable) {
+                for (;;) {
+                    const plan = judge.reviewPlan(settings, foundAgents(settings));
+                    if (!["agent", "command"].includes(plan.state)) break;
+                    const agentChoice = await ui("agent", plan.label, packageList);
+                    if (agentChoice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: agentChoice.status };
+                    if (agentChoice.value === "Back") { choice = null; break; }
+                    if (agentChoice.value === "Use " + plan.label) break;
+                    if (agentChoice.value !== "Customize") refuse("review=choice-invalid");
+                    const edit = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), "customize", path.join(repo, "bin/vgshell-pkg")]);
+                    if (edit.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[edit.signal] };
+                    if (edit.error || (edit.status !== 0 && edit.status !== 130)) refuse("review=editor-unavailable");
+                    settings = settingsRead().settings;
+                }
+            }
+            if (choice === null) continue;
+            if (choice.value === "Install without review") result.coverage = "declined";
+            else if (choice.value === "Review") {
+                state.unknown = gatheredUnknown.slice();
+                state.lines = gatheredLines.slice();
+                state.recipes = [];
+                result.coverage = "complete";
+                result.reviewed = [];
+                result.skipped = [];
                 const plan = judge.reviewPlan(settings, foundAgents(settings));
-                if (!["agent", "command"].includes(plan.state)) break;
-                const agentChoice = await ui("agent", plan.label, ...(edited ? [packageList] : []));
-                if (agentChoice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: agentChoice.status };
-                if (agentChoice.value === "Back") { choice = null; break; }
-                if (agentChoice.value === "Use " + plan.label) break;
-                if (agentChoice.value !== "Customize") refuse("review=choice-invalid");
-                const edit = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), "customize", path.join(repo, "bin/vgshell-pkg")]);
-                edited = true;
-                if (edit.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[edit.signal] };
-                if (edit.error || (edit.status !== 0 && edit.status !== 130)) refuse("review=editor-unavailable");
-                settings = settingsRead().settings;
-            }
+                let verdict = null, risks = [];
+                const dir = path.join(storage, "evidence");
+                // This request owns storage and the preceding attempt's evidence.
+                if (evidenceCreated) fs.rmSync(dir, { recursive: true });
+                fs.mkdirSync(dir, { mode: 0o700 }); fs.mkdirSync(path.join(dir, "build"), { mode: 0o700 }); fs.mkdirSync(path.join(dir, "install"), { mode: 0o700 });
+                evidenceCreated = true;
+                try {
+                    if (!reviewable) throw new Error("review=nothing-reviewable");
+                    if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
+                    for (const pkg of thirdParty.filter(p => p.aur)) {
+                        const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
+                        const shownFetch = await ui("show", "Fetching package build files as your user", ...fetch);
+                        if (shownFetch.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownFetch.status };
+                        const r = await interactive(fetch, { cwd: path.join(dir, "build") });
+                        if (r.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[r.signal] };
+                        if (r.error || r.status !== 0) throw new Error("fetch=failed");
+                        try { risks.push(...installEvidence(dir, pkg, state)); }
+                        catch (e) { state.unknown.push(e.message); risks.push({ name: pkg.name, concern: "The install script could not be verified." }); }
+                    }
+                    state.recipes = recipesIdentity(path.join(dir, "build"));
+                    fs.writeFileSync(path.join(dir, "packages.txt"), state.lines.concat(state.unknown.map(e => "unknown " + e)).join("\n") + "\n", { mode: 0o600 });
+                    const prompt = fs.readFileSync(path.join(__dirname, "review/third-party.md"), "utf8").replaceAll("{review_dir}", dir);
+                    const shownAgent = await ui("show", "Reviewing the listed packages before installation", ...plan.command);
+                    if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
+                    const run = await interactive(plan.command.concat(prompt), { cwd: agentHome() });
+                    if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
+                    if (run.error || run.status !== 0) throw new Error("The review agent failed: agent=failed status=" + run.status + " cause=" + (run.error || "exit"));
+                    let text;
+                    try { text = privateFile(path.join(dir, "verdict")); }
+                    catch (e) {
+                        const cause = e.code === "ENOENT" ? "missing" : e instanceof files.Refusal || e.code === "ELOOP" ? "unsafe" : "unreadable";
+                        throw new Error("The agent's verdict is " + cause + ": verdict=" + cause + " cause=" + (e.code || e.message));
+                    }
+                    verdict = judge.parseVerdict(text, known);
+                    if (!verdict.ok) throw new Error("The agent's verdict is malformed: verdict=malformed");
+                    result.reviewed = known;
+                } catch (e) { state.unknown.push(e.message); }
+                const failures = evidenceFailures(state.unknown);
+                if (verdict?.ok && failures.length < state.unknown.length) {
+                    const shown = await ui("limit");
+                    if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
+                }
+                if (verdict === null || !verdict.ok || failures.length) {
+                    result.coverage = "unknown";
+                    const answer = await ui("unavailable", failures.join("\n"), "retry");
+                    if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
+                    if (answer.value === "No") {
+                        if (!reviewable || !["agent", "command"].includes(plan.state)) choice = null;
+                        continue reviewChoice;
+                    }
+                    if (answer.value === "Stop") return { ...result, decision: "stop" };
+                    if (answer.value !== "Yes") refuse("review=choice-invalid");
+                }
+                const concerns = new Map();
+                for (const flag of [...(verdict?.ok ? verdict.flags : []), ...risks]) concerns.set(flag.name, [...(concerns.get(flag.name) || []), flag.concern]);
+                for (const [name, concernsForName] of concerns) {
+                    const answer = await ui("concern", concernsForName.join("\n"), name);
+                    if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
+                    if (answer.value === "Skip") result.skipped.push(name);
+                    else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
+                }
+                for (let i = 0; i < result.skipped.length; i++)
+                    for (const dependent of Object.hasOwn(state.dependents, result.skipped[i]) ? state.dependents[result.skipped[i]] : [])
+                        if (!result.skipped.includes(dependent)) result.skipped.push(dependent);
+            } else refuse("review=choice-invalid");
+            break;
         }
-        if (choice.value === "Install without review") result.coverage = "declined";
-        else if (choice.value === "Review") {
-            const plan = judge.reviewPlan(settings, foundAgents(settings));
-            let verdict = null, risks = [];
-            const dir = path.join(storage, "evidence");
-            fs.mkdirSync(dir, { mode: 0o700 }); fs.mkdirSync(path.join(dir, "build"), { mode: 0o700 }); fs.mkdirSync(path.join(dir, "install"), { mode: 0o700 });
-            try {
-                if (!reviewable) throw new Error("review=nothing-reviewable");
-                if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
-                for (const pkg of thirdParty.filter(p => p.aur)) {
-                    const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
-                    const shownFetch = await ui("show", "Fetching package build files as your user", ...fetch);
-                    if (shownFetch.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownFetch.status };
-                    const r = await interactive(fetch, { cwd: path.join(dir, "build") });
-                    if (r.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[r.signal] };
-                    if (r.error || r.status !== 0) throw new Error("fetch=failed");
-                    try { risks.push(...installEvidence(dir, pkg, state)); }
-                    catch (e) { state.unknown.push(e.message); risks.push({ name: pkg.name, concern: "The install script could not be verified." }); }
-                }
-                state.recipes = recipesIdentity(path.join(dir, "build"));
-                fs.writeFileSync(path.join(dir, "packages.txt"), state.lines.concat(state.unknown.map(e => "unknown " + e)).join("\n") + "\n", { mode: 0o600 });
-                const prompt = fs.readFileSync(path.join(__dirname, "review/third-party.md"), "utf8").replaceAll("{review_dir}", dir);
-                const shownAgent = await ui("show", "Reviewing the listed packages before installation", ...plan.command);
-                if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
-                const run = await interactive(plan.command.concat(prompt), { cwd: agentHome() });
-                if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
-                if (run.error || run.status !== 0) throw new Error("The review agent failed: agent=failed status=" + run.status + " cause=" + (run.error || "exit"));
-                let text;
-                try { text = privateFile(path.join(dir, "verdict")); }
-                catch (e) {
-                    const cause = e.code === "ENOENT" ? "missing" : e instanceof files.Refusal || e.code === "ELOOP" ? "unsafe" : "unreadable";
-                    throw new Error("The agent's verdict is " + cause + ": verdict=" + cause + " cause=" + (e.code || e.message));
-                }
-                verdict = judge.parseVerdict(text, known);
-                if (!verdict.ok) throw new Error("The agent's verdict is malformed: verdict=malformed");
-                result.reviewed = known;
-            } catch (e) { state.unknown.push(e.message); }
-            const failures = evidenceFailures(state.unknown);
-            if (verdict?.ok && failures.length < state.unknown.length) {
-                const shown = await ui("limit");
-                if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
-            }
-            if (verdict === null || !verdict.ok || failures.length) {
-                result.coverage = "unknown";
-                const answer = await ui("unavailable", failures.join("\n"));
-                if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
-                if (answer.value === "No") return { ...result, decision: "stop" };
-                if (answer.value !== "Yes") refuse("review=choice-invalid");
-            }
-            const concerns = new Map();
-            for (const flag of [...(verdict?.ok ? verdict.flags : []), ...risks]) concerns.set(flag.name, [...(concerns.get(flag.name) || []), flag.concern]);
-            for (const [name, concernsForName] of concerns) {
-                const answer = await ui("concern", concernsForName.join("\n"), name);
-                if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
-                if (answer.value === "Skip") result.skipped.push(name);
-                else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
-            }
-            for (let i = 0; i < result.skipped.length; i++)
-                for (const dependent of Object.hasOwn(state.dependents, result.skipped[i]) ? state.dependents[result.skipped[i]] : [])
-                    if (!result.skipped.includes(dependent)) result.skipped.push(dependent);
-        } else refuse("review=choice-invalid");
     }
     if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {
         if (result.skipped.length) return { ...result, decision: "stop", coverage: "unknown" };
@@ -632,6 +651,50 @@ function processIdentity(pid) {
 }
 function transaction(dir) {
     return { dir, identity: ownedDirectory(dir) };
+}
+// paru(8) -Po reports the full build order, including AUR dependencies.
+// The emitted REPO/AUR rows are defined by paru v2.1.0 src/order.rs:
+// https://github.com/Morganamilo/paru/blob/v2.1.0/src/order.rs
+// Skip its review only when every AUR recipe belongs to the VGS decision.
+// Unknown output or a new dependency keeps the helper's own review.
+function helperReviewCovered(step, state) {
+    if (step.manager !== "aur" || path.basename(step.binary) !== "paru") return false;
+    const targets = step.action === "upgrade" ? step.binding.pending.map(p => p.name).filter(n => !step.ignored.includes(n)) : step.names.concat(step.installs);
+    if (!targets.length) return false;
+    const command = [step.binary, "--config", step.config, "-Po", "--", ...targets];
+    const order = query(command);
+    const unavailable = cause => {
+        process.stderr.write("package-review: " + JSON.stringify({ review: "helper-order-unavailable", operation: "paru-build-order", cause,
+            command, status: order.status, signal: order.signal, error: order.error?.code || null, stderr: order.stderr }) + "\n");
+        return false;
+    };
+    if (order.error) return unavailable("query-error");
+    if (order.signal) return unavailable("signal");
+    if (order.status !== 0) return unavailable("exit-status");
+    if (order.stderr) return unavailable("stderr");
+    // An update can replace this reader between consumers of one receipt.
+    // Its final steps and bound origins already hold the permitted set.
+    const permitted = new Set();
+    for (const decision of state.steps) {
+        const names = decision.action === "upgrade"
+            ? decision.binding === null ? [] : decision.binding.pending.map(p => p.name).filter(name => !decision.ignored.includes(name))
+            : decision.names.concat(decision.installs).map(name => name.split("/").pop());
+        for (const name of names) permitted.add(name);
+    }
+    const origins = state.steps.flatMap(decision => decision.binding === null ? [] : decision.binding.origins);
+    for (const name of permitted)
+        for (const origin of origins)
+            if (origin.neededBy === name) permitted.add(origin.target.split("/").pop());
+    const covered = new Set(state.packages.filter(p => p.aur && permitted.has(p.name)).map(p => p.name));
+    let aur = false;
+    for (const line of order.stdout.trim().split(/\r?\n/)) {
+        if (/^REPO (TARGET|DEP|MAKE) [^\s]+ [A-Za-z0-9@_+.-]+$/.test(line)) continue;
+        const row = /^AUR (?:TARGET|DEP|MAKE) [A-Za-z0-9@_+.-]+ ([A-Za-z0-9@_+.-]+(?: [A-Za-z0-9@_+.-]+)*)$/.exec(line);
+        if (!row) return unavailable("unknown-output");
+        if (!row[1].split(" ").every(name => covered.has(name))) return false;
+        aur = true;
+    }
+    return aur;
 }
 function bindingChange(step, current, contentOnly = false) {
     if (current.binding === null) return "unreadable";
@@ -722,7 +785,7 @@ function consume(receipt, request, customArgv) {
         if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
         record.consumed.push(index);
         fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
-        return step;
+        return { ...step, coverage: record.coverage, dependenciesCovered: helperReviewCovered(step, record.state) };
     } catch (e) {
         if (e instanceof files.Refusal) throw e;
         refuse("review=authority-unreadable");

@@ -540,6 +540,22 @@ function filePlan(id, action, files, onPath, ignored, config) {
 // integrity option, and a helper applies them to every recipe it builds
 // in the run, a dependency's included.
 var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };
+// paru(8) v2.1.0 documents both options and its complete build-order report.
+// yay(8) v12.5.0 has --batchinstall but no documented equivalent order
+// report; keep its form because dependency coverage cannot be established.
+var REVIEWED_BUILD = { paru: ["--skipreview", "--batchinstall"] };
+
+function reviewedBuild(plan, coverage, dependenciesCovered) {
+    if (plan.manager !== "aur" || ["complete", "declined", "unknown"].indexOf(coverage) < 0 || dependenciesCovered !== true)
+        return plan;
+    var words = REVIEWED_BUILD[plan.binary];
+    if (words === undefined) return plan;
+    plan.steps.forEach(function (step) {
+        var end = step.indexOf("--");
+        step.splice.apply(step, [end < 0 ? step.length : end, 0].concat(words));
+    });
+    return plan;
+}
 // The helper bootstrap's build of paru's recipe, in the tree the package
 // owner cloned: makepkg(8) -s installs its build dependencies and -i the
 // built package, each asking sudo for itself.
@@ -765,18 +781,23 @@ function checkFor(id, binary) {
     return { skipped: "no-check" };
 }
 
-// Review must query the exact configuration the mutation will use.
-// checkupdates cannot select another pacman.conf; -Qu reads that config's
-// local sync databases instead, with freshness explicitly unknown to caller.
-function reviewCheckFor(id, binary, config) {
+// checkupdates uses the default configuration. pacman-conf's effective
+// repository order and DBPath establish whether its answer also covers
+// CONFIG. HookDir additions do not change that correspondence.
+function reviewCheckFor(id, binary, config, readConfig) {
     var found = checkFor(id, binary);
     if (found.check === undefined) return found;
     var check = found.check;
     var complete = true;
-    if (id === "pacman" && config !== "/etc/pacman.conf") {
-        check.argv = [binary, "--config", config, "-Qu"];
-        check.exits = { "0": "updates", "1": "none" };
-        complete = false;
+    if (id === "pacman") {
+        var effective = readConfig(config), defaults = readConfig("/etc/pacman.conf");
+        complete = effective.repositories.length > 0 && effective.dbPath !== ""
+            && effective.dbPath === defaults.dbPath
+            && JSON.stringify(effective.repositories) === JSON.stringify(defaults.repositories);
+        if (!complete) {
+            check.argv = [binary, "--config", config, "-Qu"];
+            check.exits = { "0": "updates", "1": "none" };
+        }
     } else if (id === "aur") check.argv.splice(1, 0, "--config", config);
     return { check: check, complete: complete, origin: found.origin || null };
 }

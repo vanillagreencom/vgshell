@@ -448,6 +448,15 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) for (const action of t.ACTIONS)
         if (!covered.has(row.id + " " + action)) failures.push("plan: no row for " + row.id + " " + action);
+    for (const binary of ["paru", "yay"]) for (const action of ["upgrade", "reinstall"])
+        for (const [coverage, dependenciesCovered] of [["complete", true], ["declined", true], ["unknown", true], [undefined, true], ["complete", false]]) {
+            const names = action === "upgrade" ? [] : ["vgshell-git"];
+            const plan = t.plan("aur", action, names, onPathOf([binary])).plan;
+            const words = binary === "paru" && coverage !== undefined && dependenciesCovered ? ["--skipreview", "--batchinstall"] : [];
+            const expected = [binary, action === "upgrade" ? "-Sua" : "-S", ...words, ...(names.length ? ["--", ...names] : [])];
+            if (!same(t.reviewedBuild(plan, coverage, dependenciesCovered).steps, [expected]))
+                failures.push("reviewed build: " + JSON.stringify({binary, action, coverage, dependenciesCovered}));
+        }
     for (const [name, manager, missing, outdated, commands, want] of OWED_ROWS) {
         const got = t.planOwed(manager, missing, outdated, onPathOf(commands));
         const steps = got.ok ? got.plan.steps : got.error;
