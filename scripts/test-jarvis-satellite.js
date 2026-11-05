@@ -38,10 +38,10 @@ world(async () => {
     }
 
     // What `status --main` answers, as the Now line reads it, for the
-    // setting "cachy"; every reading passes the wire's judge.
+    // setting "cachy" unless a row names another; every result passes the wire.
     function readings(Satellite) {
         const satellite = { v: 1, role: "satellite", main: "cachy", reachable: true, cause: null };
-        for (const [label, answer, reach] of [
+        for (const [label, answer, reach, value = "cachy"] of [
             ["reached", satellite, { kind: "satellite", host: "cachy", reachable: true, cause: "" }],
             ["unanswered", { ...satellite, reachable: false, cause: "main-unreachable" }, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }],
             ["not yet contacted", { ...satellite, reachable: null }, { kind: "satellite", host: "cachy", reachable: null, cause: "" }],
@@ -49,12 +49,15 @@ world(async () => {
             ["package names this computer", { v: 1, role: "main" }, { kind: "unavailable", host: "cachy", cause: "setting-unhanded" }],
             ["another main", { ...satellite, main: "other" }, { kind: "unavailable", host: "cachy", cause: "setting-unhanded" }],
             ["session answer", { v: 1, state: "stopped", reason: "never-started" }, { kind: "unavailable", host: "cachy", cause: "package-unread" }],
-            ["no answer", null, { kind: "unavailable", host: "cachy", cause: "package-unread" }]
+            ["no answer", null, { kind: "unavailable", host: "cachy", cause: "package-unread" }],
+            // watch.py role admits this DEST; forward.py status publishes it
+            // unchanged. A package reply must not fault the daemon's wire.
+            ["unadmittable retained main", { ...satellite, main: "cachy\u0007" }, { kind: "unavailable", host: "", cause: "package-unread" }, ""]
         ]) {
-            assert.deepEqual(Satellite.reading(answer, "cachy"), reach, label);
+            assert.deepEqual(Satellite.reading(answer, value, Protocol.mainReach), reach, label);
             assert.equal(Protocol.mainReach(reach), true, label + ": the wire takes it");
         }
-        assert.deepEqual(Satellite.reading(satellite, "cachy:/srv/jarvis"), { kind: "satellite", host: "cachy", reachable: true, cause: "" },
+        assert.deepEqual(Satellite.reading(satellite, "cachy:/srv/jarvis", Protocol.mainReach), { kind: "satellite", host: "cachy", reachable: true, cause: "" },
             "a setting with the main's own path names the same host");
         for (const [value, setting] of [["", ""], ["cachy", "cachy:/home/me/jarvis"], ["me@cachy:/srv/jarvis", "me@cachy:/srv/jarvis"]])
             assert.equal(Satellite.settingOf(value, "/home/me/jarvis"), setting, value);
@@ -70,14 +73,15 @@ world(async () => {
         const environment = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8", XDG_STATE_HOME: state,
             SSH_AUTH_SOCK: "/run/user/1000/agent.sock", OPENAI_API_KEY: "sk-fixture", TMUX: "/scratch/tmux,1,0",
             VGSHELL_RUNNER_PID: "1", DISPLAY: ":9" };
-        const s = Satellite.create({ home: () => folder, mainHost: () => value, environment,
+        const s = Satellite.create({ home: () => folder, mainHost: () => value, environment, acceptReach: Protocol.mainReach,
             publish: reach => published.push(reach), log: line => logs.push(line),
             clock: { set: (fn, ms) => { timers.push(ms); return {}; }, clear() {} } });
         try {
             s.refresh();
             await until(() => published.length === 1, "an empty setting reads as this computer");
             assert.deepEqual(published[0], { kind: "main" });
-            assert.deepEqual(h.calls(), [], "this computer reads nothing from the package");
+            assert.deepEqual(h.calls().map(call => call.argv), [["status", "--main", "--home", h.folder]],
+                "the package reports this computer as main");
             assert.deepEqual(timers, [], "and keeps no timer");
 
             // A main set by hand in the package's private env file (its
@@ -86,28 +90,34 @@ world(async () => {
             // clears it.
             h.state({ main: "cachy:/srv/jarvis" });
             await s.choose("home");
-            assert.deepEqual(h.calls(), [], "a Home choice with the field empty calls no setter");
+            await until(() => published.at(-1).cause === "setting-unhanded", "a Home choice reads the package's retained main");
+            assert.deepEqual(h.calls().map(call => call.argv), [
+                ["status", "--main", "--home", h.folder], ["status", "--main", "--home", h.folder]],
+                "a Home choice with the field empty calls no setter");
             assert.equal(h.stored(), "cachy:/srv/jarvis", "the package keeps the main set by hand");
+            const homeRead = h.calls().length;
             await s.choose("mainHost");
-            assert.deepEqual(h.calls().map(call => call.argv), [["main-host", "--set=", "--home", h.folder]],
+            await until(() => published.at(-1).kind === "main", "a successful clear reads the package as main");
+            assert.deepEqual(h.calls().slice(homeRead).map(call => call.argv), [
+                ["main-host", "--set=", "--home", h.folder], ["status", "--main", "--home", h.folder]],
                 "choosing This computer clears the package's main");
             assert.equal(h.stored(), "", "the package is the main");
             const handed = h.calls().length;
 
             value = "cachy";
             await s.choose("mainHost");
-            await until(() => published.length === 2, "a choice reads the main again");
+            await until(() => published.at(-1).kind === "satellite", "a choice reads the main again");
             assert.deepEqual(h.calls().slice(handed).map(call => call.argv), [
                 ["main-host", "--set=cachy:" + h.folder, "--home", h.folder],
                 ["status", "--main", "--home", h.folder]], "the choice goes to the package's setting, then the read");
-            assert.deepEqual(published[1], { kind: "satellite", host: "cachy", reachable: null, cause: "" });
+            assert.deepEqual(published.at(-1), { kind: "satellite", host: "cachy", reachable: null, cause: "" });
             assert.equal(s.executor.available(), true, "a satellite offers the forward");
             assert.deepEqual(timers, [Satellite.READ_EVERY_MS], "a named main is read again on the drain's interval");
 
             h.state({ main: "cachy:" + h.folder, reachable: false });
             s.refresh();
-            await until(() => published.length === 3, "an unanswered main reads again");
-            assert.deepEqual(published[2], { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" });
+            await until(() => published.at(-1).reachable === false, "an unanswered main reads again");
+            assert.deepEqual(published.at(-1), { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" });
 
             const forward = text => new Promise(resolve =>
                 s.executor.start({ id: "fleet.forward", args: { text } }, resolve, () => ({ kind: "allow" }), undefined, confirmed));
@@ -224,21 +234,22 @@ world(async () => {
 
     // A new daemon owns no refusal memory. Its first reading asks the
     // package's setter once for a named host, including after a restart.
-    async function startup(Satellite) {
+    async function startup(Satellite, only) {
         for (const [label, value, state, reach] of [
             ["named host", "cachy", {}, { kind: "satellite", host: "cachy", reachable: null, cause: "" }],
             ["refused host", "not a host", { main: "other:/srv/jarvis" }, { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" }],
             ["absent setter", "cachy", { setter: "absent" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
             ["old package", "cachy", { package: "old" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
             ["unwritable setting", "cachy", { setter: "unwritable" }, { kind: "unavailable", host: "cachy", cause: "package-unread" }],
-            ["empty field keeps hand-set main", "", { main: "other:/srv/jarvis" }, { kind: "main" }]
+            ["empty field reports retained main", "", { main: "other:/srv/jarvis" }, { kind: "unavailable", host: "other", cause: "setting-unhanded" }]
         ]) {
+            if (only !== undefined && label !== only) continue;
             const h = home();
             h.state(state);
             for (const life of ["first start", "restart"]) {
                 const published = [], pending = [];
                 const before = h.calls().length;
-                const s = Satellite.create({ home: () => h.folder, mainHost: () => value,
+                const s = Satellite.create({ home: () => h.folder, mainHost: () => value, acceptReach: Protocol.mainReach,
                     environment: { PATH: process.env.PATH, HOME: process.env.HOME },
                     publish: result => published.push(result), log() {},
                     clock: { set: fn => { pending.push(fn); return fn; }, clear() {} } });
@@ -246,16 +257,30 @@ world(async () => {
                     s.refresh();
                     await until(() => published.length > 0, label + ": " + life);
                     assert.deepEqual(published.at(-1), reach, label + ": " + life);
+                    assert.equal(Protocol.mainReach(published.at(-1)), true, label + ": the wire takes it");
                     const setters = () => h.calls().slice(before).filter(call => call.argv[0] === "main-host");
                     assert.equal(setters().length, value === "" ? 0 : 1, label + ": one startup hand-off");
                     // Draining the fake clock proves an absent setter is not
                     // retried by the periodic reader, without a real wait.
-                    if (pending.length) pending.shift()();
+                    if (pending.length) {
+                        pending.shift()();
+                        await until(() => pending.length > 0, label + ": the periodic read schedules its successor");
+                    }
                     await s.close();
                     assert.equal(setters().length, value === "" ? 0 : 1, label + ": no setter loop");
                     if (value === "") assert.equal(h.stored(), state.main, label + ": no empty replay");
                 } finally { await s.close(); }
             }
+        }
+    }
+
+    async function replayLoop(Satellite) {
+        try { await startup(Satellite, "absent setter"); }
+        catch (error) {
+            if (!(error instanceof assert.AssertionError) || error.actual !== 2 || error.expected !== 1
+                || !error.message.startsWith("absent setter: no setter loop"))
+                throw new Error("replay-loop control missed the periodic setter-count assertion");
+            throw error;
         }
     }
 
@@ -265,7 +290,7 @@ world(async () => {
             h.state(state);
             let value = "", folder = h.folder;
             const published = [];
-            const s = Satellite.create({ home: () => folder, mainHost: () => value,
+            const s = Satellite.create({ home: () => folder, mainHost: () => value, acceptReach: Protocol.mainReach,
                 environment: { PATH: process.env.PATH, HOME: process.env.HOME },
                 publish: result => published.push(result), log() {}, clock: { set() { return {}; }, clear() {} } });
             try {
@@ -273,7 +298,8 @@ world(async () => {
                 await until(() => published.length > 0, label + ": empty startup");
                 value = "cachy:/srv/jarvis";
                 s.refresh();
-                await until(() => published.at(-1).cause === "setting-unhanded", label + ": config edit has not handed over the field");
+                await until(() => published.at(-1).host === "cachy" && published.at(-1).cause === "setting-unhanded",
+                    label + ": config edit has not handed over the field");
                 assert.deepEqual(published.at(-1), { kind: "unavailable", host: "cachy", cause: "setting-unhanded" }, label);
                 await s.choose("mainHost");
                 await until(() => published.at(-1).kind === "satellite", label + ": choosing the field hands it over");
@@ -303,14 +329,18 @@ world(async () => {
         ["caller-claim", satelliteFile, 'if (claims(call.args.text)) return failed("caller-claim");', "", live],
         ["secret", satelliteFile, 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
         ["setter-refusal", satelliteFile, "                rejected = { folder: location.folder, setting: chosen, cause };\n", "", live],
-        ["startup-handoff", satelliteFile, '            if (mainHost() !== "") { choose("mainHost"); return; }', "", startup],
+        ["startup-handoff", satelliteFile, '            if (mainHost() !== "") { choose("mainHost"); return; }', "", Satellite => startup(Satellite)],
+        ["replay-loop", satelliteFile, "timer = null; refresh();", 'timer = null; choose("mainHost");', replayLoop],
         ["refusal-home", satelliteFile, " && rejected.folder === location.folder", "", handoff],
         ["home-choice-hands-empty", satelliteFile, '                if (field === "home" && mainHost() === "") return;\n', "", live],
         ["ssh-agent", satelliteFile, "SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT)", "SessionCommand.callEnvironment(environment)", live],
         ["environment-pick", sessionFile, "for (const name of [...CALL_ENVIRONMENT, ...extra]) if (kept[name] !== undefined) picked[name] = kept[name];",
             "Object.assign(picked, kept);", live],
         ["host-mismatch", satelliteFile, ' || answer.role === "satellite" && answer.main !== host', "", readings],
-        ["refused-clear", satelliteFile, 'if (value === "" && rejected === null) return { kind: "main" };', 'if (value === "") return { kind: "main" };', live]
+        ["package-host-admission", satelliteFile, " && acceptReach(held)", "", readings],
+        ["empty-startup", satelliteFile, "        const value = mainHost();\n",
+            '        const value = mainHost();\n        if (value === "") return { kind: "main" };\n',
+            Satellite => startup(Satellite, "empty field reports retained main")]
     ]) {
         await mutant(file, name, needle, replacement, check, "Satellite.js");
         controls++; console.log("control=" + name + " detected");

@@ -83,14 +83,25 @@ function refused(cause, value) {
 
 /**
  * The reading `status --main` ANSWER gives for VALUE, the Main Jarvis host
- * setting, each with the host VALUE names: {kind:"satellite", host,
- * reachable, cause} while the package names that main; else
+ * setting: main only when both name this computer; {kind:"satellite", host,
+ * reachable, cause} while the package names VALUE's main; else
  * {kind:"unavailable", host, cause}, "setting-unhanded" when the package
- * names this computer or another main, "package-unread" for any other answer.
+ * names this computer or another main, naming the package's host while
+ * VALUE is empty; "package-unread" for any other answer.
  */
-function reading(answer, value) {
+function reading(answer, value, acceptReach) {
     const host = hostOf(value);
     if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", host, cause: "package-unread" };
+    if (value === "") {
+        if (answer.role === "main") return { kind: "main" };
+        if (answer.role === "satellite") {
+            const held = { kind: "unavailable", host: answer.main, cause: "setting-unhanded" };
+            // The package's stored host bypasses the VGS setting's admission.
+            // Use publication's wire judge before returning that new input.
+            if (answer.main !== "" && acceptReach(held)) return held;
+        }
+        return { kind: "unavailable", host, cause: "package-unread" };
+    }
     if (answer.role === "satellite" && answer.cause === "setting-invalid") return refused("setting-invalid", value);
     if (answer.role === "main" || answer.role === "satellite" && answer.main !== host)
         return { kind: "unavailable", host, cause: "setting-unhanded" };
@@ -101,12 +112,12 @@ function reading(answer, value) {
 }
 
 /**
- * create({home, mainHost, environment, publish, log}) builds the owner.
+ * create({home, mainHost, environment, publish, acceptReach, log}) builds the owner.
  * home() answers the ready home folder or null; mainHost() the Main Jarvis
  * host setting; environment is the daemon's; publish(reach) receives each
- * reading.
+ * reading; acceptReach is the wire's main-reach judge.
  */
-function create({ home, mainHost, environment, publish, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
+function create({ home, mainHost, environment, publish, acceptReach, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
     let last = null;
     let controller = null;
     let timer = null;
@@ -141,11 +152,9 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
 
     async function read(signal) {
         const value = mainHost();
-        if (value === "" && rejected === null) return { kind: "main" };
         const location = locate();
         if (location.kind !== "blocked" && rejected !== null && rejected.folder === location.folder
             && rejected.setting === settingOf(value, location.folder)) return refused(rejected.cause, value);
-        if (value === "") return { kind: "main" };
         if (location.kind === "blocked") return { kind: "unavailable", host: hostOf(value), cause: location.block };
         const result = await session(location, ["status", "--main"], LOCAL_MS, signal);
         if (result.kind === "stopped" && result.reason === "cancelled") return null;
@@ -160,7 +169,7 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         let answer = null;
         try { answer = JSON.parse(result.stdout.trim()); }
         catch { log("jarvis: satellite=status cause=unparsed"); }
-        return reading(answer, value);
+        return reading(answer, value, acceptReach);
     }
 
     function show(reach) {

@@ -127,9 +127,9 @@ async function inside() {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.notEqual(frame.snapshot.kind, "ready", "this legacy Home has no asks source; startup must never fabricate an empty inbox");
             }
-            // An empty Main Jarvis host reads as this computer, with no package read.
+            // Satellite owns classification; this runner checks its wire frames.
             for (const frame of frames.filter(frame => frame.type === "main-reach"))
-                assert.deepEqual(frame.reach, { kind: "main" });
+                Protocol.accept(JSON.stringify(frame), "daemon");
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
                 assert.deepEqual(Object.keys(frame).sort(), ["gen", "revision", "rows", "type", "v"]);

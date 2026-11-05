@@ -725,7 +725,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     });
                     browser = Browser.install({ router, environment: process.env, main: () => context.settings.mainHost === "",
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
-                    satellite = Satellite.create({ environment: process.env,
+                    satellite = Satellite.create({ environment: process.env, acceptReach: Protocol.mainReach,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
                         mainHost: () => context.settings.mainHost, log: line => process.stderr.write(line + "\n"),
                         publish: reach => {
