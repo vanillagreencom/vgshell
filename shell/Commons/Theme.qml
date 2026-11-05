@@ -237,7 +237,11 @@ Singleton {
     // last child it lays out does, above its bottom padding, a Row or a
     // Flow where its lowest shown child does, below its edge for a child
     // that overhangs it, such as a setup step's primary Button, and a Loader
-    // where its item does; any other item draws to its edge. A Column lays
+    // where its item does. A control answers through its contentItem,
+    // positioned within its padding (https://doc.qt.io/qt-6/qml-qtquick-controls-control.html),
+    // unless its background draws the box;
+    // other wrappers end at their lowest shown child's ink, and leaves
+    // draw to their edge. A Column lays
     // out its shown, sized children in order
     // (https://doc.qt.io/qt-6/qml-qtquick-column.html). No Column child's
     // `y` is read, since a positioner sets it on a later polish than the
@@ -250,11 +254,17 @@ Singleton {
         if (item === null || item === undefined) return 0;
         if (typeof item.inkBelow === "function") return item.inkBelow();
         if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + inkBelow(item.item) : 0;
-        if (item instanceof Row || item instanceof Flow) {
-            const shown = item.children.filter(child => child.visible && child.width > 0 && child.height > 0);
-            return shown.length === 0 ? 0 : item.height - Math.max(...shown.map(child => child.y + child.height - inkBelow(child)));
+        if (item.background instanceof Item && item.background.visible) return 0;
+        if (item.contentItem instanceof Item && item.contentItem !== item) {
+            const content = item.contentItem;
+            return item.height - content.y - content.height + inkBelow(content);
         }
-        if (!(item instanceof Column)) return 0;
+        if (!(item instanceof Column)) {
+            const shown = item.children.filter(child => child.visible && child.width > 0 && child.height > 0);
+            const below = shown.length === 0 ? 0 : item.height - Math.max(...shown.map(child => child.y + child.height - inkBelow(child)));
+            // Only positioners report overhang beyond the wrapper's box.
+            return item instanceof Row || item instanceof Flow ? below : Math.max(0, below);
+        }
         const children = item.children;
         for (let i = children.length - 1; i >= 0; i--) {
             const child = children[i];
