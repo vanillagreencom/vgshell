@@ -328,9 +328,9 @@ FocusScope {
     }
 
     // The Now line for REACH, the daemon's reading of the main Jarvis
-    // (Satellite.js), or "" before the first. Each reading but this
-    // computer's names the host Main Jarvis host names. An unavailable
-    // route links where it is fixed, as the session row's blocks do
+    // (Satellite.js), or "" before the first. A host comes from Main
+    // Jarvis host, or from the package while that field is empty. An
+    // unavailable route links where it is fixed, as the session row's blocks do
     // (SetupGate.SESSION_BLOCKS): a missing session program to its Repair,
     // a block of the home to the Home folder. A package that is older or
     // did not answer has no fix in VGS, so its line links nothing.
@@ -339,11 +339,13 @@ FocusScope {
         if (reach.kind === "main") return "This computer runs your main Jarvis.";
         if (reach.kind === "unavailable" && reach.cause === "no-home")
             return "Jarvis cannot forward requests until you choose a [Home folder](page:vgs.jarvis/Settings/home).";
-        const blocked = "Jarvis cannot forward to " + reach.host + ": ";
+        const blocked = reach.host === "" ? "Jarvis cannot forward requests: " : "Jarvis cannot forward to " + reach.host + ": ";
         if (reach.cause === "package-old")
             return blocked + "the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary.";
         if (reach.cause === "package-unread")
             return blocked + "the Jarvis package in your home folder did not answer as expected.";
+        if (reach.cause === "setting-unhanded")
+            return blocked + "the Jarvis package names a different main. Change [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) to a different value, then choose the value you want.";
         if (reach.cause === "package")
             return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
         if (reach.cause === "vgs-package")

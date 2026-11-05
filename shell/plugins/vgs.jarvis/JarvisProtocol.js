@@ -464,11 +464,12 @@ function mainHostSetting(value) {
 // What stops a forward before the main is read (Satellite.js): a block of
 // the home's session command (SessionCommand.place), a package older than
 // the satellite contract, which lacks its verbs, or one that did not answer
-// as expected.
-var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"];
+// as expected or names a different main than the setting.
+var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread", "setting-unhanded"];
 
 // The `main-reach` message's reading of the main Jarvis (Satellite.js),
-// each but this computer's with the host the Main Jarvis host setting names:
+// with the host Main Jarvis host names, or the package's held main while
+// that setting is empty:
 // this computer is the main; a satellite whose package names that main,
 // whether the package last reached it (null before its first call) and the
 // cause the Now line names; or the forward route unavailable and why.

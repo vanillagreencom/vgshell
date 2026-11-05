@@ -78,23 +78,33 @@ function claims(text) {
  */
 function refused(cause, value) {
     return cause === "setting-invalid" ? { kind: "satellite", host: hostOf(value), reachable: null, cause }
-        : { kind: "unavailable", host: hostOf(value), cause: "package-unread" };
+        : { kind: "unavailable", host: hostOf(value), cause: cause === "setter-absent" ? "package-old" : "package-unread" };
 }
 
 /**
  * The reading `status --main` ANSWER gives for VALUE, the Main Jarvis host
- * setting, each with the host VALUE names: {kind:"satellite", host,
- * reachable, cause} while the package names that main; else
- * {kind:"unavailable", host, cause}, "package-old" for a package that
- * answered role main or another main, which a package without the setter
- * leaves, "package-unread" for any other answer.
+ * setting: main only when both name this computer; {kind:"satellite", host,
+ * reachable, cause} while the package names VALUE's main; else
+ * {kind:"unavailable", host, cause}, "setting-unhanded" when the package
+ * names this computer or another main, naming the package's host while
+ * VALUE is empty; "package-unread" for any other answer.
  */
-function reading(answer, value) {
+function reading(answer, value, acceptReach) {
     const host = hostOf(value);
     if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", host, cause: "package-unread" };
+    if (value === "") {
+        if (answer.role === "main") return { kind: "main" };
+        if (answer.role === "satellite") {
+            const held = { kind: "unavailable", host: answer.main, cause: "setting-unhanded" };
+            // The package's stored host bypasses the VGS setting's admission.
+            // Use publication's wire judge before returning that new input.
+            if (answer.main !== "" && acceptReach(held)) return held;
+        }
+        return { kind: "unavailable", host, cause: "package-unread" };
+    }
     if (answer.role === "satellite" && answer.cause === "setting-invalid") return refused("setting-invalid", value);
     if (answer.role === "main" || answer.role === "satellite" && answer.main !== host)
-        return { kind: "unavailable", host, cause: "package-old" };
+        return { kind: "unavailable", host, cause: "setting-unhanded" };
     if (answer.role !== "satellite" || ![true, false, null].includes(answer.reachable))
         return { kind: "unavailable", host, cause: "package-unread" };
     return { kind: "satellite", host, reachable: answer.reachable,
@@ -102,20 +112,21 @@ function reading(answer, value) {
 }
 
 /**
- * create({home, mainHost, environment, publish, log}) builds the owner.
+ * create({home, mainHost, environment, publish, acceptReach, log}) builds the owner.
  * home() answers the ready home folder or null; mainHost() the Main Jarvis
  * host setting; environment is the daemon's; publish(reach) receives each
- * reading.
+ * reading; acceptReach is the wire's main-reach judge.
  */
-function create({ home, mainHost, environment, publish, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
+function create({ home, mainHost, environment, publish, acceptReach, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
     let last = null;
     let controller = null;
     let timer = null;
     let inFlight = Promise.resolve();
     let setting = Promise.resolve();
+    let started = false;
     // While a choice runs its setter, no read starts: the choice reads after.
     let choosing = false;
-    // The setting the last choice's setter refused, {setting, cause}, or
+    // The setting the last choice's setter refused, {folder, setting, cause}, or
     // null: the package kept its previous value, so its status names that
     // one, and the reading names the refusal until the next choice.
     let rejected = null;
@@ -141,10 +152,10 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
 
     async function read(signal) {
         const value = mainHost();
-        if (value === "") return { kind: "main" };
         const location = locate();
+        if (location.kind !== "blocked" && rejected !== null && rejected.folder === location.folder
+            && rejected.setting === settingOf(value, location.folder)) return refused(rejected.cause, value);
         if (location.kind === "blocked") return { kind: "unavailable", host: hostOf(value), cause: location.block };
-        if (rejected !== null && rejected.setting === settingOf(value, location.folder)) return refused(rejected.cause, value);
         const result = await session(location, ["status", "--main"], LOCAL_MS, signal);
         if (result.kind === "stopped" && result.reason === "cancelled") return null;
         if (result.kind !== "exited" || result.code !== 0) {
@@ -158,7 +169,7 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         let answer = null;
         try { answer = JSON.parse(result.stdout.trim()); }
         catch { log("jarvis: satellite=status cause=unparsed"); }
-        return reading(answer, value);
+        return reading(answer, value, acceptReach);
     }
 
     function show(reach) {
@@ -174,11 +185,19 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         controller = null;
     }
 
-    // Read again now, ending a read under way, then every READ_EVERY_MS
-    // while the setting names a main. Each hello that changes the setting or
-    // the home, each choice and each forward reads again.
+    // Hand a named host once at startup, then read again now, ending a read
+    // under way, and every READ_EVERY_MS while the setting names a main.
+    // Each changed hello, choice and forward reads again.
     function refresh() {
         if (closed || choosing) return;
+        if (!started) {
+            started = true;
+            // main-host --set judges before writing (KEN-4874, session.py
+            // main_host). Replaying a named host recovers its refusal after
+            // restart. Never replay an empty field: the package may hold a
+            // main set by hand. A missing setter is attempted only once.
+            if (mainHost() !== "") { choose("startup"); return; }
+        }
         stopRead();
         const own = controller = new AbortController();
         inFlight = read(own.signal).then(reach => {
@@ -196,18 +215,21 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
 
     // Hand Main Jarvis host, as the setting reads now, to the package of the
     // ready home, one choice at a time in the order chosen, then read once.
-    // FIELD is the setting the user chose, "mainHost" or "home". Only a
+    // FIELD is "startup" or the setting the user chose, "mainHost" or
+    // "home". Keep that origin through the queue: a changed hello can clear
+    // the field before the startup operation runs. Only a
     // choice of Main Jarvis host clears the package's main: a Home choice
     // while the field is empty hands nothing, since that home's package
     // may name a main set by hand in its private env file (the package's
     // README), which VGS never reads.
     function choose(field) {
+        started = true;
         setting = setting.then(async () => {
             if (closed) return;
             choosing = true;
             try {
                 stopRead();
-                if (field === "home" && mainHost() === "") return;
+                if (field !== "mainHost" && mainHost() === "") return;
                 rejected = null;
                 const location = locate();
                 if (location.kind === "blocked") {
@@ -219,17 +241,17 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
                 const chosen = settingOf(mainHost(), location.folder);
                 const result = await session(location, ["main-host", "--set=" + chosen], LOCAL_MS);
                 if (result.kind === "exited" && result.code === 0) return;
-                // A setter that is absent stores nothing and says so; the
-                // status read then names the package as older than the
-                // contract.
+                // A setter that is absent stores nothing and identifies an
+                // older package even if its status names a different main.
                 if (result.kind === "exited" && ARGUMENTS.test(result.stderr)) {
                     log("jarvis: satellite=main-host cause=setter-absent");
+                    rejected = { folder: location.folder, setting: chosen, cause: "setter-absent" };
                     return;
                 }
                 const named = result.kind === "exited" && result.code === 2 ? refusal("main-host", result.stderr) : undefined;
                 const cause = named !== undefined ? named : result.kind !== "exited" ? result.reason : "exit-" + result.code;
                 log("jarvis: satellite=main-host cause=" + cause);
-                rejected = { setting: chosen, cause };
+                rejected = { folder: location.folder, setting: chosen, cause };
             } finally {
                 choosing = false;
                 refresh();
