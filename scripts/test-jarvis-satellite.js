@@ -46,8 +46,8 @@ world(async () => {
             ["unanswered", { ...satellite, reachable: false, cause: "main-unreachable" }, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }],
             ["not yet contacted", { ...satellite, reachable: null }, { kind: "satellite", host: "cachy", reachable: null, cause: "" }],
             ["unparsed setting", { ...satellite, main: null, reachable: null, cause: "setting-invalid" }, { kind: "satellite", host: "cachy", reachable: null, cause: "setting-invalid" }],
-            ["package without the setter", { v: 1, role: "main" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
-            ["another main", { ...satellite, main: "other" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
+            ["package names this computer", { v: 1, role: "main" }, { kind: "unavailable", host: "cachy", cause: "setting-unhanded" }],
+            ["another main", { ...satellite, main: "other" }, { kind: "unavailable", host: "cachy", cause: "setting-unhanded" }],
             ["session answer", { v: 1, state: "stopped", reason: "never-started" }, { kind: "unavailable", host: "cachy", cause: "package-unread" }],
             ["no answer", null, { kind: "unavailable", host: "cachy", cause: "package-unread" }]
         ]) {
@@ -166,6 +166,11 @@ world(async () => {
             assert.deepEqual(published.at(-1), { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" });
             assert.ok(logs.includes("jarvis: satellite=main-host cause=setting-invalid"), logs.join("\n"));
             assert.equal(s.executor.available(), false, "an unparsed setting offers no forward");
+            const refusedCalls = h.calls().length;
+            s.refresh();
+            await Promise.resolve();
+            assert.equal(h.calls().length, refusedCalls, "a read keeps the refusal until the next choice");
+            assert.equal(published.at(-1).cause, "setting-invalid");
 
             // A setter that cannot store the setting is a package that did
             // not answer as expected, which VGS cannot repair.
@@ -175,6 +180,12 @@ world(async () => {
             await until(() => published.at(-1).host === "jarvis", "a refused store reads again");
             assert.deepEqual(published.at(-1), { kind: "unavailable", host: "jarvis", cause: "package-unread" });
             assert.ok(logs.includes("jarvis: satellite=main-host cause=private-file-unwritable"), logs.join("\n"));
+
+            value = "";
+            await s.choose("mainHost");
+            await until(() => published.at(-1).host === "", "a refused clear reads again");
+            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "", cause: "package-unread" });
+            assert.equal(h.stored(), "cachy:" + h.folder, "the refused clear kept the package's previous main");
 
             // The installed package before its setter: the choice is logged
             // as refused, and the reading names the package as older.
@@ -211,22 +222,95 @@ world(async () => {
         } finally { await s.close(); }
     }
 
+    // A new daemon owns no refusal memory. Its first reading asks the
+    // package's setter once for a named host, including after a restart.
+    async function startup(Satellite) {
+        for (const [label, value, state, reach] of [
+            ["named host", "cachy", {}, { kind: "satellite", host: "cachy", reachable: null, cause: "" }],
+            ["refused host", "not a host", { main: "other:/srv/jarvis" }, { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" }],
+            ["absent setter", "cachy", { setter: "absent" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
+            ["old package", "cachy", { package: "old" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
+            ["unwritable setting", "cachy", { setter: "unwritable" }, { kind: "unavailable", host: "cachy", cause: "package-unread" }],
+            ["empty field keeps hand-set main", "", { main: "other:/srv/jarvis" }, { kind: "main" }]
+        ]) {
+            const h = home();
+            h.state(state);
+            for (const life of ["first start", "restart"]) {
+                const published = [], pending = [];
+                const before = h.calls().length;
+                const s = Satellite.create({ home: () => h.folder, mainHost: () => value,
+                    environment: { PATH: process.env.PATH, HOME: process.env.HOME },
+                    publish: result => published.push(result), log() {},
+                    clock: { set: fn => { pending.push(fn); return fn; }, clear() {} } });
+                try {
+                    s.refresh();
+                    await until(() => published.length > 0, label + ": " + life);
+                    assert.deepEqual(published.at(-1), reach, label + ": " + life);
+                    const setters = () => h.calls().slice(before).filter(call => call.argv[0] === "main-host");
+                    assert.equal(setters().length, value === "" ? 0 : 1, label + ": one startup hand-off");
+                    // Draining the fake clock proves an absent setter is not
+                    // retried by the periodic reader, without a real wait.
+                    if (pending.length) pending.shift()();
+                    await s.close();
+                    assert.equal(setters().length, value === "" ? 0 : 1, label + ": no setter loop");
+                    if (value === "") assert.equal(h.stored(), state.main, label + ": no empty replay");
+                } finally { await s.close(); }
+            }
+        }
+    }
+
+    async function handoff(Satellite) {
+        for (const [label, state] of [["package names this computer", {}], ["package names another main", { main: "other:/srv/jarvis" }]]) {
+            const h = home(), other = home();
+            h.state(state);
+            let value = "", folder = h.folder;
+            const published = [];
+            const s = Satellite.create({ home: () => folder, mainHost: () => value,
+                environment: { PATH: process.env.PATH, HOME: process.env.HOME },
+                publish: result => published.push(result), log() {}, clock: { set() { return {}; }, clear() {} } });
+            try {
+                s.refresh();
+                await until(() => published.length > 0, label + ": empty startup");
+                value = "cachy:/srv/jarvis";
+                s.refresh();
+                await until(() => published.at(-1).cause === "setting-unhanded", label + ": config edit has not handed over the field");
+                assert.deepEqual(published.at(-1), { kind: "unavailable", host: "cachy", cause: "setting-unhanded" }, label);
+                await s.choose("mainHost");
+                await until(() => published.at(-1).kind === "satellite", label + ": choosing the field hands it over");
+                h.state({ main: value, setter: "unwritable" });
+                await s.choose("mainHost");
+                await until(() => published.at(-1).cause === "package-unread", label + ": refusal belongs to this home");
+                other.state({ main: value });
+                folder = other.folder;
+                s.refresh();
+                await until(() => published.at(-1).kind === "satellite", label + ": another home reads its own state");
+                assert.equal(published.at(-1).cause, "", label + ": the same absolute main in another home inherits no refusal");
+            } finally { await s.close(); }
+        }
+    }
+
     readings(require(satelliteFile));
     console.log("case=readings passed");
     await live(require(satelliteFile));
     console.log("case=live passed");
+    await startup(require(satelliteFile));
+    console.log("case=startup passed");
+    await handoff(require(satelliteFile));
+    console.log("case=handoff passed");
 
     const sessionFile = path.join(backend, "SessionCommand.js");
     for (const [name, file, needle, replacement, check] of [
         ["caller-claim", satelliteFile, 'if (claims(call.args.text)) return failed("caller-claim");', "", live],
         ["secret", satelliteFile, 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
-        ["setter-refusal", satelliteFile, "                rejected = { setting: chosen, cause };\n", "", live],
+        ["setter-refusal", satelliteFile, "                rejected = { folder: location.folder, setting: chosen, cause };\n", "", live],
+        ["startup-handoff", satelliteFile, '            if (mainHost() !== "") { choose("mainHost"); return; }', "", startup],
+        ["refusal-home", satelliteFile, " && rejected.folder === location.folder", "", handoff],
         ["home-choice-hands-empty", satelliteFile, '                if (field === "home" && mainHost() === "") return;\n', "", live],
         ["ssh-agent", satelliteFile, "SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT)", "SessionCommand.callEnvironment(environment)", live],
         ["environment-pick", sessionFile, "for (const name of [...CALL_ENVIRONMENT, ...extra]) if (kept[name] !== undefined) picked[name] = kept[name];",
             "Object.assign(picked, kept);", live],
         ["host-mismatch", satelliteFile, ' || answer.role === "satellite" && answer.main !== host', "", readings],
-        ["main-unread", satelliteFile, 'if (value === "") return { kind: "main" };', "", live]
+        ["refused-clear", satelliteFile, 'if (value === "" && rejected === null) return { kind: "main" };', 'if (value === "") return { kind: "main" };', live]
     ]) {
         await mutant(file, name, needle, replacement, check, "Satellite.js");
         controls++; console.log("control=" + name + " detected");

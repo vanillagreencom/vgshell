@@ -344,6 +344,8 @@ FocusScope {
             return blocked + "the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary.";
         if (reach.cause === "package-unread")
             return blocked + "the Jarvis package in your home folder did not answer as expected.";
+        if (reach.cause === "setting-unhanded")
+            return blocked + "the Jarvis package names a different main. Change [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) to This computer, then back to your main.";
         if (reach.cause === "package")
             return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
         if (reach.cause === "vgs-package")
