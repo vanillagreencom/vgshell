@@ -27,7 +27,56 @@ Scope {
         barEmptyRecord = null;
         barEmptyTapCount = 0;
     }
+    property QtObject popupYieldTarget: null
+    // Typed references clear on destruction, as coveredReason's unit
+    // proves. This watches the parent-owned popup without a JS closure.
+    property QtObject popupYieldWindow: null
+    property string popupYieldPluginId: ""
+    property int popupYieldEpoch: 0
+    property bool popupYieldArmed: false
+    property int popupYieldTriggerCount: 0
+    property bool popupYieldVisibleAtTrigger: false
+    property bool popupYieldBackingVisibleAtTrigger: false
+    property real popupYieldMotionAtTrigger: -1
+    property string popupYieldDisableReply: "not-triggered"
+    property int popupYieldDestroyedCount: 0
+    property bool popupYieldBarrierComplete: false
+    function endPopupYieldObservation() {
+        popupYieldArmed = false;
+        popupYieldEpoch += 1;
+        popupYieldTarget = null;
+        popupYieldWindow = null;
+    }
+    onPopupYieldWindowChanged: {
+        if (popupYieldWindow !== null || !popupYieldArmed || popupYieldTriggerCount !== 1) return;
+        popupYieldDestroyedCount += 1;
+        popupYieldArmed = false;
+        const epoch = popupYieldEpoch;
+        // Start after the watched QObject has gone, then return through
+        // the event loop twice before the row judges its delayed errors.
+        // Neither callback captures the popup or its plugin instance.
+        Qt.callLater(() => {
+            if (epoch !== root.popupYieldEpoch) return;
+            Qt.callLater(() => {
+                if (epoch === root.popupYieldEpoch) root.popupYieldBarrierComplete = true;
+            });
+        });
+    }
+    Connections {
+        target: root.popupYieldTarget
+        function onClosingChanged() {
+            if (!root.popupYieldArmed || root.popupYieldTarget === null || !root.popupYieldTarget.closing) return;
+            root.popupYieldTriggerCount += 1;
+            root.popupYieldVisibleAtTrigger = root.popupYieldTarget.visible;
+            root.popupYieldBackingVisibleAtTrigger = root.popupYieldTarget.backingWindowVisible;
+            root.popupYieldMotionAtTrigger = root.popupYieldTarget.motionProgress;
+            // Disconnect before the production disable drops the popup.
+            root.popupYieldTarget = null;
+            root.popupYieldDisableReply = Plugins.setEnabled(root.popupYieldPluginId, false);
+        }
+    }
     Component.onDestruction: {
+        endPopupYieldObservation();
         endBarEmptyObservation();
         root.endDisplayEvents("interrupted", "probe-destroyed");
         root.detachDisplayEvents();
@@ -2479,6 +2528,45 @@ Scope {
                 motionProgress: win.motionProgress === undefined ? null : win.motionProgress,
                 grabCounted: win.grabCounted === undefined ? null : win.grabCounted
             });
+        }
+        // Only the real popup's normal close transition triggers disable.
+        // The row causes that transition by summoning an application window,
+        // through AppWindow -> Plugins.yieldToWindow -> SummonHost.hide.
+        function popupYieldDestroyArm(hostKey: string, id: string): string {
+            root.endPopupYieldObservation();
+            const item = root.instance(hostKey, id);
+            if (item === null) return "absent";
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+            const win = item.QsWindow.window;
+            if (win === null || root.typeName(win) !== "SummonPopup") return "not-popup";
+            if (!win.visible || !win.backingWindowVisible || win.closing) return "not-visible";
+            if (Theme.motion.flyout.travel.duration <= 0) return "motion-disabled";
+            root.popupYieldPluginId = id;
+            root.popupYieldTriggerCount = 0;
+            root.popupYieldVisibleAtTrigger = false;
+            root.popupYieldBackingVisibleAtTrigger = false;
+            root.popupYieldMotionAtTrigger = -1;
+            root.popupYieldDisableReply = "not-triggered";
+            root.popupYieldDestroyedCount = 0;
+            root.popupYieldBarrierComplete = false;
+            root.popupYieldWindow = win;
+            root.popupYieldTarget = win;
+            root.popupYieldArmed = true;
+            return "armed";
+        }
+        function popupYieldDestroyState(): string {
+            return root.json({ armed: root.popupYieldArmed,
+                triggerCount: root.popupYieldTriggerCount,
+                visibleAtTrigger: root.popupYieldVisibleAtTrigger,
+                backingVisibleAtTrigger: root.popupYieldBackingVisibleAtTrigger,
+                motionAtTrigger: root.popupYieldMotionAtTrigger,
+                disableReply: root.popupYieldDisableReply,
+                destroyedCount: root.popupYieldDestroyedCount,
+                barrierComplete: root.popupYieldBarrierComplete });
+        }
+        function popupYieldDestroyEnd(): string {
+            root.endPopupYieldObservation();
+            return "ended";
         }
         // Every item under an instance, the instance first, breadth first:
         // its type name as typeName writes it, its objectName, its box in screen

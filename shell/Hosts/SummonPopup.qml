@@ -18,6 +18,7 @@ PopupWindow {
     readonly property Item returnFocusItem: request && request.returnFocus ? request.returnFocus : null
     readonly property bool returnFocusWasVisual: !!(request && request.returnFocusWasVisual)
     property bool closing: false
+    property bool destroying: false
     property bool grabCounted: false
     property real motionProgress: 0
     readonly property real cardOpacity: card.opacity
@@ -59,6 +60,9 @@ PopupWindow {
     Component.onDestruction: {
         // Disable/unload can destroy the host without an animated hide.
         // Unmap before releasing its count, not after QObject teardown.
+        // Destruction already drops the host entry; it must not emit a
+        // dismissal that queues another read of this dying popup.
+        destroying = true;
         visible = false;
         shareGrab(false);
     }
@@ -74,7 +78,7 @@ PopupWindow {
     // after the compositor closes the xdg_popup, so that path cannot commit
     // a closing frame.
     onVisibleChanged: {
-        if (!visible) {
+        if (!visible && !destroying) {
             if (returnFocusWasVisual && returnFocusItem !== null && returnFocusItem.forceActiveFocus !== undefined) {
                 const target = returnFocusItem;
                 Qt.callLater(() => {
