@@ -37,7 +37,13 @@ FloatingWindow {
     signal dismissed()
 
     title: Registry.has(pluginId) ? Registry.manifests[pluginId].name : pluginId
-    screen: request ? request.screen : null
+    // Set only the initial output. A later payload replaces request, but
+    // screen now reports the compositor's current output. Reassigning the
+    // original output remaps the native window and emits closed during
+    // the hide (Quickshell 0.3.1 ProxyWindowBase::setScreen/onVisibleChanged).
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language/
+    Component.onCompleted: screen = request.screen
     visible: false
     implicitWidth: slot.instance ? Math.max(1, slot.instance.implicitWidth) : 1
     implicitHeight: slot.instance ? Math.max(1, Math.min(Math.max(slot.instance.implicitHeight, paneHeight(slot.instance)), OverlayState.windowRoom(screen).height)) : 1

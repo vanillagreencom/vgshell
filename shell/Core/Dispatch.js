@@ -387,42 +387,49 @@ function windowState(text) {
     return { ok: true, clients: read.values[0], monitors: read.values[1] };
 }
 
-var ACTIVATION_STATE_REQUEST = "j/clients;j/cursorpos";
+var ACTIVATION_STATE_REQUEST = "j/clients;j/getoption cursor:no_warps";
 
 // CWindow::activate in Hyprland 0.56.2 skips a window it already names
 // active, even when a popup took its native keyboard focus. focusWindow
-// reaches fullWindowFocus instead. It also warps the cursor, so restore
-// the original position in the same socket callback, before any frame.
-// Lua reads that position inside the callback; classic uses the snapshot.
-// Verified by the VGS-1969 nested Bluetooth trigger/Escape probe, 2026-10-21:
-// real Down/Return work with the cursor unchanged at (10, 923).
+// reaches fullWindowFocus instead. Suppress its warp rather than restoring
+// the cursor: moveCursor simulates mouse movement and follow-mouse can give
+// the keyboard to a different client. alterZOrder does that too, so raise
+// before the final focus. Scope no_warps to this one socket callback and
+// restore it before judging replies. Lua reads the boolean in its callback;
+// classic's getoption snapshot carries it as `int` (HyprCtl.cpp).
 // https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/shared/actions/ConfigActions.cpp
+// https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/config/shared/actions/ConfigActions.cpp
+// https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/pointer/PointerController.cpp
+// https://wiki.hypr.land/configuring/core/advanced-configuration/lua-utilities/
+// https://wiki.hypr.land/0.54.0/Configuring/Using-hyprctl/#batch
 // Focus does not raise an already focused floating window (VGS-2246
 // Capture Settings-link screenshots, cachy, 2026-11-04). Stack it explicitly:
 // https://wiki.hypr.land/configuring/core/dispatchers/#window
 // https://wiki.hypr.land/0.54.0/Configuring/Dispatchers/
 function activationRequest(text, pid, title, usingLua) {
-    var read = jsonReplies(text, [["clients", "array"], ["cursor", "object"]], "activation state");
+    var read = jsonReplies(text, [["clients", "array"], ["no-warps", "object"]], "activation state");
     if (!read.ok) return read;
     var clients = read.values[0].filter(function (c) { return c && c.mapped && c.pid === pid && c.title === title; });
     if (clients.length === 0) return { ok: false, pending: true, error: "refused: activation=unmapped" };
     if (clients.length !== 1) return { ok: false, error: "refused: activation=windows count=" + clients.length };
     var focus = request("focusWindow", [clients[0].address], usingLua);
     if (!focus.ok) return focus;
-    var cursor = read.values[1];
-    var cursorMove = request("moveCursor", [cursor.x, cursor.y], usingLua);
-    if (!cursorMove.ok) return cursorMove;
     var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;
-    if (!usingLua) return { ok: true, argv: ["hyprctl", "--batch", "dispatch " + focus.request + " ; dispatch " + raise + " ; dispatch " + cursorMove.request] };
+    if (!usingLua) {
+        var noWarps = read.values[1].int;
+        if (noWarps !== 0 && noWarps !== 1) return { ok: false, error: "refused: activation=no-warps " + JSON.stringify(read.values[1]) };
+        return { ok: true, argv: ["hyprctl", "--batch", "dispatch " + raise
+            + " ; keyword cursor:no_warps 1 ; dispatch " + focus.request + " ; keyword cursor:no_warps " + noWarps] };
+    }
     return { ok: true, argv: ["hyprctl", "dispatch", "function() if hl.get_window(\"address:" + clients[0].address
-        + "\") == nil then return end; local p = hl.get_cursor_pos(); local r = hl.dispatch(" + focus.request
-        + "); local raised = hl.dispatch(" + raise
-        + "); local moved = hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = p.y })); if not r.ok then return r end; if not raised.ok then return raised end; return moved end"] };
+        + "\") == nil then return end; local raised = hl.dispatch(" + raise
+        + "); local noWarps = hl.get_config(\"cursor.no_warps\"); hl.config({ [\"cursor.no_warps\"] = true }); local r = hl.dispatch(" + focus.request
+        + "); hl.config({ [\"cursor.no_warps\"] = noWarps }); if not raised.ok then return raised end; return r end"] };
 }
 
 function activationAnswer(answer, usingLua) {
     if (usingLua && answer === "ok") return "ok";
-    var replies = batchReplies(answer, 3, "activation");
+    var replies = batchReplies(answer, 4, "activation");
     if (!usingLua && replies.ok && replies.parts.every(function (part) { return part === "ok"; })) return "ok";
     return "refused: activation=" + JSON.stringify(String(answer));
 }
