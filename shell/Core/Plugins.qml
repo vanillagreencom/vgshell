@@ -981,6 +981,12 @@ Singleton {
         return hosts[kind][verb](id, payloadJson, origin || null);
     }
 
+    function yieldToWindow(screen) {
+        for (const kind of ["panel", "menu"]) {
+            if (Logic.hasOwn(hosts, kind)) hosts[kind].yieldToWindow(screen);
+        }
+    }
+
     // Summon the manager's window on plugin `page`'s page, on `tab` when
     // one is named; answers the route's reply, `unknown: <page>` for a page
     // no plugin has, or `refused: manager=none` while no manager window is

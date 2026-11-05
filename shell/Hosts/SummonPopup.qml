@@ -18,6 +18,7 @@ PopupWindow {
     readonly property Item returnFocusItem: request && request.returnFocus ? request.returnFocus : null
     readonly property bool returnFocusWasVisual: !!(request && request.returnFocusWasVisual)
     property bool closing: false
+    property bool destroying: false
     property bool grabCounted: false
     property real motionProgress: 0
     readonly property real cardOpacity: card.opacity
@@ -56,13 +57,28 @@ PopupWindow {
     // Region's box is whole pixels; the card's height is fractional.
     mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width); height: Math.ceil(sized.height) }
     Component.onCompleted: Qt.callLater(() => setMotion(1, false))
-    Component.onDestruction: shareGrab(false)
+    Component.onDestruction: {
+        // Disable/unload can destroy the host without an animated hide.
+        // Unmap before releasing its count, not after QObject teardown.
+        // Destruction already drops the host entry; it must not emit a
+        // dismissal that queues another read of this dying popup.
+        destroying = true;
+        visible = false;
+        shareGrab(false);
+    }
+    // QsWindow's backingWindowVisible follows the native QWindow hide,
+    // not the requested visibility. ProxyWindowBase::setVisibleDirect
+    // hides it before lowering this property (Quickshell 0.3.1,
+    // src/window/proxywindow.cpp). Qt Wayland's setVisible(false) resets
+    // the popup role and commits a null buffer before returning
+    // (qtbase v6.11.0 src/plugins/platforms/wayland/qwaylandwindow.cpp).
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+    onBackingWindowVisibleChanged: shareGrab(backingWindowVisible)
     // Quickshell PopupWindow::onClosed sets the wanted visibility false
     // after the compositor closes the xdg_popup, so that path cannot commit
     // a closing frame.
     onVisibleChanged: {
-        shareGrab(visible);
-        if (!visible) {
+        if (!visible && !destroying) {
             if (returnFocusWasVisual && returnFocusItem !== null && returnFocusItem.forceActiveFocus !== undefined) {
                 const target = returnFocusItem;
                 Qt.callLater(() => {

@@ -37,7 +37,13 @@ FloatingWindow {
     signal dismissed()
 
     title: Registry.has(pluginId) ? Registry.manifests[pluginId].name : pluginId
-    screen: request ? request.screen : null
+    // Set only the initial output. A later payload replaces request, but
+    // screen now reports the compositor's current output. Reassigning the
+    // original output remaps the native window and emits closed during
+    // the hide (Quickshell 0.3.1 ProxyWindowBase::setScreen/onVisibleChanged).
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language/
+    Component.onCompleted: screen = request.screen
     visible: false
     implicitWidth: slot.instance ? Math.max(1, slot.instance.implicitWidth) : 1
     implicitHeight: slot.instance ? Math.max(1, Math.min(Math.max(slot.instance.implicitHeight, paneHeight(slot.instance)), OverlayState.windowRoom(screen).height)) : 1
@@ -50,9 +56,24 @@ FloatingWindow {
     color: Theme.appearanceState.hyprland.glass ? Theme.glass.glass.fill : Theme.surface.level.raised.background
     surfaceFormat.opaque: false
     onClosed: dismissed()
+    // QsWindow's backingWindowVisible means the native window is shown.
+    // Request activation then; Compositor waits for its mapped client.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+    onBackingWindowVisibleChanged: if (backingWindowVisible) focusInitial()
 
     function focusInitial() {
         slot.focusInitial();
+        // A menu's trigger also restores its opener's native focus in this
+        // turn. Register this target after that restoration; Compositor
+        // then waits for any animated opener's actual native-grab release.
+        Qt.callLater(() => {
+            if (win === null || !backingWindowVisible) return;
+            // The current screen follows a user's move; the original
+            // summon request still names the screen where it first opened.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+            Plugins.yieldToWindow(win.screen);
+            Compositor.activateWindow(win);
+        });
     }
 
     // Implicit sizes flow from children to their host; actual sizes flow

@@ -84,20 +84,11 @@ FocusScope {
         KeyNavLogic.focusInitial(target, slot.Window.window);
     }
 
-    // Open the manager's window at the Settings page of `settingsPage`,
-    // then hide this summon. The window opens first: the hide destroys
-    // this slot. A refused window, such as one a restart is owed for,
-    // leaves the summon open, so the click does not just close it.
+    // The shared window host dismisses panels only after the open succeeds.
     function openSettingsPage() {
-        const kind = slot.kind;
         const id = slot.pluginId;
         const shown = Plugins.openSettingsPage(settingsPage);
-        if (shown !== "ok") {
-            console.warn("plugin slot: settings page of " + id + " " + shown);
-            return;
-        }
-        const hidden = Plugins.route("hide", kind, id, "", null);
-        if (hidden !== "ok") console.warn("plugin slot: hide of " + id + " for its settings page " + hidden);
+        if (shown !== "ok") console.warn("plugin slot: settings page of " + id + " " + shown);
     }
 
     function unload() {

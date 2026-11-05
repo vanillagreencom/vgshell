@@ -102,6 +102,17 @@ Scope {
         return "ok";
     }
 
+    // A popup's keyboard grab is seat-wide, including when its action
+    // opens an existing window on another output. Yield every anchored
+    // panel/menu, plus layers on the target output, through normal hide.
+    // Hyprland v0.57.0 CFocusState::rawSurfaceFocus rejects a surface
+    // outside m_seatGrab (src/desktop/state/FocusState.cpp).
+    function yieldToWindow(screen) {
+        for (const id of openIds.slice()) {
+            if (requests[id].anchored || requests[id].screen === screen) hide(id);
+        }
+    }
+
     // Call one instance's open(); "" when it returned, else the error, logged.
     function callOpen(id, instance, payloadJson) {
         try {

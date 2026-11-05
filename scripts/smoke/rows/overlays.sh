@@ -57,6 +57,53 @@ ov_key="$(bar_key)"
 expect_poll "the overlay widget is built in the bar" True record_exists acme.overlays
 ovw() { ipc smoke invokeInstance "$ov_key" acme.overlays "$1" ''; }
 ovr() { ipc smoke readInstance "$ov_key" acme.overlays "$1"; }
+ov_popup_lifetime_idle() {
+  ipc smoke windowActivationState | py_reply 'import json,sys
+d=json.load(sys.stdin)
+print("idle" if not d["activationWindowPresent"] and not d["activationWaiting"] and d["grabs"]==0 else json.dumps(d,sort_keys=True))'
+}
+ov_popup_lifetime_ready() {
+  ipc smoke popupYieldDestroyState | py_reply 'import json,sys
+d=json.load(sys.stdin)
+ready=(not d["armed"] and d["triggerCount"]==1 and d["visibleAtTrigger"]
+       and d["backingVisibleAtTrigger"] and d["disableReply"]=="ok"
+       and d["destroyedCount"]==1 and d["barrierComplete"])
+print("ready" if ready else json.dumps(d,sort_keys=True))'
+}
+ov_popup_lifetime_nulls() {
+  python3 - "$instance_log" "$1" <<'PY_POPUP_NULLS'
+import pathlib, re, sys
+with pathlib.Path(sys.argv[1]).open("rb") as log:
+    log.seek(int(sys.argv[2]))
+    text = log.read().decode(errors="replace")
+print(sum(bool(re.search(r"SummonHost\.qml.*TypeError: Cannot read property 'visible' of null.*delayed function evaluation", line)) for line in text.splitlines()))
+PY_POPUP_NULLS
+}
+ov_popup_lifetime() {
+  local log_start null_reads before="$failures"
+  log_start="$(stat -c %s -- "$instance_log")" || return 1
+  ipc smoke windowActivationState >"$smoke_log_dir/popup-lifetime-initial-activation.json" || return 1
+  expect "the lifetime case starts without a pending window or popup" idle ov_popup_lifetime_idle
+  (( failures == before )) || return 0
+  expect "the lifetime fixture summons its real anchored panel" ok ovw summonHere
+  expect_poll "the lifetime panel opens" 1 ipc smoke readInstance panel acme.overlays opened
+  expect_poll "the lifetime panel presents its native popup" drawn ipc smoke windowDrawn panel acme.overlays
+  (( failures == before )) || return 0
+  expect "the lifetime probe arms against the visible popup" armed ipc smoke popupYieldDestroyArm panel acme.overlays
+  (( failures == before )) || return 0
+  expect "a real window summon starts the lifetime yield" ok ipc shell summon window acme.overlays '{}'
+  expect_poll "yield disables the fixture while its popup is visible and drains destruction" ready ov_popup_lifetime_ready
+  ipc smoke popupYieldDestroyState >"$smoke_log_dir/popup-lifetime-state.json" || return 1
+  expect_poll "the destroyed lifetime panel leaves no instance" absent ipc smoke readInstance panel acme.overlays opened
+  expect_poll "yield destruction removes the disabled fixture's build records" False record_exists acme.overlays
+  null_reads="$(ov_popup_lifetime_nulls "$log_start")" || return 1
+  printf '%s\n' "$null_reads" >"$smoke_log_dir/popup-lifetime-null-read-count"
+  printf 'popup-lifetime: delayed-null-reads=%s\n' "$null_reads"
+  expect "destruction queues no delayed read of a dead popup" 0 printf '%s\n' "$null_reads"
+  expect "the lifetime probe releases its observation" ended ipc smoke popupYieldDestroyEnd
+  expect "the overlay fixture returns after the lifetime case" ok ipc shell setPluginEnabled acme.overlays true
+  expect_poll "the overlay widget returns after the lifetime case" false ovr popoverOpen
+}
 tooltip_resting() { ipc smoke readDescendant "$ov_key" acme.overlays Tooltip resting; }
 rect() { python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$1"; }
 centre_of() { python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$1"; }
@@ -91,6 +138,7 @@ bar_h="$(ovr barSize)"
 popover_gap="$(ipc smoke themeValue popover.gap)" || { fail "Theme.popover.gap is readable for the popover placement"; exit 1; }
 popover_fixture_width=160 # acme.overlays/Widget.qml sets Popover.width.
 click_centre "$ov_key" acme.overlays || fail "the click on the overlay widget failed"
+ov_popup_lifetime
 
 # A popover leaves the bar, takes focus and keys, and closes on Escape and
 # on a press outside. Its top-left sits at the anchor's bottom-left, the

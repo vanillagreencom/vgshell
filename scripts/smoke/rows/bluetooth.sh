@@ -59,7 +59,7 @@
 # Its displayed name must change without moving the selected row or scroll.
 # Each rule has its own disposable production mutation. Cadence is a view
 # contract, not a machine latency budget. State polling uses expect_poll.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Ui/overlay/Menu.qml shell/Ui/overlay/DismissScope.qml shell/Ui/layout/DeviceRow.qml
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Ui/overlay/Menu.qml shell/Ui/overlay/DismissScope.qml shell/Ui/layout/DeviceRow.qml
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -499,6 +499,285 @@ bt_confirm_prompt='[bluetoothctl]> \r\u001b[KRequest confirmation\n[bluetoothctl
 bt_pin_prompt='[bluetoothctl]> \r\u001b[KRequest PIN code\n[bluetoothctl]> \r\u001b[1;39m\u001b[1;39m[agent] Enter PIN code: \u001b[0m\u001b[0m'
 bt_display_prompt='[bluetoothctl]> \r\u001b[K\u001b[0;91m[agent]\u001b[0m Passkey: \u001b[1;30m\u001b[1;37m246810\n\u001b[0m\u001b[0;94m[bluetoothctl]> \u001b[0m'
 
+# The real widget's shared gear must release its animated native popup
+# before the shared activation dispatch, then deliver Escape to Settings.
+# WAYLAND_DEBUG records the native role destruction and keyboard enter.
+# Wayland 1.26's wl_closure_print uses CLOCK_REALTIME in UTC time-of-day:
+# https://github.com/wayland-mirror/wayland/blob/1.26.0/src/connection.c
+# The transparent hyprctl observer uses that clock and execs unchanged argv.
+# State polls use the harness interval, not a latency budget.
+bt_popup_state() { ipc smoke summonWindowState panel vgs.bluetooth; }
+bt_popup_field() { bt_popup_state | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1], "absent")))' "$1"; }
+bt_popup_page() { ipc smoke readInstance window vgs.settings page; }
+bt_popup_cursor() { hypr -j cursorpos; }
+bt_popup_no_warps() { hypr -j getoption cursor:no_warps | py_reply 'import json,sys; print(json.dumps({k:v for k,v in json.load(sys.stdin).items() if k not in ("option","set")},sort_keys=True))'; }
+bt_popup_released() { ipc smoke windowActivationState | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["grabs"] == 0 and not d["activationWaiting"])'; }
+bt_popup_pending() {
+  ipc smoke windowActivationState | py_reply 'import json,sys
+d=json.load(sys.stdin); print("popup-pending "+json.dumps(d,sort_keys=True),file=sys.stderr)
+print(d["activationWindow"]==sys.argv[1] and d["activationWindowPresent"] and d["activationWaiting"] and d["grabs"]>0)' "$1"
+}
+bt_popup_trace() { # CASE START_BYTE TARGET_TITLE EXPECT_ACTIVATION
+  python3 - "$shell_log" "$1" "$2" "$3" "$4" "$smoke_log_dir" "$sandbox/bt-popup-dispatch.jsonl" "$bt_popup_dispatch_start" <<'PY'
+import json, pathlib, re, sys
+path, case, start, title, mode, output, dispatch_file, dispatch_start = sys.argv[1:]
+raw = pathlib.Path(path).read_bytes()
+lines = raw.decode(errors="replace").splitlines()
+start_line = len(raw[:int(start)].decode(errors="replace").splitlines())
+surfaces, toplevels, titles, popups, grabbed = {}, {}, {}, {}, set()
+destroyed, unmap_times, enters, keys, target_destroys = [], [], [], [], []
+dispatches = [json.loads(s) for s in pathlib.Path(dispatch_file).read_text().splitlines()[int(dispatch_start):]]
+kept = []
+for n, line in enumerate(lines):
+    match = re.search(r'get_xdg_surface\(new id xdg_surface[@#](\d+), wl_surface[@#](\d+)\)', line)
+    if match:
+        surfaces[match[1]] = match[2]
+    match = re.search(r'xdg_surface[@#](\d+)\.get_toplevel\(new id xdg_toplevel[@#](\d+)\)', line)
+    if match:
+        toplevels[match[2]] = surfaces.get(match[1])
+    match = re.search(r'xdg_toplevel[@#](\d+)\.set_title\("(.*)"\)', line)
+    if match:
+        titles[toplevels.get(match[1])] = match[2]
+    match = re.search(r'xdg_surface[@#](\d+)\.get_popup\(new id xdg_popup[@#](\d+)', line)
+    if match:
+        popups[match[2]] = surfaces.get(match[1])
+    match = re.search(r'xdg_popup[@#](\d+)\.grab\(', line)
+    if match:
+        grabbed.add(match[1])
+    if n < start_line:
+        continue
+    match = re.search(r'xdg_toplevel[@#](\d+)\.destroy\(\)', line)
+    if match and titles.get(toplevels.get(match[1])) == title:
+        target_destroys.append(n)
+    if any(word in line for word in ("xdg_popup", "wl_keyboard")):
+        kept.append(f"{n + 1}: {line}")
+    match = re.search(r'xdg_popup[@#](\d+)\.destroy\(\)', line)
+    if match and match[1] in popups and match[1] in grabbed:
+        destroyed.append(n)
+        stamp = re.search(r'\[(\d\d):(\d\d):(\d\d)\.(\d{6})\]', line)
+        if stamp:
+            h, m, s, us = map(int, stamp.groups())
+            unmap_times.append(((h * 60 + m) * 60 + s) * 1000000 + us)
+    match = re.search(r'wl_keyboard[@#]\d+\.enter\(\d+, wl_surface[@#](\d+),', line)
+    if match:
+        enters.append((n, titles.get(match[1], "non-target"), match[1]))
+    if re.search(r'wl_keyboard[@#]\d+\.key\(\d+, \d+, \d+, 1\)', line):
+        keys.append(n)
+target_enters = [n for n, actual, _ in enters if actual == title]
+problems = []
+if len(destroyed) != 1:
+    problems.append("popup-destroy-count=" + str(len(destroyed)))
+if case == "far" and target_destroys:
+    problems.append("existing-target-remapped")
+if mode == "activate":
+    if len(dispatches) != 1:
+        problems.append("activation-dispatch-count=" + str(len(dispatches)))
+    if len(unmap_times) != 1:
+        problems.append("native-unmap-clock-unreadable")
+    elif dispatches and not 0 < (dispatches[0]["wallUs"] % 86400000000 - unmap_times[0]) % 86400000000 < 43200000000:
+        problems.append("activation-before-native-unmap")
+    if not target_enters or not destroyed or not any(n > destroyed[0] for n in target_enters):
+        problems.append("no-post-unmap-native-target-enter")
+    if not keys or not target_enters or not any(n > target_enters[-1] for n in keys):
+        problems.append("no-native-key-after-target-enter")
+else:
+    if dispatches:
+        problems.append("cancelled-target-dispatched")
+receipt = dict(case=case, title=title, startByte=int(start), nativeUnmap=destroyed,
+               nativeUnmapUtcDayUs=unmap_times, activationDispatch=dispatches, keyboardEnters=enters, nativeKeyPresses=keys,
+               targetNativeDestructions=target_destroys,
+               problems=problems, verdict="fail" if problems else "pass")
+out = pathlib.Path(output)
+(out / ("popup-" + case + ".native.log")).write_text("\n".join(kept) + "\n")
+(out / ("popup-" + case + ".json")).write_text(json.dumps(receipt, indent=2) + "\n")
+print(json.dumps(receipt, sort_keys=True))
+sys.exit(bool(problems))
+PY
+}
+bt_popup_gear() {
+  local x y box clients
+  box="$(ipc smoke labelledGeometry panel vgs.bluetooth IconButton Settings)" || return 1
+  read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(round(b[0]+b[2]/2),round(b[1]+b[3]/2))' <<<"$box") || return 1
+  [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 1
+  clients="$(hypr -j clients)" || return 1
+  expect "popup: the independent client lies beneath the gear pointer" True py_reply 'import json,sys
+cs=[c for c in json.load(sys.stdin) if c["pid"]==int(sys.argv[1]) and c["mapped"]]
+x,y=map(int,sys.argv[2:])
+print(len(cs)==1 and cs[0]["at"][0]<=x<cs[0]["at"][0]+cs[0]["size"][0] and cs[0]["at"][1]<=y<cs[0]["at"][1]+cs[0]["size"][1])' "$other_pid" "$x" "$y" <<<"$clients" || return 1
+  click "$x" "$y"
+}
+bt_popup_open() {
+  click_centre "bar:$screen_name" vgs.bluetooth || return 1
+  expect_poll "popup: the actual Bluetooth widget maps its popup" true bt_popup_field backingWindowVisible || return 1
+  expect_poll "popup: the flyout finishes opening with motion enabled" 1 bt_popup_field motionProgress
+}
+bt_popup_case() { # CASE new|existing|far|latest|hide|destroy
+  local name="$1" kind="$2" start pointer pointer_after no_warps no_warps_after address effect=0 trace=0 before="$failures"
+  expect "popup $name: close any old target" ok ipc shell hide window vgs.settings || return 1
+  expect_poll "popup $name: old Settings is destroyed" 0 window_count Plugins || return 1
+  if [[ $kind != new ]]; then
+    expect "popup $name: map Settings before the opener" ok ipc shell summon window vgs.settings '{"plugin":"vgs.bluetooth"}' || return 1
+    expect_poll "popup $name: existing Settings maps" 1 window_count Plugins || return 1
+    expect_poll "popup $name: existing activation finishes" True bt_popup_released || return 1
+    if [[ $kind == far ]]; then
+      address="$(window_address Plugins)" || return 1
+      expect "popup $name: move existing Settings to B" ok hypr dispatch "hl.dsp.window.move({ monitor = \"SMOKE-BT-POPUP\", window = \"address:$address\", follow = false })" || return 1
+      expect_poll "popup $name: Settings is on output B" '"SMOKE-BT-POPUP"' bt_popup_monitor || return 1
+    fi
+  fi
+  expect "popup $name: focus output A before opening" ok hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })" || return 1
+  bt_popup_open || return 1
+  start="$(stat -c %s -- "$shell_log")" || return 1
+  bt_popup_dispatch_start="$(wc -l <"$sandbox/bt-popup-dispatch.jsonl")" || return 1
+  no_warps="$(bt_popup_no_warps)" || return 1
+  bt_popup_gear || return 1
+  pointer="$(bt_popup_cursor)" || return 1
+  expect_poll "popup $name: the gear selects the real Bluetooth Settings page" '"vgs.bluetooth"' bt_popup_page || return 1
+  expect "popup $name: close motion still owns the native grab" true bt_popup_field closing || return 1
+  if [[ $kind == latest || $kind == hide || $kind == destroy ]]; then
+    # Read the actual shared completion before replacing or destroying its
+    # target; no copied activation model keeps a fixture target alive.
+    expect "popup $name: the actual target waits for native release" True bt_popup_pending Plugins || return 1
+    case "$kind" in
+      latest)
+        expect "popup latest: replace the pending Settings target" ok ipc shell summon window vgs.system '{}' || return 1
+        expect_poll "popup latest: only the replacement owns the actual wait" True bt_popup_pending "System Settings" || return 1 ;;
+      hide|destroy)
+        # Host hide destroys this summoned AppWindow. The observer separately
+        # proves Qt cleared the actual typed reference, not just its client.
+        expect "popup $name: destroy the pending target through its real host" ok ipc shell hide window vgs.settings || return 1
+        expect_poll "popup $name: the actual typed reference clears" false bt_popup_activation_target || return 1 ;;
+    esac
+  fi
+  expect_poll "popup $name: the animated source instance closes" absent ipc smoke readInstance panel vgs.bluetooth title || return 1
+  expect_poll "popup $name: shared release wait finishes" True bt_popup_released || return 1
+  pointer_after="$(bt_popup_cursor)" || return 1
+  no_warps_after="$(bt_popup_no_warps)" || return 1
+  expect "popup $name: the opener pointer has not moved" "$pointer" printf '%s' "$pointer_after" || return 1
+  expect "popup $name: the effective no_warps option is restored" "$no_warps" printf '%s' "$no_warps_after" || return 1
+  printf 'popup-preservation case=%s pointer-before=%s pointer-after=%s no-warps-before=%s no-warps-after=%s\n' "$name" "$pointer" "$pointer_after" "$no_warps" "$no_warps_after"
+  if [[ $kind == far ]]; then
+    expect "popup far: Settings keeps its original native address" "$address" window_address Plugins || return 1
+    expect "popup far: Settings remains on output B after the gear" '"SMOKE-BT-POPUP"' bt_popup_monitor || return 1
+  fi
+  case "$kind" in
+    latest)
+      expect_poll "popup latest: wait for target activation before typing" true window_keyboard vgs.system
+      type_keys popup-latest || return 1
+      expect_poll "popup latest: native typing changes the System search" '"popup-latest"' ipc smoke readDescendant window vgs.system Sidebar query || effect=$?
+      bt_popup_trace "$name" "$start" "System Settings" activate || trace=$?
+      expect "popup latest: close System" ok ipc shell hide window vgs.system || return 1
+      [[ $effect == 0 && $trace == 0 ]] || return 1 ;;
+    hide|destroy)
+      bt_popup_trace "$name" "$start" Plugins cancel || return 1 ;;
+    *)
+      # Escape pops this actual Settings page to the plugin list. Neither
+      # activewindow identity nor a Qt focus property can cause that effect.
+      expect_poll "popup $name: wait for target activation before typing" true window_keyboard vgs.settings
+      type_keys -k Escape || return 1
+      expect_poll "popup $name: native Escape returns Settings to its list" '""' bt_popup_page || effect=$?
+      bt_popup_trace "$name" "$start" Plugins activate || trace=$?
+      [[ $effect == 0 && $trace == 0 ]] || return 1 ;;
+  esac
+  [[ $failures == "$before" ]]
+}
+bt_popup_monitor() {
+  hypr --batch 'j/clients;j/monitors' | py_reply 'import json,sys
+s=sys.stdin.read(); d=json.JSONDecoder(); cs,n=d.raw_decode(s); ms=json.loads(s[n:])
+c=next(c for c in cs if c["title"]=="Plugins" and c["mapped"])
+print(json.dumps(next(m["name"] for m in ms if m["id"]==c["monitor"])))'
+}
+bt_popup_activation_target() { ipc smoke windowActivationState | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["activationWindowPresent"]))'; }
+bt_popup_motion() {
+  local theme="$home/.config/vgshell/theme.json"
+  printf '%s\n' '{"schemaVersion":1,"name":"popup-native","tokens":{"motion":{"flyout":{"travel":{"duration":2000}}}}}' >"$theme.next"
+  mv -T -- "$theme.next" "$theme"
+  expect_poll "popup: normal motion remains enabled" 2000 ipc smoke themeValue motion.flyout.travel.duration
+}
+bt_popup_native() {
+  local before="$failures" theme="$home/.config/vgshell/theme.json" had_theme=false
+  cp -- "$home/.config/vgshell/shell.json" "$sandbox/bt-popup-config.json"
+  if [[ -f $theme ]]; then cp -- "$theme" "$sandbox/bt-popup-theme.json"; had_theme=true; fi
+  # Slow only the normal flyout animation so IPC can acknowledge a pending
+  # target before release. This is not a sleep or a copied activation model.
+  stop_shell
+  cp -- "$shim/hyprctl" "$sandbox/bt-popup-hyprctl"
+  : >"$sandbox/bt-popup-dispatch.jsonl"
+  python3 - "$shim/hyprctl" "$shim/hyprctl.real" "$sandbox/bt-popup-dispatch.jsonl" <<'PY'
+import pathlib, sys
+path, real, log = sys.argv[1:]
+pathlib.Path(path).write_text("""#!/usr/bin/python3
+import json, os, sys, time
+real = %r
+log = %r
+if any("alter_zorder" in a or "alterzorder top,address:" in a for a in sys.argv[1:]):
+    with open(log, "a") as out:
+        out.write(json.dumps(dict(wallUs=time.time_ns()//1000, argv=sys.argv[1:]))+"\\n")
+os.execv(real, [real]+sys.argv[1:])
+""" % (real, log))
+PY
+  chmod 755 "$shim/hyprctl"
+  start_shell "$repo" "$sandbox/bt-popup-native.log" bar WAYLAND_DEBUG=client || return 1
+  bt_popup_motion
+  expect "popup: System is enabled for latest-target replacement" ok ipc shell setPluginEnabled vgs.system true
+  open_other "$sandbox/bt-popup-other.log" || return 1
+  local underneath
+  underneath="$(other_address)" || return 1
+  expect "popup: float the independent client under the opener" ok hypr dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$underneath\" })"
+  expect "popup: size the independent client across output A" ok hypr dispatch "hl.dsp.window.resize({ x = $mon_w, y = $((mon_h - bar_reserved)), relative = false, window = \"address:$underneath\" })"
+  expect "popup: place the independent client below the bar" ok hypr dispatch "hl.dsp.window.move({ x = 0, y = $bar_reserved, relative = false, window = \"address:$underneath\" })"
+  # Placement is read before each action, not assumed from activewindow.
+  expect "popup: add output B" ok create_output SMOKE-BT-POPUP
+  expect_poll "popup: output B receives a bar" "$((monitors + 1))" bar_count
+  local scenario
+  for scenario in far new existing latest destroy; do
+    coordinate_observation "popup $scenario" bt_popup_case "$scenario" "$scenario"
+  done
+  # Keep the actual operation and native assertions. Only remove the new
+  # release condition; live-target, visibility and epoch guards remain.
+  copy_tree bt-popup-release
+  edit_tree bt-popup-release shell/Core/Compositor.qml \
+    ' && OverlayState.grabs === 0;' ';'
+  cp -- "$shell_log" "$smoke_log_dir/popup-positive.raw.log"
+  stop_shell
+  start_shell "$sandbox/tree-bt-popup-release" "$sandbox/bt-popup-release.log" bar WAYLAND_DEBUG=client || return 1
+  bt_popup_motion
+  local control_status=0
+  if (
+    failures=0 behaviour_failures=0
+    status=0
+    bt_popup_case release-control existing || status=$?
+    printf 'popup-control raw-exit=%s failures=%s\n' "$status" "$failures"
+    exit "$status"
+  ) >"$smoke_log_dir/popup-release-control.log" 2>&1; then
+    control_status=0
+  else
+    control_status=$?
+  fi
+  printf '%s\n' "$control_status" >"$smoke_log_dir/popup-release-control.exit"
+  cat -- "$smoke_log_dir/popup-release-control.log"
+  cp -- "$shell_log" "$smoke_log_dir/popup-control.raw.log"
+  cp -- "$sandbox/bt-popup-dispatch.jsonl" "$smoke_log_dir/popup-dispatch.raw.jsonl"
+  cp -- "$other_log" "$smoke_log_dir/popup-other.raw.log"
+  expect "popup control: the unguarded workload exits nonzero" 1 printf '%s' "$control_status"
+  expect "popup control: the exact native ordering assertion detects early activation" True \
+    py_reply 'import json,sys; print("activation-before-native-unmap" in json.load(sys.stdin)["problems"])' \
+    <"$smoke_log_dir/popup-release-control.json"
+  expect "popup: close Settings after native checks" ok ipc shell hide window vgs.settings
+  if create_output_remove SMOKE-BT-POPUP; then
+    ok "popup: remove output B"
+  else
+    fail "popup: remove output B"
+  fi
+  close_other "popup: the owned client below the opener exits"
+  stop_shell
+  cp -- "$sandbox/bt-popup-hyprctl" "$shim/hyprctl"
+  if [[ $had_theme == true ]]; then cp -- "$sandbox/bt-popup-theme.json" "$theme.next"; mv -T -- "$theme.next" "$theme"; else rm -f -- "$theme"; fi
+  user_config_restore "$sandbox/bt-popup-config.json" || return 1
+  start_shell "$repo" "$sandbox/bt-popup-restored.log" || return 1
+  [[ $failures == "$before" ]]
+}
+
 bt_main() {
   devices_ready bluetooth || return 0
   # The core probes the system steps once vgs.bluetooth holds `system`,
@@ -517,6 +796,10 @@ bt_main() {
   expect_poll "the Bluetooth service is built" True record_exists vgs.bluetooth
   expect_poll "the service reads rfkill unblocked and hci0 powered: on" on bt_view
   expect_poll "the widget shows on with the connected headphones" '"bluetooth-connected"' bt_widget_view icon
+  bt_popup_native || {
+    row_class=operation fail "bluetooth: native popup proof failed status=$?"
+    return 0
+  }
 
   # Off: the soft block is the state, and BlueZ follows it.
   local rfkill_before

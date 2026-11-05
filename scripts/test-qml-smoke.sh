@@ -7,6 +7,8 @@
 # --case resume runs that existing recovery case alone; --case cancellation
 # sends INT, TERM and HUP to the public PID in initial and resumed worlds.
 # --case producer checks the controller's recorded bare executable form.
+# --case popup-readiness checks the required native helper's failed return
+# through bt_main and its row cleanup, without a compositor or device.
 # --case completion checks acknowledged lifecycle boundaries without QML,
 # and that a unit's stop mid-row leaves the attempt's closing reading.
 # --case late-exit stops real initial and resumed worlds during EXIT.
@@ -25,7 +27,7 @@ end_run() {
 }
 if [[ ${1-} == --case && $# == 2 ]]; then
   selected_case=$2
-  case "$selected_case" in resume|cancellation|producer|completion|late-exit) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
+  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
 elif (($#)); then
   echo 'test-qml-smoke: refused: arguments' >&2
   exit 2
@@ -35,6 +37,78 @@ TMP_ROOT="$(mktemp -d)" || { echo 'test-qml-smoke: scratch=mktemp-failed' >&2; e
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo 'test-qml-smoke: scratch=not-a-directory' >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo 'test-qml-smoke: scratch=resolve-failed' >&2; exit 1; }
 trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
+if [[ $selected_case == popup-readiness || $selected_case == all ]]; then
+  # Keep the actual bt_main and row cleanup. The native prerequisite can
+  # return before any assertion calls fail (open_other's unmapped client).
+  python3 - "$repo" "$TMP_ROOT" "$BASH" <<'PY'
+import os, pathlib, re, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:3])
+bash = sys.argv[3]
+source = (repo / "scripts/smoke/rows/bluetooth.sh").read_text()
+anchor = '\nbt_was_system=""\n'
+assert source.count(anchor) == 1
+stubs = r'''
+devices_ready() { :; }
+devices_system_tree() { printf '%s\n' "$sandbox"; }
+device_reply() { :; }
+bluez() { :; }
+bluez_follow() { [[ $1 != off ]] || cleaned_follow=true; }
+plugin_enabled() { echo True; }
+bt_powered_sets() { echo 0; }
+expect() { :; }
+expect_poll() { :; }
+bt_popup_native() { readiness_failed=true; return 1; }
+bt_count() { : >"$sandbox/dependent"; echo 0; }
+device_reply_clear() { cleaned_reply=true; }
+check_unexpected_log() { cleaned_log=true; }
+'''
+source = source.replace(anchor, '\n' + stubs + anchor)
+fixture = r'''set -euo pipefail
+sandbox="$1" repo="$2"
+devices_dir="$sandbox" instance_log="$sandbox/instance.log"
+readiness_failed=false
+cleaned_follow=false cleaned_reply=false cleaned_log=false
+touch "$instance_log" "$sandbox/bt-display-seen" "$sandbox/bt-pin-typed"
+source "$repo/scripts/smoke/verdict.sh"
+row_class=geometry
+source "$sandbox/bluetooth.sh"
+[[ $readiness_failed == true && ! -e $sandbox/dependent ]]
+[[ $cleaned_follow == true && $cleaned_reply == true && $cleaned_log == true ]]
+[[ ! -e $sandbox/bt-display-seen && ! -e $sandbox/bt-pin-typed ]]
+printf 'readiness-failed=%s cleanup=complete failures=%s behaviour=%s\n' "$readiness_failed" "$failures" "$behaviour_failures"
+smoke_verdict "$failures" "$behaviour_failures" /dev/null
+'''
+env = {key: os.environ[key] for key in ("PATH", "TMPDIR", "VGSHELL_WORLD_ROOT")}
+env.update(LC_ALL="C.UTF-8", VGS_TEST_RUN="1")
+def run(name, text):
+    folder = root / name
+    folder.mkdir()
+    (folder / "bluetooth.sh").write_text(text)
+    return subprocess.run([bash, "-c", fixture, "_", str(folder), str(repo)],
+                          env=env, capture_output=True, text=True, timeout=10)
+def check(result):
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "readiness-failed=true cleanup=complete failures=1 behaviour=1\n" in result.stdout, result.stdout
+    assert re.findall(r"status=([0-9]+)", result.stdout) == ["1"], result.stdout
+result = run("popup-readiness", source)
+check(result)
+print("test-qml-smoke: case=popup-readiness row_exit=1 cause_status=1 cleanup=complete failures=1 behaviour=1")
+needle = 'row_class=operation fail "bluetooth: native popup proof failed status=$?"'
+assert source.count(needle) == 1
+mutant = source.replace(needle, ":")
+assert mutant != source
+control = run("popup-readiness-control", mutant)
+assert control.returncode == 0, (control.returncode, control.stdout, control.stderr)
+assert "readiness-failed=true cleanup=complete failures=0 behaviour=0\n" in control.stdout, control.stdout
+try:
+    check(control)
+except AssertionError:
+    print("test-qml-smoke: case=popup-readiness control_exit=0 cleanup=complete failures=0 behaviour=0 control=rejected")
+else:
+    raise AssertionError("failed readiness left the row green")
+PY
+  [[ $selected_case != popup-readiness ]] || end_run
+fi
 mkdir -- "$TMP_ROOT/tree"
 source "$repo/scripts/smoke/tree.sh"
 tree_harness_copy "$repo" "$TMP_ROOT/tree" "$repo"

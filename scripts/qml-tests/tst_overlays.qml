@@ -275,26 +275,46 @@ Item {
         function test_native_activation_judges_the_client_and_both_dispatcher_dialects() {
             const clients = [{ mapped: true, pid: 42, title: "Window", address: "0xab" },
                 { mapped: true, pid: 99, title: "Window", address: "0xcd" }];
-            const state = JSON.stringify(clients) + "\n\n\n" + JSON.stringify({ x: 10, y: 923 });
+            const state = JSON.stringify(clients) + "\n\n\n" + JSON.stringify({ int: 0 });
             const lua = Dispatch.activationRequest(state, 42, "Window", true);
             verify(lua.ok);
             compare(lua.argv[0], "hyprctl");
             verify(lua.argv[2].includes("address:0xab"));
             verify(!lua.argv[2].includes("address:0xcd"));
-            verify(lua.argv[2].includes("hl.get_cursor_pos()"));
-            const classic = Dispatch.activationRequest(state, 42, "Window", false);
-            verify(classic.ok);
-            compare(classic.argv, ["hyprctl", "--batch", "dispatch focuswindow address:0xab ; dispatch movecursor 10 923"]);
+            verify(!lua.argv[2].includes("hl.dsp.cursor.move"));
+            verify(lua.argv[2].includes('local noWarps = hl.get_config("cursor.no_warps")'));
+            verify(lua.argv[2].includes('hl.config({ ["cursor.no_warps"] = true })'));
+            verify(lua.argv[2].includes('hl.config({ ["cursor.no_warps"] = noWarps })'));
+            verify(lua.argv[2].includes('hl.dsp.window.alter_zorder({ mode = "top", window = "address:0xab" })'));
+            verify(lua.argv[2].indexOf("hl.dsp.window.alter_zorder") < lua.argv[2].indexOf("hl.dsp.focus"));
+            verify(lua.argv[2].indexOf('["cursor.no_warps"] = true') < lua.argv[2].indexOf("hl.dsp.focus"));
+            verify(lua.argv[2].indexOf('["cursor.no_warps"] = noWarps') > lua.argv[2].indexOf("hl.dsp.focus"));
+            verify(lua.argv[2].includes("if not raised.ok then return raised end"));
+            for (const noWarps of [0, 1]) {
+                const classicState = JSON.stringify(clients) + "\n\n\n" + JSON.stringify({ int: noWarps });
+                const classic = Dispatch.activationRequest(classicState, 42, "Window", false);
+                verify(classic.ok);
+                compare(classic.argv, ["hyprctl", "--batch", "dispatch alterzorder top,address:0xab ; keyword cursor:no_warps 1 ; dispatch focuswindow address:0xab ; keyword cursor:no_warps " + noWarps]);
+            }
             verify(!Dispatch.activationRequest(state, 41, "Window", true).ok);
             verify(!Dispatch.activationRequest(state, 42, "Other", true).ok);
+            compare(Dispatch.activationRequest("[]\n\n\n{}", 42, "Window", true).pending, true);
             verify(!Dispatch.activationRequest("unread", 42, "Window", true).ok);
             const duplicate = JSON.stringify([clients[0], clients[0]]) + "\n\n\n{}";
             verify(!Dispatch.activationRequest(duplicate, 42, "Window", true).ok);
-            const badCursor = JSON.stringify(clients) + '\n\n\n{"x":"bad","y":923}';
-            verify(!Dispatch.activationRequest(badCursor, 42, "Window", false).ok);
+            verify(Dispatch.activationRequest(duplicate, 42, "Window", true).pending !== true);
+            for (const option of [{}, { int: "0" }, { int: null }, { int: 2 }]) {
+                const unreadOption = JSON.stringify(clients) + "\n\n\n" + JSON.stringify(option);
+                verify(!Dispatch.activationRequest(unreadOption, 42, "Window", false).ok);
+            }
             compare(Dispatch.activationAnswer("ok", true), "ok");
-            compare(Dispatch.activationAnswer("ok\n\n\nok", false), "ok");
-            verify(Dispatch.activationAnswer("ok\n\n\nrefused", false) !== "ok");
+            compare(Dispatch.activationAnswer("ok\n\n\nok\n\n\nok\n\n\nok", false), "ok");
+            for (let failed = 0; failed < 4; failed++) {
+                const parts = ["ok", "ok", "ok", "ok"];
+                parts[failed] = "refused";
+                verify(Dispatch.activationAnswer(parts.join("\n\n\n"), false) !== "ok");
+            }
+            verify(Dispatch.activationAnswer("ok\n\n\nok\n\n\nok", false) !== "ok");
             verify(Dispatch.activationAnswer("exit=1", true) !== "ok");
         }
 

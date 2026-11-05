@@ -376,8 +376,8 @@ stop_shell || :
 # shell lives on. Once the shell lists the first output alone, it has run
 # the screen change: Quickshell updates `screens` and emits its change in
 # the one call (quickshell 2b4501a src/core/qmlglobal.cpp updateScreens),
-# so a tree that drops the chain's cancel on a screen change reads the
-# still unanswered there and fails.
+# so a tree that removes both screen-gone answers reads the still
+# unanswered there and fails.
 freeze_shell_screens() { ipc smoke perScreenLayers | py_reply 'import json,sys; print(json.dumps(sorted({r["screen"] for r in json.load(sys.stdin)})))'; }
 # freeze_leave_chain: `on-turned` while the still is written and its last
 # written band is the turned output's, else the state.
@@ -413,12 +413,16 @@ expect "the leave tree's fixture disables" ok ipc shell setPluginEnabled acme.fr
 stop_shell || :
 expect "the nested compositor adds the turned output again" ok hypr output create wayland "$freeze_turned"
 expect_poll "the turned output stands at transform 1 right of the first again" "1920x1080@$freeze_first_w,0 transform=1" freeze_turned_taken
-# The control: no cancel on a screen change, so the chain waits on a grab
-# whose callback went with the leaving surface.
+# The control removes both screen-gone producers: screen-list cancellation
+# and a surviving callback's next grab finding no surface. Either callback
+# lifetime then leaves the chain unanswered.
 copy_tree screen-freeze-uncancelled
 edit_tree screen-freeze-uncancelled shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 20000;'
 edit_tree screen-freeze-uncancelled shell/Hosts/FreezeHost.qml \
   '                if (run.screens.some(screen => names.indexOf(screen.name) < 0)) host.stillFailed(run, "screen-gone");' \
+  ''
+edit_tree screen-freeze-uncancelled shell/Hosts/FreezeHost.qml \
+  '            stillFailed(run, "screen-gone");' \
   ''
 freeze_leave uncancelled
 expect "control: a chain not cancelled on a screen change leaves the still unanswered" '[]' freeze_stills_json
