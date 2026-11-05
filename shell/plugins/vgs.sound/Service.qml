@@ -13,6 +13,7 @@ import "SoundLogic.js" as Logic
 // plugin's own IPC, for what it owns:
 //   shortcut vgs.sound:volume-up, volume-down  a step of `volumeStep`
 //   shortcut vgs.sound:mute, mic-mute          output and input mute
+//   shortcut vgs.sound:mic-mute-alt           the same input mute
 //   vgshell ipc call vgs.sound invoke step up|down     the same step; answers
 //                                                   the new percentage
 //   vgshell ipc call vgs.sound invoke mute ''          answers muted|unmuted
@@ -66,6 +67,7 @@ Item {
         shell.shortcut.register("volume-down", "Lower the volume", () => root.stepVolume(-1));
         shell.shortcut.register("mute", "Mute the output", () => root.toggleMute());
         shell.shortcut.register("mic-mute", "Mute the microphone", () => root.toggleInputMute());
+        shell.shortcut.register("mic-mute-alt", "Mute the microphone", () => root.toggleInputMute());
         shell.ipc.handle("step", arg => {
             if (arg !== "up" && arg !== "down") return "refused: step=" + arg + " want=up|down";
             return root.stepVolume(arg === "up" ? 1 : -1);

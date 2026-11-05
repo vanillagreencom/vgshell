@@ -32,7 +32,8 @@
       { "shortcut": "volume-up", "key": "XF86AudioRaiseVolume", "info": "Raises the speaker volume by one step." },
       { "shortcut": "volume-down", "key": "XF86AudioLowerVolume", "info": "Lowers the speaker volume by one step." },
       { "shortcut": "mute", "key": "XF86AudioMute", "info": "Mutes the speakers, or turns the sound on again." },
-      { "shortcut": "mic-mute", "key": "XF86AudioMicMute", "info": "Mutes the microphone, or turns it on again." }
+      { "shortcut": "mic-mute", "key": "XF86AudioMicMute", "info": "System microphone mute silences every application, not only Jarvis." },
+      { "shortcut": "mic-mute-alt", "key": "SUPER+M", "info": "System microphone mute silences every application, not only Jarvis." }
     ]
   },
   "status": {

@@ -27,6 +27,9 @@
 # - the volume keys stepping by 5%, then by 10% once the setting says so,
 #   a level above 100% kept by a step up and stepped down from, and the
 #   display on the focused output alone of two, gone after `osd.duration`;
+# - XF86AudioMicMute and SUPER+M each muting and unmuting the same default
+#   source, with a service copy that misroutes SUPER+M to output mute
+#   failing that same microphone check;
 # - the Settings Keys row offering Use my binding for XF86AudioMicMute,
 #   which a user bind holds, and its click unbinding the shortcut so the
 #   user's bind takes the key;
@@ -243,6 +246,14 @@ snd_key_step() {
   expect_poll "$1" "$4" snd_volume "$3"
   expect_poll "$1: the display reads the level" "[\"$4%\"]" snd_osd_text
 }
+snd_mic_toggle() { # LABEL TYPE_KEYS_ARGS...
+  local label="$1"
+  shift
+  type_keys "$@" || fail "$label failed"
+  expect_poll "$label mutes the default microphone" true snd_muted vgs-smoke-microphone
+  type_keys "$@" || fail "the second $label failed"
+  expect_poll "a second $label unmutes the default microphone" false snd_muted vgs-smoke-microphone
+}
 # The answer pactl's stand-in gives `--format=json list sink-inputs`.
 snd_inputs='[{"index":42,"sink":1,"properties":{"application.name":"Smoke Player","node.name":"smoke-player"}},{"index":43,"sink":1,"properties":{"application.name":"EasyEffects","node.name":"ee_soe_output_level"}},{"index":44,"sink":1,"properties":{"application.name":"pipewire","node.name":"vgs-smoke-equalizer.output","node.link-group":"filter-chain-smoke"}},{"index":45,"sink":1,"properties":{"node.name":"alsa_playback.speaker-test"}}]'
 snd_list='[["--format=json", "list", "sink-inputs"]'
@@ -438,8 +449,8 @@ expect_poll "disable leaves no live subscriber" absent snd_subscriber
 expect "Sound starts again after lifetime check" ok ipc shell setPluginEnabled vgs.sound true
 expect_poll "enable starts a new owned subscriber" alive snd_subscriber_alive
 expect_poll "the Sound widget is placed in the bar" True snd_placed
-snd_all_binds='[["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMICMUTE", "vgs.sound:mic-mute"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]'
-expect_poll "the Hyprland layer binds the four audio keys to the Sound shortcuts" "$snd_all_binds" snd_binds
+snd_all_binds='[["M", "vgs.sound:mic-mute-alt"], ["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMICMUTE", "vgs.sound:mic-mute"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]'
+expect_poll "the Hyprland layer binds the audio keys and Super+M to the Sound shortcuts" "$snd_all_binds" snd_binds
 expect_poll "with pactl on PATH the service says playing apps move" '{"text": "Apps that play now move to the output you choose.", "tone": "ok"}' snd_status
 speakers="$(snd_volume vgs-smoke-speakers)"
 expect_poll "the widget reads the speakers' level from PipeWire" "\"Smoke Speakers: ${speakers}%\"" snd_widget tooltip
@@ -486,6 +497,10 @@ hypr_lua_save sound
 } >>"$home/.config/hypr/hyprland.lua"
 snd_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("XF86AudioMicMute"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 expect "the nested instance reloads with the Sound row's binds without configuration errors" '[]' hypr_reload_errors
+expect_poll "both microphone keys start with the same default source" '"vgs-smoke-microphone"' snd_audio '["defaults"]["source"]'
+expect_poll "the default microphone starts unmuted" false snd_muted vgs-smoke-microphone
+snd_mic_toggle XF86AudioMicMute -k XF86AudioMicMute
+snd_mic_toggle SUPER+M -M logo -k m -m logo
 
 # The keyboard alone: SUPER+COMMA, Enter into the section, Down on the
 # output's Select, then Tab through every control, Space on each button
@@ -579,7 +594,7 @@ expect "only the key a user bind holds offers Use my binding" 1 snd_use_mine
 settings_press --type RowAction "Use my binding" || fail "the click on Use my binding failed"
 expect_poll "Use my binding unbinds the microphone mute shortcut" null snd_key mic-mute
 expect_poll "the Hyprland layer no longer binds XF86AudioMicMute" \
-  '[["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]' snd_binds
+  '[["M", "vgs.sound:mic-mute-alt"], ["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]' snd_binds
 rm -f -- "$sandbox/sound-user-mic"
 type_keys -k XF86AudioMicMute || fail "XF86AudioMicMute failed"
 expect_poll "the user's bind takes XF86AudioMicMute" 1 snd_marker "$sandbox/sound-user-mic"
@@ -646,6 +661,7 @@ snd_plugin_copy \
   Widget.qml 'return answered("mute", shell.ipc.call("mute", ""));' 'Quickshell.execDetached(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]); return "ok";' \
   Widget.qml 'import qs.Commons' $'import Quickshell\nimport qs.Commons' \
   Service.qml 'if (!lister.running) root.list();' '' \
+  Service.qml 'shell.shortcut.register("mic-mute-alt", "Mute the microphone", () => root.toggleInputMute());' 'shell.shortcut.register("mic-mute-alt", "Mute the microphone", () => root.toggleMute());' \
   Service.qml 'readonly property bool shown: root.osd !== null && screen !== null && screen.name === root.focusedOutput' 'readonly property bool shown: root.osd !== null && screen !== null' \
   Audio.qml 'readonly property string volumeSinkName: Logic.volumeTarget(sinkName, graph, links)' 'readonly property string volumeSinkName: sinkName' \
   Audio.qml 'audio.volume = Math.max(0, value);' 'audio.volume = Math.max(0, Math.min(1, value));' \
@@ -660,6 +676,9 @@ rescan "rescan picks the Sound copy"
 expect_poll "source reload ends its previous subscriber" gone snd_pid_alive "$snd_reload_pid"
 expect_poll "the copy's widget is placed" True snd_placed
 expect_log "the copy is the one built" 1 'plugins: hidden by a higher-precedence plugin with the same id: vgs.sound'
+snd_mic_control() { (failures=0 behaviour_failures=0; snd_mic_toggle SUPER+M -M logo -k m -m logo >"$sandbox/sound-mic-control.log"; echo "$failures"); }
+expect "control: Super+M routed to output mute fails the microphone check" 1 snd_mic_control
+sed 's/^/  CONTROL  /' "$sandbox/sound-mic-control.log"
 snd_page_open
 snd_page_control() { (failures=0 behaviour_failures=0; snd_page_check >"$sandbox/sound-page-control.log"; echo "$failures"); }
 expect "control: a Sound link with no page handler fails the page check" 1 snd_page_control
