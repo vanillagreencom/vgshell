@@ -1343,6 +1343,7 @@ mutations=(
   "a heading measures to its own box|layout/SectionHeader.qml| - Math.floor(Theme.inkBelow(placement.above)) - Math.floor(titleCapTop))| - Math.floor(Theme.inkBelow(placement.above)))|tst_section_spacing.qml"
   "a device list reads as its box|layout/DeviceList.qml|return column.bottomPadding + row.contentInkBelow();|return column.bottomPadding;|tst_section_spacing.qml"
   "a wrapping control reads as its box|../Commons/Theme.qml|        if (item.contentItem instanceof Item && item.contentItem !== item) {|        if (!(item instanceof Column) && !(item instanceof Row) && !(item instanceof Flow)) return 0; if (item.contentItem instanceof Item && item.contentItem !== item) {|tst_section_spacing.qml"
+  "a painted rectangle reads as its child's ink|../Commons/Theme.qml|if (item instanceof Rectangle) return 0;|if (false) return 0;|tst_section_spacing.qml"
   "a row with no box reads as its box below|layout/ListItem.qml|function inkBelow() { return drawsNoBox ? contentInkBelow() : 0; }|function inkBelow() { return 0; }|tst_section_spacing.qml"
   "a row with no box reads as its box above|layout/ListItem.qml|function inkAbove() { return drawsNoBox ? contentInkAbove() : 0; }|function inkAbove() { return 0; }|tst_grouplist.qml"
   "a row under a cursor reads as its text|layout/ListItem.qml|readonly property bool drawsNoBox: cursor === null && !highlighted|readonly property bool drawsNoBox: !highlighted|tst_layout.qml"

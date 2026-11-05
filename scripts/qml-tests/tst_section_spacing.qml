@@ -124,6 +124,21 @@ Item {
             }
         }
     }
+    Component {
+        id: paintedList
+        Rectangle {
+            color: Theme.color.text
+            implicitHeight: list.implicitHeight + 2 * Theme.stack.row
+            Column {
+                id: list
+                y: Theme.stack.row
+                width: parent.width
+                bottomPadding: Theme.stack.row
+                Label { text: "First task"; color: Theme.color.surface }
+                Label { text: "Last task"; color: Theme.color.surface }
+            }
+        }
+    }
 
     Component {
         id: pageComponent
@@ -600,7 +615,8 @@ Item {
         }
 
         function test_heading_space_after_a_wrapped_list_data() {
-            return [{ tag: "Control", wrapper: controlList }, { tag: "Item", wrapper: itemList }, { tag: "Pane", wrapper: paneList }];
+            return [{ tag: "Control", wrapper: controlList }, { tag: "Item", wrapper: itemList },
+                { tag: "Pane", wrapper: paneList }, { tag: "painted box", wrapper: paintedList }];
         }
 
         function test_heading_space_after_a_wrapped_list(data) {

@@ -239,7 +239,8 @@ Singleton {
     // that overhangs it, such as a setup step's primary Button, and a Loader
     // where its item does. A control answers through its contentItem,
     // positioned within its padding (https://doc.qt.io/qt-6/qml-qtquick-controls-control.html),
-    // unless its background draws the box;
+    // unless its background draws the box. A Rectangle paints its own box,
+    // even with children (https://doc.qt.io/qt-6/qml-qtquick-rectangle.html);
     // other wrappers end at their lowest shown child's ink, and leaves
     // draw to their edge. A Column lays
     // out its shown, sized children in order
@@ -254,6 +255,7 @@ Singleton {
         if (item === null || item === undefined) return 0;
         if (typeof item.inkBelow === "function") return item.inkBelow();
         if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + inkBelow(item.item) : 0;
+        if (item instanceof Rectangle) return 0;
         if (item.background instanceof Item && item.background.visible) return 0;
         if (item.contentItem instanceof Item && item.contentItem !== item) {
             const content = item.contentItem;
