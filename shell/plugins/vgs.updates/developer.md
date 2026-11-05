@@ -1,156 +1,41 @@
 # Updates developer reference
 
+Read when changing checks, cached status or update actions. The [manifest](manifest.json) owns settings, entry points, status keys and TUIs. [Service.qml](Service.qml) owns the cached snapshot, check process, cadence and status publication.
+
 ## Sources
 
-The service runs this command with argv only:
+[bin/check](bin/check) holds the check lock and runs the package, VGS, plugin and theme probes in owned process groups. Its header defines the invocation and signal behavior. It writes the complete normalized snapshot atomically; a failure before publication leaves the last good file.
 
-```text
-bin/check --vgshell <absolute path to vgshell>
-```
+[NormalizeCheck.js](NormalizeCheck.js) builds the snapshot. [UpdatesLogic.js](UpdatesLogic.js) owns source validation, counts, notes and bounded shared status. A failed source keeps its own error and unknown count. Do not turn it into zero updates or hide it because another source succeeded.
 
-`bin/check` refuses when `--vgshell` is missing or is not an executable absolute path.
-
-The script holds this lock for the whole check:
-
-```text
-${XDG_RUNTIME_DIR}/vgshell/updates/check.lock
-```
-
-It starts these read-only commands concurrently, each in its own process group:
-
-- `vgshell pkg check --json`: system packages, AUR, Flatpak and mise tools.
-- `vgshell self status --json`: the VGS checkout, package, Nix install or curl install.
-- `vgshell plugin outdated --json`: installed plugin git checkouts.
-- `vgshell theme outdated --json`: installed theme git checkouts and catalog installs.
-
-TERM, INT or HUP to `bin/check` sends TERM to every probe's process group and waits for each probe to exit. A probe starts with SIGINT ignored, as every background job of a shell without job control does, so TERM is the signal each probe acts on. A probe ends its own git fetch before it exits.
-
-It writes this file atomically:
-
-```text
-${XDG_STATE_HOME}/vgshell/updates/status.json
-```
-
-The status file has this shape:
-
-```json
-{ "checkedAt": 1790650695194, "sources": [], "error": null }
-```
-
-`checkedAt` is whole milliseconds since the Unix epoch.
-
-`sources` is a list of source rows. Each row is `{ source, label, count, packages, checkedAt, error, note }`. A failed source stays visible with `count: null` and its reason in `error`. `note` is null on every row but the VGS row, as [§ Counts](#counts) states.
-
-The check also reads `${XDG_STATE_HOME}/vgshell/updates/rebuild-failed.json`, the record a failed `vgshell-git` rebuild leaves ([pipeline.md](pipeline.md) step 12), when it is there.
-
-The shared status value bounds `packages` to twelve rows per source. A shared source row adds `more` with the number of package rows omitted. Package `name`, `old` and `new` text is cut to eighty characters in shared status. The full package list stays in `status.json`.
-
-`error` is null in every file `bin/check` writes: each probe's failure is its own source row. A check that fails before it writes leaves the last good file unchanged, and the service reports that failure in `checkState`. The service still reads a non-null `error` as a failed check.
-
-## Counts
-
-The badge counts every source, because it represents the whole system.
-
-Package-manager rows count packages.
-
-VGS counts as one update when `vgshell self status --json` reports `behind: true` with the step `self`, `rebuild` or `install-helper`. The `install-helper` step installs paru before rebuilding `vgshell-git`. Its row carries `{ kind: "installHelper" }`, so the action names both changes before the user opens the floating terminal.
-
-A tree that is behind with the step `none` counts none. Its row's `note` is `{ kind: "reason", reason }`, the status's reason. With nothing else waiting, `checkState`, the widget's tooltip and the window's heading read `New VGS version`. The release `vgshell` package with the reason `no-aur-helper` is published with `package-manager` while the `aurCommand` setting holds a word, because Update everything then runs that command for the AUR. The service reads the setting when it publishes, so a change to it shows without a new check.
-
-While the status reads the step `rebuild` for the same installed version the rebuild record names, the row's `note` is `{ kind: "rebuildFailed", conflict }` from that record. Any other status leaves the record out, so a check after a rebuilt or current package drops it.
-
-Plugins and themes count one update per checkout or catalog package that is behind. Their package rows keep the commit count as `behind` for the window.
-
-An installed directory that is not its own git checkout, such as a copied plugin, has no upstream and `vgshell plugin update` refuses it too, so it is not an update source and is left out.
-
-A checkout whose fetch failed names itself in the source's `error`; the other checkouts still count.
+The runner's full package list stays in the status file. Published rows are bounded for views; their omitted count describes what publication left out.
 
 ## Cadence
 
-The default check interval is six hours.
+The service waits for cache and boot readings before scheduling. It publishes the cached snapshot, checks when due and accepts an explicit request. Only one check runs; requests during it queue one more check. A process failure retains the snapshot and schedules a retry.
 
-The service publishes the cached snapshot at startup. It checks at startup only when the cache is older than the interval. It schedules the next check from `checkedAt`.
-
-It accepts an on-demand check over IPC:
-
-```text
-vgshell ipc call vgs.updates invoke check ''
-```
-
-It checks again when one of its own TUI runs records a new end in `shell.tui.state` after the service started, except the review's, which runs inside an update run. A service rebuilt after a run does not check again for it.
-
-A cache older than twice the interval reports a stale check state.
-
-A check process failure keeps the last good snapshot and reports a danger state. After a process failure, the service retries after five minutes.
-
-Only one check process runs at a time. A second request while a check runs queues one more check.
-
-## Status values
-
-The service publishes these status keys:
-
-- `pending`: total updates with numeric counts.
-- `lastCheck`: the last successful snapshot time.
-- `checkState`: `ok`, `info`, `warning` or `danger`, with a short state as its text and, for a failed or old check, the sentence that says what to do as its `hint`. The hint is written for the Settings page and the tooltip, so it ends by sending the user to Refresh in the Updates window.
-- `checking`: whether a check process runs. It is the widget's spinner, since `info` also means "not checked".
-- `sources`: the source rows for the bar widget and the window.
-- `reviewAgent`: the agent that reviews third-party packages, in words: its name, `Custom:` and the edited command's first word, that the chosen agent is not installed, `None found`, or `Off`.
-- `reviewAgents`: the agents found on `PATH`, the choices of the `reviewAgent` setting.
-- `rebootNotice`: which reboot notices an update gives, read from the `reboot-notice` system step: hidden while CachyOS's reboot hook is absent, `CachyOS and VGS` with the action that turns the CachyOS notice off, or `VGS only` with the action that turns it back on. The page draws no row for it.
-- `rebootNotices`: the choices of the `rebootNotice` setting, the notice in place first and then the other one, or none while `rebootNotice` offers no action. A choice of the other one runs the `rebootNotice` action, which opens the core's `core/system` run, and the service then clears the setting, so the field reads the probed notice again.
-
-The Settings page shows `pending`, `lastCheck`, `checkState` and `reviewAgent` as status. `checking` and `sources` are data for the widget and the window.
-
-The service finds the agents with `bin/facts agents` when it starts, after each check and when its settings change.
+`UpdatesLogic` owns cache age, prior-boot handling, retry timing and TUI-end detection. A new service instance does not treat old ended TUIs as new runs.
 
 ## IPC
 
-`check` starts a check. It returns `started` or `queued`. The window's Refresh reaches the same handler through `shell.ipc.call("check", "")`, so the service stays the one owner of every probe.
+`check` returns started or queued. `status` returns the published values. The service's registration block is the current handler list.
 
-`status` returns the values currently published through plugin status.
+<details>
+<summary>Show command</summary>
 
-`review <dir>` opens the `review` TUI for an update run's review directory and returns `shell.tui.run`'s answer. When the run ends it writes `<dir>/ended`: [pipeline.md § Third-party review](pipeline.md#third-party-review).
+```text
+vgshell ipc call vgs.updates invoke check ''
+vgshell ipc call vgs.updates invoke status ''
+```
 
-## Privacy and network
+</details>
 
-The service does not send data itself. The commands it runs can touch the network:
+## Views and mutations
 
-- `vgshell pkg check --json` can use `checkupdates`, Flatpak remotes and mise registries.
-- `vgshell self status --json` can fetch the VGS upstream or query the GitHub release API.
-- `vgshell plugin outdated --json` fetches installed plugin git upstreams.
-- `vgshell theme outdated --json` fetches installed theme git upstreams.
+The widget and window read published status. Refresh calls the service; update actions open the manifest's TUIs. [UpdatesLogic.js](UpdatesLogic.js) owns their display decisions. A check needs no elevation; an update uses the [pipeline contract](pipeline.md).
 
-The shell never elevates for a check.
-
-## Bar widget and window
-
-The widget and the window read the status values alone. `UpdatesLogic.js` decides what each draws, and neither runs a check.
-
-The widget has six states:
-
-| State | When | Draws |
-|---|---|---|
-| Current | The last check succeeded and nothing waits. | The calm `refresh-cw` icon in the bar's colour, with no badge. |
-| Pending | The last check succeeded and updates wait. | The icon and a count badge in the accent tone. |
-| New version | The last check succeeded, nothing waits, and the VGS row has a reason note. | The `refresh-cw` icon in the accent tone, with no badge. |
-| Attention | The check failed, a source failed, or the snapshot is older than twice the interval. | The `triangle-alert` icon and the count in the warning tone. |
-| Checking | A check process runs. | A spinner in place of the icon, with the last count. |
-| Unchecked | No check has published a state yet. | The calm `circle-dashed` icon. |
-
-The count badge shows at most `99+`. The tooltip lists the state, each source's count and the time of the last check.
-
-A left click opens or closes the Updates window, a Hyprland window like any other: Hyprland draws its border and moves it, and Escape closes it. The global shortcut `vgs.updates:toggle`, bound to `SUPER+CTRL+U` by default, opens or closes the same window. A middle click opens the `update` TUI for every source; the window's Update everything button is its keyboard path.
-
-The window has one row per source, in the order the service publishes them. It opens with keyboard focus on the first source row. Each row shows its count badge. A source with updates has its own Update, which opens `update-source` with the row's source. A row whose sentence does not fit beside its badge opens with that sentence wrapped under it: a source's error, under `Could not check` when the source has no count. A row's error sentence has the same cause as the Settings hint and ends with Refresh, the button in view. Under a failed source, the heading counts the update sources that could not be checked and repeats no row; a failed or old check as a whole reads its hint with the window's ending. The VGS row with a reason has a `New` badge and no Update, and says what installs the new version, by the status's reason: Update everything for `package-manager`, the user's Nix flake for `nix`, or an AUR helper this computer lacks for `no-aur-helper` on the release `vgshell` package. A `vgshell-git` installation without paru or yay offers Install paru and update. The action opens `update-source` with `vgs`, installs paru in the floating terminal, then rebuilds VGS. Its detail names both changes and the possible password prompt. The `package-manager` text says the package manager may not offer the new version yet and that Update everything installs it when it does, because the status compares with GitHub's latest release. After a failed rebuild, the VGS row has an `Update failed` badge in the danger tone, names the conflicting package when pacman named one, and keeps Update for a retry, whose update window shows the helper's output as it runs. It names no log, because every later update run replaces the last log while the row stays until the next rebuild. The helper and its exit status stay in the record. A click or Space on a row lists its packages as `name old → new`, or `name: N commits behind` for a plugin or theme. The list holds the twelve packages the shared status keeps and a `+N more` line for the rest.
-
-Update everything opens `update`. The footer has Refresh, the time of the last check, and Open last log. Open last log opens the `log` TUI, `tui/log.sh`. It shows the last run's log in `less -R`, from its end, and names the path when no run has written a log. The window has no command text field.
-
-The widget is always visible by default. `hideWhenCurrent`, off by default, hides it only in the current state. A hidden icon would make "up to date" look the same as "never checked" or "check failed", and the widget is also the way to Refresh and to the time of the last check. A failed, stale, running or missing check and a new VGS version always show, with `hideWhenCurrent` on too.
+Rebuild-failure records are written by the pipeline and interpreted with the installed-version status. A check drops a record from the displayed result when it no longer describes that rebuild. Reboot-notice actions use the core system step rather than changing host configuration in a view.
 
 ## Third-party review
 
-Updates uses the package owner's common review, settings and inline editor. It prepares effective configuration before pending queries and review, before its snapshot and credential session. Each upgrade and named rebuild consumes its own exact prepared decision once at common package admission. A missing helper is its own reviewed prerequisite transaction and ends its credential session before this preparation.
-
-A saved Install without review shows no offer and continues as a submitted decline; any other saved preference selects the initial choice of the offer. A package VGS publishes is not listed for agent review; its dependencies note keeps the unavailable-evidence question, as commands-are-data.md sets out. A submitted decline continues the package plan. Cancellation starts no mutation. Missing or incomplete evidence asks whether to continue without review, with No selected. A flagged package asks whether to skip it or install it anyway. The agent reads evidence as the user in this terminal and never installs a package.
-
-[The package consent and ownership rules](../../../docs/architecture/commands-are-data.md#package-review) govern the shared implementation. [The pipeline contract](pipeline.md#third-party-review) governs Updates' consumption of it. Updates holds no copy of the agent table, prompt, verdict parser, install-script judge, review settings or second-window handshake.
+The [package-review contract](../../../docs/architecture/commands-are-data.md#package-review) owns consent, agent selection and admission. [The pipeline reference](pipeline.md#third-party-review) defines how Updates consumes prepared decisions. The plugin owns no separate review agent table, prompt, verdict parser or review TUI.

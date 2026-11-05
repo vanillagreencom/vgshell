@@ -1,47 +1,26 @@
 # Clipboard developer reference
 
-[secrets.md](../../../docs/architecture/secrets.md) holds the plugin's rules and the tests that enforce them.
+Read when changing capture, history storage or key dispatch. [Service.qml](Service.qml) owns the history and IPC handlers. [ClipboardHistory.js](ClipboardHistory.js) owns entry validation, retention, row filtering and chord selection. The [manifest](manifest.json) owns shortcuts and entry points.
 
-## The history
+## Capture and dispatch
 
-`SUPER+CTRL+V` opens the history on the focused monitor. The entries are on the left: pinned entries first, then the newest. The selected entry shows on the right. Typing goes to the search field and shows only the entries that hold the text, in upper or lower case. The list shows 50 entries. The search reads the first 8192 characters of an entry.
+The [clipboard helper](helper/clipboard.py) owns clipboard I/O, stored files, permissions and capture limits. The [secrets contract](../../../docs/architecture/secrets.md) governs secret hints and copied-data isolation. Keep the limits with their implementing code rather than copying them into a view.
 
-A paste puts the entry on the clipboard, closes the history and sends the paste key to the application: Ctrl+Shift+V for a text entry in a terminal, Ctrl+V for an image entry or any other application. VGS identifies the window through its desktop entry, including NoDisplay entries. For a custom window class, the core matches the window process's executable to a desktop entry's command basename. When VGS cannot name the application, it sends no key and shows a message. The entry stays on the clipboard for the user to paste.
+Recorded type and live paste type have different meanings. A copy offering both text and an image is recorded as text. A terminal paste reads the currently offered MIME types, with an image taking precedence, so an unrecorded copy cannot reuse a history entry's type.
 
-Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection. Escape clears the search, then closes the history.
+The service asks the core to identify the keyboard target before selecting a chord. An unresolved application receives no key. Pasting a history entry still leaves that entry on the clipboard and explains why the key was not sent. `ClipboardHistory.chord` defines terminal, application and VGS-surface handling, including the terminal cut case.
 
-## Copy, paste and cut
-
-`SUPER+C`, `SUPER+V` and `SUPER+X` are the shortcuts `vgs.clipboard:copy`, `vgs.clipboard:paste` and `vgs.clipboard:cut`. A press reads what has the keyboard from the core and sends it one key through Hyprland's send-shortcut dispatch, with no window named. The key reaches a VGS layer such as the launcher, which is never Hyprland's active window.
-
-| Target | Copy | Paste | Cut |
-|---|---|---|---|
-| A terminal, or the window of a VGS floating TUI | Ctrl+Shift+C | Ctrl+Shift+V for text; Ctrl+V for an image | no key |
-| Another application, or a VGS surface | Ctrl+C | Ctrl+V | Ctrl+X |
-
-Ctrl+Shift+C and Ctrl+Shift+V are the clipboard keys of kitty, Ghostty, foot and Alacritty at their default settings. Ctrl+V reaches the CLI's image reader. A terminal paste reads the current offered MIME types with `wl-paste --list-types`, so an unrecorded copy cannot leave the key using an old history entry's type. An offered image takes precedence over text. A window whose class and executable match no desktop entry receives no key, and a message shows. A wrapper command whose `TryExec` alone names the real application remains unresolved: Quickshell 0.3.1 has no public `TryExec` accessor. `ClipboardHistory.chord` holds the table.
-
-## Recorded copies
-
-Text up to 1 MiB and an image up to 16 MiB. A larger copy is not recorded.
-
-A copy that offers both plain text and an image is recorded as text.
-
-A copy is not recorded when its source marks it as secret with `x-kde-passwordManagerHint`. KeePassXC and other password managers set that mark. A copy from a program that sets no mark is recorded like any other copy.
-
-The history is in `clipboard/` under `~/.local/state/vgshell/`, or under `$XDG_STATE_HOME/vgshell/` when that is set. Only the user can read it. It is not encrypted. An image file is deleted when no entry uses it.
+Application identification belongs to the core. A wrapper whose executable is identified only by its desktop entry's `TryExec` remains unresolved; the plugin has no separate desktop-entry resolver.
 
 ## IPC
 
-| Name | Argument | Reply |
-|---|---|---|
-| `toggle` | none | Opens or closes the history. |
-| `rows` | a filter | `{ images, total, rows }`, at most 50 rows. |
-| `paste`, `copy`, `pin`, `delete` | an entry id | `ok`, or a `refused:` line. |
-| `clear` | none | Clears the history. Pinned entries stay. |
+The service header defines handler arguments and replies. Entry actions take an entry ID; `rows` takes a filter and returns the image directory, total count and filtered rows. Clear retains pinned entries.
 
-The history's shortcut is `vgs.clipboard:toggle`, `SUPER+CTRL+V` by default. The IPC form, with the function's name and argument in place of `rows` and the filter:
+<details>
+<summary>Show command</summary>
 
 ```text
 vgshell ipc call vgs.clipboard invoke rows 'png'
 ```
+
+</details>
