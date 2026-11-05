@@ -30,7 +30,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+PERIOD", "info": "Opens System Settings, or closes it." }
+      { "shortcut": "toggle", "key": "SUPER+COMMA", "info": "Opens System Settings, or closes it." }
     ]
   }
 }

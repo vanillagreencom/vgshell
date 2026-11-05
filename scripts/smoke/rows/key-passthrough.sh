@@ -65,11 +65,11 @@ kp_held() {
   expect "$1: resetting the submap for cleanup is allowed" ok hypr dispatch 'hl.dsp.submap("reset")'
   expect_poll "$1: the cleanup reset reaches the default map" default key_submap
 }
-# A commit of the key in effect, SUPER+M, which writes nothing, so no
+# A commit of the key in effect, SUPER+PERIOD, which writes nothing, so no
 # layer write reloads Hyprland and only the owner's leave can end it.
 kp_commit() {
   kp_arm "$1"
-  kp_type_exit "$1: SUPER+M" -M logo -k m -m logo
+  kp_type_exit "$1: SUPER+PERIOD" -M logo -k period -m logo
   expect_poll "$1: the commit ends the capture" false settings_key_field capturing
   expect "$1: the key in effect is not written" absent settings_key
 }

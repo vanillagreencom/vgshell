@@ -1,6 +1,6 @@
 # Plugins
 
-Plugins is the window where you manage your plugins, their settings and their shortcuts. Open it with `SUPER+M`, the plug in the bar, or Settings > Plugin settings in the launcher. Plugins is always on.
+Plugins is the window where you manage your plugins, their settings and their shortcuts. Open it with `SUPER+PERIOD`, the plug in the bar, or Settings > Plugin settings in the launcher. Plugins is always on.
 
 ![The Settings plugin list window](../../../docs/images/plugins/vgs.settings-window.webp)
 

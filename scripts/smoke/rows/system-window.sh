@@ -15,7 +15,7 @@
 # one and a group with no section left losing its heading; the window read
 # as every application window is (app_window_rows,
 # scripts/smoke/app-window.sh); its edges within one pixel; and a keyboard
-# path from SUPER+PERIOD to every step and back out. Shell & Plugins hands
+# path from SUPER+COMMA to every step and back out. Shell & Plugins hands
 # the Settings summon command to a
 # stand-in vgshell in the shell's own PATH directory, which records its argv
 # and runs nothing.
@@ -32,8 +32,8 @@
 # lists a section disabled while it is open and is titled with its own name,
 # a copy that shows nothing in place of a section that leaves while shown
 # mounts no section, a shell copy whose PaneHost hands the holder no pane
-# height shows the tall section cut to the room, and SUPER+COMMA opens no
-# System window. The row reads no latency. It starts with no other panes
+# height shows the tall section cut to the room. The row reads no latency.
+# It starts with no other panes
 # holder installed and every enabled shipped section set aside, so the
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
@@ -116,7 +116,7 @@ sys_calls_all() { [[ -s $sys_calls ]] && python3 -c 'import json,sys; print(json
 widget_placed() { bar_widget_ids | py_reply 'import json,sys; print(any(sys.argv[1] in ids for ids in json.load(sys.stdin)))' "$1"; }
 sys_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.system:toggle" and b.get("submap", "") in ("", "default"))))'; }
 sys_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print("vgs.system:toggle" in d["shortcuts"] and "vgs.system" in d["ipcTargets"])'; }
-press_system() { type_keys -M logo -k period -m logo; }
+press_system() { type_keys -M logo -k comma -m logo; }
 # `fits` when the mounted section ID's box is its implicit height tall, or
 # the detail's room when that is more; else both. The room is the page's
 # ScrollArea height less the focus ring's room above and below it.
@@ -206,7 +206,7 @@ for id in acme.pane acme.pane-alt acme.pane-net; do
 done
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
 expect_poll "the System service registered its shortcut and IPC target" True sys_lent
-expect_poll "the Hyprland layer binds SUPER+PERIOD to the System shortcut" '[[64, "PERIOD"]]' sys_binds
+expect_poll "the Hyprland layer binds SUPER+COMMA to the System shortcut" '[[64, "COMMA"]]' sys_binds
 
 # `{}` with nothing remembered opens the first section, with the keyboard
 # in the sidebar's search field.
@@ -453,7 +453,7 @@ expect "the caller's section receives its payload without pane" '"{\"from\":\"se
 expect "hiding the System window after the own-pane summon is allowed" ok ipc shell hide window vgs.system
 expect_poll "hiding the System window drops the mounted section" '[]' window_panes
 
-# Keyboard alone: SUPER+PERIOD opens the section shown last with the keys
+# Keyboard alone: SUPER+COMMA opens the section shown last with the keys
 # in the search field; Up and Down move the selection and mount nothing;
 # Return enters and mounts; Escape leaves the section for the search
 # field; typed text filters, and Down from its reset selects a middle
@@ -467,9 +467,9 @@ hypr_lua_save system-window
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
 rest_pointer || fail "moving the pointer off the System window failed"
-press_system || fail "typing SUPER+PERIOD failed"
-expect_poll "SUPER+PERIOD opens the System window" 1 window_count "System Settings"
-expect_poll "SUPER+PERIOD opens the section shown last" '["acme.pane"]' window_panes
+press_system || fail "typing SUPER+COMMA failed"
+expect_poll "SUPER+COMMA opens the System window" 1 window_count "System Settings"
+expect_poll "SUPER+COMMA opens the section shown last" '["acme.pane"]' window_panes
 expect_poll "the keyboard starts in the search field" "Search sections" sys_focus
 expect "the selection starts on the shown section" 2 sys_current
 type_keys -k Up || fail "typing Up in the System search failed"
@@ -513,15 +513,11 @@ type_keys -k Escape || fail "typing Escape in the empty System search failed"
 expect_poll "Escape with no query closes the System window" 0 window_count "System Settings"
 expect_poll "closing the window drops its section" '[]' window_panes
 expect "vgshell still holds that one call once the window closed" '[["ipc", "call", "shell", "summon", "window", "vgs.settings", "{}"]]' sys_calls_all
-press_system || fail "typing SUPER+PERIOD again failed"
-expect_poll "SUPER+PERIOD reopens on the section shown last" '["acme.pane-alt"]' window_panes
+press_system || fail "typing SUPER+COMMA again failed"
+expect_poll "SUPER+COMMA reopens on the section shown last" '["acme.pane-alt"]' window_panes
 expect_poll "the reopened window starts with an empty query" '""' sys_search
-press_system || fail "typing SUPER+PERIOD to close failed"
-expect_poll "SUPER+PERIOD closes the open System window" 0 window_count "System Settings"
-# Control: SUPER+COMMA, typed as SUPER+PERIOD is, opens no System window.
-sys_never_opens() { local got; for _ in $(seq 1 10); do got="$(window_count "System Settings")" || return 1; [[ $got == 0 ]] || { echo opened; return 0; }; sleep 0.2; done; echo closed; }
-type_keys -M logo -k comma -m logo || fail "control: typing SUPER+COMMA failed"
-expect "control: SUPER+COMMA opens no System window" closed sys_never_opens
+press_system || fail "typing SUPER+COMMA to close failed"
+expect_poll "SUPER+COMMA closes the open System window" 0 window_count "System Settings"
 hypr_lua_restore system-window || fail "hyprland.lua is put back after the System keyboard path"
 expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
 

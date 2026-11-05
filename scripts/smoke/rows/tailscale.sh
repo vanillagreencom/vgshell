@@ -449,7 +449,7 @@ tailscale_hang() {
 }
 tailscale_enter_pane() { # LABEL
   rest_pointer || fail "$1: moving the pointer off System failed"
-  type_keys -M logo -k period -m logo
+  type_keys -M logo -k comma -m logo
   expect_poll "$1: the System shortcut opens the Tailscale section" shown tailscale_shown window
   expect_poll "$1: System opens in its search field" '["TextField",""]' ipc smoke activeFocusItem window vgs.system
   type_keys Tailscale

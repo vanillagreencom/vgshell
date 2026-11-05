@@ -330,10 +330,10 @@ with open(path + ".next", "w") as f:
 os.replace(path + ".next", path)
 PY
 }
-both_binds='[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "N", "HL.Dispatcher(global)", "vgs.notifications:inbox"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.system:toggle"], [64, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"], [65, "N", "HL.Dispatcher(global)", "vgs.notifications:act"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [68, "N", "HL.Dispatcher(global)", "vgs.notifications:mark-read"]]'
-rebound='[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.system:toggle"], [65, "N", "HL.Dispatcher(global)", "vgs.notifications:act"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [68, "N", "HL.Dispatcher(global)", "vgs.notifications:mark-read"], [72, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"]]'
+both_binds='[[64, "COMMA", "HL.Dispatcher(global)", "vgs.system:toggle"], [64, "N", "HL.Dispatcher(global)", "vgs.notifications:inbox"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"], [65, "N", "HL.Dispatcher(global)", "vgs.notifications:act"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [68, "N", "HL.Dispatcher(global)", "vgs.notifications:mark-read"]]'
+rebound='[[64, "COMMA", "HL.Dispatcher(global)", "vgs.system:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.settings:toggle"], [65, "N", "HL.Dispatcher(global)", "vgs.notifications:act"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [68, "N", "HL.Dispatcher(global)", "vgs.notifications:mark-read"], [72, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"]]'
 # The same once the notifications are disabled.
-rebound_alone='[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.system:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [72, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"]]'
+rebound_alone='[[64, "COMMA", "HL.Dispatcher(global)", "vgs.system:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.settings:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [72, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"]]'
 
 # The consent row's Connect answer.
 expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
@@ -342,7 +342,7 @@ expect "the layer's header names the command that writes it again" yes bash -c '
 expect "only the active bar, always-on Plugins, System Settings and Windows declare enabled Hyprland data, so their four sections alone are written" 4 section_count
 expect "the active bar's section names its id and version" yes layer_has "$(section_of vgs.bar)"
 expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "HL.Dispatcher(global)", "vgs.bar:toggle"]]' active_bar_binds
-expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+M, System Settings' SUPER+PERIOD and Windows' SUPER+CTRL+G" '[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.system:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"]]' vgs_binds
+expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+PERIOD, System Settings' SUPER+COMMA and Windows' SUPER+CTRL+G" '[[64, "COMMA", "HL.Dispatcher(global)", "vgs.system:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.settings:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"]]' vgs_binds
 expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' hypr_reload_errors
 
 cp -- "$user_config" "$sandbox/shell-before-appearance.json"
@@ -670,5 +670,5 @@ expect_poll "the notifications are disabled again" False plugin_enabled vgs.noti
 expect_poll "the shared fixture keeps its original enabled state after the Hyprland rows" "$probe_enabled_before" plugin_enabled acme.probe
 restore_hypr_lua || fail "hyprland.lua is put back after the Hyprland rows"
 expect "the nested instance reloads the consent-wired hyprland.lua" ok hypr reload config-only
-expect_poll "the nested instance holds no vgs bind after the Hyprland rows but Plugins' SUPER+M, System Settings' SUPER+PERIOD and Windows' SUPER+CTRL+G" '[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.system:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"]]' vgs_binds
+expect_poll "the nested instance holds no vgs bind after the Hyprland rows but Plugins' SUPER+PERIOD, System Settings' SUPER+COMMA and Windows' SUPER+CTRL+G" '[[64, "COMMA", "HL.Dispatcher(global)", "vgs.system:toggle"], [64, "PERIOD", "HL.Dispatcher(global)", "vgs.settings:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"]]' vgs_binds
 expect "the configuration after the Hyprland rows holds no error" '[]' hypr_reload_errors

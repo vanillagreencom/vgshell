@@ -8,7 +8,7 @@ Bluetooth turns Bluetooth on and off, and pairs, connects, renames and forgets y
 
 - A bar icon that shows off, on, or connected. It hides when the computer has no Bluetooth adapter.
 - A flyout with the power switch, your devices and the devices nearby. A click on your device connects or disconnects it, and a click on a nearby device opens the Bluetooth section to pair it.
-- A Bluetooth section in System Settings, on `SUPER+PERIOD`, with the power switch, Discoverable, My Devices and Nearby.
+- A Bluetooth section in System Settings, on `SUPER+COMMA`, with the power switch, Discoverable, My Devices and Nearby.
 - My Devices connects or disconnects a device, and its menu renames, trusts or forgets it. Delete forgets the selected device.
 - Pair shows each request from the device in a dialog: confirm a code, enter a PIN or passkey, or allow a service. A paired device is trusted and connected.
 - Discoverable lets other devices find this computer and pair with it while the section is open.

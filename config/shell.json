@@ -3,7 +3,9 @@
   "packageReviewSettingsSource": "vgs.updates",
   "shortcutKeyMigrations": [
     { "id": "vgs.jarvis", "shortcut": "talk", "from": "SUPER+code:108", "to": "SUPER+code:44" },
-    { "id": "vgs.jarvis", "shortcut": "mute", "from": "SUPER+SHIFT+code:108", "to": "SUPER+SHIFT+code:44" }
+    { "id": "vgs.jarvis", "shortcut": "mute", "from": "SUPER+SHIFT+code:108", "to": "SUPER+SHIFT+code:44" },
+    { "id": "vgs.settings", "shortcut": "toggle", "from": "SUPER+M", "to": "SUPER+PERIOD" },
+    { "id": "vgs.system", "shortcut": "toggle", "from": "SUPER+PERIOD", "to": "SUPER+COMMA" }
   ],
   "bar": {
     "id": "vgs.bar",

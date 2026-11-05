@@ -36,7 +36,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+M", "info": "Opens the Plugins window, where you turn plugins on and change their settings, or closes it." }
+      { "shortcut": "toggle", "key": "SUPER+PERIOD", "info": "Opens the Plugins window, where you turn plugins on and change their settings, or closes it." }
     ]
   }
 }

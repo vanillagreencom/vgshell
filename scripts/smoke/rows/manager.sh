@@ -1,5 +1,5 @@
 # The Settings plugin, vgs.settings, the plugin manager's user interface.
-# Always on, it binds SUPER+M and refuses every disable; shown here, its
+# Always on, it binds SUPER+PERIOD and refuses every disable; shown here, its
 # plug sits last in every bar and opens a Hyprland window centred across
 # its monitor with its top at the pinned top, growing for its titled
 # content up to the cap, and `size.window.width` wide or clamped on a
@@ -131,7 +131,7 @@ print(json.dumps(out))' "$1" "${2:-}" "$shell_class" "$width" "$share" "$top" "$
 first_monitor() { hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])'; }
 
 # Plugins is always on: the service holds its shortcut and IPC target
-# from the start and the Hyprland layer binds SUPER+M. The harness keeps
+# from the start and the Hyprland layer binds SUPER+PERIOD. The harness keeps
 # its plug off the bar; shown, it joins every bar's right section last.
 expect_poll "listPlugins reads the Settings plugin enabled" True plugin_enabled vgs.settings
 # Build records retain creation order; the plug is last in the drawn bar
@@ -154,7 +154,7 @@ expect "showing the Settings plug in the bar is allowed" ok ipc shell setPluginP
 geometry expect_poll "showing places the plug last in every bar" True gear_placed
 settings_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print("vgs.settings:toggle" in d["shortcuts"] and "vgs.settings" in d["ipcTargets"])'; }
 expect_poll "the Settings service registered its shortcut and IPC target" True settings_lent
-expect_poll "the Hyprland layer binds SUPER+M to the Settings shortcut" '[[64, "M"]]' settings_binds
+expect_poll "the Hyprland layer binds SUPER+PERIOD to the Settings shortcut" '[[64, "PERIOD"]]' settings_binds
 # The gear draws like the other bar icons: its button and its icon on the
 # bar's vertical centre, within one pixel.
 gear_centred() {
@@ -323,7 +323,7 @@ rows_match() {
 expect "the window lists every plugin listPlugins lists, with its state" True rows_match
 row_of() { settings_rows | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r["id"] == sys.argv[1]][0]; print(json.dumps([r[k] for k in sys.argv[2:]]))' "$@"; }
 settings_self_listing() { row_of vgs.settings icon source capabilities binds errors | py_reply 'import json,sys; icon, source, capabilities, binds, errors = json.load(sys.stdin); print(json.dumps([icon, source, capabilities, [{k: b[k] for k in ("shortcut", "key", "keys", "default")} for b in binds], errors]))'; }
-expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["plug", "bundled", ["compositor", "ipc", "manager", "run", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+M", "keys": ["SUPER+M"], "default": "SUPER+M"}], []]' settings_self_listing
+expect "the Settings plugin lists itself, bundled, with its icon, capabilities and key" '["plug", "bundled", ["compositor", "ipc", "manager", "run", "screens", "shortcut", "surfaces", "tui"], [{"shortcut": "toggle", "key": "SUPER+PERIOD", "keys": ["SUPER+PERIOD"], "default": "SUPER+PERIOD"}], []]' settings_self_listing
 expect "an installed fixture is listed as installed with its manifest icon" '["Probe", "flask-conical", "installed", "acme"]' row_of acme.probe name icon source author
 expect "a plugin without a manifest icon is listed with the package icon" '["package"]' row_of acme.bare icon
 expect "a manager row carries each requirement with its state and placement" '[[{"name": "sh", "title": "sh", "bus": null, "packages": {"pacman": "bash"}, "optional": false, "purpose": "A command every sandbox has", "floor": null, "onRequest": false, "state": "present", "badge": {"text": "Present", "tone": "success"}}, {"name": "vgs-smoke-absent", "title": "vgs-smoke-absent", "bus": null, "packages": {}, "optional": true, "purpose": "A command no sandbox has", "floor": null, "onRequest": false, "state": "missing", "badge": {"text": "Optional", "tone": "info"}}]]' row_of acme.bare requirements
@@ -784,13 +784,13 @@ expect "a key typed in the Keys row is applied" applied ipc smoke invokeInstance
 expect_poll "the rebind reaches shell.json keys, normalised" '"SUPER+SHIFT+M"' user_key
 expect_poll "the rebind reaches the Hyprland layer" '[[65, "M"]]' settings_binds
 settings_bind_summary() { row_of vgs.settings binds | py_reply 'import json,sys; binds=json.load(sys.stdin)[0]; print(json.dumps([{k: b[k] for k in ("shortcut", "key", "keys", "default")} for b in binds]))'; }
-expect_poll "the page's Keys row shows the key in effect beside its default" '[{"shortcut": "toggle", "key": "SUPER+SHIFT+M", "keys": ["SUPER+SHIFT+M"], "default": "SUPER+M"}]' settings_bind_summary
+expect_poll "the page's Keys row shows the key in effect beside its default" '[{"shortcut": "toggle", "key": "SUPER+SHIFT+M", "keys": ["SUPER+SHIFT+M"], "default": "SUPER+PERIOD"}]' settings_bind_summary
 expect "an emptied key unbinds the shortcut" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":null}'
 expect_poll "the unbind reaches shell.json keys as null" null user_key
 expect_poll "the unbind leaves Hyprland no Settings bind" '[]' settings_binds
 expect "the reset button returns the shortcut to the manifest's key" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle"}'
 expect_poll "the reset removes the shell.json entry" absent user_key
-expect_poll "the reset binds SUPER+M again" '[[64, "M"]]' settings_binds
+expect_poll "the reset binds SUPER+PERIOD again" '[[64, "PERIOD"]]' settings_binds
 expected_errors+=('settings: vgs\.settings refused: key=toggle has an empty part')
 expect "a malformed key typed in the Keys row is sent" applied ipc smoke invokeInstance window vgs.settings applyKey '{"id":"vgs.settings","shortcut":"toggle","key":"SUPER+"}'
 settings_reply_keys() { ipc smoke readInstance window vgs.settings replies | py_reply 'import json,sys; print(json.dumps(sorted(json.load(sys.stdin))))'; }

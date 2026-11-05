@@ -8,7 +8,7 @@ The [Displays](../vgs.displays/README.md) and [Sound](../vgs.sound/README.md) RE
 
 ## Features
 
-- `SUPER+PERIOD` opens and closes the window. Change the key under Keys on the plugin's Settings page.
+- `SUPER+COMMA` opens and closes the window. Change the key under Keys on the plugin's Settings page.
 - Settings > System Settings in the launcher, or a section's own Settings link, opens the window.
 - Type to find a section, and use the arrow keys and Enter to open it.
 - General > Packages holds the update options and the shared agent review choices.

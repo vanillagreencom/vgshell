@@ -64,7 +64,7 @@ kc_typed() {
   local label="$1"
   kc_loaded "$label" vgs.settings:toggle "$4"
   key_reset "$label"
-  kc_loaded "$label" vgs.settings:toggle "64 m"
+  kc_loaded "$label" vgs.settings:toggle "64 period"
   expect "$label: the field's text entry opens" typing settings_key_invoke typeKeyField
   type_keys "$2" || fail "$label: typing the text failed"
   type_keys -k Return || fail "$label: Return in the text entry failed"
@@ -87,7 +87,7 @@ expect "enabling Launcher, whose shortcut asks for SUPER+SPACE, is allowed" ok i
 kc_loaded "enabling Launcher" vgs.launcher:toggle "64 space"
 kc_open "key capture"
 key_reset "key capture start"
-kc_loaded "key capture start" vgs.settings:toggle "64 m"
+kc_loaded "key capture start" vgs.settings:toggle "64 period"
 for _ in $(seq 1 60); do
   [[ $(settings_key_field focus) == true ]] && break
   type_keys -k Tab || { fail "key capture: Tab failed"; break; }
