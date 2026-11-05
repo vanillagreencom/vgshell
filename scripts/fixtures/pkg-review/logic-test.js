@@ -145,11 +145,20 @@ function verify(logic) {
 
 
 }
-const managers=load(path.join(__dirname,"../../../shell/Core/PackageManagers.js"));
+const managersAt=process.argv.indexOf("--managers");
+const managers=load(managersAt<0?path.join(__dirname,"../../../shell/Core/PackageManagers.js"):process.argv[managersAt+1]);
 const available=name=>["pacman","paru"].includes(name);
 same(managers.plan("pacman","install",["widget"],available,[],"/nondefault.conf").plan.steps,[["pacman","--config","/nondefault.conf","-S","--needed","--","widget"]]);
-same(managers.reviewCheckFor("pacman","pacman","/nondefault.conf").check.argv,["pacman","--config","/nondefault.conf","-Qu"]);
-assert.equal(managers.reviewCheckFor("pacman","pacman","/nondefault.conf").complete,false);
+for(const [label,effective,complete] of [
+ ["generated-hook-wrapper",{repositories:["core","extra"],dbPath:"/var/lib/pacman/"},true],
+ ["other-repositories",{repositories:["core","custom"],dbPath:"/var/lib/pacman/"},false],
+ ["other-dbpath",{repositories:["core","extra"],dbPath:"/other/db/"},false]
+]){
+ const read=file=>file==="/etc/pacman.conf"?{repositories:["core","extra"],dbPath:"/var/lib/pacman/"}:effective;
+ const pending=managers.reviewCheckFor("pacman","pacman","/transaction/pacman.conf",read);
+ assert.equal(pending.complete,complete,label);
+ same(pending.check.argv,complete?["checkupdates"]:["pacman","--config","/transaction/pacman.conf","-Qu"],label);
+}
 same(managers.reviewCheckFor("aur","paru","/nondefault.conf").check.argv,["paru","--config","/nondefault.conf","-Qua"]);
 assert.equal(managers.reviewCheckFor("aur","paru","/nondefault.conf").origin,"aur");
 verify(load(file));
