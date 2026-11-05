@@ -1,11 +1,15 @@
 # shell/Commons/
 
-The singletons every QML file may read, module `qs.Commons`: `Theme`, `Paths`, `Time` and `Workspaces`, beside `WatchedFile`, the one reader of a file read on change, and `AnchorTracker`, the one keeper of a popup window at the item it opened from, which the overlays of `qs.Ui` and the popup host share. `Tokens.js` and `ThemeLogic.js` are the design system's table and judge, `docs/architecture/design-system.md`.
+Shared QML singletons and JavaScript helpers, module `qs.Commons`.
 
-- `Tokens.js` and `ThemeLogic.js` are `.pragma library` files with no import of each other and no Qt object, so node runs them through `bin/lib/qml-library.js`. A token change is pinned in `scripts/test-theme-logic.js`; a new top-level group is a property of `Theme.qml`, which `scripts/check-design-tokens.py` enforces.
-- `SessionLockState.js` is the one reading of whether Hyprland holds a session lock, from `hyprctl -j monitors`: a `.pragma library` file with no Qt object, read by the core's session lock, `vgs.lock` and, under node, the runner in `bin/vgshell`. `scripts/test-session-lock-state.js` pins it; `docs/decisions/D062-native-lock-and-polkit-plugins.md` states its use.
-- `DesktopLaunch.js` is the one rule for the argv that starts a desktop entry or opens a file or link, read by `vgs.launcher` and, under node, by the Jarvis daemon: a `.pragma library` file with no Qt object. `scripts/test-desktop-launch.js` pins it.
-- `AccountDirectories.js` is the one rule for where the AI command-line tools keep their sign-ins: the harness table, the account folder name rule and the explicit root variables, read by `vgs.jarvis` and `vgs.ai-usage`, under node through `bin/lib/account-folders.js`, the one account discovery: a `.pragma library` file with no Qt object. `scripts/test-jarvis-accounts.js` and `scripts/test-ai-usage.js` pin it.
-- `Reply.js` is the one judge of a manager or surface reply and the one line a plugin shows for a refusal, read by `vgs.settings` and `vgs.keyhints`: a `.pragma library` file with no Qt object. `scripts/test-settings-reply.js` pins it.
-- `Timestamp.js` is the one wording of a past moment a surface shows: relative under an hour, else the bar clock's day, date and time. A `.pragma library` file that imports only `Duration.js` and no Qt object, read by `vgs.settings` and `vgs.updates`. `scripts/test-timestamp.js` pins it.
-- `ThemeSource.qml` is internal to the module and owns the theme file; `Theme.qml` publishes frozen objects of primitives and nothing else. Its one input is `appearanceInput`, the user's Appearance values, which `Config` alone binds and `scripts/check-plugin-boundary.py` keeps from a plugin.
+## Rules
+
+- Keep helpers shared with Node as `.pragma library` files without Qt objects. Their Node readers use `bin/lib/qml-library.js`; review holds the cross-runtime boundary.
+- Use the shared helpers for session-lock state, desktop launches, account discovery, replies and timestamp wording. Keep one interpretation for their QML and Node callers.
+- Keep `ThemeSource.qml` internal. `Config` alone binds `Theme.appearanceInput`; `scripts/check-plugin-boundary.py` refuses plugin access to that input.
+
+## Read when
+
+- Before changing tokens, the theme judge or `Theme`: [design-system.md § Tokens](../../docs/architecture/design-system.md#tokens).
+- Before changing theme-file reads or Appearance input: [configuration.md § Theme file](../../docs/architecture/configuration.md#theme-file).
+- Before changing a shared watcher, popup tracker or other resource owner: [runtime.md](../../docs/architecture/runtime.md).

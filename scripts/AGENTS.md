@@ -1,17 +1,25 @@
 # scripts/
 
-Validation and measurement scripts. A script here reads the repository and the nested sandbox. Nothing under `bin/` or `shell/` may load a file here, since an install ships without `scripts/`: a helper the runtime needs goes in `bin/lib/`, and the `runtime_reads_no_scripts` check in `validate` refuses the load.
+Validation and measurement scripts. Runtime helpers belong in `bin/lib/`, never here. The `runtime_reads_no_scripts` check in `scripts/validate` refuses a load from `bin/` or `shell/` into `scripts/`.
 
-- A check is a row in `scripts/validate` with its must-fail control beside it, named `test-<subject>` for the script it exercises. `qml-smoke.sh` is a runner and has none; the checks `validate` makes itself have theirs in `test-validate.sh`. A new row whose inputs match a case's file in `test-validate.sh` adds its command to that case's expected plan.
-- What the sandbox needs, how it exits and where the shell's log is: `docs/architecture/validation.md` § Nested sandbox and `docs/architecture/runtime.md` § Process.
-- What a memory figure may claim and how the sampler finds the shell: `docs/architecture/runtime.md`.
-- Use `scripts/validate --list` to inspect the affected checks, then omit `--list` to run them once. Selection defaults to the newest commit holding what last passed the area in this worktree, else the default branch's merge base, and the run prints the base it used; `--changed BASE` names another base, and `--full` explicitly requests every row. The input globs beside each manifest row include its shared dependencies. An unmapped source input selects the full area; docs and harness-only changes do not start the product smoke.
+## Rules
 
-- `lib/release-tarball.sh` is the one builder of a VGS source tarball. A script that needs one calls it: `docs/architecture/distribution.md` § Release tarball.
-- An agent runs `release` and `publish-aur.sh` only with `--dry-run`. Before a release or container install check, read `DEVELOPMENT.md` § Release and § Containers. Before regenerating README images, read its § Regenerate. Each script's header owns its command and output contract; `scripts/validate` owns the check and control rows.
-- A script that starts a compositor, the shell, `qmltestrunner` or a browser hands itself and its output, keep and selftest declarations to the world in `scripts/smoke/gpu-fence.sh`, as `qml-smoke.sh` does. `test-gpu-fence.sh` holds the world and each entry point: `docs/architecture/validation.md` § Test isolation.
-- Smoke rows live under `scripts/smoke/rows/`. `smoke/rows.list` fixes their order, one name a line, because later rows use earlier state; a change to it runs only the rows on its added lines and the rows that read a row it unlists. A row file carries one `# inputs: GLOB [GLOB...]` line in its leading comment block, naming the files it reads and the file of each row it reads from, which the `smoke rows name the rows they read` row of `validate tools` holds for functions and variables. Selection adds the shell files those files load statically, a type they name or a relative import, so the line names only what the row reaches itself and a load a run-time value chooses. `smoke/harness.sh` carries one for the shared harness inputs. `validate` traces a function-level change in these inputs to the rows that reach it; a top-level or unreadable hunk runs every row. Selection, restack input reach and recorded-pass reuse follow `docs/architecture/validation.md` § Selection. Only `scripts/smoke/harness.sh` owns the sandbox lifetime; its teardown lives in `scripts/smoke/teardown.sh`, which it sources.
-- A row types into a notice only after `ipc smoke noticeFocused` reads true. The notice's record is published before its surface maps, and a key sent in between reaches no surface.
-- A row's `$repo` is the world's copy of the checkout, which goes with the world: a file a row keeps past the run, such as an image, goes under `$smoke_log_dir`, the output the run declared.
-- `scripts/smoke/Probe.qml` holds the disposable instance readers. The Gallery's component and focus readbacks follow [design-system.md § Components](../docs/architecture/design-system.md#components); shipped components contain no test-only readers.
-- Runtime refusal fixtures belong to the rows that assert their refusal. Before changing fixture execution or device fakes, read [validation.md § Host safety](../docs/architecture/validation.md#host-safety). The consuming row or capture scene owns its fixture setup; `scripts/smoke/devices.sh` owns the device-fake contract.
+- Register checks and their must-fail controls in `scripts/validate`. Name a control `test-<subject>` for the script it exercises. `qml-smoke.sh` is a runner and has no separate control; `test-validate.sh` holds controls for checks implemented by `validate`. A new row whose inputs match a case's file in `test-validate.sh` adds its command to that case's expected plan.
+- Each script's header owns its command and output contract.
+- Put smoke rows under `scripts/smoke/rows/`. Each row declares one `# inputs: GLOB [GLOB...]` line in its leading comment block. Name the files it reads directly, including loads chosen at runtime, and each row whose functions or state it reads. `smoke/harness.sh` declares shared harness inputs in the same form.
+- Only `scripts/smoke/harness.sh` owns the sandbox lifetime; it sources `scripts/smoke/teardown.sh` for teardown.
+- A row types into a notice only after `ipc smoke noticeFocused` reads true.
+- Keep files needed after a run under the declared `$smoke_log_dir`, never the world's disposable `$repo`.
+- Put disposable instance readers in `scripts/smoke/Probe.qml`, never in shipped components.
+- Runtime refusal fixtures belong to the rows that assert their refusal. The consuming row or capture scene owns fixture setup; `scripts/smoke/devices.sh` owns device fakes.
+
+## Read when
+
+- Before running validation, release checks, container install checks or README regeneration: [DEVELOPMENT.md § Test](../DEVELOPMENT.md#test), [§ Release](../DEVELOPMENT.md#release), [§ Containers](../DEVELOPMENT.md#containers) or [§ Regenerate](../DEVELOPMENT.md#regenerate). The Release section limits agents to `--dry-run`.
+- Before changing check selection, row inputs, restack coverage or pass reuse: [validation.md § Selection](../docs/architecture/validation.md#selection). `scripts/validate --list` prints the selected commands.
+- Before starting a compositor, shell, `qmltestrunner` or browser, or changing world-entry declarations: [validation.md § Test isolation](../docs/architecture/validation.md#test-isolation).
+- Before changing sandbox prerequisites, exit handling or logs: [validation.md § Nested sandbox](../docs/architecture/validation.md#nested-sandbox) and [runtime.md § Process](../docs/architecture/runtime.md#process).
+- Before changing a memory measurement or its sampler: [runtime.md § Memory](../docs/architecture/runtime.md#memory).
+- Before building a release tarball: [distribution.md § Release tarball](../docs/architecture/distribution.md#release-tarball).
+- Before changing Gallery component or focus readbacks: [design-system.md § Components](../docs/architecture/design-system.md#components).
+- Before changing fixture execution or device fakes: [validation.md § Host safety](../docs/architecture/validation.md#host-safety).

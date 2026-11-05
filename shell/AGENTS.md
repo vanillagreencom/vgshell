@@ -1,8 +1,11 @@
 # shell/
 
-The Quickshell shell root. `shell.qml`, `greeter.qml` (the login screen's host, [D101](../docs/decisions/D101-greeter-host-and-greeter-system-step.md)), `Core/`, `Hosts/`, `Commons/` and `Ui/` are the core; `plugins/` holds first-party plugins and has its own `AGENTS.md`.
+The Quickshell shell root.
 
-- The core names no plugin and imports no plugin directory. `scripts/check-plugin-boundary.py` enforces it.
-- What a host and a capability provider may do, and what each hands a plugin: `docs/architecture/overview.md` § Hosts and capabilities; each member a plugin receives: `.agents/skills/vgs-plugin/references/api.md`.
-- Every Hyprland dispatch the code relies on: `docs/architecture/hyprland.md` § Dispatch. Read it before editing `Core/Compositor.qml` or `Core/Dispatch.js`.
-- Every Quickshell or Qt fact the code relies on is checked against the Quickshell 0.3.1 reference or a run, never memory, and stated in a short comment at the code that rests on it. Read that comment before editing the code, such as a handler that reads a property a binding also reads.
+## Read when
+
+- Before changing core boundaries, hosts or capability providers: [overview.md § Core](../docs/architecture/overview.md#core) and [§ Hosts and capabilities](../docs/architecture/overview.md#hosts-and-capabilities).
+- Before changing what a plugin receives: the [vgs-plugin API reference](../.agents/skills/vgs-plugin/references/api.md).
+- Before editing `Core/Compositor.qml`, `Core/Dispatch.js` or another Hyprland request: [hyprland.md § Dispatch](../docs/architecture/hyprland.md#dispatch).
+- Before editing code that relies on a Quickshell or Qt fact, read its local constraint comment and the [code-quality skill's Project Instructions](../.agents/skills/code-quality/SKILL.md#project-instructions).
+- Before working in a plugin: [plugins/AGENTS.md](plugins/AGENTS.md). Before changing shared components or helpers: [Ui/AGENTS.md](Ui/AGENTS.md) or [Commons/AGENTS.md](Commons/AGENTS.md).
