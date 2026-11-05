@@ -289,7 +289,10 @@ end
 clients:connect("object-removed", function(_, client)
   local pid = client.properties["pipewire.sec.pid"]
   if pid == nil then return end
-  if hold ~= nil and not holder_present(hold.pid) then
+  -- The pw-metadata publisher can leave before the persistent pw-cli
+  -- holder is prepared. Only loss of that holder ends its pending lease;
+  -- another client's removal must not erase the snapshot before adoption.
+  if hold ~= nil and hold.pid == pid and not holder_present(hold.pid) then
     clear()
   end
   if gone_index(pid) == nil then

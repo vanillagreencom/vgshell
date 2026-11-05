@@ -5182,7 +5182,7 @@ print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2
   lua - "$rule_shipped" <<'LUA'
 local file = assert(io.open(arg[1]))
 local source = file:read("*a"); file:close()
-local function check(text, holder_first, readiness_case)
+local function check(text, holder_first, readiness_case, departing_pid)
   local hooks, managers, changed = {}, {}, nil
   local created, destroyed, pending = 0, 0, {}
   local deferred = false
@@ -5309,6 +5309,12 @@ local function check(text, holder_first, readiness_case)
     return
   end
   changed(remote, 0, "hold", nil, "fixture")
+  -- AppSounds starts pw-cli and publishes through a separate pw-metadata.
+  -- Either that publisher or the old writer can leave before the new
+  -- holder's object-added signal, while the playing stream survives.
+  if departing_pid then
+    managers.client.callbacks["object-removed"](nil, { properties = { ["pipewire.sec.pid"] = departing_pid } })
+  end
   if not holder_first then
     assert(held == "" and not routes(), "a pending hold waits for its holder")
     client_present = true
@@ -5380,10 +5386,15 @@ local function check(text, holder_first, readiness_case)
   hooks["default-nodes/vgs-exclude-mute-hold"].execute({ get_data = function() return env.Json.Array(available) end, set_data = function(_, _, value) filtered = value:parse() end })
   assert(#filtered == 0, "sole hold sink is not a default candidate")
 end
-check(source, true)
-check(source, false)
-check(source, true, "present")
-check(source, true, "absent")
+for _, case in ipairs({
+  { holder = true },
+  { holder = true, departing = "43" },
+  { holder = false },
+  { holder = false, departing = "43" },
+  { holder = false, departing = "41" },
+  { holder = true, readiness = "present" },
+  { holder = true, readiness = "absent" },
+}) do check(source, case.holder, case.readiness, case.departing) end
 local pending_guard = 'for _, transition in ipairs(pending) do transition:advance() end'
 local first, last = source:find(pending_guard, 1, true)
 assert(first and not source:find(pending_guard, last + 1, true), "one readiness queue owner")
@@ -5400,18 +5411,20 @@ local function rejects(old, replacement, assertion)
   local first, last = source:find(old, 1, true)
   assert(first and not source:find(old, last + 1, true), "one changed callback")
   local mutant = source:sub(1, first - 1) .. replacement .. source:sub(last + 1)
-  local ok, failure = pcall(check, mutant, false)
+  local ok, failure = pcall(check, mutant, false, nil, "43")
   assert(not ok and tostring(failure):find(assertion, 1, true), "control must fail " .. assertion)
 end
 rejects('if hold ~= nil and hold.pid == pid then adopt_exact() end',
   'if false then adopt_exact() end', "holder arrival adopts pending exact streams")
+rejects('hold.pid == pid and not holder_present(hold.pid)',
+  'not holder_present(hold.pid)', "holder arrival adopts pending exact streams")
 rejects('if entry.id == id then release(serial) end',
   'if entry.id == id then held[serial] = held[serial] end', "removal drops the departed serial")
 rejects('if previous ~= nil and sink_bound then previous:request_destroy() end',
   'if false then previous:request_destroy() end', "last release destroys the hold sink")
 rejects('Core.timeout_add(hold.deadlineMs, function()',
   'Core.timeout_add(0, function()', "one deadline uses the shell duration without early release")
-print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial,sink-release,early-node-progress,deadline-duration")
+print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,unrelated-client-removal,removed-serial,sink-release,early-node-progress,deadline-duration")
 LUA
   # Replay the quiet replacement the old metadata observer missed through
   # the shipped monitor callback. The private restart below also exercises
