@@ -270,6 +270,37 @@ Item {
         }
     }
 
+    Component {
+        id: wrappedGroupsFrame
+        Rectangle {
+            readonly property alias list: wrappedGroups
+            x: 460
+            y: 900
+            width: 400
+            height: wrappedGroups.height
+            color: Theme.color.surface
+            GroupList {
+                id: wrappedGroups
+                width: parent.width
+                Repeater {
+                    model: ["First message", "Second message"]
+                    Item {
+                        id: message
+                        required property string modelData
+                        width: wrappedGroups.width
+                        implicitHeight: lines.implicitHeight + 2 * Theme.stack.inline
+                        Column {
+                            id: lines
+                            y: Theme.stack.inline
+                            width: parent.width
+                            Label { role: "body"; text: message.modelData }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Status lines with a step: a short chip keeps the step beside it, a
     // chip too long for both puts the step under it.
     StatusLine { id: shortStep; x: 0; y: 760; width: 400; label: "Token"; tone: "warning"; text: "Absent"; actionLabel: "Set up token"; actionOffered: true }
@@ -398,6 +429,13 @@ Item {
         function test_a_hairline_is_centred_between_rows_of_text() {
             checkDivided(rowsList);
             compare(offCentre(rowsFrame, rowsList, 2), [], "every hairline is centred between the drawn rows");
+        }
+
+        function test_a_hairline_is_centred_between_wrapped_groups() {
+            const frame = createTemporaryObject(wrappedGroupsFrame, root);
+            verify(frame !== null);
+            checkDivided(frame.list);
+            compare(offCentre(frame, frame.list, 1), [], "wrapper padding is measured at both ink edges");
         }
 
         // The hairlines of OWNER, drawn on FRAME, that sit off the middle

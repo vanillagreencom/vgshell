@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Core
 import qs.Ui
@@ -61,6 +62,82 @@ Item {
         function sourceKey(account) { return "source:" + account; }
         function stepKey(pluginId, key, account) { return [pluginId, key, account].join(":"); }
         function headReplies() { return []; }
+    }
+
+    Component {
+        id: overhangingRow
+        Row {
+            width: 40
+            height: 20
+            Rectangle { width: 20; height: 40; color: Theme.color.text }
+        }
+    }
+
+    Component {
+        id: wrappedListThenSection
+        Column {
+            property alias wrapper: wrapper.sourceComponent
+            width: 400
+            spacing: 0
+            Loader { id: wrapper; width: parent.width }
+            Section { title: "Problems"; Label { text: "Ready" } }
+        }
+    }
+    Component {
+        id: controlList
+        T.Control {
+            implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
+            padding: Theme.stack.row
+            contentItem: Column {
+                bottomPadding: Theme.stack.row
+                Label { text: "First task" }
+                Label { text: "Last task" }
+            }
+        }
+    }
+    Component {
+        id: itemList
+        Item {
+            // Pane's inline Slot exposes itself as its contentItem.
+            property Item contentItem: this
+            implicitHeight: list.implicitHeight + list.y + Theme.stack.row
+            Column {
+                id: list
+                y: Theme.stack.row
+                width: parent.width
+                bottomPadding: Theme.stack.row
+                Label { text: "First task" }
+                Label { text: "Last task" }
+            }
+            Item { visible: false; width: parent.width; height: parent.height }
+        }
+    }
+    Component {
+        id: paneList
+        T.Pane {
+            implicitHeight: contentItem.implicitHeight + topPadding + bottomPadding
+            padding: Theme.stack.row
+            contentItem: Column {
+                bottomPadding: Theme.stack.row
+                Label { text: "First task" }
+                Label { text: "Last task" }
+            }
+        }
+    }
+    Component {
+        id: paintedList
+        Rectangle {
+            color: Theme.color.text
+            implicitHeight: list.implicitHeight + 2 * Theme.stack.row
+            Column {
+                id: list
+                y: Theme.stack.row
+                width: parent.width
+                bottomPadding: Theme.stack.row
+                Label { text: "First task"; color: Theme.color.surface }
+                Label { text: "Last task"; color: Theme.color.surface }
+            }
+        }
     }
 
     Component {
@@ -194,6 +271,7 @@ Item {
                     }
                     Item {
                         visible: actionPage.holder === "boxed"
+                        function inkBelow() { return 0; }
                         implicitWidth: boxedAction.implicitWidth
                         implicitHeight: boxedAction.implicitHeight
                         RowAction { id: boxedAction; text: actionPage.label; tone: actionPage.tone }
@@ -527,6 +605,27 @@ Item {
             verify(renderedFrame(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the device list, not " + Theme.stack.heading);
+        }
+
+        function test_a_row_reports_ink_below_its_box() {
+            const row = createTemporaryObject(overhangingRow, root);
+            verify(row !== null);
+            verify(renderedFrame(row));
+            compare(Theme.inkBelow(row), -20);
+        }
+
+        function test_heading_space_after_a_wrapped_list_data() {
+            return [{ tag: "Control", wrapper: controlList }, { tag: "Item", wrapper: itemList },
+                { tag: "Pane", wrapper: paneList }, { tag: "painted box", wrapper: paintedList }];
+        }
+
+        function test_heading_space_after_a_wrapped_list(data) {
+            const page = createTemporaryObject(wrappedListThenSection, root, { wrapper: data.wrapper });
+            verify(page !== null);
+            verify(renderedFrame(page));
+            const gap = gapAbove(grabImage(root), headings(page)[0]);
+            verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance,
+                data.tag + ": the heading sits " + gap + " px below the list, not " + Theme.stack.heading);
         }
 
         // The control: a section spaced by its box under a switch row.
