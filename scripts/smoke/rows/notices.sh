@@ -721,7 +721,7 @@ retry_words() {
 # caches missing before the retained Retry is pressed. The control shell
 # uses this exact state and drawing reader with its visibility guard restored.
 notice_retry_refusal() { # TREE DRAWN LABEL
-  local tree=$1 visible=$2 label=$3
+  local tree=$1 visible=$2 label=$3 refusal_line
   cp -- "$tree/bin/vgshell-tui" "$sandbox/notice-launcher.real"
   printf '#!/bin/sh\nprintf '"'"'vgshell-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/notice-launcher.missing"
   chmod 755 "$sandbox/notice-launcher.missing"
@@ -744,7 +744,8 @@ notice_retry_refusal() { # TREE DRAWN LABEL
   expect "$label: the retry action stays available" '["Retry without tests", "Not now"]' drawn actions
   expect "$label: the drawn classified cause stays" true notice_message_holds 'vgs-smoke-old-aur failed its package tests. This build was not installed.'
   expect "$label: the drawn dependency-test trade stays" true notice_message_holds 'including tests for any dependency the helper builds. It does not turn off source checks.'
-  expect "$label: the drawing reader detects the retry launch refusal" "$visible" line_holds 'The retry could not start:' 'reason=launcher-missing'
+  refusal_line="$(node -e 'process.stdout.write(require(process.argv[1]).load(process.argv[2]).line(process.argv[3]))' "$repo/bin/lib/qml-library.js" "$repo/shell/Commons/Reply.js" 'refused: tui=core/requirements-retry reason=launcher-missing')" || { fail "$label: the refusal display mapping could not be read"; return; }
+  expect "$label: the drawing reader detects the retry launch refusal" "$visible" row_drawn "$refusal_line"
   cp -- "$sandbox/notice-launcher.real" "$tree/bin/vgshell-tui.next" && mv -T -- "$tree/bin/vgshell-tui.next" "$tree/bin/vgshell-tui"
   expect "$label: the restored launcher is still missing before its probe" 'refused: tui=core/doctor reason=launcher-missing' ipc shell openTui core/doctor
   expect_poll "$label: the restored private launcher probes present" '"present"' lent tui.launcher

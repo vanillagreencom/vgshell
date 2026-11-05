@@ -75,7 +75,7 @@ Scope {
     function failureLine(shown, failure) {
         switch (failure.kind) {
         case "failed":
-            if (shown.action !== null && shown.action.action === "retry") return "The retry could not start: " + failure.reason;
+            if (shown.action !== null && shown.action.action === "retry") return Reply.line(failure.reason);
             return "The last " + step(shown).toLowerCase() + " did not finish: " + failure.reason;
         case "unchanged":
             return failure.left.map(entry => leftLine(shown, entry)).join(" ");
@@ -102,7 +102,9 @@ Scope {
     function message(shown) {
         if (shown.packageFailure !== null) {
             const available = shown.packageFailure.retry !== null && shown.packageFailure.retry.state === "available";
-            return shown.packageFailure.package + " failed its package tests. This build was not installed.\n"
+            const consumed = shown.packageFailure.retry !== null && shown.packageFailure.retry.state === "consumed";
+            return (consumed ? "The retry without tests for " + shown.packageFailure.package + " failed."
+                : shown.packageFailure.package + " failed its package tests.") + " This build was not installed.\n"
                 + (available ? "This retry skips package tests, including tests for any dependency the helper builds. It does not turn off source checks."
                     : shown.packageFailure.retry !== null ? "The retry without tests was used. It skipped package and dependency tests. Source checks stayed on. Install or update again to run the tests."
                     : "No retry without tests is available. Install or update again to run package tests and source checks.");
