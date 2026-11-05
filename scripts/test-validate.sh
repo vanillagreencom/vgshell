@@ -130,6 +130,42 @@ template() {
 }
 template
 
+# Nightly consumes this hash across unrelated main landings. Each case
+# changes one part of the complete input set, without executing a build.
+input_hash_case() {
+  local change="$1" dir="$tmp/input-hash-$1" before after hash_area=package
+  fresh "$dir"
+  mkdir -p "$dir/packaging/arch/vgshell"
+  printf 'recipe\n' >"$dir/packaging/arch/vgshell/PKGBUILD"
+  printf '#!/bin/sh\nexit 99\n' >"$dir/scripts/arch-packages.sh"
+  [[ $change != nix-flake ]] || hash_area=nix
+  if ! before="$(cd -- "$dir" && "${base_env[@]}" "$BASH" scripts/validate "$hash_area" --input-hash)"; then
+    fail "input hash $change: initial hash failed"; return
+  fi
+  case "$change" in
+    content) printf 'changed\n' >>"$dir/packaging/arch/vgshell/PKGBUILD" ;;
+    added) printf 'new input\n' >"$dir/packaging/arch/vgshell/new.patch" ;;
+    removed) rm -- "$dir/packaging/arch/vgshell/PKGBUILD" ;;
+    mode) chmod +x "$dir/scripts/arch-packages.sh" ;;
+    command) printf '# changed\n' >>"$dir/scripts/arch-packages.sh" ;;
+    unrelated) printf 'documentation\n' >"$dir/README.md" ;;
+    other-area|nix-flake) printf 'flake\n' >"$dir/flake.nix" ;;
+  esac
+  if ! after="$(cd -- "$dir" && "${base_env[@]}" "$BASH" scripts/validate "$hash_area" --input-hash)"; then
+    fail "input hash $change: changed hash failed"; return
+  fi
+  if [[ ! $before =~ ^[a-f0-9]{64}$ || ! $after =~ ^[a-f0-9]{64}$ ]]; then
+    fail "input hash $change: unreadable hash"
+  elif [[ $change == unrelated || $change == other-area ]]; then
+    if [[ $before == "$after" ]]; then ok "input hash ignores $change"; else fail "input hash changed for $change"; fi
+  elif [[ $before != "$after" ]]; then
+    ok "input hash binds $change"
+  else
+    fail "input hash missed $change"
+  fi
+}
+parallel_cases input_hash_case input-hash content added removed mode command unrelated other-area nix-flake
+
 # row NAME DIR WANT_EXIT EXTRA_ENV LINE...: run `scripts/validate repo` in
 # DIR under EXTRA_ENV (words of NAME=VALUE, or "") and assert its exit
 # status and that each LINE is a whole line of its output. A LINE written

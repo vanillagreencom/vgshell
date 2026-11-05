@@ -167,3 +167,5 @@ CI gains a runner with a DRM render node, the sandbox gains its own PAM, polkit 
 ## Not governed
 
 What a row or a Jarvis suite asserts, which is its own header; the input line format, which is `scripts/AGENTS.md`; the row order, which is `scripts/smoke/rows.list`; the harness's helpers, which are `scripts/smoke/harness.sh`.
+
+Nightly container-build reuse reads its input hash from `scripts/validate --input-hash`, never a separate input list. Keep its passing record in the Actions cache and look it up without restoring files. The latest passing build must match the inputs and be less than seven days old; a weekly or manually forced full build still checks upstream drift. Review holds the workflow wiring; `scripts/test-nightly-cache.py` holds the age and force decisions.

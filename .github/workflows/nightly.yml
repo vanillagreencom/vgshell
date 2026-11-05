@@ -13,6 +13,11 @@ on:
   schedule:
     - cron: "0 10 * * *"
   workflow_dispatch:
+    inputs:
+      force-build:
+        description: Rebuild package and nix even when their inputs have a recent pass
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -79,6 +84,65 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Identify container build inputs
+        if: matrix.area == 'package' || matrix.area == 'nix'
+        id: build-inputs
+        env:
+          AREA: ${{ matrix.area }}
+        run: |
+          hash="$(scripts/validate "$AREA" --input-hash)"
+          prefix="$RUNNER_OS-vgs-nightly-$AREA-v1-"
+          {
+            printf 'hash=%s\nprefix=%s\n' "$hash" "$prefix"
+            printf 'key=%s%s-%s-%s-%s\n' "$prefix" "$hash" "$(date +%s)" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Look up the latest passing container build
+        if: matrix.area == 'package' || matrix.area == 'nix'
+        id: build-pass
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/nightly-build-pass
+          key: ${{ steps.build-inputs.outputs.key }}
+          # A prefix match selects the newest-created pass, including a
+          # different hash. A return from A through B to A must rebuild.
+          # https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows#matching-a-cache-key
+          restore-keys: ${{ steps.build-inputs.outputs.prefix }}
+          lookup-only: true
+
+      - name: Decide whether the container build is due
+        if: matrix.area == 'package' || matrix.area == 'nix'
+        id: build-decision
+        env:
+          AREA: ${{ matrix.area }}
+          INPUT_HASH: ${{ steps.build-inputs.outputs.hash }}
+          CACHE_PREFIX: ${{ steps.build-inputs.outputs.prefix }}
+          PASS_KEY: ${{ steps.build-pass.outputs.cache-matched-key }}
+          FORCE_BUILD: ${{ inputs.force-build }}
+        run: |
+          skip=false
+          reason='no recorded passing build'
+          now="$(date +%s)"
+          if [[ $FORCE_BUILD == true ]]; then
+            reason='manual force build'
+          elif [[ $PASS_KEY == "$CACHE_PREFIX"* ]]; then
+            IFS=- read -r passed_hash passed_at _ <<<"${PASS_KEY#"$CACHE_PREFIX"}"
+            if [[ $passed_hash != "$INPUT_HASH" ]]; then
+              reason='inputs changed since the latest passing build'
+            elif [[ $passed_at =~ ^[0-9]{10}$ ]] && ((now >= passed_at && now - passed_at < 604800)); then
+              skip=true
+              reason='unchanged inputs; latest passing build is less than 7 days old'
+            else
+              reason='latest passing build is at least 7 days old or its age is unreadable'
+            fi
+          fi
+          printf 'skip=%s\n' "$skip" >>"$GITHUB_OUTPUT"
+          {
+            printf '### %s build inputs\n\nInput hash: %s\n\n' "$AREA" "$INPUT_HASH"
+            printf 'Latest passing key: %s\n\n' "${PASS_KEY:-none}"
+            printf 'Skip: %s (%s).\n\n' "$skip" "$reason"
+          } >>"$GITHUB_STEP_SUMMARY"
+
       - name: Restore pinned catalog inputs
         if: matrix.area == 'offline'
         id: catalog-inputs
@@ -103,6 +167,8 @@ jobs:
           key: ${{ steps.catalog-inputs.outputs.cache-primary-key }}
 
       - name: scripts/validate --full --skip-unprepared ${{ matrix.area }}
+        if: steps.build-decision.outputs.skip != 'true'
+        id: full-build
         env:
           AREA: ${{ matrix.area }}
           IMAGE: ${{ matrix.image }}
@@ -131,3 +197,16 @@ jobs:
             printf '```\n'
           } >>"$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+      - name: Record the passing container build
+        if: (matrix.area == 'package' || matrix.area == 'nix') && steps.full-build.outcome == 'success'
+        env:
+          INPUT_HASH: ${{ steps.build-inputs.outputs.hash }}
+        run: printf '%s\n' "$INPUT_HASH" >"$RUNNER_TEMP/nightly-build-pass"
+
+      - name: Save the passing container build
+        if: (matrix.area == 'package' || matrix.area == 'nix') && steps.full-build.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/nightly-build-pass
+          key: ${{ steps.build-inputs.outputs.key }}

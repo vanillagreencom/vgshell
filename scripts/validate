@@ -3,6 +3,10 @@
 #
 # Usage: scripts/validate [AREA] [--changed BASE | --full] [--list] [--skip-unprepared]
 #        scripts/validate --prepare-catalog-inputs
+#        scripts/validate package|nix --input-hash
+#   --input-hash prints the SHA256 of the area's declared repository inputs
+#   and this selector, including uncommitted files, without running checks.
+#   Nightly uses it to identify a passing container build. It reads no base.
 #   AREA is one of: logic, manifests, boundary, cli, tools, repo, offline,
 #   unit, package, qml, nix, all (default: all). One area per call.
 #   repo holds the checks this file makes itself, the whitespace
@@ -147,6 +151,7 @@ area_given=false
 change_base=""
 list_only=false
 full_scope=false
+input_hash=false
 skip_unprepared=false
 unselected=false
 catalog_prepare_only=false
@@ -171,6 +176,7 @@ while [[ $# -gt 0 ]]; do
       fi
       full_scope=true; shift ;;
     --list) list_only=true; shift ;;
+    --input-hash) input_hash=true; shift ;;
     --skip-unprepared) skip_unprepared=true; shift ;;
     *)
       if [[ $area_given == true ]]; then
@@ -183,6 +189,12 @@ case "$area" in
   logic|manifests|boundary|cli|tools|repo|offline|unit|package|qml|nix|all) ;;
   *) printf 'validate: refused: area=%s\n' "$area" >&2; exit 2 ;;
 esac
+if [[ $input_hash == true ]]; then
+  if [[ $area != package && $area != nix ]] || [[ $full_scope == true || -n $change_base || $list_only == true || $skip_unprepared == true ]]; then
+    echo 'validate: refused: input-hash=requires-package-or-nix-only' >&2; exit 2
+  fi
+  full_scope=true
+fi
 jobs_max="${VGS_VALIDATE_JOBS:-}"
 if [[ -z $jobs_max ]]; then
   jobs_max="$(nproc)"
@@ -593,6 +605,7 @@ rows=(
   "unit|qml unit controls|scripts/test-qml-unit.sh|%scope scripts/qml-unit.sh scripts/qml-tests/* shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/PluginStatus.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/Words.qml shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml"
   "unit|Keys labels show whole|node scripts/test-key-labels.js|shell/plugins/*/manifest.json shell/plugins/*/Service.qml shell/plugins/vgs.themes/BrowserLogic.js shell/Ui/* shell/Commons/* shell/assets/* scripts/qml-unit.sh scripts/qml-tests/stand-ins/* bin/lib/qml-library.js scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|session lock controls|scripts/test-session-lock.sh|shell/Core/SessionLock.qml shell/Commons/SessionLockState.js scripts/qml-unit.sh scripts/qml-tests/tst_session_lock.qml scripts/qml-tests/stand-ins/* scripts/smoke/gpu-fence.sh shell/shell.qml"
+  "tools|nightly build cache controls|python3 scripts/test-nightly-cache.py|.github/workflows/nightly.yml"
   "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock packaging/arch/vgshell-quickshell/* config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION @alone|container"
   "package|Debian engine build|scripts/debian-packages.sh|scripts/debian-packages.sh packaging/debian/* packaging/arch/vgshell-quickshell/* @alone|container"
   "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json @alone|container"
@@ -1932,6 +1945,45 @@ for i in "${!rows[@]}"; do
     esac
   done
 done
+
+# Use the same input index as selection. Hash the complete input set,
+# rather than a branch-relative record, so unrelated landings keep the key.
+if [[ $input_hash == true ]]; then
+  if ! input_tree="$(worktree_tree)" || [[ $input_tree == unreadable ]]; then
+    echo 'validate: input-hash=unreadable-tree' >&2; exit 1
+  fi
+  input_records=("validate-inputs 1" "area=$area")
+  input_members=" "
+  for i in "${!rows[@]}"; do
+    IFS='|' read -r row_area _ <<<"${rows[i]}"
+    [[ $row_area == "$area" ]] || continue
+    if [[ ${row_traced[i]} != true || ${row_scoped[i]} == true ]]; then
+      printf 'validate: input-hash=untraced row=%s\n' "${rows[i]}" >&2; exit 1
+    fi
+    input_members+="$i "
+    input_records+=("${rows[i]}")
+  done
+  if ! mapfile -d '' -t input_entries < <(git ls-tree -r -z "$input_tree") || ! wait "$!"; then
+    echo 'validate: input-hash=unreadable-inputs' >&2; exit 1
+  fi
+  for entry in "${input_entries[@]}"; do
+    path="${entry#*$'\t'}"
+    if [[ $path == scripts/validate ]]; then
+      input_records+=("$entry")
+      continue
+    fi
+    index_match row_index "$path"
+    for i in $index_hits; do
+      if [[ $input_members == *" $i "* ]]; then
+        input_records+=("$entry")
+        break
+      fi
+    done
+  done
+  input_sum="$(printf '%s\0' "${input_records[@]}" | sha256sum)"
+  printf '%s\n' "${input_sum%% *}"
+  exit 0
+fi
 
 # path_reach PATH: set path_hit[PATH] to the indexes of the rows one of
 # whose patterns matches PATH, space-delimited, or to `full` when none does
