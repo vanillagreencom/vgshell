@@ -19,15 +19,10 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 
 ## Setup
 
-| Setting | What it changes |
-| --- | --- |
-| After capture | Save and copy, copy only, or save only. |
-| Screenshot folder | Empty uses Screenshots in your Pictures folder. A custom folder is an absolute path or starts with `~/`. |
-| Recording folder | Empty uses Screencasts in your Videos folder. |
-| Audio | None, desktop, microphone, or desktop and microphone. |
-| Text languages | The languages Capture reads. English comes with Capture. Install languages adds the others you choose. |
-| Image viewer, Image editor, Video player | The program each notification button starts. imv, Satty and mpv are the defaults. |
+Open Plugin settings from the launcher and choose Capture. On Settings, choose whether screenshots save, copy or do both. Leave the folders empty to use Screenshots in your Pictures folder and Screencasts in your Videos folder. A custom folder is an absolute path or starts with `~/`.
 
-Every saved recording puts its file link on the clipboard, which replaces what the clipboard held. Recording needs gpu-screen-recorder, which the Arch and NixOS packages provide. A missing tool opens the install notice for the action that needs it.
+Choose recording audio and a camera on the same page. Text languages selects the languages Capture reads; use Install languages on Setup for missing language data. Open with chooses the viewer, editor and player used by capture notifications.
 
-[developer.md](developer.md) states each action and its IPC name.
+Every saved recording puts its file link on the clipboard, which replaces what the clipboard held. A missing tool opens the install notice for the action that needs it.
+
+For capture actions in scripts, see the [developer reference](developer.md).

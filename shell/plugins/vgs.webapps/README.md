@@ -14,14 +14,10 @@ Web Apps turns a website into an app. Each web app has its own name and icon in 
 
 ## Setup
 
-Each web app has these fields under Web apps.
+Open Plugin settings from the launcher and choose Web Apps. On Settings, add an entry under Web apps and choose its Address. Pick a common site or choose Custom… to enter another address.
 
-| Setting | What it changes |
-| --- | --- |
-| Address | The web address of the site. Pick a common site, or choose Custom… and type the address. |
-| Name | The name the launcher shows. The site's own name is the default. |
-| Icon | The site's own icon is the default. Choose Custom… to give the full path or the web address of an image. |
+Leave Name and Icon empty to use the site's own name and icon. To choose another icon, use Custom… and give the full path or web address of an image.
 
-A web app opens in a browser of the Chromium family: Chromium, Google Chrome, Brave, Vivaldi, Microsoft Edge, Opera, Thorium or Helium. VGS uses your default browser when it is one of these, and otherwise the first one it finds. Firefox cannot open a site in its own window. With none of these browsers installed, the Details page says so.
+A web app needs a Chromium-family browser, such as Chromium, Google Chrome or Brave. VGS uses your default browser when it supports app windows, or another installed Chromium-family browser. Firefox is not supported. Details shows the chosen browser or warns when none is available.
 
 Turning off or removing Web Apps leaves its web apps in the launcher. Remove them on the Web Apps page first.
