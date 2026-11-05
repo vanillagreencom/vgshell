@@ -27,6 +27,7 @@ import ctypes
 import json
 from pathlib import Path
 import re
+import resource
 import sys
 
 SYSTEM_XKB_ROOT = "/usr/share/X11/xkb"
@@ -260,6 +261,18 @@ def resolve_request(value):
 def main():
     """Write one complete answer; an unresolved key never yields a partial set."""
     try:
+        # Preserve the two-second computation allowance, not a wall deadline:
+        # QML supplies stdin and receives exit on its event loop. KEYTRACE on
+        # cachy, VGS-2297 (2026-11-04), measured 1061 ms of completed-answer
+        # delivery delay versus 4.150 ms compiling/indexing the two maps.
+        # Its isolated helper profile at load5 18.04-21.81 took 25-52 ms
+        # (median 29 ms). Indexing once per request cannot bound delivery.
+        # RLIMIT_CPU excludes those waits and scheduler starvation:
+        # https://docs.python.org/3/library/resource.html#resource.RLIMIT_CPU
+        try:
+            resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
+        except (OSError, ValueError) as error:
+            raise Refusal("cpu-limit-setup") from error
         value = json.load(sys.stdin, object_pairs_hook=unique_object)
         answer = resolve_request(value)
     except (ValueError, UnicodeError):

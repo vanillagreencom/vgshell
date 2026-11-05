@@ -309,7 +309,7 @@ mutations=(
   "turning the reads off keeps the binds failure|../Core/HyprlandState.qml|        bindsFailure = \"\";|        {}|tst_hyprlandstate_binds.qml"
   "expired key reply falls through to ordinary devices|../Core/HyprlandState.qml|const keysReply = request !== null;|const keysReply = request !== null && root.ownsKeys(request);|tst_hyprlandstate_binds.qml"
   "a key resolution token is a plain object|../Core/HyprlandState.qml|const token = \"keys:\" + keyRequestSerial;|const token = {};|tst_hyprlandstate_binds.qml"
-  "the KEYS read runs under the helper's deadline|../Core/HyprlandState.qml|        keyResolution = { token: token, keys: keys, done: done };|        keyResolution = { token: token, keys: keys, done: done }; keyDeadline.requestToken = token; keyDeadline.start();|tst_hyprlandstate_binds.qml"
+  "a slow key helper request is dropped|../Core/HyprlandState.qml|                        keyResolver.running = true;|                        keyResolver.running = true; root.finishKeys(request, { ok: false, error: \"refused: keymap=timeout\" });|tst_hyprlandstate_binds.qml"
   "a layout switch event re-resolves keys|../Core/HyprlandState.qml|} else if (event.name === \"activelayout\") {|} else if (event.name === \"activelayout\") { root.keymapRevision++;|tst_hyprlandstate_binds.qml"
   "a queued layout switch re-resolves keys|../Core/HyprlandState.qml|function onKeyboardLayoutSwitched() { root.readDevices(); }|function onKeyboardLayoutSwitched() { root.keymapRevision++; root.readDevices(); }|tst_hyprlandstate_binds.qml"
   "a device count change re-resolves keys|../Core/HyprlandState.qml|onCountChanged: root.readDevices()|onCountChanged: { root.keymapRevision++; root.readDevices(); }|tst_hyprlandstate_binds.qml"

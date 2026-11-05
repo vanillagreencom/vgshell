@@ -148,8 +148,6 @@ Scope {
         if (!ownsKeys(token)) return;
         const pending = keyResolution;
         keyResolution = null;
-        keyDeadline.stop();
-        keyDeadline.requestToken = null;
         pending.done(value);
     }
 
@@ -179,17 +177,6 @@ Scope {
                 ? { ok: false, error: "refused: keymap=resolver-failed" } : value);
         }
     }
-    Timer {
-        id: keyDeadline
-        property var requestToken: null
-        interval: 2000
-        onTriggered: {
-            const token = requestToken;
-            root.finishKeys(token, { ok: false, error: "refused: keymap=timeout" });
-            if (keyResolver.requestToken === token) keyResolver.running = false;
-        }
-    }
-
     function readOptions() {
         if (!active) return;
         optionsReader.read(State.OPTIONS_REQUEST, written.concat(appearanceWritten));
@@ -335,13 +322,11 @@ Scope {
                         keyResolver.requestToken = request;
                         keyResolver.requestText = wire;
                         keyResolver.stdinEnabled = true;
-                        // The deadline bounds the helper alone; the KEYS read
-                        // settles from its in-flight reply, as every
-                        // HyprctlReader read does. Timer.start() does nothing
-                        // on a running timer, so restart() times this run:
-                        // https://doc.qt.io/qt-6/qml-qtqml-timer.html#start-method
-                        keyDeadline.requestToken = request;
-                        keyDeadline.restart();
+                        // Process.started supplies stdin on the QML thread:
+                        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+                        // A wall timer here also times that thread's delivery
+                        // and the scheduler, not just XKB work. The helper owns
+                        // its CPU bound; retain this request until its answer.
                         keyResolver.running = true;
                     }
                 }

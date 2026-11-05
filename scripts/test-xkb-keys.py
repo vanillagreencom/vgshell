@@ -9,6 +9,7 @@ The expected physical codes and canonical names are explicit fixture values.
 
 from collections import Counter
 import importlib.util
+import io
 import json
 from pathlib import Path
 import shutil
@@ -202,6 +203,17 @@ class Mapping(unittest.TestCase):
             with self.subTest(text=text):
                 self.refused(text, "input-json")
 
+    def test_cpu_limit_setup_failure(self):
+        # An inherited hard limit can make the kernel refuse our allowance.
+        # Name that operation instead of blaming otherwise valid input JSON.
+        for error in (OSError("limit refused"), ValueError("hard limit")):
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(helper.resource, "setrlimit", side_effect=error), \
+                    mock.patch.object(helper.sys, "stdin", io.StringIO(json.dumps(request(["A"])))), \
+                    mock.patch.object(helper.sys, "stdout", io.StringIO()) as output:
+                self.assertEqual(helper.main(), 1)
+                self.assertEqual(json.loads(output.getvalue()), {"ok": False, "error": "cpu-limit-setup"})
+
     def test_input_shape(self):
         for value in ([], {}, {**request([]), "extra": True}):
             with self.subTest(value=value):
@@ -311,8 +323,7 @@ class Mapping(unittest.TestCase):
                 self.refused(request(keys, options="caps:escape"), error)
 
     def test_keymap_read_once_per_request(self):
-        # The resolver runs under a 2 s deadline, so a request's keymap reads
-        # must not multiply with its key count.
+        # Index work must not multiply with the number of requested keys.
         keys = [chr(letter) for letter in range(ord("A"), ord("Z") + 1)]
         with mock.patch.object(helper, "symbols", wraps=helper.symbols) as read:
             self.assertEqual(len(helper.resolve(request(keys))["keys"]), len(keys))
@@ -368,6 +379,8 @@ class Controls(unittest.TestCase):
         ("compiled layout bound", "layout >= lib.xkb_keymap_num_layouts(keymap)",
          "False", "test_compiled_layout_index"),
         ("JSON duplicates", "if len(value) != len(pairs):", "if False:", "test_json"),
+        ("CPU limit setup failure", 'raise Refusal("cpu-limit-setup") from error',
+         'if False: raise Refusal("cpu-limit-setup") from error', "test_cpu_limit_setup_failure"),
         ("dual outer fields", 'set(value) != {"keyboard", "keys", "translation"}',
          "False", "test_dual_outer_shape"),
         ("translation map", 'translated = resolve(value["translation"])["keys"]',

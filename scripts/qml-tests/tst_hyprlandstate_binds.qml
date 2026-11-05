@@ -32,7 +32,6 @@ Item {
         }
 
         function reader(owner) { for (const child of owner.data) if (child.label === "devices") return child; }
-        function deadline(owner) { for (const child of owner.data) if (child.interval === 2000) return child; }
         function helper(owner) { for (const child of owner.data) if (child.requestText !== undefined) return child; }
         function resolved() {
             const key = { modifiers: ["SUPER"], keycode: 44, keysym: "j", codepoint: 106 };
@@ -40,7 +39,7 @@ Item {
         }
 
         function test_key_resolution_lifetime_data() {
-            return ["inactive", "ordinary", "ordinary-during-keys", "ordinary-failure-during-keys", "matching", "expired", "older-during-new", "old-deadline", "queued", "repeated", "changed-layout", "matching-failure", "policy-refusal", "stale-failure", "reactivated", "old-helper", "busy", "slow-keys"].map(name => ({ tag: name, kind: name }));
+            return ["inactive", "ordinary", "ordinary-during-keys", "ordinary-failure-during-keys", "matching", "expired", "older-during-new", "queued", "repeated", "changed-layout", "matching-failure", "policy-refusal", "stale-failure", "reactivated", "old-helper", "busy", "slow-keys", "slow-helper"].map(name => ({ tag: name, kind: name }));
         }
 
         // expected-log: hyprland: devices=failed status=1 -- matching-failure supplies the real reader failure
@@ -89,13 +88,9 @@ Item {
                     return;
                 }
                 if (data.kind === "slow-keys") {
-                    compare(deadline(owner).running, false, "the KEYS read runs under no deadline");
-                    deadline(owner).triggered();
-                    compare(answers.length, 0, "a deadline cannot end a KEYS read in flight");
+                    compare(answers.length, 0, "the KEYS read retains its request until answered");
                     read.readDone(a, keysText(), "");
                     compare(helper(owner).requestToken, a);
-                    compare(deadline(owner).requestToken, a);
-                    compare(deadline(owner).running, true, "the deadline bounds the helper");
                     helper(owner).finish(0, 0, resolved());
                     compare(answers.length, 1);
                     compare(answers[0].ok, true);
@@ -103,7 +98,7 @@ Item {
                 }
                 if (data.kind === "queued") {
                     read.readDone(a, keysText(), "");
-                    deadline(owner).triggered();
+                    helper(owner).finish(2, 0, "");
                     const b = start("SUPER+K");
                     verify(b !== null && b !== a);
                     let process;
@@ -120,17 +115,12 @@ Item {
                     compare(answers[1].ok, true);
                     return;
                 }
-                if (["expired", "older-during-new", "old-deadline", "stale-failure", "reactivated"].indexOf(data.kind) !== -1) {
+                if (["expired", "older-during-new", "stale-failure", "reactivated"].indexOf(data.kind) !== -1) {
                     if (data.kind === "reactivated") { owner.active = false; owner.active = true; }
-                    else { read.readDone(a, keysText(), ""); deadline(owner).triggered(); }
+                    else { read.readDone(a, keysText(), ""); helper(owner).finish(2, 0, ""); }
                     compare(answers.length, 1);
-                    compare(answers[0].error, data.kind === "reactivated" ? "refused: keymap=inactive" : "refused: keymap=timeout");
+                    compare(answers[0].error, data.kind === "reactivated" ? "refused: keymap=inactive" : "refused: keymap=resolver-failed");
                     const b = data.kind === "expired" ? null : start("SUPER+K");
-                    if (data.kind === "old-deadline") {
-                        owner.finishKeys(a, { ok: false, error: "refused: keymap=timeout" });
-                        compare(owner.keyResolution.token, b, "an older deadline cannot finish B");
-                        compare(deadline(owner).requestToken, null, "B's KEYS read runs under no deadline");
-                    }
                     const before = JSON.stringify(owner.devices);
                     const failure = data.kind === "stale-failure" ? "devices=failed status=1" : "";
                     read.readDone(a, keysText(), failure);
@@ -160,6 +150,16 @@ Item {
                 read.readDone(a, keysText(), "");
                 compare(owner.keyResolution.token, a, "record copies retain the opaque token");
                 compare(helper(owner).requestToken, a);
+                if (data.kind === "slow-helper") {
+                    // This is a timer-wiring regression, not a speed budget:
+                    // leave the real QML event loop free beyond the former
+                    // two-second cancellation while the Process stand-in
+                    // withholds completion. No CPU or host load is generated.
+                    wait(2100);
+                    compare(answers.length, 0, "slow execution or delivery cannot drop an accepted request");
+                    compare(owner.keyResolution.token, a);
+                    compare(helper(owner).running, true);
+                }
                 if (data.kind === "repeated") {
                     const wire = helper(owner).requestText;
                     read.readDone(a, keysText(), "");
@@ -175,7 +175,7 @@ Item {
                     return;
                 }
                 if (data.kind === "old-helper") {
-                    deadline(owner).triggered();
+                    helper(owner).finish(2, 0, "");
                     compare(answers.length, 1);
                     const b = start("SUPER+K");
                     verify(b !== null && b !== a);
@@ -184,7 +184,6 @@ Item {
                     helper(owner).completion = { token: a, code: 0, status: 0 };
                     helper(owner).runningChanged();
                     compare(owner.keyResolution.token, b, "old helper completion cannot finish B");
-                    compare(deadline(owner).requestToken, null, "B's KEYS read runs under no deadline");
                     compare(answers.length, 1);
                     return;
                 }
@@ -192,7 +191,6 @@ Item {
                 compare(owner.keyResolution, null);
                 compare(answers.length, 1);
                 compare(answers[0].ok, true);
-                compare(deadline(owner).requestToken, null);
             } finally {
                 owner.active = false;
                 owner.destroy();
