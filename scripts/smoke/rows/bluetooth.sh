@@ -796,7 +796,10 @@ bt_main() {
   expect_poll "the Bluetooth service is built" True record_exists vgs.bluetooth
   expect_poll "the service reads rfkill unblocked and hci0 powered: on" on bt_view
   expect_poll "the widget shows on with the connected headphones" '"bluetooth-connected"' bt_widget_view icon
-  bt_popup_native || return 0
+  bt_popup_native || {
+    row_class=operation fail "bluetooth: native popup proof failed status=$?"
+    return 0
+  }
 
   # Off: the soft block is the state, and BlueZ follows it.
   local rfkill_before
