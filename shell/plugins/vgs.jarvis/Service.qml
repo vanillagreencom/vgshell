@@ -116,7 +116,19 @@ Item {
     readonly property string focusedOutput: Hyprland.focusedMonitor === null ? "" : Hyprland.focusedMonitor.name
     readonly property bool bubbleWanted: !lockObservation() && lifetime.kind === "ready" && cause === ""
         && sessionState !== null && Session.indicatorWanted(sessionState)
-    readonly property bool indicatorPresented: bubbles.some(item => item !== null && item.presented)
+        && (sessionState.visibility.kind === "shown" || sessionState.approval.kind === "held" || sessionState.fault.kind !== "none")
+    readonly property bool indicatorPresented: bubbles.some(item => item !== null && item.capturePresented)
+    // Only the core bar host publishes these completed frames. Placement,
+    // existence and widget-originated IPC are not presentation evidence.
+    readonly property var barPresentations: shell === null ? [] : shell.layers.barIndicators
+    readonly property string barIndicator: {
+        if (locked || lifetime.kind !== "ready" || cause !== "" || sessionState === null) return "gone";
+        const key = String(sessionState.gen);
+        const current = barPresentations.filter(row => row.output === focusedOutput
+            && (row.key === key + ":present" || row.key === key + ":listening"));
+        return current.some(row => row.key === key + ":listening" && row.dot === "success")
+            ? "listening" : current.length > 0 ? "present" : "gone";
+    }
     // The console's box while a request waits for an answer, so the bubble
     // on that output can stand clear of the message field: { output, x, y,
     // width, height } in the logical pixels of a passive layer there, which
@@ -209,6 +221,8 @@ Item {
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
             shell.ipc.handle("new-conversation", () => newConversation());
+            shell.ipc.handle("hide", () => setVisibility("hide"));
+            shell.ipc.handle("show", () => setVisibility("show"));
             shell.ipc.handle("check-microphone", () => {
                 if (locked || !Session.canCheck(sessionState)) return "refused: microphone-check=unavailable";
                 intent("voice-check");
@@ -272,25 +286,31 @@ Item {
     onEffectiveKeysChanged: hello()
     onTaskTuiRunningChanged: sendTuiState()
     onIndicatorPresentedChanged: {
-        const shown = indicatorPresented;
+        const observation = { shown: indicatorPresented, bar: barIndicator };
         // Keep every loss edge, but never grant a queued stale presentation.
-        Qt.callLater(() => sendIndicator(shown));
+        Qt.callLater(() => sendIndicator(observation));
     }
-    onSessionStateChanged: Qt.callLater(() => sendIndicator(indicatorPresented))
+    onBarIndicatorChanged: {
+        const observation = { shown: indicatorPresented, bar: barIndicator };
+        Qt.callLater(() => sendIndicator(observation));
+    }
+    onSessionStateChanged: Qt.callLater(() => sendIndicator({ shown: indicatorPresented, bar: barIndicator }))
 
     function attachBubble(item) { bubbles = bubbles.concat([item]); }
     function detachBubble(item) { bubbles = bubbles.filter(found => found !== item); }
 
-    function sendIndicator(shown) {
+    function sendIndicator(observation) {
         if (shell === null || lifetime.kind !== "ready" || sessionState === null || cause !== "" || !child.running) return;
-        if (shown && !indicatorPresented) shown = false;
-        const kind = shown ? "shown" : "gone";
-        if (indicatorDelivery.kind === kind) return;
+        const shown = observation.shown && indicatorPresented;
+        const bar = observation.bar === "gone" || barIndicator === "gone" ? "gone"
+            : observation.bar === "listening" && barIndicator === "listening" ? "listening" : "present";
+        const identity = JSON.stringify([sessionState.gen, shown, bar]);
+        if (indicatorDelivery.identity === identity) return;
         try {
             const wire = JSON.stringify({ v: 1, type: "indicator", gen: sessionState.gen,
-                revision: shell.manifest.__revision, shown: shown });
+                revision: shell.manifest.__revision, shown: shown, bar: bar });
             Protocol.accept(wire, "shell");
-            indicatorDelivery = { kind: kind };
+            indicatorDelivery = { identity: identity };
             child.write(wire + "\n");
         } catch (error) { broken(error.message); }
     }
@@ -471,6 +491,11 @@ Item {
 
     function intent(name) {
         if (shell === null) return;
+        if (name === "hide" || name === "show") {
+            const reply = setVisibility(name);
+            if (reply !== "ok") console.warn("jarvis: visibility " + reply);
+            return;
+        }
         if (name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {
             lifetime = { kind: "stopped" };
             retry.stop();
@@ -506,6 +531,17 @@ Item {
         if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
             return "refused: jarvis=not-ready";
         sendIntent("new-conversation");
+        return "ok";
+    }
+
+    function setVisibility(name) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        if (name === "hide" && barIndicator === "gone") return "refused: hide=indicator";
+        // The current host observation precedes the request on the same
+        // ordered wire. Session rejudges it, including loss during Hide.
+        sendIndicator({ shown: indicatorPresented, bar: barIndicator });
+        sendIntent(name);
         return "ok";
     }
 
@@ -1400,7 +1436,7 @@ Item {
                 if (!publishSetup({ kind: "answered", causes: message.cautions.concat(message.causes) })) return;
                 if (!publishPersonality() || !publishStartText()) return;
                 sendTuiState();
-                Qt.callLater(() => sendIndicator(indicatorPresented));
+                Qt.callLater(() => sendIndicator({ shown: indicatorPresented, bar: barIndicator }));
                 refreshShell();
                 deliverMainHost();
                 refreshEchoCancel();

@@ -20,7 +20,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
 const cancel = { ...intent, intent: "cancel", id };
 const shown = { v: 1, type: "shown", gen: 0, revision: hello.revision, id };
-const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true };
+const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true, bar: "gone" };
 const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [], cautions: [] };
 const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "available" } };
 const memory = { v: 1, type: "memory", gen: 0, revision: hello.revision, cause: "memory=sqlite" };
@@ -180,6 +180,9 @@ const cases = [
     ["indicator-direction", JSON.stringify(indicator), "daemon", "direction-indicator"],
     ["indicator-shape", changed(indicator, { extra: true }), "shell", "shape-indicator"],
     ["indicator-shown", changed(indicator, { shown: 1 }), "shell", "indicator"],
+    ["indicator-bar", changed(indicator, { bar: true }), "shell", "bar-indicator"],
+    ["indicator-bar-proxy", changed(indicator, { bar: "configured" }), "shell", "bar-indicator"],
+    ["indicator-bar-missing", JSON.stringify({ v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true }), "shell", "shape-indicator"],
     ["input-point", changed(request, { kind: "input.observe", args: [1] }), "daemon", "request-args"],
     ["input-target", changed(inputReply, { data: { ...inputReply.data, target: { kind: "unknown", id: "fixture" } } }), "shell", "input-reply"],
     ["input-key", changed(keysReply, { data: { ...keysReply.data, keys: [{ modifiers: ["SUPER"], keycode: 0, keysym: "a", codepoint: 97 }] } }), "shell", "input-reply"],
@@ -485,7 +488,7 @@ const dueState = (() => {
     const Session = Protocol.Session;
     let s = Session.initial();
     for (const e of [{ type: "snapshot", locked: false, engine: "duplex", configured: true, settings: {} },
-        { type: "indicator", shown: true }, { type: "talk-down" }])
+        { type: "indicator", shown: true, bar: "gone" }, { type: "talk-down" }])
         s = Session.reduce(s, { at: 1, ...e }).state;
     s = Session.reduce(s, { type: "speech-due", at: 2, gen: s.speech.gen, op: s.speech.op, due: true }).state;
     assert.equal(s.speech.reply.kind, "due");
@@ -578,6 +581,15 @@ for (const message of [confirm, { ...confirm, source: "button" }, cancel, memory
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
+for (const bar of ["gone", "present", "listening"])
+    assert.equal(Protocol.accept(changed(indicator, { bar }), "shell").bar, bar);
+for (const name of ["hide", "show"])
+    assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
+rejected(Protocol, ["hidden-restore-not-an-intent", changed(intent, { intent: "hidden" }), "shell", "intent"]);
+for (const visibility of [{ kind: "shown" }, { kind: "hidden" }]) for (const bar of ["gone", "present", "listening"]) {
+    const record = { ...state, state: { ...state.state, visibility, barIndicator: bar === "gone" ? { kind: bar } : { kind: bar, gen: state.gen } } };
+    assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(record), "daemon")), JSON.stringify(record));
+}
 for (const holdToTalk of [false, true])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, holdToTalk },
         keys: { talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.holdToTalk, holdToTalk);
@@ -766,14 +778,16 @@ try {
             'if (false) fail("direction-indicator");', "indicator-direction"],
         ["indicator-shown", 'if (typeof message.shown !== "boolean") fail("indicator");',
             'if (false) fail("indicator");', "indicator-shown"],
-        ["indicator-shape", 'keys(message, ["v", "type", "gen", "revision", "shown"], "indicator");',
+        ["indicator-shape", 'keys(message, ["v", "type", "gen", "revision", "shown", "bar"], "indicator");',
             'void message;', "indicator-shape"],
+        ["indicator-bar", 'if (["gone", "present", "listening"].indexOf(message.bar) === -1) fail("bar-indicator");',
+            'if (false) fail("bar-indicator");', "indicator-bar"],
         ["hold-to-talk", 'if (typeof message.settings.holdToTalk !== "boolean") fail("hold-to-talk");',
             'if (false) fail("hold-to-talk");', "hold-to-talk-null"],
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],

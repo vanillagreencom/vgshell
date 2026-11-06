@@ -45,7 +45,7 @@ Item {
     Bubble { id: bubble; width: root.width; height: root.height; screen: ({ name: "unit" }); service: service }
 
     function session(over) {
-        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" }, barIndicator: { kind: "present", gen: 1 } });
         for (const key in over) s[key] = over[key];
         return s;
     }
@@ -251,7 +251,8 @@ Item {
                 { tag: "Mute Jarvis's voice", index: 0, intents: '["voice-mute"]', pages: "[]" },
                 { tag: "Stop Jarvis", index: 2, intents: '["stop"]', pages: "[]" },
                 { tag: "New conversation", index: 3, intents: '["new-conversation"]', pages: "[]" },
-                { tag: "Key hints", index: 4, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
+                { tag: "Hide Jarvis", index: 4, intents: '["hide"]', pages: "[]" },
+                { tag: "Key hints", index: 5, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
             ];
         }
 
@@ -263,8 +264,8 @@ Item {
             verify(open !== null, "the menu is built");
             tryCompare(open, "opened", true);
             compare(bubble.menuOpened, true);
-            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Key hints"]));
-            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["volume-x", "mic", "square", "message-circle-plus", "keyboard"]));
+            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"]));
+            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["volume-x", "mic", "square", "message-circle-plus", "eye-off", "keyboard"]));
             open.items()[data.index].triggered();
             compare(JSON.stringify(root.intents), data.intents);
             compare(JSON.stringify(root.pages), data.pages);
@@ -317,6 +318,44 @@ Item {
             mouseClick(root, centre.x, centre.y, Qt.RightButton);
             verify(renderedFrame(root));
             compare(bubble.menuOpened, false);
+        }
+
+        function test_hidden_overlay_has_only_required_content_data() {
+            return [
+                { tag: "listening", regions: { capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }, required: false },
+                { tag: "speaking", regions: { playback: { kind: "playing" }, voiceMute: { kind: "on" } }, required: false },
+                { tag: "rest", regions: {}, required: false },
+                { tag: "fault", regions: { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, required: true },
+                { tag: "held", regions: { approval: { kind: "held", id: "fixture", gen: 1, digest: "fixture",
+                    purpose: "action", tool: "fixture", text: "Allow fixture?", physical: true } }, required: true }
+            ];
+        }
+        function test_hidden_overlay_has_only_required_content(data) {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            service.shell.status.values.transcript = { gen: 1, role: "assistant", text: "Hidden answer" };
+            put(root.session(Object.assign({ visibility: { kind: "hidden" },
+                conversation: { kind: "active", purpose: "conversation" } }, data.regions)));
+            compare(orb().visible, false);
+            compare(orb().active, false);
+            compare(bubble.words, "");
+            compare(bubble.iconsShown, false);
+            compare(bubble.capturePresented, false, "required text never claims to be the orb indicator");
+            compare(bubble.fieldBoxes.length, data.required ? 1 : 0, "no orb field or halo remains");
+            compare(named("field").visible, data.required);
+            compare(holdsOrb(), false);
+            if (!data.required) {
+                compare(bubble.inputItems.length, 0, "hidden content has no pointer region");
+                return;
+            }
+            verify(bubble.inputItems.length > 0, "required content remains actionable");
+            if (data.tag === "held") {
+                verify(bubble.approvalWhole, "the held question still draws whole");
+                compare(named("overlay").height > 0, true);
+            } else verify(bubble.fault !== null);
+            const show = bubble.menuEntries.find(row => row.intent === "show");
+            verify(show !== undefined && show.disabledReason === "");
+            bubble.runEntry(show);
+            compare(JSON.stringify(root.intents), '["show"]');
         }
     }
 }

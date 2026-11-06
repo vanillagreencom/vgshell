@@ -52,6 +52,10 @@ Item {
     property var settings: ({})
     property var frame: null
     property bool unplaced: false
+    // Optional real BarItem for the bar host's frame observation. This
+    // declaration requests observation, never grants presentation itself.
+    property Item presentationItem: null
+    property string presentationKey: ""
     // A saved widget can become unplaced without being destroyed. Close
     // its frame UI before any menu action can use the withdrawn locator.
     onFrameChanged: if (frame === null) frameUi.active = false

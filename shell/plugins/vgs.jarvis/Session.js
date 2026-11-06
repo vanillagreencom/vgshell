@@ -24,7 +24,7 @@ var CONVERSATION_QUIET_MS = 30 * 60 * 1000;
 var TAP_MS = 600;
 var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
-    "snapshot", "indicator", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
+    "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
@@ -41,7 +41,8 @@ function initial() {
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" }, cue: { kind: "none" },
         conversation: { kind: "ended" }, history: { kind: "current", epoch: 0 },
         input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
-        indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
+        indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
+        duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
     };
 }
@@ -184,14 +185,27 @@ function canCheck(s) {
         && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind !== "running" && s.approval.kind !== "held";
 }
 
-function canCapture(s) {
+function captureWanted(s) {
     var checking = s.input.kind === "check" && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
         && s.fault.kind === "none" && ["waiting", "recording"].indexOf(s.check.kind) !== -1;
-    return (canEngage(s) || checking) && s.indicator.kind === "shown"
+    return (canEngage(s) || checking)
         && (s.playback.kind === "idle" || overlapping(s) && s.playback.kind === "playing")
         && s.cue.kind === "none" && s.turn.kind !== "cancelling"
         && ["held", "conversation", "check"].indexOf(s.input.kind) !== -1
         && (s.conversation.kind !== "ended" && !previewConversation(s) || checking);
+}
+
+function canCapture(s) {
+    return captureWanted(s) && (s.visibility.kind === "hidden"
+        ? barPresented(s) && s.barIndicator.kind === "listening" : s.indicator.kind === "shown");
+}
+
+function barPresented(s) {
+    return s.barIndicator.kind !== "gone" && s.barIndicator.gen === s.gen;
+}
+
+function hideRefusal(s) {
+    return s === null ? "not-ready" : !barPresented(s) ? "indicator" : null;
 }
 
 // Audio alone judges the connected native EC route. The engine name alone
@@ -535,7 +549,26 @@ function reduce(state, e) {
     }
     case "indicator":
         s.indicator = { kind: e.shown ? "shown" : "gone" };
-        if (!e.shown && s.input.kind === "check" && s.capture.kind !== "closed") end(s, effects, e.at, "indicator", false);
+        if (["gone", "present", "listening"].indexOf(e.bar) === -1) throw new Error("jarvis: session=bar-indicator");
+        // A loss always withdraws; a positive frame belongs to the
+        // generation whose badge the host actually drew.
+        s.barIndicator = e.bar === "gone" || e.gen !== s.gen ? { kind: "gone" } : { kind: e.bar, gen: e.gen };
+        if (!canCapture(s) && s.input.kind === "check" && s.capture.kind !== "closed") end(s, effects, e.at, "indicator", false);
+        break;
+    case "hide":
+        if (hideRefusal(s) !== null || s.visibility.kind === "hidden") break;
+        s.visibility = { kind: "hidden" };
+        effect(s, effects, "hidden-store", { hidden: true });
+        break;
+    case "show":
+        if (s.visibility.kind === "shown") break;
+        s.visibility = { kind: "shown" };
+        effect(s, effects, "hidden-store", { hidden: false });
+        break;
+    // The daemon restores its own record. Unlike an interactive Hide it
+    // needs no current widget and writes nothing; admission still waits.
+    case "hidden":
+        s.visibility = { kind: "hidden" };
         break;
     case "voice-check":
         if (!canCheck(s)) break;
@@ -1012,7 +1045,8 @@ var REGIONS = {
     history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },
-    indicator: { gone: "", shown: "" }, duplex: { half: "", full: "" },
+    indicator: { gone: "", shown: "" }, barIndicator: { gone: "", present: "gen", listening: "gen" },
+    visibility: { shown: "", hidden: "" }, duplex: { half: "", full: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
     check: { unavailable: "", kept: "result device", ready: "", again: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result device", failed: "reason device" }
 };

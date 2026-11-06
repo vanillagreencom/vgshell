@@ -64,7 +64,7 @@ world(async () => {
             cleanups.push(() => lease.close());
         }
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         function newTurn() { runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user"); }
         newTurn();
         const dispatch = e => runner.dispatch(e);

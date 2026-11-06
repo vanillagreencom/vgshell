@@ -104,9 +104,9 @@ async function daemonLease(ending, removeClose = false) {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.equal(frame.snapshot.kind, "unavailable", "no Home must not fabricate an empty inbox");
             }
-            for (const frame of frames.filter(frame => frame.type === "main-reach"))
+            for (const frame of frames.filter(frame => ["main-reach", "echo-cancel"].includes(frame.type)))
                 Protocol.accept(JSON.stringify(frame), "daemon");
-            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks", "main-reach"].includes(frame.type)), [
+            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks", "main-reach", "echo-cancel"].includes(frame.type)), [
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
@@ -116,8 +116,9 @@ async function daemonLease(ending, removeClose = false) {
                     gate: { kind: "down", reason: "unconfigured" },
                     voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, cue: { kind: "none" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
-                    conversation: { kind: "ended" }, input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
-                    indicator: { kind: "gone" },
+                    conversation: { kind: "ended" }, history: { kind: "current", epoch: 1 },
+                    input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
+                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
                 }, phase: "down", brain: "" },

@@ -207,7 +207,7 @@ function rig(kit, server, options = {}) {
         microphone: "", speaker: "", brain: "fixture-account", fallbacks: options.fallbacks ?? [], dictation: options.dictation ?? "",
         ...options.settings });
     if (options.later !== true) assert.equal(configuration.kind, options.directories ? "loading" : "ready");
-    runner.dispatch({ type: "indicator", shown: true });
+    runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
     const rows = () => {
         const file = path.join(state, "audit/2026-10-01.jsonl");
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
@@ -777,7 +777,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
             intent("voice-check");
             await until(() => s().check.kind === "waiting", "the check waits for the indicator");
             assert.equal(s().capture.kind, "closed");
-            send({ type: "indicator", shown: true });
+            send({ type: "indicator", shown: true, bar: "gone" });
             await until(() => s().check.kind === "recording", "selected stand-in microphone opens");
             await until(() => s().check.kind === "done", "the microphone check finishes", OBSERVE_MS);
             assert.equal(s().check.result, ending.slice(6));
@@ -791,7 +791,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         }
         if (["missing", "brain", "locked"].includes(ending)) {
             assert.equal(s().gate.kind, "down");
-            send({ type: "indicator", shown: true });
+            send({ type: "indicator", shown: true, bar: "gone" });
             intent("talk-down");
             // The hello is an ordered wire barrier after the refused intent.
             const count = rows.filter(row => row.type === "status").length;
@@ -809,10 +809,10 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         await until(() => starts().length === 1, "one daemon-owned child starts");
         intent("talk-down");
         await until(() => s().conversation.kind === "active", "Talk starts one conversation");
-        send({ type: "indicator", shown: false });
+        send({ type: "indicator", shown: false, bar: "gone" });
         await until(() => s().indicator.kind === "gone" && s().input.kind === "held", "unmapped indicator settles");
         assert.equal(s().capture.kind, "closed", "capture waits for the presented indicator");
-        send({ type: "indicator", shown: true });
+        send({ type: "indicator", shown: true, bar: "gone" });
         if (ending === "device") {
             await until(() => s().fault.kind !== "none" && s().capture.kind === "closed",
                 "loading capture refuses a missing device and settles its capture");
@@ -2312,10 +2312,10 @@ async function cases(kit, server, only = null, mutation = false) {
         server.replies.push([...pause(blocked), ...calls({ id: "toggle_voice", name: "clipboard_read", arguments: {} }).slice(1)], text(""));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "toggle capture opens");
-        w.runner.dispatch({ type: "indicator", shown: false });
+        w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: false, bar: "gone" });
         await requested(w, first + 1, "EOF final starts the thinking turn");
         await until(() => w.s().capture.kind === "closed", "indicator loss closes capture");
-        w.runner.dispatch({ type: "indicator", shown: true });
+        w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: true, bar: "gone" });
         // Half duplex: the acknowledgement plays out before capture opens.
         await playOut(w);
         await until(() => w.s().capture.kind === "open", "indicator re-show opens thinking capture");
@@ -2576,13 +2576,13 @@ async function cases(kit, server, only = null, mutation = false) {
     const dictating = { fixture: { dictation: true } };
     await run("dictation-hold-turn", async w => {
         w.dictation.text = "Open the voxtype browser.";
-        w.runner.dispatch({ type: "indicator", shown: false });
+        w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: false, bar: "gone" });
         control.utterances.push(utterance("Open the sidecar browser."));
         w.runner.dispatch({ type: "talk-down" });
         await turn();
         assert.deepEqual(w.dictation.calls, [], "no recording before the indicator is presented");
         const before = server.requests.length;
-        w.runner.dispatch({ type: "indicator", shown: true });
+        w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: true, bar: "gone" });
         await until(() => w.s().capture.kind === "open", "the presented indicator opens the capture");
         assert.deepEqual(w.dictation.calls, ["dictation.start"]);
         release(w);
@@ -2852,7 +2852,7 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.ok(control.labels.has("agent"), "the agent's text reaches speech labelled as agent output");
         const requests = server.requests.length;
         // Another idle state publication asks nothing new.
-        w.runner.dispatch({ type: "indicator", shown: true });
+        w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: true, bar: "gone" });
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(control.spoken.length, asked + 2, "a prompt is asked once per conversation");
         const said = control.spoken.length;
@@ -2989,7 +2989,7 @@ async function cases(kit, server, only = null, mutation = false) {
         let from = control.spoken.length;
         await t.observe();
         await spoken(w, from, QUESTION);
-        w.runner.dispatch({ type: "indicator", shown: true });
+        w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: true, bar: "gone" });
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(control.spoken.length, from + 2, "the second prompt waits while the first holds the next words");
         from = control.spoken.length;
@@ -3085,7 +3085,7 @@ async function cases(kit, server, only = null, mutation = false) {
             await playOut(w);
             if (reply === "Noon.") await spoken(w, from, PERMISSION);
             else {
-                w.runner.dispatch({ type: "indicator", shown: true });
+                w.runner.dispatch({ type: "indicator", gen: w.s().gen, shown: true, bar: "gone" });
                 await new Promise(resolve => setImmediate(resolve));
                 assert.equal(control.spoken.length, from, "a conversation asks a released prompt twice at most");
             }

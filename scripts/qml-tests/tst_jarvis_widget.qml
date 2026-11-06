@@ -37,7 +37,7 @@ Item {
     }
     // Status values over Session's initial record with REGIONS set.
     function ready(regions) {
-        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gate: { kind: "up" } }, regions);
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gate: { kind: "up" }, barIndicator: { kind: "present", gen: 0 } }, regions);
         return { microphoneMute: { kind: "ready", muted: false }, daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
             detail: { phase: Session.phaseOf(s), seq: 1, state: s } };
     }
@@ -189,13 +189,14 @@ Item {
                 { tag: "Mute Jarvis's voice", index: 0, calls: '[["voice-mute",""]]', pages: "[]" },
                 { tag: "Stop Jarvis", index: 2, calls: '[["stop",""]]', pages: "[]" },
                 { tag: "New conversation", index: 3, calls: '[["new-conversation",""]]', pages: "[]" },
-                { tag: "Key hints", index: 4, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
+                { tag: "Hide Jarvis", index: 4, calls: '[["hide",""]]', pages: "[]" },
+                { tag: "Key hints", index: 5, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
             ];
         }
         function test_the_menu_holds_the_jarvis_menu(data) {
             let framePages = [];
             widget.frame = { hide: () => "ok", openPage: (page, tab) => { framePages = framePages.concat([[page, tab]]); return "ok"; } };
-            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Key hints"]));
+            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"]));
             widget.frameActions[data.index].action();
             compare(JSON.stringify(root.calls), data.calls);
             compare(JSON.stringify(root.pages), data.pages);
@@ -235,6 +236,38 @@ Item {
             compare(available.disabledReason, "");
             mouseClick(available);
             compare(JSON.stringify(root.calls), '[["microphone-mute",""]]');
+        }
+
+        function test_hidden_icon_keeps_shared_listening_dot_and_count() {
+            const values = root.ready({ visibility: { kind: "hidden" }, conversation: { kind: "active", purpose: "conversation" },
+                input: { kind: "conversation" }, capture: { kind: "closed" } });
+            widget.shell = root.shellWith(values);
+            compare(icon().name, "vgs-letter-j-hidden");
+            compare(button().stateDot, "success", "demand, not admitted capture, draws the badge");
+            compare(button().tooltip, "Jarvis: Listening (hidden)");
+            compare(widget.presentationItem, button(), "the host observes the actual shared BarItem");
+            compare(widget.presentationKey, values.detail.state.gen + ":listening");
+            compare(collect(button(), n => n instanceof Badge).length, 1, "no second listening badge");
+            const show = widget.frameActions.find(row => row.icon === "eye");
+            verify(show !== undefined && show.disabledReason === "");
+            show.action();
+            compare(JSON.stringify(root.calls), '[["show",""]]');
+        }
+
+        function test_hide_without_presented_widget_is_inert() {
+            widget.frame = {
+                hide: () => "ok",
+                describe: () => ({ name: "Jarvis", page: "", readme: "", keys: [], stops: false, builtin: false, owner: "" })
+            };
+            widget.shell = root.shellWith(root.ready({ barIndicator: { kind: "gone" } }));
+            mouseClick(button(), button().width / 2, button().height / 2, Qt.RightButton);
+            tryCompare(widget, "frameMenuOpen", true);
+            const menu = find(widget, n => n.triggerCurrent !== undefined && n.items !== undefined);
+            const hide = menu.items().find(n => n.text === "Hide Jarvis");
+            verify(hide !== undefined && hide.disabledReason !== "");
+            mouseClick(hide);
+            compare(root.calls.length, 0);
+            menu.close();
         }
 
         // While the Resume offer stands, a click asks for the resume once and

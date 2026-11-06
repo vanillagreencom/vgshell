@@ -282,7 +282,7 @@ world(() => {
         router.register("files", { commands: [], timeoutMs: 1000, cancellable: false,
             start(call, done) { done({ outcome: "completed", content: "wrote" }); } });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
         const turn = () => ({ gen: runner.state.gen, op: runner.state.turn.op });
         const m = make();
@@ -380,7 +380,7 @@ world(() => {
         Object.assign(ports, router.ports);
         logic.install({ router, directory: path.join(state, "memory"), home: () => null, log() {} });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture");
         assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false);
         audit.close();

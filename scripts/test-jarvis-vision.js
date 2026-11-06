@@ -195,7 +195,7 @@ async function main() {
         }
         function turn() {
             runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-            runner.dispatch({ type: "indicator", shown: true });
+            runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
             runner.dispatch({ type: "talk-down" });
             transcript("final", "fixture user");
         }

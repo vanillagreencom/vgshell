@@ -66,7 +66,21 @@ function verify(view) {
         assert.equal(links(bar.tooltipDetails).length, actionLines, label + ": one link per action");
         assert.equal(links([bar.tooltip]).length, 0, label + ": status title has no link");
         assert.equal([bar.tooltip].concat(bar.tooltipDetails).some(line => /AI model:|Voice:|Press |Click |Tap or hold |Super\+/.test(line)), false, label + ": status only on the bar");
+        if (values.detail !== undefined) {
+            const hiddenValues = copy(values);
+            hiddenValues.detail.state.visibility = { kind: "hidden" };
+            const hidden = view.view(hiddenValues, null);
+            assert.deepEqual([hidden.icon, hidden.stateDot, hidden.tooltip],
+                ["vgs-letter-j-hidden", stateDot, bar.tooltip + " (hidden)"], label + ": held icon is independent of live state");
+        }
     }
+    const demand = Session.reduce(Session.reduce(Session.initial(), { type: "snapshot", at: 0,
+        locked: false, configured: true, settings: {}, engine: "chained" }).state, { type: "hidden", at: 1 }).state;
+    const waiting = Session.reduce(demand, { type: "talk-down", at: 2 }).state;
+    assert.equal(waiting.capture.kind, "closed");
+    const badge = view.view(up(waiting), null);
+    assert.deepEqual([badge.state, badge.icon, badge.stateDot], ["listening", "vgs-letter-j-hidden", "success"],
+        "real capture demand draws the listening badge before the host may admit it");
     assert.equal(view.view(up({ conversation: { kind: "interrupted", purpose: "conversation" } }), null).tooltip, "Jarvis: Ready");
     const values = up({}, { voiceRoute: { tone: "ok", text: "Fixture voice" } });
     values.detail.brain = "Fixture model";
@@ -109,14 +123,20 @@ function verify(view) {
     assert.deepEqual(copy(view.spelledKeys({}, KeyNavLogic.keyCaps)), UNBOUND);
     for (const mic of [null, false, true])
         for (const voice of [false, true]) {
-            const menu = view.menuEntries(mic, voice);
-            assert.deepEqual(copy(menu.map(row => row.intent || row.page)), ["voice-mute", "microphone-mute", "stop", "new-conversation", "vgs.jarvis"]);
+            const menu = view.menuEntries(mic, voice, false, "indicator");
+            assert.deepEqual(copy(menu.map(row => row.intent || row.page)), ["voice-mute", "microphone-mute", "stop", "new-conversation", "hide", "vgs.jarvis"]);
             assert.equal(menu[1].disabledReason !== "", mic === null);
             assert.equal(menu[0].label.startsWith("Unmute"), voice);
             assert.equal(menu[1].label.startsWith("Unmute"), mic === true);
             assert.ok(Object.hasOwn(Lucide.ICONS, menu[3].icon));
-            assert.equal(menu[4].tab, "Settings/Keys");
+            assert.equal(menu[5].tab, "Settings/Keys");
         }
+    for (const hidden of [false, true]) for (const block of [null, "indicator", "not-ready"]) {
+        const row = view.menuEntries(false, false, hidden, block)[4];
+        assert.equal(row.intent, hidden ? "show" : "hide");
+        assert.equal(row.disabledReason !== "", !hidden && block !== null);
+        assert.ok(Object.hasOwn(Lucide.ICONS, row.icon));
+    }
     const faultKinds = [
         ["thinking-timeout", "slow"], ["device-lost target=fixture", "device"],
         ["brain=stream-error", "brain"], ["net=timeout", "brain"],
@@ -195,6 +215,9 @@ const controls = [
     ["bar loses recovery", '(state === "problem" || state === "off")', 'false'],
     ["bar changes the J while listening", '"listening": { icon: "vgs-letter-j"', '"listening": { icon: "audio-lines"'],
     ["bar loses state dots", 'stateDot: style.stateDot', 'stateDot: ""'],
+    ["hidden icon lost", 'out.icon = "vgs-letter-j-hidden";', 'out.icon = "vgs-letter-j";'],
+    ["badge waits for capture", 'Session.captureWanted(state)', 'false'],
+    ["hide without an indicator", 'hideBlock === "indicator"', 'false'],
     ["bar restores shortcut guidance", 'tooltipDetails: recovery', 'tooltipDetails: recovery.concat(["Tap or hold Super+J to talk."])'],
     ["bar loses its state prefix", 'tooltip: "Jarvis: " + ', 'tooltip: "" + '],
     ["microphone guessed unmuted", 'if (value === undefined) return null;', 'if (value === undefined) return false;'],
@@ -205,6 +228,7 @@ const controls = [
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-widget-control-"));
 try {
     fs.copyFileSync(path.join(dir, "SetupGate.js"), path.join(temp, "SetupGate.js"));
+    fs.copyFileSync(path.join(dir, "Session.js"), path.join(temp, "Session.js"));
     for (const [label, needle, replacement] of controls) {
         assert.equal(source.split(needle).length, 2, label + ": one mutation target");
         const changed = source.replace(needle, replacement);
@@ -352,6 +376,166 @@ function approvalFrames(source) {
 }
 const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
 approvalFrames(bubble);
+// The core's existing presentation owner observes real BarItems. Execute its
+// shipped geometry and frame callbacks with explicit Qt boundary stand-ins;
+// QML fixtures and the nested row still owe the real render/wire proof.
+const barHostFile = path.join(__dirname, "../shell/Hosts/BarHost.qml");
+const barHost = fs.readFileSync(barHostFile, "utf8");
+function barFrames(source) {
+    const later = [], publications = [];
+    const ctx = vm.createContext({ frameEpoch: 0, frames: [], synchronizedFrame: null, candidates: [],
+        visible: true, backingWindowVisible: true, observationHost: "bar:focused", host: { hostKey: "bar:focused" },
+        Layers: { setBarFrame: (host, rows) => publications.push(copy(rows)) },
+        Qt: { callLater: fn => later.push(fn) } });
+    for (const name of ["invalidateFrame", "whole", "framePolished", "frameSynchronized", "frameSwapped"]) {
+        const found = [...source.matchAll(new RegExp("^            function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^            \\}", "gm"))];
+        assert.equal(found.length, 1, name + ": one shipped host callback");
+        ctx[name] = vm.runInContext("(" + found[0][0] + ")", ctx);
+    }
+    const flush = () => { while (later.length) later.shift()(); };
+    const row = { plugin: "fixture.indicator", revision: "a", output: "focused", key: "1", dot: "success" };
+    ctx.candidates = [row];
+    ctx.framePolished();
+    assert.deepEqual(publications, [], "existence and polish grant no presentation");
+    ctx.frameSynchronized();
+    assert.deepEqual(publications, [], "sync without swap grants nothing");
+    ctx.frameSwapped();
+    flush();
+    assert.deepEqual(publications.at(-1), [row]);
+    for (const change of ["widget removed", "bar unmapped", "badge disappeared", "new generation", "wrong output"]) {
+        ctx.framePolished();
+        ctx.frameSynchronized();
+        ctx.frameSwapped();
+        ctx.candidates = [];
+        ctx.invalidateFrame();
+        flush();
+        assert.deepEqual(publications.at(-1), [], change + ": an old queued frame cannot re-grant");
+        ctx.candidates = [{ ...row, key: change }];
+        ctx.framePolished();
+        ctx.frameSynchronized();
+        ctx.frameSwapped();
+        flush();
+        assert.deepEqual(publications.at(-1), copy(ctx.candidates));
+    }
+    // Qt's mapToItem is the dependency here, not another geometry judge.
+    // These synthetic, untransformed items map by their parent offsets.
+    const item = (parent, extra = {}) => ({ parent, x: 0, y: 0, width: 40, height: 24,
+        visible: true, opacity: 1, scale: 1, rotation: 0, transform: [], clip: false,
+        mapToItem(ancestor, x, y) {
+            for (let node = this; node !== ancestor; node = node.parent) {
+                assert.notEqual(node, null, "mapping reaches its known ancestor");
+                x += node.x; y += node.y;
+            }
+            return { x, y };
+        }, ...extra });
+    ctx.contentItem = item(null, { width: 400, height: 40 });
+    const widget = item(ctx.contentItem);
+    const target = item(widget);
+    assert.equal(ctx.whole(target, widget), true);
+    for (const [node, key, value] of [
+        [target, "visible", false], [widget, "visible", false], [widget, "opacity", 0],
+        [widget, "x", -1], [widget, "x", 380], [widget, "scale", 0.5], [widget, "rotation", 10],
+        [target, "width", 0]
+    ]) {
+        const old = node[key]; node[key] = value;
+        assert.equal(ctx.whole(target, widget), false, key + ": only a whole visible indicator counts");
+        node[key] = old;
+    }
+    widget.clip = true;
+    widget.width = target.width - 1;
+    assert.equal(ctx.whole(target, widget), false, "section clipping revokes presentation");
+    widget.width = target.width;
+    widget.shownX = 1;
+    widget.shownWidth = widget.width - 1;
+    assert.equal(ctx.whole(target, widget), false, "scroller and fade cover is not a presented widget");
+    delete widget.shownX;
+    delete widget.shownWidth;
+    assert.equal(ctx.whole(target, item(null)), false, "foreign item is not this widget's indicator");
+}
+barFrames(barHost);
+for (const [needle, replacement] of [
+    ["drawn.epoch !== frameEpoch || ", ""],
+    ["!at.visible || ", ""]
+]) {
+    assert.equal(barHost.split(needle).length, 2, "one host presentation control target");
+    assert.throws(() => barFrames(barHost.replace(needle, replacement)), assert.AssertionError,
+        "the host guard's removal must falsify its fixture");
+}
+{
+    const source = fs.readFileSync(path.join(__dirname, "../shell/Core/Layers.qml"), "utf8");
+    const found = [...source.matchAll(/^    function barIndicators\(ctx\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(found.length, 1, "one core publication reader");
+    const records = {
+        first: [{ plugin: "fixture.indicator", revision: "a", output: "one", key: "7:listening", dot: "success" }],
+        second: [{ plugin: "other.indicator", revision: "a", output: "two", key: "7:listening", dot: "success" },
+            { plugin: "fixture.indicator", revision: "old", output: "two", key: "7:listening", dot: "success" }]
+    };
+    const ctx = vm.createContext({ barFrames: records });
+    const read = vm.runInContext("(" + found[0][0] + ")", ctx);
+    const consumer = { active: true, id: "fixture.indicator", manifest: { __revision: "a" } };
+    const rows = read(consumer);
+    assert.deepEqual(copy(rows), [{ output: "one", key: "7:listening", dot: "success" }],
+        "only this plugin and source revision can consume the host's frames");
+    assert.ok(Object.isFrozen(rows) && rows.every(Object.isFrozen), "the consumer cannot mutate core presentation records");
+    assert.deepEqual(copy(read({ ...consumer, active: false })), [], "retired provider grants nothing");
+}
+// Service selection consumes host evidence for this generation and focused
+// output. Its ordered wire retains loss edges, even if a badge returns before
+// the queued callback runs. No widget callback produces this input.
+{
+    const service = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
+    const found = [...service.matchAll(/^    readonly property string barIndicator: \{\n([\s\S]*?)^    \}/gm)];
+    assert.equal(found.length, 1, "one service bar observation");
+    const ctx = vm.createContext({ locked: false, lifetime: { kind: "ready" }, cause: "", focusedOutput: "focused",
+        sessionState: { gen: 7 }, barPresentations: [] });
+    const observe = vm.runInContext("(function() {" + found[0][1] + "})", ctx);
+    const frame = { output: "focused", key: "7:listening", dot: "success" };
+    for (const [rows, expected] of [
+        [[], "gone"], [[frame], "listening"], [[{ ...frame, dot: "" }], "present"],
+        [[{ ...frame, dot: "warning" }], "present"], [[{ ...frame, output: "other" }], "gone"],
+        [[{ ...frame, key: "6:listening" }], "gone"], [[{ ...frame, key: "7:present" }], "present"]
+    ]) {
+        ctx.barPresentations = rows;
+        assert.equal(observe(), expected);
+    }
+    ctx.barPresentations = [frame];
+    ctx.locked = true;
+    assert.equal(observe(), "gone", "screen lock never leaves an indicator grant");
+    ctx.locked = false;
+    const wires = [];
+    Object.assign(ctx, { shell: { manifest: { __revision: "a".repeat(64) } }, indicatorDelivery: { kind: "unknown" },
+        indicatorPresented: false, barIndicator: "listening", Protocol: load(path.join(dir, "JarvisProtocol.js")),
+        child: { running: true, write: wire => wires.push(JSON.parse(wire)) }, broken: reason => assert.fail(reason) });
+    const callback = [...service.matchAll(/^    function sendIndicator\(observation\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(callback.length, 1);
+    const deliver = vm.runInContext("(" + callback[0][0] + ")", ctx);
+    deliver({ shown: false, bar: "gone" });
+    assert.equal(wires.at(-1).bar, "gone", "queued loss survives a returned badge");
+    deliver({ shown: false, bar: "listening" });
+    assert.equal(wires.at(-1).bar, "listening");
+    ctx.barIndicator = "gone";
+    deliver({ shown: true, bar: "listening" });
+    assert.deepEqual([wires.at(-1).shown, wires.at(-1).bar], [false, "gone"], "queued positive cannot override current loss");
+    ctx.barIndicator = "listening";
+    ctx.sessionState = { gen: 8 };
+    deliver({ shown: false, bar: "listening" });
+    assert.equal(wires.at(-1).gen, 8, "unchanged presentation resends for the new generation");
+    const visibility = [...service.matchAll(/^    function setVisibility\(name\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(visibility.length, 1);
+    const order = [];
+    Object.assign(ctx, { sendIndicator: value => order.push(["indicator", value.bar]),
+        sendIntent: name => order.push(["intent", name]) });
+    const choose = vm.runInContext("(" + visibility[0][0] + ")", ctx);
+    ctx.barIndicator = "gone";
+    assert.equal(choose("hide"), "refused: hide=indicator");
+    assert.deepEqual(order, []);
+    assert.equal(choose("show"), "ok", "Show is the recovery route without a bar widget");
+    assert.deepEqual(order, [["indicator", "gone"], ["intent", "show"]]);
+    order.length = 0;
+    ctx.barIndicator = "present";
+    assert.equal(choose("hide"), "ok");
+    assert.deepEqual(order, [["indicator", "present"], ["intent", "hide"]], "fresh host evidence precedes Hide");
+}
 const frameNeedle = "const drawn = synchronizedHold;";
 assert.equal(bubble.split(frameNeedle).length, 2, "one frame identity control match");
 assert.throws(() => approvalFrames(bubble.replace(frameNeedle, "const drawn = root.hold;")), assert.AssertionError,

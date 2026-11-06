@@ -112,7 +112,7 @@ world(async () => {
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");
         const recipients = Policy.recipients({ conversation: "codex-" + serial, profile: "standard", cloudVision: "ask",

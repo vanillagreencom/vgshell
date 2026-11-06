@@ -621,7 +621,7 @@ function accept(line, direction) {
             if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -774,8 +774,9 @@ function accept(line, direction) {
         break;
     case "indicator":
         if (direction !== "shell") fail("direction-indicator");
-        keys(message, ["v", "type", "gen", "revision", "shown"], "indicator");
+        keys(message, ["v", "type", "gen", "revision", "shown", "bar"], "indicator");
         if (typeof message.shown !== "boolean") fail("indicator");
+        if (["gone", "present", "listening"].indexOf(message.bar) === -1) fail("bar-indicator");
         break;
     case "model-fallback":
         if (direction !== "daemon") fail("direction-model-fallback");

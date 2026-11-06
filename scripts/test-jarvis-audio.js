@@ -199,7 +199,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     const dispatch = (type, values = {}) => runner.dispatch({ type, ...values });
     dispatch("snapshot", { locked: false, engine: "chained", configured: true,
         settings: { microphone: "", speaker: "", holdToTalk: true } });
-    dispatch("indicator", { shown: true });
+    dispatch("indicator", { gen: runner.state.gen, shown: true, bar: "gone" });
     // A Talk release that ends a hold: past Session's tap bound, so it
     // closes the capture.
     const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
@@ -271,7 +271,7 @@ async function trigger(Implementation, type) {
     const w = setup(Implementation);
     try {
         await capture(w);
-        if (type === "indicator") w.dispatch("indicator", { shown: false });
+        if (type === "indicator") w.dispatch("indicator", { gen: w.runner.state.gen, shown: false, bar: "gone" });
         else if (type === "provider") w.audio.failCapture("provider-disconnected", "");
         else if (type === "lease") w.runner.close();
         else w.dispatch("snapshot", { locked: type === "unknown" ? null : true, engine: "chained", configured: true,
@@ -585,7 +585,7 @@ async function inside() {
                 w.dispatch("talk-down");
                 w.release();
             }
-            else if (operation === "indicator") w.dispatch("indicator", { shown: false });
+            else if (operation === "indicator") w.dispatch("indicator", { gen: w.runner.state.gen, shown: false, bar: "gone" });
             else if (operation === "provider") source.destroy(new Error("synthetic provider disconnect"));
             else if (operation === "device") w.audio.snapshot([{ id: 12, info: null }]);
             else if (operation === "lease") w.runner.close();

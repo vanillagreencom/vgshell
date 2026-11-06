@@ -501,7 +501,7 @@ world(async () => {
         w.runner = new kit.Runner.SessionRunner(kit.Session, ports, clock, (state, phase) => { w.state = state; w.phase = phase; });
         w.dispatch = (type, values = {}) => w.runner.dispatch({ type, ...values });
         w.dispatch("snapshot", { locked: false, engine: "duplex", configured: true, settings: { holdToTalk } });
-        w.dispatch("indicator", { shown: true });
+        w.dispatch("indicator", { gen: w.runner.state.gen, shown: true, bar: "gone" });
         return w;
     }
     // One finished user turn, and partial text of one, as the connection's adapter hears them.
@@ -2062,7 +2062,7 @@ world(async () => {
                 assert.equal((await closed)[0], 0, stderr);
                 return;
             }
-            send({ type: "indicator", shown: true });
+            send({ type: "indicator", shown: true, bar: "gone" });
             press();
             await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
             const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;

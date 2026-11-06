@@ -1,10 +1,11 @@
 # The Jarvis widget keeps its J, draws the shared state dot and asks count,
-# opens the console and controls independent voice mute through the shared menu.
+# opens the console and controls independent hidden and voice-mute choices
+# through the shared menu. The hidden J retains the same dot and asks count.
 # No audio, account, provider or
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.voice/Widget.qml shell/plugins/vgs.voice/manifest.json shell/Ui/BarWidget.qml
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.voice/Widget.qml shell/plugins/vgs.voice/manifest.json shell/Ui/BarWidget.qml
 set -euo pipefail
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
@@ -25,7 +26,7 @@ done
 jarvis_widget_key="$(bar_key)"
 expect "the widget row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 expect "a disabled Jarvis draws no widget" absent ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis moduleName
-"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_widget_dir/backend/jarvisd.js" "$jarvis_widget_gates"
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_widget_dir/backend/jarvisd.js" "$jarvis_widget_gates" --mapped-indicator
 jarvis_gate="$sandbox/jarvis-widget-startup-gate"
 jarvis_seen="$sandbox/jarvis-widget-startup-seen"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --gate-daemon "$jarvis_widget_dir/backend/jarvisd.js" "$jarvis_gate" "$jarvis_seen"
@@ -84,6 +85,20 @@ print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" +
 }
 jarvis_widget_ready='["vgs-letter-j", "calm", "ready", 0, "", ""]'
 jarvis_widget_listening='["vgs-letter-j", "accent", "listening", 0, "success", ""]'
+jarvis_widget_hidden_ready='["vgs-letter-j-hidden", "calm", "ready", 0, "", ""]'
+jarvis_widget_hidden_listening='["vgs-letter-j-hidden", "accent", "listening", 0, "success", ""]'
+jarvis_widget_records() {
+  python3 - "$home/.local/state/vgshell/jarvis" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+try: hidden=json.loads((root/"hidden.json").read_text()); voice=json.loads((root/"voice-mute.json").read_text())
+except (OSError,ValueError): print("unreadable"); sys.exit()
+if not isinstance(hidden,dict) or set(hidden)!={"hidden"} or type(hidden["hidden"]) is not bool: print("hidden-shape"); sys.exit()
+if not isinstance(voice,dict) or set(voice)!={"muted"} or type(voice["muted"]) is not bool: print("voice-shape"); sys.exit()
+print(json.dumps([hidden["hidden"],voice["muted"]]))
+PY
+}
 jarvis_widget_click() { click_centre "$jarvis_widget_key" vgs.jarvis || fail "the click on the Jarvis widget failed"; }
 jarvis_widget_consoles() { window_count Jarvis; }
 jarvis_widget_click_opens() { expect_poll "a click on the widget opens the console" 1 jarvis_widget_consoles; }
@@ -280,15 +295,87 @@ for jarvis_widget_asks_count in 3 0 unavailable; do
   jarvis_widget_click_opens
   expect_poll "asks $jarvis_widget_asks_count agrees with Console and its drawn corner count" "$jarvis_widget_asks_expected" jarvis_widget_count
   jarvis_widget_console_close
+  if [[ $jarvis_widget_asks_count == 3 ]]; then
+    expect_poll "the count fixture has a completed host frame before Hide" present jarvis_key_state barIndicator
+    jarvis_widget_menu_choose "Hide Jarvis"
+    expect_poll "the hidden J keeps the same shared asks badge" \
+      "[\"vgs-letter-j-hidden\", \"calm\", \"ready\", 0, \"\", \"$jarvis_widget_bar_count\"]" jarvis_widget
+    jarvis_widget_click
+    jarvis_widget_click_opens
+    expect_poll "the hidden J and Console still agree on the drawn count" "$jarvis_widget_asks_expected" jarvis_widget_count
+    jarvis_widget_console_close
+    jarvis_widget_menu_choose "Show Jarvis"
+    expect_poll "Show keeps the same shared asks badge" \
+      "[\"vgs-letter-j\", \"calm\", \"ready\", 0, \"\", \"$jarvis_widget_bar_count\"]" jarvis_widget
+  fi
 done
 jarvis_widget_restore Service.qml
 jarvis_enable
-jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Key hints\",\"Readme\",\"Settings\"]"
+jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Hide Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
 expect_poll "the menu toggles independent voice mute" on jarvis_key_state voiceMute
 expect_poll "voice mute leaves the state-only tooltip ready" "$jarvis_widget_ready" jarvis_widget
+jarvis_widget_microphone_before="$(ipc smoke readInstance service vgs.jarvis microphoneMute)" || fail "the system microphone reading is unavailable before Hide"
+expect_poll "Hide waits for the actual widget's completed host frame" present jarvis_key_state barIndicator
+jarvis_widget_menu_choose "Hide Jarvis" "[\"Hide\",\"Unmute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Hide Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+expect_poll "the bar's Hide route stores the independent choice" hidden jarvis_key_state visibility
+expect_poll "Hide uses the held J without a private badge" "$jarvis_widget_hidden_ready" jarvis_widget
+expect "Hide keeps the independent voice mute" on jarvis_key_state voiceMute
+expect "Hide keeps the system microphone reading" "$jarvis_widget_microphone_before" ipc smoke readInstance service vgs.jarvis microphoneMute
+expect "hidden and voice mute have independent durable records" '[true, true]' jarvis_widget_records
 jarvis_disable
 jarvis_enable
+expect_poll "the hidden choice survives daemon restart" hidden jarvis_key_state visibility
 expect_poll "voice mute survives daemon restart" on jarvis_key_state voiceMute
+expect_poll "the restarted hidden choice draws the held J" "$jarvis_widget_hidden_ready" jarvis_widget
+expect "restoring choices changes neither durable value" '[true, true]' jarvis_widget_records
+expect "restoring choices never toggles the system microphone" "$jarvis_widget_microphone_before" ipc smoke readInstance service vgs.jarvis microphoneMute
+jarvis_widget_menu_choose "Unmute Jarvis's voice"
+expect_poll "voice unmute leaves Jarvis hidden" off jarvis_key_state voiceMute
+expect "voice unmute changes only its own record" '[true, false]' jarvis_widget_records
+expect_poll "voice unmute keeps the held J" "$jarvis_widget_hidden_ready" jarvis_widget
+jarvis_widget_menu_choose "Mute Jarvis's voice"
+expect_poll "voice mute returns without showing the orb" on jarvis_key_state voiceMute
+expect "voice mute keeps the hidden record" '[true, true]' jarvis_widget_records
+case "$jarvis_widget_microphone_before" in
+  '{"kind":"ready","muted":false}')
+    jarvis_widget_menu_choose "Mute microphone"
+    expect_poll "the shared menu mutes only the system microphone" '{"kind":"ready","muted":true}' ipc smoke readInstance service vgs.jarvis microphoneMute
+    expect "system mute keeps the hidden choice" hidden jarvis_key_state visibility
+    expect "system mute keeps voice mute" on jarvis_key_state voiceMute
+    jarvis_widget_menu_choose "Unmute microphone" ;;
+  '{"kind":"ready","muted":true}')
+    jarvis_widget_menu_choose "Unmute microphone"
+    expect_poll "the shared menu unmutes only the system microphone" '{"kind":"ready","muted":false}' ipc smoke readInstance service vgs.jarvis microphoneMute
+    expect "system unmute keeps the hidden choice" hidden jarvis_key_state visibility
+    expect "system unmute keeps voice mute" on jarvis_key_state voiceMute
+    jarvis_widget_menu_choose "Mute microphone" ;;
+  '{"kind":"unavailable"}')
+    expect "a missing system source does not clear either saved choice" '[true, true]' jarvis_widget_records ;;
+  *) fail "the system microphone has an unrecognized reading: $jarvis_widget_microphone_before" ;;
+esac
+expect_poll "the system microphone returns to its entry reading" "$jarvis_widget_microphone_before" ipc smoke readInstance service vgs.jarvis microphoneMute
+jarvis_key_talk_down
+expect_poll "Talk keeps the hidden choice while capture starts" hidden jarvis_key_state visibility
+expect_poll "the hidden J draws the existing listening dot" "$jarvis_widget_hidden_listening" jarvis_widget
+expect_poll "hidden capture receives the core's listening observation" listening jarvis_key_state barIndicator
+expect_poll "hidden Talk opens capture behind that badge" open jarvis_key_state capture
+jarvis_key_talk_up
+jarvis_key_commit
+jarvis_widget_menu_choose "Stop Jarvis"
+jarvis_key_stop_assertion
+expect "the shared Stop route never shows the orb" hidden jarvis_key_state visibility
+jarvis_widget_menu_choose "New conversation"
+expect_poll "a new conversation keeps the hidden choice" hidden jarvis_key_state visibility
+expect "Talk, Stop and New conversation keep both independent records" '[true, true]' jarvis_widget_records
+jarvis_widget_menu_choose "Show Jarvis" "[\"Hide\",\"Unmute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Show Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+expect_poll "the bar's Show route restores the shown choice" shown jarvis_key_state visibility
+expect_poll "Show restores the ordinary J" "$jarvis_widget_ready" jarvis_widget
+expect "Show never unmutes Jarvis's voice" on jarvis_key_state voiceMute
+expect "Show changes only its own durable record" '[false, true]' jarvis_widget_records
+jarvis_disable
+jarvis_enable
+expect_poll "the explicit shown choice survives daemon restart" shown jarvis_key_state visibility
+expect "the shown restart keeps voice mute" on jarvis_key_state voiceMute
 jarvis_widget_menu_choose "Unmute Jarvis's voice"
 expect_poll "the menu unmutes Jarvis's voice" off jarvis_key_state voiceMute
 expect_poll "voice unmute leaves the state-only tooltip ready" "$jarvis_widget_ready" jarvis_widget
@@ -336,6 +423,7 @@ for jarvis_widget_file in "${jarvis_widget_files[@]}"; do
 done
 rm -- "$jarvis_widget_dir/backend/scripted-fixture.js"
 rm -f -- "$home/.local/state/vgshell/jarvis/voice-mute.json"
+rm -f -- "$home/.local/state/vgshell/jarvis/hidden.json"
 jarvis_rescan
 user_config_restore "$sandbox/jarvis-widget-config-before.json"
 cp -- "$sandbox/jarvis-widget-lua-before" "$jarvis_widget_lua"

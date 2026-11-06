@@ -129,6 +129,8 @@ T.AbstractButton {
     // A live state's Theme.color role: success, info, danger or warning;
     // empty draws none. Name the state in label and tooltip too.
     property string stateDot: ""
+    // The host observes the existing drawn dot, not merely its requested role.
+    readonly property Item stateDotItem: stateBadge.item
     // The widest form of `text` and of `detail`, held by their Readings.
     property string textSample: ""
     property string detailSample: ""
@@ -338,6 +340,7 @@ T.AbstractButton {
         }
     }
     Loader {
+        id: stateBadge
         objectName: "bar-item-state-dot"
         active: root.stateDot !== ""
         z: badge.z

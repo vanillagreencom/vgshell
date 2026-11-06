@@ -1,6 +1,7 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
 .import "SetupGate.js" as Gate
+.import "Session.js" as Session
 
 // One state classification for the widget from the service and Session.
 // view() draws status and the existing recovery link. The console owns
@@ -274,13 +275,17 @@ function voiceLoading(values) {
         && !!model && model.tone === "ok" && !offered(model);
 }
 
-function menuEntries(micMuted, voiceMuted) {
+function menuEntries(micMuted, voiceMuted, hidden, hideBlock) {
     return [
         { label: voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice", icon: voiceMuted ? "volume-2" : "volume-x", intent: "voice-mute" },
         { label: micMuted === true ? "Unmute microphone" : "Mute microphone", icon: micMuted === true ? "mic-off" : "mic", intent: "microphone-mute",
             disabledReason: micMuted === null ? "Connect a microphone or choose one in Sound" : "" },
         { label: "Stop Jarvis", icon: "square", intent: "stop" },
         { label: "New conversation", icon: "message-circle-plus", intent: "new-conversation" },
+        { label: hidden ? "Show Jarvis" : "Hide Jarvis", icon: hidden ? "eye" : "eye-off", intent: hidden ? "show" : "hide",
+            disabledReason: hidden ? "" : hideBlock === "indicator"
+                ? "Show the Jarvis widget in the bar on the focused screen first"
+                : hideBlock === "not-ready" ? "Wait for Jarvis to start" : "" },
         { label: "Key hints", icon: "keyboard", page: "vgs.jarvis", tab: "Settings/Keys" }
     ];
 }
@@ -316,6 +321,11 @@ function reportLook(state, value) { return look(state, undefined, value.hint ===
 // voice information belong to their own views.
 function view(values, voice) {
     var out = stateView(values, voice);
+    var detail = values.detail;
+    if (detail !== undefined && detail !== null && detail.state.visibility.kind === "hidden") {
+        out.icon = "vgs-letter-j-hidden";
+        out.tooltip += " (hidden)";
+    }
     var session = values.jarvisSession;
     out.click = "console";
     if (session !== undefined && session !== null) {
@@ -337,6 +347,9 @@ function stateView(values, voice) {
     var state = detail === null ? null : detail.state;
     var micMuted = microphoneMuted(values.microphoneMute) === true;
     if (state !== null && microphoneOpen(state.capture)) return look(micMuted ? "muted" : "listening");
+    // Demand draws the badge before admission; otherwise a hidden startup
+    // waits for a badge that itself waits for the microphone.
+    if (state !== null && Session.captureWanted(state)) return look(micMuted ? "muted" : "listening");
     if (daemon !== null && (daemon.tone === "danger" || daemon.tone === "warning" && daemon.hint !== undefined)) return reportLook("problem", daemon);
     if (detail !== null && detail.phase === "error") return textLook("problem", faultText(state.fault, state.engine.kind, voice));
     if (audio !== null && audio.tone === "danger") return textLook("problem", AUDIO_TEXT);

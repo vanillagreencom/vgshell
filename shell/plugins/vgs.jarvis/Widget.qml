@@ -3,6 +3,7 @@ import qs.Commons
 import qs.Ui
 import "WidgetView.js" as View
 import "AccountProviders.js" as Providers
+import "Session.js" as Session
 
 // The Jarvis icon in the bar. It draws the status the service publishes
 // and runs nothing itself: one closed state table decides off, loading,
@@ -34,7 +35,13 @@ BarWidget {
     // System microphone and independent voice mute, as the service read them.
     readonly property var microphoneMuted: View.microphoneMuted(shell === null ? undefined : shell.status.values.microphoneMute)
     readonly property bool voiceMuted: detail !== null && detail.state.voiceMute.kind === "on"
-    frameActions: View.menuEntries(root.microphoneMuted, root.voiceMuted).map(entry => ({ label: entry.label, icon: entry.icon,
+    readonly property bool hidden: detail !== null && detail.state.visibility.kind === "hidden"
+    // The host observes this real BarItem and its existing dot. The widget
+    // neither acknowledges a frame nor sends an admission grant.
+    presentationItem: item
+    presentationKey: detail === null ? "" : detail.state.gen + ":" + (view.state === "listening" ? "listening" : "present")
+    frameActions: View.menuEntries(root.microphoneMuted, root.voiceMuted, root.hidden,
+        Session.hideRefusal(detail === null ? null : detail.state)).map(entry => ({ label: entry.label, icon: entry.icon,
         disabledReason: entry.disabledReason || "",
         action: entry.intent !== undefined ? () => root.offer(entry.intent) : () => root.shell.surfaces.openPage(entry.page, entry.tab) }))
         .concat(view.click === "resume" ? [{ label: "Do not resume", icon: "x", action: () => root.offer("dismiss-resume") }] : [])

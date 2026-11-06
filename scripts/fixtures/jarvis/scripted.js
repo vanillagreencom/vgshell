@@ -277,7 +277,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
     ];
     if (!mappedIndicator) changes.push(
         ['runner.dispatch({ type: "snapshot", locked: context.locked,',
-            'runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']);
+            'runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']);
     edit(file, changes);
     fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
     edit(path.join(path.dirname(file), "ChainedEngine.js"), [

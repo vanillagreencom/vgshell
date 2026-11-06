@@ -35,6 +35,7 @@ Item {
     readonly property var host: QsWindow.window
     readonly property var state: service === null ? null : service.sessionState
     readonly property string phase: state === null ? "down" : Session.phaseOf(state)
+    readonly property bool hidden: state !== null && state.visibility.kind === "hidden"
     // The menu holds the overlay shown: qs.Ui's Menu closes when the item
     // it opened from hides.
     readonly property bool shown: service !== null && screen !== null
@@ -42,6 +43,7 @@ Item {
     readonly property bool presented: shown && visible && host !== null && host.presented === true
         && overlay.width > 0 && overlay.height > 0 && overlay.x >= 0 && overlay.y >= 0
         && overlay.width <= width && overlay.height + look.layout.margin <= height
+    readonly property bool capturePresented: presented && !hidden && orb.visible
     readonly property var hold: state !== null && state.approval.kind === "held" ? state.approval : null
     // A held request would cover the console's message field and hint line
     // where the console on this screen reaches the band the overlay draws in
@@ -109,7 +111,7 @@ Item {
     // A fault reads as the bar says it: what went wrong, then what to do.
     readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind,
         service.shell === null ? null : Providers.cloudVoice(service.shell.settings.voiceProvider)) : null
-    readonly property string stateText: state === null ? "" : micMuted ? "Microphone muted"
+    readonly property string stateText: state === null ? "" : hidden && fault !== null ? fault.title : micMuted ? "Microphone muted"
         : fault !== null ? fault.title
         : stateWords[phase]
     readonly property var levels: service === null || service.shell === null ? {}
@@ -121,7 +123,7 @@ Item {
     // Jarvis's; only Jarvis's draws, so the user's words clear it. The
     // status keeps an ended conversation's caption until the next one.
     // A held request shows its own question in their place.
-    readonly property string words: state === null || !voiceMuted || root.hold !== null ? ""
+    readonly property string words: state === null || hidden || !voiceMuted || root.hold !== null ? ""
         : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""
     readonly property var shortcutKeys: service === null ? null : service.effectiveKeys
     // The ring of the orb at rest, which the icon row and the line under
@@ -134,11 +136,11 @@ Item {
     // `icon.hold` after it leaves all three.
     readonly property bool pointerOver: orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
     onPointerOverChanged: if (pointerOver) iconHold.stop(); else iconHold.restart()
-    readonly property bool iconsWanted: active && (pointerOver || iconHold.running)
+    readonly property bool iconsWanted: !hidden && active && (pointerOver || iconHold.running)
     property real iconOpacity: iconsWanted ? 1 : 0
     Behavior on iconOpacity { NumberAnimation { duration: root.look.icon.fade; easing.type: root.look.icon.easing } }
-    readonly property bool iconsShown: iconOpacity > 0
-    readonly property var menuEntries: View.menuEntries(microphoneMute, voiceMuted)
+    readonly property bool iconsShown: !hidden && iconOpacity > 0
+    readonly property var menuEntries: View.menuEntries(microphoneMute, voiceMuted, hidden, Session.hideRefusal(state))
     // The Jarvis menu's entry that sends INTENT.
     function entryFor(intent) {
         return menuEntries.find(entry => entry.intent === intent);
@@ -148,10 +150,10 @@ Item {
     // reads, [] while it is closed.
     readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
     readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea, physicalHint]
-    readonly property var inputItems: (active ? [orbHit] : [])
+    readonly property var inputItems: !shown || !visible ? [] : (active && !hidden ? [orbHit] : [])
         .concat(active && iconsShown ? [bridge] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
-        .concat(hold === null ? [] : [cancel, confirm])
+        .concat(hold === null || !approvalText.visible ? [] : [cancel, confirm])
         // A fault behind the muted microphone's look keeps its link.
         .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
     // Whether ITEM and every item over it up to the overlay show.
@@ -163,7 +165,7 @@ Item {
     // A Jarvis menu entry: its intent, as its key sends it, or the page it
     // opens.
     function runEntry(entry) {
-        if (service === null) return;
+        if (service === null || entry.disabledReason) return;
         if (entry.intent !== undefined) service.intent(entry.intent);
         else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
     }
@@ -228,10 +230,11 @@ Item {
     readonly property var fieldBoxes: {
         const at = item => ({ x: overlay.x + item.x, y: overlay.y + item.y, w: item.width, h: item.height });
         const rects = [];
-        if (iconOpacity > 0) rects.push({ rect: at(icons), values: look.field.icons, recede: -Math.log(Math.max(iconOpacity, 1e-4)) });
-        rects.push({ rect: at(hold === null ? stateBox : approvalText), values: look.field.content, recede: 0 });
+        if (iconsShown) rects.push({ rect: at(icons), values: look.field.icons, recede: -Math.log(Math.max(iconOpacity, 1e-4)) });
+        if (hold !== null || stateBox.visible) rects.push({ rect: at(hold === null ? stateBox : approvalText), values: look.field.content, recede: 0 });
         if (words.visible) rects.push({ rect: at(words), values: look.field.content, recede: 0 });
-        return Field.boxes(look.field, { x: overlay.x + overlay.centre, y: overlay.y + overlay.orbCentre }, ring, rects, width);
+        const boxes = Field.boxes(look.field, { x: overlay.x + overlay.centre, y: overlay.y + overlay.orbCentre }, ring, rects, width);
+        return hidden ? boxes.slice(1) : boxes;
     }
 
     visible: shown && (hold === null ? true : placed)
@@ -241,6 +244,7 @@ Item {
     RadialBackdrop {
         id: field
         objectName: "field"
+        visible: root.fieldBoxes.length > 0
         readonly property var extent: Field.extent(root.fieldBoxes, root.width, root.height)
         x: extent.x
         y: extent.y
@@ -250,7 +254,7 @@ Item {
         join: root.look.field.join
         blend: root.look.field.blend
         falloff: root.look.field.falloff
-        halo: ({ strength: root.look.field.orb.halo.strength, width: root.look.field.orb.halo.width,
+        halo: ({ strength: root.hidden ? 0 : root.look.field.orb.halo.strength, width: root.look.field.orb.halo.width,
                  ring: root.look.field.orb.halo.ring * root.ring, stops: orb.stops })
     }
     Component.onDestruction: if (service !== null) service.detachBubble(root)
@@ -261,12 +265,13 @@ Item {
         objectName: "overlay"
         readonly property real centre: width / 2
         readonly property real orbCentre: orb.y + orb.height / 2
-        readonly property real below: orbCentre + root.ring + root.look.layout.below
+        readonly property real below: root.hidden ? 0 : orbCentre + root.ring + root.look.layout.below
         // The prompt's and the words' width, held to this overlay's, which
         // the layer bounds, so a narrow screen reflows them.
         readonly property real promptWidth: Math.min(root.look.layout.prompt, width)
         width: Math.min(root.look.layout.width, Math.max(0, root.width - 2 * root.look.layout.margin))
-        height: Math.max(orb.y + orb.height, root.hold === null ? stateBox.y + stateBox.height : approvalText.y + approvalText.height)
+        height: Math.max(root.hidden ? 0 : orb.y + orb.height,
+            root.hold !== null ? approvalText.y + approvalText.height : stateBox.visible ? stateBox.y + stateBox.height : 0)
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: root.look.layout.margin
@@ -300,14 +305,15 @@ Item {
             phase: root.orbPhase
             capture: root.levels.capture || 0
             playback: root.levels.playback || 0
-            active: root.shown
+            visible: !root.hidden
+            active: root.shown && visible
         }
 
         // The orb's input square while the overlay is active.
         Item {
             id: orbHit
             objectName: "orbHit"
-            visible: root.active
+            visible: root.active && !root.hidden
             width: root.look.layout.hit
             height: root.look.layout.hit
             x: overlay.centre - width / 2
@@ -370,7 +376,7 @@ Item {
             x: overlay.centre - width / 2
             y: overlay.below
             width: Math.min(root.look.layout.line, overlay.width)
-            visible: root.hold === null
+            visible: root.hold === null && (!root.hidden || root.fault !== null)
             spacing: root.look.layout.gap
             Label {
                 id: stateLine
@@ -386,7 +392,7 @@ Item {
             LinkText {
                 id: silenceLine
                 width: parent.width
-                visible: root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
+                visible: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
                 layer.enabled: true
                 layer.effect: TextShadow { shadow: root.look.shadow }
                 role: "body"

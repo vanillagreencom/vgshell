@@ -24,6 +24,7 @@ function world(implementation = Owner, synchronous = false, session = Session) {
     };
     const runner = new implementation.SessionRunner(session, {
         voiceMute: { store: value => calls.push({ name: "voice-mute-store", value }) },
+        hidden: { store: value => calls.push({ name: "hidden-store", value }) },
         transcript: port("transcript"),
         capture: { open: port("open"), close: port("close"), collect: port("collect") },
         brain: {
@@ -74,7 +75,7 @@ function world(implementation = Owner, synchronous = false, session = Session) {
         assert.fail("deadline owner rescheduled an expired deadline");
     };
     dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-    dispatch("indicator", { shown: true });
+    dispatch("indicator", { gen: runner.state.gen, shown: true, bar: "gone" });
     return { runner, dispatch, tick, timers, pending, calls, published, trace, connections };
 }
 
@@ -204,6 +205,41 @@ const tests = [
         const publications = w.published.length;
         assert.throws(() => w.dispatch("voice-mute-toggle"), error => error === failure);
         assert.equal(w.published.length, publications, "failed storage cannot publish changed voice mute");
+    }],
+    ["durable-hidden", impl => {
+        const w = world(impl);
+        let stored = false;
+        const stores = [];
+        w.runner.ports.hidden.store = value => { stores.push(value); stored = value; };
+        const publish = w.runner.publish;
+        w.runner.publish = (state, phase) => {
+            assert.equal(stored, state.visibility.kind === "hidden", "publication follows durable choice");
+            publish(state, phase);
+        };
+        w.dispatch("indicator", { gen: w.runner.state.gen, shown: true, bar: "present" });
+        w.dispatch("hide");
+        assert.equal(stored, true);
+        w.dispatch("hide");
+        w.dispatch("show");
+        assert.equal(stored, false);
+        w.dispatch("show");
+        assert.deepEqual(stores, [true, false], "only changed choices store");
+        w.runner.close();
+    }],
+    ["hidden-store-failure", impl => {
+        const w = world(impl);
+        w.dispatch("talk-down");
+        w.pending.open();
+        w.dispatch("indicator", { gen: w.runner.state.gen, shown: true, bar: "present" });
+        const failure = new Error("jarvis: hidden=write-failed");
+        w.runner.ports.hidden.store = () => { throw failure; };
+        const publications = w.published.length;
+        assert.throws(() => w.dispatch("hide"), error => error === failure);
+        assert.equal(w.published.length, publications, "failed storage cannot publish the changed hidden choice");
+        assert.equal(w.calls.at(-1).name, "close", "failed storage still consumes privacy cleanup");
+        assert.equal(w.runner.state.capture.kind, "closing");
+        w.pending.close();
+        w.runner.close();
     }],
     ["router-ports", impl => {
         const w = world(impl);
@@ -499,9 +535,14 @@ try {
         ["speech-due", 'due: due => done("speech-due", { due }),', "due: () => {},", "speech-due-identity"],
         ["speech-due-value", 'due: due => done("speech-due", { due }),', 'due: () => done("speech-due", { due: true }),', "speech-due-identity"],
         ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
-        ["durable-voice-mute", 'const STORES = ["voice-mute-store"];',
-            'const STORES = [];', "durable-voice-mute"],
+        ["durable-voice-mute", 'const STORES = ["voice-mute-store", "hidden-store"];',
+            'const STORES = ["hidden-store"];', "durable-voice-mute"],
         ["voice-mute-persistence", 'this.ports.voiceMute.store(e.muted);', 'void e.muted;', "durable-voice-mute"],
+        ["durable-hidden", 'const STORES = ["voice-mute-store", "hidden-store"];',
+            'const STORES = ["voice-mute-store"];', "durable-hidden"],
+        ["hidden-persistence", 'this.ports.hidden.store(e.hidden);', 'void e.hidden;', "durable-hidden"],
+        ["hidden-store-cleanup", 'if (!STORES.includes(effect.kind)) this.consume(effect);',
+            'if (persistence.kind === "stored" && !STORES.includes(effect.kind)) this.consume(effect);', "hidden-store-failure"],
         ["router-sync", 'this.ports.tools.sync(this.state);', 'void this.state;', "router-ports"],
         ["confirmation-refusal", 'this.ports.approval.refused(e);', 'void e;', "router-ports"],
         ["router-close", 'this.ports.tools.close();', 'void this.ports.tools;', "router-ports"],

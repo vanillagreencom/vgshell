@@ -112,7 +112,7 @@ async function inside() {
             else assert.equal(err, "");
             const frames = out.trim() === "" ? [] : out.trim().split("\n").map(line => JSON.parse(line));
             const shell = frames.filter(frame => frame.type === "shell-status");
-            assert.deepEqual(shell, expected.length || (typeof reason === "string" && /^jarvis: (voice-mute=|state=retired-mute-)/.test(reason)) ? [{ v: 1, type: "shell-status", gen: hello.gen,
+            assert.deepEqual(shell, expected.length || (typeof reason === "string" && /^jarvis: (voice-mute=|hidden=|state=retired-mute-)/.test(reason)) ? [{ v: 1, type: "shell-status", gen: hello.gen,
                 revision: hello.revision, availability: { kind: "checking" } }] : []);
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
@@ -126,8 +126,8 @@ async function inside() {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.notEqual(frame.snapshot.kind, "ready", "this legacy Home has no asks source; startup must never fabricate an empty inbox");
             }
-            // Satellite owns classification; this runner checks its wire frames.
-            for (const frame of frames.filter(frame => frame.type === "main-reach"))
+            // Validate independent readings without pinning their device availability.
+            for (const frame of frames.filter(frame => ["main-reach", "echo-cancel"].includes(frame.type)))
                 Protocol.accept(JSON.stringify(frame), "daemon");
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
@@ -140,7 +140,7 @@ async function inside() {
                     : ["cause", "decision", "effect", "outcome", "refusal", "time", "tool"]);
             }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
-                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks" && frame.type !== "main-reach"
+                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks" && frame.type !== "main-reach" && frame.type !== "echo-cancel"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")
                 && (keepShown || !shownTypes.includes(frame.type))), expected);
@@ -162,8 +162,9 @@ async function inside() {
                     gate: { kind: "down", reason: locked ? "locked" : "unconfigured" },
                     voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
-                    conversation: { kind: "ended" }, input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" }, cue: { kind: "none" },
-                    indicator: { kind: "gone" },
+                    conversation: { kind: "ended" }, history: { kind: "current", epoch: 1 },
+                    input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" }, cue: { kind: "none" },
+                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
                 }, phase: "down", brain: "" });
@@ -220,7 +221,7 @@ async function inside() {
     await run(daemon, ["a".repeat(262145)], 65, "jarvis: protocol=line-too-long");
     await run(daemon, [JSON.stringify({ ...hello, type: "unknown" }) + "\n"], 65, "jarvis: protocol=type");
     const intent = name => ({ v: 1, type: "intent", gen: 0, revision: hello.revision, intent: name });
-    const indicator = shown => ({ v: 1, type: "indicator", gen: 0, revision: hello.revision, shown });
+    const indicator = (shown, bar = "gone", gen = 0) => ({ v: 1, type: "indicator", gen, revision: hello.revision, shown, bar });
     await run(daemon, [JSON.stringify(indicator(true)) + "\n"], 65, "jarvis: protocol=indicator-identity");
     await run(daemon, [JSON.stringify(hello) + "\n",
         JSON.stringify({ ...indicator(true), revision: "b".repeat(64) }) + "\n"],
@@ -229,6 +230,10 @@ async function inside() {
     await run(daemon, [JSON.stringify(hello) + "\n",
         JSON.stringify({ ...intent("stop"), revision: "b".repeat(64) }) + "\n"],
         65, "jarvis: protocol=identity", states([false]));
+    for (const name of ["hide", "show"])
+        await run(daemon, [JSON.stringify(hello) + "\n",
+            JSON.stringify({ ...intent(name), revision: "b".repeat(64) }) + "\n"],
+            65, "jarvis: protocol=identity", states([false]));
     for (const changed of [{ revision: "b".repeat(64) },
         { directories: { ...hello.directories, state: path.join(process.env.JARVIS_TEST_ROOT, "other") } }])
         await run(daemon, [JSON.stringify(hello) + "\n", JSON.stringify({ ...hello, ...changed }) + "\n"],
@@ -713,13 +718,14 @@ async function inside() {
             send({ ...hello, settings: { ...hello.settings, holdToTalk, sounds, ...settings } });
             if (beforeState !== null) await beforeState({ messages });
             await wait(m => m.state.gate.kind !== "down" || m.state.gate.reason === "unconfigured");
-            const talk = name => send(intent(name));
+            const talk = name => send({ ...intent(name), gen: last().state.gen });
             const holdUp = async (release = releaseHeld) => {
                 const held = await wait(message => message.state.input.kind === "held");
-                release(clock, held.state, () => send(intent("talk-up")));
+                release(clock, held.state, () => talk("talk-up"));
             };
             await check({ send: talk, holdUp, raw: send, reply: send,
-                indicator: shown => send(indicator(shown)), wait, last, messages, pid: child.pid,
+                indicator: (shown, bar = "gone", gen = last().state.gen) => send(indicator(shown, bar, gen)),
+                wait, last, messages, pid: child.pid,
                 pressClock: at => fs.writeFileSync(clock, String(at)) });
             child.stdin.end();
             const [code, signal] = await closed;
@@ -938,6 +944,119 @@ async function inside() {
         file => run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=read-failed"));
     fs.unlinkSync(voiceMuteFile);
 
+    const hiddenFile = path.join(hello.directories.state, "hidden.json");
+    const hiddenCheck = async file => {
+        try {
+            await conversation(file, async w => {
+                assert.equal(w.last().state.visibility.kind, "shown", "an absent record means shown");
+                assert.equal(fs.existsSync(hiddenFile), false, "absence creates no default record");
+                let seq = w.last().seq;
+                w.send("hide");
+                await w.wait(m => m.seq > seq);
+                assert.equal(w.last().state.visibility.kind, "shown", "Hide needs a presented widget");
+                assert.equal(fs.existsSync(hiddenFile), false, "a refused Hide stores nothing");
+                w.indicator(false, "present");
+                await w.wait(m => m.state.barIndicator.kind === "present");
+                w.send("hide");
+                await w.wait(m => m.state.visibility.kind === "hidden");
+                assert.equal(fs.existsSync(hiddenFile), true, "admitted Hide stores its choice before publication");
+                assert.equal(fs.readFileSync(hiddenFile, "utf8"), '{"hidden":true}\n');
+                assert.equal(fs.statSync(hiddenFile).mode & 0o777, 0o600);
+                const before = fs.statSync(hiddenFile, { bigint: true });
+                seq = w.last().seq;
+                w.send("hide");
+                w.send("voice-mute");
+                for (const name of ["talk-down", "talk-up", "stop", "new-conversation"]) w.send(name);
+                await w.wait(m => m.seq >= seq + 6);
+                assert.equal(w.last().state.visibility.kind, "hidden");
+                assert.equal(w.last().state.voiceMute.kind, "on", "voice mute is independent");
+                const after = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([after.ino, after.mtimeNs], [before.ino, before.mtimeNs],
+                    "idempotent Hide, voice mute, Talk, Stop and New conversation never rewrite the choice");
+            });
+            const before = fs.statSync(hiddenFile, { bigint: true });
+            await conversation(file, async w => {
+                assert.equal(w.last().state.visibility.kind, "hidden", "a new daemon restores the choice");
+                assert.equal(w.last().state.voiceMute.kind, "on");
+                assert.equal(w.last().state.capture.kind, "closed", "restore grants no capture");
+                const restored = w.messages.findIndex(m => m.type === "state" && m.state.visibility.kind === "hidden");
+                const ready = w.messages.findIndex(m => m.type === "status");
+                assert.ok(restored >= 0 && restored < ready, "restore precedes readiness");
+                assert.equal(w.messages[restored].state.gate.reason, "starting");
+                const after = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([after.ino, after.mtimeNs], [before.ino, before.mtimeNs], "restore writes nothing");
+                w.send("show");
+                await w.wait(m => m.state.visibility.kind === "shown");
+                assert.equal(fs.readFileSync(hiddenFile, "utf8"), '{"hidden":false}\n');
+                assert.equal(w.last().state.barIndicator.kind, "gone", "Show needs no widget");
+                const shown = fs.statSync(hiddenFile, { bigint: true });
+                let seq = w.last().seq;
+                w.send("show");
+                await w.wait(m => m.seq > seq);
+                const unchanged = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([unchanged.ino, unchanged.mtimeNs], [shown.ino, shown.mtimeNs], "idempotent Show writes nothing");
+                fs.writeFileSync(hiddenFile, '{"hidden":true}\n');
+                seq = w.last().seq;
+                w.raw(hello);
+                await w.wait(m => m.seq > seq);
+                assert.equal(w.last().state.visibility.kind, "shown", "only the first hello restores the record");
+                fs.writeFileSync(hiddenFile, '{"hidden":false}'.padEnd(64));
+                w.send("voice-mute");
+                await w.wait(m => m.state.voiceMute.kind === "off");
+            });
+            const storedFalse = fs.statSync(hiddenFile, { bigint: true });
+            await conversation(file, async w => {
+                assert.equal(w.last().state.visibility.kind, "shown", "a saved false at the read bound stays shown");
+                assert.equal(w.last().state.voiceMute.kind, "off");
+                assert.equal(w.messages.filter(m => m.type === "state")[0].state.gate.reason, "unconfigured",
+                    "false needs no private restore event");
+                const after = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([after.ino, after.mtimeNs], [storedFalse.ino, storedFalse.mtimeNs]);
+            });
+        } finally {
+            fs.rmSync(hiddenFile, { force: true });
+            fs.rmSync(voiceMuteFile, { force: true });
+        }
+    };
+    await hiddenCheck(daemon);
+    for (const [name, needle, replacement] of [
+        ["hidden-store", 'storeRecord("hidden", "hidden.json", { hidden });', 'void hidden;'],
+        ["hidden-restore", 'if (first && readHidden()) runner.dispatch({ type: "hidden" });',
+            'if (false && first && readHidden()) runner.dispatch({ type: "hidden" });'],
+        ["hidden-first-hello", 'if (first && readHidden()) runner.dispatch({ type: "hidden" });',
+            'if (readHidden()) runner.dispatch({ type: "hidden" });'],
+        ...["hide", "show"].map(name => ["hidden-" + name + "-intent", ': { type: message.intent });',
+            ': { type: message.intent === "' + name + '" ? "stop" : message.intent });'])
+    ]) await control(name, needle, replacement, hiddenCheck);
+
+    // Hidden is a private exact boolean record, not settings or a mute record.
+    const hiddenRefusal = async (file, bytes, reason) => {
+        try {
+            fs.writeFileSync(hiddenFile, bytes);
+            await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: hidden=" + reason);
+        } finally { fs.rmSync(hiddenFile, { force: true }); }
+    };
+    for (const [bytes, reason] of [
+        ["{", "record-json"], ["null", "record-shape"], ["[]", "record-shape"], ["{}", "record-shape"],
+        ['{"muted":true}', "record-shape"], ['{"hidden":null}', "record-shape"],
+        ['{"hidden":0}', "record-shape"], ['{"hidden":"false"}', "record-shape"],
+        ['{"hidden":false,"extra":0}', "record-shape"], ['{"hidden":false}'.padEnd(65), "record-size"]
+    ]) await hiddenRefusal(daemon, bytes, reason);
+    fs.mkdirSync(hiddenFile);
+    try { await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: hidden=record-not-file"); }
+    finally { fs.rmdirSync(hiddenFile); }
+    const linkedHiddenRecord = path.join(root, "linked-hidden.json");
+    fs.writeFileSync(linkedHiddenRecord, '{"hidden":true}\n');
+    fs.symlinkSync(linkedHiddenRecord, hiddenFile);
+    try {
+        await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: hidden=read-failed");
+        assert.equal(fs.readFileSync(linkedHiddenRecord, "utf8"), '{"hidden":true}\n');
+    } finally { fs.unlinkSync(hiddenFile); }
+    await control("hidden-shape", 'throw new Error("jarvis: hidden=record-shape");', ';',
+        file => hiddenRefusal(file, '{"hidden":false,"extra":0}', "record-shape"));
+    await control("hidden-size", 'if (size > limit) throw new Error("jarvis: " + area + "=record-size");', 'void size;',
+        file => hiddenRefusal(file, '{"hidden":false}'.padEnd(65), "record-size"));
+
     const scripted = daemonCopy("scripted");
     const gates = path.join(root, "gates");
     instrument(scripted, gates);
@@ -1144,7 +1263,7 @@ async function inside() {
     });
     await mappedCheck(mapped);
     for (const [name, needle, replacement] of [
-        ["indicator-delivery", 'runner.dispatch({ type: "indicator", shown: message.shown });', 'void message.shown;'],
+        ["indicator-delivery", 'runner.dispatch({ type: "indicator", gen: message.gen, shown: message.shown, bar: message.bar });', 'void message.shown;'],
         ["indicator-loss", 'shown: message.shown', 'shown: true']
     ]) {
         const copy = daemonCopy(name);
@@ -1153,6 +1272,119 @@ async function inside() {
         assert.equal(before.split(needle).length - 1, 1);
         fs.writeFileSync(copy, before.replace(needle, replacement));
         await assert.rejects(() => mappedCheck(copy), assert.AssertionError, name + " must turn red");
+        controls++;
+    }
+
+    const hiddenMapped = daemonCopy("hidden-indicator");
+    const hiddenGates = path.join(root, "hidden-indicator-gates");
+    instrument(hiddenMapped, hiddenGates, "chained", true);
+    const hiddenIndicatorCheck = async file => {
+        try {
+            await conversation(file, async w => {
+                w.indicator(false, "present");
+                await w.wait(m => m.state.barIndicator.kind === "present");
+                w.send("hide");
+                await w.wait(m => m.state.visibility.kind === "hidden");
+                w.send("talk-down");
+                const waiting = await w.wait(m => m.state.input.kind === "held");
+                assert.equal(waiting.state.capture.kind, "closed", "a previous generation's widget grants no capture");
+                const gen = waiting.state.gen;
+                let seq = waiting.seq;
+                w.indicator(false, "listening", gen - 1);
+                await w.wait(m => m.seq > seq);
+                assert.equal(w.last().state.barIndicator.kind, "gone", "the wire retains the observed generation");
+                assert.equal(w.last().state.capture.kind, "closed", "a stale listening badge cannot open capture");
+                w.indicator(false, "present");
+                await w.wait(m => m.state.barIndicator.kind === "present");
+                assert.equal(w.last().state.capture.kind, "closed", "a widget without a listening badge grants no capture");
+                w.indicator(false, "listening");
+                await w.wait(m => m.state.capture.kind === "open");
+                assert.deepEqual(w.last().state.barIndicator, { kind: "listening", gen });
+                w.indicator(false, "gone", gen - 1);
+                await w.wait(m => m.state.capture.kind === "closed");
+                assert.equal(w.last().state.barIndicator.kind, "gone", "loss withdraws across generations");
+                w.send("show");
+                await w.wait(m => m.state.visibility.kind === "shown");
+                assert.equal(w.last().state.capture.kind, "closed", "shown mode waits for the orb");
+                w.indicator(true);
+                await w.wait(m => m.state.capture.kind === "open");
+                seq = w.last().seq;
+                w.send("toggle");
+                await w.wait(m => m.seq > seq && m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
+            });
+        } finally { fs.rmSync(hiddenFile, { force: true }); }
+    };
+    await hiddenIndicatorCheck(hiddenMapped);
+    for (const [name, needle, replacement] of [
+        ["hidden-indicator-gen", 'gen: message.gen, shown: message.shown, bar: message.bar',
+            'shown: message.shown, bar: message.bar'],
+        ["hidden-indicator-stale", 'gen: message.gen, shown: message.shown, bar: message.bar',
+            'gen: runner.state.gen, shown: message.shown, bar: message.bar'],
+        ["hidden-indicator-bar", 'bar: message.bar', 'bar: "gone"']
+    ]) {
+        const copy = daemonCopy(name);
+        instrument(copy, hiddenGates, "chained", true);
+        const before = fs.readFileSync(copy, "utf8");
+        assert.equal(before.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(copy, before.replace(needle, replacement));
+        await assert.rejects(() => hiddenIndicatorCheck(copy), assert.AssertionError, name + " must turn red");
+        controls++;
+    }
+
+    // Both menu intents use the same ordinary daemon route. A failed
+    // durable choice ends that lease without publishing the new choice,
+    // even while its capture needs privacy teardown.
+    const hiddenFailureCheck = async file => {
+        for (const action of ["hide", "show"]) {
+            let messages, from, capture;
+            const effects = lines(path.join(hiddenGates, "effects.jsonl")).length;
+            try {
+                await conversation(file, async w => {
+                    if (action === "show") {
+                        w.indicator(false, "present");
+                        await w.wait(m => m.state.barIndicator.kind === "present");
+                        w.send("hide");
+                        await w.wait(m => m.state.visibility.kind === "hidden");
+                    } else w.indicator(true);
+                    w.send("talk-down");
+                    await w.wait(m => m.state.input.kind === "held");
+                    w.indicator(action === "hide", action === "hide" ? "present" : "listening");
+                    const open = await w.wait(m => m.state.capture.kind === "open"
+                        && m.state.barIndicator.gen === m.state.gen);
+                    capture = { gen: open.state.capture.gen, op: open.state.capture.op };
+                    assert.equal(open.state.visibility.kind, action === "hide" ? "shown" : "hidden");
+                    if (fs.existsSync(hiddenFile)) fs.unlinkSync(hiddenFile);
+                    fs.mkdirSync(hiddenFile);
+                    messages = w.messages;
+                    from = messages.length;
+                    w.send(action);
+                }, true, 78, "jarvis: hidden=write-failed");
+                assert.equal(messages.slice(from).some(m => m.type === "state"
+                    && m.state.visibility.kind === (action === "hide" ? "hidden" : "shown")), false,
+                    "failed " + action + " and fatal teardown publish no changed choice");
+                assert.ok(lines(path.join(hiddenGates, "effects.jsonl")).slice(effects)
+                    .some(e => e.kind === "capture-close" && e.gen === capture.gen && e.target === capture.op),
+                    "failed " + action + " still closes its acquired capture");
+                assert.deepEqual(fs.readdirSync(hello.directories.state).filter(name => name.startsWith(".hidden.json-")), [],
+                    "failed rename cleans up the owned temporary record");
+            } finally {
+                if (fs.existsSync(hiddenFile) && fs.lstatSync(hiddenFile).isDirectory()) fs.rmdirSync(hiddenFile);
+                else fs.rmSync(hiddenFile, { force: true });
+            }
+        }
+    };
+    await hiddenFailureCheck(hiddenMapped);
+    for (const [name, needle, replacement] of [
+        ["hidden-permanent-failure", '(voice-mute=|hidden=|state=retired-mute-)', '(voice-mute=|state=retired-mute-)'],
+        ["hidden-fatal-publication", 'if (!ending && context !== null) write({ v: 1, type: "state"',
+            'if (context !== null) write({ v: 1, type: "state"']
+    ]) {
+        const copy = daemonCopy(name);
+        instrument(copy, hiddenGates, "chained", true);
+        const before = fs.readFileSync(copy, "utf8");
+        assert.equal(before.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(copy, before.replace(needle, replacement));
+        await assert.rejects(() => hiddenFailureCheck(copy), assert.AssertionError, name + " must turn red");
         controls++;
     }
 
@@ -1818,7 +2050,7 @@ async function inside() {
                 + (recipients === null ? "" : ", recipients: " + JSON.stringify(recipients)) + " }), fixture.row))(require("
                 + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ")) });"],
             ["backend/jarvisd.js", 'runner.dispatch({ type: "snapshot", locked: context.locked,',
-                'if (runner.state.indicator.kind !== "shown") runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
+                'if (runner.state.indicator.kind !== "shown") runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
             const target = path.join(directory, relative);
             const original = fs.readFileSync(target, "utf8");
             assert.equal(original.split(needle).length - 1, 1, name + " engine instrumentation");

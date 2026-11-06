@@ -6,7 +6,7 @@
 "use strict";
 
 // Effects whose value must already survive a daemon restart when published.
-const STORES = ["voice-mute-store"];
+const STORES = ["voice-mute-store", "hidden-store"];
 
 class SessionRunner {
     constructor(session, ports, clock, publish) {
@@ -71,6 +71,7 @@ class SessionRunner {
         case "approval-ended": this.ports.approval.end(e); break;
         case "confirm-refused": this.ports.approval.refused(e); break;
         case "voice-mute-store": this.ports.voiceMute.store(e.muted); break;
+        case "hidden-store": this.ports.hidden.store(e.hidden); break;
         case "speech-open": this.ports.speech.open(e, {
             speak: () => done("speak"),
             due: due => done("speech-due", { due }),

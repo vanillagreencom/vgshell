@@ -17,7 +17,11 @@
 # once, so the reveal's restart cannot hide a user's line. The icon row
 # shows only while the pointer rests on the active orb, so a click on an
 # icon hovers the orb first.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
+# Hidden capture reads the core host's completed badge frames and the
+# Session observation at the scripted capture port's actual open call.
+# Widget removal, bar unmapping and a widget on only the unfocused output
+# must withdraw capture. These are state/order probes, not timing budgets.
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
 jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
@@ -44,6 +48,7 @@ $jarvis_bubble_snapshots/engine $repo/shell/plugins/vgs.jarvis/backend/ChainedEn
 $jarvis_bubble_snapshots/backend $jarvis_key_backend
 $jarvis_bubble_snapshots/bubble $repo/shell/plugins/vgs.jarvis/Bubble.qml
 $jarvis_bubble_snapshots/words $repo/shell/plugins/vgs.jarvis/Words.qml
+$jarvis_bubble_snapshots/widget $repo/shell/plugins/vgs.jarvis/Widget.qml
 $jarvis_bubble_snapshots/fixture $repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js
 $sandbox/jarvis-key-service-before $jarvis_key_service
 EOF
@@ -59,6 +64,8 @@ EOF
   expect "the bubble row restores its configuration" ok ipc shell reloadConfig
   # Voice mute persists in its own record; the row leaves it off.
   rm -f -- "${home:?}/.local/state/vgshell/jarvis/voice-mute.json"
+  rm -f -- "${home:?}/.local/state/vgshell/jarvis/hidden.json"
+  expect "the bubble row reveals its temporarily hidden bar" ok ipc vgs.bar invoke reveal ''
   # Early geometry failure can leave the source snapshots unchanged.
   rescan "the bubble row rescans its restored sources"
   jarvis_enable
@@ -446,6 +453,94 @@ rows=[v["menuTexts"] for _,_,v in json.load(sys.stdin) if v["menuTexts"]]
 print(json.dumps(rows[0] if len(rows)==1 else [] if not rows else "menus=%d" % len(rows)))
 '
 }
+jarvis_bubble_menu_open() {
+  ipc smoke layerItems vgs.jarvis Bubble menuOpened | py_reply 'import json,sys; print(str(any(v["menuOpened"] for _,_,v in json.load(sys.stdin))).lower())'
+}
+jarvis_bubble_menu_choose() { # LABEL [TYPE PROPERTY VALUE]
+  local point box x y index step
+  if (($# == 1)); then point="$(jarvis_bubble_orb_centre)" || return 1
+  else
+    box="$(jarvis_bubble_required_box "$2" "$3" "$4")" || return 1
+    point="$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$box")" || return 1
+  fi
+  read -r x y <<<"$point" || return 1
+  right_click "$x" "$y" || return 1
+  expect_poll "the overlay opens its shared menu" true jarvis_bubble_menu_open
+  index="$(jarvis_bubble_menu | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index(sys.argv[1]) if sys.argv[1] in rows else "absent")' "$1")" || return 1
+  [[ $index =~ ^[0-9]+$ ]] || { fail "the overlay menu has no $1: $index"; return 1; }
+  type_keys -k Home || return 1
+  for ((step = 0; step < index; step++)); do type_keys -k Down || return 1; done
+  type_keys -k Return || return 1
+  expect_poll "$1 closes the overlay menu" '[]' jarvis_bubble_menu
+  rest_pointer
+}
+# The observation is the service's read-only, scoped core publication, not
+# the widget's requested key or a configured placement.
+jarvis_bubble_bar_frame() { # present|listening|other-output
+  local frames focus process
+  frames="$(ipc smoke readInstance service vgs.jarvis barPresentations)" &&
+    focus="$(ipc smoke readInstance service vgs.jarvis focusedOutput)" &&
+    process="$(ipc smoke jarvisProcess)" || return 1
+  py_reply '
+import json,sys
+rows=json.load(sys.stdin); focus=json.loads(sys.argv[1])
+s=json.loads(sys.argv[2])["status"]["detail"]["state"]; want=sys.argv[3]
+current=[r for r in rows if r["key"] in (str(s["gen"])+":present",str(s["gen"])+":listening")]
+focused=[r for r in current if r["output"]==focus]
+if want=="other-output":
+    ok=not focused and any(r["output"]!=focus and r["key"]==str(s["gen"])+":listening" and r["dot"]=="success" for r in current)
+elif want=="listening":
+    ok=any(r["key"]==str(s["gen"])+":listening" and r["dot"]=="success" for r in focused)
+else: ok=bool(focused)
+print(want if ok else "pending")
+' "$focus" "$process" "$1" <<<"$frames"
+}
+jarvis_bubble_hide_blocked() {
+  ipc smoke layerItems vgs.jarvis Bubble menuEntries | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+entries=[e for _,_,v in rows for e in v["menuEntries"] if e.get("intent")=="hide"]
+print("blocked" if entries and all(e.get("disabledReason") for e in entries) else "unavailable")
+'
+}
+# Read all built copies, including the unmapped ones: hidden ordinary
+# content must not hand Words a caption or retain an orb field.
+jarvis_bubble_hidden() { # quiet|required
+  local bubbles orbs
+  bubbles="$(ipc smoke layerItems vgs.jarvis Bubble hidden,words,capturePresented,iconsShown,fieldBoxes,presented,shown)" &&
+    orbs="$(ipc smoke layerItems vgs.jarvis ParticleOrb visible,active)" || return 1
+  py_reply '
+import json,sys
+rows=json.load(sys.stdin); orbs=json.loads(sys.argv[1]); required=sys.argv[2]=="required"
+ok=bool(rows) and bool(orbs) and all(v["hidden"] and v["words"]=="" and not v["capturePresented"] and not v["iconsShown"] for _,_,v in rows)
+ok=ok and all(not v["visible"] and not v["active"] for _,_,v in orbs)
+if required: ok=ok and any(v["shown"] and v["presented"] and len(v["fieldBoxes"])==1 for _,_,v in rows)
+else: ok=ok and all(len(v["fieldBoxes"])==0 and not v["shown"] for _,_,v in rows)
+print("required" if ok and required else "quiet" if ok else "wrong-content")
+' "$orbs" "$1" <<<"$bubbles"
+}
+jarvis_bubble_hidden_loss() {
+  expect_poll "loss of the focused bar badge retires capture" closed jarvis_key_state capture
+  expect_poll "the daemon observes the bar indicator withdrawn" gone jarvis_key_state barIndicator
+  expect "hidden required text grants no orb indicator" gone jarvis_key_state indicator
+  expect "indicator withdrawal preserves the hidden choice" hidden jarvis_key_state visibility
+}
+# The fixture records Session's state before calling the capture port.
+# Require at least one hidden open, and no hidden open before its own
+# generation's listening observation or with an orb observation.
+jarvis_bubble_hidden_opens() {
+  python3 - "$jarvis_key_gates/effects.jsonl" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+try: rows=[json.loads(line) for line in p.read_text().splitlines()]
+except (OSError,ValueError): print("unreadable"); sys.exit()
+if not all(isinstance(r,dict) for r in rows): print("unaccepted"); sys.exit()
+opens=[r for r in rows if r.get("kind")=="capture-open" and r.get("visibility",{}).get("kind")=="hidden"]
+ok=bool(opens) and all(r.get("barIndicator")=={"kind":"listening","gen":r.get("gen")} and r.get("indicator")=={"kind":"gone"} for r in opens)
+print("framed-before-open" if ok else "unframed")
+PY
+}
 jarvis_bubble_click() { # LABEL
   local point x y
   if ! point="$(jarvis_bubble_orb_centre)"; then
@@ -474,8 +569,13 @@ jarvis_bubble_begin() {
     rm -f -- "$jarvis_key_gates/silent-capture"
   fi
   jarvis_key_talk_down
-  expect_poll "capture waits for the bubble then listens" listening jarvis_key_state phase
-  expect_poll "the listening bubble has presented on its own host" presented jarvis_bubble_state
+  expect_poll "capture waits for its selected indicator then listens" listening jarvis_key_state phase
+  if [[ $(jarvis_key_state visibility) == hidden ]]; then
+    expect_poll "hidden listening has a focused host-framed badge" listening jarvis_bubble_bar_frame listening
+    expect_poll "hidden listening draws no ordinary overlay" quiet jarvis_bubble_hidden quiet
+  else
+    expect_poll "the listening bubble has presented on its own host" presented jarvis_bubble_state
+  fi
 }
 
 # The real service acknowledges the frame, then Session applies its draw
@@ -642,6 +742,18 @@ mv -T -- "$jarvis_bubble_snapshots/backend.next" "$jarvis_bubble_snapshots/backe
 jarvis_disable
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --held-approvals "$jarvis_key_backend"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_bubble_engine"
+# Instrument only this row's disposable scripted port, not the daemon or
+# the production admission judge.
+python3 - "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text(); needle='record("capture-open", e);'
+assert s.count(needle)==1
+changed=s.replace(needle, 'record("capture-open", { ...e, visibility: state().visibility, barIndicator: state().barIndicator, indicator: state().indicator });')
+assert changed!=s
+p.write_text(changed)
+PY
 jarvis_rescan
 jarvis_enable
 expect_poll "no requirement notice stands over the bubble's client" null notice_shown
@@ -665,6 +777,9 @@ expect_poll "the orb still presents without any bar" presented jarvis_bubble_sta
 geometry expect_poll "the bubble follows the free area without a bar" bottom-centre jarvis_bubble_geometry
 expect "the bar returns without restarting Jarvis" ok ipc shell setPluginEnabled vgs.bar true
 expect_poll "the bubble follows the restored reserved space" presented jarvis_bubble_state
+expect_poll "Hide explains the missing focused bar widget" blocked jarvis_bubble_hide_blocked
+expect "Hide refuses without a presented widget" 'refused: hide=indicator' ipc vgs.jarvis invoke hide ''
+expect "a refused Hide leaves the orb choice shown" shown jarvis_key_state visibility
 
 expect "the icon row hides while the pointer is away from the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
 if ! orb_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
@@ -694,9 +809,9 @@ else
 fi
 expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
 # A right click on the listening orb's centre opens the Jarvis menu at the
-# click, with the overlay's four entries; Escape closes it.
+# click, with the shared Jarvis entries; Escape closes it.
 right_click "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))" || fail "the right click on the listening orb is not delivered"
-expect_poll "a right click on the listening orb opens the Jarvis menu" "[\"Mute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+expect_poll "a right click on the listening orb opens the Jarvis menu" "[\"Mute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"New conversation\", \"Hide Jarvis\", \"Key hints\"]" jarvis_bubble_menu
 type_keys -k Escape || fail "Escape on the Jarvis menu failed"
 expect_poll "Escape closes the Jarvis menu" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the Jarvis menu"
@@ -813,7 +928,7 @@ read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.
 # Jarvis's words take the pointer while they show in an active state: a
 # right click on them opens the Jarvis menu.
 hover "$words_x" "$words_y" && right_click "$words_x" "$words_y" || fail "the right click on Jarvis's words is not delivered"
-expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Unmute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Unmute Jarvis's voice\", \"Mute microphone\", \"Stop Jarvis\", \"New conversation\", \"Hide Jarvis\", \"Key hints\"]" jarvis_bubble_menu
 type_keys -k Escape || fail "Escape on the Jarvis menu over the words failed"
 expect_poll "Escape closes the Jarvis menu over the words" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the words' menu"
@@ -923,13 +1038,158 @@ expect_poll "only the focused output requests a bubble" focused jarvis_bubble_fo
 expect "focus returns to the original monitor" ok probe dispatch "focusMonitor $jarvis_bubble_first"
 expect_poll "the service observes restored monitor focus" "\"$jarvis_bubble_first\"" ipc smoke readInstance service vgs.jarvis focusedOutput
 expect_poll "the restored focused output owns the visual" focused jarvis_bubble_focused
+
+# Give this fixture a real widget only on the first output. Core still
+# owns its frame observation; neither Service nor Session is patched.
+jarvis_key_talk_up
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_disable
+cp -- "$repo/shell/plugins/vgs.jarvis/Widget.qml" "$jarvis_bubble_snapshots/widget"
+python3 - "$repo/shell/plugins/vgs.jarvis/Widget.qml" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text(); needle='    id: root'
+assert s.count(needle)==1
+# Plugins.createWidget hands the widget its actual owning bar, whose
+# screen is assigned by the core. This fixture hides only one copy.
+changed=s.replace(needle, needle+'\n    visible: bar === null || bar.screen === null || bar.screen.name !== "SMOKE-JARVIS"')
+assert changed!=s
+p.write_text(changed)
+PY
+jarvis_rescan
+jarvis_enable
+expect "the indicator fixture places the real Jarvis widget" ok ipc shell setPluginPlaced vgs.jarvis true
+expect_poll "the focused host completes the widget frame before Hide" present jarvis_bubble_bar_frame present
+expect "the placed widget's bar hides before the refusal check" ok ipc vgs.bar invoke hide ''
+expect_poll "an unmapped bar withdraws the placed widget's observation" gone jarvis_key_state barIndicator
+expect "the hidden bar retains the actual widget instance" '"vgs.jarvis"' ipc smoke readInstance "bar:$jarvis_bubble_first" vgs.jarvis moduleName
+expect_poll "Hide explains why a built but unmapped widget is insufficient" blocked jarvis_bubble_hide_blocked
+expect "Hide refuses a built but unmapped bar widget" 'refused: hide=indicator' ipc vgs.jarvis invoke hide ''
+expect "the refusal keeps the shown choice" shown jarvis_key_state visibility
+expect "the placed widget's bar reveals after the refusal check" ok ipc vgs.bar invoke reveal ''
+expect_poll "the focused host completes the revealed widget frame" present jarvis_bubble_bar_frame present
+jarvis_bubble_begin
+expect_poll "the focused host completes the listening badge before Hide" listening jarvis_bubble_bar_frame listening
+jarvis_bubble_before="$(jarvis_key_received count)"
+jarvis_bubble_menu_choose "Hide Jarvis" || fail "the overlay Hide menu action is delivered"
+expect_poll "the overlay Hide route stores the hidden choice" hidden jarvis_key_state visibility
+expect "the overlay menu sends only the direct Hide intent" '["hide"]' jarvis_key_received "$jarvis_bubble_before"
+expect_poll "hidden listening keeps the real focused badge" listening jarvis_bubble_bar_frame listening
+expect_poll "Hide withdraws the orb observation" gone jarvis_key_state indicator
+expect_poll "Hide leaves capture open behind that badge" open jarvis_key_state capture
+expect_poll "hidden listening removes orb, words, controls and field" quiet jarvis_bubble_hidden quiet
+jarvis_key_talk_up
+jarvis_key_stop
+jarvis_key_stop_assertion
+expect "Stop keeps the hidden choice" hidden jarvis_key_state visibility
+
+# Bootstrap with capture closed and an unmapped bar. Demand must draw the
+# listening dot without a microphone, then the host's swap admits capture.
+expect "the bar hides before hidden capture is requested" ok ipc vgs.bar invoke hide ''
+expect_poll "the hidden bar withdraws its observation" gone jarvis_key_state barIndicator
+jarvis_bubble_initial_opens="$(jarvis_key_effects capture-open)"
+jarvis_key_talk_down
+expect_poll "hidden demand selects the listening badge before capture" '"success"' ipc smoke readDescendant "bar:$jarvis_bubble_first" vgs.jarvis BarItem stateDot
+expect "an unmapped badge opens no microphone" closed jarvis_key_state capture
+expect "capture has not reached its scripted open port" "$jarvis_bubble_initial_opens" jarvis_key_effects capture-open
+expect "the unmapped bar reveals without changing Jarvis's choice" ok ipc vgs.bar invoke reveal ''
+expect_poll "the real focused listening frame reaches the service" listening jarvis_bubble_bar_frame listening
+expect_poll "that frame admits hidden capture" open jarvis_key_state capture
+expect "the admitted port observes the same generation's badge first" framed-before-open jarvis_bubble_hidden_opens
+
+# Returning a badge cannot bypass an outstanding close acknowledgment.
+jarvis_key_gate hold-close
+jarvis_key_gate silent-capture
+expect "removing the actual widget withdraws the hidden indicator" ok ipc shell setPluginPlaced vgs.jarvis false
+expect_poll "widget removal starts resource retirement" closing jarvis_key_state capture
+expect_poll "widget removal reaches Session as gone" gone jarvis_key_state barIndicator
+jarvis_bubble_initial_opens="$(jarvis_key_effects capture-open)"
+expect "the widget returns while the old resource is retiring" ok ipc shell setPluginPlaced vgs.jarvis true
+expect_poll "the returned widget completes a listening frame" listening jarvis_bubble_bar_frame listening
+expect "a returned frame cannot bypass close acknowledgment" closing jarvis_key_state capture
+expect "a returned frame starts no replacement capture early" "$jarvis_bubble_initial_opens" jarvis_key_effects capture-open
+jarvis_key_gate close
+expect_poll "matching close acknowledgment permits replacement capture" open jarvis_key_state capture
+expect "only one replacement reaches the capture port" "$((jarvis_bubble_initial_opens + 1))" jarvis_key_effects capture-open
+rm -f -- "$jarvis_key_gates/hold-close"
+jarvis_key_gate silent-capture
+expect "the mapped bar hides during hidden capture" ok ipc vgs.bar invoke hide ''
+jarvis_bubble_hidden_loss
+expect "the bar reveals after hidden capture withdrawal" ok ipc vgs.bar invoke reveal ''
+expect_poll "the revealed host presents the listening badge" listening jarvis_bubble_bar_frame listening
+expect_poll "the revealed badge permits capture again" open jarvis_key_state capture
+
+jarvis_key_gate silent-capture
+expect "focus leaves the only presented Jarvis widget" ok probe dispatch "focusMonitor SMOKE-JARVIS"
+expect_poll "Service observes focus on the widgetless output" '"SMOKE-JARVIS"' ipc smoke readInstance service vgs.jarvis focusedOutput
+expect_poll "the original output still presents the actual listening badge" other-output jarvis_bubble_bar_frame other-output
+jarvis_bubble_hidden_loss
+expect "focus returns to the presented badge" ok probe dispatch "focusMonitor $jarvis_bubble_first"
+expect_poll "the focused badge permits capture after output mismatch" open jarvis_key_state capture
+jarvis_key_gate silent-capture
+expect "removing the widget again leaves Show as a recovery route" ok ipc shell setPluginPlaced vgs.jarvis false
+jarvis_bubble_hidden_loss
+expect "Show needs no bar widget" ok ipc vgs.jarvis invoke show ''
+expect_poll "Show restores the orb's own host presentation" presented jarvis_bubble_state
+expect_poll "Show restores orb capture admission without a widget" open jarvis_key_state capture
+expect "Show keeps the independent voice mute" on jarvis_key_state voiceMute
+jarvis_key_talk_up
+jarvis_key_stop
+jarvis_key_stop_assertion
+
+# The retained required content uses the same approval/frame and menu
+# routes, but never substitutes for the hidden capture indicator.
+expect "the widget returns for another explicit Hide" ok ipc shell setPluginPlaced vgs.jarvis true
+expect_poll "the idle widget has a presented frame" present jarvis_bubble_bar_frame present
+jarvis_bubble_menu_choose "Hide Jarvis" || fail "the second overlay Hide reaches its owner"
+jarvis_bubble_approval action
+expect_poll "the hidden held request receives its real frame acknowledgment" drawn jarvis_bubble_acknowledged
+expect_poll "the hidden held request keeps only required content" required jarvis_bubble_hidden required
+expect "the hidden hold retains its typed call and ordered answer buttons" 1 jarvis_bubble_request
+jarvis_bubble_before="$(jarvis_key_effects approval-ended)"
+jarvis_bubble_accept Cancel approval-ended "$((jarvis_bubble_before + 1))"
+expect_poll "answering the hidden hold removes its required content" quiet jarvis_bubble_hidden quiet
+expect "answering the hidden hold never shows the orb" hidden jarvis_key_state visibility
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_bubble_begin
+jarvis_bubble_before="$(jarvis_key_effects playback-start)"
+jarvis_bubble_think caption
+expect_poll "hidden Jarvis still reaches reply playback" speaking jarvis_key_state phase
+expect_poll "the hidden reply reaches the scripted playback port" "$((jarvis_bubble_before + 1))" jarvis_key_effects playback-start
+expect "hidden speaking keeps independent voice mute" on jarvis_key_state voiceMute
+expect_poll "an assistant caption and playback draw no hidden words or orb" quiet jarvis_bubble_hidden quiet
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_bubble_begin
+jarvis_key_gate device-lost
+expect_poll "hidden device loss enters the real retry fault" retrying jarvis_key_state fault
+expect_poll "the hidden fault keeps its required text and field" required jarvis_bubble_hidden required
+jarvis_bubble_before="$(jarvis_key_received count)"
+jarvis_bubble_menu_choose "Show Jarvis" Label role bodyStrong || fail "the hidden fault's menu Show is delivered"
+expect_poll "Show from the required fault restores the orb choice" shown jarvis_key_state visibility
+expect "the hidden fault menu sends only the direct Show intent" '["show"]' jarvis_key_received "$jarvis_bubble_before"
+expect_poll "Show restores the fault's orb" error jarvis_bubble_look
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_key_gate device-back
+jarvis_key_talk_up
+rm -f -- "$jarvis_key_gates/device-gone" "$jarvis_key_gates/device-back"
+expect "every hidden capture opened behind its own listening frame" framed-before-open jarvis_bubble_hidden_opens
+jarvis_disable
+cp -- "$jarvis_bubble_snapshots/widget" "$repo/shell/plugins/vgs.jarvis/Widget.qml"
+jarvis_rescan
+jarvis_enable
+expect "the visible-orb controls start without a bar widget" ok ipc shell setPluginPlaced vgs.jarvis false
+expect "the hidden scenario leaves the persisted choice shown" shown jarvis_key_state visibility
 expect "the nested compositor removes the focus target" ok hypr output remove SMOKE-JARVIS
 jarvis_bubble_focus_output=false
 cp -- "$jarvis_bubble_snapshots/focus" "$jarvis_bubble_lua"
 expect "the nested pointer configuration is restored" ok hypr reload config-only
 jarvis_key_talk_up
 jarvis_key_stop
-jarvis_key_stop_assertion
 
 jarvis_bubble_begin
 expect "losing the mapped host hides the indicator" ok ipc smoke layerWindowSet vgs.jarvis visible false
@@ -1264,6 +1524,7 @@ jarvis_key_talk_up
 jarvis_key_stop
 jarvis_disable
 rm -f -- "${home:?}/.local/state/vgshell/jarvis/voice-mute.json"
+rm -f -- "${home:?}/.local/state/vgshell/jarvis/hidden.json"
 cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 cp -- "$jarvis_bubble_snapshots/engine" "$jarvis_bubble_engine"
 cp -- "$jarvis_bubble_snapshots/backend" "$jarvis_key_backend"

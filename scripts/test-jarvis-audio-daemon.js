@@ -21,13 +21,14 @@ function daemonCopy(name, mutant = null, half = false) {
             '                    audio.captureSink = () => new (require("node:stream").Writable)({ write(frame, encoding, done) { done(); } });\n' +
             '                    runner.ports.capture = { ...runner.ports.capture, collect: () => {} };' + (half ? "\n                    fixtureSpeech();" : "")],
         ['configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),\n'
-            + '            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });',
+            + '            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()),\n'
+            + '            echoCancel: audio.echoActive(engine.engine()), settings: context.settings });',
             'configured: true, settings: context.settings });\n' +
             // Device/configuration snapshots must not toggle the fixture's
             // conversation off while its first recorder is still opening.
             '                if (!fixtureStarted) {\n' +
             '                    fixtureStarted = true;\n' +
-            '                    runner.dispatch({ type: "indicator", shown: true });\n' +
+            '                    runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });\n' +
             '                    runner.dispatch({ type: "talk-down" });\n' +
             '                }']
     ]) {

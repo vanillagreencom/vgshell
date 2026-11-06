@@ -88,9 +88,19 @@
 # beside it and planted sign-ins, with no host claude or codex on the
 # shell's PATH; ai-usage-states, taken only when named, is that dropdown
 # with a Claude Code account at its full weekly limit and one with no
-# figures at its top; jarvis-console is the Jarvis console window over the
-# scripted daemon fixture in each conversation state and the package-owned
-# Needs you/History pages, taken only when named; jarvis-history draws plain
+# figures at its top; jarvis-keys captures Jarvis's Keys section and, on a
+# tree that has it, the former Talk mode field. jarvis-states captures the
+# real widget and overlay at ready, listening, idle, thinking, speaking,
+# confirmation, fault and not-set-up, plus the console's matching asks
+# count. It uses the existing scripted daemon ports and package-command
+# fixture. A disposable Service substitutes ready/unmuted and ready/muted microphone
+# facts where the tree consumes the system mute; no audio device opens.
+# Where the tree offers Hide/Show, the same scene uses both real menus
+# and the production host's frame observation, never a fixture badge grant.
+# It captures hidden listening, idle, speaking, held request and fault.
+# These scenes run only when named. jarvis-console is the Jarvis console
+# window over the scripted daemon fixture in each conversation state and
+# the package-owned Needs you/History pages, taken only when named; jarvis-history draws plain
 # problem sentences from three fixture records at default and narrow sizes
 # and checks that an empty source fails its entry check; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; capture is
@@ -444,7 +454,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -600,6 +610,7 @@ scene_ships() {
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
     jarvis-console|jarvis-history|jarvis-restart) ships_plugin vgs.jarvis ;;
+    jarvis-keys|jarvis-states) [[ $manager_scene == settings ]] && ships_plugin vgs.jarvis vgs.settings vgs.bar ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
@@ -3945,6 +3956,303 @@ EOF
   rm -f -- "${shim:?}/voxtype-audio-bridge"
   rescan "the Voice stand-ins are removed"
 }
+scene_jarvis-keys() { # MODE
+  jarvis_setup_requirements
+  tree_rescan "the Jarvis key capture requirements are scanned"
+  expect "Jarvis enables for its key fields" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis key capture daemon answers" ready jarvis_started
+  close_notices
+  expect "Settings opens for Jarvis's keys" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for Jarvis's keys" 1 settings_count
+  expect "Settings opens Jarvis's key page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "Jarvis's key page is shown" '"vgs.jarvis"' settings_page
+  settings_tab_click Settings || return 1
+  expect_poll "Jarvis's Settings tab is shown" Settings settings_tab_text
+  jarvis_anchor_shot "jarvis-keys-$1" SectionHeader Keys
+  if tree_has shell/plugins/vgs.jarvis/manifest.json '"mode": {"type": "enum"'; then
+    jarvis_anchor_shot "jarvis-mode-$1" Field "Talk mode"
+  fi
+  settings_close
+  expect "Jarvis disables after its key fields" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "the Jarvis key capture daemon is gone" absent ipc smoke jarvisProcess
+  jarvis_restore_requirements
+}
+
+# Production views, with the same private Session ports as jarvis-console.
+# State transitions use Service.intent and the shipped say/stop IPC. Only
+# the disposable microphone fact below replaces a UI input; no microphone,
+# playback, provider, account or confirmation action runs.
+scene_jarvis-states() { # MODE
+  local plugin="$repo/shell/plugins/vgs.jarvis" saved="$sandbox/jarvis-states-$1"
+  local gates="$sandbox/jarvis-states-$1-gates" system_mute=false hide_show=false x y box
+  tree_has shell/plugins/vgs.jarvis/WidgetView.js '"Hide Jarvis"' && hide_show=true
+  mkdir -- "$saved"
+  cp -- "$plugin/backend/jarvisd.js" "$saved/daemon"
+  cp -- "$plugin/backend/ChainedEngine.js" "$saved/engine"
+  cp -- "$plugin/Service.qml" "$saved/service"
+  cp -- "$home/.config/vgshell/shell.json" "$saved/config"
+  if [[ -f $home/.local/state/vgshell/jarvis/hidden.json ]]; then
+    cp -p -- "$home/.local/state/vgshell/jarvis/hidden.json" "$saved/hidden"
+  fi
+  if tree_has shell/plugins/vgs.jarvis/Service.qml 'readonly property var microphoneMute:'; then
+    system_mute=true
+    python3 - "$plugin/Service.qml" <<'PYMIC'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+assert not p.is_symlink()
+s = p.read_text()
+old = '''readonly property var microphoneMute: !Pipewire.ready || microphoneSource === null || !microphoneSource.ready || microphoneSource.audio === null
+        ? { kind: "unavailable" } : { kind: "ready", muted: microphoneSource.audio.muted }'''
+new = '''property var microphoneMute: ({ kind: "ready", muted: false })
+    function captureFixtureMicrophone(value) {
+        microphoneMute = { kind: "ready", muted: value === "true" };
+        return "ok";
+    }'''
+assert s.count(old) == 1
+changed = s.replace(old, new)
+assert changed != s
+p.write_text(changed)
+PYMIC
+  fi
+  jarvis_setup_requirements
+  jarvis_asks_fixture "$checkout"
+  # Hold keeps each capture open until the scene's Stop, on either saved
+  # settings interface. The separate key scene retains the actual defaults.
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$plugin/manifest.json" <<'PYHOLD'
+import json,sys
+from pathlib import Path
+value = json.loads(Path(sys.argv[1]).read_text())
+manifest = json.loads(Path(sys.argv[2]).read_text())
+row = next(r for r in value["plugins"] if r["id"] == "vgs.jarvis")
+if "holdToTalk" in manifest["settings"]: row["holdToTalk"] = True
+else: row["mode"] = "hold"
+print(json.dumps(value))
+PYHOLD
+  expect "the state capture selects its fixture Home and Hold setting" ok ipc shell reloadConfig
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$plugin/backend/jarvisd.js" "$gates" --mapped-indicator
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --held-approvals "$plugin/backend/jarvisd.js"
+  tree_rescan "the Jarvis state capture fixtures are scanned"
+  expect "Jarvis enables for state images" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect "Jarvis is placed for state images" ok ipc shell setPluginPlaced vgs.jarvis true
+  expect_poll "the Jarvis state capture daemon answers" ready jarvis_started
+  close_notices
+  jarvis_asks_ready
+  jarvis_capture_state() { # phase|gateReason|approvalDrawn|REGION
+    ipc smoke jarvisProcess | py_reply 'import json,sys
+d=json.load(sys.stdin)["status"].get("detail")
+if d is None: print("pending")
+elif sys.argv[1]=="phase": print(d["phase"])
+elif sys.argv[1]=="gateReason": print(d["state"]["gate"].get("reason", "none"))
+elif sys.argv[1]=="approvalDrawn":
+    a=d["state"]["approval"]
+    print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else "pending")
+else: print(d["state"][sys.argv[1]]["kind"])' "$1"
+  }
+  jarvis_capture_look() {
+    ipc smoke layerItems vgs.jarvis ParticleOrb active,phase | py_reply 'import json,sys
+rows=[r[2] for r in json.load(sys.stdin) if r[2]["active"]]
+print(rows[0]["phase"] if len(rows)==1 else "absent")'
+  }
+  jarvis_capture_microphone() { ipc smoke readInstance service vgs.jarvis microphoneMute | py_reply 'import json,sys; v=json.load(sys.stdin); print(str(v["kind"]=="ready" and v["muted"]).lower())'; }
+  jarvis_capture_tip() { # NAME
+    hover_widget "Jarvis's state tooltip is reached" vgs.jarvis || return 1
+    expect_poll "Jarvis's state tooltip opens" true tooltip_opened vgs.jarvis
+    take_posed "jarvis-states-$1"
+    park_pointer
+    expect_poll "Jarvis's state tooltip closes" false tooltip_opened vgs.jarvis
+  }
+  jarvis_capture_intent() { # INTENT
+    expect "Jarvis receives $1 for its image" "" ipc smoke invokeInstance service vgs.jarvis intent "$1"
+  }
+  jarvis_capture_stop() {
+    expect "Jarvis stops the posed turn" ok ipc vgs.jarvis invoke stop ''
+    expect_poll "Jarvis's posed capture closes" closed jarvis_capture_state capture
+    expect_poll "Jarvis's posed turn ends" none jarvis_capture_state turn
+    expect_poll "Jarvis's posed playback ends" idle jarvis_capture_state playback
+    expect_poll "Jarvis's posed request ends" none jarvis_capture_state approval
+  }
+  jarvis_capture_menu_read() { # bar|orb open|entries
+    if [[ $1 == bar ]]; then
+      local property=frameMenuEntries
+      [[ $2 != open ]] || property=frameMenuOpen
+      ipc smoke readInstance "$(bar_key)" vgs.jarvis "$property"
+    else
+      ipc smoke layerItems vgs.jarvis Bubble menuOpened,menuTexts | py_reply 'import json,sys
+rows=[r[2] for r in json.load(sys.stdin) if r[2]["menuOpened"]]
+print(json.dumps(bool(rows) if sys.argv[1]=="open" else rows[0]["menuTexts"] if len(rows)==1 else []))' "$2"
+    fi
+  }
+  jarvis_capture_menu() { # bar|orb LABEL [IMAGE]
+    local owner="$1" label="$2" image="${3:-}" point x y entries index step
+    if [[ $owner == bar ]]; then
+      bar_widget_reveal vgs.jarvis || return 1
+      widget_right_click vgs.jarvis || return 1
+    else
+      point="$(control_box vgs:layer vgs.jarvis ParticleOrb active true)" || return 1
+      point="$(centre_of "$point")" || return 1
+      [[ $point != none ]] || { fail "the Jarvis menu has no orb target"; return 1; }
+      read -r x y <<<"$point"
+      hover "$((x - 1))" "$y" && right_click "$x" "$y" || return 1
+    fi
+    expect_poll "the real $owner Jarvis menu opens" true jarvis_capture_menu_read "$owner" open
+    entries="$(jarvis_capture_menu_read "$owner" entries)" || return 1
+    index="$(py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows.index(sys.argv[1]) if sys.argv[1] in rows else "absent")' "$label" <<<"$entries")" || return 1
+    [[ $index =~ ^[0-9]+$ ]] || { fail "the $owner Jarvis menu has no $label"; return 1; }
+    [[ -z $image ]] || take_posed "jarvis-states-$image"
+    type_keys -k Home || return 1
+    for ((step = 0; step < index; step++)); do type_keys -k Down || return 1; done
+    type_keys -k Return || return 1
+    expect_poll "the $label menu action closes" false jarvis_capture_menu_read "$owner" open
+    park_pointer
+  }
+  jarvis_capture_hidden() {
+    expect_poll "the real menu publishes the hidden choice" hidden jarvis_capture_state visibility
+    expect_poll "the hidden overlay draws no orb" 0 ipc smoke layerItemsWith vgs.jarvis ParticleOrb visible true
+    expect_poll "the hidden overlay draws no assistant words" 0 ipc smoke layerItemsWith vgs.jarvis Words visible true
+    expect_poll "the widget draws its hidden J" '"vgs-letter-j-hidden"' ipc smoke readDescendant "$(bar_key)" vgs.jarvis BarItem iconName
+  }
+  jarvis_capture_shown() {
+    expect_poll "Show publishes the shown choice" shown jarvis_capture_state visibility
+    expect_poll "Show restores the ordinary J" '"vgs-letter-j"' ipc smoke readDescendant "$(bar_key)" vgs.jarvis BarItem iconName
+  }
+  jarvis_asks_control --seed 0
+  expect "the empty asks fixture refreshes" ok jarvis_asks_refresh
+  expect_poll "the empty asks publication is ready" '[0, 0]' jarvis_asks_read counts
+  jarvis_capture_tip "$1-ready"
+  jarvis_asks_control --seed 3
+  expect "the three-ask fixture refreshes" ok jarvis_asks_refresh
+  expect_poll "the three-ask publication is ready" '[3, 0]' jarvis_asks_read counts
+  expect "the real console opens beside the count" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the real console maps beside the count" 1 window_count Jarvis
+  jarvis_asks_tab "Needs you" || return 1
+  expect_poll "the console tab reads the same three asks" 3 jarvis_asks_tab_badge
+  take "jarvis-states-$1-asks"
+  expect "the count comparison console hides" ok ipc shell hide window vgs.jarvis
+  expect_poll "the count comparison console is gone" 0 window_count Jarvis
+  jarvis_capture_intent talk-down
+  expect_poll "the scripted capture opens after presentation" open jarvis_capture_state capture
+  expect_poll "the listening orb draws" listening jarvis_capture_look
+  jarvis_capture_tip "$1-listening"
+  box="$(control_box vgs:layer vgs.jarvis ParticleOrb active true)" || return 1
+  box="$(centre_of "$box")" || return 1
+  [[ $box != none ]] || { fail "the Jarvis orb has no hover point"; return 1; }
+  read -r x y <<<"$box"
+  hover "$x" "$y" || return 1
+  expect_poll "the orb hover shows its icon row" 1 ipc smoke layerItemsWith vgs.jarvis RowButton label "Stop Jarvis"
+  take_posed "jarvis-states-$1-hover"
+  park_pointer
+  if [[ $hide_show == true ]]; then
+    expect_poll "the focused-output host has presented the current listening badge" '"listening"' ipc smoke readInstance service vgs.jarvis barIndicator
+    jarvis_capture_menu orb "Hide Jarvis" "$1-hide-menu"
+    jarvis_capture_hidden
+    # The Service's barIndicator is derived from core-owned polish/sync/swap
+    # records on the focused output. No scene writes an indicator message.
+    expect_poll "hidden capture retains its real host-frame admission" '"listening"' ipc smoke readInstance service vgs.jarvis barIndicator
+    expect_poll "hidden listening keeps the existing capture open" open jarvis_capture_state capture
+    expect_poll "hidden listening retains the shared dot" '"success"' ipc smoke readDescendant "$(bar_key)" vgs.jarvis BarItem stateDot
+    expect_poll "hidden listening retains the shared asks count" '"3"' ipc smoke readDescendant "$(bar_key)" vgs.jarvis BarItem count
+    jarvis_capture_tip "$1-hidden-listening"
+    jarvis_capture_menu bar "Show Jarvis" "$1-show-menu"
+    jarvis_capture_shown
+    expect_poll "Show restores the listening orb" listening jarvis_capture_look
+    take "jarvis-states-$1-shown"
+  fi
+  if [[ $system_mute == true ]]; then
+    expect "the private microphone fact becomes muted" ok ipc smoke invokeInstance service vgs.jarvis captureFixtureMicrophone true
+    expect_poll "the real service consumes the muted fact" true jarvis_capture_microphone
+    expect_poll "the real overlay consumes the muted fact" 1 ipc smoke layerItemsWith vgs.jarvis Bubble micMuted true
+    jarvis_capture_tip "$1-microphone-muted"
+    expect "the private microphone fact becomes unmuted" ok ipc smoke invokeInstance service vgs.jarvis captureFixtureMicrophone false
+  fi
+  jarvis_capture_stop
+  # Older trees unmap the idle conversation. Capture that actual absence,
+  # not a replacement orb, beside the branch's persistent idle orb.
+  expect_poll "the conversation reaches idle" idle jarvis_capture_state phase
+  take "jarvis-states-$1-idle"
+  if [[ $hide_show == true ]]; then
+    jarvis_capture_menu bar "Hide Jarvis"
+    jarvis_capture_hidden
+    jarvis_capture_tip "$1-hidden-idle"
+    jarvis_capture_menu bar "Show Jarvis"
+    jarvis_capture_shown
+  fi
+  expect "the real typed-turn entry starts thinking" ok ipc vgs.jarvis invoke say "Show the capture example"
+  expect_poll "the typed turn thinks" thinking jarvis_capture_state phase
+  jarvis_capture_tip "$1-thinking"
+  expect "Jarvis's voice mutes for the real caption view" ok ipc vgs.jarvis invoke voice-mute ''
+  : >"$gates/brain"
+  expect_poll "the scripted reply speaks" speaking jarvis_capture_state phase
+  expect_poll "the speaking orb draws" speaking jarvis_capture_look
+  jarvis_capture_tip "$1-speaking"
+  if [[ $hide_show == true ]]; then
+    jarvis_capture_menu orb "Hide Jarvis"
+    jarvis_capture_hidden
+    expect_poll "the hidden reply remains speaking" speaking jarvis_capture_state phase
+    jarvis_capture_tip "$1-hidden-speaking"
+    jarvis_capture_menu bar "Show Jarvis"
+    jarvis_capture_shown
+  fi
+  jarvis_capture_stop
+  expect "the real typed-turn entry starts the held request" ok ipc vgs.jarvis invoke say "Show a confirmation"
+  expect_poll "the held-request turn thinks" thinking jarvis_capture_state phase
+  : >"$gates/approve-action"
+  expect_poll "the scripted request is held" held jarvis_capture_state approval
+  expect_poll "the real held-request view draws" confirming jarvis_capture_look
+  expect_poll "the held-request frame is acknowledged" drawn jarvis_capture_state approvalDrawn
+  take "jarvis-states-$1-held"
+  if [[ $hide_show == true ]]; then
+    jarvis_capture_menu bar "Hide Jarvis"
+    jarvis_capture_hidden
+    expect_poll "the hidden request retains its acknowledged frame" drawn jarvis_capture_state approvalDrawn
+    take "jarvis-states-$1-hidden-held"
+    jarvis_capture_menu bar "Show Jarvis"
+    jarvis_capture_shown
+  fi
+  jarvis_capture_stop
+  expect "Jarvis's voice unmutes for the fault view" ok ipc vgs.jarvis invoke voice-mute ''
+  jarvis_capture_intent talk-down
+  expect_poll "the fault fixture first owns a capture" open jarvis_capture_state capture
+  : >"$gates/device-lost"
+  expect_poll "the scripted device loss reaches the fault view" error jarvis_capture_state phase
+  expect_poll "the fault orb draws" error jarvis_capture_look
+  jarvis_capture_tip "$1-fault"
+  if [[ $hide_show == true ]]; then
+    jarvis_capture_menu bar "Hide Jarvis"
+    jarvis_capture_hidden
+    expect_poll "the hidden fault remains active" error jarvis_capture_state phase
+    expect_poll "the hidden fault keeps its recovery link" 1 ipc smoke layerItemsWith vgs.jarvis LinkText visible true
+    jarvis_capture_tip "$1-hidden-fault"
+    jarvis_capture_menu bar "Show Jarvis"
+    jarvis_capture_shown
+  fi
+  expect "Jarvis disables after state images" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "the state capture daemon is gone" absent ipc smoke jarvisProcess
+  jarvis_asks_restore
+  cp -- "$saved/daemon" "$plugin/backend/jarvisd.js"
+  cp -- "$saved/engine" "$plugin/backend/ChainedEngine.js"
+  cp -- "$saved/service" "$plugin/Service.qml"
+  rm -f -- "$plugin/backend/scripted-fixture.js" "$home/.local/state/vgshell/jarvis/voice-mute.json"
+  if [[ $hide_show == true ]]; then
+    if [[ -f $saved/hidden ]]; then
+      cp -p -- "$saved/hidden" "$home/.local/state/vgshell/jarvis/hidden.json"
+    else
+      rm -f -- "$home/.local/state/vgshell/jarvis/hidden.json"
+    fi
+  fi
+  user_config_restore "$saved/config"
+  expect "the state capture restores its configuration" ok ipc shell reloadConfig
+  tree_rescan "the Jarvis state capture sources are restored"
+  expect "the stock daemon enables for its not-set-up view" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the stock daemon answers for its not-set-up view" ready jarvis_started
+  close_notices
+  expect_poll "the stock daemon reports its unconfigured gate" unconfigured jarvis_capture_state gateReason
+  jarvis_capture_tip "$1-not-set-up"
+  expect "Jarvis disables after its not-set-up view" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "the stock capture daemon is gone" absent ipc smoke jarvisProcess
+  jarvis_restore_requirements
+}
+
 # Voice's Keys section on its Settings page, with Voice on so each row
 # reads the description its shortcut registered; voxtype stays absent, so
 # nothing records. Then the pointer on the first key's info icon, on a

@@ -99,7 +99,7 @@ world(async () => {
                 start: (call, done) => { starts.push({ call, audit: rows().at(-1) }); answers.push(done); },
                 cancel: () => {} });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         const newTurn = () => { runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user"); };
         newTurn();
         const recipients = Policy.recipients({ conversation: "fixture-" + serial, profile: "standard", cloudVision: options.cloudVision ?? "ask",

@@ -98,7 +98,7 @@ async function main() {
                     environment: { PATH: process.env.PATH, LANG: "C.UTF-8", XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR },
                     commands: [] } });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");
         function send(tool, args = {}) {

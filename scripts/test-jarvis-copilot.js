@@ -122,7 +122,7 @@ world(async () => {
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
             release: { prepare: () => Promise.resolve([]) } });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");
         const recipients = Policy.recipients({ conversation: "copilot-" + serial, profile: "standard", cloudVision: "ask",

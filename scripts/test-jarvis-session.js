@@ -10,12 +10,13 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js");
 const Session = load(file);
 const copy = value => JSON.parse(JSON.stringify(value));
-const event = (type, at = 10, extra = {}) => ({ type, at, ...extra });
+const event = (type, at = 10, extra = {}) => ({ type, at, ...(type === "indicator" ? { bar: "gone" } : {}), ...extra });
 const snapshot = (extra = {}) => ({ type: "snapshot", at: 0, locked: false, configured: true,
     engine: "chained", settings: {}, ...extra });
 const callback = (type, owner, at = 20, extra = {}) => event(type, at, {
     gen: owner.gen, op: owner.op, ...extra });
-const step = (logic, state, input) => copy(logic.reduce(state, input));
+const step = (logic, state, input) => copy(logic.reduce(state,
+    input.type === "indicator" ? { gen: state.gen, ...input } : input));
 const kinds = result => result.effects.map(effect => effect.kind);
 const has = (result, kind) => kinds(result).includes(kind);
 const LOST = 'device-lost target="fixture.mic" from=default microphones=0[]';
@@ -91,6 +92,101 @@ function pendingReply(logic) {
 }
 
 const table = [
+    ["hidden-admission", logic => {
+        for (const engine of ["chained", "dictation", "duplex"]) {
+            let s = step(logic, ready(logic, {}, engine), event("hidden", 2)).state;
+            const demand = step(logic, s, event("talk-down", 10));
+            s = demand.state;
+            assert.equal(logic.captureWanted(s), true, "badge demand exists before capture admission");
+            assert.equal(has(demand, "capture-open"), false, "an orb alone never admits hidden capture");
+            for (const bar of ["gone", "present"]) {
+                const refused = step(logic, s, event("indicator", 11, { shown: true, bar }));
+                assert.equal(has(refused, "capture-open"), false, bar + ": a listening badge is required");
+                assert.equal(refused.state.capture.kind, "closed");
+            }
+            const admitted = step(logic, s, event("indicator", 12, { shown: false, bar: "listening" }));
+            assert.equal(has(admitted, "capture-open"), true, engine + ": badge admits without orb");
+            for (const opened of [false, true]) {
+                let active = admitted.state;
+                if (opened) active = step(logic, active, callback("capture-opened", active.capture, 13)).state;
+                const lost = step(logic, active, event("indicator", 14, { shown: true, bar: "gone" }));
+                assert.equal(lost.state.capture.kind, "closing", "loss retires opening and open recorders");
+                assert.equal(lost.effects.find(e => e.kind === "capture-close").target, active.capture.op);
+                assert.deepEqual(lost.state.history, active.history);
+                assert.deepEqual(lost.state.conversation, active.conversation);
+                assert.equal(lost.state.gen, active.gen);
+                const returned = step(logic, lost.state, event("indicator", 15, { shown: false, bar: "listening" }));
+                assert.equal(has(returned, "capture-open"), false, "a returned badge cannot bypass retirement");
+                const stale = step(logic, returned.state, callback("capture-closed", { ...lost.state.capture, op: active.capture.op }, 16));
+                assert.equal(stale.state.capture.kind, "closing");
+                const closed = step(logic, stale.state, callback("capture-closed", lost.state.capture, 17));
+                assert.equal(has(closed, "capture-open"), true, "only the matching close admits replacement");
+            }
+            const locked = step(logic, admitted.state, snapshot({ at: 20, settings: admitted.state.settings, engine, locked: true }));
+            assert.equal(locked.state.capture.kind, "closing");
+            assert.equal(locked.state.visibility.kind, "hidden");
+            const oldFrame = step(logic, s, event("indicator", 12, { shown: false, bar: "listening", gen: s.gen - 1 }));
+            assert.equal(has(oldFrame, "capture-open"), false, "old generation badge grants nothing");
+            assert.equal(oldFrame.state.barIndicator.kind, "gone");
+            const next = step(logic, admitted.state, event("new-conversation", 30));
+            const cleaned = step(logic, next.state, callback("capture-closed", next.state.capture, 31));
+            assert.equal(has(cleaned, "capture-open"), false, "new generation waits for its own badge frame");
+        }
+    }],
+    ["hidden-choice", logic => {
+        const base = ready(logic);
+        assert.equal(logic.hideRefusal(base), "indicator");
+        assert.equal(step(logic, base, event("hide", 2)).state.visibility.kind, "shown");
+        let s = step(logic, base, event("indicator", 2, { shown: true, bar: "present" })).state;
+        const hidden = step(logic, s, event("hide", 3));
+        assert.equal(hidden.state.visibility.kind, "hidden");
+        assert.deepEqual(hidden.effects.map(e => [e.kind, e.hidden]), [["hidden-store", true]]);
+        assert.deepEqual({ ...hidden.state, visibility: s.visibility, nextOp: s.nextOp }, s, "Hide changes only its held choice");
+        assert.deepEqual(step(logic, hidden.state, event("hide", 4)).effects, [], "repeated Hide stores nothing");
+        const shown = step(logic, hidden.state, event("show", 5));
+        assert.equal(shown.state.visibility.kind, "shown");
+        assert.deepEqual(shown.effects.map(e => [e.kind, e.hidden]), [["hidden-store", false]]);
+        assert.deepEqual(step(logic, shown.state, event("show", 6)).effects, []);
+        const restored = step(logic, logic.initial(), event("hidden", 0));
+        assert.equal(restored.state.visibility.kind, "hidden");
+        assert.deepEqual(restored.effects, [], "restore never writes the record or opens capture");
+        for (const type of ["talk-down", "stop", "new-conversation", "voice-mute-toggle", "lease-ended"]) {
+            const result = step(logic, hidden.state, event(type, 20));
+            assert.equal(result.state.visibility.kind, "hidden", type + ": independent held choice");
+            assert.equal(has(result, "hidden-store"), false);
+        }
+        for (const seed of [speaking(logic), held(logic)]) {
+            s = step(logic, seed, event("indicator", 50, { shown: true, bar: "present" })).state;
+            const result = step(logic, s, event("hide", 51));
+            assert.deepEqual(result.state.playback, s.playback, "hiding leaves speech and its cue ownership");
+            assert.deepEqual(result.state.approval, s.approval, "hiding never dismisses a held ask");
+            assert.deepEqual(result.state.quiet, s.quiet, "hiding does not refresh quiet lifetime");
+        }
+    }],
+    ["hidden-cues", logic => {
+        for (const engine of ["chained", "dictation", "duplex"]) {
+            let s = step(logic, ready(logic, { sounds: true }, engine), event("hidden", 2)).state;
+            s = step(logic, s, event("voice-mute", 3)).state;
+            const opened = step(logic, s, event("talk-down", 10));
+            assert.equal(opened.state.playback.cue, "start", engine + ": hidden still plays its start cue");
+            assert.equal(has(opened, "capture-open"), false);
+            s = step(logic, opened.state, callback("played", opened.state.playback, 11)).state;
+            assert.equal(s.capture.kind, "closed", "a cue is no capture indicator");
+            s = step(logic, s, event("indicator", 12, { shown: false, bar: "listening" })).state;
+            s = step(logic, s, callback("capture-opened", s.capture, 13)).state;
+            const quiet = copy(s.quiet), history = copy(s.history);
+            const shown = step(logic, s, event("show", 14));
+            assert.deepEqual(shown.state.quiet, quiet);
+            assert.deepEqual(shown.state.history, history);
+            assert.equal(has(shown, "playback-start"), false, "Show plays no cue");
+            const closing = step(logic, s, event("talk-down", 400));
+            assert.equal(closing.state.visibility.kind, "hidden");
+            assert.equal(closing.state.voiceMute.kind, "on");
+            const closed = step(logic, closing.state, callback("capture-closed", closing.state.capture, 401));
+            assert.equal(closed.state.playback.cue, "stop", engine + ": hidden keeps normal closing cue");
+            assert.equal(has(closed, "playback-start"), true);
+        }
+    }],
     ["history-resume", logic => {
         for (const engine of ["chained", "dictation", "duplex"]) {
             const s = listening(logic, false, engine);
@@ -1113,7 +1209,10 @@ const shapeCases = [
     ["tool-limit", acting, s => { s.action.limit = { kind: "pending", deadline: -1 }; }],
     ["reply-source", pendingReply, s => { s.playback.reply.source = 0; }],
     ["reply-shape", pendingReply, s => { s.playback.reply.extra = true; }],
-    ["echo", listening, s => { s.duplex = { kind: "echo" }; }]
+    ["echo", listening, s => { s.duplex = { kind: "echo" }; }],
+    ["hidden-shape", listening, s => { s.visibility = { kind: "hidden", saved: true }; }],
+    ["bar-indicator-shape", listening, s => { s.barIndicator = { kind: "configured" }; }],
+    ["bar-indicator-generation", listening, s => { s.barIndicator = { kind: "present", gen: -1 }; }]
 ];
 for (const [name, seed, mutate] of shapeCases) table.push(["wire-" + name, logic => {
     const s = seed(logic);
@@ -1138,7 +1237,7 @@ const owners = {
 function fixture(type, s, at) {
     const owner = s[owners[type]] || {};
     return event(type, at, { gen: owner.gen ?? s.gen, op: owner.op ?? 99999,
-        locked: false, configured: true, engine: s.engine.kind, echoCancel: s.duplex.kind === "full", settings: s.settings, shown: true,
+        locked: false, configured: true, engine: s.engine.kind, echoCancel: s.duplex.kind === "full", settings: s.settings, shown: true, bar: "gone",
         text: "fixture", reason: type === "conversation-reset" ? "turn-limit" : "fixture", outcome: "completed", tool: "fixture", timeoutMs: 100, cancellable: true,
         interruptible: true, id: s.approval.id || "fixture", digest: s.approval.digest || "a".repeat(64), physical: true,
         source: "key", role: "user", stage: "partial", rev: 1, ask: null, due: true,
@@ -1149,8 +1248,10 @@ function invariants(before, e, r) {
     assert.equal(Session.validate(s), true, e.type + " state shape");
     assert.ok(s.gen >= before.gen && s.stale >= before.stale && s.nextOp >= before.nextOp);
     if (!e.type.startsWith("voice-mute")) assert.deepEqual(s.voiceMute, before.voiceMute);
+    if (!["hide", "show", "hidden"].includes(e.type)) assert.deepEqual(s.visibility, before.visibility);
     if (["opening", "open"].includes(s.capture.kind)) {
-        assert.equal(s.indicator.kind, "shown");
+        assert.equal(s.visibility.kind === "hidden" ? s.barIndicator.kind === "listening" : s.indicator.kind === "shown", true);
+        if (s.visibility.kind === "hidden") assert.equal(s.barIndicator.gen, s.gen);
         assert.equal(s.playback.kind === "idle" || s.duplex.kind === "full" && s.engine.kind === "duplex"
             && s.playback.kind === "playing" && s.input.kind !== "check", true);
         assert.notEqual(s.fault.kind, "error");
@@ -1211,6 +1312,10 @@ try {
             's.sound = e.type === "input-silent" ? { kind: "silent", device: e.device } : { kind: "none" }; s.fault = { kind: "error", reason: "silent", retry: 0 };', "digital-silence"],
         ["collection-false-deadline", 'if (s.turn.kind === "collecting") s.turn.deadline = null;', 'if (s.turn.kind === "collecting") s.turn.deadline = e.at + COLLECTION_TIMEOUT_MS;', "collection-delay"],
         ["indicator", 's.indicator.kind === "shown"', '(true || s.indicator.kind === "shown")', "indicator-admission"],
+        ["hidden-indicator", 'barPresented(s) && s.barIndicator.kind === "listening" :', '(true || barPresented(s) && s.barIndicator.kind === "listening") :', "hidden-admission"],
+        ["hidden-generation", ' && s.barIndicator.gen === s.gen', '', "hidden-admission"],
+        ["hidden-store", 'effect(s, effects, "hidden-store", { hidden: true });', 'void effects;', "hidden-choice"],
+        ["hidden-restore", 'case "hidden":\n        s.visibility = { kind: "hidden" };', 'case "hidden":\n        s.visibility = { kind: "shown" };', "hidden-choice"],
         ["play-before-close", '&& (s.capture.kind === "closed" || overlapping(s)', '&& (true || overlapping(s)', "half-duplex"],
         ["echo-route-required", 'e.engine === "duplex" && e.echoCancel === true', 'e.engine === "duplex"', "echo-route-admission"],
         ["approval-id", 'e.id !== approval.id', '(false && e.id !== approval.id)', "approval-identity"],

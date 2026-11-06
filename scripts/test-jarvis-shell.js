@@ -64,7 +64,7 @@ world(async () => {
             clock: { set: (fn, ms) => { const key = {}; deadlines.set(key, { fn, ms }); return key; },
                 clear: key => deadlines.delete(key) } });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         const turn = () => { runner.dispatch({ type: "talk-down" }); transcript("final", "synthetic user"); };
         turn();
         function call(id, args) {
