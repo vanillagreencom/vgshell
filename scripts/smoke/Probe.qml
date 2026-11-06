@@ -2181,8 +2181,9 @@ Scope {
             return index < 0 || index >= texts.length ? "absent" : root.revealIn(item, texts[index]);
         }
         // A colour one gallery example draws with, read as a property: the
-        // first shown item named `type` in the section under the SectionHeader
-        // reading `section`, through `property`, a dotted path. Written as
+        // first shown item named `type` (the default variant for TextField)
+        // in the section under the SectionHeader reading `section`, through
+        // `property`, a dotted path. Written as
         // ThemeLogic writes a resolved colour, `#rrggbbaa`, so a row compares
         // it with the package's token without reading a frame.
         function galleryColour(hostKey: string, id: string, section: string, type: string, property: string): string {
@@ -2195,7 +2196,7 @@ Scope {
             let at = 0;
             while (siblings[at] !== header) at++;
             for (at++; at < siblings.length && typeOf(siblings[at]) !== "SectionHeader"; at++) {
-                const example = root.descendants(siblings[at]).find(child => typeOf(child) === type && root.visibleInTree(child));
+                const example = root.descendants(siblings[at]).find(child => typeOf(child) === type && (type !== "TextField" || child.variant === "default") && root.visibleInTree(child));
                 if (example === undefined) continue;
                 let value = example;
                 for (const key of property.split(".")) value = value === null || value === undefined ? undefined : value[key];
