@@ -309,7 +309,7 @@ function verify(L) {
     for (const rec of STATES.map(row => row[1]).concat([oneTwo])) {
         const c = L.cloudValue(rec, "");
         const shown = JSON.stringify([L.statusValues(rec, null, "", "", NOW, HOME), L.widgetTooltip(c, NOW, Timestamp.text), L.panelHeader(c, NOW, Timestamp.text),
-            L.problemCallout(c, NOW), L.panelBody(c, NOW), L.reviewView(c), L.notification(rec)]);
+            L.problemCallout(c, NOW), L.panelContent(c, NOW), L.reviewView(c), L.notification(rec)]);
         assert.ok(!/to review/i.test(shown), "a surface says to review: " + shown);
     }
 
@@ -576,11 +576,13 @@ function verify(L) {
         ["refused: file=\"/home/me/Drive/a.pdf\" reason=unreadable", "failed"],
     ]) assert.equal(L.openFileEnd(reply), want, "open file end: " + reply);
 
-    // The body: a pause always, else what the state means while nothing is
-    // to review and nothing is wrong.
-    const body = rec => L.panelBody(L.cloudValue(rec, ""), NOW);
-    for (const [label, rec, speaks] of [
-        ["up to date", well(), true],
+    // Healthy content lists all pairs; other states keep their text.
+    const body = rec => {
+        const content = L.panelContent(L.cloudValue(rec, ""), NOW);
+        return content.kind === "text" ? content.text : "";
+    };
+    for (const [label, rec, speaks, listsPairs] of [
+        ["up to date", well(), false, true],
         ["out of date", well({ staleAfter: iso(NOW) }), true],
         ["never synced", well({ lastSuccess: null, staleAfter: null }), true],
         ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), true],
@@ -590,8 +592,16 @@ function verify(L) {
         ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), false],
         ["sync failed", STATE_OF("error", { kind: "source-missing" }), false],
         ["an hourly sync out of date", well({ units: "stale" }), false]
-    ]) assert.equal(body(rec) !== "", speaks, "body: " + label + ": " + JSON.stringify(body(rec)));
-    assert.notEqual(body(well()), body(well({ pairs: [DOCS, Object.assign({}, INBOX, { state: "idle", lastError: null })] })), "up to date counts the folder pairs");
+    ]) {
+        assert.equal(L.panelContent(L.cloudValue(rec, ""), NOW).kind, listsPairs === true ? "pairs" : "text", "content: " + label);
+        assert.equal(body(rec) !== "", speaks, "body: " + label + ": " + JSON.stringify(body(rec)));
+    }
+    for (const pairs of [[DOCS], [DOCS, Object.assign({}, INBOX, { state: "idle", lastError: null })]]) {
+        const cloud = L.cloudValue(well({ pairs }), "");
+        const content = L.panelContent(cloud, NOW);
+        assert.equal(content.kind, "pairs");
+        same(content.pairs.map(p => [p.id, p.label, p.local]), pairs.map(p => [p.id, p.label, p.local]), "every folder pair retains its name and local path in order");
+    }
     assert.notEqual(body(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] })), body(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) })), "a pause under another headline names itself");
 
     // The footer: shown only while a sync can run, Pause or Resume, and
@@ -851,10 +861,9 @@ const controls = [
     ["out-of-date units offer their fix", "if (cloud.units === \"stale\") return CALLOUTS.stale;", ""],
     ["absent units offer their fix", "if (head.cause === \"not-set-up\") return CALLOUTS[\"not-set-up\"];", ""],
     ["an unreadable pair list offers its repair in the popover", "action: { label: \"Start the list again\", tui: \"reset-pairs\" } };", "action: null };"],
-    ["the popover says a pause", "if (cloud.paused) return (head.cause", "if (false) return (head.cause"],
+    ["the popover says a pause", 'if (cloud.paused) return { kind: "text", text: (head.cause', 'if (false) return { kind: "text", text: (head.cause'],
     ["a gone file reads as a failure to open", "return / reason=missing$/.test(reply) ? \"gone\" : \"failed\";", "return \"failed\";"],
-    ["a note hides the up-to-date sentence", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
-    ["up to date counts the folder pairs", "return (n === 1 ? \"Your folder pair matches Google Drive.\" : \"Your \" + n + \" folder pairs match Google Drive.\")", "return \"Your folder pairs match Google Drive.\""],
+    ["a note keeps its review instead of the pair list", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
     ["no surface calls a row that needs no action to review", "need no action\") + \" · nothing was lost\"", "need no action\") + \" to review\""],
     ["the fold line counts the record's notes", "var noteCount = cloud.conflictCount - cloud.needsYou;", "var noteCount = notes.length;"],
     ["the notes the list leaves out are counted", "notesRest = noteCount - notes.length;", "notesRest = 0;"],
@@ -925,7 +934,8 @@ const controls = [
     ["no file that needs the user draws no count", "cloud.needsYou > 0 ? String(cloud.needsYou) : \"\"", "String(cloud.needsYou)"],
     ["the bar counts only the files that need the user", "cloud.needsYou > 0 ? String(cloud.needsYou) : \"\"", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\""],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],
-    ["the account key list is published", "values.keys = keyItems(presence);", "values.keys = [];"]
+    ["the account key list is published", "values.keys = keyItems(presence);", "values.keys = [];"],
+    ["in-sync content lists pairs instead of text", 'return { kind: "pairs", pairs: cloud.pairs };', 'return { kind: "text", text: "" };']
 ];
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-google-drive-logic-"));

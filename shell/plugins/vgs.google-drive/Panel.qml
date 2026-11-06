@@ -13,7 +13,9 @@ import "GoogleDriveLogic.js" as Logic
 // refused, is a callout with what happened and its one fix
 // (problemCallout), which opens the plugin's own TUI or a tab of its page
 // and closes the popover. With nothing to review it says what the state
-// means (panelBody). Needs you lists each file that needs the user, its
+// means, or lists every folder pair while in sync (panelContent). Each
+// pair has an Open folder icon through the core's folder route. Needs you
+// lists each file that needs the user, its
 // name, its folder pair and folders, its one line and, for a change on
 // both sides whose copy VGS kept, Show older copy, which opens that
 // copy's folder in the file manager. The files that need no action fold
@@ -50,7 +52,8 @@ Item {
     // qml-unit run, 2026-10-18).
     readonly property var header: known ?Logic.panelHeader(cloud, now, Timestamp.text) : null
     readonly property var callout: known ? Logic.problemCallout(cloud, now) : null
-    readonly property string body: known ? Logic.panelBody(cloud, now) : ""
+    readonly property var content: known ? Logic.panelContent(cloud, now) : ({ kind: "text", text: "" })
+    readonly property string body: content.kind === "text" ? content.text : ""
     readonly property var review: known ? Logic.reviewView(cloud) : ({ needs: [], notes: [], notesLine: "", moreNeeds: "", moreNotes: "" })
     readonly property var footer: Logic.footerView(cloud)
     readonly property bool notesOpen: notesFold.expanded
@@ -311,6 +314,49 @@ Item {
             role: "body"
             text: root.body
             wrapMode: Text.Wrap
+        }
+
+        ScrollArea {
+            id: pairScroll
+            width: layout.contentWidth
+            visible: root.content.kind === "pairs"
+            implicitHeight: Math.min(pairList.implicitHeight, Theme.menu.maxHeight)
+            height: implicitHeight
+
+            GroupList {
+                id: pairList
+                width: pairScroll.contentWidth
+                Repeater {
+                    model: root.content.kind === "pairs" ? root.content.pairs : []
+                    Item {
+                        id: pairRow
+                        required property var modelData
+                        width: pairList.width
+                        // Qt Item geometry and Text.Wrap are exercised by
+                        // tst_googledrive_panel.qml, including a long label.
+                        height: Math.max(Theme.row.height, pairName.implicitHeight)
+
+                        Label {
+                            id: pairName
+                            width: Math.max(0, parent.width - openFolder.width - Theme.row.gap)
+                            anchors.verticalCenter: parent.verticalCenter
+                            role: "item"
+                            textFormat: Text.PlainText
+                            text: pairRow.modelData.label
+                            wrapMode: Text.Wrap
+                        }
+                        IconButton {
+                            id: openFolder
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            size: "sm"
+                            iconName: "folder"
+                            label: "Open folder"
+                            onClicked: root.showFolder(pairRow.modelData.local)
+                        }
+                    }
+                }
+            }
         }
 
         Section {

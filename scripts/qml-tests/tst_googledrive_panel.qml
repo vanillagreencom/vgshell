@@ -340,5 +340,75 @@ Item {
             compare(panel.goneFiles, []);
             compare(panel.problem, "VGS could not open the file.");
         }
+
+        function folderButtons(item) {
+            let buttons = [];
+            for (const child of item.children) {
+                if ("focusPolicy" in child && child.iconName === "folder") buttons.push(child);
+                buttons = buttons.concat(folderButtons(child));
+            }
+            return buttons;
+        }
+
+        function test_in_sync_pairs_scroll_and_open_by_keyboard_data() {
+            return [{ tag: "one", count: 1 }, { tag: "overflow", count: 20 }];
+        }
+
+        // Drive the production Panel, not a row model: each independent
+        // action is a Tab stop, and ScrollArea reveals the focused icon.
+        function test_in_sync_pairs_scroll_and_open_by_keyboard(data) {
+            const value = cloud();
+            value.units = "installed";
+            value.conflicts = [];
+            value.conflictCount = 0;
+            value.needsYou = 0;
+            value.pairs = Array.from({ length: data.count }, (_, i) => Object.assign({}, value.pairs[0], {
+                id: "pair-" + i,
+                label: data.count > 1 && i === 0 ? "A folder pair with a long name that wraps without cutting off any of its words" : "Folder " + i,
+                local: "/home/me/Drive/folder " + i
+            }));
+            panel.shell = Object.assign(shell(), { status: { values: { cloud: value } } });
+            renderedFrame(panel);
+            compare(panel.body, "");
+            const buttons = folderButtons(panel);
+            compare(buttons.length, data.count);
+            let scroll = buttons[0].parent;
+            while (!("overflowing" in scroll)) scroll = scroll.parent;
+            compare(scroll.height, Math.min(scroll.contentHeight, Theme.menu.maxHeight));
+            compare(scroll.overflowing, data.count > 1);
+            compare(scroll.contentY, 0);
+
+            for (let i = 0; i < buttons.length; i++) {
+                const button = buttons[i];
+                const name = find(button.parent, item => "role" in item && item.text === value.pairs[i].label);
+                verify(name !== null, "the full published name is drawn");
+                if (data.count > 1 && i === 0) verify(name.lineCount > 1, "long names wrap");
+                tabTo(button);
+                compare(button.visualFocus, true);
+                const ring = rings(button, button);
+                verify(ring.some(r => r.visible), "the shared icon focus ring shows");
+                tryCompare(button.contentItem, "color", button.activeColor);
+                compare(button.label, "Open folder");
+                compare(button.tooltip, "Open folder");
+                root.calls = [];
+                keyClick(Qt.Key_Enter);
+                compare(root.calls, [["edit", "/home/me/Drive/folder " + i + "/"]]);
+            }
+            if (data.count > 1) verify(scroll.contentY > 0, "Tab reveals rows past the height cap");
+            keyClick(Qt.Key_Tab);
+            compare(focused(), control(panel.footer.pause.text), "Tab leaves the last folder for the footer");
+
+            outside.forceActiveFocus(Qt.OtherFocusReason);
+            tabTo(buttons[0]);
+            renderedFrame(panel);
+            root.calls = [];
+            mouseClick(buttons[0]);
+            compare(root.calls, [["edit", "/home/me/Drive/folder 0/"]], "click uses the same folder route");
+            outside.forceActiveFocus(Qt.OtherFocusReason);
+            mouseMove(outside, outside.width / 2, outside.height / 2);
+            tryCompare(buttons[0].contentItem, "color", buttons[0].restColor);
+            mouseMove(buttons[0], buttons[0].width / 2, buttons[0].height / 2);
+            tryCompare(buttons[0].contentItem, "color", buttons[0].activeColor);
+        }
     }
 }

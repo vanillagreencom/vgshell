@@ -845,23 +845,21 @@ function problemCallout(cloud, now) {
     return null;
 }
 
-// The popover's sentence under its header, or "": a pause, which holds
-// every copy; else, with nothing to review and no problem, what the
-// state means: up to date, out of date or never synced.
+// The popover's content under its header: text for a pause or an
+// incomplete sync, otherwise every folder pair while in sync.
 var PAUSED_BODY = "The hourly sync copies nothing until you resume it.";
 var STATE_BODY = {
     "out-of-date": "Google Drive missed its hourly sync. Select Sync now to sync again.",
     "not-synced": "No sync has finished yet. Select Sync now to start one."
 };
-function panelBody(cloud, now) {
+function panelContent(cloud, now) {
     var head = headline(cloud, now);
-    if (cloud.paused) return (head.cause === "paused" ? "" : "Paused. ") + PAUSED_BODY;
-    if (cloud.conflictCount > 0 || problemCallout(cloud, now) !== null || cloud.state !== "idle") return "";
+    if (cloud.paused) return { kind: "text", text: (head.cause === "paused" ? "" : "Paused. ") + PAUSED_BODY };
+    if (cloud.conflictCount > 0 || problemCallout(cloud, now) !== null || cloud.state !== "idle") return { kind: "text", text: "" };
     var view = stateView(cloud.state, cloud.staleAfter, now);
-    if (view === OUT_OF_DATE) return STATE_BODY["out-of-date"];
-    if (view === NOT_SYNCED) return STATE_BODY["not-synced"];
-    var n = cloud.pairs.length;
-    return (n === 1 ? "Your folder pair matches Google Drive." : "Your " + n + " folder pairs match Google Drive.") + " Google Drive syncs every hour, also while VGS is closed.";
+    if (view === OUT_OF_DATE) return { kind: "text", text: STATE_BODY["out-of-date"] };
+    if (view === NOT_SYNCED) return { kind: "text", text: STATE_BODY["not-synced"] };
+    return { kind: "pairs", pairs: cloud.pairs };
 }
 
 // The CONFLICT_TEXT key of a published CONFLICT other than a file not
