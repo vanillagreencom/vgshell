@@ -168,6 +168,15 @@ function verify(d) {
     const fits = (key, value) => assert.equal(core.statusWrite(manifest, {}, key, value).ok, true, key + " " + JSON.stringify(value));
     for (const state of Object.keys(d.WATCH)) fits("watch", d.WATCH[state]);
     fits("agents", d.offers([]));
+    const target = { key: "handoff:acme.receiver/compose", label: "Fixture receiver", available: true };
+    same(d.chosen(target.key, []), target.key);
+    same(d.label(target.key, [target]), "Fixture receiver");
+    const unavailable = Object.assign({}, target, { available: false });
+    const rows = d.choices(["claude", "codex", "copilot", "pi", "opencode"], [unavailable], target.key);
+    same(rows.map(row => row.value), [target.key], "the unavailable saved choice remains, with no silent terminal choice");
+    same(d.chosen(target.key, ["claude", "codex"]), target.key);
+    fits("agents", rows);
+    same(d.choices([], [], target.key).slice(-1).map(row => row.value), [target.key], "a removed target remains selected");
     fits("muted", d.mutedRows(Array.from({ length: d.MUTED_MAX }, (_, i) => name(d.NAME_MAX - 2) + String(i).padStart(2, "0"))));
     fits("muted", d.mutedRows(["Web Content", ".kitty-wrapped"]));
 }
@@ -193,7 +202,7 @@ const CONTROLS = [
     ["Diagnose reads the first record path", "failureKey(plugin, failures[plugin]) === key) return failures[plugin];", "failureKey(plugin, failures[plugin]) === key) return seen;"],
     ["the first read tells every failure", "if (seen !== null && seen.indexOf(key) === -1 && id !== self)", "if ((seen === null || seen.indexOf(key) === -1) && id !== self)"],
     ["the service's own failure is told", " && id !== self) fresh.push", ") fresh.push"],
-    ["a missing agent is chosen", "return offers(missing).some(function (a) { return a.value === agent; }) ? agent : \"\";", "return AGENTS.some(function (a) { return a.value === agent; }) ? agent : \"\";"]
+    ["a missing agent is chosen", "return isHandoff(agent) || offers(missing).some(function (a) { return a.value === agent; }) ? agent : \"\";", "return isHandoff(agent) || AGENTS.some(function (a) { return a.value === agent; }) ? agent : \"\";"]
 ];
 
 const source = fs.readFileSync(path.join(dir, "Debug.js"), "utf8");
@@ -213,4 +222,12 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
+
+// The prompt text is the product result. The terminal migration consumes the
+// same module and supplies its record-owned skill path instead of empty.
+const builder = load(path.join(dir, "Diagnose.js"));
+assert.equal(builder.prompt(["crash", "ad x;$(id)", "4242", "SIGSEGV", "2026-11-03T13:40:00-08:00", "/usr/bin/ad-crasher"], ""),
+    "A program crashed on this computer and I want to know why.\nWhat systemd-coredump recorded:\n- Program: ad x;$(id)\n- Process ID: 4242\n- Binary: /usr/bin/ad-crasher\n- Signal: SIGSEGV\n- Time: 2026-11-03T13:40:00-08:00\nUse the vgs-diagnose skill.\nDiagnose only: change nothing on this computer.");
+assert.equal(builder.prompt(["task", "acme.tools", "install", "pacman", "cups, gum", "2026-11-03T13:40:00-08:00", "/run/record.json"], "/skill/SKILL.md"),
+    "A VGS setup task failed on this computer and I want to know why.\n- Task: install the tools of the VGS plugin acme.tools\n- Package manager: pacman\n- Packages: cups, gum\n- Time: 2026-11-03T13:40:00-08:00\n- Run record: /run/record.json\nUse the vgs-diagnose skill. If you cannot load skills, read /skill/SKILL.md and follow it.\nDiagnose only: change nothing on this computer.");
 console.log(`test-agent-debug: ok lines=${LINES.length} bodies=${TASK_BODIES.length} controls=${CONTROLS.length}`);

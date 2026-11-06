@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "acme.handoff",
+  "name": "Text receiver fixture",
+  "version": "0.1.0",
+  "author": "VGS tests",
+  "description": "Receives a draft without sending it.",
+  "kinds": ["service", "window"],
+  "entryPoints": {"service": "Service.qml", "window": "Window.qml"},
+  "capabilities": ["handoff", "ipc", "surfaces"],
+  "capabilityKinds": {"handoff": ["service"], "surfaces": ["service"]},
+  "handoffs": {"compose": {"label": "Fixture text receiver"}}
+}

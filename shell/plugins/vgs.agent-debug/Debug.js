@@ -74,13 +74,29 @@ function offers(missing) {
         .map(function (a) { return { label: a.label, value: a.value }; });
 }
 
+function choices(missing, targets, saved) {
+    var rows = offers(missing);
+    (targets || []).forEach(function (target) {
+        rows.push({ value: target.key, label: target.label + (target.available ? "" : " (unavailable)") });
+    });
+    if (isHandoff(saved) && !rows.some(function (row) { return row.value === saved; }))
+        rows.push({ value: saved, label: "Saved message target (unavailable)" });
+    return rows;
+}
+
+function isHandoff(value) { return typeof value === "string" && value.indexOf("handoff:") === 0; }
+
 // The agent Diagnose opens: the `agent` setting while it names an agent
 // the select offers, else "", which means no notification shows.
 function chosen(agent, missing) {
-    return offers(missing).some(function (a) { return a.value === agent; }) ? agent : "";
+    return isHandoff(agent) || offers(missing).some(function (a) { return a.value === agent; }) ? agent : "";
 }
 
-function label(agent) {
+function label(agent, targets) {
+    if (isHandoff(agent)) {
+        var target = (targets || []).find(function (row) { return row.key === agent; });
+        return target === undefined ? "your saved message target" : target.label;
+    }
     for (var i = 0; i < AGENTS.length; i++)
         if (AGENTS[i].value === agent) return AGENTS[i].label;
     throw new Error("agent-debug: agent=" + JSON.stringify(agent) + " unknown");

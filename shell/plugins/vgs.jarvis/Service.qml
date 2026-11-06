@@ -12,6 +12,7 @@ import "SetupGate.js" as Gate
 import "WidgetView.js" as View
 import "Conversation.js" as Conversation
 import "StatusPublication.js" as StatusPublication
+import "Composer.js" as Composer
 
 Item {
     id: root
@@ -22,6 +23,43 @@ Item {
     property string outputTail: ""
     property string errorTail: ""
     property string cause: ""
+    property var releaseTextOffer: null
+    readonly property string textOfferReason: locked ? "Jarvis cannot take a message while the session is locked."
+        : cause !== "" ? PageReference.plain(Gate.startCause(cause).lines[0] + " " + Gate.startCause(cause).action)
+        : lifetime.kind !== "ready" || !child.running ? "The Jarvis service is not ready. Check its Setup tab."
+        : textSessionReason()
+    onTextOfferReasonChanged: refreshTextOffer()
+
+    function textSessionReason() {
+        const refusal = Session.sayRefusal(sessionState);
+        if (refusal !== "down") return Composer.refusalText(refusal);
+        const setup = Gate.readiness(setupAnswer, homePathRead, homeRepair.result);
+        const blocked = ["setupHome", "setupVoice", "setupModel"].map(key => setup[key])
+            .find(row => row.tone === "warning" || row.tone === "danger");
+        return blocked === undefined ? Composer.refusalText(refusal)
+            : "Jarvis is not ready. " + PageReference.plain(blocked.hint || blocked.text);
+    }
+
+    function refreshTextOffer() {
+        if (releaseTextOffer !== null) { releaseTextOffer(); releaseTextOffer = null; }
+        if (shell === null) return;
+        releaseTextOffer = shell.handoff.offer("compose", textOfferReason === "" ? text => root.composeDraft(text) : null, textOfferReason);
+    }
+
+    function composeDraft(text) {
+        if (textOfferReason !== "") return { ok: false, reason: textOfferReason };
+        // Ask the already open console first, so an occupied composer can
+        // refuse with its own cause before any summon changes the view.
+        const answer = shell.ipc.call("compose-draft", text);
+        if (answer !== "unknown: compose-draft") {
+            const result = JSON.parse(answer);
+            if (!result.ok) return result;
+            const shown = shell.surfaces.summon("window", "{}");
+            return { ok: shown === "ok", reason: shown === "ok" ? "" : "The Jarvis console could not open." };
+        }
+        const reply = shell.surfaces.summon("window", JSON.stringify({ text: text }));
+        return { ok: reply === "ok", reason: reply === "ok" ? "" : "The Jarvis console could not accept this draft. Check its Setup tab." };
+    }
     // The daemon writes diagnostics to stderr and keeps running. The last
     // complete line becomes the cause only if the daemon then exits, even
     // when that exit writes no line of its own.
@@ -134,6 +172,7 @@ Item {
     // binding either way. The rewrite publishes new settings, which the core
     // hands back as a new `shell` once this handler returns (Plugins.qml).
     onShellChanged: {
+        refreshTextOffer();
         voiceSettled = shell !== null && migrateVoiceProvider();
         if (!voiceSettled) return;
         // shell's dependent bindings can still hold the previous settings here.

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "acme.handoff-sender",
+  "name": "Text sender fixture",
+  "version": "0.1.0",
+  "author": "VGS tests",
+  "description": "Discovers a text receiver without naming its owner.",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Service.qml"},
+  "capabilities": ["handoff"]
+}

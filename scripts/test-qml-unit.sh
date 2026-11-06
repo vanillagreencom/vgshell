@@ -71,6 +71,7 @@ fi
 mutations=(
   "restoring accepted bytes after refused conversion keeps stale settings|../Core/Config.qml|                root.userText = null;"$'\n'"                root.user = r.value;|                root.userText = root.userText;"$'\n'"                root.user = r.value;|tst_config_writes.qml"
   "a link label folds explicit breaks unlike its geometry twin|feedback/LinkText.qml|.replace(/\\n/g, \"<br>\")|.replace(/\\n/g, \"\\n\")|tst_linktext.qml"
+  "a text handoff changes the message|../Core/HandoffRegistry.qml|return record.accept(text);|return record.accept(\"changed text\");|tst_handoff.qml"
   "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
   "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
   "message responses lose their secondary button style|layout/MessageRow.qml|variant: \"secondary\"|variant: \"primary\"|tst_message_patterns.qml"

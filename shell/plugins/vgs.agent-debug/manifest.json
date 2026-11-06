@@ -7,9 +7,10 @@
   "description": "Offers Diagnose when a program crashes or a VGS setup task fails. Diagnose opens the agent you choose with the facts of the failure.",
   "license": "MIT",
   "icon": "bug",
-  "kinds": ["service"],
-  "entryPoints": { "service": "Service.qml" },
-  "capabilities": ["configure", "doctor", "ipc", "notify", "requirements", "status", "tui"],
+  "kinds": ["service", "window"],
+  "entryPoints": { "service": "Service.qml", "window": "Recovery.qml" },
+  "capabilities": ["configure", "doctor", "handoff", "ipc", "notify", "requirements", "status", "surfaces", "tui"],
+  "capabilityKinds": {"configure": ["service"], "doctor": ["service"], "handoff": ["service"], "notify": ["service"], "status": ["service"], "tui": ["service"]},
   "requirements": [
     {"command": "id", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds the crashes of your own programs"},
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": false, "purpose": "Asks whether to unmute a program"},

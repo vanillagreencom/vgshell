@@ -32,7 +32,7 @@ Item {
             session: { locked: false },
             settings: { mode: "hold", voiceProvider: "gemini", home: "" },
             shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
-            ipc: { call: (name, arg) => "ok" },
+            ipc: { handle: (name, fn) => {}, call: (name, arg) => "ok" },
             surfaces: { openPage: (page, tab) => {} }
         };
     }
@@ -56,6 +56,7 @@ Item {
             jarvisConsole.tab = 0;
             jarvisConsole.historyType = 0;
             jarvisConsole.shell = root.shellWith(root.values({}));
+            composerControls().entry.text = "";
             wait(0); // Drain the tab's queued focus before each case chooses its control.
             outside.forceActiveFocus();
         }
@@ -82,6 +83,56 @@ Item {
             if (root.recoveryConsole !== null) {
                 root.recoveryConsole.destroy();
                 root.recoveryConsole = null;
+            }
+
+            function test_handoff_is_unsent_and_preserves_occupied_draft() {
+                const sent = [];
+                const shell = root.shellWith(root.values({}));
+                shell.ipc.call = (name, arg) => { if (name === "say") sent.push(arg); return "ok"; };
+                jarvisConsole.shell = shell;
+                const entry = composerControls().entry;
+                const text = "Facts only: <b>literal</b>\nProgram: ad-crasher\nDiagnose only.";
+                jarvisConsole.open(JSON.stringify({ text: text }));
+                compare(entry.text, text);
+                compare(jarvisConsole.draft, text);
+                compare(sent.length, 0);
+                compare(jarvisConsole.conversation.length, 0);
+                entry.text = "  My own draft\nbytes stay. ";
+                const refused = jarvisConsole.acceptDraft("another failure");
+                verify(!refused.ok);
+                compare(entry.text, "  My own draft\nbytes stay. ");
+                compare(sent.length, 0);
+                entry.text = " ";
+                verify(!jarvisConsole.acceptDraft("another failure").ok);
+                compare(entry.text, " ");
+                compare(sent.length, 0);
+            }
+
+            function test_enter_sends_and_shift_enter_adds_a_line() {
+                const sent = [];
+                const shell = root.shellWith(root.values({}));
+                shell.ipc.call = (name, arg) => { if (name === "say") sent.push(arg); return "ok"; };
+                jarvisConsole.shell = shell;
+                const entry = composerControls().entry;
+                entry.text = "Typed by me";
+                entry.cursorPosition = entry.length;
+                entry.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Return, Qt.ShiftModifier);
+                compare(entry.text, "Typed by me\n");
+                compare(sent.length, 0);
+                keyClick(Qt.Key_Return);
+                compare(sent.length, 1);
+                compare(sent[0], "Typed by me\n");
+                compare(entry.text, "");
+                jarvisConsole.open(JSON.stringify({ text: "A reviewed\nfailure draft" }));
+                entry.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Enter);
+                compare(sent.length, 2);
+                compare(sent[1], "A reviewed\nfailure draft");
+                entry.text = "Deliberate button press";
+                composerControls().send.clicked();
+                compare(sent.length, 3);
+                compare(sent[2], "Deliberate button press");
             }
             jarvisConsole.visible = true;
             wait(0);

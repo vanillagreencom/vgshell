@@ -1,13 +1,14 @@
 import QtQuick
 import Quickshell.Io
 import "Debug.js" as Debug
+import "Diagnose.js" as Diagnose
 
 // The Agent Debug service. While an agent is chosen it follows the journal
 // for the core dumps of the user's own programs, and it reads the core's
 // failed VGS setup tasks through capability `doctor`. Each new crash or
 // failed task, at most one a minute per program or task (Debug.admit),
 // gets one notification through the core notify capability, whose Diagnose
-// opens the plugin's `diagnose` TUI with the facts as arguments, and whose
+// opens the chosen text receiver or the plugin's `diagnose` TUI, and whose
 // Mute, on a crash, mutes the program. It publishes the agents the Settings
 // select offers, the muted programs and the Crash watch reading.
 //   vgshell ipc call vgs.agent-debug invoke mute PROGRAM
@@ -29,8 +30,8 @@ Item {
     property var registeredWith: null
 
     readonly property var missing: shell === null ? null : shell.requirements.missing
-    // The agent Diagnose opens, or "" while none the select offers is
-    // chosen.
+    // Keep an unavailable saved text target selected so Diagnose can explain
+    // its cause and offer an explicit one-off terminal choice.
     readonly property string agent: missing === null ? "" : Debug.chosen(shell.settings.agent, missing)
     readonly property bool journal: missing !== null && missing.indexOf("journalctl") === -1
     // Plugin id -> its failed requirement install, the core's reading.
@@ -49,6 +50,12 @@ Item {
     property var seen: ({})
     property var failuresSeen: null
     property var ownPids: []
+    readonly property var targets: shell === null ? [] : shell.handoff.targets
+    onTargetsChanged: publish()
+    // Only the scalar failure arguments survive while the recovery window
+    // offers a one-off terminal choice. It never changes the saved agent.
+    property var recoveryArgs: null
+    property string recoveryReason: ""
 
     onShellChanged: {
         if (shell === null) return;
@@ -56,6 +63,8 @@ Item {
             registeredWith = shell;
             shell.ipc.handle("mute", name => root.mute(name));
             shell.ipc.handle("unmute", name => root.unmute(name));
+            shell.ipc.handle("recover", name => root.recover(name));
+            shell.ipc.handle("recovery", () => JSON.stringify({ waiting: root.recoveryArgs !== null, reason: root.recoveryReason }));
         }
         publish();
     }
@@ -121,7 +130,7 @@ Item {
         const program = Debug.fact(entry.program);
         if (agent === "" || Debug.mutedList(shell.settings.muted).indexOf(program) !== -1) return;
         if (!admitted("crash:" + program)) return;
-        send(Debug.crashNotice(program, Debug.label(agent)), { kind: "crash", entry: entry, read: Date.now() });
+        send(Debug.crashNotice(program, Debug.label(agent, targets)), { kind: "crash", entry: entry, read: Date.now() });
     }
 
     // The failures the core holds now, each new one told once while an
@@ -133,7 +142,7 @@ Item {
         if (agent === "") return;
         for (const fresh of step.fresh) {
             if (!admitted("task:" + fresh.id)) continue;
-            send(Debug.taskNotice(fresh.failure, Debug.label(agent)), { kind: "task", plugin: fresh.id, key: Debug.failureKey(fresh.id, fresh.failure), failure: fresh.failure, read: Date.now() });
+            send(Debug.taskNotice(fresh.failure, Debug.label(agent, targets)), { kind: "task", plugin: fresh.id, key: Debug.failureKey(fresh.id, fresh.failure), failure: fresh.failure, read: Date.now() });
         }
     }
 
@@ -156,11 +165,8 @@ Item {
         if (reply !== "ok") console.warn("agent-debug: notice " + reply);
     }
 
-    // Diagnose: the `diagnose` TUI in the agent chosen at the press, the
-    // facts as its arguments, a time in local time. A second press while
-    // one runs answers busy, and the core raises the open window. The core
-    // logs no plugin script's end, so a run that ends other than with 0, or
-    // 130 for a Ctrl-C, is logged here.
+    // Choose at the press, never when the notification was built. Terminal
+    // arguments and the text prompt share the same admitted scalar facts.
     function diagnose(facts) {
         if (agent === "") {
             console.warn("agent-debug: diagnose refused=no-agent");
@@ -174,11 +180,37 @@ Item {
             const failure = Debug.pressedFailure(failures, facts.plugin, facts.key, facts.failure);
             args = Debug.taskArgs(agent, facts.plugin, failure, facts.read, -new Date(facts.read).getTimezoneOffset());
         }
+        if (Debug.isHandoff(agent)) {
+            const target = targets.find(row => row.key === agent);
+            const result = target === undefined ? { ok: false, reason: "Your saved message target is no longer installed." }
+                : !target.available ? { ok: false, reason: target.reason } : target.open(Diagnose.prompt(args.slice(1), ""));
+            if (!result.ok) {
+                recoveryArgs = args.slice(1);
+                recoveryReason = result.reason;
+                const reply = shell.surfaces.summon("window", "{}");
+                if (reply !== "ok") console.error("agent-debug: recovery " + reply);
+            }
+            return;
+        }
+        terminal(args);
+    }
+
+    function terminal(args) {
         const reply = shell.tui.run("diagnose", args, result => {
             if (result.reason !== null || (result.code !== 0 && result.code !== 130))
                 console.warn("agent-debug: diagnose code=" + result.code + " reason=" + result.reason);
         });
         if (reply !== "ok") console.warn("agent-debug: diagnose " + reply);
+        return reply;
+    }
+
+    function recover(name) {
+        if (name === "cancel") { recoveryArgs = null; return "ok"; }
+        if (recoveryArgs === null || ["claude", "codex"].indexOf(name) === -1) return "refused: recovery=choice";
+        if (missing.indexOf(name) !== -1) return "refused: recovery=agent-missing";
+        const reply = terminal([name].concat(recoveryArgs));
+        if (reply === "ok") recoveryArgs = null;
+        return reply;
     }
 
     function mute(name) {
@@ -209,7 +241,7 @@ Item {
     function publish() {
         if (shell === null || missing === null) return;
         const values = {
-            agents: Debug.offers(missing),
+            agents: Debug.choices(missing, targets, shell.settings.agent),
             muted: Debug.mutedRows(Debug.mutedList(shell.settings.muted)),
             watch: Debug.WATCH[watchState()]
         };

@@ -3642,5 +3642,20 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 
+const handoffLogic = load(LOGIC);
+const handoffRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.handoff/manifest.json"), "utf8"));
+report("handoffs: test-tree receiver validates", handoffLogic.validateManifest(handoffRaw, "/fixture").ok, true);
+for (const [label, handoffs, capabilities] of [
+    ["empty", {}, ["handoff"]], ["not an object", [], ["handoff"]],
+    ["undeclared capability", { compose: { label: "Receiver" } }, []],
+    ["generic payload kind", { compose: { label: "Receiver", accepts: "json" } }, ["handoff"]],
+    ["control in label", { compose: { label: "Receiver\nbad" } }, ["handoff"]],
+    ["path as name", { "../compose": { label: "Receiver" } }, ["handoff"]]
+]) {
+    const raw = { ...handoffRaw, handoffs, capabilities, capabilityKinds: {} };
+    report("handoffs: refuses " + label, handoffLogic.validateManifest(raw, "/fixture").ok, false);
+}
+const senderRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.handoff-sender/manifest.json"), "utf8"));
+report("handoffs: a discovering-only sender declares no target", handoffLogic.validateManifest(senderRaw, "/fixture").ok, true);
 if (failures > 0) { console.log("test-plugin-logic: " + failures + " failing"); process.exit(1); }
 console.log("test-plugin-logic: ok");
