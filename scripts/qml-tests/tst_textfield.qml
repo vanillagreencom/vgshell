@@ -85,8 +85,11 @@ Item {
             for (const width of [900, 80, 600]) {
                 holder.width = width;
                 tryCompare(inputs[0], "width", width);
+                // Without fillWidth, a layout keeps the preferred implicit width:
+                // https://doc.qt.io/qt-6/qtquicklayouts-overview.html#specifying-preferred-size
+                const formWidth = data.layout ? Theme.size.panel.sm / 2 : width;
                 for (const field of inputs.slice(1))
-                    tryCompare(field, "width", Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, width)));
+                    tryCompare(field, "width", Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, formWidth)));
             }
             compare(inputs[0].sidePadding, 0, "Plugins' icon starts at the content edge");
             compare(inputs[0].leftPadding, Theme.icon.size.md + Theme.textField.gap);
