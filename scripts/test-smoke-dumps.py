@@ -303,12 +303,23 @@ fi
         ("cleanup-reply", ":", "smoke", "perScreenLayers", "no"),
         ("reply", 'got="$(ipc smoke reply)"; [[ $got == answer ]]', "smoke", "reply", "no"),
         ("status", 'status=0; got="$(ipc smoke failure)" || status=$?; [[ $status == 17 && $got == refused ]]', "smoke", "failure", "no"),
+        ("capture-stage", 'ipc shell setPluginEnabled vgs.capture false || true', "shell", "setPluginEnabled", "yes"),
+        ("capture-stage-unavailable", 'ipc shell setPluginEnabled vgs.capture false || true', "shell", "setPluginEnabled", "yes"),
     )
 
     def ipc_case(helpers, case, parent_bound=6 * IPC_CALL_BOUND_S):
         name, command, target, method, want_timeout = case
         folder = Path(tempfile.mkdtemp(prefix=name + "-", dir=root))
         (folder / "example.sh").write_text(command + "\n")
+        if name.startswith("capture-stage"):
+            (folder / "example.sh").write_text('rt_dir="$sandbox/runtime" instance_log="$sandbox/runtime/instance.log" shell_log="$sandbox/runtime/launcher.log"\n' + command + "\n")
+            runtime = folder / "runtime"
+            runtime.mkdir()
+            instance = runtime / "instance.log"
+            if name == "capture-stage":
+                instance.write_bytes(b"x" * (1024 * 1024 + 7) + b'\nVGS_SMOKE_CAPTURE_STAGE {"stage":"drain-enter"}\n')
+            else:
+                instance.symlink_to("/etc/passwd")
         result = subprocess.run(
             ["timeout", "--signal=KILL", str(parent_bound), BASH, str(child),
              str(HARNESS.parents[2]), str(folder), str(root), str(helpers), want_timeout, target, method,
@@ -327,6 +338,19 @@ fi
         assert calls.count(target + "|" + method) == (2 if method == "perScreenLayers" else 1), (name, calls)
         if name == "cleanup":
             assert "result failures=1 behaviour=1" in result.stdout, result.stdout
+        if name.startswith("capture-stage"):
+            retained = list((folder / "rows").glob("example.ipc-stage.*"))
+            assert len(retained) == 1, retained
+            stage = json.loads((retained[0] / "capture.json").read_text())
+            assert stage["bound_s"] == 0.1 and stage["capture_bound_s"] == 5, stage
+            instance, launcher = stage["sources"]
+            assert launcher["status"] == "unavailable" and launcher["cause"], launcher
+            if name == "capture-stage":
+                assert instance["status"] == "present" and instance["clipped"] and instance["read_bytes"] == 1024 * 1024, instance
+                assert (retained[0] / "instance.stages.log").read_text() == 'VGS_SMOKE_CAPTURE_STAGE {"stage":"drain-enter"}\n'
+            else:
+                assert instance["status"] == "unavailable" and instance["cause"], instance
+                assert not (retained[0] / "instance.stages.log").exists()
 
     timing = root / "timing.sh"
     timing.write_text(function("smoke_row_secs") + function("cpu_some_pct"))

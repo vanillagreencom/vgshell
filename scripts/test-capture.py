@@ -4,8 +4,11 @@
 --nested REAL_GRIM OUTPUT WIDTH HEIGHT DISPLAY RUNTIME runs grim on that
 confined output. The mode expectations come from Hyprland, never from a PNG.
 No inherited desktop, bus or device environment reaches an offline child.
+--gui-work MODE SNAPSHOT [LOG] annotates the smoke row's timing snapshot,
+then reads its verdict or figures. This is the Capture row's reader owner.
 """
 import json
+import datetime
 import ctypes
 import fcntl
 import math
@@ -36,6 +39,153 @@ FREEZING = ("screenshot-area", "screenshot-window", "screenshot-display", "recor
 # The actions whose worker crops its image from the freeze's held frame.
 STILLS = ("screenshot-area", "screenshot-window", "screenshot-display", "text")
 PLANS = {}
+
+
+def gui_work(doc, timing):
+    """The existing wall-gap probe, less complete Qt GUI sync waits.
+
+    QQuickWindow::beforeSynchronizing()/afterSynchronizing() are documented
+    render-thread scene-graph phase signals:
+    https://doc.qt.io/qt-6/qquickwindow.html#beforeSynchronizing
+    They run while the GUI thread is blocked, but do not bracket its full
+    condition wait, including time before the render thread reaches sync.
+    This reader uses Qt's private blockedForSync field for that duration.
+
+    Qt 6.12 qsgthreadedrenderloop.cpp emits a GUI polishAndSync start and
+    Frame prepared after its waitCondition wait. blockedForSync is that
+    wait's floored milliseconds. Only a complete containing probe gap can
+    own the whole measured wait; partial overlap gives no usable reading.
+    The row starts this logger in UTC, the same epoch as Date.now().
+    """
+    bands = doc["still"]["bands"]
+    first, last, recorded = doc["probe"]
+    start = min(b["askedAt"] for b in bands)
+    end = max(b["askedAt"] + b["readbackMs"] + b["saveMs"] for b in bands)
+    if not first or first > start or last < end:
+        return {"state": "uncovered"}
+    gaps = [(a, b) for a, b in recorded if b > start and a < end]
+    if any(a >= b for a, b in gaps):
+        return {"state": "unread", "cause": "probe-gap-order"}
+    scope_start = min([start, *(a for a, _ in gaps)])
+    scope_end = max([end, *(b for _, b in gaps)])
+    pending, pairs, errors = {}, [], []
+    marker = re.compile(r"\[window (0x[0-9a-fA-F]+)\]\[gui thread\] (.*)$")
+    prepared = re.compile(r"Frame prepared, polish=(-?\d+) ms, lock=(-?\d+) ms, blockedForSync=(-?\d+) ms, animations=(-?\d+) ms$")
+    for line in timing.splitlines():
+        event = marker.search(line)
+        if event is None:
+            continue
+        window, message = event.groups()
+        if not (message.startswith("polishAndSync: start,") or message.startswith("Frame prepared,")):
+            continue
+        try:
+            stamp = datetime.datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            return {"state": "unread", "cause": "sync-timestamp"}
+        at = round(stamp.timestamp() * 1000)
+        if message.startswith("polishAndSync: start,"):
+            if window in pending:
+                errors.append((pending[window], "sync-start-without-end"))
+            pending[window] = at
+            continue
+        match = prepared.fullmatch(message)
+        if match is None or any(int(v) < 0 for v in match.groups()):
+            errors.append((at, "sync-fields"))
+            pending.pop(window, None)
+            continue
+        if window not in pending:
+            errors.append((at, "sync-end-without-start"))
+            continue
+        before = pending.pop(window)
+        blocked = int(match[3])
+        if before > at or blocked > at - before:
+            errors.append((at, "sync-span"))
+            continue
+        pairs.append((before, at, blocked))
+    errors.extend((at, "sync-start-without-end") for at in pending.values())
+    relevant_errors = [cause for at, cause in errors if scope_start <= at <= scope_end]
+    if relevant_errors:
+        return {"state": "unread", "cause": relevant_errors[0]}
+    if not any(a <= end and b >= start for a, b, _ in pairs):
+        return {"state": "unread", "cause": "sync-coverage"}
+    turns = []
+    for a, b in gaps:
+        waits = sorted((s, e, ms) for s, e, ms in pairs if ms and e > a and s < b)
+        if any(s < a or e > b for s, e, _ in waits):
+            return {"state": "unread", "cause": "partial-sync-span"}
+        if any(one[1] > two[0] for one, two in zip(waits, waits[1:])):
+            return {"state": "unread", "cause": "overlapping-sync-spans"}
+        blocked = sum(ms for _, _, ms in waits)
+        if blocked > b - a:
+            return {"state": "unread", "cause": "sync-over-gap"}
+        turns.append({"before": a, "after": b, "wallMs": b - a, "blockedForSyncMs": blocked, "workMs": b - a - blocked})
+    limit = math.ceil(doc["period"])
+    longest = max((turn["workMs"] for turn in turns), default=0)
+    return {"state": "within" if longest <= limit else "over", "limitMs": limit, "longestWorkMs": longest, "turns": turns}
+
+
+def gui_work_cases():
+    """Whole sync spans are excluded; real GUI work keeps the frame bound."""
+    epoch = 1793896304000
+    def log(at, message, window="0x123"):
+        when = datetime.datetime.fromtimestamp((epoch + at) / 1000, datetime.timezone.utc)
+        return when.strftime("%Y-%m-%d %H:%M:%S.%f")[:23] + " DEBUG qt.scenegraph.time.renderloop: [window " + window + "][gui thread] " + message + "\n"
+    def pair(first, last, blocked, window="0x123"):
+        return (log(first, "polishAndSync: start, elapsed since last call: 16 ms", window)
+                + log(last, f"Frame prepared, polish=0 ms, lock=0 ms, blockedForSync={blocked} ms, animations=0 ms", window))
+    doc = {"still": {"bands": [{"askedAt": epoch + 100, "readbackMs": 80, "saveMs": 20}]},
+           "probe": [epoch, epoch + 300, [[epoch + 120, epoch + 159]]], "period": 1000 / 60}
+    cases = [
+        ("render-wait", pair(120, 159, 39), "within", 0),
+        ("real-work", pair(120, 140, 20), "over", 19),
+        ("two-waits", pair(120, 130, 10) + pair(131, 149, 18, "0x456"), "within", 11),
+        ("partial", pair(119, 140, 21), "unread", None),
+        ("overlap", pair(120, 140, 20) + pair(130, 150, 20, "0x456"), "unread", None),
+        ("missing", "", "unread", None),
+        ("unfinished", log(120, "polishAndSync: start, elapsed since last call: 16 ms"), "unread", None),
+        ("unstarted", log(159, "Frame prepared, polish=0 ms, lock=0 ms, blockedForSync=39 ms, animations=0 ms"), "unread", None),
+        ("malformed", log(159, "Frame prepared, polish=0 ms, lock=0 ms, blockedForSync=bad ms, animations=0 ms"), "unread", None),
+        ("negative", pair(120, 159, -1), "unread", None),
+        ("impossible", pair(120, 130, 39), "unread", None),
+        ("unchanged-limit", pair(120, 142, 22), "within", 17),
+        ("past-limit", pair(120, 141, 21), "over", 18),
+    ]
+    for name, timing, wanted, work in cases:
+        result = gui_work(doc, timing)
+        assert result["state"] == wanted, (name, result)
+        if work is not None:
+            assert result["longestWorkMs"] == work, (name, result)
+    absent = dict(doc, probe=[epoch + 101, epoch + 300, doc["probe"][2]])
+    assert gui_work(absent, pair(120, 159, 39))["state"] == "uncovered"
+
+
+def gui_work_cli(arguments):
+    mode, path, *logs = arguments
+    target = Path(path)
+    try:
+        doc = json.loads(target.read_text())
+    except (OSError, ValueError) as error:
+        if mode == "verdict":
+            print("unread")
+            return
+        print("capture-gui-work: input-unavailable path=%s cause=%s" % (target, error), file=sys.stderr)
+        raise SystemExit(1)
+    if mode == "annotate":
+        try:
+            doc["guiWork"] = gui_work(doc, Path(logs[0]).read_text())
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
+            doc["guiWork"] = {"state": "unread", "cause": "gui-work-input"}
+        target.write_text(json.dumps(doc))
+    elif mode == "verdict":
+        print(doc.get("guiWork", {}).get("state", "unread"))
+    else:
+        assert mode == "figures"
+        work = doc.get("guiWork", {"state": "unread"})
+        if "turns" not in work:
+            print("  capture figure: GUI work unavailable state=%s cause=%s" % (work["state"], work.get("cause", "probe-coverage")))
+        else:
+            print("  ok    capture figure: longest-gui-work-ms=%d frame-ticks=%d turns (wall-ms, measured-blockedForSync-ms, GUI-work-ms)=%s" % (
+                work["longestWorkMs"], work["limitMs"], [(t["wallMs"], t["blockedForSyncMs"], t["workMs"]) for t in work["turns"]]))
 
 
 def still_plan(screens, folder):
@@ -2362,6 +2512,10 @@ def hyprctl_records(base):
 
 
 def main():
+    if sys.argv[1:2] == ["--gui-work"]:
+        gui_work_cli(sys.argv[2:])
+        return
+    gui_work_cases()
     release_deadline()
     config = {}
     output = "NESTED"

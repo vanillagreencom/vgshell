@@ -75,7 +75,115 @@ Scope {
             root.popupYieldDisableReply = Plugins.setEnabled(root.popupYieldPluginId, false);
         }
     }
+
+    property var captureStageObservation: null
+    property int captureStageEpoch: 0
+
+    function captureStageProbe(enabled) {
+        if (!enabled) {
+            const observation = captureStageObservation;
+            if (observation === null) return "off";
+            for (const binding of observation.bindings) {
+                if (binding.lifetime.drain === binding.wrapper) binding.lifetime.drain = binding.original;
+                else observation.problem = "drain-replaced";
+            }
+            observation.emit("disarm", { problem: observation.problem });
+            observation.active = false;
+            observation.bindings = [];
+            observation.current = null;
+            captureStageObservation = null;
+            return observation.problem === "" ? "off" : "unavailable: capture-stage=" + observation.problem;
+        }
+        if (captureStageObservation === null) {
+            const observation = { active: true, epoch: ++captureStageEpoch, sequence: 0,
+                problem: "", bindings: [], current: undefined };
+            // The lifetime wrapper retains this plain record, not Probe or a service QObject.
+            observation.emit = function(stage, facts) {
+                if (!observation.active) return;
+                try {
+                    console.info("VGS_SMOKE_CAPTURE_STAGE " + JSON.stringify(Object.assign({
+                        schema: "vgs.capture-stage.v1", epoch: observation.epoch,
+                        sequence: ++observation.sequence, at: Date.now(), stage: stage,
+                        id: "vgs.capture" }, facts || {})));
+                } catch (error) {
+                    // Diagnostic failure must not replace a disposer result or exception.
+                    if (observation.problem === "") observation.problem = "log-failed";
+                }
+            };
+            captureStageObservation = observation;
+            observation.emit("arm");
+        }
+        const state = captureStageRefresh();
+        return state.startsWith("unavailable:") ? state : "armed";
+    }
+
+    function captureStageRefresh() {
+        const observation = captureStageObservation;
+        if (observation === null || !observation.active) return "off";
+        if (observation.problem !== "") return "unavailable: capture-stage=" + observation.problem;
+        const rows = (Plugins.built.service || []).filter(row => row.id === "vgs.capture" && row.origin === "core");
+        if (rows.length > 1) {
+            observation.problem = "ambiguous-service";
+            observation.emit("unavailable", { problem: observation.problem });
+            return "unavailable: capture-stage=" + observation.problem;
+        }
+        const lifetime = rows.length === 1 ? rows[0].lifetime : null;
+        if (lifetime !== observation.current) {
+            observation.current = lifetime;
+            observation.emit("service-record-notified", { present: lifetime !== null });
+        }
+        if (observation.problem !== "") return "unavailable: capture-stage=" + observation.problem;
+        if (lifetime === null) return "waiting-service";
+        let binding = observation.bindings.find(value => value.lifetime === lifetime);
+        if (!lifetime.active && binding !== undefined && lifetime.drain === binding.wrapper) return "retiring-service";
+        if (!lifetime.active || typeof lifetime.drain !== "function") {
+            observation.problem = "service-lifetime-unavailable";
+            observation.emit("unavailable", { problem: observation.problem });
+            return "unavailable: capture-stage=" + observation.problem;
+        }
+        if (binding === undefined) {
+            const original = lifetime.drain;
+            const generation = observation.bindings.length + 1;
+            const wrapper = function(...args) {
+                observation.emit("drain-enter", { generation: generation });
+                try {
+                    const answer = original.apply(this, args);
+                    observation.emit("drain-return", { generation: generation });
+                    return answer;
+                } catch (error) {
+                    observation.emit("drain-throw", { generation: generation });
+                    throw error;
+                }
+            };
+            lifetime.drain = wrapper;
+            binding = { lifetime: lifetime, original: original, wrapper: wrapper };
+            observation.bindings.push(binding);
+            observation.emit("drain-wrapped", { generation: generation });
+        }
+        if (lifetime.drain !== binding.wrapper) {
+            observation.problem = "drain-replaced";
+            observation.emit("unavailable", { problem: observation.problem });
+            return "unavailable: capture-stage=" + observation.problem;
+        }
+        return observation.problem === "" ? "ready" : "unavailable: capture-stage=" + observation.problem;
+    }
+
+    function captureStageFreezeChanged() {
+        const observation = captureStageObservation;
+        if (observation === null) return;
+        const holder = ScreenFreeze.holder;
+        observation.emit("freeze-notified", { serial: ScreenFreeze.serial,
+            holding: ScreenFreeze.holding, owner: holder === null ? null : holder.pluginId });
+    }
+
+    Connections {
+        target: root.captureStageObservation === null ? null : ScreenFreeze
+        function onHolderChanged() { root.captureStageFreezeChanged(); }
+        function onHoldingChanged() { root.captureStageFreezeChanged(); }
+    }
+
     Component.onDestruction: {
+        root.captureStageProbe(false);
         endPopupYieldObservation();
         endBarEmptyObservation();
         root.endDisplayEvents("interrupted", "probe-destroyed");
@@ -609,6 +717,7 @@ Scope {
     Connections {
         target: Plugins
         function onBuiltChanged() {
+            root.captureStageRefresh();
             const rows = [];
             for (const key of Object.keys(Plugins.built))
                 for (const row of Plugins.built[key])
@@ -645,7 +754,10 @@ Scope {
     }
     Connections {
         target: Config
-        function onEffectiveChanged() { root.changes += 1; }
+        function onEffectiveChanged() {
+            root.changes += 1;
+            if (root.captureStageObservation !== null) root.captureStageObservation.emit("config-effective-notified");
+        }
     }
     Connections {
         target: Config.smokeUserView
@@ -1434,6 +1546,8 @@ Scope {
 
     IpcHandler {
         target: "smoke"
+        function captureStageProbe(enabled: bool): string { return root.captureStageProbe(enabled); }
+        function captureStageReady(): string { return root.captureStageRefresh(); }
         function displayEventArm(label: string): string { return root.armDisplayEvents(label); }
         function displayEventBoundary(label: string): string {
             if (root.displayEventStatus !== "armed") return "refused: display-events=" + root.displayEventStatus;
