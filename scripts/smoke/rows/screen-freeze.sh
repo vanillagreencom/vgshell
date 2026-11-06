@@ -299,6 +299,13 @@ copy_tree screen-freeze-stale
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
   'const next = ScreenFreeze.holding ? Quickshell.screens.map(screen =>' \
   'const next = ScreenFreeze.holding || host.built.length > 0 ? Quickshell.screens.map(screen =>'
+# Variants round-trips entry records through QVariantMap (2b4501a
+# variants.cpp setModel/updateVariants), not JS object identity. Keep
+# retained windows mapped by their screen QObject, or the hide-before-
+# destroy loop hides them even though Variants keeps their value.
+edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
+  'if (next.indexOf(surface.modelData) < 0) surface.visible = false;' \
+  'if (!next.some(entry => entry.screen === surface.screen)) surface.visible = false;'
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
   '            host.framed = false;' \
   '            host.framed = ScreenFreeze.holding && host.allFramed;'
