@@ -4,9 +4,9 @@
 // Agent Debug's decisions, pure so scripts/test-agent-debug.js runs them
 // under node: which agents the Settings select offers, the journal follower's
 // argv and the reading of its lines, the per-program and per-task limit,
-// the muted programs, the words and notify-send argv of each notification,
+// the muted programs, the options of each notification,
 // and the facts Diagnose hands its terminal. The service
-// (Service.qml) owns every process and timer and calls these.
+// (Service.qml) owns the journal and uid processes and calls these.
 //
 // A crash is a systemd-coredump journal entry, MESSAGE_ID
 // fc2e22bc6ee647b6b90729ab34a250b1 (systemd's catalog,
@@ -17,7 +17,6 @@
 // (https://systemd.io/JOURNAL_EXPORT_FORMATS/#journal-json-format).
 // A field that is no string is read as absent.
 
-var APP_NAME = "Agent Debug";
 // The agents Diagnose opens, in the order the select offers them; `value`
 // is each one's command and the first argument tui/diagnose.sh takes.
 var AGENTS = [
@@ -37,10 +36,6 @@ var FIELDS = ["COREDUMP_COMM", "COREDUMP_PID", "COREDUMP_EXE", "COREDUMP_SIGNAL_
 // from the journal, which other programs write.
 var WINDOW_MS = 60000;
 var MAX_KEYS = 64;
-// The most notify-send runs that wait for a press at once; notify-send
-// waits for the notification to close when it offers an action. A notice
-// past it is not sent.
-var MAX_WAITING = 8;
 // The most programs the muted list holds: the core's STATUS_LIST_MAX, the
 // longest `rows` value the status record takes (shell/Core/PluginLogic.js).
 var MUTED_MAX = 64;
@@ -52,7 +47,7 @@ var NAME_MAX = 60;
 // 256 characters an argument.
 var FACT_MAX = 256;
 // The most recent pids of the service's own processes it never notifies
-// about: the follower, the uid read and each notify-send run.
+// about: the follower and the uid read.
 var OWN_PIDS_MAX = 16;
 // The longest package sentence a setup notification's body holds before
 // its Diagnose line: "cups, cups-pk-helper and system-config-printer.",
@@ -234,23 +229,10 @@ function taskNotice(failure, agent) {
     };
 }
 
-// The notify-send argv for NOTICE from plugin PLUGIN. A click on the card
-// runs its first action, Diagnose (vgs.notifications' primaryAction).
-// x-vgs-plugin is the hint the core's own notify sender sets
-// (PluginLogic.notifyArgv), by which vgs.notifications shows a plugin's
-// critical notice under Silence (NotificationLogic.bypassesSilence). `--`
-// ends the options, so a title that starts with a dash stays text.
-function argv(notice, plugin) {
-    var out = ["notify-send", "-a", APP_NAME, "-u", notice.urgency, "-h", "string:x-vgs-plugin:" + plugin, "-h", "string:x-vgs-icon:bug", "-h", "string:x-vgs-tone:" + notice.tone, "-A", "diagnose=Diagnose"];
-    if (notice.mute) out.push("-A", "mute=Mute");
-    return out.concat(["--", notice.title, notice.body]);
-}
-
-// The action STDOUT, all a notify-send run printed, names: `diagnose`,
-// `mute`, or "" for a notification closed without one.
-function pressed(stdout) {
-    var action = String(stdout).trim();
-    return action === "diagnose" || action === "mute" ? action : "";
+function options(notice) {
+    var actions = [{ id: "diagnose", label: "Diagnose" }];
+    if (notice.mute) actions.push({ id: "mute", label: "Mute" });
+    return { title: notice.title, message: notice.body, urgency: notice.urgency, icon: "bug", tone: notice.tone, actions: actions };
 }
 
 // MS since the epoch as the prompt writes a time: local time with its

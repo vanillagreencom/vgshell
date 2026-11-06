@@ -29,8 +29,11 @@
 # The harness starts the plugin disabled; the row enables it with no agent
 # and ends with it disabled, its stand-ins gone and the failure it planted
 # cleared.
-# inputs: shell/plugins/vgs.agent-debug/manifest.json shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/Core/Capabilities.qml shell/Core/Notices.qml scripts/smoke/fixtures/plugins/acme.needs/* bin/vgshell-tui
+# inputs: shell/plugins/vgs.agent-debug/manifest.json shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/Core/Capabilities.qml shell/Core/Notices.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/plugins/acme.probe/* bin/vgshell-tui
 set -euo pipefail
+ad_probe_was="$(plugin_enabled acme.probe)"
+expect "the fixture holds the notification server for core sends" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the notification fixture service is built" True record_exists acme.probe
 ad_dir="$sandbox/agent-debug"
 mkdir -p -- "$ad_dir"
 ad_journal="$ad_dir/journal.jsonl"
@@ -196,7 +199,7 @@ ad_crash tail 7020
 expect_poll "control: the same name with another pid is told" '["tail crashed"]' ad_without_markers "$n"
 
 # Mute, from the notification and from the skill's IPC call.
-printf 'mute\n' >"$ad_press"
+printf '1\n' >"$ad_press"
 ad_crash ad-crasher2 7030
 expect_poll "Mute on a crash keeps the program muted" '["ad-crasher2"]' ad_muted_stored
 rm -f -- "${ad_press:?}"
@@ -214,7 +217,7 @@ expect_poll "control: unmuted, its next crash inside the minute is told" '["ad-q
 
 # Diagnose: the facts as data, in the agent chosen at the press.
 forget_record
-printf 'diagnose\n' >"$ad_press"
+printf 'default\n' >"$ad_press"
 ad_crash "ad 'x;\$(id)" 7040
 expect_poll "Diagnose hands the terminal the diagnose TUI with each fact its own argument" \
   "$(words vgs.agent-debug/diagnose tui/diagnose.sh claude crash "ad 'x;\$(id)" 7040 SIGSEGV "$ad_time" '/tmp/ad bin')" recorded_tail
@@ -223,7 +226,7 @@ expect_poll "the diagnose run ends" idle key_idle vgs.agent-debug/diagnose
 ad_set agent '"codex"'
 expect_poll "the service reads Codex" '"codex"' ipc smoke readInstance service vgs.agent-debug agent
 forget_record
-printf 'diagnose\n' >"$ad_press"
+printf 'default\n' >"$ad_press"
 ad_crash ad-y 7041
 expect_poll "control: Diagnose opens the agent chosen at the press" \
   "$(words vgs.agent-debug/diagnose tui/diagnose.sh codex crash ad-y 7041 SIGSEGV "$ad_time" '/tmp/ad bin')" recorded_tail
@@ -251,7 +254,7 @@ ad_install() {
 n="$(ad_sent)"
 : >"$ad_fail"
 forget_record
-printf 'diagnose\n' >"$ad_press"
+printf 'default\n' >"$ad_press"
 ad_install
 expect_poll "a failed install is told once" '["Could not install tools"]' ad_without_markers "$n"
 expect_poll "its Diagnose names the run's ended record" ok ad_task_diagnosed
@@ -305,4 +308,5 @@ expect_poll "the muted list is empty again" '[]' ad_value muted
 expect "disabling Agent Debug again is allowed" ok ipc shell setPluginEnabled vgs.agent-debug false
 expect_poll "Agent Debug's service is gone" False record_exists vgs.agent-debug
 rm -f -- "${shim:?}/journalctl" "${shim:?}/notify-send" "${shim:?}/claude" "${shim:?}/codex"
+expect "the notification fixture returns to its incoming enablement" ok ipc shell setPluginEnabled acme.probe "${ad_probe_was,,}"
 rescan "a rescan after the stand-ins go starts"

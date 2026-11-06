@@ -25,12 +25,16 @@ Singleton {
 
     // Send OPTIONS for the instance CTX belongs to, as APP_NAME, past HUB,
     // the core's NotificationHub. Answers "ok" once the run is handed to
-    // Quickshell or the message is dropped; delivery is not reported back.
-    function send(ctx, appName, options, hub) {
+    // Quickshell or the message is dropped. DONE receives the chosen id
+    // (empty on dismissal or failure), then "delivered" or "failed".
+    // With no actions, wait:false completes after delivery instead of dismissal.
+    function send(ctx, appName, options, hub, done) {
+        if (done !== undefined && typeof done !== "function") return "refused: notify=done want=function";
         const judged = Logic.notifyOptions(options);
         if (!judged.ok) return "refused: notify=" + judged.error;
         if (hub.holdsName && !hub.active) {
             console.warn("notify: unsent plugin=" + ctx.id + " reason=no-drawer");
+            if (done !== undefined) complete(ctx.id, done, "", "failed");
             return "ok";
         }
         if (runs.length >= Logic.NOTIFY_RUNS_MAX) return "refused: notify=busy limit=" + Logic.NOTIFY_RUNS_MAX;
@@ -39,20 +43,45 @@ Singleton {
         const run = runComponent.createObject(root, { pluginId: ctx.id });
         if (run === null) {
             console.warn("notify: unsent plugin=" + ctx.id + " exit=null process");
+            if (done !== undefined) complete(ctx.id, done, "", "failed");
             return "ok";
         }
-        run.command = Logic.notifyArgv(ctx.id, appName, judged.value);
+        const wait = done !== undefined && judged.value.wait;
+        run.command = Logic.notifyArgv(ctx.id, appName, judged.value, wait);
+        run.actions = judged.value.actions;
+        run.done = done === undefined ? null : (action, delivery) => { if (ctx.active) done(action, delivery); };
+        // Only a waiting send borrows an instance lifetime. Core messages
+        // and fire-and-forget sends retain the singleton's short run.
+        // notify-send --help states that --action implies --wait.
+        // Without actions wait:false
+        // observes delivery without holding a run until History is cleared.
+        if (judged.value.actions.length > 0 || wait) {
+            run.release = ctx.onDispose(() => {
+                run.done = null;
+                run.cancelled = true;
+                if (run.running) run.running = false;
+            });
+        }
         runs = runs.concat([run]);
         run.running = true;
         return "ok";
     }
 
     // A run ended: COMPLETION is its exit, null when it did not start.
-    function ended(run, completion, complaint) {
+    function ended(run, completion, stdout, complaint) {
         runs = runs.filter(item => item !== run);
-        if (completion === null || completion.code !== 0 || completion.status !== 0)
+        const failed = completion === null || completion.code !== 0 || completion.status !== 0;
+        if (failed && !run.cancelled)
             console.warn("notify: unsent plugin=" + run.pluginId + " exit=" + JSON.stringify(completion) + " " + complaint.trim().split("\n")[0].trim().slice(0, 200));
+        const done = run.done;
+        if (run.release !== null) run.release();
         Qt.callLater(() => run.destroy());
+        if (done !== null) complete(run.pluginId, done, failed ? "" : Logic.notifyAction(run.actions, stdout), failed ? "failed" : "delivered");
+    }
+
+    function complete(pluginId, done, action, delivery) {
+        try { done(action, delivery); }
+        catch (error) { console.warn("notify: callback plugin=" + pluginId + " " + error); }
     }
 
     // A command that fails to start emits only runningChanged, so the end
@@ -63,14 +92,21 @@ Singleton {
             id: run
             property string pluginId: ""
             property var completion: null
+            property var actions: []
+            property var done: null
+            property var release: null
+            property bool cancelled: false
             // notify-send needs the program path and the session bus alone.
             // Under clearEnvironment a null value passes the shell's own
             // value through (Quickshell 0.3.1, Process.clearEnvironment).
             clearEnvironment: true
             environment: ({ PATH: null, DBUS_SESSION_BUS_ADDRESS: null, XDG_RUNTIME_DIR: null, LANG: "C.UTF-8" })
+            // StdioCollector holds the chosen action until the process's
+            // stream ends (Quickshell 0.3.1, StdioCollector.text).
+            stdout: StdioCollector { id: chosen }
             stderr: StdioCollector { id: complaint }
             onExited: (code, status) => { completion = { code: code, status: status }; }
-            onRunningChanged: if (!running) root.ended(run, completion, complaint.text)
+            onRunningChanged: if (!running) root.ended(run, completion, chosen.text, complaint.text)
         }
     }
 }

@@ -6,7 +6,7 @@
 // The Agent Warden plugin's notices, pure so
 // scripts/test-agent-warden-notices.js runs them under node: which episodes
 // a status holds, which of them are new, what each new one says, and the
-// notify-send argv that sends it.
+// core notify options that send it.
 //
 // An episode is a condition that opens and later clears, keyed
 // `<kind>:<scope>` as the warden keys its own
@@ -32,30 +32,24 @@ var MAX_EPISODES = 64;
 // How often the service touches the warden's heartbeat file. The warden
 // leaves every notice to the plugin while the file is less than 120 s old.
 var HEARTBEAT_MS = 60000;
-// The most notify-send runs that wait for a press on Open vsys at once;
-// notify-send waits for the notice to close when it offers an action. A
-// notice past it is sent without the button.
-var MAX_WAITING = 8;
-var APP_NAME = "Agent Warden";
-// The action notify-send offers, and prints on stdout when it is pressed.
+// The action the core returns when Open vsys is pressed.
 var ACTION = "open";
 var ACTION_LABEL = "Open vsys";
 // The scope of an episode no single scope owns, and of the warden's own.
 var SLICE = "agents.slice";
 var WARDEN = "agent-warden";
 
-// Each episode kind: its channel, `notify` for the service's own
-// notify-send run or `shell` for the core's shell.notify.send, its urgency,
+// Each episode kind: whether it requests the transient hint, its urgency,
 // the least MODES value that sends it, whether it offers Open vsys, and
 // whether the episodes one status opens go out as one notice.
 var KINDS = {
-    "tasks": { channel: "notify", urgency: "normal", least: "problems", action: true, grouped: false },
-    "memory": { channel: "notify", urgency: "normal", least: "problems", action: true, grouped: false },
-    "not-moving": { channel: "notify", urgency: "critical", least: "problems", action: true, grouped: false },
-    "move-failure": { channel: "notify", urgency: "normal", least: "problems", action: true, grouped: false },
-    "reaped": { channel: "notify", urgency: "low", least: "problems", action: false, grouped: true },
-    "not-checking": { channel: "notify", urgency: "normal", least: "problems", action: false, grouped: false },
-    "moved": { channel: "shell", urgency: "low", least: "everything", action: false, grouped: true }
+    "tasks": { transient: false, urgency: "normal", least: "problems", action: true, grouped: false },
+    "memory": { transient: false, urgency: "normal", least: "problems", action: true, grouped: false },
+    "not-moving": { transient: false, urgency: "critical", least: "problems", action: true, grouped: false },
+    "move-failure": { transient: false, urgency: "normal", least: "problems", action: true, grouped: false },
+    "reaped": { transient: false, urgency: "low", least: "problems", action: false, grouped: true },
+    "not-checking": { transient: false, urgency: "normal", least: "problems", action: false, grouped: false },
+    "moved": { transient: true, urgency: "low", least: "everything", action: false, grouped: true }
 };
 // The kinds whose episodes a fresh status judges, which a status that
 // cannot be judged keeps.
@@ -63,14 +57,12 @@ var ALL_KINDS = Object.keys(KINDS);
 
 // Whether the service owns the notices: while it reads a status document
 // (STATUS, WardenLogic.readStatus's answer or the service's absent and
-// pending reads) and notify-send is on PATH (MISSING, the plugin's
-// requirement commands the last scan did not find). Only then does it
-// touch the heartbeat, so a warden this plugin cannot read, or a desktop
-// without notify-send, gets the warden's own notices back within 120 s.
+// pending reads). Only then does it touch the heartbeat, so a warden this
+// plugin cannot read gets the warden's own notices back within 120 s.
 // The `notify` setting plays no part: `off` keeps the heartbeat, so the
 // warden stays silent as the user asked.
-function owns(status, missing) {
-    return status.kind === "read" && missing.indexOf("notify-send") === -1;
+function owns(status) {
+    return status.kind === "read";
 }
 
 function key(kind, scope) {
@@ -233,9 +225,9 @@ function kindOfEpisode(e) {
 
 // The notices for OPENED, step's new episodes, under MODE, one of MODES,
 // at NOW; VSYS is whether the last scan found vsys. Each notice is
-// { kind, keys, channel, urgency, action, title, body, tone, icon }:
+// { kind, keys, transient, urgency, action, title, body, tone, icon }:
 // `keys` the episodes it tells of, `action` whether it offers Open vsys,
-// `tone` and `icon` a `shell` notice's. A kind KINDS groups goes out as one notice
+// `tone` and `icon` a move notice's. A kind KINDS groups goes out as one notice
 // after the others, in KINDS order.
 function notices(opened, mode, vsys, now) {
     var out = [];
@@ -262,13 +254,13 @@ function notice(kind, episodes, vsys, now) {
     return {
         kind: kind,
         keys: episodes.map(function (e) { return e.key; }),
-        channel: look.channel,
+        transient: look.transient,
         urgency: look.urgency,
         action: look.action && vsys,
         title: words.title,
         body: words.body,
-        tone: look.channel === "shell" ? "info" : null,
-        icon: look.channel === "shell" ? ViewLogic.ITEM_ICONS[kind] : null
+        tone: look.transient ? "info" : "",
+        icon: look.transient ? ViewLogic.ITEM_ICONS[kind] : ""
     };
 }
 
@@ -342,31 +334,13 @@ function copy(kind, episodes, vsys, now) {
     throw new Error("agent-warden: notice kind=" + JSON.stringify(kind) + " unknown");
 }
 
-// The notify-send argv for NOTICE, a `notify` channel notice, with WAITING
-// runs already waiting for a press. `--` ends the options, so a title or
-// body that starts with a dash stays text.
-function argv(notice, waiting) {
-    if (notice.channel !== "notify") throw new Error("agent-warden: channel=" + JSON.stringify(notice.channel) + " is not notify-send's");
-    var out = ["notify-send", "-a", APP_NAME, "-u", notice.urgency];
-    if (offers(notice, waiting)) out.push("-A", ACTION + "=" + ACTION_LABEL);
-    return out.concat(["--", notice.title, notice.body]);
-}
-
-// Whether NOTICE's run offers Open vsys, and so waits for a press, with
-// WAITING runs already waiting.
-function offers(notice, waiting) {
-    return notice.action && waiting < MAX_WAITING;
-}
-
-// The options shell.notify.send takes for NOTICE, a `shell` notice. A move
-// back into limits needs no answer, so it skips History.
+// The options shell.notify.send takes for NOTICE. A move back into limits
+// needs no answer, so it requests the transient hint and offers no action.
+// A notice with no action observes delivery without waiting for dismissal.
 function shellOptions(notice) {
-    if (notice.channel !== "shell") throw new Error("agent-warden: channel=" + JSON.stringify(notice.channel) + " is not the shell's");
-    return { title: notice.title, message: notice.body, tone: notice.tone, icon: notice.icon, urgency: notice.urgency, transient: true };
-}
-
-// Whether STDOUT, all a notify-send run printed, says Open vsys was
-// pressed: notify-send prints the name of the action chosen.
-function pressed(stdout) {
-    return stdout.trim() === ACTION;
+    var options = { title: notice.title, message: notice.body, urgency: notice.urgency, transient: notice.transient, wait: false,
+        actions: notice.action ? [{ id: ACTION, label: ACTION_LABEL }] : [] };
+    if (notice.tone !== "") options.tone = notice.tone;
+    if (notice.icon !== "") options.icon = notice.icon;
+    return options;
 }

@@ -12,9 +12,9 @@ Setup actions use the declared setup TUI, the user timer start or the core's req
 
 ## Notifications
 
-[Notices.js](Notices.js) owns episode identity, notification modes and delivery choices. An episode sends once when it opens and can send again after evidence clears it. An unreadable or stale status does not clear an episode it cannot judge.
+[Notices.js](Notices.js) owns episode identity, notification modes and delivery choices. An episode sends once when it opens and can send again after evidence clears it. A refusal or failed delivery forgets the episode so the next status tick retries it, including a notice without actions. Dismissal keeps the episode. An unreadable or stale status does not clear an episode it cannot judge.
 
-The service owns the notifier heartbeat and the delivery processes. Episode memory lasts for that service instance; rebuilding it can notify about an episode still open. Notices use the same tool and worktree names as the panel, without process IDs or scope unit names.
+The service owns the notifier heartbeat. The core delivers notices through `shell.notify.send` with `wait: false`, so a notice without actions releases its core run after delivery while the server keeps the notification. `actions` offers Open vsys as the first action when available and still waits for the user's choice; the callback opens the plugin's `vsys` TUI. Episode memory lasts for that service instance; rebuilding it can notify about an episode still open. Notices use the same tool and worktree names as the panel, without process IDs or scope unit names.
 
 ## IPC
 

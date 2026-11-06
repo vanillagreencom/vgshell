@@ -6,7 +6,7 @@ import "Debug.js" as Debug
 // for the core dumps of the user's own programs, and it reads the core's
 // failed VGS setup tasks through capability `doctor`. Each new crash or
 // failed task, at most one a minute per program or task (Debug.admit),
-// gets one notification through its own notify-send run, whose Diagnose
+// gets one notification through the core notify capability, whose Diagnose
 // opens the plugin's `diagnose` TUI with the facts as arguments, and whose
 // Mute, on a crash, mutes the program. It publishes the agents the Settings
 // select offers, the muted programs and the Crash watch reading.
@@ -45,12 +45,10 @@ Item {
     readonly property bool wanted: agent !== "" && journal && !stopped && !uidFailed
     property var exitCompletion: null
     // The limiter's window (Debug.admit), the failure keys last read, null
-    // before the first read, the service's own recent pids, and the
-    // notify-send runs waiting for a press.
+    // before the first read, and the service's own recent pids.
     property var seen: ({})
     property var failuresSeen: null
     property var ownPids: []
-    property int waiting: 0
 
     onShellChanged: {
         if (shell === null) return;
@@ -146,37 +144,16 @@ Item {
         return result.admit;
     }
 
-    // One notification through its own notify-send run, which waits for a
-    // press; past Debug.MAX_WAITING waiting runs it is not sent.
+    // The core owns the notification and reports its chosen action.
     function send(notice, facts) {
-        if (waiting >= Debug.MAX_WAITING) {
-            console.warn("agent-debug: notice=dropped reason=waiting limit=" + Debug.MAX_WAITING);
-            return;
-        }
-        // A list or an object crosses createObject's initial properties as
-        // something else, so the run takes them after creation.
-        const run = sender.createObject(root);
-        run.facts = facts;
-        run.command = Debug.argv(notice, shell.manifest.id);
-        waiting += 1;
-        run.running = true;
-    }
-
-    // A notify-send run ended: COMPLETION is its exit, null when it did not
-    // start; STDOUT the action pressed, STDERR its complaint.
-    function sent(run, completion, stdout, stderr) {
-        waiting -= 1;
-        if (completion === null || completion.code !== 0 || completion.status !== 0) {
-            console.error("agent-debug: notice=failed " + JSON.stringify(completion) + "\n" + stderr.trim());
-        } else {
-            const action = Debug.pressed(stdout);
-            if (action === "diagnose") diagnose(run.facts);
-            else if (action === "mute" && run.facts.kind === "crash") {
-                const reply = mute(Debug.fact(run.facts.entry.program));
+        const reply = shell.notify.send(Debug.options(notice), action => {
+            if (action === "diagnose") diagnose(facts);
+            else if (action === "mute" && facts.kind === "crash") {
+                const reply = mute(Debug.fact(facts.entry.program));
                 if (reply !== "ok") console.error("agent-debug: mute " + reply);
             }
-        }
-        Qt.callLater(() => run.destroy());
+        });
+        if (reply !== "ok") console.warn("agent-debug: notice " + reply);
     }
 
     // Diagnose: the `diagnose` TUI in the agent chosen at the press, the
@@ -271,17 +248,4 @@ Item {
         onRunningChanged: if (!running) root.followerEnded()
     }
 
-    Component {
-        id: sender
-        Process {
-            id: run
-            property var facts: null
-            property var completion: null
-            stdout: StdioCollector { id: chosen }
-            stderr: StdioCollector { id: complaint }
-            onStarted: root.own(processId)
-            onExited: (code, status) => { completion = { code: code, status: status }; }
-            onRunningChanged: if (!running) root.sent(run, completion, chosen.text, complaint.text)
-        }
-    }
 }

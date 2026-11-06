@@ -2,9 +2,8 @@
 // The Agent Warden plugin's notices, shell/plugins/vgs.agent-warden/Notices.js,
 // under node: when the service owns the notices, which episodes each status
 // holds, which are new against the episodes remembered, the notices each
-// `notify` setting sends, their words, the notify-send argv and the
-// shell.notify.send options,
-// and the reading of a press. The statuses are vsys's fixtures, copied into
+// `notify` setting sends, their words and shell.notify.send options.
+// The statuses are vsys's fixtures, copied into
 // scripts/smoke/fixtures/agent-warden/, read through WardenLogic as the
 // service reads them, and every expected value is written out by hand. No
 // notice names a scope unit or a process id of its status.
@@ -44,15 +43,13 @@ function reading(n, input, now) {
     return { file: shaped, detail: logic.derive(shaped, now), now: now };
 }
 
-// The owner of the notices: [label, status, missing, owns].
+// The owner of the notices: [label, status, owns].
 const OWNS = [
-    ["a status that reads, with notify-send", { kind: "read", doc: {} }, [], true],
-    ["a status that reads, without vsys", { kind: "read", doc: {} }, ["vsys"], true],
-    ["a status that reads, without notify-send", { kind: "read", doc: {} }, ["vsys", "notify-send"], false],
-    ["no status yet", { kind: "pending" }, [], false],
-    ["no status", { kind: "absent" }, [], false],
-    ["an unreadable status", { kind: "unreadable", cause: "json" }, [], false],
-    ["a major not read", { kind: "schema", schema: "2.0" }, [], false]
+    ["a status that reads", { kind: "read", doc: {} }, true],
+    ["no status yet", { kind: "pending" }, false],
+    ["no status", { kind: "absent" }, false],
+    ["an unreadable status", { kind: "unreadable", cause: "json" }, false],
+    ["a major not read", { kind: "schema", schema: "2.0" }, false]
 ];
 
 // Sequences of statuses through one memory: [label, steps], each step
@@ -194,26 +191,24 @@ const ONE_EACH = [
     { key: "moved:s", kind: "moved", tools: [] },
     { key: "not-checking:agent-warden", kind: "not-checking", checkedAt: NOW }
 ];
-// [mode, notices as [kind, keys, channel, urgency, action]].
+// [mode, notices as [kind, keys, transient, urgency, action]].
 const MODES = [
     ["off", []],
     ["problems", [
-        ["tasks", ["tasks:s"], "notify", "normal", true], ["memory", ["memory:s"], "notify", "normal", true],
-        ["not-moving", ["not-moving:agents.slice"], "notify", "critical", true], ["move-failure", ["move-failure:s"], "notify", "normal", true],
-        ["not-checking", ["not-checking:agent-warden"], "notify", "normal", false], ["reaped", ["reaped:s", "reaped:t"], "notify", "low", false]
+        ["tasks", ["tasks:s"], false, "normal", true], ["memory", ["memory:s"], false, "normal", true],
+        ["not-moving", ["not-moving:agents.slice"], false, "critical", true], ["move-failure", ["move-failure:s"], false, "normal", true],
+        ["not-checking", ["not-checking:agent-warden"], false, "normal", false], ["reaped", ["reaped:s", "reaped:t"], false, "low", false]
     ]],
     ["everything", [
-        ["tasks", ["tasks:s"], "notify", "normal", true], ["memory", ["memory:s"], "notify", "normal", true],
-        ["not-moving", ["not-moving:agents.slice"], "notify", "critical", true], ["move-failure", ["move-failure:s"], "notify", "normal", true],
-        ["not-checking", ["not-checking:agent-warden"], "notify", "normal", false], ["reaped", ["reaped:s", "reaped:t"], "notify", "low", false],
-        ["moved", ["moved:s"], "shell", "low", false]
+        ["tasks", ["tasks:s"], false, "normal", true], ["memory", ["memory:s"], false, "normal", true],
+        ["not-moving", ["not-moving:agents.slice"], false, "critical", true], ["move-failure", ["move-failure:s"], false, "normal", true],
+        ["not-checking", ["not-checking:agent-warden"], false, "normal", false], ["reaped", ["reaped:s", "reaped:t"], false, "low", false],
+        ["moved", ["moved:s"], true, "low", false]
     ]]
 ];
 
-const PRESSES = [["open\n", true], ["open", true], ["", false], ["\n", false], ["default\n", false], ["opened\n", false]];
-
 function verify(n) {
-    for (const [label, status, missing, want] of OWNS) assert.equal(n.owns(status, missing), want, label);
+    for (const [label, status, want] of OWNS) assert.equal(n.owns(status), want, label);
 
     for (const [label, steps] of SEQUENCES) {
         let memory = [];
@@ -251,28 +246,25 @@ function verify(n) {
         same([out[0].title, out[0].body], [title, body], label);
     }
     for (const [mode, want] of MODES)
-        same(n.notices(ONE_EACH, mode, true, NOW).map(x => [x.kind, x.keys, x.channel, x.urgency, x.action]), want, "notify=" + mode);
+        same(n.notices(ONE_EACH, mode, true, NOW).map(x => [x.kind, x.keys, x.transient, x.urgency, x.action]), want, "notify=" + mode);
     same(n.notices(ONE_EACH, "problems", false, NOW).map(x => x.action), [false, false, false, false, false, false], "no Open vsys without vsys");
     assert.throws(() => n.notices(ONE_EACH, "loud", true, NOW), /notify="loud" unknown/);
     assert.throws(() => n.notices([{ key: "odd:s", kind: "odd" }], "everything", true, NOW), /episode kind="odd" unknown/);
 
-    // The argv, the action's ceiling and the shell.notify.send options.
-    const [tasks] = n.notices([COPY[0][1][0]], "problems", true, NOW);
-    same(n.argv(tasks, 0), ["notify-send", "-a", "Agent Warden", "-u", "normal", "-A", "open=Open vsys", "--", COPY[0][3], COPY[0][4]]);
-    same(n.argv(tasks, n.MAX_WAITING - 1).slice(0, 7), ["notify-send", "-a", "Agent Warden", "-u", "normal", "-A", "open=Open vsys"], "the last waiting place offers the button");
-    same(n.argv(tasks, n.MAX_WAITING), ["notify-send", "-a", "Agent Warden", "-u", "normal", "--", COPY[0][3], COPY[0][4]], "past the waiting ceiling, no button");
-    assert.equal(n.MAX_WAITING, 8);
-    assert.equal(n.offers(tasks, 0), true);
-    assert.equal(n.offers(tasks, n.MAX_WAITING), false);
-    const [cleanup] = n.notices([{ key: "reaped:s", kind: "reaped", processes: 2 }], "problems", true, NOW);
-    same(n.argv(cleanup, 0), ["notify-send", "-a", "Agent Warden", "-u", "low", "--", "Cleaned up after a finished agent", "A finished agent left 2 processes running. Agent Warden stopped them."]);
-    const dashed = Object.assign({}, tasks, { title: "-rf", body: "--hint=x" });
-    same(n.argv(dashed, 0).slice(-3), ["--", "-rf", "--hint=x"], "text after -- stays text");
-    const [moved] = n.notices([{ key: "moved:s", kind: "moved", tools: ["claude"] }], "everything", true, NOW);
-    same(n.shellOptions(moved), { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true });
-    assert.throws(() => n.argv(moved, 0), /channel="shell"/);
-    assert.throws(() => n.shellOptions(tasks), /channel="notify"/);
-    for (const [stdout, want] of PRESSES) assert.equal(n.pressed(stdout), want, "pressed " + JSON.stringify(stdout));
+    // Each notice uses the core, with buttons only when vsys is available.
+    for (const [label, episode, vsys, want] of [
+        ["tasks", COPY[0][1][0], true, { title: COPY[0][3], message: COPY[0][4], urgency: "normal", transient: false, wait: false, actions: [{ id: "open", label: "Open vsys" }] }],
+        ["tasks without vsys", COPY[1][1][0], false, { title: COPY[1][3], message: COPY[1][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["memory without vsys", COPY[4][1][0], false, { title: COPY[4][3], message: COPY[4][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["held off without vsys", COPY[5][1][0], false, { title: COPY[5][3], message: COPY[5][4], urgency: "critical", transient: false, wait: false, actions: [] }],
+        ["partial move without vsys", COPY[7][1][0], false, { title: COPY[7][3], message: COPY[7][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["stopped checking", COPY[15][1][0], true, { title: COPY[15][3], message: COPY[15][4], urgency: "normal", transient: false, wait: false, actions: [] }],
+        ["cleanup", { key: "reaped:s", kind: "reaped", processes: 2 }, true, { title: "Cleaned up after a finished agent", message: "A finished agent left 2 processes running. Agent Warden stopped them.", urgency: "low", transient: false, wait: false, actions: [] }],
+        ["moved", { key: "moved:s", kind: "moved", tools: ["claude"] }, true, { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true, wait: false, actions: [] }]
+    ]) {
+        const [notice] = n.notices([episode], "everything", vsys, NOW);
+        same(n.shellOptions(notice), want, label);
+    }
     assert.equal(n.HEARTBEAT_MS, 60000, "the heartbeat is touched well inside the warden's 120 s");
 
     // No notice names a scope unit or a process id of its status.
@@ -321,14 +313,7 @@ const CONTROLS = [
     ["moves go out under problems", "return rank >= MODES.indexOf(KINDS[kind].least);", "return rank > 0;"],
     ["a failed send is remembered", "return memory.filter(function (k) { return keys.indexOf(k) === -1; });", "return memory;"],
     ["Open vsys without vsys", "action: look.action && vsys,", "action: look.action,"],
-    ["the button ignores the waiting ceiling", "return notice.action && waiting < MAX_WAITING;", "return notice.action;"],
-    ["no end of options", "return out.concat([\"--\", notice.title, notice.body]);", "return out.concat([notice.title, notice.body]);"],
-    ["a move is a notify-send run", '"moved": { channel: "shell",', '"moved": { channel: "notify",'],
-    ["a move keeps History", "urgency: notice.urgency, transient: true };", "urgency: notice.urgency };"],
-    ["a notify-send notice goes through the shell", 'if (notice.channel !== "shell") throw', 'if (false) throw'],
-    ["any output is a press", "return stdout.trim() === ACTION;", "return stdout.trim() !== \"\";"],
-    ["owns without notify-send", " && missing.indexOf(\"notify-send\") === -1", ""],
-    ["owns a status it cannot read", "return status.kind === \"read\" &&", "return status.kind !== \"pending\" &&"],
+    ["owns a status it cannot read", "return status.kind === \"read\";", "return status.kind !== \"pending\";"],
     ["the vsys sentence without vsys", "\" Let the work finish if you need it.\" + (vsys ? \" Open vsys to stop work you do not need.\" : \"\")", "\" Let the work finish if you need it. Open vsys to stop work you do not need.\""]
 ];
 

@@ -29,14 +29,16 @@ var CAPABILITIES = ["compositor", "configure", "cover", "idle", "ipc", "lock", "
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
 // (shell/plugins/vgs.notifications/developer.md § Hints). A title is one
 // line and a message a few. At most NOTIFY_RUNS_MAX notify-send runs are in
-// flight at once, the ceiling the capture and agent-warden runs keep.
-var NOTIFY_KEYS = ["title", "message", "tone", "icon", "urgency", "transient"];
+// flight at once, so waiting actions cannot grow the process set unbounded.
+var NOTIFY_KEYS = ["title", "message", "tone", "icon", "urgency", "transient", "actions", "wait"];
 var NOTIFY_TONES = ["success", "warning", "danger", "info"];
 var NOTIFY_URGENCIES = ["low", "normal", "critical"];
 var NOTIFY_ICON = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var NOTIFY_ICON_MAX = 64;
 var NOTIFY_TITLE_MAX = 120;
 var NOTIFY_MESSAGE_MAX = 600;
+var NOTIFY_ACTION_ID_MAX = 64;
+var NOTIFY_ACTION_LABEL_MAX = 120;
 var NOTIFY_RUNS_MAX = 8;
 
 // Capabilities whose core object serves one plugin at a time: the session
@@ -6167,7 +6169,9 @@ function lendRefusal(held, manifest) {
 // Judge the argument of shell.notify.send: an object with a non-blank
 // string `title`, an optional string `message`, `tone` from NOTIFY_TONES,
 // `icon` a Lucide name, `urgency` from NOTIFY_URGENCIES and a boolean
-// `transient`, a notification left out of History. Answers { ok: true,
+// `transient`, the server's transient hint, and optional `actions` of
+// unique ids and nonblank labels. Boolean wait defaults true for a callback
+// to wait for dismissal without actions. Answers { ok: true,
 // value } with every key present, or { ok: false, error } whose first word
 // is the offending key.
 function notifyOptions(raw) {
@@ -6189,12 +6193,26 @@ function notifyOptions(raw) {
         return { ok: false, error: "urgency want=" + NOTIFY_URGENCIES.join("|") };
     if (raw.transient !== undefined && typeof raw.transient !== "boolean")
         return { ok: false, error: "transient want=boolean" };
-    return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, urgency: raw.urgency === undefined ? "normal" : raw.urgency, transient: raw.transient === true } };
+    if (raw.wait !== undefined && typeof raw.wait !== "boolean")
+        return { ok: false, error: "wait want=boolean" };
+    var actions = [];
+    if (raw.actions !== undefined) {
+        if (!Array.isArray(raw.actions)) return { ok: false, error: "actions want=list of { id, label }" };
+        for (var a = 0; a < raw.actions.length; a++) {
+            var action = raw.actions[a];
+            if (!isPlainObject(action) || Object.keys(action).some(function (key) { return key !== "id" && key !== "label"; })
+                || typeof action.id !== "string" || action.id.trim() === "" || action.id.length > NOTIFY_ACTION_ID_MAX
+                || typeof action.label !== "string" || action.label.trim() === "" || action.label.length > NOTIFY_ACTION_LABEL_MAX
+                || actions.some(function (other) { return other.id === action.id; }))
+                return { ok: false, error: "actions want=unique nonblank id (at most " + NOTIFY_ACTION_ID_MAX + ") and label (at most " + NOTIFY_ACTION_LABEL_MAX + ")" };
+            actions.push({ id: action.id, label: action.label });
+        }
+    }
+    return { ok: true, value: { title: raw.title, message: raw.message === undefined ? "" : raw.message, tone: raw.tone === undefined ? "" : raw.tone, icon: raw.icon === undefined ? "" : raw.icon, urgency: raw.urgency === undefined ? "normal" : raw.urgency, transient: raw.transient === true, actions: actions, wait: raw.wait !== false } };
 }
 
 // The notify-send argv for JUDGED, notifyOptions' value, sent as APP_NAME
-// by plugin PLUGIN_ID. A plugin's message opens no window and offers no
-// action, so a click only dismisses it. The x-vgs-plugin hint names the
+// by plugin PLUGIN_ID. Without actions a click only dismisses it. The x-vgs-plugin hint names the
 // sender, so a critical plugin message shows under Silence. The body holds
 // a page reference's words in its place (PageReference.plain), so every
 // server shows the words; a reference that names a page also goes whole
@@ -6202,15 +6220,33 @@ function notifyOptions(raw) {
 // words, the page and the tab. The notification server reads a body as
 // markup, so the body's `&`, `<` and `>` are escaped and plain text shows
 // as typed.
-function notifyArgv(pluginId, appName, judged) {
-    var argv = ["notify-send", "--app-name=" + appName, "--urgency=" + judged.urgency, "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:" + pluginId];
+function notifyArgv(pluginId, appName, judged, wait) {
+    var argv = ["notify-send", "--app-name=" + appName, "--urgency=" + judged.urgency, "--hint=string:x-vgs-plugin:" + pluginId];
+    if (judged.actions.length === 0) argv.splice(3, 0, "--hint=string:x-vgs-click:none");
+    for (var i = 0; i < judged.actions.length; i++) argv.push("--action=" + notifyActionKey(i) + "=" + judged.actions[i].label);
+    if (wait) argv.push("--wait");
     if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);
     if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);
     var reference = PageReference.parse(judged.message);
-    if (reference.page !== "") argv.push("--hint=string:x-vgs-page:" + reference.reference);
+    if (reference.page !== "" && judged.actions.length === 0) argv.push("--hint=string:x-vgs-page:" + reference.reference);
     if (judged.transient) argv.push("--transient");
     var message = reference.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return argv.concat(["--", judged.title, message]);
+}
+
+// The first action is the primary action on every server. Public ids are
+// separate from transport keys, including a later public id `default`.
+// https://specifications.freedesktop.org/notification/latest/basic-design.html
+function notifyActionKey(index) {
+    return index === 0 ? "default" : String(index);
+}
+
+// notify-send prints the chosen transport id, or nothing on dismissal.
+function notifyAction(actions, stdout) {
+    var chosen = String(stdout).trim();
+    for (var i = 0; i < actions.length; i++)
+        if (chosen === notifyActionKey(i)) return actions[i].id;
+    return "";
 }
 
 // The surface a summon of KIND builds: `window`, a Hyprland toplevel, for

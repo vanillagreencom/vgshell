@@ -3,7 +3,7 @@
 // node: the agents the select offers, the follower's argv and the reading
 // of its journal lines, the per-program and per-task limit, the restart
 // bound, the muted list and its bounds, each notification's words and
-// notify-send argv, the press read back, the facts Diagnose hands its
+// core notify options, the facts Diagnose hands its
 // terminal, and which failed tasks are new. Every value the service
 // publishes is judged by the core's status writer against the plugin's
 // manifest. Every expected value is written out by hand.
@@ -117,19 +117,16 @@ function verify(d) {
     same(d.unmute(["a"], "b"), { answer: "refused: program=unmuted", list: ["a"] });
     same(d.mutedRows(["firefox"]), [{ id: "firefox", label: "firefox", actions: ["unmute"] }]);
 
-    // The words and the argv.
+    // The words and the core notify options.
     const crash = d.crashNotice("firefox", "Claude Code");
     same(crash, { title: "firefox crashed", body: "Diagnose with Claude Code", urgency: "critical", tone: "danger", mute: true });
-    same(d.argv(crash, "vgs.agent-debug"), ["notify-send", "-a", "Agent Debug", "-u", "critical", "-h", "string:x-vgs-plugin:vgs.agent-debug", "-h", "string:x-vgs-icon:bug", "-h", "string:x-vgs-tone:danger",
-        "-A", "diagnose=Diagnose", "-A", "mute=Mute", "--", "firefox crashed", "Diagnose with Claude Code"]);
+    same(d.options(crash), { title: "firefox crashed", message: "Diagnose with Claude Code", urgency: "critical", tone: "danger", icon: "bug", actions: [{ id: "diagnose", label: "Diagnose" }, { id: "mute", label: "Mute" }] });
     for (const [label, packages, action, body] of TASK_BODIES)
         same(d.taskNotice({ action: action, packages: packages }, "Claude Code").body, body, label);
     const task = d.taskNotice({ action: "install", packages: ["gum"] }, "Codex");
     same(task, { title: "Could not install tools", body: "gum. Diagnose with Codex", urgency: "normal", tone: "warning", mute: false });
     same(d.taskNotice({ action: "update", packages: ["gum"] }, "Codex").title, "Could not update tools");
-    same(d.argv(task, "vgs.agent-debug"), ["notify-send", "-a", "Agent Debug", "-u", "normal", "-h", "string:x-vgs-plugin:vgs.agent-debug", "-h", "string:x-vgs-icon:bug", "-h", "string:x-vgs-tone:warning",
-        "-A", "diagnose=Diagnose", "--", "Could not install tools", "gum. Diagnose with Codex"]);
-    same([d.pressed("diagnose\n"), d.pressed("mute"), d.pressed(""), d.pressed("open"), d.pressed("diagnose mute")], ["diagnose", "mute", "", "", ""]);
+    same(d.options(task), { title: "Could not install tools", message: "gum. Diagnose with Codex", urgency: "normal", tone: "warning", icon: "bug", actions: [{ id: "diagnose", label: "Diagnose" }] });
 
     // The facts, each one terminal argument, the time in local time with
     // its offset.
@@ -191,8 +188,6 @@ const CONTROLS = [
     ["a malformed name is muted", "if (!nameFits(name)) return", "if (false) return"],
     ["a setup notice offers Mute", "urgency: \"normal\",\n        tone: \"warning\",\n        mute: false", "urgency: \"normal\",\n        tone: \"warning\",\n        mute: true"],
     ["no body bound", "sentence.length <= BODY_PACKAGES_MAX", "true"],
-    ["no end of options", 'return out.concat(["--", notice.title, notice.body]);', "return out.concat([notice.title, notice.body]);"],
-    ["a critical notice hides under Silence", '"-h", "string:x-vgs-plugin:" + plugin, ', ""],
     ["the prompt's time is UTC", "new Date(ms + offset * 60000)", "new Date(ms)"],
     ["the offset's sign is lost", '(offset < 0 ? "-" : "+")', '"+"'],
     ["Diagnose reads the first record path", "failureKey(plugin, failures[plugin]) === key) return failures[plugin];", "failureKey(plugin, failures[plugin]) === key) return seen;"],

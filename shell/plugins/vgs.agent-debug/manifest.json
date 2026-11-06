@@ -9,9 +9,8 @@
   "icon": "bug",
   "kinds": ["service"],
   "entryPoints": { "service": "Service.qml" },
-  "capabilities": ["configure", "doctor", "ipc", "requirements", "status", "tui"],
+  "capabilities": ["configure", "doctor", "ipc", "notify", "requirements", "status", "tui"],
   "requirements": [
-    {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Shows the notification with Diagnose"},
     {"command": "id", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds the crashes of your own programs"},
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": false, "purpose": "Asks whether to unmute a program"},
     {"command": "claude", "packages": {"aur": "claude-code", "mise": "claude", "nix": "claude-code"}, "optional": true, "purpose": "Diagnoses a failure with Claude Code"},

@@ -27,27 +27,23 @@
 # reads after an unreadable one. It sends one notice per episode across
 # ticks, and again after the episode clears, as Agent Warden with its
 # urgency and Open vsys, sends nothing under notify: off, sends a move
-# through the core's shell.notify.send under notify: everything, which
-# runs the same stand-in, and a press on Open vsys hands the
-# stand-in terminal the vsys TUI's argv. A notice whose run fails, or
-# cannot start, goes out again on the next status; runs waiting for a
-# press stop at eight, the rest going without the button; and a run that
-# ends gives its place back.
-# Eight controls are copies of the plugin installed over the bundled one:
+# through the core's shell.notify.send, and a press on Open vsys hands the
+# stand-in terminal the vsys TUI's argv.
+# Controls are copies of the plugin installed over the bundled one:
 # a logic copy that ignores staleness reads the stale document as calm, a
 # service copy whose timer derives nothing keeps the ageing status calm
 # past its stale moment, a logic copy that hands the view each lane's
 # scope unit draws it in the panel, a panel copy that keeps its last
 # summary line when a new run starts still draws it after a failed run, a
 # notices copy without episode memory sends a lane's notice again on its
-# next tick, a service copy that keeps a failed run's episodes sends them
-# once only, one that never counts a waiting run offers the button on
-# every run, and one that never gives a place back sends later notices
-# without the button.
+# next tick.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
-# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir
+# inputs: shell/plugins/vgs.agent-warden/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/Field.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/Dialog.qml shell/Ui/overlay/Popover.qml shell/Commons/Reply.js scripts/smoke/fixtures/agent-warden/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/PluginStatus.qml shell/Core/Notices.qml shell/Core/Notifier.qml shell/Core/TuiRunner.qml scripts/smoke/rows/manager.sh bin/vgshell-tui shell/Commons/Duration.js shell/Commons/qmldir shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml
 set -euo pipefail
+warden_probe_was="$(plugin_enabled acme.probe)"
+expect "the fixture holds the notification server for Warden core sends" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the Warden notification fixture service is built" True record_exists acme.probe
 warden_copy="$home/.config/vgshell/plugins/vgs.agent-warden"
 rm -rf -- "$warden_dir"
 # warden_raw TEXT: TEXT as status.json, replaced into place by rename.
@@ -117,31 +113,16 @@ else:
 print(round(clamp(x, mx, mx + mw - 1)), round(clamp(y, my, my + mh - 1)))
 PY
 }
-# A notify-send stand-in in the shell's own PATH directory, written before
-# the service first runs, so no notice of the row reaches a notification
-# server: it appends each call's argv as one JSON line to $warden_sent;
-# fails with exit 1 while $warden_fail exists; for a call offering an
-# action, waits while $warden_hold exists, as notify-send waits for the
-# notice to close; and prints `open`, as notify-send prints the action
-# pressed, while $warden_press exists. The wait ends after 2400 polls,
-# 120 s, whatever the file does: a ceiling well past the held rows'
-# polls, not a measurement, so an interrupted run leaves no stand-in
-# behind.
+# The core's notify-send stand-in records each notification and returns
+# primary transport action when the row presses Open vsys.
 warden_sent="$sandbox/warden-notify-send"
 warden_press="$sandbox/warden-press"
-warden_fail="$sandbox/warden-fail"
-warden_hold="$sandbox/warden-hold"
+warden_delivery_fails="$sandbox/warden-delivery-fails"
 cat >"$shim/notify-send" <<EOF
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$warden_sent"
-if [[ -e "$warden_fail" ]]; then echo "notify-send: stand-in failure" >&2; exit 1; fi
-for a; do
-  if [[ \$a == -A ]]; then
-    n=0
-    while [[ -e "$warden_hold" && \$n -lt 2400 ]]; do sleep 0.05; n=\$((n + 1)); done
-  fi
-done
-if [[ -e "$warden_press" ]]; then echo open; fi
+if [[ -e "$warden_delivery_fails" ]]; then exit 17; fi
+if [[ -e "$warden_press" ]]; then echo default; fi
 EOF
 chmod 755 "$shim/notify-send"
 # The calls the stand-in recorded.
@@ -161,29 +142,18 @@ def records(path):
     lines = text.split("\n")[:-1]
     return [json.loads(line) for line in lines]
 
-path, mode = sys.argv[1], sys.argv[2]
-if mode == "notices":
-    calls = records(path)[int(sys.argv[3]):]
-    print(json.dumps(sorted([a[a.index("-u") + 1], a[a.index("--") + 1], "-A" in a] for a in calls)))
-elif mode == "call":
-    calls = records(path)[int(sys.argv[3]):]
-    found = [a for a in calls if a[a.index("--") + 1] == sys.argv[4]]
-    print(json.dumps(found[0]) if found else "absent")
-else:
-    raise SystemExit("mode=" + mode)
+calls = records(sys.argv[1])[int(sys.argv[2]):]
+print(json.dumps(sorted([next(x.split("=", 1)[1] for x in a if x.startswith("--urgency=")), a[a.index("--") + 1], any(x.startswith("--action=") for x in a)] for a in calls)))
 PY
 }
-warden_notices_since() { warden_record_read notices "$1"; }
-# warden_call N TITLE: the argv of the first call after the first N whose
-# title is TITLE, as one JSON line, or `absent`.
-warden_call() { warden_record_read call "$1" "$2"; }
+warden_notices_since() { warden_record_read "$1"; }
 warden_whole_line_control() {
   local planted="$sandbox/warden-cut-records"
-  printf '%s\n' '["-a", "Agent Warden", "-u", "low", "--", "Whole", "body"]' >"$planted"
-  printf '%s' '["-a", "Agent Warden", "-u", "low", "--", "Cut' >>"$planted"
-  (warden_sent="$planted"; printf '%s|%s\n' "$(warden_notices_since 0)" "$(warden_call 0 Whole)")
+  printf '%s\n' '["--app-name=Agent Warden", "--urgency=low", "--", "Whole", "body"]' >"$planted"
+  printf '%s' '["--app-name=Agent Warden", "--urgency=low", "--", "Cut' >>"$planted"
+  (warden_sent="$planted"; warden_notices_since 0)
 }
-expect "control: whole-line notice readers ignore a cut final record" '[["low", "Whole", false]]|["-a", "Agent Warden", "-u", "low", "--", "Whole", "body"]' warden_whole_line_control
+expect "control: the whole-line notice reader ignores a cut final record" '[["low", "Whole", false]]' warden_whole_line_control
 # The heartbeat as the warden reads it: `fresh` when the file holds a time
 # in milliseconds and was written in the last 10 s, `stale` otherwise, or
 # `absent`.
@@ -199,10 +169,10 @@ PY
 }
 # The scan's answer for one of the plugin's requirement commands.
 warden_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.agent-warden"][0]; print([r["state"] for r in p["requirements"] if r["name"]==sys.argv[1]][0])' "$1"; }
-expected_errors+=('agent-warden: status=unreadable cause=json ' 'agent-warden: status=schema schema=2\.0 ' 'agent-warden: summary=failed ' 'plugins: hidden by a higher-precedence plugin with the same id: vgs\.agent-warden' 'agent-warden: notice=(tasks|memory) failed=')
+expected_errors+=('agent-warden: status=unreadable cause=json ' 'agent-warden: status=schema schema=2\.0 ' 'agent-warden: summary=failed ' 'plugins: hidden by a higher-precedence plugin with the same id: vgs\.agent-warden' 'agent-warden: notice=(tasks|memory) refused: notify=busy')
+expected_errors+=('notify: unsent plugin=vgs\.agent-warden exit=\{"code":17,"status":0\}')
 
 rescan "a rescan after the notify-send stand-in arrives starts"
-expect_poll "the scan finds notify-send" present warden_requirement notify-send
 expect "enabling the agent warden is allowed" ok ipc shell setPluginEnabled vgs.agent-warden true
 expect_poll "the agent warden's service is built" True record_exists vgs.agent-warden
 expect_poll "no warden directory reads as not set up" '["not-set-up", null, 0, []]' warden_state
@@ -620,9 +590,6 @@ os.replace(path + ".tmp", path)
 PY
   expect_poll "the service reads notify: ${1:-problems}" "\"${1:-problems}\"" ipc smoke readInstance service vgs.agent-warden mode
 }
-# warden_core_call N TITLE: the argv of the first call after the first N
-# with TITLE, less its message, as one JSON line, or `absent`.
-warden_core_call() { warden_call "$1" "$2" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[:-1]))'; }
 warden_near_notices='[["normal", "An agent is near its memory limit", true], ["normal", "An agent is near its process limit", true]]'
 warden_held_notice='["critical", "Agents are close to their memory limit", true]'
 
@@ -632,9 +599,6 @@ warden_mark="$(warden_sent_count)"
 warden_ticks
 expect_poll "one notice per episode across ticks: the lane's two, then the held-off moves' one" \
   "$(python3 -c 'import json,sys; print(json.dumps(sorted([json.loads(sys.argv[2])] + json.loads(sys.argv[1]))))' "$warden_near_notices" "$warden_held_notice")" warden_notices_since "$warden_mark"
-expect "the lane's first notice is sent as Agent Warden with Open vsys" \
-  '["-a", "Agent Warden", "-u", "normal", "-A", "open=Open vsys", "--", "An agent is near its process limit", "claude in vsy-52 is at 6,200 of its 8,192 limit. Let the work finish if you need it. Open vsys to stop work you do not need."]' \
-  warden_call "$warden_mark" "An agent is near its process limit"
 warden_mark="$(warden_sent_count)"
 warden_put near-limit 0 >/dev/null
 expect_poll "the lane near its limits again, after they cleared, sends its two again" "$warden_near_notices" warden_notices_since "$warden_mark"
@@ -643,6 +607,38 @@ expect_poll "a partial move sends one notice" '[["normal", "Some agent processes
 warden_put reaped 0 >/dev/null
 expect_poll "a cleanup sends one quiet notice without the button" '[["low", "Cleaned up after a finished agent", false], ["normal", "Some agent processes still have no limits", true]]' warden_notices_since "$((warden_mark + 2))"
 
+# A failed notify-send completion forgets both actionable and action-free
+# episodes. The next real status tick retries; successful dismissal keeps
+# the episodes, so a further tick sends nothing.
+warden_retry_state() {
+  local runs episodes
+  runs="$(ipc smoke themeNoticeRuns)" || return
+  episodes="$(ipc smoke readInstance service vgs.agent-warden episodes)" || return
+  python3 -c 'import json,sys; print(json.dumps([int(sys.argv[1]), len(json.loads(sys.argv[2]))]))' "$runs" "$episodes"
+}
+while read -r warden_retry_fixture warden_retry_age warden_retry_count; do
+  warden_put calm 0 >/dev/null
+  expect_poll "${warden_retry_fixture}: calm clears the retry episodes" '[0, 0]' warden_retry_state
+  warden_mark="$(warden_sent_count)"
+  touch -- "$warden_delivery_fails"
+  at="$(warden_put "$warden_retry_fixture" "$warden_retry_age")"
+  expect_poll "${warden_retry_fixture}: the failed-delivery status is read" "$((at * 1000))" warden_value lastCheck
+  expect_poll "${warden_retry_fixture}: the core attempts each notice" "$((warden_mark + warden_retry_count))" warden_sent_count
+  expect_poll "${warden_retry_fixture}: failed completion releases its runs and episodes" '[0, 0]' warden_retry_state
+  rm -f -- "$warden_delivery_fails"
+  at="$(warden_put "$warden_retry_fixture" "$((warden_retry_age + 1))")"
+  expect_poll "${warden_retry_fixture}: the next status tick is read" "$((at * 1000))" warden_value lastCheck
+  expect_poll "${warden_retry_fixture}: the next status retries each failed notice" "$((warden_mark + 2 * warden_retry_count))" warden_sent_count
+  expect_poll "${warden_retry_fixture}: successful dismissal retains the episodes" "[0, $warden_retry_count]" warden_retry_state
+  at="$(warden_put "$warden_retry_fixture" "$((warden_retry_age + 2))")"
+  expect_poll "${warden_retry_fixture}: a further status tick is read" "$((at * 1000))" warden_value lastCheck
+  expect "${warden_retry_fixture}: delivered episodes send no duplicate" "$((warden_mark + 2 * warden_retry_count))" warden_sent_count
+done <<'RETRIES'
+near-limit 0 2
+reaped 0 1
+calm 600 1
+RETRIES
+
 # A press on Open vsys opens the vsys TUI.
 forget_record
 touch -- "$warden_press"
@@ -650,96 +646,6 @@ warden_put holding-off 0 >/dev/null
 expect_poll "a press on the held-off notice's Open vsys hands the terminal the vsys TUI" "$(words vgs.agent-warden/vsys tui/vsys.sh)" recorded_tail
 rm -f -- "$warden_press"
 expect_run_end "the vsys run from the notice ends" vgs.agent-warden/vsys
-
-# A notice whose run fails, or does not start, goes out again on the next
-# status; runs waiting for a press stop at the ceiling Notices.offers
-# allows, and a run that ends gives its place back.
-# warden_put_lanes N AGE: status-near-limit.json with N agent lanes near
-# both ceilings, dated AGE seconds back; prints the time.
-warden_put_lanes() {
-  python3 - "$warden_fixtures/status-near-limit.json" "$warden_dir" "$1" "$2" <<'PY'
-import copy, json, os, sys, time
-source, target, n, age = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
-doc = json.load(open(source))
-moment = int(time.time()) - age
-lane = doc["lanes"][0]
-doc["lanes"] = []
-for i in range(n):
-    extra = copy.deepcopy(lane)
-    extra["scope"] = "agent-warden-%d-1.scope" % (900 + i)
-    doc["lanes"].append(extra)
-doc["time"] = moment
-doc["events"] = []
-tmp = os.path.join(target, "status.tmp.%d" % os.getpid())
-with open(tmp, "w") as out:
-    json.dump(doc, out)
-os.replace(tmp, os.path.join(target, "status.json"))
-print(moment)
-PY
-}
-# warden_offers_since N: the calls after the first N that offer Open vsys
-# and those that do not, as [with, without].
-warden_offers_since() { warden_notices_since "$1" | py_reply 'import json,sys; c=json.load(sys.stdin); print(json.dumps([sum(1 for n in c if n[2]), sum(1 for n in c if not n[2])]))'; }
-warden_waiting() { ipc smoke readInstance service vgs.agent-warden waiting; }
-warden_failed_lines() { log_lines 'agent-warden: notice=(tasks|memory) failed='; }
-# warden_failed_send: two failed runs for a lane near both ceilings, then
-# the next tick of the lane read with the stand-in answering again.
-warden_failed_send() {
-  local at failed
-  failed="$(warden_failed_lines)" || { fail "warden_failed_send: the instance log is unreadable"; return; }
-  touch -- "$warden_fail"
-  at="$(warden_put near-limit 10)" || { fail "warden_failed_send: the status was not written"; return; }
-  expect_poll "the failing lane is read" "$((at * 1000))" warden_value lastCheck
-  expect_log "both failed runs are logged" "$((failed + 2))" 'agent-warden: notice=(tasks|memory) failed='
-  rm -f -- "$warden_fail"
-  at="$(warden_put near-limit 5)" || { fail "warden_failed_send: the next tick was not written"; return; }
-  expect_poll "the next tick of the failing lane is read" "$((at * 1000))" warden_value lastCheck
-  warden_put holding-off 0 >/dev/null
-  expect_poll "held-off moves after the failed runs are read" '["problem", null, 2, [["headroom", "problem"], ["slowdown", "look"]]]' warden_state
-}
-warden_twice='[["critical", "Agents are close to their memory limit", true], ["normal", "An agent is near its memory limit", true], ["normal", "An agent is near its memory limit", true], ["normal", "An agent is near its process limit", true], ["normal", "An agent is near its process limit", true]]'
-warden_once='[["critical", "Agents are close to their memory limit", true], ["normal", "An agent is near its memory limit", true], ["normal", "An agent is near its process limit", true]]'
-
-warden_put calm 0 >/dev/null
-expect_poll "a calm status clears the episodes before the failures" '["calm", null, 0, []]' warden_state
-warden_mark="$(warden_sent_count)"
-warden_failed_send
-expect_poll "a failed run's notice goes out again on the next status" "$warden_twice" warden_notices_since "$warden_mark"
-
-# A run that cannot start: the stand-in, swapped whole for a file whose
-# interpreter does not exist, fails the exec, as rows use for hyprctl. A
-# file that is not executable would not do: the PATH lookup skips it.
-printf '#!/nonexistent/interpreter\n' >"$shim/notify-send.unstartable"
-chmod 755 -- "$shim/notify-send.unstartable"
-warden_put calm 0 >/dev/null
-expect_poll "a calm status clears the episodes before the failed start" '["calm", null, 0, []]' warden_state
-warden_failed="$(log_lines 'agent-warden: notice=(tasks|memory) failed=null')" || fail "the instance log is unreadable before the failed start"
-warden_mark="$(warden_sent_count)"
-mv -T -- "$shim/notify-send" "$shim/notify-send.real"
-mv -T -- "$shim/notify-send.unstartable" "$shim/notify-send"
-warden_at="$(warden_put near-limit 10)"
-expect_poll "the lane is read while notify-send cannot start" "$((warden_at * 1000))" warden_value lastCheck
-expect_log "both runs that did not start are logged" "$((warden_failed + 2))" 'agent-warden: notice=(tasks|memory) failed=null'
-mv -T -- "$shim/notify-send.real" "$shim/notify-send"
-warden_put near-limit 5 >/dev/null
-expect_poll "a notice whose run did not start goes out on the next status" "$warden_near_notices" warden_notices_since "$warden_mark"
-
-# Five lanes near both ceilings open ten notices while every run offering
-# Open vsys waits: the first eight offer it, the last two go without.
-warden_put calm 0 >/dev/null
-expect_poll "a calm status clears the episodes before the waiting runs" '["calm", null, 0, []]' warden_state
-warden_mark="$(warden_sent_count)"
-touch -- "$warden_hold"
-warden_put_lanes 5 0 >/dev/null
-expect_poll "runs waiting for a press stop at eight; the rest go without the button" '[8, 2]' warden_offers_since "$warden_mark"
-expect_poll "the service counts eight waiting runs" 8 warden_waiting
-rm -f -- "$warden_hold"
-expect_poll "the runs that end give their places back" 0 warden_waiting
-warden_put calm 0 >/dev/null
-expect_poll "a calm status clears the lanes" '["calm", null, 0, []]' warden_state
-warden_mark="$(warden_sent_count)"
-warden_put near-limit 0 >/dev/null
-expect_poll "after the waiting runs end, new notices offer the button again" "$warden_near_notices" warden_notices_since "$warden_mark"
 
 # notify: off sends nothing, and an episode that opened meanwhile stays
 # unsent when notices come back on; the next one that opens goes out.
@@ -758,7 +664,7 @@ expect_poll "notify: off sent nothing, and back on only the lane that opened aga
 warden_notify everything
 warden_mark="$(warden_sent_count)"
 warden_put partial 0 moved >/dev/null
-expect_poll "under notify: everything a move goes out through the core" '["--app-name=Agent Warden", "--urgency=low", "--hint=string:x-vgs-click:none", "--hint=string:x-vgs-plugin:vgs.agent-warden", "--hint=string:x-vgs-tone:info", "--hint=string:x-vgs-icon:shield-check", "--transient", "--", "Moved an agent back into its limits"]' warden_core_call "$warden_mark" "Moved an agent back into its limits"
+expect_poll "under notify: everything a move goes out without an action" '[["low", "Moved an agent back into its limits", false]]' warden_notices_since "$warden_mark"
 warden_notify ""
 
 # A warden that stopped: Start it runs the timer through the stand-in,
@@ -929,41 +835,52 @@ warden_ticks
 expect_poll "the memory control sends the lane's first notice again on the next tick" True warden_repeated "$warden_mark"
 warden_uncontrol
 
-# Control: a service copy that keeps a failed run's episodes sends their
-# notices once only, so the rows above that a failed or unstarted run's
-# notice goes out again turn red on it.
-warden_control Service.qml "            episodes = Notices.forget(episodes, run.keys);
-" ""
-warden_mark="$(warden_sent_count)"
-warden_failed_send
-expect_poll "the forget control sends the failed notices once only" "$warden_once" warden_notices_since "$warden_mark"
-warden_uncontrol
-
-# Control: a service copy that never counts a waiting run offers the
-# button on every run, so the ceiling row above turns red on it.
-warden_control Service.qml "        if (run.offers) waiting += 1;
-" ""
-warden_mark="$(warden_sent_count)"
-touch -- "$warden_hold"
-warden_put_lanes 5 0 >/dev/null
-expect_poll "the counting control offers the button on all ten runs" '[10, 0]' warden_offers_since "$warden_mark"
-rm -f -- "$warden_hold"
-warden_uncontrol
-
-# Control: a service copy that never gives a waiting run's place back
-# sends later notices without the button, so the row above that a run
-# that ends gives its place back turns red on it.
-warden_control Service.qml "        if (run.offers) waiting -= 1;
-" ""
-warden_mark="$(warden_sent_count)"
-touch -- "$warden_hold"
-warden_put_lanes 5 0 >/dev/null
-expect_poll "the release control's runs stop at eight" '[8, 2]' warden_offers_since "$warden_mark"
-rm -f -- "$warden_hold"
-warden_put calm 0 >/dev/null
-expect_poll "the release control reads calm" '["calm", null, 0, []]' warden_state
-warden_mark="$(warden_sent_count)"
+# Control: the same completion arriving at a service that ignores failed
+# delivery retains the episode, which the retry-state reader distinguishes.
+warden_control Service.qml 'if (delivery === "failed") {' 'if (false) {'
+touch -- "$warden_delivery_fails"
 warden_put near-limit 0 >/dev/null
-expect_poll "the release control sends the next notices without the button" '[["normal", "An agent is near its memory limit", false], ["normal", "An agent is near its process limit", false]]' warden_notices_since "$warden_mark"
+expect_poll "the failed-delivery control retains both failed episodes" '[0, 2]' warden_retry_state
+rm -f -- "$warden_delivery_fails"
 warden_uncontrol
+
+# A real action-free notification completes delivery while its nontransient
+# card stays on screen or in History. The stand-in retry matrix above does
+# not exercise notify-send's native --wait lifetime.
+rm -f -- "$shim/notify-send"
+expect "enabling Warden for real delivery is allowed" ok ipc shell setPluginEnabled vgs.agent-warden true
+expect_poll "the real-delivery Warden owns its directory and reads no status" '["not-set-up", null, 0, []]' warden_state
+notes_on "Warden delivery lifetime"
+warden_delivery_state() {
+  local runs episodes cards
+  runs="$(ipc smoke themeNoticeRuns)" || return
+  episodes="$(ipc smoke readInstance service vgs.agent-warden episodes)" || return
+  cards="$(ipc smoke modelRows vgs.notifications rows app,summary,leaving)" || return
+  python3 - "$runs" "$episodes" "$cards" "$home/.local/state/vgshell/notifications/state.json" "$1" <<'PY'
+import json, pathlib, sys
+runs, episodes, cards, state, title = sys.argv[1:]
+rows = [] if cards == "absent" else json.loads(cards)
+present = any(r[0] == "Agent Warden" and r[1] == title and r[2] == "" for r in rows)
+path = pathlib.Path(state)
+if path.exists():
+    present = present or any(r["app"] == "Agent Warden" and r["summary"] == title for r in json.loads(path.read_text())["history"])
+print(json.dumps([int(runs), len(json.loads(episodes)), present]))
+PY
+}
+while IFS='|' read -r warden_lifetime_fixture warden_lifetime_age warden_lifetime_title; do
+  warden_put calm 0 >/dev/null
+  expect_poll "${warden_lifetime_fixture}: real delivery starts with no episodes or core runs" '[0, 0]' warden_retry_state
+  warden_put "$warden_lifetime_fixture" "$warden_lifetime_age" >/dev/null
+  expect_poll "${warden_lifetime_fixture}: real Warden delivery releases its run with the card retained" '[0, 1, true]' warden_delivery_state "$warden_lifetime_title"
+  notes_clear "${warden_lifetime_fixture}: delivery assertion finished"
+done <<'LIFETIMES'
+reaped|0|Cleaned up after a finished agent
+calm|600|Agent Warden has stopped checking
+LIFETIMES
+notes_off "Warden delivery lifetime"
+expect "disabling Warden after real delivery is allowed" ok ipc shell setPluginEnabled vgs.agent-warden false
+expect_poll "the real-delivery Warden releases its status" null warden_lent
+rm -rf -- "$warden_dir"
+
 rm -f -- "$shim/vsys" "$shim/notify-send"
+expect "the Warden notification fixture returns to its incoming enablement" ok ipc shell setPluginEnabled acme.probe "${warden_probe_was,,}"
