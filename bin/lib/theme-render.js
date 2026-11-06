@@ -864,9 +864,7 @@ function kittyColors(logic, tokens, input) {
 // follows the attached terminal's page/text, and reverse uses its page as
 // the text on a palette-slot fill. Hue selection excludes unreadable slots.
 // No role renders a hex value, so an ssh attach draws in the client
-// terminal's own palette, except the roles INPUT's `tmuxAuthored` lists: the
-// package declared those in its terminal.json, and each takes its token's
-// own colour, as the theme preview draws it.
+// terminal's own palette.
 function tmuxColors(logic, input) {
     const background = logic.parseColor(input.values.palette.background);
     const colors = {
@@ -901,8 +899,7 @@ function tmuxColors(logic, input) {
         // RGB distance ignores chroma, so a grey muted text can take a green
         // slot, and a grey on or past the text colour reads as text: a grey
         // muted text takes a grey slot that stands apart from the text and
-        // lies between the page and the text while one exists, else the
-        // pick uses RGB distance.
+        // lies between the page and the text, or uses the client's dim text.
         const text = logic.parseColor("#" + hex6(input.values.palette.foreground, input.values.color.background));
         const textContrast = logic.contrastRatio(text, background);
         const usable = name => {
@@ -912,8 +909,7 @@ function tmuxColors(logic, input) {
         const greySlot = name => usable(name) && oklch(hex6(input.slots[name], input.values.color.background)).c < GREY_CHROMA &&
             separation(logic.parseColor(input.slots[name]), text) >= 55.65 &&
             logic.contrastRatio(logic.parseColor(input.slots[name]), background) < textContrast;
-        const greyOnly = oklch(hex6(input.values.color.textMuted, input.values.color.background)).c < GREY_CHROMA &&
-            logic.terminalSlotNames().some(greySlot);
+        const greyOnly = oklch(hex6(input.values.color.textMuted, input.values.color.background)).c < GREY_CHROMA;
         for (const [index, name] of logic.terminalSlotNames().entries()) {
             if (!(greyOnly ? greySlot(name) : usable(name))) continue;
             const candidate = logic.parseColor(input.slots[name]);
@@ -921,14 +917,10 @@ function tmuxColors(logic, input) {
             if (next < distance) { chosen = index; distance = next; }
         }
     }
-    if (chosen === null) throw new Error("theme-render: tmux has no readable, distinct inactive colour");
-    colors["color.textMuted"] = "colour" + chosen;
-    for (const role of input.tmuxAuthored) {
-        if (!Object.hasOwn(colors, role))
-            throw new Error("theme-render: tmux maps no authored role " + role);
-        colors[role] = "#" + hex6(role.split(".").reduce((node, key) => node[key], input.values), input.values.color.background);
-    }
-    colors["tmux.inactive_foreground"] = colors["color.textMuted"];
+    colors["color.textMuted"] = chosen === null ? "default" : "colour" + chosen;
+    // display-panes-colour accepts a colour alone; only foreground styles
+    // take the dim attribute when the palette has no usable muted slot.
+    colors["tmux.inactive_foreground"] = colors["color.textMuted"] + (chosen === null ? ",dim" : "");
     return colors;
 }
 
@@ -1020,9 +1012,7 @@ function editorHighlightTemplate(logic, input, text) {
 // `values`, the terminal `slots` terminalSource chose, `curated`, a Map
 // from destination to the bytes of the package's `targets/<destination>`,
 // `installed`, true for a package under the configuration home's
-// themes/ and false for a shipped one, `tmuxAuthored`, the package's own
-// ThemeLogic.acceptPackage roles of that name, required for the tmux
-// target, and `terminalFont`, the user's
+// themes/ and false for a shipped one, and `terminalFont`, the user's
 // terminal font, absent or null for none. Every template is rendered, so a
 // placeholder naming no token or slot refuses the target even where a
 // curated file stands in, and so is a line that names an unset terminal
@@ -1043,8 +1033,6 @@ function renderTarget(logic, tokens, target, templates, input) {
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
     if (typeof input.installed !== "boolean")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without the package's source");
-    if (target.name === "tmux" && !Array.isArray(input.tmuxAuthored))
-        throw new Error("theme-render: renderTarget: target tmux rendered without the package's authored tmux roles");
     const selection = selectValues(logic, tokens, target, input);
     if (selection !== undefined && !selection.ok) return selection;
     if (target.name === "kitty") input = { ...input, targetColors: kittyColors(logic, tokens, input) };

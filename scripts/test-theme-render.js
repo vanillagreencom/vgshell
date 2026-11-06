@@ -2000,36 +2000,14 @@ const tmuxPaletteTarget = selectionRender.acceptTarget(logic, "tmux", fs.readFil
 assert.equal(tmuxPaletteTarget.ok, true);
 // A hex value anywhere in the rendered file would pin a colour the client terminal cannot override.
 const TMUX_HEX = /#[0-9a-fA-F]{6}/;
-// PKG's tmux include rendered from TEMPLATE with its declared roles must equal
-// the slots-only render of TEMPLATE with each declared role's placeholder
-// written as that token's opaque colour, so a role the package does not
-// declare renders as it does without any declaration. Answers both renders.
-function tmuxRenders(render, template, pkg, slots, installed) {
-    const once = (text, tmuxAuthored) => {
-        const rendered = render.renderTarget(logic, TOKENS, tmuxPaletteTarget.target,
-            new Map([["tmux.conf", text]]), { values: pkg.values, slots, curated: new Map(), installed, tmuxAuthored });
-        assert.equal(rendered.ok, true);
-        return rendered.files.find(file => file.destination === "tmux.conf").bytes.toString("utf8");
-    };
-    let written = template;
-    for (const role of pkg.tmuxAuthored) {
-        const value = role.split(".").reduce((node, key) => node[key], pkg.values);
-        assert.match(value, /^#[0-9a-f]{6}ff$/, pkg.name + "/" + role + " opaque");
-        const placeholders = role === "color.textMuted" ? [role, "tmux.inactive_foreground"] : [role];
-        for (const name of placeholders) written = written.split("@{" + name + "}").join(value.slice(0, 7));
-    }
-    const declared = once(template, pkg.tmuxAuthored);
-    assert.equal(declared, once(written, []), pkg.name + "/tmux declared roles only");
-    return { declared, slotsOnly: once(template, []) };
-}
 function verifyTmuxPalette(template, render = selectionRender) {
     const failures = [];
-    const declared = new Map();
     for (const { pkg, shipped } of selectionPackages) {
         const slots = render.terminalSource(pkg, selectionDefaults).terminal;
-        const renders = tmuxRenders(render, template, pkg, slots, !shipped);
-        declared.set(pkg.name, renders.declared);
-        const output = renders.slotsOnly;
+        const rendered = render.renderTarget(logic, TOKENS, tmuxPaletteTarget.target,
+            new Map([["tmux.conf", template]]), { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const output = rendered.files.find(file => file.destination === "tmux.conf").bytes.toString("utf8");
         const fields = new Map([...output.matchAll(/^set -gq ((?:dark|light)-theme-[a-z-]+) "(colour(?:[0-9]|1[0-5])|default)"$/gim)]
             .map(match => [match[1], match[2]]));
         for (const mode of ["dark", "light"]) for (const [name, slot] of TMUX_THEME_ROLES) {
@@ -2081,17 +2059,8 @@ function verifyTmuxPalette(template, render = selectionRender) {
             assert.match(value, /^(?:colour(?:[0-9]|1[0-5])|default)$/, pkg.name + "/" + option);
     }
     assert.deepEqual(failures, []);
-    return declared;
 }
-const tmuxDeclared = verifyTmuxPalette(tmuxPaletteTemplate);
-// VGS declares its bar roles (VGS-2291), so tmux draws its preview's colours.
-const vgsTmux = tmuxDeclared.get("vgs");
-assert.deepEqual(tmuxStyle(vgsTmux, "status-left-style"), { fg: "#ff5a36", reverse: true, bold: true });
-assert.deepEqual(tmuxStyle(vgsTmux, "status-right-style"), { fg: "#aaaaab" });
-assert.deepEqual(tmuxStyle(vgsTmux, "window-status-style"), { bg: "default", fg: "#aaaaab" });
-assert.deepEqual(tmuxStyle(vgsTmux, "window-status-current-style"), { bg: "default", fg: "#74a7f7", bold: true });
-assert.throws(() => selectionRender.renderTarget(logic, TOKENS, tmuxPaletteTarget.target, new Map([["tmux.conf", tmuxPaletteTemplate]]),
-    { values: selectionDefaults.values, slots: selectionDefaults.terminal, curated: new Map(), installed: false }), /authored tmux roles/);
+verifyTmuxPalette(tmuxPaletteTemplate);
 const tmuxPaletteScratch = fs.mkdtempSync(path.join(os.tmpdir(), "tmux-palette-control-"));
 try {
     for (const fault of ["today", "missing-black"]) {
@@ -2987,13 +2956,10 @@ function tmuxStyle(text, option) {
 const MUTED_MOVES = {
     fireside: ["colour14", "colour2"], harbordark: ["colour7", "colour13"], soho: ["colour15", "colour7"]
 };
-// Grey muted texts with no grey slot that qualifies, so the pick stays as
-// before rather than drawing muted text on the text colour (rose-pine-moon,
-// kanagawa, horizon-light) or brighter than it (the rest).
-const MUTED_KEPT = {
-    "rose-pine-moon": "colour5", kanagawa: "colour7", "horizon-light": "colour2",
-    vgs: "colour10", "arc-blueberry": "colour7", ayu: "colour7", oxford: "colour14", pmndrs: "colour1"
-};
+// These grey muted texts have no qualifying grey slot. The viewing terminal
+// owns the dim attribute's actual intensity, so RGB contrast checks below
+// establish the default ink's floor before terminal dimming only.
+const MUTED_DIM = ["rose-pine-moon", "kanagawa", "horizon-light", "vgs", "arc-blueberry", "ayu", "oxford", "pmndrs"];
 function verifyAppStyles(render, changedTemplates = {}) {
     const targets = Object.fromEntries(["tmux", "neovim", "ghostty"].map(name => {
         const dir = path.join(repo, "themes", "targets", name);
@@ -3015,10 +2981,8 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(pkg.ok, true);
         const original = JSON.stringify({ values: pkg.values, slots: pkg.terminal });
         const rendered = Object.fromEntries(Object.entries(targets).map(([app, data]) => {
-            // The slot mapping is judged here; a package's declared tmux
-            // roles are judged by verifyTmuxPalette.
             const result = render.renderTarget(logic, TOKENS, data.target, data.templates,
-                { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs", tmuxAuthored: [] });
+                { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs" });
             assert.equal(result.ok, true);
             return [app, result.files[0].bytes.toString("utf8")];
         }));
@@ -3048,7 +3012,11 @@ function verifyAppStyles(render, changedTemplates = {}) {
         const active = tmuxStyle(rendered.tmux, "window-status-current-style");
         const inactive = tmuxStyle(rendered.tmux, "window-status-style");
         const right = tmuxStyle(rendered.tmux, "status-right-style");
-        assert.deepEqual(right, { fg: inactive.fg }, name + "/right content shares the dim slot of the inactive windows");
+        assert.deepEqual(right, { fg: inactive.fg, ...(inactive.dim ? { dim: true } : {}) }, name + "/right content shares the inactive window style");
+        if (name === "vgs") {
+            assert.deepEqual(session, { fg: "colour3", reverse: true, bold: true }, name + "/session uses client amber slot");
+            assert.deepEqual(active, { bg: "default", fg: "colour4", bold: true }, name + "/current window uses client blue slot");
+        }
         const slotColor = (value, role = "fg") => {
             if (value === "default" || value === undefined) return pkg.values.palette[role === "fg" ? "foreground" : "background"];
             const match = /^colour(1[0-5]|[0-9])$/.exec(value);
@@ -3085,12 +3053,12 @@ function verifyAppStyles(render, changedTemplates = {}) {
         }
         if (Object.hasOwn(MUTED_MOVES, name))
             assert.equal(inactive.fg, MUTED_MOVES[name][1], name + "/grey muted text takes a grey slot off the text");
-        if (Object.hasOwn(MUTED_KEPT, name))
-            assert.equal(inactive.fg, MUTED_KEPT[name], name + "/no grey slot off the text keeps the pick");
+        if (MUTED_DIM.includes(name))
+            assert.deepEqual(inactive, { bg: "default", fg: "default", dim: true }, name + "/no qualifying grey slot uses client dim text");
         metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old,
             ghostty: { foreground, faintOpacity } });
     }
-    assert.deepEqual(Object.keys(MUTED_MOVES).concat(Object.keys(MUTED_KEPT)).filter(name => !metrics.some(metric => metric.name === name)), []);
+    assert.deepEqual(Object.keys(MUTED_MOVES).concat(MUTED_DIM).filter(name => !metrics.some(metric => metric.name === name)), []);
     return metrics;
 }
 // The VS Code-family editor theme, for every shipped and catalog package:
@@ -3868,8 +3836,8 @@ try {
 console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length} opacity=0.8 controls=default,absent,normal-foreground,invalid-color model=full-coverage-linear comparisons=${ghosttyFaintModels.length} normal=source-unchanged`);
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
-    ["muted right content", 'set -g status-right-style "fg=@{color.textMuted}"', '# set -g status-right-style "fg=@{color.textMuted}"\nset -gqu status-right-style'],
-    ["session uses reverse", 'set -g status-left-style "fg=@{bar.active},reverse,bold"', 'set -g status-left-style "fg=@{bar.active},bold"'],
+    ["muted right content", 'set -g status-right-style "fg=@{tmux.inactive_foreground}"', '# set -g status-right-style "fg=@{tmux.inactive_foreground}"\nset -gqu status-right-style'],
+    ["session uses reverse", 'set -g status-left-style "fg=@{color.warning},reverse,bold"', 'set -g status-left-style "fg=@{color.warning},bold"'],
     ["terminal page", 'set -g status-style "bg=@{color.background}', 'set -g status-style "bg=@{palette.accent}'],
     ["active tab remains unfilled", 'set -g window-status-current-style "bg=@{color.background}', 'set -g window-status-current-style "bg=@{palette.accent}'],
     ["unreadable menu text", 'set -gq menu-style "bg=@{color.surfaceRaised},fg=@{color.text}"', 'set -gq menu-style "bg=@{palette.accent},fg=@{palette.accent}"']
@@ -4733,13 +4701,12 @@ const CONTROLS = [
     ["the bare id is stamped", 'return id === base || (id.startsWith(base + "-")', 'return (id.startsWith(base + "-")'],
     ["unregister keeps the kept ids", "return id === null || keep.includes(id) || !isStampedId(id, base);", "return id === null || keep[0] === id || !isStampedId(id, base);"],
     ["tmux uses the package terminal palette", 'colors["terminal." + name] = "colour" + index;', 'colors["terminal." + name] = "colour8";', render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
-    ["tmux renders no hex", 'colors["tmux.inactive_foreground"] = colors["color.textMuted"];', 'colors["tmux.inactive_foreground"] = "#" + hex6(input.values.color.textMuted, input.values.color.background);', render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
+    ["tmux renders no hex", 'colors["tmux.inactive_foreground"] = colors["color.textMuted"] + (chosen === null ? ",dim" : "");', 'colors["tmux.inactive_foreground"] = "#" + hex6(input.values.color.textMuted, input.values.color.background);', render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
     ["tmux distinction", 'const distinct = color => separation(color, active) >= 55.65;', 'const distinct = color => true;', verifyAppStyles],
     ["tmux grey muted slot", "if (!(greyOnly ? greySlot(name) : usable(name))) continue;", "if (!usable(name)) continue;", verifyAppStyles],
     ["tmux grey muted slot off the text", "separation(logic.parseColor(input.slots[name]), text) >= 55.65 &&\n", "\n", verifyAppStyles],
     ["tmux grey muted slot dimmer than the text", " &&\n            logic.contrastRatio(logic.parseColor(input.slots[name]), background) < textContrast;", ";", verifyAppStyles],
-    ["tmux authored roles", "for (const role of input.tmuxAuthored) {", "for (const role of []) {", render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
     ["hex6 encoder", "hex6: (hex, background) => hex6(hex, background)", "hex6: hex => hex.slice(1, 7)"],
     ["hex8 encoder", "hex8: hex => hex.slice(1, 9)", "hex8: hex => hex.slice(1, 7)"],
     ["gnome accent composited", '"gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))', '"gnome-accent": hex => gnomeAccent(hex.slice(1, 7))'],
@@ -5041,6 +5008,13 @@ try {
             const changed = failure.actual.find(row => row.package === "vgs" && row.key === "dark-theme-black");
             assert.ok(changed && changed.actual !== changed.expected);
             console.log("test-theme-render: tmux-palette-control " + JSON.stringify({ fault: "fixed-slot-mapping", rejected: true, failure: changed }));
+        }
+        if (label === "tmux renders no hex") {
+            assert.equal(failure.code, "ERR_ASSERTION");
+            assert.equal(failure.operator, "doesNotMatch");
+            const planted = TMUX_HEX.exec(failure.actual);
+            assert.ok(planted);
+            console.log("test-theme-render: tmux-hex-control " + JSON.stringify({ rejected: true, assertion: failure.operator, planted: planted[0] }));
         }
         if (label.startsWith("editor cap")) {
             assert.equal(failure.code, "ERR_ASSERTION");

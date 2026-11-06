@@ -1161,14 +1161,6 @@ var TERMINAL_SCHEMA_VERSION = 1;
 var TERMINAL_SLOT_PREFIX = "color";
 var TERMINAL_SLOT_COUNT = 16;
 
-// The token roles the tmux target styles, each of which tmuxColors in
-// bin/lib/theme-render.js maps to a terminal slot or `default`. A
-// terminal.json may list some under `tmux.authored`, so tmux draws those
-// in the package's own colours, as its preview does.
-var TMUX_ROLES = ["color.background", "color.surfaceRaised", "color.text", "color.textMuted", "color.border", "color.borderStrong",
-    "palette.accent", "color.accent", "color.info", "color.warning", "palette.warning", "color.danger", "palette.danger", "bar.active"];
-var TERMINAL_TMUX_KEYS = ["authored"];
-
 function terminalSlotName(index) {
     return TERMINAL_SLOT_PREFIX + index;
 }
@@ -1180,37 +1172,11 @@ function terminalSlotNames() {
     return out;
 }
 
-// The roles a terminal document's optional `tmux` object lists under
-// `authored`, each one of TMUX_ROLES once; [] without the object.
-function acceptTmuxRoles(document) {
-    if (!hasOwn(document, "tmux"))
-        return { ok: true, roles: [] };
-    var tmux = document.tmux;
-    if (!isPlainObject(tmux))
-        return refusal("terminal-tmux", "terminal.tmux", "got=" + JSON.stringify(tmux));
-    var defect = keyDefect(tmux, TERMINAL_TMUX_KEYS);
-    if (defect !== "")
-        return refusal("terminal-tmux", "terminal.tmux", defect);
-    if (!Array.isArray(tmux.authored) || tmux.authored.length === 0)
-        return refusal("terminal-tmux", "terminal.tmux.authored", "got=" + JSON.stringify(tmux.authored));
-    var roles = [];
-    for (var i = 0; i < tmux.authored.length; i++) {
-        var role = tmux.authored[i];
-        if (typeof role !== "string" || TMUX_ROLES.indexOf(role) === -1)
-            return refusal("terminal-tmux-role", "terminal.tmux.authored", "role=" + JSON.stringify(role));
-        if (roles.indexOf(role) !== -1)
-            return refusal("terminal-tmux-role", "terminal.tmux.authored", "duplicate=" + role);
-        roles.push(role);
-    }
-    return { ok: true, roles: roles };
-}
-
 // A terminal.json text, or undefined for a package without one: its 16
-// slots, or null, and `tmuxAuthored`, the tmux roles it draws in its own
-// colours.
+// slots, or null.
 function acceptTerminal(text) {
     if (text === undefined)
-        return { ok: true, slots: null, tmuxAuthored: [] };
+        return { ok: true, slots: null };
     if (typeof text !== "string")
         return refusal("terminal-json", "", "got=" + JSON.stringify(text));
     var document;
@@ -1245,10 +1211,7 @@ function acceptTerminal(text) {
             return refusal("terminal-colour", "terminal." + name, "value=" + JSON.stringify(document.slots[name]));
         out[name] = formatColor(colour);
     }
-    var tmux = acceptTmuxRoles(document);
-    if (!tmux.ok)
-        return tmux;
-    return { ok: true, slots: out, tmuxAuthored: tmux.roles };
+    return { ok: true, slots: out };
 }
 
 // Judge one package directory from the file texts its caller read. `files`
@@ -1274,7 +1237,7 @@ function acceptPackage(tokens, files) {
     var terminal = acceptTerminal(files.terminalJson);
     if (!terminal.ok)
         return terminal;
-    return { ok: true, name: shell.name, displayName: shell.displayName, values: shell.values, terminal: terminal.slots, tmuxAuthored: terminal.tmuxAuthored, backgrounds: shell.backgrounds };
+    return { ok: true, name: shell.name, displayName: shell.displayName, values: shell.values, terminal: terminal.slots, backgrounds: shell.backgrounds };
 }
 
 // --- the theme catalog

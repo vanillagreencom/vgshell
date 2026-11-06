@@ -196,8 +196,9 @@ rm -f -- "$cfg/tmux/tmux.conf"
 # their own: tmux reads its configuration top to bottom, and inline colours
 # in a status-left, as in the owner's line below, beat any style option, so
 # the theme drops inline colour styles after the user's lines.
-# Flexoki Light comes from the shipped catalog; its label takes the bar's
-# active fill, colour4 reversed against the terminal page. tmux_read prints the status-left-style and status-left that
+# Flexoki Light comes from the shipped catalog. The native server must read
+# the generated style after the user's inline style; renderer tests own the
+# colour choice. tmux_read prints the status-left-style and status-left that
 # a fresh server of the suite's own reads from the files a login reads, and
 # tmux_options [-f /dev/null] every global session and window option it
 # holds, with no configuration file under -f /dev/null. Each server takes a
@@ -222,7 +223,6 @@ tmux_options() {
 user_left='#[fg=black,bg=blue,bold] #S #[bg=default] '
 tmux_own=$'set -g mouse on\nset -g status-left "'"$user_left"$'"\nset -g status-right-length 40'
 tmux_line="source-file -q '$live/tmux.conf'"
-theme_reads=$'fg=colour4,reverse,bold\n #S  '
 printf '%s\n' "$tmux_own" >"$tmp/home/.tmux.conf"
 tinst "Flexoki Light installs from the catalog" "$cfg" "$rt_empty" 0 "ok installed=flexoki-light path=$cfg/vgshell/themes/flexoki-light" "" theme install flexoki-light
 # Controls: the target without fallbacks and last skips a ~/.tmux.conf
@@ -238,6 +238,8 @@ check "the first-line tmux mutant leaves the user's session label" test "$(tmux_
 unset THEME_BIN
 # The shipped target moves a line an earlier apply put first to the end.
 apply_json "Flexoki Light applies over a ~/.tmux.conf wired first" 0 flexoki-light
+theme_style="$(sed -n 's/^set -g status-left-style "\(.*\)"$/\1/p' "$live/tmux.conf")" || exit 1
+theme_reads="$theme_style"$'\n #S  '
 check "an unchanged tmux file still repairs ~/.tmux.conf" test "$(target_state tmux)" == "unchanged None" -a ! -e "$cfg/tmux/tmux.conf"
 check "~/.tmux.conf keeps its text and holds the line once, last" test "$(cat "$tmp/home/.tmux.conf")" == "$tmux_own"$'\n'"$tmux_line"
 check "tmux reads Flexoki Light's session label over the user's line" test "$(tmux_read)" == "$theme_reads"
