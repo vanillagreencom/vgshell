@@ -6,7 +6,7 @@
 // interior shows; shells 1-3 draw only near the silhouette, where their
 // noise-displaced outlines stack into the warped bright band and the spray
 // beyond it. Each shell is hit twice (front and back of the sphere), each
-// hit is moved once by a two-octave value-noise radius, mapped to a
+// rim hit is moved once by a two-octave value-noise radius, mapped to a
 // cube-sphere lattice cell, and tested against the 2x2 nearest cells' dots.
 // Work per pixel is constant and bounded: 4 shells x 2 faces x (2 noise
 // octaves + 3 lattice-warp noises + 4 dot tests), plus one fold noise on
@@ -118,7 +118,9 @@ void main() {
         float rough= k == 0 ? 0.30  : k == 1 ? 0.45  : k == 2 ? 0.55  : 0.65;
         float out_ = k == 0 ? 0.00  : k == 1 ? 0.00  : k == 2 ? 0.02  : 0.05;
         float Rk = R * rs;
-        float amp = min(uShape.w * amps * (k == 3 ? uField.z : 1.0), 0.45);
+        // The centre is a round sphere of moving dots. Only the outer
+        // strands displace their radius; no solid disc fills the centre.
+        float amp = k == 0 ? 0.0 : min(uShape.w * amps * (k == 3 ? uField.z : 1.0), 0.45);
         float N = uShape.y * lat;
 
         for (int fi = 0; fi < 2; fi++) {
@@ -138,6 +140,7 @@ void main() {
             float graze = 1.0 - nz;
             float wface = k > 0 ? pow(clamp((r / Rp - 0.84) / 0.15, 0.0, 1.0), 2.0)
                         : fi == 0 ? 1.0 : 0.35 * graze * graze * graze;
+            if (k == 0) wface *= 1.0 - smoothstep(Rk - px, Rk + px, r);
             if (wface <= 0.0) continue;
 
             vec3 opix = M * (P / Rp);

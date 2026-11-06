@@ -12,8 +12,8 @@ import "AccountProviders.js" as Providers
 // orb in the look of the Session's phase, its icon row at the orb's top
 // right, the state line or the fault under it, the held request in place
 // of that line, and Jarvis's words above the orb while its voice is muted.
-// It draws in the plugin's own look (Appearance.js) on no card: one dark
-// field behind it all (qs.Ui RadialBackdrop, the look's `field`), each line
+// It draws in the plugin's own look (Appearance.js) on no card: one fading
+// field, dark or white (qs.Ui RadialBackdrop, the look's `field`), each line
 // of text over the look's shadow. A passive layer takes clicks only on
 // `inputItems` (D026).
 //

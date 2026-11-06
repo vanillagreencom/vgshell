@@ -1,6 +1,6 @@
 .pragma library
 
-// Where the Jarvis overlay's dark field lies (Appearance.js `field`): the
+// Where the Jarvis overlay's field lies (Appearance.js `field`): the
 // boxes qs.Ui's RadialBackdrop draws, and the rectangle that holds their
 // reach. Bubble.qml binds through it, and scripts/shader/Scene.qml draws
 // its largest field through it.
