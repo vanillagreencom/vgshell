@@ -380,9 +380,10 @@ Scope {
 
             Item {
                 id: pixelGrid
+                readonly property int nativeCellPixels: 1
                 property real ratio: 1
-                property real cellWidth: 1
-                property real cellHeight: 1
+                property real cellWidth: nativeCellPixels
+                property real cellHeight: nativeCellPixels
                 property alias composition: content
                 visible: false
                 width: 2 / ratio
