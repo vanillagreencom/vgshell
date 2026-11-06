@@ -423,10 +423,6 @@ function gather(request) {
                     const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
                     if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
                     origin = "aur"; viaAur = true;
-                    // Helpers can add providers/dependencies at build time. This
-                    // review covers its listed request, never that future choice,
-                    // a VGS package's included.
-                    state.unknown.push("dependencies=unresolved name=" + name);
                 } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
                 binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })),
                     ...(target.neededBy === undefined ? {} : { entry: target.entry, neededBy: target.neededBy, aur: viaAur }) });
@@ -440,11 +436,11 @@ function gather(request) {
                     const cause = "vgs-packages=unreadable cause=" + recipes.cause;
                     if (!state.unknown.includes(cause)) state.unknown.push(cause);
                 }
+                if (viaAur && publisher !== "vgs") state.unknown.push("dependencies=unresolved name=" + name);
                 // A package VGS publishes is not third-party code: no review
                 // lists, fetches or judges it. It stays a package so a held
-                // retry binds the recipe its build would fetch. Its
-                // dependencies note above stays: what its build adds is not
-                // known before the build.
+                // retry binds the recipe its build would fetch. Its listed
+                // dependencies are expanded and judged as their own targets.
                 const pkg = { name, origin, aur: viaAur, published: publisher === "vgs", old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
                 if (!state.packages.some(p => p.name === name && p.origin === origin && p.aur === viaAur)) state.packages.push(pkg);
                 if (pkg.published) {
