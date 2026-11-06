@@ -763,9 +763,9 @@ function echoCancellation(provider, reading) {
     default:
         throw new Error("jarvis-setup: echo-cancel=" + reading.state);
     }
-    var details = local ? "Local and ElevenLabs keep the microphone closed during replies because their recorder cannot select this echo-cancel input. " : "";
-    details += "Setup uses the chosen physical microphone and speaker. It asks before saving and changes no system default. ";
-    if (reading.path !== "") details += "Configuration: " + Commons.PageReference.fileReference(reading.path, reading.path) + ". ";
+    var details = local ? "Local and ElevenLabs close the microphone during replies. " : "";
+    details += "Setup asks before saving the chosen physical microphone and speaker. It changes no system default. ";
+    if (reading.path !== "") details += Commons.PageReference.fileReference("Open the configuration file", reading.path) + ". ";
     details += "Jarvis checks the connected route before it keeps the microphone open during replies.";
     setup.info = details;
     return { setup: setup, route: route };

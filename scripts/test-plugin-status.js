@@ -227,9 +227,10 @@ function continuationChecks(logic, check, sourceChanges = {}) {
 
             world = make({});
             root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, childSerial: 0, lifetime: { kind: "retry" },
+                Gate: GATE, voiceProvider: world.shell.settings.voiceProvider, echoCancel: null,
                 child: { running: false }, Conversation: load(path.join(JARVIS, "Conversation.js")),
                 publishHomes: () => true, publishInput: () => true, publishSetup: () => true, shellStatus: () => true, publish: () => true },
-            sources.Service, ["start"]);
+            sources.Service, ["start", "publishEchoCancel"]);
             const timer = sources.Service.match(/Timer \{ id: retry; onTriggered: ([^}]+) \}/);
             if (!timer) throw new Error("production retry timer not found");
             vm.runInNewContext(timer[1], { root });
@@ -255,6 +256,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["devices", { microphones: [], speakers: [] }, ["request"]],
                 ["homes", { homes: [], current: "" }, ["fleet", "request"]],
                 ["voices", { voices: [] }, ["request"]],
+                ["echo-cancel", { state: "absent", path: "/fixture/echo.conf", reason: "config-missing" }, ["request"]],
                 ["input-ready", { commands: ["wtype", "wlrctl"] }, ["request"]],
                 ["personality", { personality: { kind: "missing" } }, ["request"]],
                 ["start-text", { size: { kind: "unreadable" } }, ["request"]],
@@ -279,13 +281,14 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                     setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },
                     voiceProvider: world.shell.settings.voiceProvider, accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
+                    echoCancel: null, echoRefreshPending: false,
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
                     sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
                     deliverMainHost: () => events.push("main-host"),
                     helloDeadline: { stop: () => {} }, indicatorPresented: false, sendIndicator: () => {},
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
                 sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",
-                    "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish"]);
+                    "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish", "publishEchoCancel", "refreshEchoCancel", "conversationChanged"]);
                 const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };
                 const first = Object.assign({}, base, { type }, fields);
                 const request = Object.assign({}, base, { type: "request", id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] });

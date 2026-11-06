@@ -1023,6 +1023,13 @@ Item {
         if (reply !== "ok") console.error("jarvis: notice " + reply);
     }
 
+    function voiceRenewal(message) {
+        if (sessionState === null || message.gen !== sessionState.gen || sessionState.conversation.kind === "ended") return;
+        notice({ title: "Jarvis needs you to repeat that",
+            message: "The voice connection restarted before you finished. Please repeat what you said.",
+            tone: "warning", icon: "vgs-letter-j" });
+    }
+
     function modelFallback(message) {
         if (sessionState === null || message.gen !== sessionState.gen || modelNotices.has(message.saved)) return;
         // Hello resolves an unset model too; only a stored choice needs this notice.
@@ -1258,6 +1265,10 @@ Item {
                 const message = Protocol.accept(line, "daemon");
                 if (message.revision !== shell.manifest.__revision)
                     throw new Error("jarvis: protocol=identity");
+                if (message.type === "voice-renewal") {
+                    voiceRenewal(message);
+                    continue;
+                }
                 if (message.type === "model-fallback") {
                     modelFallback(message);
                     continue;

@@ -100,7 +100,10 @@ function verify(view) {
         const bar = view.view(values, null);
         assert.equal(bar.state, "off");
         assert.equal(links(bar.tooltipDetails).length, 1, cause + ": one usable recovery link");
-        assert.equal(links(bar.tooltipDetails)[0].page, "vgs.jarvis", cause + ": recovery stays on the plugin page");
+        const target = links(bar.tooltipDetails)[0];
+        if (cause === "home=link")
+            assert.equal(pageReference.file(target.page), "/fixture/", cause + ": recovery opens the chosen Home folder");
+        else assert.equal(target.page, "vgs.jarvis", cause + ": recovery stays on the plugin page");
     }
     const files = up({ gate: { kind: "down", reason: "unconfigured" } }, {
         setupHome: { tone: "warning", text: "Cannot use folder", hint: "Check " + pageReference.fileReference("AGENTS.md", "/fixture/AGENTS.md")
@@ -478,6 +481,52 @@ for (const [needle, replacement] of [
         "only this plugin and source revision can consume the host's frames");
     assert.ok(Object.isFrozen(rows) && rows.every(Object.isFrozen), "the consumer cannot mutate core presentation records");
     assert.deepEqual(copy(read({ ...consumer, active: false })), [], "retired provider grants nothing");
+}
+// Forced renewal recovery uses the real Service wire receiver and its existing
+// notification owner. Ordinary captions never stand in for delivery.
+function renewalNotices(source) {
+    const protocol = load(path.join(dir, "JarvisProtocol.js"));
+    for (const [label, state, generation, expected] of [
+        ...["shown", "hidden"].flatMap(visibility => ["off", "on"].map(voiceMute => [
+            visibility + "/" + voiceMute,
+            { gen: 7, conversation: { kind: "active", purpose: "conversation" },
+                visibility: { kind: visibility }, voiceMute: { kind: voiceMute } }, 7, 1
+        ])),
+        ["ended", { gen: 7, conversation: { kind: "ended" } }, 7, 0],
+        ["stale", { gen: 8, conversation: { kind: "active", purpose: "conversation" } }, 7, 0],
+        ["no-state", null, 7, 0]
+    ]) {
+        const notices = [];
+        const ctx = vm.createContext({ Protocol: protocol, sessionState: state, cause: "", lifetime: { kind: "ready" }, outputTail: "",
+            shell: { manifest: { __revision: "a".repeat(64) }, notify: { send: value => { notices.push(copy(value)); return "ok"; } },
+                status: { set: () => assert.fail("renewal recovery is not a caption or a model turn") } },
+            broken: value => assert.fail(value), console: { error: value => assert.fail(value) } });
+        for (const name of ["receive", "voiceRenewal", "notice"]) {
+            const found = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+            assert.ok(found, name + ": shipped notification route");
+            ctx[name] = vm.runInContext("(" + found[0] + ")", ctx);
+        }
+        ctx.receive(JSON.stringify({ v: 1, type: "voice-renewal", revision: "a".repeat(64), gen: generation }) + "\n");
+        assert.equal(notices.length, expected, label + ": forced renewal reaches the user independently of hidden/voice state");
+        if (expected) {
+            assert.equal(notices[0].tone, "warning");
+            assert.equal(notices[0].icon, "vgs-letter-j");
+            assert.ok(notices[0].message.length > 0);
+        }
+    }
+}
+{
+    const service = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
+    renewalNotices(service);
+    for (const [needle, replacement] of [
+        ['message.gen !== sessionState.gen || sessionState.conversation.kind === "ended"',
+            'sessionState.conversation.kind === "ended"'],
+        ['        notice({ title: "Jarvis needs you to repeat that",', '        return; notice({ title: "Jarvis needs you to repeat that",']
+    ]) {
+        assert.equal(service.split(needle).length, 2, "one renewal notice control target");
+        assert.throws(() => renewalNotices(service.replace(needle, replacement)), assert.AssertionError,
+            "renewal notice control must falsify delivery or identity");
+    }
 }
 // Service selection consumes host evidence for this generation and focused
 // output. Its ordered wire retains loss edges, even if a badge returns before

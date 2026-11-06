@@ -700,7 +700,7 @@ function padsFixture(logic, id, pads) {
 // Settings Add alternative persists symbols beside physical defaults.
 // The native dispatch chain delivers one event per admitted bind (pinned
 // 0.57 Key::matches / MatchResolver / Manager::processEvent); the production
-// Session reducer proves why two admitted idle Mute binds lose privacy.
+// Session reducer proves why a physical press must toggle voice mute once.
 function verifySameActionAliases(layer) {
     const session = load(sessionFile);
     const logic = load(logicFile);
@@ -711,11 +711,11 @@ function verifySameActionAliases(layer) {
         const plan = layer.resolveBinds(sections, identities);
         let state = session.reduce(session.initial(), { type: "snapshot", at: 0, locked: false,
             engine: "chained", configured: true, settings: {} }).state;
-        state = session.reduce(state, { type: "indicator", at: 1, shown: true }).state;
+        state = session.reduce(state, { type: "indicator", at: 1, gen: state.gen, shown: true, bar: "gone" }).state;
         assert.equal(state.capture.kind, "closed", "ready idle Mute has no asynchronous capture-close guard");
         for (const global of layer.boundDescriptions(plan))
-            if (global === "acme.mic:mute") state = session.reduce(state, { type: "mute-toggle", at: 2 }).state;
-        assert.equal(state.mute.kind, "on", "the privacy key leaves ready idle Mute on");
+            if (global === "acme.mic:mute") state = session.reduce(state, { type: "voice-mute-toggle", at: 2 }).state;
+        assert.equal(state.voiceMute.kind, "on", "one physical press leaves voice mute on");
         same(layer.boundDescriptions(plan), ["acme.mic:mute"], "one physical press publishes one Mute activation");
         same(plan.keys["acme.mic"], { mute: physical }, "physical alternative wins in either stored order");
         same(layer.shortcutKeys(sections, "acme.mic", plan), { mute: physical }, "readback consumes the publication plan");

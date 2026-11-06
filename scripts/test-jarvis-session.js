@@ -454,6 +454,14 @@ const table = [
             let s = step(logic, r.state, callback("flushed", r.state.playback, 701)).state;
             s = step(logic, s, callback("cancelled", s.turn, 702)).state;
             assert.deepEqual(s.brain, before.brain, "acknowledged cancellation preserves brain history");
+            if (!holdToTalk) {
+                assert.equal(s.capture.kind, "closing", "the recorder started between turns must still acknowledge closure");
+                const retired = s.capture;
+                const closed = step(logic, s, callback("capture-closed", retired, 703));
+                assert.equal(has(closed, "capture-open"), true, "automatic capture resumes on the recorder acknowledgment");
+                s = closed.state;
+                assert.notEqual(s.capture.op, retired.op, "the new recorder has its own identity");
+            }
             assert.equal(s.capture.kind, holdToTalk ? "closed" : "opening");
             assert.equal(logic.indicatorWanted(s), true);
         }

@@ -1561,7 +1561,8 @@ function verifyEchoCancellation(gate, serviceSource) {
             assert.equal(values.echoCancel.tone, tone);
             assert.equal(values.echoCancel.action, action);
             assert.equal(values.echoRoute.lines !== undefined, state === "active" && ["realtime", "gemini"].includes(provider));
-            if (state !== null) assert.equal(values.echoCancel.info.includes(file), true, "configuration path remains visible");
+            if (state !== null) assert.equal(pageReference.file(pageReference.parse(values.echoCancel.info).page), file,
+                "configuration recovery opens the actual file");
             const status = judge.statusRows(manifest, values);
             assert.equal(settings.detailEntries(status).some(entry => entry.key === "echoRoute"), true);
             assert.equal(settings.detailEntries(status).some(entry => entry.key === "echoCancel"), false, "setup action stays on Setup");
@@ -1574,6 +1575,7 @@ function verifyEchoCancellation(gate, serviceSource) {
     const longPath = "/" + "directory/".repeat(400) + "echo.conf";
     const long = gate.echoCancellation("gemini", { state: "pending", path: longPath, reason: "nodes-missing" });
     assert.equal(judge.statusWrite(manifest, {}, "echoCancel", long.setup).ok, true, "long actual paths fit the info contract");
+    assert.equal(pageReference.file(pageReference.parse(long.setup.info).page), longPath, "the long configuration target is not truncated");
     for (const blocked of [{ lifetime: { kind: "starting" } }, { child: { running: false } }, { cause: "stopped" }, { shell: null }]) {
         const root = { echoRefreshPending: true, shell: {}, lifetime: { kind: "ready" }, child: { running: true }, cause: "", ...blocked,
             send() { assert.fail("an unavailable child cannot receive the refresh"); } };

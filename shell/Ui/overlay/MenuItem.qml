@@ -41,6 +41,10 @@ T.MenuItem {
 
     property string iconName: ""
     property string shortcut: ""
+    // Keep unavailable entries reachable; the menu shows the cause in the
+    // row because its scope holds focus and suppresses action tooltips.
+    property string disabledReason: ""
+    readonly property DisabledReason lock: lockState
     property ListCursor cursor: null
     property real barRoom: 0
     property bool opensSubmenu: false
@@ -53,7 +57,7 @@ T.MenuItem {
     implicitWidth: implicitContentWidth + leftPadding + rightPadding
     // A wrapped entry keeps a one-line entry's room above its first line and
     // under its last.
-    readonly property bool wraps: title.lineCount > 1
+    readonly property bool wraps: title.lineCount > 1 || lockState.locked
     readonly property real lineInset: Math.max(0, (Theme.menu.item.height - title.lineBox) / 2)
     topPadding: wraps ? lineInset : 0
     bottomPadding: wraps ? lineInset : 0
@@ -83,9 +87,9 @@ T.MenuItem {
     function inkTop(glyph) {
         return title.leadingIconTop(glyph.painted[1] + glyph.painted[3], 0, firstLineCentre);
     }
-    hoverEnabled: true
+    hoverEnabled: !lockState.locked
     focusPolicy: Qt.NoFocus
-    PointerCursor {}
+    PointerCursor { enabled: !lockState.locked }
     opacity: enabled ? 1 : Theme.opacity.disabled
     Accessible.name: text
     Accessible.checked: checked
@@ -97,10 +101,12 @@ T.MenuItem {
     }
 
     contentItem: Item {
+        opacity: lockState.fade
         readonly property real lead: icon.visible ? icon.width + root.spacing : 0
         readonly property real tail: hint.visible ? hint.implicitWidth + 2 * root.spacing : 0
         implicitWidth: lead + oneLine.advanceWidth + tail
         implicitHeight: Math.max(icon.visible ? icon.height : 0, title.implicitHeight, hint.visible ? hint.implicitHeight : 0)
+            + (reason.visible ? Theme.field.gap + reason.implicitHeight : 0)
 
         Icon {
             id: icon
@@ -132,6 +138,19 @@ T.MenuItem {
             // centre, including a mixed-case title's x-height reading.
             y: topForCapCenter(2 * (root.firstLineCentre - parent.y))
         }
+        // Menus keep keyboard focus on their scope, and suppress tooltips
+        // while open. Keep the unavailable entry's cause in its own row.
+        Label {
+            id: reason
+            visible: lockState.locked
+            text: root.disabledReason
+            role: "hint"
+            color: Theme.menu.item.foreground
+            x: title.x
+            y: title.y + title.height + Theme.field.gap
+            width: title.width
+            wrapMode: Text.Wrap
+        }
     }
 
     // The check mark stands in the right padding, which grows to hold it
@@ -146,6 +165,7 @@ T.MenuItem {
         color: Theme.menu.item.check
         x: root.width - root.sidePadding - root.barRoom - painted[2]
         y: root.inkTop(check)
+        opacity: lockState.fade
     }
 
     // The submenu's chevron stands where the check mark would, its own ink
@@ -158,5 +178,8 @@ T.MenuItem {
         color: Theme.menu.item.shortcut
         x: root.indicator.x + root.indicator.painted[2] - painted[2]
         y: root.inkTop(chevron)
+        opacity: lockState.fade
     }
+
+    DisabledReason { id: lockState; control: root }
 }

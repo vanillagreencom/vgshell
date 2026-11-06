@@ -2080,7 +2080,7 @@ function suite(ctx, configLogic, check) {
         ["disable third-party service keeps its row", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", false, "plugins", [{ id: "acme.svc", x: 1 }]],
         ["disable third-party service lists it", listedSvc, configLogic.effectiveConfig(shipped, listedSvc), "acme.svc", false, "disabledPlugins", ["acme.svc"]],
         ["enable first-party service does not list it in plugins", { disabledPlugins: ["vgs.svc"] }, shipped, "vgs.svc", true, "plugins", undefined],
-        ["writes version 5", null, shipped, "acme.svc", true, "version", 5],
+        ["writes version 6", null, shipped, "acme.svc", true, "version", 6],
         ["enable bar sets it active", null, shipped, "acme.bar", true, "bar.id", "acme.bar"],
         ["enable bar seeds the layout from the effective bar", null, shipped, "acme.bar", true, "bar.layout.center.0.id", "vgs.clock"],
         ["enable the active bar changes nothing but the disabled list", { disabledPlugins: ["vgs.bar"] }, shipped, "vgs.bar", true, "bar", undefined],
@@ -2128,7 +2128,7 @@ function suite(ctx, configLogic, check) {
         ["place a placed widget changes nothing", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", true, "bar", placedBoth.bar],
         ["place keeps the user's disabled list", { disabledPlugins: ["vgs.svc"] }, configLogic.effectiveConfig(shipped, { disabledPlugins: ["vgs.svc"] }), "acme.both", true, "disabledPlugins", ["vgs.svc"]],
         ["place writes no inherited disabled list", null, inheritedDisabled, "acme.both", true, "disabledPlugins", undefined],
-        ["place writes version 5", null, shipped, "acme.both", true, "version", 5],
+        ["place writes version 6", null, shipped, "acme.both", true, "version", 6],
         ["unplace removes every entry in every section and keeps other widgets", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.layout", { left: [], center: [{ id: "vgs.clock" }], right: [] }],
         ["unplace keeps the bar id", placedBoth, configLogic.effectiveConfig(shipped, placedBoth), "acme.both", false, "bar.id", "vgs.bar"],
         ["unplace seeds the user bar from the effective bar", null, shipped, "vgs.clock", false, "bar.layout", { left: [{ id: "vgs.workspaces" }], center: [], right: [] }],
@@ -2307,7 +2307,6 @@ function suite(ctx, configLogic, check) {
         ["vgs.capture", "quality", null, ["medium", "high", "very_high", "ultra"]],
         ["vgs.capture", "codec", null, ["auto", "h264", "hevc", "av1", "vp9"]],
         ["vgs.displays", "keysTarget", null, ["focused", "all"]],
-        ["vgs.jarvis", "mode", null, ["hold", "toggle", "always"]],
         ["vgs.jarvis", "voiceProvider", null, ["local", "realtime", "gemini", "elevenlabs"]],
         ["vgs.jarvis", "taskTerminal", null, ["auto", "tmux", "floating"]],
         ["vgs.jarvis", "cloudVision", null, ["ask", "allow", "never"]],
@@ -2563,7 +2562,7 @@ function suite(ctx, configLogic, check) {
         ["updates the user row in place", { plugins: [{ id: "acme.tune", size: 4 }, { id: "b.c" }] }, shippedTune, "plugins", [{ id: "acme.tune", size: 4, label: "new" }, { id: "b.c" }]],
         ["leaves a placed widget's layout entry alone", { bar: { id: "vgs.bar", layout: { left: [], center: [], right: [{ id: "acme.tune" }] } } }, tunePlaced, "bar.layout.right", [{ id: "acme.tune" }]],
         ["seeds no bar key", null, tunePlaced, "bar", undefined],
-        ["writes version 5", null, tunePlaced, "version", 5],
+        ["writes version 6", null, tunePlaced, "version", 6],
     ];
     for (const [name, user, effective, p, want] of settingRows) {
         check("withSetting: " + name, dig(ctx.withSetting(user, tunable, "label", "new", effective), p), want);
@@ -2577,7 +2576,7 @@ function suite(ctx, configLogic, check) {
         ["leaves the layout alone", labelled, "bar.layout", { left: [{ id: "acme.tune" }], center: [{ id: "b.c" }], right: [] }],
         ["a file with no row seeds none", null, "plugins", undefined],
         ["a file with no bar seeds none", null, "bar", undefined],
-        ["writes version 5", null, "version", 5],
+        ["writes version 6", null, "version", 6],
     ];
     for (const [name, user, p, want] of unsetRows) {
         check("withoutSetting: " + name, dig(ctx.withoutSetting(user, tunable, "label"), p), want);
@@ -2698,7 +2697,7 @@ function suite(ctx, configLogic, check) {
         ["a reset of the last entry removes keys", { plugins: [{ id: "acme.keys", keys: { toggle: "SUPER+K" } }] }, {}, "toggle", undefined, "plugins", [{ id: "acme.keys" }]],
         ["a reset no row needs writes no row", null, {}, "toggle", undefined, "plugins", undefined],
         ["a reset seeds from an effective row that holds the entry", null, keyRow, "toggle", undefined, "plugins", [{ id: "acme.keys", x: 1 }]],
-        ["writes version 5", null, {}, "toggle", "SUPER+K", "version", 5],
+        ["writes version 6", null, {}, "toggle", "SUPER+K", "version", 6],
     ];
     for (const [name, user, effective, shortcut, key, p, want] of keyRows) {
         check("withKey: " + name, dig(ctx.withKey(user, keyed, shortcut, key, effective), p), want);
