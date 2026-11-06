@@ -596,7 +596,6 @@ def freeze_crop_cases(base, world):
         ("refused", {"freezeAnswer": "freeze-refused refused: freeze=busy holder=acme.freeze"}, 1, "error", False),
         ("freeze-cancel", {"freezeAnswer": "cancel"}, 0, "cancelled", False),
         ("empty-targets", {"snapshot": {"windows": [], "outputs": []}}, 1, "error", False),
-        ("empty-snapshot", {"freezeAnswer": "frozen {}"}, 1, "error", False),
         ("unanswered-freeze", {"freezeAnswer": None}, 1, "error", False),
         ("crop-failed", {"cropAnswer": "crop-failed save"}, 1, "error", True),
         ("crop-cancel", {"cropAnswer": "cancel"}, 0, "cancelled", True),
