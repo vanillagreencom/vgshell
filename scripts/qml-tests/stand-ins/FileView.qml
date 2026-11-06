@@ -42,6 +42,8 @@ QtObject {
     property int watchers: 0
     property string written: ""
     property string content: ""
+    property var rawContent: null
+    property var diskData: null
     property string armedPath: ""
 
     signal loaded()
@@ -66,6 +68,30 @@ QtObject {
 
     function text() { if (!prepared) start(); return content; }
 
+    function data() {
+        if (!prepared && blockAllReads) {
+            prepared = true;
+            live = "";
+            rawContent = diskData;
+            loaded();
+        }
+        if (rawContent !== null) return rawContent;
+        const utf8 = unescape(encodeURIComponent(content));
+        return new Uint8Array(Array.from(utf8, c => c.charCodeAt(0))).buffer;
+    }
+
+    function setData(bytes) {
+        prepared = true;
+        live = "";
+        rawContent = bytes;
+        const error = failNextWrite;
+        failNextWrite = 0;
+        if (error === 0 && !loseNextWrite) diskData = bytes;
+        loseNextWrite = false;
+        if (error !== 0) saveFailed(error);
+        else saved();
+    }
+
     function start() {
         if (live !== "") return;
         live = "read";
@@ -85,6 +111,7 @@ QtObject {
     }
 
     function setText(bytes) {
+        rawContent = null;
         prepared = true;
         written = bytes;
         if (!blockWrites) {
@@ -108,7 +135,8 @@ QtObject {
         live = "";
     }
 
-    function finishRead(bytes) {
+    function finishRead(bytes, rawBytes) {
+        rawContent = rawBytes === undefined ? null : rawBytes;
         prepared = true;
         content = bytes;
         report(() => loaded());

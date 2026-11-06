@@ -91,6 +91,7 @@ Scope {
     }
 
     function consent() {
+        if (Notices.showingNewer) return Notices.newerView;
         if (Notices.showingRestart) return Notices.restartView;
         if (Notices.showingResetAsk) return Notices.resetView;
         if (Notices.showingResetDone) return Notices.resetDoneView;

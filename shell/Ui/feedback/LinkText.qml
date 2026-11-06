@@ -105,7 +105,10 @@ T.Control {
     signal clicked()
 
     function htmlEscaped(value) {
-        return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\u202f/g, "&#x202f;");
+        // StyledText requires <br> for a newline; a raw newline is whitespace,
+        // unlike the plain geometry twin's line break.
+        // https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop
+        return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>").replace(/\u202f/g, "&#x202f;");
     }
 
     function markup(plain, colour) {

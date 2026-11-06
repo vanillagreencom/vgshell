@@ -67,7 +67,10 @@ fi
 # that plugin beside a copy of the tests, which import it and read the
 # shipped themes by a relative path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
+# A needle can span lines to distinguish identical statements in different branches.
 mutations=(
+  "restoring accepted bytes after refused conversion keeps stale settings|../Core/Config.qml|                root.userText = null;"$'\n'"                root.user = r.value;|                root.userText = root.userText;"$'\n'"                root.user = r.value;|tst_config_writes.qml"
+  "a link label folds explicit breaks unlike its geometry twin|feedback/LinkText.qml|.replace(/\\n/g, \"<br>\")|.replace(/\\n/g, \"\\n\")|tst_linktext.qml"
   "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
   "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
   "message responses lose their secondary button style|layout/MessageRow.qml|variant: \"secondary\"|variant: \"primary\"|tst_message_patterns.qml"
@@ -2211,7 +2214,7 @@ mutation_plan=()
 ran_mutations=0
 skipped_mutations=0
 for index in "${!mutations[@]}"; do
-  IFS='|' read -r label file _needle _replacement test <<<"${mutations[index]}"
+  IFS='|' read -r -d '' label file _needle _replacement test < <(printf '%s\0' "${mutations[index]}")
   if mutation_selected "$index" "$file" "$test"; then
     mutation_plan+=("run $label")
     ran_mutations=$((ran_mutations + 1))
@@ -2263,7 +2266,7 @@ fresh "$copy"
 mutation_case() { # INDEX
   local index="$1" label file needle replacement test dir target count baseline_status mutant_status baseline_out out tests_dir
   local -a commons_args=() core_args=()
-  IFS='|' read -r label file needle replacement test <<<"${mutations[index]}"
+  IFS='|' read -r -d '' label file needle replacement test < <(printf '%s\0' "${mutations[index]}")
   # A `|` inside a field shifts the rest, and a runner handed a test that is
   # not there fails, which would read as a red mutation.
   if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; return 0; fi

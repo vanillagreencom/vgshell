@@ -182,6 +182,18 @@ Item {
             compare((escapedHtml.match(/<font color=/g) || []).length, 2);
         }
 
+        function test_styled_text_preserves_explicit_breaks_data() {
+            return [
+                { tag: "no newline", text: "alpha beta", want: "alpha beta" },
+                { tag: "explicit break", text: "alpha\nbeta", want: "alpha<br>beta" },
+                { tag: "blank line", text: "alpha\n\nbeta", want: "alpha<br><br>beta" }
+            ];
+        }
+
+        function test_styled_text_preserves_explicit_breaks(data) {
+            compare(linked.htmlEscaped(data.text), data.want);
+        }
+
         function test_empty_link_takes_no_tab_focus() {
             compare(linked.activeFocusOnTab, true);
             compare(plain.activeFocusOnTab, false);

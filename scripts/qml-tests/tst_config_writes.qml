@@ -110,11 +110,11 @@ Item {
             return watched(path).data[1];
         }
 
-        function finishNextRead(path, bytes) {
+        function finishNextRead(path, bytes, rawBytes) {
             const file = watched(path);
             if (!file.busy) file.read();
             tryCompare(view(path), "live", "read");
-            view(path).finishRead(bytes);
+            view(path).finishRead(bytes, rawBytes);
             compare(file.busy, false);
         }
 
@@ -128,6 +128,89 @@ Item {
                 if (child.path === Config.userPath && typeof child.waitForJob === "function") return child;
             }
             fail("no package review compare reader");
+        }
+
+        // expected-log: newer: version=5 supported=4 -- an installed build refuses a newer build's file
+        function test_newer_file_is_exposed_and_never_written() {
+            Config.user = null;
+            Config.userText = null;
+            Config.publish();
+            const bytes = "{\"version\":5,\"plugins\":\"unknown format\"}\n";
+            finishNextRead(Config.userPath, bytes);
+            compare(Config.userState, "newer");
+            compare(Config.newerVersion, 5);
+            compare(Config.user, null);
+            compare(Config.effective, { version: 4 });
+            verify(Config.writeUser({ version: 4, lost: true }) !== "ok");
+            compare(view(Config.userPath).content, bytes);
+        }
+
+        function bytesOf(text) {
+            return Array.from(text, c => c.charCodeAt(0));
+        }
+
+        function test_format_conversion_retains_exact_bytes_replaces_copy_and_keeps_it_on_current_reads() {
+            const copy = watched(Config.preConversionPath);
+            // The source is valid JSON after UTF-8 decoding. A byte that
+            // decodes to the replacement character must still be kept raw.
+            const first = bytesOf(' \r\n{ "version":3, "note":"x"}\r\n');
+            first[first.indexOf(120)] = 255;
+            finishNextRead(Config.userPath, ' \r\n{ "version":3, "note":"\ufffd"}\r\n', new Uint8Array(first).buffer);
+            compare(Config.userState, "loaded");
+            compare(Config.user.version, 4);
+            compare(Array.from(new Uint8Array(copy.diskData)), first);
+            verify(Config.preConversionPresent);
+            finishNextRead(Config.userPath, Config.userText);
+            compare(Array.from(new Uint8Array(copy.diskData)), first);
+            const second = '\t{"version":3,"note":"next"}\n';
+            finishNextRead(Config.userPath, second);
+            compare(Array.from(new Uint8Array(copy.diskData)), bytesOf(second));
+            fileHolds({ version: 4, note: "next" });
+        }
+
+        // expected-log: config: pre-conversion copy not saved: -- both the reported and false-success failures
+        function test_failed_conversion_copy_blocks_source_writes_and_retries_on_read() {
+            const copy = watched(Config.preConversionPath);
+            const cases = [
+                ["reported", "retry"], ["lost", "retry"],
+                ["reported", "restore"], ["lost", "restore"]
+            ];
+            const accepted = { version: 4, disabledPlugins: ["acme.off"], bar: { layout: { right: [{ id: "acme.kept" }] } } };
+            const acceptedBytes = JSON.stringify(accepted) + "\n";
+            for (const [kind, recovery] of cases) {
+                finishNextRead(Config.userPath, acceptedBytes);
+                const converted = { version: 4, disabledPlugins: [], bar: { layout: { right: [{ id: "acme.other-" + kind + "-" + recovery }] } } };
+                const bytes = JSON.stringify(Object.assign({}, converted, { version: 3 })) + "\n";
+                // A lost write must find stale bytes, never a prior row's
+                // successful retry of the same source.
+                copy.diskData = new Uint8Array(bytesOf(acceptedBytes)).buffer;
+                if (kind === "reported") copy.failNextWrite = 28;
+                else copy.loseNextWrite = true;
+                finishNextRead(Config.userPath, bytes);
+                compare(Config.userState, "migration-blocked");
+                compare(Config.user, converted);
+                compare(Config.effective, converted);
+                compare(view(Config.userPath).content, bytes);
+                verify(Config.writeUser({ version: 4, lost: true }) !== "ok");
+                compare(view(Config.userPath).content, bytes);
+                finishNextRead(Config.userPath, recovery === "retry" ? bytes : acceptedBytes);
+                compare(Config.userState, "loaded");
+                const recovered = recovery === "retry" ? converted : accepted;
+                compare(Config.user, recovered);
+                compare(Config.effective, recovered);
+                fileHolds(recovered);
+                if (recovery === "retry") compare(Array.from(new Uint8Array(copy.diskData)), bytesOf(bytes));
+                else {
+                    // Settings clones Config.user through this edit before
+                    // calling the writer; restored unrelated values must survive.
+                    const manifest = { id: "acme.edit", schema: { choice: { type: "string" } } };
+                    compare(Config.writeUser(PluginLogic.withSetting(Config.user, manifest, "choice", "next", Config.effective)), "ok");
+                    const written = Object.assign({}, accepted, { plugins: [{ id: "acme.edit", choice: "next" }] });
+                    compare(Config.user, written);
+                    compare(Config.effective, written);
+                    fileHolds(written);
+                }
+            }
         }
 
         function test_package_review_write_preserves_absence_and_other_settings() {
