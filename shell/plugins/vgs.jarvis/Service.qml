@@ -67,6 +67,8 @@ Item {
     // when that exit writes no line of its own.
     property string lastDiagnostic: ""
     property var audioHealth: ({ kind: "reading" })
+    property var echoCancel: null
+    property bool echoRefreshPending: false
     property var sessionState: null
     property var conversationLog: []
     // Survives daemon restarts and new conversations within this service.
@@ -90,7 +92,10 @@ Item {
         accountReader.voiceKeys === undefined ? null : accountReader.voiceKeys, shell.settings.voiceAccount, setupAnswer, voiceOffers])
     onElevenLabsFactsChanged: publishElevenLabs()
     readonly property string voiceProvider: shell !== null ? shell.settings.voiceProvider : ""
-    onVoiceProviderChanged: publishVoiceRoute()
+    onVoiceProviderChanged: {
+        publishVoiceRoute();
+        publishEchoCancel();
+    }
     property var homeMessage: ({ homes: [], current: "" })
     property var homePathRead: ({ kind: "empty" })
     onHomePathReadChanged: {
@@ -151,6 +156,12 @@ Item {
     // state (TuiRunner.editFor). A folder open has no editor run.
     readonly property var homeEditEndedAt: shell === null ? null : shell.tui.state.edit.endedAt
     onHomeEditEndedAtChanged: if (homeEditEndedAt !== null) hello()
+    readonly property var echoSetupEndedAt: shell === null ? null : shell.tui.state["setup-echo-cancel"].endedAt
+    onEchoSetupEndedAtChanged: {
+        if (echoSetupEndedAt === null) return;
+        echoRefreshPending = true;
+        refreshEchoCancel();
+    }
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
     // The core's one recording (D106), which the local voice's final words
     // come from (D064): a new copy after each change, and the cause the
@@ -360,6 +371,8 @@ Item {
         startTextShown = null;
         voiceOffers = 0;
         audioHealth = { kind: "reading" };
+        echoCancel = null;
+        publishEchoCancel();
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
         const result = StatusPublication.write(shell.status, "detail", null);
@@ -751,6 +764,23 @@ Item {
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
 
+    function publishEchoCancel() {
+        if (shell === null || voiceProvider === "") return false;
+        const values = Gate.echoCancellation(voiceProvider, echoCancel);
+        for (const key of ["echoCancel", "echoRoute"]) {
+            const reply = StatusPublication.write(shell.status, key, key === "echoCancel" ? values.setup : values.route);
+            if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+            if (reply !== "ok") return false;
+        }
+        return true;
+    }
+
+    function refreshEchoCancel() {
+        if (!echoRefreshPending || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        echoRefreshPending = false;
+        send({ type: "echo-cancel-refresh" });
+    }
+
 
     // The Personality row from the last personality message and the last
     // status's causes, which say whether AGENTS.md is over its budget.
@@ -1133,9 +1163,10 @@ Item {
     // default, so a device list leads with that default under PipeWire's own
     // name for it. Settings stores "" for that entry, never the name.
     function deviceOffers(key, devices) {
-        if (devices.length === 0) return devices;
+        const physical = devices.filter(choice => choice.value !== "jarvis_ec_source" && choice.value !== "jarvis_ec_sink");
+        if (physical.length === 0) return physical;
         const systemDefault = key === "microphones" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@";
-        return [{ label: "System default", value: systemDefault }].concat(devices);
+        return [{ label: "System default", value: systemDefault }].concat(physical);
     }
     function homeOffers(homes) {
         const offers = [{ label: "None", value: "none" }].concat(homes);
@@ -1209,6 +1240,11 @@ Item {
                         if (!shell.status.isOk(report)) throw new Error("jarvis: " + report);
                         if (report !== "ok") return;
                     }
+                    continue;
+                }
+                if (message.type === "echo-cancel") {
+                    echoCancel = { state: message.state, path: message.path, reason: message.reason };
+                    if (!publishEchoCancel()) return;
                     continue;
                 }
                 if (message.type === "homes") {
@@ -1367,6 +1403,7 @@ Item {
                 Qt.callLater(() => sendIndicator(indicatorPresented));
                 refreshShell();
                 deliverMainHost();
+                refreshEchoCancel();
             }
         } catch (error) { broken(error.message); }
     }

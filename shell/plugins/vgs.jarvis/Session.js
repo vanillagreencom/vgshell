@@ -188,9 +188,16 @@ function canCapture(s) {
     var checking = s.input.kind === "check" && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
         && s.fault.kind === "none" && ["waiting", "recording"].indexOf(s.check.kind) !== -1;
     return (canEngage(s) || checking) && s.indicator.kind === "shown"
-        && s.playback.kind === "idle" && s.cue.kind === "none" && s.turn.kind !== "cancelling"
+        && (s.playback.kind === "idle" || overlapping(s) && s.playback.kind === "playing")
+        && s.cue.kind === "none" && s.turn.kind !== "cancelling"
         && ["held", "conversation", "check"].indexOf(s.input.kind) !== -1
         && (s.conversation.kind !== "ended" && !previewConversation(s) || checking);
+}
+
+// Audio alone judges the connected native EC route. The engine name alone
+// cannot admit overlap, and checks and conversation tones stay exclusive.
+function overlapping(s) {
+    return s.duplex.kind === "full" && s.engine.kind === "duplex" && s.input.kind !== "check";
 }
 
 function sayRefusal(s) {
@@ -287,7 +294,8 @@ function think(s, effects, values, at) {
 
 function canPlayback(s) {
     return s.gate.kind === "up" && s.fault.kind !== "error" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1
-        && s.capture.kind === "closed";
+        && (s.capture.kind === "closed" || overlapping(s) && s.playback.kind === "playing"
+            && ["opening", "open"].indexOf(s.capture.kind) !== -1);
 }
 
 // A duplex reply plays when the conversation is live. Half duplex never runs
@@ -510,6 +518,7 @@ function reduce(state, e) {
         if (s.settings.sounds !== true) s.cue = { kind: "none" };
         if (s.settings.sounds !== true && s.playback.kind === "feedback" && s.playback.cue !== "line") flushPlayback(s, effects);
         s.engine = { kind: e.engine };
+        s.duplex = { kind: e.engine === "duplex" && e.echoCancel === true ? "full" : "half" };
         if (e.locked !== false || !e.configured) {
             if (e.locked !== false || e.checkReady !== true || ["waiting", "recording", "finishing"].indexOf(s.check.kind) === -1) end(s, effects, e.at, "gate", false);
             s.gate = { kind: "down", reason: e.locked === null ? "lock-unknown"
@@ -1003,7 +1012,7 @@ var REGIONS = {
     history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },
-    indicator: { gone: "", shown: "" }, duplex: { half: "" },
+    indicator: { gone: "", shown: "" }, duplex: { half: "", full: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
     check: { unavailable: "", kept: "result device", ready: "", again: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result device", failed: "reason device" }
 };

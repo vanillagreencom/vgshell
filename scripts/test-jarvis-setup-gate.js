@@ -1545,6 +1545,49 @@ function verifyVoiceRoute(gate, serviceSource) {
     assert.equal(sentences.size, manifest.schema.voiceProvider.options.length, "the Voice provider hint: one sentence per provider");
 }
 
+function verifyEchoCancellation(gate, serviceSource) {
+    const file = "/home/user/config/pipewire/pipewire.conf.d/80-vgs-jarvis-echo-cancel.conf";
+    for (const provider of ["local", "elevenlabs", "realtime", "gemini"]) {
+        for (const [state, tone, action] of [[null, "info", false], ["absent", "info", true],
+            ["pending", "info", true], ["active", "ok", true], ["foreign", "warning", false], ["unavailable", "warning", true]]) {
+            const values = {};
+            const shell = { status: { isOk: judge.statusReplyOk, set: (key, value) => {
+                assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, provider + ": " + state + ": accepted status");
+                values[key] = value;
+                return "ok";
+            } } };
+            serviceCall(serviceSource, "publishEchoCancel", { shell, voiceProvider: provider,
+                echoCancel: state === null ? null : { state, path: file, reason: state === "active" ? "" : "fixture" } }, gate);
+            assert.equal(values.echoCancel.tone, tone);
+            assert.equal(values.echoCancel.action, action);
+            assert.equal(values.echoRoute.lines !== undefined, state === "active" && ["realtime", "gemini"].includes(provider));
+            if (state !== null) assert.equal(values.echoCancel.info.includes(file), true, "configuration path remains visible");
+            const status = judge.statusRows(manifest, values);
+            assert.equal(settings.detailEntries(status).some(entry => entry.key === "echoRoute"), true);
+            assert.equal(settings.detailEntries(status).some(entry => entry.key === "echoCancel"), false, "setup action stays on Setup");
+        }
+    }
+    assert.equal(manifest.status.echoCancel.setup, "optional");
+    assert.equal(manifest.status.echoCancel.action.tui, "setup-echo-cancel");
+    assert.equal(manifest.tui["setup-echo-cancel"].script, "tui/setup-echo-cancel.sh");
+    assert.equal(manifest.tui["setup-echo-cancel"].args, undefined, "no page text becomes installer arguments");
+    const longPath = "/" + "directory/".repeat(400) + "echo.conf";
+    const long = gate.echoCancellation("gemini", { state: "pending", path: longPath, reason: "nodes-missing" });
+    assert.equal(judge.statusWrite(manifest, {}, "echoCancel", long.setup).ok, true, "long actual paths fit the info contract");
+    for (const blocked of [{ lifetime: { kind: "starting" } }, { child: { running: false } }, { cause: "stopped" }, { shell: null }]) {
+        const root = { echoRefreshPending: true, shell: {}, lifetime: { kind: "ready" }, child: { running: true }, cause: "", ...blocked,
+            send() { assert.fail("an unavailable child cannot receive the refresh"); } };
+        serviceCall(serviceSource, "refreshEchoCancel", root, gate);
+        assert.equal(root.echoRefreshPending, true, "completion refresh waits for the ready child");
+    }
+    const sent = [];
+    const root = { echoRefreshPending: true, shell: {}, lifetime: { kind: "ready" }, child: { running: true }, cause: "",
+        send(value) { sent.push(JSON.parse(JSON.stringify(value))); } };
+    serviceCall(serviceSource, "refreshEchoCancel", root, gate);
+    serviceCall(serviceSource, "refreshEchoCancel", root, gate);
+    assert.deepEqual(sent, [{ type: "echo-cancel-refresh" }], "one completion reads installation again without inferring success");
+}
+
 // Every Jarvis session row beside every Setup summary, its states taken
 // from SetupGate.js's own tables and required to hold the contract's: a
 // warning or danger row stands beside a Ready summary only when that
@@ -2056,6 +2099,7 @@ function verify(gate) {
     verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyElevenLabsRow(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyVoiceRoute(gate, fs.readFileSync(serviceFile, "utf8"));
+    verifyEchoCancellation(gate, fs.readFileSync(serviceFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {

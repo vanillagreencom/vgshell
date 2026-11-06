@@ -8,6 +8,158 @@ const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
 const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Audio.js");
 const { Audio } = require(file);
+const EchoCancel = require("../shell/plugins/vgs.jarvis/backend/EchoCancel.js");
+require("../shell/plugins/vgs.jarvis/backend/Core.js").use(tree);
+
+function echoGraph() {
+    const targets = { microphone: "physical.mic", speaker: "physical.speaker" }, group = EchoCancel.group(targets);
+    const node = (id, name, media, props = {}) => ({ id, type: "PipeWire:Interface:Node",
+        info: { props: { "node.name": name, "media.class": media, ...props } } });
+    return { targets, graph: [
+        node(10, targets.microphone, "Audio/Source", { "device.id": 8 }),
+        node(11, targets.speaker, "Audio/Sink", { "device.id": 8 }),
+        ...Object.entries(EchoCancel.NAMES).map(([role, name], i) => node(20 + i, name,
+            { capture: "Stream/Input/Audio", source: "Audio/Source", sink: "Audio/Sink", playback: "Stream/Output/Audio" }[role],
+            { "node.group": group, "node.link-group": group, "node.virtual": true,
+                ...(role === "capture" ? { "target.object": targets.microphone }
+                    : role === "playback" ? { "target.object": targets.speaker } : {}) })),
+        { id: 30, type: "PipeWire:Interface:Module", info: { name: "libpipewire-module-echo-cancel",
+            args: "{\n" + EchoCancel.argumentsText(targets) + "\n}" } },
+        { id: 31, type: "PipeWire:Interface:Link", info: { "output-node-id": 10, "input-node-id": 20, state: "paused" } },
+        { id: 32, type: "PipeWire:Interface:Link", info: { "output-node-id": 23, "input-node-id": 11, state: "active" } },
+        { id: 4, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "default" }, metadata: [
+            { subject: 0, key: "default.audio.source", type: "Spa:String:JSON", value: { name: targets.microphone } },
+            { subject: 0, key: "default.audio.sink", type: "Spa:String:JSON", value: { name: targets.speaker } }
+        ] }
+    ] };
+}
+
+async function echoRoutes(Implementation = Audio) {
+    const fixture = echoGraph(), w = setup(Implementation);
+    try {
+        w.audio.echoFile = { state: "installed", path: "/fixture/pipewire.conf.d/60-jarvis-echo-cancel.conf", reason: "", targets: fixture.targets };
+        w.audio.snapshot(fixture.graph, "full");
+        w.dispatch("snapshot", { locked: false, configured: true, engine: "duplex", echoCancel: true,
+            settings: { microphone: "", speaker: "" } });
+        assert.equal(w.audio.echoRoute.state, "active", "connected native graph matches the owned plan");
+        assert.equal(w.audio.echoActive(), true);
+        assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, "duplex"), "jarvis_ec_source");
+        assert.equal((await w.audio.selected("speakers", "speaker")).target, "jarvis_ec_sink");
+        for (const engine of ["dictation", "chained"]) {
+            assert.equal(w.audio.echoActive(engine), false, engine + " keeps half duplex");
+            assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, engine), fixture.targets.microphone);
+        }
+        assert.deepEqual(w.audio.setupTargets(w.runner.state.settings), fixture.targets,
+            "setup reuses the physical selection while live audio chooses the EC pair");
+        for (const row of [
+            { name: "unrelated module", id: 30, change: item => { item.info.args = "library.name=aec/libspa-aec-webrtc"; } },
+            { name: "wrong module", id: 30, change: item => { item.info.name = "libpipewire-module-loopback"; } },
+            { name: "wrong group", id: 21, change: item => { item.info.props["node.group"] = "other-ec"; } },
+            { name: "wrong physical target", id: 20, change: item => { item.info.props["target.object"] = "other.mic"; } },
+            { name: "failed link", id: 31, change: item => { item.info.state = "error"; } },
+            { name: "wrong link", id: 32, change: item => { item.info["input-node-id"] = 10; } },
+            { name: "missing module", id: 30, remove: true },
+            { name: "missing source", id: 21, remove: true }
+        ]) {
+            const graph = structuredClone(fixture.graph);
+            if (row.remove) graph.splice(graph.findIndex(item => item.id === row.id), 1);
+            else row.change(graph.find(item => item.id === row.id));
+            w.audio.snapshot(graph, "full");
+            assert.equal(w.audio.echoRoute.state, "pending", row.name);
+            assert.equal(w.audio.echoActive(), false, row.name + " grants no overlap");
+            assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, "duplex"), fixture.targets.microphone,
+                row.name + " changes the check source with the actual route");
+        }
+        w.audio.snapshot(fixture.graph, "full");
+        w.audio.snapshot([{ id: 13, type: "PipeWire:Interface:Node", info: { props: {
+            "node.name": "physical.usb", "media.class": "Audio/Source", "device.id": 9 } } }]);
+        w.dispatch("snapshot", { locked: false, configured: true, engine: "duplex", echoCancel: true,
+            settings: { microphone: "physical.usb", speaker: "" } });
+        assert.equal(w.audio.echoRoute.reason, "targets-changed", "a new physical setting needs explicit setup again");
+        assert.equal(w.audio.echoActive(), false);
+        w.dispatch("snapshot", { locked: false, configured: true, engine: "duplex", echoCancel: false,
+            settings: { microphone: "", speaker: "" } });
+        w.audio.snapshot(fixture.graph, "full");
+        const crowded = Array.from({ length: 32 }, (_, i) => ({ id: 100 + i, type: "PipeWire:Interface:Node",
+            info: { props: { "node.name": "a.mic." + i, "media.class": "Audio/Source", "device.id": i + 100 } } }));
+        w.audio.snapshot([...fixture.graph, ...crowded], "full");
+        assert.equal(w.audio.echoActive(), false, "raw pair presence outside bounded target offers grants no overlap");
+        w.audio.snapshot(fixture.graph, "full");
+        w.audio.capture = { target: fixture.targets.microphone };
+        assert.equal(w.audio.echoActive(), false, "an existing physical recorder cannot inherit full duplex");
+        w.audio.capture = null;
+        const child = {};
+        w.audio.children.set(child, { kind: "playback", target: fixture.targets.speaker, stopping: true });
+        assert.equal(w.audio.echoActive(), false, "retiring physical audio waits for its actual exit");
+        w.audio.children.delete(child);
+        assert.equal(w.audio.echoActive(), true);
+        w.audio.snapshot([{ id: 31, info: null }]);
+        assert.equal(w.audio.echoActive(), false, "monitor removal revokes route admission");
+        w.audio.snapshot(fixture.graph, "full");
+        const overlap = { ids: new Set([31]), defaults: false };
+        w.audio.snapshot([{ id: 31, info: { state: "error" }, type: "PipeWire:Interface:Link" }]);
+        w.audio.snapshot(fixture.graph, "full", overlap);
+        assert.equal(w.audio.echoActive(), false, "an older full read cannot revive a failed monitor link");
+    } finally { w.audio.capture = null; w.audio.children.clear(); w.runner.close(); await w.audio.close("test-end"); }
+}
+
+function echoInstallation() {
+    const root = fs.mkdtempSync(path.join(process.env.HOME, "echo-setup-")), targets = echoGraph().targets;
+    const environment = { HOME: root }, file = EchoCancel.location(environment);
+    try {
+        assert.equal(EchoCancel.read(environment).state, "absent");
+        const installed = cp.spawnSync(process.execPath, [path.join(tree, "shell/plugins/vgs.jarvis/backend/echo-cancel-setup.js"), "install", tree], {
+            env: { HOME: root, PATH: process.env.PATH }, input: JSON.stringify(targets), encoding: "utf8", timeout: 10000
+        });
+        assert.equal(installed.error, undefined);
+        assert.equal(installed.status, 0, installed.stderr);
+        const before = fs.statSync(file);
+        assert.equal(EchoCancel.read(environment).state, "installed");
+        const content = fs.readFileSync(file, "utf8");
+        for (const clause of ["name = libpipewire-module-echo-cancel", "library.name = aec/libspa-aec-webrtc",
+            "webrtc.noise_suppression = false", "webrtc.gain_control = false", "webrtc.high_pass_filter = true",
+            'target.object = "physical.mic"', 'target.object = "physical.speaker"',
+            "node.name = jarvis_ec_source", "node.name = jarvis_ec_sink"])
+            assert.equal(content.includes(clause), true, "PipeWire consumes the native configuration: " + clause);
+        assert.equal(EchoCancel.install(environment, targets).changed, false);
+        const after = fs.statSync(file);
+        assert.equal(after.ino, before.ino, "unchanged setup keeps the existing file");
+        assert.equal(after.mtimeMs, before.mtimeMs, "unchanged setup needs no restart");
+        const rename = fs.renameSync;
+        try {
+            fs.renameSync = () => { throw Object.assign(new Error("fixture replacement failed"), { code: "EIO" }); };
+            assert.throws(() => EchoCancel.install(environment, { ...targets, microphone: "physical.usb" }), { code: "EIO" });
+            assert.equal(fs.readFileSync(file, "utf8"), content, "a failed replacement preserves the complete installed file");
+            assert.deepEqual(fs.readdirSync(path.dirname(file)), [path.basename(file)]);
+        } finally { fs.renameSync = rename; }
+        const link = fs.linkSync;
+        fs.unlinkSync(file);
+        try {
+            fs.linkSync = () => { throw Object.assign(new Error("fixture publication failed"), { code: "EIO" }); };
+            assert.throws(() => EchoCancel.install(environment, targets), { code: "EIO" });
+            assert.equal(fs.existsSync(file), false, "a failed publication exposes no partial configuration");
+            assert.deepEqual(fs.readdirSync(path.dirname(file)), [], "the owned temporary file is removed");
+        } finally { fs.linkSync = link; }
+        for (const row of [
+            { name: "foreign", prepare: () => fs.writeFileSync(file, "# User configuration\n"), read: () => fs.readFileSync(file, "utf8") },
+            { name: "edited owned", prepare: () => fs.writeFileSync(file, EchoCancel.render(targets) + "# User edit\n"), read: () => fs.readFileSync(file, "utf8") },
+            { name: "linked", prepare: () => fs.symlinkSync(path.join(root, "keep"), file), read: () => fs.readlinkSync(file) }
+        ]) {
+            fs.writeFileSync(path.join(root, "keep"), "keep\n");
+            row.prepare();
+            const unchanged = row.read();
+            assert.equal(EchoCancel.read(environment).state, "foreign", row.name);
+            assert.throws(() => EchoCancel.install(environment, targets), { message: /^echo-cancel-/ }, row.name);
+            assert.equal(row.read(), unchanged, row.name + " remains unchanged");
+            assert.equal(fs.readFileSync(path.join(root, "keep"), "utf8"), "keep\n");
+            fs.unlinkSync(file);
+        }
+        const linkedRoot = path.join(root, "linked-config");
+        fs.symlinkSync(path.dirname(path.dirname(file)), linkedRoot);
+        assert.equal(EchoCancel.read({ HOME: root, XDG_CONFIG_HOME: linkedRoot }).state, "foreign");
+        assert.throws(() => EchoCancel.install({ HOME: root, XDG_CONFIG_HOME: linkedRoot }, targets), { message: /^echo-cancel-config-/ });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
 
 function setup(Implementation = Audio, sink = null, source = null, clock = null, spoken = true) {
     const levels = [], offers = [], faults = [];
@@ -148,6 +300,8 @@ async function inside() {
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
     await cloudInput();
+    await echoRoutes();
+    echoInstallation();
     await firstPlayback();
     async function desktopDefaults(Implementation = Audio) {
         const w = setup(Implementation);
@@ -792,6 +946,8 @@ async function inside() {
     }
     await control("cloud-level-gate", 'gate: this.state.engine.kind === "duplex" ?',
         'gate: false ?', cloudInput);
+    await control("echo-physical-links", 'if (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id)) return "links-missing";',
+        'if (false && (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id))) return "links-missing";', echoRoutes);
     await control("silent-hint", "capture.frames >= SILENT_FRAMES", "false", cloudInput);
     await control("native-close-result", "speech: capture.gate.committed", "speech: false", cloudInput);
     await control("desktop-default", 'if (!before.unsettled.includes(group)) return before[group];',

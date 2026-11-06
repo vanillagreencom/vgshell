@@ -62,6 +62,9 @@ assert.equal(manifest.capabilities.includes("shortcut") && manifest.capabilities
 assert.equal(manifest.requirements.some(row => row.command === "pw-cli"), false);
 const devices = { v: 1, type: "devices", gen: 0, revision: hello.revision,
     microphones: [{ label: "Microphone", value: "fixture.mic" }], speakers: [] };
+const echoCancel = { v: 1, type: "echo-cancel", gen: 0, revision: hello.revision,
+    state: "active", path: "/private/config/pipewire/pipewire.conf.d/80-vgs-jarvis-echo-cancel.conf", reason: "" };
+const echoRefresh = { v: 1, type: "echo-cancel-refresh", gen: 0, revision: hello.revision };
 const homes = { v: 1, type: "homes", gen: 0, revision: hello.revision,
     homes: [{ id: "h012345abcdef", label: "~/Jarvis", value: "~/Jarvis" }], current: "~/Jarvis" };
 const voices = { v: 1, type: "voices", gen: 0, revision: hello.revision, voices: [{ label: "Heart, American English, female", value: "af_heart" }] };
@@ -215,6 +218,16 @@ const cases = [
     ["audio-fault", changed(audioFault, { reason: "" }), "daemon", "audio-fault"],
     ["device-setting", changed(hello, { settings: { ...hello.settings, microphone: 1 } }), "shell", "device-setting"],
     ["devices-direction", JSON.stringify(devices), "shell", "direction-devices"],
+    ["echo-direction", JSON.stringify(echoCancel), "shell", "direction-echo-cancel"],
+    ["echo-refresh-direction", JSON.stringify(echoRefresh), "daemon", "direction-echo-cancel-refresh"],
+    ["echo-state", changed(echoCancel, { state: "installed" }), "daemon", "echo-cancel"],
+    ["echo-active-path", changed(echoCancel, { path: "" }), "daemon", "echo-cancel"],
+    ["echo-relative-path", changed(echoCancel, { path: "relative" }), "daemon", "echo-cancel"],
+    ["echo-active-reason", changed(echoCancel, { reason: "module-missing" }), "daemon", "echo-cancel"],
+    ["echo-pending-reason", changed(echoCancel, { state: "pending" }), "daemon", "echo-cancel"],
+    ["echo-reason-bound", changed(echoCancel, { state: "pending", reason: "a".repeat(61) }), "daemon", "echo-cancel"],
+    ["echo-extra", changed(echoCancel, { ready: true }), "daemon", "shape-echo-cancel"],
+    ["echo-refresh-extra", changed(echoRefresh, { installed: true }), "shell", "shape-echo-cancel-refresh"],
     ["choices", changed(devices, { microphones: {} }), "daemon", "choices"],
     ["choice", changed(devices, { microphones: [{ label: "Microphone", value: "" }] }), "daemon", "choice"],
     ["choice-duplicate", changed(devices, { microphones: devices.microphones.concat(devices.microphones) }), "daemon", "choice-duplicate"],
@@ -572,14 +585,15 @@ for (const holdToTalk of [false, true])
 // not a cancellation command, and a stale request cannot name a new hold.
 rejected(Protocol, ["deny-intent", changed(intent, { intent: "deny" }), "shell", "intent"]);
 rejected(Protocol, ["cancel-without-id", changed(intent, { intent: "cancel" }), "shell", "shape-cancel"]);
-for (const message of [devices, homes, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
+for (const message of [devices, echoCancel, ...["absent", "foreign", "pending", "unavailable"].map(state => ({ ...echoCancel, state, reason: "fixture" })),
+    { ...echoCancel, state: "unavailable", path: "", reason: "config-path" }, homes, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
     { ...memoryInbox, entries: [{ ...memoryEntry, problem: "write" }] },
     taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 }, localReleased,
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
     { ...shellStatus, availability: { kind: "unavailable", reason: "bwrap-missing" } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "daemon")), JSON.stringify(message));
-for (const message of [taskRespond, { ...taskRespond, answer: { v: 1, kind: "reply", text: "main" } }, requirementsScan, { ...requirementsScan, scan: 0 }, { ...requirementsScan, scan: Number.MAX_SAFE_INTEGER }, taskStop, tuiState, { ...tuiState, running: false }, localSetup, { ...localSetup, running: false }, taskReply, { ...taskReply, answer: "ok" },
+for (const message of [echoRefresh, taskRespond, { ...taskRespond, answer: { v: 1, kind: "reply", text: "main" } }, requirementsScan, { ...requirementsScan, scan: 0 }, { ...requirementsScan, scan: Number.MAX_SAFE_INTEGER }, taskStop, tuiState, { ...tuiState, running: false }, localSetup, { ...localSetup, running: false }, taskReply, { ...taskReply, answer: "ok" },
     { ...taskReply, answer: "x".repeat(300) }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const cloudVision of ["ask", "allow", "never"])

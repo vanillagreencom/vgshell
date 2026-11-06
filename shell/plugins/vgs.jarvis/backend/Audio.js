@@ -1,6 +1,6 @@
 // One owner for capture, paced playback, heard-prefix reports and the sidecar feed.
 // Speech consumers supply PCM sinks/sources. Audio never transcribes
-// or changes a default device. Session admits half-duplex only.
+// or changes a default device. Session admits overlap only for its judged EC route.
 // playbackSource(op) answers null or {readable, spoken}: spoken is true when
 // the readable carries Jarvis's spoken words, which voice mute silences, and
 // false for a conversation start/stop sound or a voice preview. A packet {pcm, tone: true} is
@@ -10,6 +10,7 @@
 const cp = require("node:child_process");
 const path = require("node:path");
 const { Readable } = require("node:stream");
+const EchoCancel = require("./EchoCancel.js");
 
 const PCM_RATE = 24000;
 const SENTENCE_FRAMES = PCM_RATE * 30;
@@ -85,7 +86,7 @@ function storeDefaults(node) {
 }
 
 class Audio {
-    constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource, input = () => {} }) {
+    constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource, input = () => {}, echo = () => {} }) {
         this.session = session;
         this.environment = {};
         for (const key of ["PATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
@@ -98,12 +99,16 @@ class Audio {
         this.captureSink = captureSink;
         this.playbackSource = playbackSource;
         this.input = input;
+        this.echo = echo;
+        this.echoFile = { state: "absent", path: "", reason: "not-installed" };
+        this.echoRoute = { state: "absent", path: "", reason: "not-installed" };
         this.children = new Map();
         this.state = null;
         this.lifetime = { kind: "open" };
         this.devices = { microphones: [], speakers: [] };
         this.discovery = { kind: "idle", retries: 0 };
         this.nodes = new Map();
+        this.graph = new Map();
         // One record per full read in flight of what monitor deltas touched
         // during it: the object ids they named and whether the defaults moved.
         this.reads = new Set();
@@ -144,12 +149,17 @@ class Audio {
         };
     }
 
-    observe(state) { this.state = state; }
+    observe(state) {
+        const settings = this.state?.settings;
+        this.state = state;
+        if (settings !== state.settings) this.judgeEcho();
+    }
 
     allowed(kind) {
         const s = this.state;
         return this.lifetime.kind === "open" && s !== null
-            && (kind === "playback" ? this.session.canPlayback(s) : this.session.canCapture(s));
+            && (kind === "playback" ? this.session.canPlayback(s) : this.session.canCapture(s))
+            && (!(kind === "playback" ? this.capture !== null : this.playback !== null) || this.echoActive());
     }
 
     async spawn(kind, command, args = []) {
@@ -160,7 +170,8 @@ class Audio {
             path.join(__dirname, "audio-child.py"), "outer", String(process.pid), command, ...args], {
             env: this.environment, stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"]
         });
-        const owner = { child, kind, stopping: false, diagnostic: "", exit: null };
+        const owner = { child, kind, stopping: false, diagnostic: "", exit: null,
+            target: args.includes("--target") ? args[args.indexOf("--target") + 1] : null };
         this.children.set(child, owner);
         child.stdin.on("error", error => {
             if (!owner.stopping && error.code !== "EPIPE") this.fault("audio-write-" + error.code);
@@ -182,6 +193,9 @@ class Audio {
         });
         owner.closed = closed;
         child.stdio[3].write("S");
+        closed.then(() => {
+            if (this.lifetime.kind === "open" && (kind === "capture" || kind === "playback")) this.offers(this.devices);
+        });
         const ready = new Promise((resolve, reject) => {
             child.stdio[4].once("error", reject);
             child.stdio[4].once("data", data => data.equals(Buffer.from("R"))
@@ -244,7 +258,9 @@ class Audio {
         });
         this.devices = { microphones: [], speakers: [] };
         this.nodes.clear();
+        this.graph.clear();
         this.defaults = noDefaults(null);
+        this.judgeEcho();
         this.offers(this.devices);
         this.failCapture("discovery-failed", error.message);
         this.fault(error.message);
@@ -303,9 +319,10 @@ class Audio {
     // it ran; null means none came.
     snapshot(snapshot, mode = "delta", overlap = null) {
         if (!Array.isArray(snapshot) || snapshot.length > 4096) throw new Error("discovery-shape");
-        const held = { nodes: this.nodes, defaults: this.defaults };
+        const held = { nodes: this.nodes, graph: this.graph, defaults: this.defaults };
         if (mode === "full") {
             this.nodes = new Map();
+            this.graph = new Map();
             this.defaults = noDefaults(null);
         }
         for (const node of snapshot) {
@@ -313,6 +330,7 @@ class Audio {
             if (mode === "delta") for (const read of this.reads) read.ids.add(node.id);
             if (node.info === null) {
                 this.nodes.delete(node.id);
+                this.graph.delete(node.id);
                 if (node.id === this.defaults.id) this.defaults = noDefaults(null);
             }
             // A store new to the monitor arrives whole. A later delta holds
@@ -336,6 +354,7 @@ class Audio {
                 const group = props["media.class"] === undefined ? (prior && prior.group)
                     : props["media.class"] === "Audio/Source" ? "microphones"
                     : props["media.class"] === "Audio/Sink" ? "speakers" : null;
+                this.graphNode(node);
                 if (!group) { this.nodes.delete(node.id); continue; }
                 const value = props["node.name"] === undefined ? (prior && prior.value) : props["node.name"];
                 const label = props["node.description"] || props["node.nick"] || (prior && prior.label) || value;
@@ -346,6 +365,9 @@ class Audio {
                 // Retain only bounded offer data, never arbitrary properties
                 // another client can add or remove indefinitely.
                 this.nodes.set(node.id, { group, label: label.slice(0, 60), value });
+            }
+            else if (node.type === "PipeWire:Interface:Link" || node.type === "PipeWire:Interface:Module") {
+                this.graphObject(node);
             }
         }
         if (mode === "delta" && this.defaults !== held.defaults)
@@ -359,6 +381,9 @@ class Audio {
             for (const id of overlap.ids)
                 if (held.nodes.has(id)) this.nodes.set(id, held.nodes.get(id));
                 else this.nodes.delete(id);
+            for (const objectId of overlap.ids)
+                if (held.graph.has(objectId)) this.graph.set(objectId, held.graph.get(objectId));
+                else this.graph.delete(objectId);
             if (overlap.defaults) this.defaults = held.defaults;
         }
         const devices = { microphones: [], speakers: [] };
@@ -371,6 +396,7 @@ class Audio {
             devices[group] = devices[group].slice(0, 32);
         }
         this.devices = devices;
+        this.judgeEcho();
         this.offers(devices);
         if (this.capture !== null && this.capture.target !== null
                 && !devices.microphones.some(item => item.value === this.capture.target))
@@ -383,6 +409,8 @@ class Audio {
     // GROUP's device under SETTING: the setting's, else the default, as
     // { target, from } with target null while no store names a default.
     choice(group, setting, settings, engine) {
+        if (engine === "duplex" && this.echoRoute.state === "active")
+            return { target: group === "microphones" ? EchoCancel.NAMES.source : EchoCancel.NAMES.sink, from: "echo-cancel" };
         const configured = group === "microphones" && engine === "dictation" ? "" : settings[setting] || "";
         return configured === "" ? { target: this.defaults[group], from: "default" } : { target: configured, from: "setting" };
     }
@@ -409,6 +437,7 @@ class Audio {
         if (this.defaults !== before) return this.defaults.unsettled.includes(group) ? read[group] : this.defaults[group];
         if (read.id === before.id) {
             this.defaults = read;
+            this.judgeEcho();
             // The daemon's check source follows the default microphone.
             if (read.microphones !== before.microphones) this.offers(this.devices);
         }
@@ -420,6 +449,134 @@ class Audio {
         if (choice.from === "default") choice.target = await this.settled(group);
         if (!this.devices[group].some(item => item.value === choice.target)) throw new Error(this.lost(group, choice));
         return choice;
+    }
+
+    // Setup and live capture share this target judge. The setup window passes
+    // settings read by vgshell's existing config owner, never a private reader.
+    setupTargets(settings) {
+        const chosen = {};
+        for (const [group, setting] of [["microphones", "microphone"], ["speakers", "speaker"]]) {
+            const choice = this.choice(group, setting, settings, "setup");
+            const nodes = [...this.graph.values()].filter(node => node.kind === "node" && node.name === choice.target);
+            if (this.defaults.unsettled.includes(group) && choice.from === "default") throw new Error("echo-cancel-default-unsettled");
+            if (nodes.length !== 1 || !this.physical(nodes[0], group)
+                    || !this.devices[group].some(node => node.value === choice.target)) throw new Error("echo-cancel-physical-" + setting);
+            chosen[setting] = choice.target;
+        }
+        return EchoCancel.targets(chosen);
+    }
+
+    physical(node, group) {
+        return node.media === (group === "microphones" ? "Audio/Source" : "Audio/Sink")
+            && node.device !== null && node.virtual !== true && !Object.values(EchoCancel.NAMES).includes(node.name);
+    }
+
+    graphNode(node) {
+        const prior = this.graph.get(node.id), props = node.info.props;
+        const read = (key, field) => props[key] === undefined ? prior?.[field] ?? null : props[key];
+        const bounded = value => typeof value === "string" && value.length <= 200 ? value : null;
+        this.graphSet(node.id, { kind: "node", id: node.id,
+            name: bounded(read("node.name", "name")), media: bounded(read("media.class", "media")),
+            group: bounded(read("node.group", "group")), linkGroup: bounded(read("node.link-group", "linkGroup")),
+            target: bounded(read("target.object", "target")),
+            device: /^\d{1,20}$/.test(String(read("device.id", "device"))) ? String(read("device.id", "device")) : null,
+            virtual: [true, "true"].includes(read("node.virtual", "virtual")) });
+    }
+
+    graphObject(node) {
+        const prior = this.graph.get(node.id), info = node.info;
+        if (!info) return;
+        if (node.type === "PipeWire:Interface:Module") {
+            const name = info.name === undefined ? prior?.name : info.name;
+            const args = info.args === undefined ? prior?.args : info.args;
+            this.graphSet(node.id, { kind: "module", name: typeof name === "string" ? name.slice(0, 200) : null,
+                args: typeof args === "string" && args.length <= 16384 ? args : null });
+        } else {
+            // pw-dump's link info carries node ids and link state, including
+            // paused passive EC links. The native module keeps those streams
+            // passive until an application uses its source or sink.
+            // https://github.com/PipeWire/pipewire/blob/1.6.10/src/tools/pw-dump.c
+            const read = (key, field) => info[key] === undefined ? prior?.[field] ?? null : info[key];
+            const output = read("output-node-id", "output"), input = read("input-node-id", "input"), state = read("state", "state");
+            this.graphSet(node.id, { kind: "link", output: Number.isSafeInteger(output) ? output : null,
+                input: Number.isSafeInteger(input) ? input : null,
+                state: typeof state === "string" && state.length <= 30 ? state : null });
+        }
+    }
+
+    graphSet(id, value) {
+        if (!this.graph.has(id) && this.graph.size >= 4096) throw new Error("discovery-graph");
+        this.graph.set(id, value);
+    }
+
+    refreshEcho() {
+        this.echoFile = EchoCancel.read(this.environment);
+        this.judgeEcho();
+    }
+
+    judgeEcho() {
+        const file = this.echoFile;
+        let state = file.state, reason = file.reason;
+        if (state === "installed") {
+            state = "pending";
+            reason = this.echoGraph();
+            if (reason === "") state = "active";
+            else if (reason === "discovery-unavailable") state = "unavailable";
+        }
+        const reading = { state, path: file.path, reason };
+        if (JSON.stringify(reading) === JSON.stringify(this.echoRoute)) return;
+        this.echoRoute = reading;
+        this.echo(reading);
+    }
+
+    echoGraph() {
+        if (this.discovery.kind !== "monitoring" && this.graph.size === 0) return "discovery-unavailable";
+        const objects = [...this.graph.values()];
+        // pw-dump publishes the native module's original argument string
+        // (module_dump). Match the arguments our writer supplied, rather than
+        // accepting an unrelated loaded EC module beside matching node names.
+        // 1.6.10 conf.c parse_modules keeps container bytes, json-core.h
+        // spa_json_parse_stringn preserves them, and impl-module.c copies args.
+        const argumentsText = EchoCancel.argumentsText(this.echoFile.targets);
+        if (!objects.some(node => node.kind === "module" && node.name === "libpipewire-module-echo-cancel"
+                && node.args !== null && node.args.includes(argumentsText))) return "module-missing";
+        const nodes = {};
+        for (const [role, name] of Object.entries(EchoCancel.NAMES)) {
+            const found = objects.filter(node => node.kind === "node" && node.name === name);
+            if (found.length !== 1 || found[0].group !== EchoCancel.group(this.echoFile.targets)
+                    || found[0].linkGroup !== found[0].group) return "nodes-missing";
+            nodes[role] = found[0];
+        }
+        if (nodes.source.media !== "Audio/Source" || nodes.sink.media !== "Audio/Sink"
+                || nodes.capture.media !== "Stream/Input/Audio" || nodes.playback.media !== "Stream/Output/Audio") return "nodes-missing";
+        const microphone = objects.filter(node => node.kind === "node" && node.name === this.echoFile.targets.microphone);
+        const speaker = objects.filter(node => node.kind === "node" && node.name === this.echoFile.targets.speaker);
+        if (microphone.length !== 1 || speaker.length !== 1 || !this.physical(microphone[0], "microphones")
+                || !this.physical(speaker[0], "speakers") || nodes.capture.target !== microphone[0].name
+                || nodes.playback.target !== speaker[0].name) return "targets-missing";
+        if (this.state !== null) {
+            let wanted;
+            try { wanted = this.setupTargets(this.state.settings); }
+            catch { return "targets-missing"; }
+            if (wanted.microphone !== this.echoFile.targets.microphone || wanted.speaker !== this.echoFile.targets.speaker)
+                return "targets-changed";
+        }
+        const linked = (output, input) => objects.some(link => link.kind === "link" && link.output === output
+            && link.input === input && ["active", "paused"].includes(link.state));
+        if (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id)) return "links-missing";
+        // Match the actual target admission's bounded offers too.
+        if (!this.devices.microphones.some(node => node.value === EchoCancel.NAMES.source)
+                || !this.devices.speakers.some(node => node.value === EchoCancel.NAMES.sink)) return "nodes-missing";
+        return "";
+    }
+
+    echoActive(engine = this.state?.engine.kind) {
+        if (engine !== "duplex" || this.echoRoute.state !== "active") return false;
+        if (this.capture?.target != null && this.capture.target !== EchoCancel.NAMES.source) return false;
+        if (this.playback?.target != null && this.playback.target !== EchoCancel.NAMES.sink) return false;
+        // A retired physical recorder/player still owns its child until close.
+        return ![...this.children.values()].some(owner => (owner.kind === "capture" && owner.target !== EchoCancel.NAMES.source)
+            || (owner.kind === "playback" && owner.target !== EchoCancel.NAMES.sink));
     }
 
     // A device-lost reason: what was missing, where it came from, and what

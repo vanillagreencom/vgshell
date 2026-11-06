@@ -1,8 +1,8 @@
 .pragma library
 .import "Session.js" as Session
 
-// Shell produces hello, intent, indicator, shown, requirements-scan, tui-state and reply. Voice confirmation
-// is daemon-internal. Daemon produces status/state/devices/homes/voices/personality/start-text/level/audio-fault,
+// Shell produces hello, intent, indicator, shown, requirements-scan, tui-state, echo-cancel-refresh and reply. Voice confirmation
+// is daemon-internal. Daemon produces status/state/devices/echo-cancel/homes/voices/personality/start-text/level/audio-fault,
 // request, tasks, task-answer, model-fallback and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
@@ -814,6 +814,20 @@ function accept(line, direction) {
                 Object.defineProperty(seen, choice.value, { value: true });
             }
         }
+        break;
+    case "echo-cancel":
+        if (direction !== "daemon") fail("direction-echo-cancel");
+        keys(message, ["v", "type", "gen", "revision", "state", "path", "reason"], "echo-cancel");
+        if (["absent", "foreign", "unavailable", "pending", "active"].indexOf(message.state) === -1
+                || !(message.path === "" && message.state === "unavailable"
+                    || directory(message.path) && message.path.length <= 4096)
+                || typeof message.reason !== "string"
+                || (message.state === "active" ? message.reason !== "" : !/^[a-z][a-z-]{0,59}$/.test(message.reason)))
+            fail("echo-cancel");
+        break;
+    case "echo-cancel-refresh":
+        if (direction !== "shell") fail("direction-echo-cancel-refresh");
+        keys(message, ["v", "type", "gen", "revision"], "echo-cancel-refresh");
         break;
     case "homes":
         if (direction !== "daemon") fail("direction-homes");

@@ -163,7 +163,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function snapshot() {
         runner.dispatch({ type: "snapshot", locked: context.locked, engine: engine.engine(),
             configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),
-            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });
+            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()),
+            echoCancel: audio.echoActive(engine.engine()), settings: context.settings });
     }
 
     // Judge the home and the engine again; the status carries each failing
@@ -490,14 +491,23 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             // A new default microphone reaches Session after Audio's own
             // update, so a check result never outlives the source it heard.
             queueMicrotask(() => {
-                if (!ending && context !== null && lastConfiguration !== null && audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource) snapshot();
+                if (!ending && context !== null && lastConfiguration !== null
+                        && (audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource
+                            || audio.echoActive(engine.engine()) !== (runner.state.duplex.kind === "full"))) snapshot();
             });
         },
         level: (gen, level) => {
             if (!ending && context !== null) write({ v: 1, type: "level", gen,
                 revision: context.revision, level });
         },
-        fault, captureSink: null, playbackSource: null, input: event => runner.dispatch(event)
+        fault, captureSink: null, playbackSource: null, input: event => runner.dispatch(event),
+        echo: reading => {
+            if (ending || context === null) return;
+            write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...reading });
+            queueMicrotask(() => {
+                if (!ending && context !== null && lastConfiguration !== null) snapshot();
+            });
+        }
     });
     const ports = unavailable();
     ports.capture = { ...ports.capture, ...audio.capturePort };
@@ -605,6 +615,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     else void engine.localSetup(true).then(() => {
                         if (!ending) write({ v: 1, type: "local-setup", gen: runner.state.gen, revision: context.revision });
                     });
+                    continue;
+                }
+                if (message.type === "echo-cancel-refresh") {
+                    intentIdentity(message);
+                    audio.refreshEcho();
+                    write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...audio.echoRoute });
+                    snapshot();
                     continue;
                 }
                 if (message.type === "reply") {
@@ -829,6 +846,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 if (first) retireMute();
                 if (first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });
                 judgeSetup();
+                audio.refreshEcho();
+                write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...audio.echoRoute });
                 if (first) startFleetCutover();
                 if (memory !== null) writeMemoryInbox();
                 if (first) void audio.discover().catch(error => {

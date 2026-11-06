@@ -726,6 +726,51 @@ function voiceRoute(setting, voice) {
     return { tone: "info", text: voice === null ? "Local" : voice.product, hint: VOICE_ROUTES[setting] };
 }
 
+// Installation and route health come from Audio's one judgement. A current
+// file alone cannot keep the microphone open during a reply.
+function echoCancellation(provider, reading) {
+    var local = hearsLocally(provider);
+    var half = local ? "The microphone stays closed while Local or ElevenLabs speaks. Use Stop, or hold Talk with Hold to talk on."
+        : "The microphone stays closed during replies until echo cancellation is active. Use Stop, or hold Talk with Hold to talk on.";
+    var route = { tone: "info", text: "Microphone closes during replies", hint: half };
+    var setup = { tone: "info", text: "Checking", action: false };
+    if (reading === null) return { setup: setup, route: route };
+    switch (reading.state) {
+    case "active":
+        setup = { tone: "ok", text: "Active", action: true };
+        if (!local) route = { tone: "ok", text: "Echo cancellation active",
+            hint: "Realtime and Gemini keep the microphone open during replies",
+            lines: ["Microphone: jarvis_ec_source", "Speaker: jarvis_ec_sink"] };
+        break;
+    case "pending":
+        setup = { tone: "info", text: "Installed; activation pending", action: true,
+            hint: reading.reason === "targets-changed"
+                ? "The chosen microphone or speaker changed. Set up echo cancellation again, then sign in again to load its new route."
+                : "The connected audio route is not active. It can load when PipeWire next starts, such as after you sign in again." };
+        break;
+    case "absent":
+        setup = { tone: "info", text: "Not installed", action: true,
+            hint: "Set up echo cancellation to keep the microphone open during Realtime and Gemini replies" };
+        break;
+    case "foreign":
+        setup = { tone: "warning", text: "Another file uses this path", action: false, available: false,
+            hint: "Jarvis preserves this file. Move it yourself before setting up echo cancellation." };
+        break;
+    case "unavailable":
+        setup = { tone: "warning", text: "Cannot check echo cancellation", action: true,
+            hint: "Setup checks the file and the selected microphone and speaker before it changes anything" };
+        break;
+    default:
+        throw new Error("jarvis-setup: echo-cancel=" + reading.state);
+    }
+    var details = local ? "Local and ElevenLabs keep the microphone closed during replies because their recorder cannot select this echo-cancel input. " : "";
+    details += "Setup uses the chosen physical microphone and speaker. It asks before saving and changes no system default. ";
+    if (reading.path !== "") details += "Configuration: " + Commons.PageReference.fileReference(reading.path, reading.path) + ". ";
+    details += "Jarvis checks the connected route before it keeps the microphone open during replies.";
+    setup.info = details;
+    return { setup: setup, route: route };
+}
+
 // The Agent fleet row (the manifest's setupFleet) for HOME, the home folder
 // the setting names or null, and TOOL, the kendex mail tool Home.mailTool
 // finds there or null: hidden while no home is chosen, which the home row
