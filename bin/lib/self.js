@@ -18,7 +18,9 @@
 //       overlay, or `-` with none
 //   self.js report text|json <version> <method> <package> <current> <manager> <latest> <behind> <helper> <error>
 //       judge `behind`, the step an update takes and the reason none runs,
-//       and print the status; <manager> is the package manager detect
+//       and print the status; a behind paru git package also reads the
+//       package owner's AUR check to select its existing upgrade instead
+//       of a separate rebuild. <manager> is the package manager detect
 //       printed, <behind> a checkout's count of upstream commits it lacks
 //       or vgshell-git's `changed` answer; `-` is an absent value
 //   self.js install <repository> <data-home> <root> <current> <shell-tree>
@@ -571,12 +573,51 @@ function behind(method, pkg, current, latest, fact) {
 // only an AUR helper updates.
 const AUR_PRIMARY = packageTable.managerRow("aur").requires;
 
+// paru's read-only upgrade query emits latest-commit for a filtered devel
+// update, which its upgrade includes in aur_keep. Consume pkg check's
+// structured result, never the helper's install table or its config.
+// https://github.com/Morganamilo/paru/blob/v2.2.0/src/query.rs
+// https://github.com/Morganamilo/paru/blob/v2.2.0/src/upgrade.rs
+function aurDevelUpdate(pkg) {
+    const text = run([path.join(__dirname, "..", "vgshell"), "plugin", "settings", "vgs.updates"], {}, "updates-settings=failed");
+    let settings;
+    try {
+        settings = JSON.parse(text);
+    } catch (e) {
+        refuse("updates-settings=unreadable");
+    }
+    if (settings === null || typeof settings.aurCommand !== "string") refuse("updates-settings=unreadable");
+    const words = require(path.join(__dirname, "qml-library.js")).load(path.join(__dirname, "..", "..", "shell", "Core", "PackageReview.js")).commandWords(settings.aurCommand);
+    // Only the package owner's recognized operation is replaced by its
+    // canonical upgrade. An unknown custom command retains its original
+    // argv and cannot promise that paru's pending devel target is built.
+    if (words.length > 0 && require("./pkg-review.js").customMode(words) !== "table") return false;
+    const query = childProcess.spawnSync(process.execPath,
+        [path.join(__dirname, "..", "vgshell-pkg"), "check", "--json", "--source", "aur"], { encoding: "utf8" });
+    if (query.error !== undefined) refuse("aur-check=failed error=" + query.error.code);
+    if (query.status !== 0) refuse("aur-check=failed exit=" + query.status, undefined, 1, query.stderr);
+    let rows;
+    try {
+        rows = JSON.parse(query.stdout);
+    } catch (e) {
+        refuse("aur-check=unreadable");
+    }
+    if (!Array.isArray(rows) || rows.length !== 1 || rows[0] === null || rows[0].source !== "aur")
+        refuse("aur-check=unreadable");
+    const row = rows[0];
+    if (typeof row.error === "string") refuse("aur-check=" + row.error);
+    if (row.error !== null || !Array.isArray(row.packages) || row.count !== row.packages.length)
+        refuse("aur-check=unreadable");
+    return row.packages.some(entry => entry.name === pkg && entry.new === "latest-commit");
+}
+
 // What an Update runs for an install that is behind: `self` is `vgshell
 // self update`, `install-helper` installs paru before that rebuild,
 // `rebuild` the AUR helper's rebuild of vgshell-git, and
 // `none` names the reason VGS runs nothing: an AUR package with no helper
 // to update it, a package the system's packages update (the AUR helper's
-// upgrade for the AUR release package, the primary manager's elsewhere),
+// upgrade for a tracked devel package or the AUR release package, the
+// primary manager's elsewhere),
 // and a Nix tree its flake updates.
 function update(method, pkg, manager, helper) {
     if (method === "checkout" || method === "curl") return { step: "self", reason: null };
@@ -584,7 +625,10 @@ function update(method, pkg, manager, helper) {
     if (method !== "package") throw new Error("self.js: method=" + method + " has no update step");
     if (manager === AUR_PRIMARY && pkg === "vgshell-git" && helper === null) return { step: "install-helper", reason: null };
     if (manager === AUR_PRIMARY && helper === null) return { step: "none", reason: "no-aur-helper" };
-    if (manager === AUR_PRIMARY && pkg === "vgshell-git") return { step: "rebuild", reason: null };
+    if (manager === AUR_PRIMARY && pkg === "vgshell-git") {
+        if (helper === "paru" && aurDevelUpdate(pkg)) return { step: "none", reason: "package-manager" };
+        return { step: "rebuild", reason: null };
+    }
     return { step: "none", reason: "package-manager" };
 }
 
@@ -592,10 +636,21 @@ function report(format, fields) {
     const [version, method, pkg, current, manager, latest, fact, helper, error] = fields.map(v => (v === "-" || v === "" ? null : v));
     const status = { version, method, package: pkg, current, latest, behind: null, step: null, reason: null, error };
     if (error === null) {
-        status.behind = behind(method, pkg, current, latest, fact);
-        Object.assign(status, status.behind ? update(method, pkg, manager, helper) : { step: "none", reason: null });
-    } else {
+        try {
+            status.behind = behind(method, pkg, current, latest, fact);
+            Object.assign(status, status.behind ? update(method, pkg, manager, helper) : { step: "none", reason: null });
+        } catch (e) {
+            if (!(e instanceof Refusal)) throw e;
+            status.error = e.first;
+            status.behind = null;
+        }
+    }
+    if (status.error !== null) {
         status.latest = null;
+        // bin/facts consumes error as one line. Preserve upstream diagnostic
+        // bytes as escapes rather than letting its protocol reject the status.
+        status.error = status.error.replace(/[\u0000-\u001f\u007f]/g,
+            c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
     }
     if (format === "json") {
         process.stdout.write(JSON.stringify(status) + "\n");

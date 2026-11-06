@@ -44,8 +44,11 @@
 #      the `aurCommand` setting's words, else `vgshell pkg run upgrade
 #      --manager aur`, then `<helper> -S vgshell-git` when the status names
 #      the step `rebuild`, installing paru from its AUR recipe first for
-#      `install-helper`, since an AUR helper rebuilds a -git package only
-#      when its recipe's version changes. A rebuild removes the record
+#      `install-helper`. When self status selects `none` with the reason
+#      `package-manager` for paru's tracked devel vgshell-git, the AUR
+#      upgrade builds it and no separate rebuild runs. With Devel off,
+#      no tracked devel update, or yay, status selects the separate rebuild.
+#      A rebuild removes the record
 #      $(updates_state_dir)/rebuild-failed.json before it runs and, when it
 #      fails, writes it: `{ current, helper, exit, conflict }`, the package
 #      version it replaced, the helper, its exit status and the first

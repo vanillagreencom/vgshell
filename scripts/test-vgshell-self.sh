@@ -224,6 +224,21 @@ inst_env=("${saved_env[@]}")
 # answering -Qoq and -Q as pacman(8) states, for the file and package the
 # row names; any other call exits 99. The os-release fixture names Arch.
 pkg_root="$tmp/pkgroot/usr/share/vgshell"; install_tree "$seed" "$pkg_root"
+# The effective Updates settings reader uses the installed manifest and
+# the existing configuration/plugin judges, not a fixture-only config parser.
+node - "$repo" "$pkg_root" <<'JS'
+const fs = require("node:fs"), path = require("node:path");
+const [source, target] = process.argv.slice(2);
+const { closure } = require(source + "/bin/lib/qml-library.js");
+for (const file of closure(source + "/shell/Core/PluginLogic.js")) {
+    const destination = path.join(target, path.relative(source, file));
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(file, destination);
+}
+JS
+mkdir -p "$pkg_root/shell/plugins"
+mkdir -p "$pkg_root/shell/plugins/vgs.updates"
+cp -- "$repo/shell/plugins/vgs.updates/manifest.json" "$pkg_root/shell/plugins/vgs.updates/"
 cat >"$stubs/pacman" <<'EOF'
 #!/bin/sh
 case "$1 $2 $3" in
@@ -295,14 +310,53 @@ main_commit="$(g -C "$upstream" rev-parse main)"
 compare_fixture "$built_commit" "$main_commit"
 INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package without an AUR helper offers helper installation" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true install-helper null null)" "" self status --json
 INST_BIN="$tmp/bound-vgshell" inst "the text form names helper installation" "$cfg" "$rt_empty" 0 "version=$version_text method=package package=vgshell-git current=$built latest=$main_commit behind=true step=install-helper" "" self status
-printf '#!/bin/sh\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
-for helper in paru yay; do
+# Paru's pending-list marker is the source fact, not merely Devel enabled.
+# Failed reads cannot become a rebuild decision. Yay keeps its old route.
+devel_cfg="$tmp/cfg-devel"; mkdir -p "$devel_cfg/vgshell"
+while IFS='|' read -r helper pending aur expected reason error; do
   rm -f -- "${stubs:?}/paru" "${stubs:?}/yay"
-  printf '#!/bin/sh\nexit 99\n' >"$stubs/$helper"; chmod +x "$stubs/$helper"
-  INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package with $helper takes the rebuild" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true rebuild null null)" "" self status --json
-done
+  if [[ $helper == both ]]; then
+    printf '#!/bin/sh\nexit 99\n' >"$stubs/yay"; chmod +x "$stubs/yay"
+    helper=paru
+  fi
+  printf '{"version":4,"plugins":[{"id":"vgs.updates","aurCommand":"%s"}]}\n' "$aur" >"$devel_cfg/vgshell/shell.json"
+  printf '#!/bin/sh\n[ "$1" = -Qua ] || exit 99\n' >"$stubs/$helper"
+  case "$pending" in
+    none) printf 'exit 1\n' >>"$stubs/$helper" ;;
+    failed) printf 'exit 9\n' >>"$stubs/$helper" ;;
+    malformed) printf 'echo malformed\n' >>"$stubs/$helper" ;;
+    multiline) printf 'printf "error: timed out looking for devel update: https://example.org/a.git\\nerror: timed out looking for devel update: https://example.org/b.git\\n" >&2\nexit 1\n' >>"$stubs/$helper" ;;
+    *) printf 'echo "%s %s-1 -> latest-commit"\n' "$pending" "$built" >>"$stubs/$helper" ;;
+  esac
+  chmod +x "$stubs/$helper"
+  if [[ $error == null ]]; then
+    want_json="$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true "$expected" "$reason" null)"
+  else
+    want_json="$(status_json "$version_text" package vgshell-git "$built" null null null null "$error")"
+  fi
+  INST_BIN="$tmp/bound-vgshell" inst "a git package with $helper pending=$pending aur=${aur:-automatic} selects $expected" "$devel_cfg" "$rt_empty" 0 "$want_json" "" self status --json
+  if [[ $error != null ]]; then
+    facts_status=0
+    "${base_env[@]}" "$repo/shell/plugins/vgs.updates/bin/facts" "$pkg_root/bin/lib/qml-library.js" self <"$tmp/out" >"$tmp/facts.out" 2>"$tmp/facts.err" || facts_status=$?
+    check "$pending advisory error is consumed by facts" test "$facts_status" == 0
+    check "$pending facts retains the exact status cause" test "$(cat "$tmp/facts.out")" == "error $error"
+    check "$pending facts emits no protocol refusal" test ! -s "$tmp/facts.err"
+  fi
+done <<'ROWS'
+paru|vgshell-git||none|package-manager|null
+paru|vgshell-git|paru -Sua|none|package-manager|null
+both|vgshell-git|yay -Sua|rebuild|null|null
+paru|vgshell-git|paru -Sua --devel|rebuild|null|null
+paru|kendex-git||rebuild|null|null
+paru|none||rebuild|null|null
+yay|vgshell-git||rebuild|null|null
+paru|failed||null|null|aur-check=exit=9
+paru|malformed||null|null|aur-check=unparseable line=1
+paru|multiline||null|null|aur-check=exit=1 stderr=error: timed out looking for devel update: https://example.org/a.git\u000aerror: timed out looking for devel update: https://example.org/b.git
+ROWS
+rm -f -- "${stubs:?}/paru"
 rm -f -- "${stubs:?}/yay"
-printf '#!/bin/sh\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
+printf '#!/bin/sh\n[ "$1" != -Qua ] || exit 1\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
 # Answers whose files GitHub may have cut short, or that cannot prove the
 # installed tree unchanged, read behind; an answer GitHub could not give
 # is the report's error, exit 0. `stall` sends 200 and its headers, then

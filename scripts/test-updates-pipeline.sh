@@ -36,8 +36,10 @@ cp -R -- "$repo/shell/plugins/vgs.updates" "$plugin"
 tree="$tmp/tree"
 mkdir -p "$tree/bin/lib" "$tree/shell/Commons" "$tree/shell/Core"
 cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/hyprland-instance.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/pkg-config.js" "$tree/bin/lib/"
+cp -- "$repo/bin/lib/self.js" "$repo/bin/lib/engine.js" "$repo/bin/lib/owned-group.py" "$repo/bin/lib/pkg-review.js" "$tree/bin/lib/"
+cp -- "$repo/bin/vgshell-pkg" "$tree/bin/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
-cp -- "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/"
+cp -- "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/ConfigLogic.js" "$tree/shell/Core/"
 # This fixture loader observes the real library returned to facts. The
 # existing self verb never draws a window, so the fixture checks that same
 # library's window rows without adding a test verb to the shipped command.
@@ -118,6 +120,7 @@ stub() { # DIR NAME BODY
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
 stub "$tree/bin" vgshell 'pkg_run() {
+  [ ! -e "$FIX/devel-status" ] || [ "$5" != aur ] || paru -Sua || exit "$?"
   case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" || exit "$?" ;; esac
   [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
   [ ! -e "$FIX/interrupt-$5" ] || exit 130
@@ -144,7 +147,11 @@ case "$1 $2" in
   "pkg review-transaction") exec node "$(cat "${0%/*}/review-owner")" review-transaction ;;
   "pkg review")
     printf "{\"version\":1,\"decision\":\"proceed\",\"reviewed\":[],\"skipped\":[],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
-  "pkg review-custom-mode") echo unknown ;;
+  "pkg review-custom-mode")
+    if [ -e "$FIX/devel-status" ]; then
+      exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3"
+    fi
+    echo unknown ;;
   "pkg review-custom-consume") : ;;
   "pkg orphan-info"|"pkg rebuild-allowed") shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
   # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
@@ -323,6 +330,18 @@ stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
   done
   [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
+if [ "$1" = -Qua ]; then
+  if [ -s "$FIX/devel-error" ]; then cat "$FIX/devel-error" >&2; exit 1; fi
+  [ -s "$FIX/devel-pending" ] || exit 1
+  cat "$FIX/devel-pending"
+  exit 0
+fi
+if [ -e "$FIX/devel-status" ]; then
+  case "$1" in
+    -Sua) [ ! -s "$FIX/devel-pending" ] || printf "build vgshell-git\n" >>"$CALLS" ;;
+    -S) printf "build vgshell-git\n" >>"$CALLS" ;;
+  esac
+fi
 case "$*" in
   *"-Po --rebuild=tree -- vgshell-git") [ ! -e "$FIX/fail-build-order" ] && [ -e "$FIX/build-order" ] || exit 1; cat "$FIX/build-order"; exit 0 ;;
   *"-Si -- ttfx") printf "Repository : aur\nName : ttfx\nDepends On : None\nMake Deps : ttfx-codegen>=1\nCheck Deps : ttfx-tests\n"; exit 0 ;;
@@ -333,7 +352,7 @@ esac
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash python3 env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
+for tool in bash python3 env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk setpriv; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -1268,6 +1287,83 @@ row_vgs_git() {
   assert "the credential is dropped after the rebuild" before "vgshell pkg run reinstall --manager aur vgshell-git" "sudo -k"
   assert "a replaced VGS package restarts the running shell" has_call "vgshell restart"
 }
+# Execute the status owner and its package checker over the same stub paru
+# the AUR upgrade reaches. The public normalization/count is also production
+# code. The control below restores the old decision, not a deleted call.
+row_vgs_devel() {
+  local pending aur expected count source_status="${SELF_JUDGE:-$tree/bin/lib/self.js}"
+  while IFS='|' read -r pending aur expected count; do
+    reset_fix
+    settings "$aur" false
+    if [[ $aur == "yay -Sua" ]]; then
+      printf '[options]\n' >"$fix/selected.conf"
+      stub "$stubs" yay 'if [ "$1" = --show ] && [ "$2" = --currentconfig ]; then
+        printf "{\"pacmanconf\":\"%s/selected.conf\"}\n" "$FIX"
+      fi'
+    fi
+    touch "$fix/devel-status" "$fix/owner" "$fix/owner-changes" "$fix/running"
+    : >"$fix/devel-pending"
+    if [[ $pending == tracked ]]; then printf 'vgshell-git 0.1.0.r1.gabc1234-1 -> latest-commit\n' >"$fix/devel-pending"; fi
+    if [[ $pending == single || $pending == multiline ]]; then
+      # paru v2.2.0 devel.rs::ls_remote emits one timeout per repository.
+      printf 'error: timed out looking for devel update: https://example.org/a.git\n' >"$fix/devel-error"
+      if [[ $pending == multiline ]]; then printf 'error: timed out looking for devel update: https://example.org/b.git\n' >>"$fix/devel-error"; fi
+    fi
+    "${base_env[@]}" PATH="$stubs:$tools" CALLS="$calls" FIX="$fix" "$node_bin" "$tree/bin/vgshell-pkg" check --json --source aur >"$fix/check-aur.json"
+    "${base_env[@]}" PATH="$stubs:$tools" CALLS="$calls" FIX="$fix" "$node_bin" "$source_status" report json \
+      0.1.0 package vgshell-git 0.1.0.r1.gabc1234 pacman b true paru - >"$fix/self.json"
+    assert "$pending aur=${aur:-automatic} keeps the status/count contract" "${base_env[@]}" "$node_bin" - "$tree/bin/lib/qml-library.js" "${PLUGIN:-$plugin}/UpdatesLogic.js" "$tree/shell/Commons/PageReference.js" "$fix" "$count" "$expected" "$aur" <<'JS'
+const fs = require("node:fs"), assert = require("node:assert/strict");
+const [loader, source, page, fix, count, expected, aur] = process.argv.slice(2);
+const { load } = require(loader);
+const logic = load(source, { "qs.Commons 1.0": { PageReference: load(page) } });
+const probe = name => ({status: 0, stdout: fs.readFileSync(fix + "/" + name, "utf8"), stderr: ""});
+const snapshot = logic.normalizeSnapshot({pkg: probe("check-aur.json"), self: probe("self.json"),
+    plugins: {status: 0, stdout: "[]"}, themes: {status: 0, stdout: "[]"}}, 0);
+assert.equal(logic.pendingCount(snapshot), Number(count));
+assert.equal(logic.publishValues(snapshot, false, 0, 1, null, aur).pending, Number(count));
+const status = JSON.parse(probe("self.json").stdout);
+if (expected === "unknown") {
+    assert.equal(status.behind, null);
+    assert.equal(status.step, null);
+    assert.equal(status.latest, null);
+    const cause = fs.readFileSync(fix + "/devel-error", "utf8").trim()
+        .replaceAll("\n", "\\u000a");
+    assert.equal(status.error, "aur-check=exit=1 stderr=" + cause);
+    assert.equal(snapshot.sources.find(row => row.source === "vgs").count, null);
+} else {
+    assert.equal(status.step, expected === "aur" ? "none" : "rebuild");
+    assert.equal(status.error, null);
+}
+JS
+    pipeline update.sh
+    assert "$pending aur=${aur:-automatic} exits 0" test "$status" == 0
+    local builds=0
+    if [[ $expected != unknown ]]; then builds=1; fi
+    assert "$pending aur=${aur:-automatic} builds VGS $builds times" test "$(grep -c '^build vgshell-git$' "$calls" || :)" == "$builds"
+    if [[ $expected == aur ]]; then
+      assert "tracked devel update has no separate rebuild" no_call "vgshell pkg run reinstall --manager aur"
+    elif [[ $expected == unknown ]]; then
+      assert "$pending advisory failure skips the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur"
+      assert "$pending advisory failure warns without a protocol failure" out_has "Could not check VGS for updates."
+      assert "$pending advisory failure retains its cause" diag_has "VGS: $(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1])).error)' "$fix/self.json")"
+      assert "$pending advisory failure still updates unrelated sources" has_call "vgshell pkg run upgrade --manager flatpak"
+      assert "$pending advisory failure still updates plugins" has_call "vgshell plugin update acme.one"
+    else
+      assert "$pending aur=${aur:-automatic} retains the separate rebuild" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
+      if [[ $aur == "yay -Sua" ]]; then assert "configured yay retains its original argv" has_call "yay -Sua"; fi
+    fi
+    assert "$pending devel update restarts replaced VGS" has_call "vgshell restart"
+    rm -f -- "${stubs:?}/yay"
+  done <<'ROWS'
+none||rebuild|1
+tracked|paru -Sua|aur|1
+tracked|yay -Sua|rebuild|2
+single||unknown|0
+multiline||unknown|0
+tracked||aur|1
+ROWS
+}
 # The step the status names is what runs. A step of none, whatever its
 # reason, and a status that could not check run no self update and no
 # rebuild, though the AUR helper or an aurCommand is here. The plan box
@@ -1582,7 +1678,7 @@ SH
 if [[ $# -gt 0 ]]; then
   [[ $# == 2 && $1 == --case ]] || exit 2
   case "$2" in
-    row_aur_rebuild_stopped|row_build_progress|row_orphans|row_failed_end) "$2" ;;
+    row_aur_rebuild_stopped|row_build_progress|row_orphans|row_failed_end|row_vgs_devel) "$2" ;;
     *) exit 2 ;;
   esac
   rows_done test-updates-pipeline
@@ -1590,7 +1686,7 @@ if [[ $# -gt 0 ]]; then
 fi
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -1612,6 +1708,24 @@ red=0
 QUIET=1 row_record_whole
 record="$record_whole"
 check "the separate-appends record mutant fails row_record_whole" test "$red" -gt 0
+copy_with devel-double-build "$tree/bin/lib/self.js" 'if (helper === "paru" && aurDevelUpdate(pkg))' 'if (helper === "paru" && aurDevelUpdate(pkg) && false)'
+devel_control="$tmp/devel-control"
+cp -R -- "$tree" "$devel_control"
+cp -- "$copy" "$devel_control/bin/lib/self.js"
+red=0
+SELF_JUDGE="$devel_control/bin/lib/self.js" QUIET=1 row_vgs_devel
+check "the old devel rebuild decision fails the single-build row" test "$red" -gt 0
+check "the old devel rebuild decision reaches two builds" test "$(grep -c '^build vgshell-git$' "$calls")" == 2
+copy_with devel-command-ignored "$tree/bin/lib/self.js" 'if (words.length > 0 && require("./pkg-review.js").customMode(words) !== "table") return false;' 'if (false && words.length > 0 && require("./pkg-review.js").customMode(words) !== "table") return false;'
+cp -- "$copy" "$devel_control/bin/lib/self.js"
+red=0
+SELF_JUDGE="$devel_control/bin/lib/self.js" QUIET=1 row_vgs_devel
+check "the detected-helper-only mutant fails the configured yay row" test "$red" -gt 0
+copy_with devel-raw-error "$tree/bin/lib/self.js" 'status.error.replace(/[\u0000-\u001f\u007f]/g,' 'status.error.replace(/a^/g,'
+cp -- "$copy" "$devel_control/bin/lib/self.js"
+red=0
+SELF_JUDGE="$devel_control/bin/lib/self.js" QUIET=1 row_vgs_devel
+check "the raw diagnostic mutant fails status/facts/pipeline consumption" test "$red" -gt 0
 control helper-install-skipped '_updates_source paru Paru _updates_run _updates_install_helper' ':' row_vgs_helper
 for row in row_facts_plain row_pipeline_plain; do
   control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error, true))' 'errorText(error, true)' "$row" UpdatesLogic.js
