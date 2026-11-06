@@ -126,6 +126,9 @@ T.AbstractButton {
     property string detail: ""
     // The corner badge's whole number, "" for none.
     property string count: ""
+    // A live state's Theme.color role: success, info, danger or warning;
+    // empty draws none. Name the state in label and tooltip too.
+    property string stateDot: ""
     // The widest form of `text` and of `detail`, held by their Readings.
     property string textSample: ""
     property string detailSample: ""
@@ -332,6 +335,20 @@ T.AbstractButton {
             size: "corner"
             level: root.countLevel
             text: root.count
+        }
+    }
+    Loader {
+        objectName: "bar-item-state-dot"
+        active: root.stateDot !== ""
+        z: badge.z
+        x: root.width - width - (badge.active ? badge.width : 0)
+        y: 0
+        sourceComponent: Badge {
+            variant: "unread"
+            size: "corner"
+            implicitWidth: implicitHeight
+            implicitHeight: Theme.badge.unread.corner.height / 2 + 2 * border.width
+            color: Theme.color[root.stateDot]
         }
     }
 }

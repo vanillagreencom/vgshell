@@ -125,6 +125,40 @@ Item {
             return badge.children.find(child => child.role !== undefined);
         }
 
+        function test_live_state_dot_data() {
+            return [
+                { tag: "none", level: "", count: "", shown: false },
+                { tag: "count-only", level: "", count: "12", shown: false },
+                { tag: "listening", level: "success", count: "", shown: true },
+                { tag: "working", level: "info", count: "", shown: true },
+                { tag: "problem", level: "danger", count: "", shown: true },
+                { tag: "setup", level: "warning", count: "", shown: true },
+                { tag: "beside-count", level: "info", count: "12", shown: true }
+            ];
+        }
+
+        function test_live_state_dot(data) {
+            const item = createTemporaryObject(readingCase, root, { iconName: "bot", label: "Jarvis", stateDot: data.level, count: data.count, tone: "#123456" });
+            verify(item !== null);
+            compare(item.width, item.height, "the state dot takes no room in the row");
+            compare(String(firstIcon(item).color), "#123456", "the live state leaves the icon's tone alone");
+            const dot = item.children.find(child => child.objectName === "bar-item-state-dot").item;
+            compare(dot !== null, data.shown);
+            if (!data.shown) return;
+            compare(String(dot.color), String(Qt.color(Theme.color[data.level])));
+            compare(figuresOf(dot).text, "", "the state dot has no count");
+            compare(dot.width, dot.height);
+            verify(dot.radius >= dot.height / 2);
+            compare(dot.border.width, Theme.badge.unread.corner.border);
+            compare(String(dot.border.color), String(Qt.color(Theme.bar.background)));
+            const count = badgeOf(item);
+            tryVerify(() => Math.abs(dot.mapToItem(item, 0, 0).x + dot.width - (count ? count.mapToItem(item, 0, 0).x : item.width)) < 0.01, 1000, "the dot ends at the count's start or the item's corner");
+            compare(dot.mapToItem(item, 0, 0).y, 0);
+            if (count) compare(figuresOf(count).text, "9+", "the count keeps its figures beside the dot");
+            item.stateDot = "";
+            compare(item.children.find(child => child.objectName === "bar-item-state-dot").active, false);
+        }
+
         // Each count, at each width it takes: the badge's figures, whether
         // it shows, and whether it is a pill wider than tall.
         function test_the_corner_count_data() {
