@@ -269,7 +269,7 @@ expect "an acquired crop is cancelled by immediate thaw" ok ipc acme.freeze invo
 expect_poll "the immediate thaw releases every freeze surface" 0 layer_count vgs:freeze
 expect "another hold establishes the cancelled grab's completion boundary" ok ipc acme.freeze invoke freeze ''
 expect_poll "the next held frame is ready" '["ok", "ok", "ok", "ok", "ok", "ok"]' freeze_answers
-expect "a cancelled crop sends no callback into a later hold" '["ok", "ok"]' freeze_crops
+expect "a cancelled crop sends no callback into a later hold" 2 freeze_crop_count
 expect "a cancelled crop never writes the acquired file" 0 stat -c %s "$freeze_world/cancelled.png"
 expect "the freeze fixture disables" ok ipc shell setPluginEnabled acme.freeze false
 expect_poll "disable releases the held view" 0 layer_count vgs:freeze
@@ -302,6 +302,9 @@ edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
   '            host.framed = false;' \
   '            host.framed = ScreenFreeze.holding && host.allFramed;'
+edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
+  '                sourceItem: host.framed && surface.hasFrame ? frame : null' \
+  '                sourceItem: surface.hasFrame ? frame : null'
 start_shell "$sandbox/tree-screen-freeze-stale" "$freeze_world/stale-shell.log"
 expect "the freeze fixture enables in the stale tree" ok ipc shell setPluginEnabled acme.freeze true
 expect_poll "the stale tree's freeze fixture is built" True record_exists acme.freeze

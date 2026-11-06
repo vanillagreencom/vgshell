@@ -74,9 +74,22 @@ Scope {
         }
     }
 
+    function cropParts(box, frames) {
+        const parts = [];
+        for (const entry of frames) {
+            const frame = entry.frame;
+            const x = Math.max(box.x, frame.x);
+            const y = Math.max(box.y, frame.y);
+            const right = Math.min(box.x + box.width, frame.x + frame.width);
+            const bottom = Math.min(box.y + box.height, frame.y + frame.height);
+            if (right > x && bottom > y) parts.push({ surface: entry.surface, frame: frame, x: x, y: y, width: right - x, height: bottom - y });
+        }
+        return parts;
+    }
+
     function crop(request) {
         const box = request.geometry;
-        const parts = [];
+        const frames = [];
         for (const surface of surfaces.instances) {
             const frame = surface.frameGeometry;
             if (!surface.hasFrame || frame === null || !surface.backingWindowVisible) {
@@ -89,12 +102,9 @@ Scope {
                 ScreenFreeze.cropped(request, "size");
                 return;
             }
-            const x = Math.max(box.x, frame.x);
-            const y = Math.max(box.y, frame.y);
-            const right = Math.min(box.x + box.width, frame.x + frame.width);
-            const bottom = Math.min(box.y + box.height, frame.y + frame.height);
-            if (right > x && bottom > y) parts.push({ surface: surface, frame: frame, x: x, y: y, width: right - x, height: bottom - y });
+            frames.push({ surface: surface, frame: frame });
         }
+        let parts = cropParts(box, frames);
         if (parts.length === 0) {
             ScreenFreeze.cropped(request, "geometry");
             return;
@@ -107,9 +117,39 @@ Scope {
         const canvas = target.surface.cropCanvas;
         canvas.width = box.width;
         canvas.height = box.height;
-        run = { request: request, pieces: [] };
+        run = { request: request, pieces: [], pixelCopy: null, grab: null };
+        const pending = run;
+        const ratio = target.frame.scale;
+        // Qt 6.12.0's native 1x1 flip skips the ownership copy:
+        // tmp/vgs2322-qt-defect-facts.md. Remove this special case once
+        // the Qt VGS builds against carries the fix; the existing exact-color
+        // tiny Capture case must then prove the plain path.
+        // qquickitemgrabresult.cpp rounds targetSize * DPR (minimum 1).
+        // Its default-size grab of 2/DPR with child Scale 1/(box size * DPR)
+        // keeps the original box-center sample at native (pixelX, pixelY).
+        // Canvas uses this same window DPR: qt_drawImage copies the native
+        // source rect, equal extents skip scaled(), and QPainter cancels
+        // matching image/device DPR. Explicit save size copies native 1x1.
+        // Both grab roots stay surface-owned until hide stops its render thread.
+        const nativePixel = Math.max(1, Math.round(box.width * ratio)) === 1
+            && Math.max(1, Math.round(box.height * ratio)) === 1;
+        let grabItem = canvas;
+        let composition = canvas;
+        let footprint = box;
+        const pixelX = box.x + 2 * box.width <= target.frame.x + target.frame.width ? 0 : 1;
+        const pixelY = box.y + 2 * box.height <= target.frame.y + target.frame.height ? 0 : 1;
+        if (nativePixel) {
+            grabItem = target.surface.pixelCanvas;
+            grabItem.ratio = ratio;
+            grabItem.cellWidth = box.width;
+            grabItem.cellHeight = box.height;
+            composition = grabItem.composition;
+            footprint = { x: box.x - pixelX * box.width, y: box.y - pixelY * box.height,
+                width: 2 * box.width, height: 2 * box.height };
+            parts = cropParts(footprint, frames);
+        }
         for (const part of parts) {
-            const piece = cropPiece.createObject(canvas, { x: part.x - box.x, y: part.y - box.y, width: part.width, height: part.height });
+            const piece = cropPiece.createObject(composition, { x: part.x - footprint.x, y: part.y - footprint.y, width: part.width, height: part.height });
             if (piece === null) {
                 finishCrop("grab");
                 return;
@@ -117,18 +157,36 @@ Scope {
             run.pieces.push(piece);
             piece.attach(part);
         }
-        const pending = run;
-        // One GPU readback of the selection, then one PNG write. No full
-        // output image crosses to the CPU (D122).
-        if (!canvas.grabToImage(result => {
+        const receive = result => {
             if (host.run !== pending || ScreenFreeze.cropRequest !== request) {
                 result.destroy();
+                return;
+            }
+            if (nativePixel) {
+                pending.grab = result;
+                const url = result.url.toString();
+                if (url === "") {
+                    host.finishCrop("grab");
+                    return;
+                }
+                const copy = pixelCopy.createObject(canvas, { width: Math.ceil(1 / ratio), height: Math.ceil(1 / ratio),
+                    sourceUrl: url, sourceX: pixelX, sourceY: pixelY });
+                if (copy === null) {
+                    host.finishCrop("grab");
+                    return;
+                }
+                pending.pixelCopy = copy;
+                copy.pending = pending;
+                copy.start();
                 return;
             }
             const saved = result.saveToFile(request.path);
             result.destroy();
             host.finishCrop(saved ? "" : "save");
-        }, Qt.size(box.width, box.height))) finishCrop("grab");
+        };
+        const started = nativePixel ? grabItem.grabToImage(receive)
+            : canvas.grabToImage(receive, Qt.size(box.width, box.height));
+        if (!started) finishCrop("grab");
     }
 
     function finishCrop(reason) {
@@ -139,11 +197,70 @@ Scope {
 
     function releaseCrop() {
         if (run === null) return;
-        const pieces = run.pieces;
+        const pending = run;
         run = null;
-        for (const piece of pieces) {
+        if (pending.pixelCopy !== null) {
+            pending.pixelCopy.pending = null;
+            pending.pixelCopy.unloadImage(pending.pixelCopy.sourceUrl);
+            pending.pixelCopy.destroy();
+        }
+        if (pending.grab !== null) pending.grab.destroy();
+        for (const piece of pending.pieces) {
             piece.release();
             piece.destroy();
+        }
+    }
+
+    Component {
+        id: pixelCopy
+        Canvas {
+            property var pending: null
+            property string sourceUrl: ""
+            property int sourceX: 0
+            property int sourceY: 0
+            property string stage: "new"
+            visible: false
+            renderTarget: Canvas.Image
+            renderStrategy: Canvas.Immediate
+            smooth: false
+            antialiasing: false
+
+            function isCurrent() {
+                return pending !== null && host.run === pending && ScreenFreeze.cropRequest === pending.request;
+            }
+
+            function start() {
+                if (!isCurrent() || !available || stage !== "new") return;
+                stage = "loading";
+                loadImage(sourceUrl);
+                imageReady();
+            }
+
+            function imageReady() {
+                if (!isCurrent() || stage !== "loading") return;
+                if (isImageError(sourceUrl)) host.finishCrop("grab");
+                else if (isImageLoaded(sourceUrl)) {
+                    stage = "paint";
+                    requestPaint();
+                }
+            }
+
+            onAvailableChanged: if (available) start()
+            onImageLoaded: imageReady()
+            onPaint: {
+                if (!isCurrent() || stage !== "paint") return;
+                stage = "done";
+                const ctx = getContext("2d");
+                if (ctx === null) {
+                    host.finishCrop("grab");
+                    return;
+                }
+                ctx.globalCompositeOperation = "copy";
+                ctx.drawImage(sourceUrl, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
+                if (!isCurrent()) return;
+                const saved = save(pending.request.path, Qt.size(1, 1));
+                host.finishCrop(saved ? "" : "save");
+            }
         }
     }
 
@@ -198,6 +315,7 @@ Scope {
             property alias heldView: view
             property alias frameItem: frame
             property alias cropCanvas: canvas
+            property alias pixelCanvas: pixelGrid
 
             screen: modelData.screen
             anchors { top: true; bottom: true; left: true; right: true }
@@ -255,6 +373,28 @@ Scope {
                 id: canvas
                 visible: false
                 color: Theme.screensaver.background
+            }
+
+            Item {
+                id: pixelGrid
+                property real ratio: 1
+                property real cellWidth: 1
+                property real cellHeight: 1
+                property alias composition: content
+                visible: false
+                width: 2 / ratio
+                height: 2 / ratio
+
+                Rectangle {
+                    id: content
+                    width: 2 * pixelGrid.cellWidth
+                    height: 2 * pixelGrid.cellHeight
+                    color: Theme.screensaver.background
+                    transform: Scale {
+                        xScale: 1 / (pixelGrid.cellWidth * pixelGrid.ratio)
+                        yScale: 1 / (pixelGrid.cellHeight * pixelGrid.ratio)
+                    }
+                }
             }
         }
     }
