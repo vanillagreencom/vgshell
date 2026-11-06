@@ -269,6 +269,7 @@ const table = [
             const transcript = result.effects.find(e => e.kind === "transcript");
             if (live) {
                 assert.equal(result.state.history.reason, "turn-limit");
+                assert.ok(transcript, "the attempted user message survives the history reset");
                 assert.deepEqual([transcript.role, transcript.text, transcript.stage], ["user", text, "final"]);
             } else assert.equal(transcript, undefined);
         }

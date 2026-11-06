@@ -1571,7 +1571,7 @@ function verifyEchoCancellation(gate, serviceSource) {
     assert.equal(manifest.status.echoCancel.setup, "optional");
     assert.equal(manifest.status.echoCancel.action.tui, "setup-echo-cancel");
     assert.equal(manifest.tui["setup-echo-cancel"].script, "tui/setup-echo-cancel.sh");
-    assert.equal(manifest.tui["setup-echo-cancel"].args, undefined, "no page text becomes installer arguments");
+    assert.deepEqual(Array.from(manifest.tui["setup-echo-cancel"].args), [], "no page text becomes installer arguments");
     const longPath = "/" + "directory/".repeat(400) + "echo.conf";
     const long = gate.echoCancellation("gemini", { state: "pending", path: longPath, reason: "nodes-missing" });
     assert.equal(judge.statusWrite(manifest, {}, "echoCancel", long.setup).ok, true, "long actual paths fit the info contract");

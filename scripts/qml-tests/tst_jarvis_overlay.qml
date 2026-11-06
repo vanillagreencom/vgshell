@@ -33,7 +33,7 @@ Item {
         property string consoleKey: ""
         property string heldKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
-        property var shell: ({ status: { values: {} }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
+        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: {} }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) { root.intents = root.intents.concat([name]); }

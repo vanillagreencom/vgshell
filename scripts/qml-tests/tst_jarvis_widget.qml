@@ -47,7 +47,7 @@ Item {
     // console is read for its Needs you tab's actual unreadCounts binding.
     Console { id: jarvisConsole; visible: false; shell: widget.shell }
 
-    TestCase {
+    UnitCase {
         name: "jarvisWidget"
         when: windowShown
 
@@ -234,6 +234,7 @@ Item {
             const readyMenu = find(widget, node => node.triggerCurrent !== undefined && node.items !== undefined);
             const available = readyMenu.items().find(item => item.text === "Mute microphone");
             compare(available.disabledReason, "");
+            verify(renderedFrame(readyMenu.surface.scope), "the reopened menu lays out after its reason goes");
             mouseClick(available);
             compare(JSON.stringify(root.calls), '[["microphone-mute",""]]');
         }

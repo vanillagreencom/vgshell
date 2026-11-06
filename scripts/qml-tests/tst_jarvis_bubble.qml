@@ -28,6 +28,7 @@ Item {
         property var heldKey: null
         property var effectiveKeys: null
         property var shell: ({
+            settings: { voiceProvider: "local" },
             status: { values: {} },
             surfaces: { openPage: (page, tab) => { root.opened = root.opened.concat([[page, tab]]); } }
         })
@@ -84,6 +85,8 @@ Item {
             verify(span !== undefined, "the setting link lays out");
             mouseClick(line, (span.left + span.right) / 2, (span.line + 0.5) * line.linePitch);
             compare(JSON.stringify(root.opened), '[["vgs.jarvis","Settings/microphone"]]');
+            root.forceActiveFocus();
+            verify(root.activeFocus, "the test releases the link before removing its text");
             service.microphoneMute = { kind: "ready", muted: true };
             compare(bubble.stateText, "Microphone muted");
             compare(line.visible, false, "system mute replaces the silent-source reading");

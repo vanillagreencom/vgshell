@@ -1100,7 +1100,7 @@ function handlerChecks(logic, check, source = STATUS_SOURCE) {
 
 // The choice route as shipped: Capabilities.managerChoose over Plugins'
 // setSetting and writeSetting, Config.writeUser and PluginStatus's choice
-// table, on the Jarvis manifest's `mode` field. A user's choice reaches
+// table, on the Jarvis manifest's `cloudVision` enum. A user's choice reaches
 // the plugin once, after the write, with the value it replaced; a re-pick,
 // a refused write, a disabled plugin, the plugin's own configure write and
 // another caller's setSetting reach it never.
@@ -1121,18 +1121,18 @@ function choiceChecks(logic, check, capabilities = CAPABILITIES_SOURCE) {
             vm.runInNewContext(qmlMethod(capabilities, "managerChoose"), manager);
             const id = world.shell.manifest.id;
             const told = [];
-            status.handleChoice({ id: id, manifest: world.shell.manifest, onDispose: () => {} }, "mode", (value, previous) => told.push([value, previous, world.shell.settings.mode]));
+            status.handleChoice({ id: id, manifest: world.shell.manifest, onDispose: () => {} }, "cloudVision", (value, previous) => told.push([value, previous, world.shell.settings.cloudVision]));
             const label = enabled ? "" : " of a disabled plugin";
             if (!enabled) {
-                check("choice: a choice" + label + " is refused and tells nothing", [manager.managerChoose(id, "mode", "toggle"), told], ["refused: disabled=" + id, []]);
+                check("choice: a choice" + label + " is refused and tells nothing", [manager.managerChoose(id, "cloudVision", "allow"), told], ["refused: disabled=" + id, []]);
                 continue;
             }
-            check("choice: a user's choice tells the plugin once, after the write", [manager.managerChoose(id, "mode", "toggle"), told], ["ok", [["toggle", "hold", "toggle"]]]);
-            check("choice: a re-pick of the stored value tells nothing", [manager.managerChoose(id, "mode", "toggle"), told.length], ["ok", 1]);
-            check("choice: a refused value tells nothing", [manager.managerChoose(id, "mode", "loud").startsWith("refused:"), told.length], [true, 1]);
-            check("choice: the plugin's own configure write tells nothing", [world.shell.configure.set("mode", "always"), world.shell.settings.mode, told.length], ["ok", "always", 1]);
-            check("choice: another caller's setSetting tells nothing", [plugins.setSetting(id, "mode", "hold"), world.shell.settings.mode, told.length], ["ok", "hold", 1]);
-            check("choice: the next choice names the value it replaced", [manager.managerChoose(id, "mode", "always"), told[1]], ["ok", ["always", "hold", "always"]]);
+            check("choice: a user's choice tells the plugin once, after the write", [manager.managerChoose(id, "cloudVision", "allow"), told], ["ok", [["allow", "ask", "allow"]]]);
+            check("choice: a re-pick of the stored value tells nothing", [manager.managerChoose(id, "cloudVision", "allow"), told.length], ["ok", 1]);
+            check("choice: a refused value tells nothing", [manager.managerChoose(id, "cloudVision", "loud").startsWith("refused:"), told.length], [true, 1]);
+            check("choice: the plugin's own configure write tells nothing", [world.shell.configure.set("cloudVision", "never"), world.shell.settings.cloudVision, told.length], ["ok", "never", 1]);
+            check("choice: another caller's setSetting tells nothing", [plugins.setSetting(id, "cloudVision", "ask"), world.shell.settings.cloudVision, told.length], ["ok", "ask", 1]);
+            check("choice: the next choice names the value it replaced", [manager.managerChoose(id, "cloudVision", "never"), told[1]], ["ok", ["never", "ask", "never"]]);
         }
     } finally {
         fs.rmSync(scratch, { recursive: true, force: true });

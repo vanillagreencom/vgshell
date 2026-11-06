@@ -223,7 +223,7 @@ const controls = [
     ["hide without an indicator", 'hideBlock === "indicator"', 'false'],
     ["bar restores shortcut guidance", 'tooltipDetails: recovery', 'tooltipDetails: recovery.concat(["Tap or hold Super+J to talk."])'],
     ["bar loses its state prefix", 'tooltip: "Jarvis: " + ', 'tooltip: "" + '],
-    ["microphone guessed unmuted", 'if (value === undefined) return null;', 'if (value === undefined) return false;'],
+    ["microphone guessed unmuted", 'function microphoneMuted(value) {\n    if (value === undefined) return null;', 'function microphoneMuted(value) {\n    if (value === undefined) return false;'],
     ["menu accepts missing source", 'micMuted === null ? "Connect a microphone or choose one in Sound" : ""', '""'],
     ["prompt loses file path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: ""'],
     ["report hint shape unchecked", 'if (value.hint !== undefined && typeof value.hint !== "string") refuse(name, value);', ''],
@@ -471,13 +471,19 @@ for (const [needle, replacement] of [
     const records = {
         first: [{ plugin: "fixture.indicator", revision: "a", output: "one", key: "7:listening", dot: "success" }],
         second: [{ plugin: "other.indicator", revision: "a", output: "two", key: "7:listening", dot: "success" },
-            { plugin: "fixture.indicator", revision: "old", output: "two", key: "7:listening", dot: "success" }]
+            { plugin: "fixture.indicator", revision: "old", output: "two", key: "7:listening", dot: "success" },
+            { plugin: "fixture.indicator", revision: "a", output: "two", key: "7:present", dot: "" }],
+        empty: []
     };
     const ctx = vm.createContext({ barFrames: records });
+    // The nested QML run has no Array.flat. Exercise the shipped reader with
+    // that API absent rather than borrowing Node's larger array API.
+    vm.runInContext("Array.prototype.flat = undefined;", ctx);
     const read = vm.runInContext("(" + found[0][0] + ")", ctx);
     const consumer = { active: true, id: "fixture.indicator", manifest: { __revision: "a" } };
     const rows = read(consumer);
-    assert.deepEqual(copy(rows), [{ output: "one", key: "7:listening", dot: "success" }],
+    assert.deepEqual(copy(rows), [{ output: "one", key: "7:listening", dot: "success" },
+        { output: "two", key: "7:present", dot: "" }],
         "only this plugin and source revision can consume the host's frames");
     assert.ok(Object.isFrozen(rows) && rows.every(Object.isFrozen), "the consumer cannot mutate core presentation records");
     assert.deepEqual(copy(read({ ...consumer, active: false })), [], "retired provider grants nothing");

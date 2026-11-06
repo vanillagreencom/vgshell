@@ -10,10 +10,8 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's approval prompt and fault line as the overlay draws them: the
 // question and the fault's title in the shared bodyStrong role, the state
-// line in label; each line and answer in the look's ink over the look's
-// text shadow, which draws no frame while nothing changes, the prompt's
-// lines and the answers in one ink in both modes while light mode draws
-// the state line, the fault's action and its link in LIGHT's inks; the
+// line in label; each line and answer in the mode's look over the look's
+// text shadow, which draws no frame while nothing changes; the
 // answers at the look's height, Cancel as bare words and Confirm on the
 // look's fill; and Confirm's shimmer still at motion scale 0. The held
 // request's frame acknowledgement and the drawn overlay on a real layer
@@ -35,7 +33,7 @@ Item {
         property string consoleKey: ""
         property string heldKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
-        property var shell: ({ status: { values: {} }, surfaces: { openPage: () => {} } })
+        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: {} }, surfaces: { openPage: () => {} } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) {}
@@ -234,8 +232,7 @@ Item {
             tryVerify(() => frames.count > 0, 1000, "a changed question draws");
         }
 
-        // The prompt's lines draw the look's ink, the same in the light mode
-        // as in the dark; the state line draws the mode's own ink, which
+        // The prompt's lines and answers draw the mode's ink, which
         // tst_jarvis_field.qml holds to its measured contrast.
         function test_lines_draw_the_looks_ink_in_both_modes_data() {
             return [{ tag: "dark", light: false }, { tag: "light", light: true }];
@@ -243,13 +240,12 @@ Item {
 
         function test_lines_draw_the_looks_ink_in_both_modes(data) {
             if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
-            const dark = Theme.appearance(Appearance.TOKENS, {});
             put(root.held);
-            compare(String(labelOf("Delete draft.txt?").color), String(Qt.color(dark.ink.question)));
-            compare(String(labelOf("/home/fixture/draft.txt").color), String(Qt.color(dark.ink.path)));
-            compare(String(labelOf("Use the button or key to confirm.").color), String(Qt.color(dark.ink.hint)));
-            compare(String(answer("Cancel").foreground), String(Qt.color(dark.answer.bareInk)));
-            compare(String(answer("Confirm").foreground), String(Qt.color(dark.answer.ink)));
+            compare(String(labelOf("Delete draft.txt?").color), String(Qt.color(root.look.ink.question)));
+            compare(String(labelOf("/home/fixture/draft.txt").color), String(Qt.color(root.look.ink.path)));
+            compare(String(labelOf("Use the button or key to confirm.").color), String(Qt.color(root.look.ink.hint)));
+            compare(String(answer("Cancel").foreground), String(Qt.color(root.look.answer.bareInk)));
+            compare(String(answer("Confirm").foreground), String(Qt.color(root.look.answer.ink)));
             put(root.session({ conversation: { kind: "active", purpose: "conversation" } }));
             compare(String(labelOf("Ready to talk").color), String(Qt.color(root.look.ink.state)));
         }

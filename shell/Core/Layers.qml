@@ -34,7 +34,9 @@ Singleton {
 
     function barIndicators(ctx) {
         if (!ctx.active) return Object.freeze([]);
-        return Object.freeze(Object.values(barFrames).flat().filter(row =>
+        // QML's array API has no flat; concatenate the host-owned row lists.
+        const rows = Object.values(barFrames).reduce((all, hostRows) => all.concat(hostRows), []);
+        return Object.freeze(rows.filter(row =>
             row.plugin === ctx.id && row.revision === ctx.manifest.__revision).map(row =>
                 Object.freeze({ output: row.output, key: row.key, dot: row.dot })));
     }
