@@ -572,10 +572,10 @@ jarvis_bubble_accept() { # key|BUTTON EFFECT EXPECTED
 # The console's message field and hint line against the bubble's card, in
 # layout pixels: `clear` when the card meets neither and both lie whole
 # inside the focused output, `overlap` or `outside` otherwise. The field is
-# the console's one TextField, read by its empty text: no draft is typed.
+# the console's empty message TextArea: no draft is typed.
 jarvis_bubble_console() {
   local field hint card output
-  field="$(control_box window:Jarvis window vgs.jarvis TextField '')" &&
+  field="$(control_box window:Jarvis window vgs.jarvis TextArea '')" &&
     hint="$(control_box window:Jarvis window vgs.jarvis Label 'Confirm or cancel the request first')" &&
     card="$(control_box vgs:layer vgs.jarvis QQuickItem objectName overlay)" &&
     output="$(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["focused"]); print(json.dumps([m["x"], m["y"], m["width"] / m["scale"], m["height"] / m["scale"]]))')" || return 1
