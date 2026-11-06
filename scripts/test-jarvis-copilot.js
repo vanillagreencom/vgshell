@@ -556,6 +556,27 @@ world(async () => {
             assert.throws(() => w.say("one more"), { message: "jarvis: brain=context-limit" });
             assert.equal(received("session/prompt").length, 40);
         },
+        async engine(folder) {
+            scenario({ turns: [[{ stop: "end_turn" }]] });
+            Fixture.reset();
+            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+            const w = make(copied);
+            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: {
+                    id, provider: "copilot", label: "default", source: { kind: "cli", directory: account }, model: "" } }) }),
+                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e),
+                harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
+            owners.unshift(() => engine.close());
+            assert.doesNotThrow(() => assert.deepEqual(engine.configure({ brain: "copilot-fixture" }), { kind: "ready", cautions: [] }));
+            const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
+            const callbacks = [];
+            engine.brain.send({ gen, op, owner, text: "engine request" }, (kind, detail) => callbacks.push({ kind, detail }));
+            await until(() => callbacks.some(value => value.kind === "brain-done" || value.kind === "brain-failed"), "the engine answers");
+            assert.equal(callbacks.some(value => value.kind === "brain-failed"), false);
+            assert.deepEqual(received("session/prompt").map(value => value.params.prompt.at(-1).text), ["engine request"]);
+            validWrites();
+        },
         // Account discovery and Verify on a Copilot directory: no status
         // command runs, then the release record precedes the one probe prompt.
         async verify(folder) {
@@ -738,7 +759,7 @@ world(async () => {
             ["folder-label", "backend/Accounts.js", [['item.source.kind === "cli" ? item.email || "" : item.label', 'item.source.kind === "cli" ? item.email || item.label : item.label']], "verify"],
             ["harness-reason", "backend/Accounts.js", [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|pi)-"]], "verify"],
             ["account-row", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null,', '{ id: "copilot-removed", label: "GitHub Copilot", kind: "cli", command: null,']], "verify"],
-            ["engine-driver", "backend/ChainedEngine.js", [["\"copilot-acp\": CopilotHarness, ", ""]], "limit"]
+            ["engine-driver", "backend/ChainedEngine.js", [["\"copilot-acp\": CopilotHarness, ", ""]], "engine"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

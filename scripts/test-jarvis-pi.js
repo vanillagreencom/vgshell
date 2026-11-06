@@ -433,6 +433,30 @@ world(async () => {
             assert.deepEqual(received("set_thinking_level").map(m => m.level), ["high"], "the saved effort");
             assert.equal(received("prompt").length, 40);
         },
+        async engine(folder) {
+            scenario({ turns: [[{ stop: "stop" }]] });
+            Fixture.reset();
+            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+            const w = make(copied);
+            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: {
+                    id, provider: "pi", label: "default", source: { kind: "cli", directory: account }, model: "" } }) }),
+                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e),
+                harness: { bridge: w.bridge, env, runtime: () => w.runtime } });
+            owners.unshift(() => engine.close());
+            assert.doesNotThrow(() => assert.deepEqual(engine.configure({ brain: "pi-fixture", model: "stub/stub-1", effort: "high" }),
+                { kind: "ready", cautions: [] }));
+            const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
+            const callbacks = [];
+            engine.brain.send({ gen, op, owner, text: "engine request" }, (kind, detail) => callbacks.push({ kind, detail }));
+            await until(() => callbacks.some(value => value.kind === "brain-done" || value.kind === "brain-failed"), "the engine answers");
+            assert.equal(callbacks.some(value => value.kind === "brain-failed"), false);
+            assert.deepEqual(received("prompt").map(value => value.message), ["engine request"]);
+            assert.deepEqual(received("set_model").map(value => [value.provider, value.modelId]), [["stub", "stub-1"]]);
+            assert.deepEqual(received("set_thinking_level").map(value => value.level), ["high"]);
+            validWrites();
+        },
         // Verify: no tools, no MCP, one prompt after the release record.
         async probe(folder) {
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
@@ -684,14 +708,14 @@ world(async () => {
             ["command-missing", A, [['? "command-missing" : key[1]', '? key[1] : key[1]']], "absent"],
             ["harness-reason", A, [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|copilot)-"]], "accounts"],
             ["account-row", "AccountProviders.js", [['{ id: "pi", label: "Pi", kind: "cli", command: null, signIn: ["pi", "--no-session", "--no-extensions", "--no-skills",\n        "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-tools", "--no-mcp"] },', ""]], "accounts"],
-            ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "limit"],
+            ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "engine"],
             ["floor", H, [['if (part < floor[i]) fail("update need=" + FLOOR);', ""]], "floor"],
             ["floor-read", H, [["    version(env);\n    let session = null;", "    let session = null;"]], "floor"],
             ["version-scrub", H, [["{ env: childEnvironment(env),\n", "{ env,\n"]], "credential"],
             ["choice-floor", A, [["try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {", "try { } catch (error) {"]], "floor"],
             ["choice-update", A, [["if (/^jarvis: brain=pi-update /.test(error.message)) return", "if (true) return"]], "floor"],
             ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"],
-            ["engine-effort", "backend/ChainedEngine.js", [['effort: chosen.effort,', 'effort: "",']], "limit"]
+            ["engine-effort", "backend/ChainedEngine.js", [['effort: chosen.effort,', 'effort: "",']], "engine"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

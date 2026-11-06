@@ -247,6 +247,21 @@ world(() => {
     ];
     for (const [, setup, cause] of hazards) checkUnsafe(Audit, setup, cause);
 
+    function checkPartialAppend(logic) {
+        const root = currentState();
+        withWriter(logic, { state: root }, writer => {
+            assert.equal(writer.record(event).kind, "recorded");
+            const file = path.join(root, "audit", "2026-09-30.jsonl");
+            fs.appendFileSync(file, '{"partial":');
+            const before = fs.readFileSync(file);
+            let starts = 0;
+            assert.equal(writer.before(event, () => starts++).cause, "partial-line");
+            assert.equal(starts, 0, "an incomplete append refuses the action");
+            assert.deepEqual(fs.readFileSync(file), before, "refusal appends no bytes");
+        });
+    }
+    checkPartialAppend(Audit);
+
     function checkFault(logic, method, replacement, cause) {
         const root = currentState();
         withWriter(logic, { state: root }, writer => {
@@ -481,8 +496,7 @@ world(() => {
         ["removal record", "append(stamp.file, encode({ time: stamp.time, kind: \"prune\"", "false && append(stamp.file, encode({ time: stamp.time, kind: \"prune\"", checkPruneLog],
         ["one writer", 'if (owners.has(state)) fail("writer-owned");', 'if (false && owners.has(state)) fail("writer-owned");', checkSingle],
         ["closed owner", 'if (lifetime !== "open") fail("writer-closed");', 'if (false && lifetime !== "open") fail("writer-closed");', checkClosed],
-        ["partial line", 'tail[0] !== 10', 'false && tail[0] !== 10',
-            logic => checkUnsafe(logic, hazards[4][1], "partial-line")],
+        ["partial line", 'tail[0] !== 10', 'false && tail[0] !== 10', checkPartialAppend],
         ["file links", 'if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid()) fail("file-type");',
             'if (!stat.isFile() || stat.uid !== process.getuid()) fail("file-type");',
             logic => checkUnsafe(logic, hazards[3][1], "file-type")],

@@ -594,7 +594,10 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         assert.equal(starts().length, 3, "an unchanged setting keeps the sidecar");
         // A clone setup that publishes under an open conversation replaces
         // the sidecar only once that conversation ends.
-        await until(() => w.s().conversation.kind === "ended" && w.configure(w.s().settings).kind === "ready", "the cloned sidecar is ready");
+        await until(() => w.s().conversation.kind === "ended" && w.s().capture.kind === "closed"
+            && w.s().brain.kind === "closed" && w.s().turn.kind === "none" && w.s().playback.kind === "idle"
+            && w.configure(w.s().settings).kind === "ready",
+        "the cloned sidecar is ready after the old conversation acknowledges teardown");
         const asked = await say(w, utterance("Fixture request."));
         await requested(w, asked + 1, "request beside the cloned sidecar");
         const marker = path.join(state, "clone-ready.json");
@@ -1524,7 +1527,8 @@ async function cases(kit, server, only = null, mutation = false) {
     }, { sounds: true });
 
     // The home folder's text follows the shipped guidance in the brain's
-    // instructions and is read again at each conversation's first turn. A
+    // instructions and is read again when a new brain starts. Ordinary
+    // closes retain that brain's exact context. A
     // text that outgrew its budget since the setup answer reaches the brain
     // whole and fails no turn; a skill set that outgrew its entry bound fails
     // that turn with its cause, and no request leaves without the whole
@@ -1552,14 +1556,20 @@ async function cases(kit, server, only = null, mutation = false) {
         const first = await exchange("Hello.");
         assert.deepEqual(["HOME-MARKER-ONE", "- own/alpha: Alpha skill"].map(line => first.includes(line)), [true, true]);
         fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "HOME-MARKER-TWO\n");
-        const next = await exchange("Again.");
+        const retained = await exchange("Again.");
+        assert.deepEqual([retained.includes("HOME-MARKER-ONE"), retained.includes("HOME-MARKER-TWO")], [true, false],
+            "ordinary close keeps the brain's exact instructions");
+        w.runner.dispatch({ type: "new-conversation" });
+        const next = await exchange("New conversation.");
         assert.deepEqual([next.includes("HOME-MARKER-ONE"), next.includes("HOME-MARKER-TWO")], [false, true], "the last edit is the one a brain gets");
         fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "x".repeat(8193));
         fs.writeFileSync(path.join(homeFolder, "memory/MEMORY.md"), "m".repeat(4097));
+        w.runner.dispatch({ type: "new-conversation" });
         const over = await exchange("Once more.");
         assert.deepEqual([over.includes("x".repeat(8193)), over.includes("m".repeat(4097))], [true, true], "texts over their budget reach the brain whole");
         assert.equal(w.s().fault.kind, "none", "a text over its budget fails no turn");
         for (let index = 0; index < 257; index++) fs.writeFileSync(path.join(homeFolder, "skills/own/s" + index + ".md"), "# S\n");
+        w.runner.dispatch({ type: "new-conversation" });
         const fourth = await say(w, utterance("And again."));
         await settled(() => w.s().fault.kind !== "none", () => w.server.requests.length > fourth, "the overfull skill set fails the turn");
         assert.equal(w.s().fault.reason, "guidance=home-skills-too-large");
@@ -3144,7 +3154,7 @@ async function taskControls(root, server) {
             ["relay-flush-forgotten", "else if (own) unheard(c, turn);", "", "task-barge-in"],
             ["relay-withheld-silent", "tasks.withheld(c.gen, text, turn.relay.ask ?? turn.relay.about ?? null);", "void text;", "task-release-declined"],
             ...["task-close-spoken", "task-line-failed"].map(scenario => ["relay-end-forgets-" + scenario,
-                "        if (c.last !== null) unheard(c, c.last);\n", "", scenario]),
+                "        if (!relay || relay.done) return;\n", "        return;\n", scenario]),
             ["relay-reply-rules", "                const speakable = Speakable.create(LANGUAGE);\n                for (const sentence of [...speakable.push(text)",
                 "                const speakable = Speakable.create(LANGUAGE, { tools: [] });\n                for (const sentence of [...speakable.push(text)",
                 "task-permission-command"],
@@ -3695,7 +3705,8 @@ async function groupDaemonSpeech(root, server) {
         ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
         ["new arguments keep the sidecar", [['|| speechState.kind === "new" || speechIdentity === plan.speech.identity) return;', '|| true) return;']]],
         ["replaced sidecar kept", [['        daemonSpeech?.close();\n        startSpeech(plan.speech);\n    }', '        startSpeech(plan.speech);\n    }']]],
-        ["restart under a conversation", [['if (closed || conversation !== null || plan.speech', 'if (closed || plan.speech']]],
+        ["restart under a conversation", [['if (closed || setup !== null || conversation !== null || plan.speech',
+            'if (closed || setup !== null || plan.speech']]],
         ["conversation unloads local speech", [['if (c.plan.speech.lifetime !== "daemon") c.speech.close();', 'c.speech.close();']]],
         ["faulted child kept", [["daemonSpeech = null;\n            // A startup", "// A startup"]]],
         ["admission refusal admitted", [['{ kind: "refused", error, publication: row.publication }', '{ kind: "unloaded" }']]],

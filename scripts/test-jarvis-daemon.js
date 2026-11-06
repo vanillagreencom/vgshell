@@ -679,13 +679,20 @@ async function inside() {
             fs.writeFileSync(file, before.replace(needle, "const fixtureHeldClock = " + JSON.stringify(clock) + ";\n    "
                 + "const runner = new SessionRunner(Session, ports, {\n        now: () => "
                 + (fixed ? read : "Math.max(performance.now(), " + read + ")") + ","));
+        } else if (fixed) {
+            const read = 'Number(fs.readFileSync(fixtureHeldClock, "utf8"))';
+            const elapsed = "Math.max(performance.now(), " + read + ")";
+            if (before.includes(elapsed)) {
+                assert.equal(before.split(elapsed).length - 1, 1, "one disposable elapsed Session clock");
+                fs.writeFileSync(file, before.replace(elapsed, read));
+            }
         }
         fs.writeFileSync(clock, "0");
         return clock;
     }
     async function conversation(file, check, holdToTalk = true, expectedCode = 0, expectedError = "", beforeState = null,
-        sounds = hello.settings.sounds, settings = {}) {
-        const clock = holdClock(file);
+        sounds = hello.settings.sounds, settings = {}, fixedClock = false) {
+        const clock = holdClock(file, fixedClock);
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -723,7 +730,16 @@ async function inside() {
                 const held = await wait(message => message.state.input.kind === "held");
                 release(clock, held.state, () => talk("talk-up"));
             };
-            await check({ send: talk, holdUp, raw: send, reply: send,
+            const closeTalk = async gates => {
+                assert.equal(fixedClock, true, "short silent Talk closes use the injected Session clock");
+                if (last().state.input.kind !== "held") talk("talk-down");
+                const held = await wait(message => message.state.input.kind === "held");
+                if (["opening", "open"].includes(held.state.capture.kind))
+                    fs.writeFileSync(path.join(gates, "silent-capture"), "");
+                fs.writeFileSync(clock, String(held.state.input.since + TAP_MS - 1));
+                talk("talk-up");
+            };
+            await check({ send: talk, holdUp, closeTalk, raw: send, reply: send,
                 indicator: (shown, bar = "gone", gen = last().state.gen) => send(indicator(shown, bar, gen)),
                 wait, last, messages, pid: child.pid,
                 pressClock: at => fs.writeFileSync(clock, String(at)) });
@@ -1221,9 +1237,9 @@ async function inside() {
             await w.holdUp();
             await w.wait(m => m.phase === "thinking");
             assert.equal(effects("playback-start"), 0, "the basic fixture keeps its assistant reply gated");
-            w.send("toggle");
+            await w.closeTalk(lifecycleGates);
             await w.wait(m => m.state.conversation.kind === "ended" && m.state.playback.kind === "idle");
-        }, true, 0, "", null, true);
+        }, true, 0, "", null, true, {}, true);
         await firstTalk();
         fs.writeFileSync(file, source);
         const floor = cp.spawnSync(process.execPath, [path.join(tree, "scripts/fixtures/jarvis/prepare.js"),
@@ -1258,9 +1274,9 @@ async function inside() {
         w.indicator(false);
         const gone = await w.wait(m => m.state.indicator.kind === "gone" && m.state.capture.kind === "closed");
         assert.equal(gone.state.capture.kind, "closed", "indicator loss releases capture");
-        w.send("toggle");
+        await w.closeTalk(gates);
         await w.wait(m => m.state.conversation.kind === "ended");
-    });
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     await mappedCheck(mapped);
     for (const [name, needle, replacement] of [
         ["indicator-delivery", 'runner.dispatch({ type: "indicator", gen: message.gen, shown: message.shown, bar: message.bar });', 'void message.shown;'],
@@ -1309,9 +1325,9 @@ async function inside() {
                 w.indicator(true);
                 await w.wait(m => m.state.capture.kind === "open");
                 seq = w.last().seq;
-                w.send("toggle");
+                await w.closeTalk(hiddenGates);
                 await w.wait(m => m.seq > seq && m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
-            });
+            }, true, 0, "", null, hello.settings.sounds, {}, true);
         } finally { fs.rmSync(hiddenFile, { force: true }); }
     };
     await hiddenIndicatorCheck(hiddenMapped);
@@ -1510,13 +1526,14 @@ async function inside() {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
         gate("hold-close");
-        w.send("toggle");
-        await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closing");
+        await w.closeTalk(gates);
+        await w.wait(m => m.state.input.kind === "closing-tap" && m.state.capture.kind === "closing");
+        assert.equal(w.last().state.conversation.kind, "active", "an empty tap waits for the recorder's final");
         gate("close");
-        await w.wait(m => m.state.capture.kind === "closed");
+        await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
         assert.equal(count("capture-open"), initialOpens + 2);
         fs.unlinkSync(path.join(gates, "hold-close"));
-    });
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     await conversation(scripted, async w => {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
@@ -1539,12 +1556,12 @@ async function inside() {
         await w.wait(() => w.messages.some(m => m.type === "transcript"));
         assert.deepEqual(w.messages.filter(m => m.type === "transcript"), [{ v: 1, type: "transcript", gen: open.gen,
             revision: hello.revision, role: "user", text: "scripted words", stage: "partial", rev: 1 }]);
-        w.send("toggle");
+        await w.closeTalk(duplexGates);
         const ended = await w.wait(m => m.state.speech.kind === "closed");
         fs.writeFileSync(path.join(duplexGates, "transcript"), "");
         await w.wait(m => m.state.stale > ended.state.stale);
         assert.equal(w.messages.filter(m => m.type === "transcript").length, 1, "a closed session's caption stays off the wire");
-    });
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     const duplex = daemonCopy("duplex");
     instrument(duplex, duplexGates, "duplex");
     await captions(duplex);
@@ -1575,9 +1592,9 @@ async function inside() {
                 [thinking.gen, "assistant", "partial", 2, "On it. " + scriptedReply],
                 [thinking.gen, "assistant", "final", 3, "On it. " + scriptedReply]],
             "the bubble fixture's words come from the chained engine");
-        w.send("toggle");
+        await w.closeTalk(chainedGates);
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-    });
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     for (const [name, plant] of [["chained-scripted", null], ["chained-scripted-silent", "        caption(c, turn, sentence);\n"]]) {
         const file = daemonCopy(name);
         instrument(file, chainedGates);
@@ -1652,9 +1669,9 @@ async function inside() {
         assert.equal(w.messages.filter(m => m.type === "status").length, judged + 1, "the request judges the home once");
         for (const folder of HARNESS)
             assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + " holds the shipped render");
-        w.send("toggle");
+        await w.closeTalk(renderGates);
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-    }, true, 0, owner === "kendex" ? "jarvis: home=absent" : "");
+    }, true, 0, owner === "kendex" ? "jarvis: home=absent" : "", null, hello.settings.sounds, {}, true);
     for (const [name, needle, replacement, owner = "vgs"] of [["render-removed", null, null], ["render-removed-kendex", null, null, "kendex"],
         ["render-removed-unjudged", 'if (error.message !== "jarvis: home=absent") throw error; }\n        rejudge();\n',
             'if (error.message !== "jarvis: home=absent") throw error; }\n']]) {

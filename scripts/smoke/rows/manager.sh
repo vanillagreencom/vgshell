@@ -431,7 +431,7 @@ if plant:
             segment_planted = True
     # A control slot moved under its label leaves the label with no control;
     # the field moved holds neither control planted above.
-    first = next(i for i, r in enumerate(rows) if r["type"] in ("KeyField", "Field") and inside(i, page[0]) and visible(i) and not any(c["type"] in ("Slider", "SegmentedControl") and inside(j, i) for j, c in enumerate(rows)))
+    first = next(i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field") and inside(i, page[0]) and visible(i) and not any(c["type"] in ("Slider", "SegmentedControl") and inside(j, i) for j, c in enumerate(rows)))
     line = next(j for j, r in enumerate(rows) if r.get("name") == "fieldRow" and r["parent"] == first)
     label_box = next(r["box"] for r in rows if r["parent"] == line and r["type"] == "Label" and r.get("role") == "label")
     for j, r in enumerate(rows):
@@ -450,7 +450,7 @@ for n, i in enumerate(headers):
     check("section%d.x" % n, rows[labels[0]]["box"][0], content_left)
 setting_roots = [i for i, r in enumerate(rows) if r["type"] == "SettingField" and inside(i, page[0]) and visible(i)]
 key_roots = [i for i, r in enumerate(rows) if r["type"] == "KeyField" and inside(i, page[0]) and visible(i)]
-fields = [i for i, r in enumerate(rows) if r["type"] in ("KeyField", "Field") and inside(i, page[0]) and visible(i)]
+fields = [i for i, r in enumerate(rows) if r["type"] in ("BindField", "Field") and inside(i, page[0]) and visible(i)]
 counts = [len(setting_roots), len(key_roots)]
 if counts != [want_settings, want_keys]: out.append("settings,keys=%s want=%s" % (counts, [want_settings, want_keys]))
 for n, i in enumerate(fields):

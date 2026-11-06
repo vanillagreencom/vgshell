@@ -235,7 +235,13 @@ async function pointerAuthority(makeInput, refined) {
             switch (change) {
             case "lock": locked = true; runner.dispatch({ type: "snapshot", engine: "chained", locked: true, configured: true, settings: { holdToTalk: true } }); break;
             case "stop": runner.dispatch({ type: "stop" }); break;
-            case "generation": runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true, settings: { holdToTalk: true, microphone: "replacement-source" } }); break;
+            case "generation": {
+                const gen = runner.state.gen;
+                runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true,
+                    settings: { holdToTalk: true, model: "replacement-model" } });
+                assert.notEqual(runner.state.gen, gen, "a relevant selection retires the action's generation");
+                break;
+            }
             case "expiry": at += 1001; break;
             case "policy": locked = true; break;
             default: throw new Error("fixture-change");

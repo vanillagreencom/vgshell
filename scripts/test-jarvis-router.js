@@ -539,7 +539,10 @@ esac
             const w = make(implementation, session); held(w);
             // A brain may end its response while the approval remains on screen.
             w.dispatch({ type: "brain-done", ...w.runner.state.turn });
-            w.time(60000); w.confirm();
+            const approval = w.runner.state.approval;
+            w.tick(approval.deadline);
+            assert.equal(w.runner.state.approval.kind, "none", "the deadline retires an unanswered hold");
+            w.confirm({ id: approval.id, digest: approval.digest, gen: approval.gen });
             assert.equal(w.starts.length, 0);
             assert.equal(w.runner.state.approval.kind, "none");
             assert.equal(w.rows().at(-1).decision, "refuse");

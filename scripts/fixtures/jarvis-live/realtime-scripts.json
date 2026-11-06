@@ -429,11 +429,7 @@
     "content_index": 0,
     "part": {
      "type": "audio",
-     "transcript": "",
-     "usage": {
-      "type": "duration",
-      "seconds": 0.1
-     }
+     "transcript": ""
     }
    },
    {
@@ -522,7 +518,11 @@
     "event_id": "evt_empty",
     "item_id": "item_empty",
     "content_index": 0,
-    "transcript": ""
+    "transcript": "",
+    "usage": {
+     "type": "duration",
+     "seconds": 0.1
+    }
    }
   ],
   "cap-created": [

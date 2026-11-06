@@ -521,6 +521,7 @@ world(async () => {
                 if (adopted) {
                     // A generation's speech/capture owner can adopt history
                     // before its next brain request crosses the quiet barrier.
+                    Fixture.control.utterances.push(Fixture.utterance(""));
                     engine.captureSink({ gen: w.runner.state.gen, op: op + 20, mode: "conversation" });
                 }
                 w.time(2000);
@@ -560,6 +561,7 @@ world(async () => {
                     source: { kind: "cli", directory: account }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
                 captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
+                home: () => ({ kind: "ready", path: home }),
                 harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
             w.installEngine(engine);
