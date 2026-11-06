@@ -138,6 +138,7 @@ FIELDS = (
     ("status", "*", "label"), ("status", "*", "group"), ("status", "*", "hint"), ("status", "*", "info"), ("status", "*", "link", "text"), ("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"), ("status", "*", "aside", "label"), ("status", "*", "rowActions", "*", "label"), ("status", "*", "sourceAction", "label"),
     ("requirements", "*", "purpose"), ("requirements", "*", "dbus", "label"), ("requirements", "*", "nmVpn", "label"),
     ("pane", "group"),
+    ("handoffs", "*", "label"),
     ("tui", "*", "title"), ("tui", "*", "entry", "label"), ("tui", "*", "entry", "group"),
     ("menu", "*", "label"), ("menu", "*", "description"), ("menu", "*", "toggle", "label"),
     ("hyprland", "binds", "*", "info"),

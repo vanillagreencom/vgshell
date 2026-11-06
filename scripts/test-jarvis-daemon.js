@@ -1391,8 +1391,8 @@ async function inside() {
     // home VGS laid out gets the render VGS ships again, at its own paths,
     // and the request gets the scripted reply. A home kendex installed the
     // package in, as its lock names the package's skill, is kendex's to
-    // restore: VGS writes nothing there and the request fails on the
-    // home's absent package.
+    // restore: VGS writes no base package file there, records only its
+    // product skill, and the request fails on the home's absent package.
     const renderGates = path.join(root, "render-gates");
     const renderHome = path.join(fs.realpathSync(process.env.HOME), "home-render");
     const shipped = path.join(tree, "packaging/jarvis-home");
@@ -1411,7 +1411,11 @@ async function inside() {
         }
         w.raw({ ...hello, settings: { ...hello.settings, home: "~/home-render" } });
         await w.wait(m => m.state.settings.home === "~/home-render" && m.state.gate.kind === "up");
-        if (owner === "kendex") assert.deepEqual(vgsFiles(), [".agents"], "the hello reads kendex's render and writes none of VGS's copy");
+        if (owner === "kendex") {
+            assert.deepEqual(vgsFiles(), [".vgs-package.json", ".agents"], "the hello keeps kendex's base render");
+            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(renderHome, ".vgs-package.json"), "utf8")),
+                { files: ["skills/own/vgs-diagnose/SKILL.md"] }, "VGS records only its product skill, not kendex's base paths");
+        }
         else for (const folder of HARNESS)
             assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + ": the hello lays the render out");
         const judged = w.messages.filter(m => m.type === "status").length;
@@ -1427,7 +1431,9 @@ async function inside() {
             const statuses = w.messages.filter(m => m.type === "status");
             assert.equal(statuses.length, judged + 1, "the request judges the home once");
             assert.equal(statuses.at(-1).causes[0], "home=absent", "the home is refused for its absent package");
-            assert.deepEqual(vgsFiles(), [], "VGS writes nothing in kendex's home");
+            assert.deepEqual(vgsFiles(), [".vgs-package.json"], "VGS does not restore kendex's missing base");
+            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(renderHome, ".vgs-package.json"), "utf8")),
+                { files: ["skills/own/vgs-diagnose/SKILL.md"] }, "the refused request claims no kendex base path");
             return;
         }
         await w.wait(m => m.phase === "thinking" || m.state.fault.kind !== "none");
