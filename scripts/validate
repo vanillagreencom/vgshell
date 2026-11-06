@@ -1033,7 +1033,7 @@ smoke_reads_check() { # ROW...
 import pathlib, re, subprocess, sys
 
 sys.path.insert(0, str(pathlib.Path("scripts").resolve()))
-from shell_source import Scan, head, SOURCE
+from shell_source import NAME, Scan, head, SOURCE
 
 def calls(scan, runs):
     """The words SCAN runs as commands: each command's first word and, while
