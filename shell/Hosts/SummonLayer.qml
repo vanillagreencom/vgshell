@@ -5,23 +5,11 @@ import qs.Core
 import qs.Commons
 import qs.Ui
 
-// A summon with no anchor, built as a layer surface on the screen it was
-// summoned on. An overlay covers its screen and owns the keyboard until it
-// closes, and tells Compositor so, whose reveal waits until it is gone. A
-// panel or a menu covers its screen too, the reserved space included only
-// for `center`, and sits inside at the plugin's implicit size
-// and its `placement` setting (PluginLogic.surfacePlacement); a press on
-// the rest of the surface, over a window or the empty desktop, is
-// `dismissed`, which the host treats as a hide; a press inside the plugin's
-// box that none of its controls takes closes nothing. A popup the plugin
-// opens is its own surface above this one, so a press on it reaches the
-// popup. The keyboard stays on demand, so a window that takes it closes
-// nothing here. An Escape the plugin leaves unaccepted is `dismissed` too.
-// Every other screen holds a press catcher while a panel or a menu shows,
-// so a press there is `dismissed` as well. An overlay's plugin owns a press
-// beside its content (the launcher closes, an authentication dialog keeps
-// its request), so a press on another screen reaches an overlay's plugin
-// only through its `pressedOnOtherScreen()`, when it has one.
+// Overlays hold the keyboard until teardown so Compositor reveal waits.
+// Panels and menus close only on outside presses or unaccepted Escape;
+// losing on-demand keyboard focus must not close them.
+// An overlay plugin owns outside-press behavior, including other screens
+// through its optional pressedOnOtherScreen().
 PanelWindow {
     id: win
 
@@ -64,11 +52,8 @@ PanelWindow {
     // deletes that window on a later turn of the event loop
     // (WlrLayershell::deleteOnInvisible and
     // ProxyWindowBase::setVisibleDirect, src/window/proxywindow.cpp). A
-    // surface left to its destruction stays mapped until the end of that
-    // deletion, the scene graph teardown, which held the GUI thread 19 to
-    // 24 ms in five theme changes (event-loop marks and
-    // qt.scenegraph.time.renderloop in the theme-latency row, cachy,
-    // 2026-10-10, load 9.6 to 11.8, CPU pressure 0.3 to 4.5%).
+    // surface left to its destruction stays mapped through scene graph
+    // teardown, delaying the visible close.
     function unmap() {
         visible = false;
     }
@@ -111,7 +96,7 @@ PanelWindow {
             // Quickshell.screens drops a removed screen before Qt moves its
             // windows to another screen and Variants deletes this one on a
             // later turn; hidden first, it is never remapped there
-            // (BarHost, VGS-1104).
+            // (BarHost).
             visible: win.visible && Quickshell.screens.indexOf(modelData) !== -1
             anchors { top: true; bottom: true; left: true; right: true }
             exclusionMode: win.exclusionMode

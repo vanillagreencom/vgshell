@@ -4,12 +4,8 @@ import Quickshell.Wayland
 import qs.Core
 import qs.Commons
 
-// One per-screen layer host. Background plugins draw under windows and map
-// unless every instance hides itself. Cover plugins draw above windows and
-// map only when an instance asks to show, and never while the session is
-// locked. The screensaver stage owner's cover is CoverHost's, which can
-// hold it inside the lock; this host builds every other one. Each plugin
-// receives the screen through its slot's context.
+// CoverHost owns the stage owner's cover so it can move into the lock.
+// Other covers stay here and must not map while the session is locked.
 Item {
     id: host
 

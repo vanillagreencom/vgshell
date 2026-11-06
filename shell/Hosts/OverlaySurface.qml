@@ -3,19 +3,9 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Core
 
-// The layer window for passive plugin content and core notices, on the
-// overlay layer. The compositor keeps it in the area other layers leave
-// free, such as the screen less the bar, and it
-// reserves none. `inset` is the gap on every anchored edge.
-//
-// `placement` is `center` or one corner: `top-left`, `top-right`,
-// `bottom-left` or `bottom-right`. A corner anchors its two edges and the
-// host sizes the surface; `center` anchors all four edges, so the surface
-// fills the free area less the inset and the host centres its content.
-//
-// Pointer input reaches the surface only on `inputItems`: the mask is the
-// union of their rectangles, and with none every press passes through to
-// what is below. `inputAll` instead lets the whole surface take input.
+// Passive content and notices must leave reserved desktop space free.
+// Mask only declared input items so gaps pass presses to the application;
+// content that needs the whole surface opts into inputAll.
 PanelWindow {
     id: surface
 

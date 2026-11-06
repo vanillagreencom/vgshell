@@ -5,39 +5,11 @@ import qs.Core
 import qs.Commons
 import qs.Ui
 
-// The core notice surface: one OverlaySurface on the screen Notices chose,
-// existing only while a requirement notice, the restart notice, the reset
-// question, the "VGS was reset" notice or the core consent slot shows,
-// taking the keyboard on demand. It draws one Dialog at a time. A
-// requirement notice has priority: one entry per package its step installs
-// for a missing requirement or updates for an outdated one, its name as a
-// chip with its state beside it, Missing, Optional or Outdated in the tone
-// the Requirements row draws it with (PluginLogic.requirementBadge), and
-// each purpose under it, then one per package a later step offers, drawn alike with a line
-// naming the manager that offers it, its title counting the entries whose
-// chip reads Missing or Outdated, then
-// Install, Update or Install and update, with Not now, or Close alone when
-// no manager here installs a listed package. The step runs Notices.accept, every other
-// answer Notices.dismiss. The consent slot draws its view's title, message,
-// lines, file link, quick commands and actions: the Hyprland question's
-// Connect and Not now, or the welcome's Connect, Not now or Close. The
-// restart notice is drawn as the consent slot is, from Notices.restartView, and its
-// Restart runs Notices.restartShell; so are the reset question, from
-// Notices.resetView, whose Reset runs Notices.resetVgs, and the "VGS was
-// reset" notice, from Notices.resetDoneView, whose Restore previous
-// settings runs Notices.restoreReset and whose Escape runs
-// Notices.hideResetDone. While the
-// shown notice's install runs the window is gone, so the floating TUI it
-// opened, centred on the same monitor, shows whole; a notice the scan
-// after the run keeps comes back as a new window that takes the keyboard. The window fills the area other
-// layers leave free, less `dialog.margin`, whatever the dialog's size, and
-// the dialog sits in its centre. The scrim, `color.scrim`, fills the window
-// under the dialog and dims what lies behind it. The dialog alone takes
-// pointer input, so a click on the scrim reaches what is under it, and no
-// notice is modal for the pointer. A reference in the message or a
-// consent line (PageReference), a page's or a file's, opens through the
-// core's one reference route, Plugins.openReference: a file through the
-// core edit route.
+// Hide the notice during installation so its floating TUI shows whole.
+// A notice retained by the next scan maps anew and takes the keyboard.
+// Keep the scrim outside the input mask: notices dim the desktop but
+// must not block pointer input outside their dialog.
+// References use the core's one route, including its file edit route.
 Scope {
     id: host
 
@@ -48,15 +20,11 @@ Scope {
     // The scrim under it, for a validation row that reads where it is drawn.
     readonly property Item scrim: loader.item === null ? null : loader.item.scrim
 
-    // Open what an activated reference names; a refused one logs its
-    // reply, and its words stay words.
     function openReference(page, tab) {
         const answer = Plugins.openReference(page, tab);
         if (answer !== "ok") console.warn("notices: reference " + answer);
     }
 
-    // The label of the step the notice runs, PluginLogic.noticeView's
-    // `run`, "" when no manager here runs one.
     function step(shown) {
         if (shown.run === null) return "";
         if (shown.run.updates.length === 0) return "Install";
@@ -69,9 +37,6 @@ Scope {
         return normal === "Install" && ((Notices.failure !== null && Notices.failure.kind === "failed") || shown.packageFailure !== null) ? "Install again" : normal;
     }
 
-    // The line under SHOWN's entries for FAILURE, Notices.failure: why its
-    // last run did not finish, or what a run that finished left as it was,
-    // one leftLine for each package it left.
     function failureLine(shown, failure) {
         switch (failure.kind) {
         case "failed":
@@ -83,9 +48,6 @@ Scope {
         throw new Error("notices: failure kind " + JSON.stringify(failure.kind) + " has no line");
     }
 
-    // What a run left of one package, ENTRY of PluginLogic.noticeUnchanged:
-    // still missing, an optional one said to be optional, or still below
-    // the floor SHOWN's owner needs.
     function leftLine(shown, entry) {
         switch (entry.kind) {
         case "missing":
@@ -96,9 +58,7 @@ Scope {
         throw new Error("notices: unchanged kind " + JSON.stringify(entry.kind) + " has no line");
     }
 
-    // The dialog's message for SHOWN: what its step does, or how to install
-    // its requirements when no manager here installs them. The line under
-    // each later entry names its manager, so the message names none.
+    // Each later entry names its manager; repeating it in the message adds nothing.
     function message(shown) {
         if (shown.packageFailure !== null) {
             const available = shown.packageFailure.retry !== null && shown.packageFailure.retry.state === "available";
@@ -115,7 +75,6 @@ Scope {
         return "No package manager here provides these requirements. Install them by hand.";
     }
 
-    // Whether the notice's window holds the keyboard.
     readonly property bool keyboardHeld: loader.item !== null && loader.item.keyboardHeld
 
     // Take the keyboard back after another shell surface that took it lost
@@ -126,7 +85,7 @@ Scope {
     // layer over (InputManager.cpp). A layer that turns exclusive is
     // focused at that commit (LayerSurface.cpp onCommit), so the window
     // asks for that until the keyboard arrives and is on demand again
-    // after; rows/bar.sh reads the welcome focused after a drag.
+    // after.
     function retakeKeyboard() {
         if (loader.item !== null && !loader.item.keyboardHeld) loader.item.retaking = true;
     }
@@ -193,8 +152,6 @@ Scope {
                     return links;
                 }
 
-                // The consent slot's lines, the welcome's: paragraphs
-                // `dialog.gap` apart, as the dialog's message and body are.
                 Column {
                     id: consentLines
                     width: parent.width
@@ -242,17 +199,6 @@ Scope {
                         }
                     }
                 }
-                // The packages the notice asks for, a block of the dialog's body
-                // `dialog.gap` under the message: first those this step
-                // handles, each its name as a chip
-                // and its state beside it, a chip that elides before the
-                // state leaves the dialog,
-                // with each purpose under it as a hint, as a Field draws a
-                // label's hint, then the packages a later step offers,
-                // drawn alike with one more hint naming the manager that
-                // offers them. The entries are groups of the shared
-                // GroupList, which spaces them and centres the hairline
-                // between two of them by their drawn ink.
                 GroupList {
                     id: entryList
                     visible: !win.consentMode
@@ -321,7 +267,6 @@ Scope {
                 onActivated: Notices.hideResetDone()
             }
 
-            // Each notice that comes to the front takes the keyboard.
             Connections {
                 target: Notices
                 function onShownIdChanged() { card.forceActiveFocus(); }

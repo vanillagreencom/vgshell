@@ -2,10 +2,7 @@ import QtQuick
 import qs.Core
 import "../Ui/foundation/KeyNavLogic.js" as KeyNavLogic
 
-// One plugin instance of one kind inside a host. Owns the whole lifecycle:
-// builds through the core, rebuilds when the plugin id or the plugin
-// source revision changes, destroys before every rebuild and on its own
-// destruction. Every host is a surface plus one of these per plugin.
+// One slot owns each plugin instance's lifetime, including rebuild teardown.
 FocusScope {
     id: slot
 
@@ -40,8 +37,7 @@ FocusScope {
     // deleteLater, src/qml/jsruntime/qv4qobjectwrapper.cpp). Until then
     // the slot still follows its plugin's key, so a key that leaves and
     // returns in that turn, as a disable and enable of the plugin does,
-    // would build an instance beside the new slot's (read in the plugins
-    // and surfaces smoke rows, on a slot without the latch). Once false the
+    // would build an instance beside the new slot's. Once false the
     // slot builds nothing again; it keeps the instance it holds until it is
     // destroyed. A host binds it from an input that does not read
     // `dropped`, so the latch updates no binding inside its own update.
@@ -58,7 +54,6 @@ FocusScope {
     // Only code failures suppress a host until its source changes. A
     // temporary enablement or lending refusal must remain eligible to retry.
     signal buildFailed(string key)
-    // Emitted with every instance the slot builds.
     signal built(var instance)
 
     readonly property string key: Registry.slotKey(pluginId)

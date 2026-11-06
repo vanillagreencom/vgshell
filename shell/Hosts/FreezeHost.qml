@@ -4,10 +4,8 @@ import Quickshell.Wayland
 import qs.Core
 import "../Core/FreezeBands.js" as Bands
 
-// The screen freeze's surfaces (ScreenFreeze, D115): while a plugin holds it,
-// one surface per screen on the overlay layer, covering the whole output
-// over every reserved zone, taking no keyboard and no pointer, drawing one
-// still frame of that screen.
+// The core owns the whole-output freeze so plugins create no surfaces
+// (D115). It takes no input; the selection tool maps above it.
 //
 // Each surface maps drawing nothing and captures its frame then, so the
 // frame holds no freeze; every surface draws its frame in the same turn
@@ -36,7 +34,7 @@ import "../Core/FreezeBands.js" as Bands
 // completes only on its window's next frame (Qt 6.12
 // qquickitemgrabresult.cpp: create requests window()->update(), the image
 // comes from afterRendering and the callback from a posted event), so one
-// GUI turn saves one band of at most FreezeBands.BAND_PIXELS.
+// GUI turn saves one band's image, not a whole screen's.
 Scope {
     id: host
 
@@ -49,7 +47,6 @@ Scope {
     readonly property bool allPresented: framed && surfaces.instances.length > 0
         && surfaces.instances.every(surface => surface.presented)
     readonly property bool cursor: ScreenFreeze.cursor
-    // The hold's band chain once started: { serial, jobs, screens, done }.
     property var chain: null
     readonly property bool stillReady: allPresented && ScreenFreeze.frameDir !== ""
 
@@ -96,10 +93,7 @@ Scope {
     // leaving surface's window is hidden before this runs: Hyprland closes
     // the output's layer surfaces first and Quickshell closes the window on
     // that (quickshell 2b4501a src/wayland/wlr_layershell/surface.cpp
-    // zwlr_layer_surface_v1_closed), as the nested screen-freeze row read
-    // on Hyprland 0.57.0 (VGS-2232 fix-round run notes, run 2); rebuild()
-    // hides it too. That row's control without this cancel leaves the
-    // still unanswered.
+    // zwlr_layer_surface_v1_closed); rebuild() hides it too.
     Connections {
         target: Quickshell
         function onScreensChanged() {
@@ -112,7 +106,6 @@ Scope {
         }
     }
 
-    // FreezeBands.plan holds the frames each screen writes and their bands.
     function startStill() {
         const planned = Bands.plan(surfaces.instances.map(surface => ({ name: surface.screen.name, x: surface.screen.x, y: surface.screen.y,
             width: surface.screen.width, height: surface.screen.height, ratio: surface.ratio })), ScreenFreeze.frameDir);
@@ -147,12 +140,10 @@ Scope {
         const job = run.jobs[index];
         const last = index + 1 === run.jobs.length;
         if (!last) grab(run, index + 1);
-        // QImage::save writes PPM by the suffix, `P6 <width> <height> 255`
-        // and RGB rows (the nested measurement read `P6\n6016 3384\n255\n`).
+        // QImage::save chooses PPM from the suffix; the holder reads RGB bands.
         const saved = result.saveToFile(job.path);
         const done = Date.now();
-        // destroy() frees the result's image at once, not at the next
-        // garbage collection (VGS-2232 round-3 host bench, Qt 6.12.0).
+        // Release the result's image now rather than waiting for collection.
         result.destroy();
         if (!saved) {
             stillFailed(run, "save");
@@ -174,8 +165,7 @@ Scope {
     Variants {
         id: surfaces
         // Built anew at each hold, so each hold captures its own frame: a
-        // surface kept past the thaw shows the previous hold's frame
-        // (screen-freeze's freshness control).
+        // surface kept past the thaw shows the previous hold's frame.
         model: host.built
 
         PanelWindow {
@@ -186,7 +176,6 @@ Scope {
             // its pointer frame is in too, so that frame is taken before
             // any freeze shows and holds none.
             readonly property bool hasFrame: view.hasContent && (!host.cursor || cursorView.hasContent)
-            // A frame swapped while the still frame was drawn.
             property bool framePresented: false
             readonly property bool presented: view.visible && backingWindowVisible && framePresented
             // The window's ratio in 120ths, as wp-fractional-scale-v1 sends
@@ -206,9 +195,6 @@ Scope {
 
             onBackingWindowVisibleChanged: framePresented = false
 
-            // JOB's band of the saved view, grabbed at the band's target
-            // size; DONE gets the ItemGrabResult. False when Qt refuses
-            // the grab.
             function grabBand(job, done) {
                 band.sourceRect = Qt.rect(0, job.band.y, surface.screen.width, job.band.rows);
                 band.textureSize = Qt.size(job.frame.width, job.band.height);

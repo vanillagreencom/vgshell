@@ -4,29 +4,11 @@ import qs.Core
 import qs.Commons
 import qs.Ui
 
-// An application window: a summon of kind `window`, built as a Hyprland
-// toplevel. Its class is the shell's one app-id, which shell.qml's AppId
-// pragma sets, and its title is the plugin's manifest name, so the user's
-// window rules and keybinds find it; the Hyprland layer's `vgs:window` rule
-// floats it, centred across its output with its top at
-// `size.window.topShare` of the output's height. It draws no border and
-// no radius of its own, so Hyprland's decoration is the frame. Its colour is the raised surface, and
-// while Hyprland's window glass is on, the glass fill, through which
-// Hyprland blurs what lies behind the window; the layer's
-// `vgs:window-glass` rule keeps Hyprland's window opacity from fading it
-// further. A GlassSurface the plugin draws then sits in a window whose
-// colour is not transparent and draws solid. The window maps once the plugin is
-// built, at the larger of the plugin's request and its window Pane's
-// content height, capped at that Pane's maximumHeight when it sets one and
-// bounded by the one cap on a shell window's height
-// (OverlayState.windowRoom), so it ends inside the work area. Quickshell sends a floating window
-// no size change once it is shown, so that size is the first request only,
-// and the plugin fills whatever size Hyprland gives the window after. A
-// close through Hyprland, such as its killactive key, is `dismissed`, which
-// the host treats as a hide, and so is an Escape the plugin leaves
-// unaccepted while the window has the keyboard: the slot holds the focus
-// the plugin takes none of, and a key the focused item does not accept
-// climbs its parents to the slot.
+// Keep the shell app-id and plugin title available to window rules.
+// Hyprland owns the frame and placement; the host draws no decoration.
+// Quickshell's floating-window size is an initial request, so the plugin
+// must fill the size Hyprland gives it after mapping. Unaccepted keys climb
+// to the focused slot, which gives plugins without a key handler Escape.
 FloatingWindow {
     id: win
 

@@ -4,23 +4,10 @@ import qs.Core
 import qs.Commons
 import "../Core/HyprlandLayer.js" as Layer
 
-// The surfaces of one summonable kind: `panel`, `overlay`, `menu` or
-// `window`. A plugin of that kind is drawn only while summoned. `summon`
-// creates a surface on the screen it was summoned on, the one
-// PluginLogic.summonSurface names: a layer surface, a popup under an
-// anchor, or for `window` an application window whatever the anchor. It
-// builds the plugin inside it and calls its `open(payloadJson)`; `hide`
-// calls `close()` before the plugin is destroyed. A layer surface leaves
-// the screen first, ahead of `close()` and of its teardown, which runs on
-// later turns of the event loop; an anchored popup stays mapped through
-// its close motion and calls `close()` when it ends. One surface per plugin
-// id; summoning an open one hands it the new payload. A plugin disabled
-// while open is closed the same way. An open() that throws is logged and
-// refuses the summon; a close() that throws is logged and the surface still
-// goes. A window the user closes through Hyprland is hidden the same way.
-// `hide` first asks an instance that has a `holdsHide()`: one that answers
-// true stays open, to ask its user about what the hide would lose, and
-// hides itself once that is answered.
+// Keep one surface per plugin id; reopening delivers a new payload.
+// Unmap layers before deferred teardown, but let anchored popups finish
+// their close motion before close() can clear their content.
+// holdsHide() lets a plugin ask what to do with work that hiding would lose.
 Scope {
     id: host
 
@@ -113,7 +100,6 @@ Scope {
         }
     }
 
-    // Call one instance's open(); "" when it returned, else the error, logged.
     function callOpen(id, instance, payloadJson) {
         try {
             instance.open(payloadJson);
@@ -222,12 +208,10 @@ Scope {
             // still reads `requests`. A summon of its id handled before
             // that turn, such as a shortcut pressed again while drop() ran,
             // would hand it the new request, and it would build a second
-            // surface beside the new entry's (read in the notifications-keys
-            // smoke row, on a host without the latch). The latch is set from
+            // surface beside the new entry's. The latch is set from
             // `held`, whose binding does not read it: set from a handler of
             // `request`, it would update that binding inside its own
-            // update, which Qt logs as a binding loop (read in the same
-            // row's shell log).
+            // update, which Qt logs as a binding loop.
             property bool dropped: false
             readonly property var held: host.requests[modelData]
             onHeldChanged: if (held === undefined) dropped = true

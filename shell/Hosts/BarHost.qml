@@ -4,15 +4,9 @@ import Quickshell.Wayland
 import qs.Core
 import qs.Commons
 
-// One bar surface per screen. The core owns the window; the active bar
-// plugin draws inside the slot and receives the screen through the slot's
-// context. The window exists only while a bar instance can be built: a
-// disabled, unknown or broken bar leaves no surface and reserves no space,
-// so the desktop stays whole. A hidden window would keep its layer
-// surface alive; destroying the window is what releases it. The surface is
-// mapped only while the bar instance is shown, one without the property
-// included: hiding a layer-shell window deletes its Wayland surface, which
-// releases the space it reserves, and keeps the instance to show it again.
+// A disabled, unknown or broken bar must reserve no desktop space.
+// Hiding a layer-shell window releases its Wayland surface's reserved
+// space while retaining the plugin instance for the next show.
 Item {
     id: host
 
@@ -45,7 +39,7 @@ Item {
             WlrLayershell.layer: WlrLayer.Top
             // Quickshell 0.3.1 defers native window deletion after the Loader
             // drops its item. Hide first, or Qt can remap it as a toplevel
-            // while a removed output migrates its windows (VGS-1104 smoke).
+            // while a removed output migrates its windows.
             visible: host.screenPresent && PluginLogic.barShown(slot.instance)
 
             PluginSlot {

@@ -1,11 +1,9 @@
 import QtQuick
 
-// The input barrier over one lock surface while the secure cover shows. It
-// holds the keyboard and takes every pointer event, and the first real
-// movement, press, scroll or key reports `consumed` and goes no further:
-// LockHost builds the lock content only after that, so the event never
-// reaches the password field or the desktop. A surface that maps under a
-// resting pointer receives the pointer's position, so movement counts once
+// Consume the secure cover's first input before LockHost builds the lock
+// content, so it never reaches the password field or the desktop.
+// A surface mapped under a resting pointer receives its position, so
+// movement counts once
 // the pointer has gone more than four pixels from where it entered, as the
 // desktop cover's dismissal does.
 FocusScope {

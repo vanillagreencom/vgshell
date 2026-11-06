@@ -17,10 +17,8 @@ import qs.Commons
 // input barrier and builds no lock content: nothing under the cover exists
 // to take focus or input. Disabling the content is not enough: a disabled
 // field's forceActiveFocus() still moves its focus scope's focus away from
-// the barrier, so a key reaches neither: a probe field focused the way
-// LockView focuses its own, on the turn after it is built, did that in the
-// third nested run of the VGS-2097 feasibility probe (2026-10-31). The
-// barrier's first input ends the cover on every screen, and only then is
+// the barrier, so a key reaches neither. The barrier's first input ends
+// the cover on every screen, and only then is
 // the lock content built and focused, so the next input reaches it.
 // WlSessionLock builds one surface per screen when `locked` turns true,
 // and a surface is only ever destroyed, never hidden:

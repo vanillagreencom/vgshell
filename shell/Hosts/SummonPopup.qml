@@ -41,9 +41,9 @@ PopupWindow {
     implicitWidth: slot.instance ? Math.max(1, Math.min(slot.instance.implicitWidth, room.width)) : 1
     // The native height: the room on the anchor's side, taken once at open,
     // and never lowered while the popup shows, so an expand or a collapse
-    // sends the compositor no resize. Each resize is an xdg_popup.reposition
-    // round trip, during which Qt draws nothing, and a new swapchain
-    // (qtbase 6.11 QWaylandXdgSurface::setWindowSize).
+    // sends the compositor no resize. Native geometry changes can reposition
+    // the popup, and Qt defers commits while that request is pending
+    // (qtbase 6.11 QWaylandXdgSurface::setWindowPosition and isExposed).
     property real keptHeight: 0
     implicitHeight: Math.ceil(Math.max(keptHeight, sized.surface))
     color: "transparent"
@@ -52,8 +52,7 @@ PopupWindow {
     // The card's resting box, not `item: sized`: Quickshell's Region maps
     // its item through the slide's Translate but rebuilds only on the
     // item's x, y, width or height, so it kept the open motion's first
-    // frame and left the card's bottom `motion.flyout.slide` outside
-    // (surfaces row, the mask control).
+    // frame rather than following the translated card.
     // Region's box is whole pixels; the card's height is fractional.
     mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width); height: Math.ceil(sized.height) }
     Component.onCompleted: Qt.callLater(() => setMotion(1, false))
@@ -149,8 +148,7 @@ PopupWindow {
     // slides it. 0 for any other anchor, whose position on the output a
     // client cannot read: a toplevel's under Wayland, or a layer the
     // compositor places below another's exclusive zone, as a summoned panel
-    // anchored to every edge sits under the bar (surfaces row: a nested
-    // menu from such a panel slid up over its anchor). That popup's height
+    // anchored to every edge sits under the bar. That popup's height
     // grows with its content and never shrinks while it shows.
     function roomBelow() {
         const win = anchorItem === null ? null : anchorItem.QsWindow.window;
@@ -185,9 +183,9 @@ PopupWindow {
     }
 
     // The card fades as one image. Qt applies an item's opacity to each
-    // child on its own, so a plugin's opaque fill over its card's fill let
-    // the faded card show through it and stood out lighter mid-motion; a
-    // layer draws the subtree at full opacity, then fades that texture
+    // child on its own, so an opaque plugin fill over the card's fill
+    // exposes that fill during motion; a layer draws the subtree at full
+    // opacity, then fades that texture
     // (Qt 6 Item, "Layer Opacity vs Item Opacity"). The layer covers the
     // window, not the card, so a glass shadow past the card's edge fades
     // with it. It exists only while the card moves.

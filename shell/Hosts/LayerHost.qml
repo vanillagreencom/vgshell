@@ -5,17 +5,8 @@ import Quickshell.Wayland
 import qs.Core
 import qs.Ui
 
-// The passive layer surfaces: one per screen for every registration in
-// Layers, each drawing one copy of the plugin's component. The surface
-// covers the part of its screen other layers do not reserve and sits on the
-// overlay layer and never takes keyboard focus, so it cannot steal input
-// from the focused application. Pointer input reaches it only where its
-// content says: the whole surface while the content's `inputAll` is true,
-// otherwise the union of its
-// `inputItems`, and nowhere without any. The
-// core assigns the content its `screen` after creation; a content without
-// that property is not built, logged, and maps no surface. A screen that
-// goes takes its surfaces with it.
+// Passive layers take no keyboard and restrict pointer input to the
+// content's declared mask, so decoration cannot steal application input.
 //
 // A surface whose content stops being shown while a popup holds the
 // keyboard grab (OverlayState.grabs) stays mapped, its content hidden and
@@ -62,7 +53,6 @@ Scope {
                     // Mapped past `shown` while a grab is open; set only by
                     // a grab or a map, never by the drop of `shown`.
                     property bool held: false
-                    // Mapped only by the hold: nothing drawn, no input.
                     readonly property bool hiding: held && !shown
                     readonly property bool presented: !hiding && visible && backingWindowVisible && framePresented
                     // The screen name the content was built on, kept while the
