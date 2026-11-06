@@ -134,7 +134,7 @@ if copy_tree configuration-unmigrated && edit_tree configuration-unmigrated shel
     'const r = root.judge(path, content, true);' 'const r = root.judge(path, content, false);'; then
   stop_shell || :
   if start_shell "$sandbox/tree-configuration-unmigrated" "$sandbox/configuration-unmigrated-qs.log"; then
-    expected_errors+=('config: .*/shell\.json malformed: version must be 5, got 1')
+    expected_errors+=('config: .*/shell\.json malformed: version must be 6, got 1')
     config_plant_version_one || fail "control: planting the version 1 user file failed"
     expect_poll "control: a shell that migrates nothing refuses the version 1 file" malformed config_user_state
     expect "control: the version 1 file stays as it was" '[1, [{"id": "acme.tick", "format": "entry-loses", "extra": "moves"}], [{"id": "acme.tick", "format": "row-wins"}]]' config_migration_read

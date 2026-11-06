@@ -875,17 +875,41 @@ echo "--- conversation opening"
 open_conversation() {
   : >"$tmp/open.log"
   bash -c 'set -euo pipefail; source "$1"; log="$2"
-    traced() { echo listening; }
-    devices_voice_feed_state() { echo ready; }
-    devices_voice_feed() { echo feed >>"$log"; }
+    readiness() {
+      local name="$1" answer="$2"
+      if grep -qx "$name-pending" "$log"; then
+        echo "$name-ready" >>"$log"; echo "$answer"
+      else
+        echo "$name-pending" >>"$log"; echo pending
+      fi
+    }
+    traced() {
+      grep -q "intent talk-down" "$log" && grep -q "intent talk-up" "$log" || return 1
+      readiness "$1" listening
+    }
+    devices_voice_feed_state() {
+      grep -qx widget-ready "$log" && grep -qx phase-ready "$log" || return 1
+      readiness capture ready
+    }
+    selftest_wait() {
+      local want="$2" first second
+      shift 2
+      first="$("$@")" && [[ $first == pending ]] || return 1
+      second="$("$@")" && [[ $second == "$want" ]]
+    }
+    devices_voice_feed() {
+      grep -qx capture-ready "$log" || return 1
+      echo feed >>"$log"
+    }
     stopped() { echo "stopped $*" >>"$log"; return 1; }
     ipc() { echo "ipc $*" >>"$log"; echo ok; }
     selftest_open wav ignored "$log.wav" 0
   ' _ "$functions" "$tmp/open.log" || return 1
-  grep -q 'intent talk-down' "$tmp/open.log" && grep -q 'intent talk-up' "$tmp/open.log" && grep -qx feed "$tmp/open.log"
+  [[ "$(grep -E 'intent talk-|^(widget|phase|capture)-|^feed$' "$tmp/open.log")" == \
+    $'ipc smoke invokeInstance service vgs.jarvis intent talk-down\nipc smoke invokeInstance service vgs.jarvis intent talk-up\nwidget-pending\nwidget-ready\nphase-pending\nphase-ready\ncapture-pending\ncapture-ready\nfeed' ]]
 }
 holds "a voice input opens Talk before feeding its capture" open_conversation
-control cut_functions "an input that omits its Talk press" '  ipc smoke invokeInstance service vgs.jarvis intent talk-down >/dev/null || stopped talk-not-sent' '  :' open_conversation
+control cut_functions "an input that bypasses capture readiness" '  selftest_wait 10 ready devices_voice_feed_state || stopped no-voice-feed "$reading"' '  :' open_conversation
 
 suite_summary_case() { # CASES MATCHED DIFFER NOT_RUN FAILED DIR WANT_STATUS
   local cases="$1" matched="$2" differ="$3" not_run="$4" failed="$5" dir="$6" want_status="$7" status=0

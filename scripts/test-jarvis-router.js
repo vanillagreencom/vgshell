@@ -674,7 +674,7 @@ esac
             first.answers[1]({ outcome: "completed", content: "typed twice" });
             const second = make(implementation);
             assert.equal(second.call("input.text", text).kind, "held", "a new router cannot inherit a grant");
-            first.dispatch({ type: "stop" }); first.newTurn();
+            first.dispatch({ type: "toggle" }); first.newTurn();
             assert.equal(first.call("input.text", text).kind, "held", "a new conversation cannot inherit a grant");
         }],
         ["grant-bound", implementation => {

@@ -43,6 +43,17 @@ async function echoRoutes(Implementation = Audio) {
             settings: { microphone: "", speaker: "" } });
         assert.equal(w.audio.echoRoute.state, "active", "connected native graph matches the owned plan");
         assert.equal(w.audio.echoActive(), true);
+        const judgeGraph = w.audio.echoGraph;
+        let judgments = 0;
+        w.audio.echoGraph = function (...args) { judgments++; return judgeGraph.apply(this, args); };
+        for (const type of ["snapshot", "deadline", "indicator"]) {
+            const before = judgments;
+            w.dispatch(type, type === "snapshot" ? { locked: false, configured: true, engine: "duplex",
+                echoCancel: true, settings: { microphone: "", speaker: "" } }
+                : type === "indicator" ? { gen: w.runner.state.gen, shown: true, bar: "gone" } : {});
+            assert.equal(judgments, before, type + " with unchanged physical selections reuses the graph judgment");
+            assert.equal(w.audio.state, w.runner.state, "Audio still observes the current Session");
+        }
         assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, "duplex"), "jarvis_ec_source");
         assert.equal((await w.audio.selected("speakers", "speaker")).target, "jarvis_ec_sink");
         for (const engine of ["dictation", "chained"]) {
@@ -948,6 +959,8 @@ async function inside() {
         'gate: false ?', cloudInput);
     await control("echo-physical-links", 'if (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id)) return "links-missing";',
         'if (false && (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id))) return "links-missing";', echoRoutes);
+    await control("echo-semantic-selection", 'if (settings?.microphone !== state.settings.microphone || settings?.speaker !== state.settings.speaker)',
+        'if (settings !== state.settings)', echoRoutes);
     await control("silent-hint", "capture.frames >= SILENT_FRAMES", "false", cloudInput);
     await control("native-close-result", "speech: capture.gate.committed", "speech: false", cloudInput);
     await control("desktop-default", 'if (!before.unsettled.includes(group)) return before[group];',

@@ -242,7 +242,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function repeatNotice(session) {
         if (session.repeatNotice) return;
         session.repeatNotice = true;
-        emit(session, "assistant", VoiceRollover.REPEAT_LINE, "final");
+        session.events.renewal();
     }
     function reportCut(session) {
         const cut = session.cut;

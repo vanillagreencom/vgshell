@@ -149,6 +149,10 @@ function eventOf(data) {
         return { kind: "stopped" };
     case "input_audio_buffer.committed":
         return { kind: "committed", item: identity(value.item_id) };
+    // input_audio_buffer.clear succeeds with this server acknowledgement.
+    // https://developers.openai.com/api/reference/resources/realtime/server-events
+    case "input_audio_buffer.cleared":
+        return { kind: "ignored" };
     case "conversation.item.input_audio_transcription.delta":
         if (value.delta !== undefined && typeof value.delta !== "string") fail("frame-shape");
         return { kind: "hearing", item: identity(value.item_id), text: value.delta ?? "" };
@@ -256,7 +260,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function repeatNotice(session) {
         if (session.repeatNotice) return;
         session.repeatNotice = true;
-        emit(session, "assistant", VoiceRollover.REPEAT_LINE, "final");
+        session.events.renewal();
     }
     function reportCut(session) {
         const cut = session.cut;

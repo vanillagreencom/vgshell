@@ -649,6 +649,19 @@
     "item_id"
    ]
   },
+  "InputAudioBufferClearedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": ["input_audio_buffer.cleared"]
+    },
+    "event_id": {
+     "type": "string"
+    }
+   },
+   "required": ["type", "event_id"]
+  },
   "ConversationItemInputAudioTranscriptionCompletedEvent": {
    "type": "object",
    "properties": {

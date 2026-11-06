@@ -318,6 +318,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         dispatch({ type: "deadline", gen: e.gen, op: e.op });
         const freshState = state();
         if (closed || pending !== value || freshState.gen !== value.turn.gen || freshState.gate.kind !== "up"
+                || freshState.turn.kind !== "thinking" || freshState.turn.op !== value.turn.op
                 || freshState.action.kind !== "running" || freshState.action.gen !== e.gen || freshState.action.op !== e.op
                 || freshState.action.limit.kind !== "pending") return { kind: "refuse", reason: "stale-action" };
         const prior = value.decision;

@@ -51,6 +51,7 @@ const SERVER = { "session.created": "SessionCreatedEvent", "session.updated": "S
     "input_audio_buffer.speech_started": "InputAudioBufferSpeechStartedEvent",
     "input_audio_buffer.speech_stopped": "InputAudioBufferSpeechStoppedEvent",
     "input_audio_buffer.committed": "InputAudioBufferCommittedEvent",
+    "input_audio_buffer.cleared": "InputAudioBufferClearedEvent",
     "conversation.item.input_audio_transcription.delta": "ConversationItemInputAudioTranscriptionDeltaEvent",
     "conversation.item.input_audio_transcription.completed": "ConversationItemInputAudioTranscriptionCompletedEvent",
     "conversation.item.input_audio_transcription.failed": "ConversationItemInputAudioTranscriptionFailedEvent",
@@ -404,7 +405,7 @@ world(async () => {
         const clock = manual(wallEpoch);
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
-            stall: false, read: null, dues: [], inputResults: [], interrupted: [], captures: [], urls: [], speechOpens: [], protocol };
+            stall: false, read: null, dues: [], inputResults: [], interrupted: [], renewals: [], captures: [], urls: [], speechOpens: [], protocol };
         const Adapter = protocol === GEMINI ? kit.Gemini : kit.Live;
         voice ??= Adapter.VOICES[0].value;
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
@@ -488,7 +489,10 @@ world(async () => {
             w.speechOpens.push({ gen: e.gen, op: e.op });
             return engine.port.open(e, { ...events, due: value => { w.dues.push(value); events.due(value); },
                 inputEnded: value => { w.inputResults.push(value); events.inputEnded(value); },
-                interrupted: value => w.interrupted.push(value) });
+                interrupted: value => w.interrupted.push(value),
+                renewal: () => w.renewals.push(Protocol.accept(JSON.stringify({
+                    v: 1, type: "voice-renewal", gen: e.gen, revision: "a".repeat(64)
+                }), "daemon")) });
         } };
         ports.brain = { ...ports.brain, send: (e, done) => {
             w.delegations.push(e);
@@ -619,6 +623,7 @@ world(async () => {
         assert.deepEqual(w.delegations, []);
         assert.deepEqual(w.transcripts.filter(event => event.role === "assistant" && event.stage === "final"), [],
             "a settled renewal needs no repeat notice");
+        assert.deepEqual(w.renewals, []);
         const before = JSON.stringify(w.state);
         oldEvents.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(P === REALTIME
             ? { type: "error", event_id: "old-error", error: { type: "server_error", message: PRIVATE, code: "old" } }
@@ -689,8 +694,10 @@ world(async () => {
         capContinues(w, identity);
         assert.equal(w.sink, sink, "transport expiry does not replace the live capture operation");
         assert.deepEqual(w.delegations, [], "an unfinished native turn never becomes recognized input");
-        const notices = () => w.transcripts.filter(event => event.role === "assistant" && event.stage === "final");
+        const notices = () => w.renewals;
         assert.equal(notices().length, 1, "an unfinished segment receives one nonfault repeat notice");
+        assert.equal(notices()[0].gen, identity.gen);
+        assert.deepEqual(w.transcripts.filter(event => event.role === "assistant"), [], "recovery is not a model caption");
         sink.write(Buffer.alloc(4800, 7));
         await next.sync();
         assert.equal(P.sent(next).length, 0, "the cut segment stays discarded after reconnect");
@@ -1145,7 +1152,9 @@ world(async () => {
             await conn.event(APPEND);
             assert.equal(w.sink.endInput(), false, "less than 100 ms cannot be committed");
             assert.deepEqual(await conn.event("input_audio_buffer.clear"), { type: "input_audio_buffer.clear" });
+            conn.nativeSend({ type: "input_audio_buffer.cleared", event_id: "evt_short_cleared" });
             await conn.sync();
+            assert.equal(w.state.fault.kind, "none", "a short input clear acknowledgement is successful");
             assert.equal(conn.count("input_audio_buffer.commit"), 0);
             assert.ok(P.sent(conn).equals(Buffer.alloc(4798, 7)), "no padding or generated silence is appended");
             assert.deepEqual(w.inputResults, []);
@@ -1239,6 +1248,11 @@ world(async () => {
     async function stoppedInput(kit, P = REALTIME) {
         const { w, conn } = await running(kit, { protocol: P });
         w.dispatch("stop");
+        if (P === REALTIME) {
+            assert.deepEqual(await conn.event("input_audio_buffer.clear"), { type: "input_audio_buffer.clear" });
+            conn.nativeSend({ type: "input_audio_buffer.cleared", event_id: "evt_stop_cleared" });
+            await conn.sync();
+        }
         const stopped = JSON.stringify(w.state);
         nativeResult(conn, "stopped_input", "Old request");
         await conn.sync();

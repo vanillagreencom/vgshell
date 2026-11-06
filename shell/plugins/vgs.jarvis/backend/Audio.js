@@ -152,7 +152,8 @@ class Audio {
     observe(state) {
         const settings = this.state?.settings;
         this.state = state;
-        if (settings !== state.settings) this.judgeEcho();
+        if (settings?.microphone !== state.settings.microphone || settings?.speaker !== state.settings.speaker)
+            this.judgeEcho();
     }
 
     allowed(kind) {

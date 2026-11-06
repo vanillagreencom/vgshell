@@ -630,6 +630,8 @@ mutations=(
   "a submenu entry closes the menu|overlay/Menu.qml|function onTriggered() { if (!modelData.keepsOpen) root.close(true); }|function onTriggered() { root.close(true); }|tst_overlays.qml"
   "a submenu entry lets its trigger close the menu|overlay/MenuItem.qml|property bool keepsOpen: opensSubmenu|property bool keepsOpen: false|tst_overlays.qml"
   "the menu keys move no highlight|overlay/Menu.qml|item.highlighted = index === currentIndex;|item.highlighted = false;|tst_overlays.qml"
+  "a menu key invokes an unavailable entry|overlay/Menu.qml|&& !all[currentIndex].lock.locked|&& true|tst_overlays.qml"
+  "a menu pointer invokes an unavailable entry|overlay/MenuItem.qml|DisabledReason { id: lockState; control: root }|DisabledReason { id: lockState; control: root; shields: false }|tst_overlays.qml"
   "the menu window stays at the minimum width|overlay/Menu.qml|Math.max(Theme.menu.minWidth, Math.ceil(root.widest) + 2 * Theme.border.thin))|Math.max(Theme.menu.minWidth, 0))|tst_overlays.qml"
   "the menu window drops a fraction of its widest entry|overlay/Menu.qml|Math.ceil(root.widest) + 2 * Theme.border.thin|root.widest + 2 * Theme.border.thin|tst_overlays.qml"
   "the menu grows past its maximum height|overlay/Menu.qml|Math.min(column.implicitHeight, root.maxHeight)|column.implicitHeight|tst_overlays.qml"

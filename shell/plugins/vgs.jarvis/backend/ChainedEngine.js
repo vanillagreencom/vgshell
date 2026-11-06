@@ -407,16 +407,21 @@ function selectBrain(settings, accounts, models) {
  * daemon's shell request port, ShellRequests' send, which a dictation row's
  * utterances record through.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {}, renewal = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
     let conversation = null;
     let historyEpoch = null;
     let savedBrain = null;
+    function closeBrainOwner(owner) {
+        owner.value?.close();
+        owner.value = null;
+        owner.pending?.release();
+        owner.pending = null;
+    }
     function forgetBrain() {
-        savedBrain?.owner.value?.close();
-        if (savedBrain !== null) savedBrain.owner.value = null;
+        if (savedBrain !== null) closeBrainOwner(savedBrain.owner);
         savedBrain = null;
     }
     function historySelection() {
@@ -617,7 +622,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brainOwner: { value: null }, guidance: null, owner: null, fleet: "", grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null,
-            turns: 0, historyLabels: new Set(), resume: null, selection };
+            turns: 0, historyLabels: new Set(), resume: null, selection, prior: null, closingPlayback: null };
         if (savedBrain !== null) {
             const saved = savedBrain;
             savedBrain = null;
@@ -626,7 +631,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             c.entry = saved.index;
             c.guidance = saved.guidance;
             c.fleet = saved.fleet;
-            c.heard = saved.heard;
+            c.prior = saved.context;
             c.results = saved.results;
             c.turns = saved.turns;
             c.historyLabels = saved.labels;
@@ -673,6 +678,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function end(keepHistory = false) {
         const c = conversation;
         if (c === null) return;
+        const cancelling = c.turn !== null || state().turn.kind === "cancelling" && state().turn.gen === c.gen;
+        // observe runs before SessionRunner consumes playback-flush. Keep the
+        // old voice's account before release, and wait for Audio's close ack.
+        if (state().playback.kind === "flushing" && state().playback.gen === c.gen) {
+            let release;
+            const quiet = new Promise(resolve => { release = resolve; });
+            c.closingPlayback = { turn: c.last, account: cut(c, c.last), release, quiet };
+        }
         // Cancellation owns tool-result closure before the brain is lent to
         // another live generation. The suspended MCP bridge admits no calls.
         if (keepHistory && c.turn !== null) brain.cancel({ gen: c.gen, target: c.turn.op }, () => {});
@@ -690,12 +703,22 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         for (const utterance of [c.collection?.utterance, c.unbound])
             if (utterance) utterance.abort();
         const ownedBrain = c.brainOwner.value;
-        const quiet = ownedBrain === null ? c.quiet : keepHistory
+        let quiet = ownedBrain === null ? c.quiet : keepHistory
             ? Promise.all([c.quiet, ownedBrain.suspend()]).then(() => undefined) : ownedBrain.cancel();
+        if (keepHistory && cancelling && ownedBrain !== null && !c.brainOwner.pending && c.owner !== null) {
+            let release;
+            const closed = new Promise(resolve => { release = resolve; });
+            const pending = { gen: c.gen, owner: c.owner, release };
+            c.brainOwner.pending = pending;
+            quiet = Promise.race([quiet, closed]).then(() => {
+                if (c.brainOwner.pending === pending) c.brainOwner.pending = null;
+            });
+        }
+        if (c.closingPlayback !== null) quiet = Promise.all([quiet, c.closingPlayback.quiet]).then(() => undefined);
         if (keepHistory && ownedBrain !== null) {
             forgetBrain();
             savedBrain = { brain: ownedBrain, quiet, owner: c.brainOwner, entry: c.plan.brain, index: c.entry, guidance: c.guidance, fleet: c.fleet,
-                heard: c.heard, results: c.results, turns: c.turns, labels: c.historyLabels, selection: c.selection };
+                context: c.prior ?? c, results: c.results, turns: c.turns, labels: c.historyLabels, selection: c.selection };
         } else {
             c.brainOwner.value = null;
             ownedBrain?.close();
@@ -705,7 +728,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         for (const door of c.retired) door.close();
         c.retired.clear();
         c.net.close();
-        retired = { gen: c.gen, closed: quiet };
+        retired = { gen: c.gen, closed: quiet, context: c };
         // After the teardown this observation runs, not inside it.
         queueMicrotask(reargue);
     }
@@ -1345,10 +1368,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             if (reply.release.needed.length !== 0) record(c, turn, reply.release.needed, "withhold");
             if (reply.release.withheld.length !== 0) record(c, turn, reply.release.withheld, "withhold");
-            for (const label of reply.release.labels) turn.labels.add(label);
+            const labels = Policy.labels([...c.historyLabels, ...reply.release.labels]);
+            for (const label of labels) turn.labels.add(label);
             for (const label of reply.release.labels) c.historyLabels.add(label);
             // History can carry an earlier turn's untrusted content.
-            router.observe(turn, reply.release.labels);
+            router.observe(turn, labels);
             const events = reply.events[Symbol.asyncIterator]();
             const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });
             const calls = [];
@@ -1677,12 +1701,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // A brain keeps the tools it started with, as every driver takes
             // them at start: a turn after the fleet route changed opens a new
             // brain, whose history starts again.
-            if (c.brainOwner.value !== null && c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet) {
-                c.brainOwner.value.close();
-                c.brainOwner.value = null;
+            if (c.brainOwner.value !== null && fleetRoute(router.offer()) !== c.fleet) {
+                closeBrainOwner(c.brainOwner);
                 c.owner = null;
+                c.resume = null;
                 c.historyLabels.clear();
                 c.turns = 0;
+                c.heard = null;
+                c.prior = null;
+                c.results = [];
             }
             // REVISIT(D121): Revisit this bound only when the owner changes
             // history semantics, preserving the attempted next turn.
@@ -1720,15 +1747,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);
             progress(c, turn);
             working(c, turn);
-            const items = [];
-            if (c.heard !== null) items.push(heardItem(c.heard));
-            c.heard = null;
-            items.push(...c.results);
-            c.results = [];
-            items.push(Policy.item(e.text, ["speech"]));
             // A replaced duplex delegation waits for the prior adapter's cancellation.
             void c.quiet.then(async () => {
                 if (!turn.stopped && conversation === c) {
+                    if (c.brainOwner.value === null) {
+                        c.owner = null;
+                        c.resume = null;
+                        c.historyLabels.clear();
+                        c.turns = 0;
+                        c.prior = null;
+                        if (!openBrain(c, e.owner, done)) return;
+                    }
                     if (c.historyLabels.size !== 0) {
                         const prior = Policy.item("", [...c.historyLabels]);
                         const release = Policy.release(prior, c.recipients, c.grants);
@@ -1736,10 +1765,25 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         if (turn.stopped || conversation !== c) return;
                         if (Policy.release(prior, c.recipients, c.grants).kind !== "send") fail("history-release");
                     }
+                    // Native adapters retain opaque history rather than
+                    // re-rendering it in reply.release. Restore its authority
+                    // labels before the suspended bridge can admit tools.
                     if (c.resume !== null) {
+                        router.observe(turn, [...c.historyLabels]);
                         if (c.brainOwner.value === c.resume) c.resume.resume({ gen: c.gen, recipients: c.recipients, net: c.net });
                         c.resume = null;
                     }
+                    if (c.prior !== null) {
+                        c.heard = c.prior.heard;
+                        c.prior.heard = null;
+                        c.prior = null;
+                    }
+                    const items = [];
+                    if (c.heard !== null) items.push(heardItem(c.heard));
+                    c.heard = null;
+                    items.push(...c.results);
+                    c.results = [];
+                    items.push(Policy.item(e.text, ["speech"]));
                     c.turns++;
                     turn.phase = "streaming";
                     return respond(c, turn, { kind: "user", items });
@@ -1788,9 +1832,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         close(e) {
             const c = conversation;
-            if (c === null || c.owner !== e.target || c.brainOwner.value === null) return;
-            c.brainOwner.value.close();
-            c.brainOwner.value = null;
+            const owner = c?.brainOwner ?? savedBrain?.owner;
+            const pending = owner?.pending;
+            if (pending && pending.gen === e.gen && pending.owner === e.target) {
+                closeBrainOwner(owner);
+                if (savedBrain?.owner === owner) savedBrain = null;
+                return;
+            }
+            if (c === null || c.gen !== e.gen || c.owner !== e.target || c.brainOwner.value === null) return;
+            closeBrainOwner(c.brainOwner);
             c.owner = null;
         },
         reset() {
@@ -1830,7 +1880,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         retained(value, labels) {
             const c = conversation;
             if (c === null || c.gen !== value.gen || c.turn?.op !== value.op) return;
-            for (const label of labels) c.historyLabels.add(label);
+            for (const label of labels) {
+                c.historyLabels.add(label);
+                c.turn.labels.add(label);
+            }
         }
     };
 
@@ -1855,8 +1908,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             flush(e, done) {
                 // The report belongs to the turn being flushed. Cue-only
                 // teardown must not mark its later reply as interrupted.
-                const c = conversation;
-                const turn = c?.last;
+                const c = conversation?.gen === e.gen ? conversation : retired?.gen === e.gen ? retired.context : null;
+                const turn = c?.closingPlayback?.turn ?? c?.last;
                 // While a line's stream exists Session's playback is that
                 // line's, handed to Audio or not yet: the flush ends it. Its
                 // report is the line's, so a reply held behind it was heard
@@ -1871,13 +1924,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A duplex reply's account is read here: the speech port's
                 // flush follows this effect and drops it. Until Audio
                 // reports, the reply at the speaker counts as unheard.
-                const account = cut(c, turn);
+                const account = c?.closingPlayback?.account ?? cut(c, turn);
                 if (account !== null) heard(c, turn, account.text(null));
                 return port.flush(e, report => {
-                    if (account !== null && conversation === c && c.last === turn) heard(c, turn, account.text(report));
-                    const own = speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op);
+                    if (account !== null && c.last === turn) heard(c, turn, account.text(report));
+                    const own = speaking && c.live === null && c.last === turn && (report === null || report.source === turn.op);
                     if (own && turn.relay === null) heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));
                     else if (own) unheard(c, turn);
+                    c?.closingPlayback?.release();
                     done(report);
                 });
             }
@@ -2169,7 +2223,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A failover reopens the session for the conversation, which
                 // speaks no preview a second time.
                 const { preview, ...reopen } = e;
-                const own = { ...events, failed: reason => {
+                const own = { ...events, renewal: () => renewal(c.gen), failed: reason => {
                     if (c.stream?.op === e.op) closeStream(c, reason);
                     events.failed(reason);
                     // A refused key holds Talk with its cause until the key changes.

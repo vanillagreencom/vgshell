@@ -546,29 +546,14 @@ world(async () => {
             next.start({ instructions: "Be brief.", tools: [] });
             await assert.doesNotReject(drain(send(next)), "a later conversation opens its bridge session");
         },
-        // The plan's context bound in user turns: past it the chained engine
-        // ends the conversation cleanly, as it does a wire brain's.
+        // The adapter refuses beyond its own bound. Engine rollover is held
+        // at the engine boundary, before this adapter guard is reached.
         async limit(folder) {
             scenario({ turns: Array.from({ length: 41 }, () => [{ stop: "end_turn" }]) });
-            // The world loads the engine's own module copies: a recipient set is
-            // judged by the Policy module that made it.
-            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
-            const w = make(copied);
-            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "copilot", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" } }) }),
-                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: { now: () => 0, set: () => ({}), clear() {} },
-                harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
-            owners.unshift(() => engine.close());
-            let plan;
-            assert.doesNotThrow(() => { plan = engine.configure({ brain: "copilot-fixture", model: "", effort: "" }); }, "the engine has the ACP driver");
-            assert.deepEqual(plan, { kind: "ready", cautions: [] });
-            const { gen, turn: { op } } = w.runner.state;
-            const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
-                (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));
-            for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
-            assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
+            const w = make(folder);
+            for (let turn = 0; turn < 40; turn++)
+                assert.deepEqual(await drain(w.say("turn " + turn)), [{ kind: "done", reason: "stop" }]);
+            assert.throws(() => w.say("one more"), { message: "jarvis: brain=context-limit" });
             assert.equal(received("session/prompt").length, 40);
         },
         // Account discovery and Verify on a Copilot directory: no status

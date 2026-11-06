@@ -422,34 +422,13 @@ world(async () => {
             await noProgramOrDir(w.runtime, "close");
             assert.throws(() => w.say("again"), { message: "jarvis: brain=pi-closed" });
         },
-        // The plan's context bound in user turns: past it the chained engine
-        // ends the conversation cleanly, as it does a wire brain's.
+        // The adapter's own bound is distinct from the earlier engine rollover.
         async limit(folder) {
             scenario({ turns: Array.from({ length: 41 }, () => [{ stop: "stop" }]) });
-            const { folder: engineFolder, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
-            const w = make(engineFolder);
-            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "pi", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" } }) }),
-                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: { now: () => 0, set: () => ({}), clear() {} },
-                harness: { bridge: w.bridge, gate: null, env, runtime: () => w.runtime } });
-            owners.unshift(() => engine.close());
-            let plan;
-            // The engine hands Pi the saved model and effort, as it does any sign-in program.
-            assert.doesNotThrow(() => { plan = engine.configure({ brain: "pi-fixture", model: "stub/stub-1", effort: "high" }); },
-                "the engine has the Pi driver");
-            assert.deepEqual(plan, { kind: "ready", cautions: [] });
-            const { gen, turn: { op } } = w.runner.state;
-            // A turn's verdict, or the error the engine threw starting it.
-            const send = text => new Promise(resolve => {
-                try { engine.brain.send({ gen, op, owner: 1, text }, (verdict, detail) => {
-                    if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]);
-                }); }
-                catch (error) { resolve(["threw", error.message]); }
-            });
-            for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
-            assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
+            const w = make(folder, { model: "stub/stub-1", effort: "high" });
+            for (let turn = 0; turn < 40; turn++)
+                assert.deepEqual(await drain(w.say("turn " + turn)), [{ kind: "done", reason: "stop" }]);
+            assert.throws(() => w.say("one more"), { message: "jarvis: brain=context-limit" });
             assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["stub", "stub-1"]], "the saved model");
             assert.deepEqual(received("set_thinking_level").map(m => m.level), ["high"], "the saved effort");
             assert.equal(received("prompt").length, 40);

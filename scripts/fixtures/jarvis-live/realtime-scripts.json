@@ -429,7 +429,11 @@
     "content_index": 0,
     "part": {
      "type": "audio",
-     "transcript": ""
+     "transcript": "",
+     "usage": {
+      "type": "duration",
+      "seconds": 0.1
+     }
     }
    },
    {

@@ -382,15 +382,16 @@ world(() => {
     }
     function checkMigrationAtomic(logic) {
         const { root } = legacyStore();
-        const daily = path.join(root, "audit", "2026-09-29.jsonl");
-        const before = fs.readFileSync(daily);
+        const daily = fs.readdirSync(path.join(root, "audit")).map(name => path.join(root, "audit", name));
+        const before = daily.map(file => fs.readFileSync(file));
         fsFault("renameSync", (original, source, target) => {
             if (target.endsWith(".jsonl")) { const error = new Error("fixture rename failure"); error.code = "EIO"; throw error; }
             return original(source, target);
         }, () => withWriter(logic, { state: root }, writer => {
             assert.throws(() => writer.failures(), error => error.code === "EIO");
         }));
-        assert.deepEqual(fs.readFileSync(daily), before, "a failed atomic replacement preserves the old daily file");
+        for (const [index, file] of daily.entries())
+            assert.deepEqual(fs.readFileSync(file), before[index], "a failed atomic replacement preserves each old daily file");
         assert.equal(fs.existsSync(path.join(root, "audit-cause-version.json")), false, "failed conversion publishes no current marker");
         withWriter(logic, { state: root }, writer => assert.doesNotThrow(() => writer.failures(), "the next owner retries the retained conversion"));
         assert.equal(records(root, "2026-09-29")[0].cause, undefined);

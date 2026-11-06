@@ -492,6 +492,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         try { write(memoryInboxMessage(entries)); }
         catch (error) { process.stderr.write("jarvis: memory=inbox-publish\n"); }
     }
+    function refreshAudioSnapshot() {
+        if (!ending && context !== null && lastConfiguration !== null
+                && (audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource
+                    || audio.echoActive(engine.engine()) !== (runner.state.duplex.kind === "full"))) snapshot();
+    }
     const audio = new Audio({
         session: Session, environment: process.env, clock: {
             now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
@@ -501,11 +506,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             write({ v: 1, type: "devices", gen: runner.state.gen, revision: context.revision, ...devices });
             // A new default microphone reaches Session after Audio's own
             // update, so a check result never outlives the source it heard.
-            queueMicrotask(() => {
-                if (!ending && context !== null && lastConfiguration !== null
-                        && (audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource
-                            || audio.echoActive(engine.engine()) !== (runner.state.duplex.kind === "full"))) snapshot();
-            });
+            queueMicrotask(refreshAudioSnapshot);
         },
         level: (gen, level) => {
             if (!ending && context !== null) write({ v: 1, type: "level", gen,
@@ -515,9 +516,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         echo: reading => {
             if (ending || context === null) return;
             write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...reading });
-            queueMicrotask(() => {
-                if (!ending && context !== null && lastConfiguration !== null) snapshot();
-            });
+            queueMicrotask(refreshAudioSnapshot);
         }
     });
     const ports = unavailable();
@@ -830,6 +829,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured, fatal,
                         log: line => process.stderr.write(line + "\n"),
                         modelUsed: choice => write({ v: 1, type: "model-fallback", gen: runner.state.gen, revision: context.revision, ...choice }),
+                        renewal: gen => write({ v: 1, type: "voice-renewal", gen, revision: context.revision }),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         tasks: { held: () => tasks.held(),
                             answer: (task, prompt, value) => {

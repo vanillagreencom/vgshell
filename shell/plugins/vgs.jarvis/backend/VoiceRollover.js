@@ -6,7 +6,6 @@
 // leaves the adapter's existing handshake allowance before provider expiry.
 const RENEW_BEFORE_MS = 60000;
 const DEADLINE_MARGIN_MS = 1000;
-const REPEAT_LINE = "The voice connection restarted. Please repeat your last sentence.";
 
 // REVISIT(D121): Provider expiry must not decide brain history's lifetime;
 // revisit that separation only if the owner changes history semantics.
@@ -55,4 +54,4 @@ function create({ clock, connectWait, idle, reconnect }) {
     });
 }
 
-module.exports = { create, REPEAT_LINE };
+module.exports = { create };

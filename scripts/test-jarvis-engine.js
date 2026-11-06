@@ -559,7 +559,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             const before = await say(w, utterance("Fixture request."),
                 { over: () => starts().length === 1 && !alive(pid) && w.s().gate.kind === "down" });
             const body = await requested(w, before + 1, "first request in conversation");
-            assert.deepEqual(user(body), ["Fixture request."]);
+            assert.equal(user(body).at(-1).split("\n\n").at(-1), "Fixture request.");
             assert.equal(starts().length, 1, "conversation starts no new sidecar");
             if (ending === "brain-failed")
                 w.runner.dispatch({ type: "brain-failed", gen: w.s().gen, op: w.s().turn.op, reason: "brain=fixture-failed" });
@@ -1023,8 +1023,8 @@ async function cases(kit, server, only = null, mutation = false) {
             await until(() => w.s().conversation.kind === "ended", "conversation ends");
             before = await say(w, utterance("New."));
             server.replies.push(text("Backup new."));
-            await requested(w, before + 1, "new conversation starts at primary then backs up");
-            assert.equal(primary.requests.length, 2);
+            await requested(w, before + 1, "ordinary close retains the selected backup");
+            assert.equal(primary.requests.length, 1);
         } finally { await primary.close(); }
     }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
 
@@ -1632,7 +1632,7 @@ async function cases(kit, server, only = null, mutation = false) {
 
     // Barge-in during speech, after the reply completed: the next request
     // carries exactly the heard prefix, read at the loopback server.
-    await run("barge-in", async w => {
+    for (const closed of [false, true]) await run(closed ? "barge-in-close" : "barge-in", async w => {
         const first = await say(w, utterance("What time is it?"));
         await requested(w, first + 1, "first request");
         await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
@@ -1642,6 +1642,11 @@ async function cases(kit, server, only = null, mutation = false) {
         await feeding(w, 2 * Fixture.WORD_FRAMES);
         await advance(w, 6);
         assert.equal(w.audio.playback.written, 1440 + 6 * 480, "the paced writer reached the planned count");
+        if (closed) {
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.s().conversation.kind === "ended" && w.s().playback.kind === "idle",
+                "ordinary close acknowledges interrupted playback");
+        }
         control.utterances.push(utterance("Stop there."));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "capture reopens after the flush");
@@ -1760,14 +1765,19 @@ async function cases(kit, server, only = null, mutation = false) {
 
     // The brain's tools follow the fleet route: a satellite reading that
     // changes between two turns hands the next turn the other fleet tool.
+    for (const closed of [false, true]) {
     const route = { main: true };
-    await run("fleet-route", async w => {
+    await run(closed ? "fleet-route-resume" : "fleet-route", async w => {
         const fleetTools = body => body.tools.map(tool => tool.function.name).filter(name => name.startsWith("fleet_"));
         const first = await say(w, utterance("What time is it?"));
         assert.deepEqual(fleetTools(await requested(w, first + 1, "the first turn")), ["fleet_request"], "the main offers its session's mailbox");
         server.replies.push(text("Noon."));
         await until(() => w.s().turn.kind === "none", "the first turn completes");
         await playOut(w);
+        if (closed) {
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.s().conversation.kind === "ended", "close suspends the old fleet offer");
+        }
         route.main = false;
         const second = await say(w, utterance("Ask my fleet."));
         assert.deepEqual(fleetTools(await requested(w, second + 1, "the second turn")), ["fleet_forward"], "a satellite offers the forward");
@@ -1775,6 +1785,7 @@ async function cases(kit, server, only = null, mutation = false) {
         await until(() => w.s().turn.kind === "none", "the second turn completes");
         assert.deepEqual(w.faults, []);
     }, { route });
+    }
 
     // The same request from a harness program, answered through the tool
     // bridge while the brain's reply streams: Jarvis's fixed line, said once,
@@ -3769,7 +3780,9 @@ async function groupPlants(root, server) {
         ["release-refusal-record", 'refusal: e.reason });', 'refusal: undefined });', "release-refusal"],
         ["router-offers", "c.brainOwner.value.start({ instructions: c.guidance.instructions, tools });", "c.brainOwner.value.start({ instructions: c.guidance.instructions, tools: [] });", "turn-loop"],
         ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
-        ["heard-once", "            c.heard = null;\n", "", "barge-in"],
+        ["retained-heard-omitted", "c.heard = c.prior.heard;", "c.heard = null;", "barge-in-close"],
+        ["heard-once", "                    c.heard = null;\n                    items.push(...c.results);",
+            "                    items.push(...c.results);", "barge-in"],
         ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
             'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
         ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
@@ -3787,6 +3800,7 @@ async function groupPlants(root, server) {
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Asking Jarvis\'s session." },', "", "fleet-request-completed-silent"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
+        ["fleet-resume-route-kept", "fleetRoute(router.offer()) !== c.fleet", "c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet", "fleet-route-resume"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],
         ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
         ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],
@@ -3795,7 +3809,7 @@ async function groupPlants(root, server) {
         ["fast-proposer", ', proposer: "matcher" };', " };", "fast-path"],
         ["fast-heard", "        if (turn.fast !== undefined) return;\n", "", "fast-path-barge-in"],
         ["fast-late", 'if (turn.phase === "fast" && turn.routing !== null) c.late.set(', "if (false) c.late.set(", "fast-path-interrupted"],
-        ["history-taint", "router.observe(turn, reply.release.labels);", "void reply;", "history-taint"],
+        ["history-taint", "router.observe(turn, labels);", "void reply;", "history-taint"],
         ["toggle-adoption", 'c.unbound !== null && c.unbound.state === "running" ? c.unbound : null',
             "c.unbound", "toggle-turns"],
         ["toggle-detection", 'transcribe(frames, { detect: e.mode !== "hold" })',
@@ -3804,8 +3818,8 @@ async function groupPlants(root, server) {
             "else if (false) utterance.collection.failed(keyed(error));", "transcribe-failure"],
         ["speech-gates-brain", 'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        concluded(c, turn);',
             'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
-        ["net-not-closed", "        c.retired.clear();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
-            "        c.retired.clear();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
+        ["net-not-closed", "        c.retired.clear();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet, context: c };",
+            "        c.retired.clear();\n        retired = { gen: c.gen, closed: quiet, context: c };", "conversation-end"],
         ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end(!changedHistory);", "void s;", "settings-change"],
         ["collection-abort", '                conversation.collection.utterance?.abort();\n                conversation.collection = null;',
             '                conversation.collection = null;', "stop-capture"],
@@ -4046,7 +4060,7 @@ function elevenStandIn() {
 // The engine's accounts: the brain on the loopback model server, and the
 // stored ElevenLabs key the Voice key setting names.
 const elevenAccounts = Object.freeze({
-    secrets: { lookup: () => Buffer.from(ELEVEN_KEY) },
+    secrets: { lookup: () => Buffer.from(ELEVEN_KEY), revision: () => "fixture" },
     choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
         source: { kind: "local", origin: "http://127.0.0.1:" + PORT }, model: "fixture-model" } }),
     resolve: id => id === "eleven-key" ? { id, provider: "elevenlabs", label: "voice", model: "",
