@@ -69,6 +69,7 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
   "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
+  "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
   "message responses lose their secondary button style|layout/MessageRow.qml|variant: \"secondary\"|variant: \"primary\"|tst_message_patterns.qml"
   "message responses lose their small control size|layout/MessageRow.qml|size: \"sm\"|size: \"md\"|tst_message_patterns.qml"
   "message responses lose their unavailable reason|layout/MessageRow.qml|disabledReason: actionData.disabledReason === undefined ? \"\" : actionData.disabledReason|disabledReason: \"\"|tst_message_patterns.qml"

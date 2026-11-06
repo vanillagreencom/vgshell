@@ -94,8 +94,8 @@ const path = require("path");
 
 const PLUGIN_ID = "vgs.automations";
 const PLUGIN_DIR = path.join(__dirname, "..");
-// The files a runner copy needs: this engine and the judge it loads.
-const ENGINE_FILES = ["bin/automations", "AutomationsLogic.js"];
+// Every dependency retained with a runner is hashed with its executable.
+const ENGINE_FILES = ["bin/automations", "AutomationsLogic.js", "Connectivity.js"];
 const USAGE = "usage: automations --tree <dir> list [--json] | add --definition <json> | edit <id> --definition <json> | enable <id> | disable <id> | remove <id> | run-now <id> | cancel <id> | history [<id>] [--json] | clear <id>|--all | prune [--days <n>] | preview --schedule <json> [--count <n>] [--after <ms>] | sync | scheduler | run --scheduled|--manual <id>";
 const MUTATING = ["add", "edit", "enable", "disable", "remove", "clear", "prune", "sync", "cancel"];
 
@@ -144,6 +144,16 @@ const streakDir = path.join(automationsState, "streak");
 const lockDir = path.join(automationsState, "locks");
 const storeLock = path.join(lockDir, "store.lock");
 const engineRoot = path.join(dataHome, "vgshell", "automations", "engine");
+// Node resolves the main script's symlinks. Compare physical owners even
+// when XDG_DATA_HOME contains one; a first source run has no engine root.
+let retainedRoot = null;
+try { retainedRoot = fs.realpathSync(engineRoot); }
+catch (e) { if (e.code !== "ENOENT") throw e; }
+// A retained runner owns its shared helper copy. Source and test-control
+// engines load the installed tree's helper; neither retries another path.
+const connectivityPath = path.dirname(PLUGIN_DIR) === retainedRoot
+    ? path.join(PLUGIN_DIR, "Connectivity.js") : path.join(tree, "bin", "lib", "connectivity.js");
+const Connectivity = require(connectivityPath);
 // The directories every runner reads, handed to the units and runs since a
 // user manager's environment need not hold the ones resolved here.
 const runnerEnvironment = ["XDG_CONFIG_HOME=" + configHome, "XDG_STATE_HOME=" + stateHome, "XDG_DATA_HOME=" + dataHome];
@@ -309,7 +319,7 @@ function requireCommand(command) {
 function ensureEngine() {
     const hash = crypto.createHash("sha256");
     const contents = ENGINE_FILES.map(name => {
-        const bytes = fs.readFileSync(path.join(PLUGIN_DIR, name));
+        const bytes = fs.readFileSync(name === "Connectivity.js" ? connectivityPath : path.join(PLUGIN_DIR, name));
         hash.update(name + "\0").update(bytes).update("\0");
         return bytes;
     });
@@ -1024,7 +1034,7 @@ function runVerb(words) {
     };
     while (answer.kind === "wait") {
         ownedPending = { id: id, owner: owner, token: token };
-        const reading = readConnectivity(env);
+        const reading = Connectivity.readConnectivity(env);
         reportNetwork(reading.outcome);
         answer = transaction(Object.assign({}, request, { kind: "advance", connectivity: reading.connectivity, waitedMs: Math.max(0, monotonicMs() - began) }));
         if (answer.kind === "wait") reportNetwork(waitForNetwork(env, reading.connectivity, Math.max(0, monotonicMs() - began)));
@@ -1041,36 +1051,6 @@ function monotonicMs() {
     return Number(process.hrtime.bigint() / 1000000n);
 }
 
-// busctl is the one producer for both NM operations. Its stderr and an
-// invalid reply can be arbitrarily long; each journal detail keeps at most
-// 512 characters from the first line, never the whole output accumulator.
-function networkCall(env, operation, args, boundMs) {
-    const outcome = { operation: operation, command: "busctl", category: "missing-command", exit: null, signal: null, timeoutMs: null, detail: "" };
-    const bin = which("busctl");
-    if (bin === null) return { outcome: outcome, stdout: "" };
-    const out = run(bin, ["--system", "--json=short", operation].concat(args), { env: env, timeout: boundMs });
-    outcome.exit = out.status;
-    outcome.signal = out.signal;
-    outcome.detail = firstLine(out.stderr || (out.error ? out.error.code : "")).slice(0, 512);
-    if (out.error && out.error.code === "ETIMEDOUT") {
-        outcome.category = "timeout";
-        outcome.timeoutMs = boundMs;
-    } else if (out.error) outcome.category = "spawn";
-    else if (out.signal !== null) outcome.category = "signal";
-    else outcome.category = out.status === 0 ? "completed" : "exit";
-    return { outcome: outcome, stdout: out.stdout };
-}
-
-function readConnectivity(env) {
-    const result = networkCall(env, "get-property", ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "Connectivity"], 5000);
-    if (result.outcome.category !== "completed") return { connectivity: null, outcome: result.outcome };
-    const connectivity = Logic.nmConnectivity(result.stdout);
-    result.outcome.category = connectivity === null ? "invalid-reply" : "connectivity";
-    if (connectivity === null) result.outcome.detail = firstLine(result.stdout).slice(0, 512);
-    else result.outcome.connectivity = connectivity;
-    return { connectivity: connectivity, outcome: result.outcome };
-}
-
 function waitForNetwork(env, connectivity, waitedMs) {
     const seconds = Logic.networkWaitSeconds(waitedMs);
     const began = monotonicMs();
@@ -1079,7 +1059,7 @@ function waitForNetwork(env, connectivity, waitedMs) {
     // again. https://www.freedesktop.org/software/systemd/man/latest/busctl.html
     let outcome = null;
     if (connectivity !== null && connectivity !== 0)
-        outcome = networkCall(env, "wait", ["--timeout=" + seconds, "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.DBus.Properties", "PropertiesChanged"], seconds * 1000 + 1000).outcome;
+        outcome = Connectivity.networkCall(env, "wait", ["--timeout=" + seconds, "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.DBus.Properties", "PropertiesChanged"], seconds * 1000 + 1000).outcome;
     // Missing NM, invalid replies and unsupported/failed signal waits must
     // back off rather than fork in a tight loop. One bounded child at a time.
     const remaining = seconds * 1000 - (monotonicMs() - began);

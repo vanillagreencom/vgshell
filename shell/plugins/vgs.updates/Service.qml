@@ -21,7 +21,10 @@ Item {
     property bool cacheRead: false
     property bool bootRead: false
     property var bootedAt: null
-    property bool checking: false
+    // Startup, admission, execution and publication are one refresh lifetime.
+    property string phase: "idle"
+    readonly property bool checking: phase !== "idle"
+    property string admission: "unknown"
     property bool queued: false
     // The TUI state this instance last read, null before the first read.
     property var lastTuiState: null
@@ -33,6 +36,7 @@ Item {
     readonly property string bootPath: "/proc/stat"
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
+    readonly property string connectivityPath: Quickshell.shellDir + "/../bin/lib/connectivity.js"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
     readonly property var currentTuiState: shell === null || shell.tui === undefined ? ({}) : shell.tui.state
     // The reboot-notice system step, which the core probes again after its
@@ -130,19 +134,46 @@ Item {
     }
 
     function requestCheck(reason) {
-        if (checking) {
-            queued = true;
+        if (checking && phase !== "publishing") {
+            if (reason === "tui") queued = true;
             return "queued";
         }
-        checking = true;
-        checkProc.command = [checkScript, "--vgshell", vgshellPath];
-        checkProc.running = true;
-        publishNow();
+        phase = "startup";
+        if (!publishNow()) {
+            phase = "publishing";
+            return "refused: check=status-unavailable";
+        }
+        beginAdmission();
         return "started";
+    }
+
+    function beginAdmission() {
+        if (phase !== "startup" || !cacheRead || !bootRead) return;
+        phase = "admission";
+        connectivityProc.command = ["node", connectivityPath];
+        connectivityProc.running = true;
+    }
+
+    function finishRefresh() {
+        // A completed update run invalidates this refresh. Keep the mask
+        // through its one replacement, including offline admission.
+        if (queued) {
+            queued = false;
+            phase = "startup";
+            beginAdmission();
+            return;
+        }
+        phase = "publishing";
+        // Publish the complete result under the mask; clearing checking is
+        // the final write. A refused write leaves the mask in place.
+        if (!publishNow(true)) return;
+        phase = "idle";
+        schedule();
     }
 
     function maybeCheck() {
         if (!cacheRead || !bootRead) return;
+        if (phase === "startup") { beginAdmission(); return; }
         if (Logic.shouldRunCheck(snapshot, checking, Date.now(), currentIntervalMs, failedAt < 0 ? null : failedAt, bootedAt)) requestCheck("due");
         else schedule();
     }
@@ -166,25 +197,29 @@ Item {
         snapshot = Object.assign(judged.snapshot, { cached: cached });
         checkFailure = "";
         failedAt = -1;
-        publishNow();
-        schedule();
+        if (cached) { publishNow(); schedule(); }
         return true;
     }
 
-    function publishNow() {
-        if (shell === null) return;
+    function publishNow(completed) {
+        if (shell === null) return false;
         const notice = Logic.rebootNoticeValue(rebootStep);
-        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure, aurCommand),
+        const values = Object.assign(Logic.publishValues(snapshot, completed === true ? false : checking, Date.now(), currentIntervalMs, checkFailure, aurCommand, admission),
+            { admission: admission },
             { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice), rebootNoticeOwner: Logic.rebootNoticeOwnerValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
-        if (writes.length === 0) return;
         const next = Object.assign({}, reported);
         for (const write of writes) {
             const reply = shell.status.set(write.key, write.value);
-            if (!shell.status.isOk(reply)) console.error("updates: " + reply);
-            else next[write.key] = write.value;
+            if (!shell.status.isOk(reply)) {
+                console.error("updates: " + reply);
+                reported = next;
+                return false;
+            }
+            next[write.key] = write.value;
         }
         reported = next;
+        return true;
     }
 
     // Reads the cache once, when start() sets its path; without `preload` it
@@ -222,6 +257,29 @@ Item {
     }
 
     Process {
+        id: connectivityProc
+        stdout: StdioCollector { id: connectivityOut }
+        property var completion: null
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const done = completion;
+            completion = null;
+            root.admission = Logic.connectivityAdmission(done, connectivityOut.text);
+            if (root.admission === "online") {
+                root.phase = "check";
+                checkProc.command = [root.checkScript, "--vgshell", root.vgshellPath];
+                checkProc.running = true;
+            } else {
+                root.failedAt = Date.now();
+                root.finishRefresh();
+            }
+        }
+    }
+
+    // Process reports exited before running becomes false, after its
+    // collectors finish (quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process).
+    Process {
         id: checkProc
         stdout: StdioCollector { id: checkOut }
         stderr: StdioCollector { id: checkErr }
@@ -231,7 +289,6 @@ Item {
             if (running) return;
             const done = completion;
             completion = null;
-            root.checking = false;
             if (done !== null && done.code === 0 && root.acceptText(checkOut.text, false)) {
                 root.checkFailure = "";
                 root.failedAt = -1;
@@ -239,13 +296,8 @@ Item {
                 const line = String(checkErr.text || "").split("\n").filter(l => l !== "")[0] || "no-output";
                 root.checkFailure = (done === null ? "start=failed" : "exit=" + done.code) + " " + line;
                 root.failedAt = Date.now();
-                root.publishNow();
-                root.schedule();
             }
-            if (root.queued) {
-                root.queued = false;
-                root.requestCheck("queued");
-            }
+            root.finishRefresh();
         }
     }
 

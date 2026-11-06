@@ -32,6 +32,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+const Connectivity = require("../bin/lib/connectivity.js");
 const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
 // The cases and the engine read local time in one zone.
@@ -247,6 +248,22 @@ const CASES = {
         assert.match(exec, /^"[^"]*\/flock" "-n" "-E" "75" "-o" "[^"]*\/locks\/back-up\.lock" "[^"]*node[^"]*" "[^"]*\/engine\/[0-9a-f]{16}\/bin\/automations" "--tree" "[^"]*" "run" "--scheduled" "back-up"$/);
         const engineCopy = /"([^"]*\/engine\/[0-9a-f]{16})\/bin\/automations"/.exec(exec)[1];
         assert.equal(fs.readFileSync(path.join(engineCopy, "AutomationsLogic.js"), "utf8"), fs.readFileSync(path.join(pluginDir, "AutomationsLogic.js"), "utf8"), "the units run a copy of the judge");
+        const retainedConnectivity = path.join(engineCopy, "Connectivity.js");
+        assert.equal(fs.readFileSync(retainedConnectivity, "utf8"), fs.readFileSync(path.join(repo, "bin/lib/connectivity.js"), "utf8"), "the units retain their connectivity reader");
+        // A retained runner must load its own dependency, even when the
+        // checkout now holds a different version of the shared reader.
+        write(retainedConnectivity, 'throw new Error("retained-connectivity-loaded");\n');
+        const linkedDataHome = path.join(w.root, "linked-data");
+        fs.symlinkSync(path.join(w.home, ".local/share"), linkedDataHome);
+        for (const [runner, env] of [
+            [path.join(engineCopy, "bin/automations"), w.env],
+            [path.join(linkedDataHome, "vgshell/automations/engine", path.basename(engineCopy), "bin/automations"), Object.assign({}, w.env, { XDG_DATA_HOME: linkedDataHome })]
+        ]) {
+            const retainedRun = cli(w, runner, ["run", "--manual", id], { env });
+            assert.equal(retainedRun.status, 1);
+            assert.match(retainedRun.stderr, /retained-connectivity-loaded/);
+        }
+        write(retainedConnectivity, fs.readFileSync(path.join(repo, "bin/lib/connectivity.js"), "utf8"));
         assert.ok(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", "back-up.json"), "utf8")).handledThrough > Date.now() - 60000, "add marks the past handled");
         const multi = cli(w, engine, ["add", "--definition", JSON.stringify(def({ name: "Multi", command: "a=1\necho $a" }))]);
         assert.equal(multi.status, 0);
@@ -519,6 +536,23 @@ const CASES = {
         assert.equal(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", "job.json"), "utf8")).handledThrough, rec.slot);
         assert.equal(cli(w, engine, ["disable", id]).status, 0);
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=paused");
+    },
+
+    "shared connectivity reader preserves typed results and CLI output"() {
+        const replies = [
+            ...[0, 1, 2, 3, 4].map(value => [JSON.stringify({ type: "u", data: value }), value]),
+            ...["", "u 4", '{"type":"u","data":[4]}', '{"type":"s","data":"4"}', '{"type":"u","data":4.5}', '{"type":"u","data":5}', '{"type":"u","data":-1}'].map(reply => [reply, null])
+        ];
+        for (const [reply, want] of replies) same(Connectivity.nmConnectivity(reply), want);
+        for (const value of [1, 4]) {
+            const w = world();
+            write(path.join(w.stub, "nm"), String(value));
+            const want = { connectivity: value, outcome: { operation: "get-property", command: "busctl", category: "connectivity", exit: 0, signal: null, timeoutMs: null, detail: "", connectivity: value } };
+            same(Connectivity.readConnectivity(w.env), want);
+            const cli = childProcess.spawnSync(process.execPath, [path.join(repo, "bin/lib/connectivity.js")], { env: w.env, encoding: "utf8", timeout: 10000 });
+            assert.equal(cli.status, 0, cli.stderr);
+            same(JSON.parse(cli.stdout), want, "Updates consumes the same typed one-shot result as Automations");
+        }
     },
 
     "network requirements admit FULL alone and local commands bypass NM"(engine) {

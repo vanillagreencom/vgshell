@@ -27,6 +27,8 @@
 # The controls at the end run copies of the script, or of the builder, with
 # one rule removed each, and the row that judges that rule must turn red on
 # its copy.
+# The Arch doctor row executes the package proof's Python assertion against
+# private unit files and pacman ownership answers, without starting a daemon.
 set -euo pipefail
 
 # shellcheck source=scripts/vgshell-rows.sh
@@ -321,6 +323,96 @@ for expression, browser in checks:
 PY
 }
 
+# Execute the installed-provider judge itself. Only its fixed unit directory
+# changes in the disposable copy; the unit bytes, executable and ownership
+# answers belong to the fixture. No host package manager is called.
+arch_doctor_row() { # SCRIPT
+  "${base_env[@]}" python3 - "$1" "$tmp/arch-doctor" <<'PY'
+import json, pathlib, re, subprocess, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+blocks = re.findall(r"^  python - \"\$report\" <<'PY_DOCTOR'[^\n]*\n(.*?)^PY_DOCTOR$", source, re.M | re.S)
+assert len(blocks) == 1, "one doctor assertion"
+root = pathlib.Path(sys.argv[2])
+units = root / "systemd/system"
+units.mkdir(parents=True, exist_ok=True)
+binary = root / "NetworkManager"
+binary.write_text("fixture executable, never started\n")
+binary.chmod(0o755)
+unit = units / "NetworkManager.service"
+initrd = units / "NetworkManager-config-initrd.service"
+# These forms come from the networkmanager 1.58.1-3 Arch package: the
+# config-initrd command ends its continuation with an unindented quote;
+# initrd conditions and the main unit's Also entries repeat.
+initrd.write_text("[Service]\nType=oneshot\nExecStartPost=/bin/sh -c ' \\\n    for i in /run/NetworkManager/*; do \\\n        break; \\\n    done; \\\n'\nRemainAfterExit=yes\n")
+code = blocks[0]
+fixed = 'pathlib.Path("/usr/lib/systemd/system")'
+assert code.count(fixed) == 1, "one installed unit directory"
+judge = root / "judge.py"
+judge.write_text(code.replace(fixed, "pathlib.Path(" + repr(str(units)) + ")"))
+stubs = root / "bin"
+stubs.mkdir(exist_ok=True)
+pacman = stubs / "pacman"
+pacman.write_text("#!" + sys.executable + "\n" + '''import json, os, sys
+data = json.load(open(os.environ["PACMAN_FIXTURE"]))
+if sys.argv[1:] == ["-Qlq", "--", "networkmanager"]:
+    print(data["files"])
+    sys.exit(data.get("list_status", 0))
+if sys.argv[1:3] == ["-Qqo", "--"] and len(sys.argv) == 4:
+    print(data["owners"].get(sys.argv[3], ""))
+    sys.exit(data.get("owner_status", 0))
+sys.exit(99)
+''')
+pacman.chmod(0o755)
+name = "org.freedesktop.NetworkManager"
+valid = ("[Unit]\nConditionPathExistsGlob=|/usr/lib/NetworkManager/system-connections/*\n"
+         "ConditionPathExistsGlob=|/run/NetworkManager/system-connections/*\n"
+         "[Service]\nType=dbus\nBusName=" + name + "\nExecStart=" + str(binary) + " --no-daemon\n"
+         "[Install]\nAlso=NetworkManager-dispatcher.service\nAlso=NetworkManager-wait-online.service\n")
+row = {"name": name, "bus": "system", "packages": {"pacman": "networkmanager"},
+       "optional": False, "onRequest": False, "state": "missing"}
+missing = "doctor-required=missing"
+cases = [
+    ("installed-inactive", {}, 0, ""),
+    ("present", {"row": {"state": "present"}, "files": ""}, 0, ""),
+    ("optional", {"row": {"optional": True}, "files": ""}, 0, ""),
+    ("on-request", {"row": {"onRequest": True}, "files": ""}, 0, ""),
+    ("command", {"row": {"bus": None}}, 1, missing),
+    ("session", {"row": {"bus": "session"}}, 1, missing),
+    ("package-undeclared", {"row": {"packages": {}}}, 1, missing),
+    ("unit-absent", {"files": ""}, 1, missing),
+    ("type-absent", {"unit": valid.replace("Type=dbus\n", "")}, 1, missing),
+    ("type-wrong", {"unit": valid.replace("Type=dbus", "Type=simple")}, 1, missing),
+    ("name-absent", {"unit": valid.replace("BusName=" + name + "\n", "")}, 1, missing),
+    ("name-wrong", {"unit": valid.replace(name, name + ".Other")}, 1, missing),
+    ("exec-absent", {"unit": valid.split("ExecStart=")[0]}, 1, missing),
+    ("exec-relative", {"unit": valid.replace(str(binary), "NetworkManager")}, 1, missing),
+    ("exec-expanded", {"unit": valid.replace(str(binary), "%t/NetworkManager")}, 1, missing),
+    ("exec-missing", {"unit": valid.replace(str(binary), str(binary) + "-absent")}, 1, missing),
+    ("exec-not-executable", {"mode": 0o644}, 1, missing),
+    ("unit-owner", {"owners": {str(unit): "another-package", str(binary): "networkmanager"}}, 1, missing),
+    ("exec-owner", {"owners": {str(unit): "networkmanager", str(binary): "another-package"}}, 1, missing),
+    ("list-failed", {"list_status": 1}, 1, "doctor-provider=query-failed"),
+    ("owner-failed", {"owner_status": 1}, 1, "doctor-provider=query-failed"),
+    ("unit-unreadable", {"files": str(units / "absent.service")}, 1, "doctor-provider=unit-unreadable"),
+]
+for label, change, status, category in cases:
+    unit.write_text(change.get("unit", valid))
+    binary.chmod(change.get("mode", 0o755))
+    evidence = {"files": str(initrd) + "\n" + str(unit), "owners": {str(unit): "networkmanager", str(binary): "networkmanager"}}
+    evidence.update({key: value for key, value in change.items() if key in ("files", "owners", "list_status", "owner_status")})
+    evidence_file = root / "pacman.json"
+    evidence_file.write_text(json.dumps(evidence))
+    report = {"core": [], "plugins": {"fixture": [dict(row, **change.get("row", {}))]}}
+    result = subprocess.run([sys.executable, str(judge), json.dumps(report)],
+                            env={"PATH": str(stubs), "PACMAN_FIXTURE": str(evidence_file)}, capture_output=True, text=True)
+    got = result.stderr.split(maxsplit=1)[0] if result.stderr else ""
+    if result.returncode != status or got != category:
+        print(f"arch-doctor=contract case={label} status={result.returncode} category={got} want-status={status} want-category={category}")
+        print(result.stderr)
+        sys.exit(3)
+PY
+}
+
 echo "rows"
 check "the release archive is the tag under vgshell-3.4.5/ with no gzip name or time" archive_row "$script"
 check "SHA256SUMS lists the archive and the tag's install.sh" sums_row "$script"
@@ -335,6 +427,7 @@ for name in $(printf '%s\n' "${!channels[@]}" | LC_ALL=C sort); do
 done
 check "Arch host preparation and makepkg VCS sources accept explicit bare repositories" arch_bare_row "$repo/scripts/arch-packages.sh"
 check "Arch setup reads the chromium state independently of other target rows" arch_setup_row "$repo/scripts/arch-packages.sh"
+check "Arch doctor accepts only an installed package-owned system bus provider" arch_doctor_row "$repo/scripts/arch-packages.sh"
 for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
   check "refusal: $name" refusal_row "$script" "$name"
 done
@@ -373,6 +466,17 @@ PY
 check "the dry run on this working tree builds an archive that installs" real_tree_row
 
 echo "controls"
+copy_with arch-doctor "$repo/scripts/arch-packages.sh" \
+  'for path in (name, executable)' 'for path in ()'
+doctor_control=0
+arch_doctor_row "$copy" >"$tmp/arch-doctor-control" 2>&1 || doctor_control=$?
+if [[ $doctor_control == 3 ]] && grep -q '^arch-doctor=contract case=unit-owner ' "$tmp/arch-doctor-control"; then
+  cat -- "$tmp/arch-doctor-control"
+  ok "control: accepting an unowned unit fails the Arch provider row"
+else
+  fail "control: Arch provider row did not reject the ownership bypass"
+  cat -- "$tmp/arch-doctor-control"
+fi
 copy_with arch-setup "$repo/scripts/arch-packages.sh" \
   'grep -qxF -e "setup=chromium command=vgshell-browser-policy state=not-detected" <<<"$out"' \
   '[[ $out == "setup=chromium command=vgshell-browser-policy state=not-detected" ]]'

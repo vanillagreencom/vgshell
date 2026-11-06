@@ -14,6 +14,8 @@
   "systemSteps": ["reboot-notice"],
   "defaultSection": "right",
   "requirements": [
+    {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Reads internet connectivity before checking for updates"},
+    {"dbus": {"bus": "system", "name": "org.freedesktop.NetworkManager", "label": "NetworkManager"}, "packages": {"pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager"}, "optional": false, "purpose": "Reports internet connectivity before checking for updates"},
     {"command": "checkupdates", "packages": {"pacman": "pacman-contrib"}, "optional": false, "purpose": "Checks Arch system updates"},
     {"command": "snapper", "packages": {"pacman": "snapper", "apt": "snapper"}, "optional": true, "purpose": "Saves a system snapshot before updates"},
     {"command": "timeshift", "packages": {"pacman": "timeshift", "apt": "timeshift"}, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable"},
@@ -56,6 +58,7 @@
     "lastCheck": {"type": "time", "label": "Last checked"},
     "checkState": {"type": "state", "label": "Check"},
     "checking": {"type": "data", "label": "Checking"},
+    "admission": {"type": "data", "label": "Internet access"},
     "sources": {"type": "data", "label": "Sources"},
     "rebootNotices": {"type": "choices", "label": "Reboot notices"},
     "rebootNoticeOwner": {"type": "state", "label": "Reboot notice"},

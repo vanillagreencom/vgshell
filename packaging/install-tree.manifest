@@ -6,6 +6,7 @@ f share/vgshell/bin/lib/anchored.js
 f share/vgshell/bin/lib/aur-helper.sh
 f share/vgshell/bin/lib/check-manifests.js
 f share/vgshell/bin/lib/codex-account.js
+f share/vgshell/bin/lib/connectivity.js
 f share/vgshell/bin/lib/dbus_wire.py
 f share/vgshell/bin/lib/engine.js
 f share/vgshell/bin/lib/first-start.sh

@@ -1412,14 +1412,6 @@ var NM_CONNECTIVITY_FULL = 4;
 var NETWORK_GRACE_MS = 60000;
 var NETWORK_POLL_SECONDS = 5;
 
-function nmConnectivity(reply) {
-    var doc;
-    try { doc = JSON.parse(String(reply)); }
-    catch (e) { return null; }
-    return isPlainObject(doc) && doc.type === "u" && isWhole(doc.data)
-        && doc.data >= 0 && doc.data <= NM_CONNECTIVITY_FULL ? doc.data : null;
-}
-
 function networkAdmission(requiresNetwork, connectivity, waitedMs) {
     if (!requiresNetwork || connectivity === NM_CONNECTIVITY_FULL)
         return { admit: true, diagnostic: null };

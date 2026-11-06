@@ -421,8 +421,10 @@ check "an installed package's providers leave doctor with no missing required pr
   test "$status" = 0
 # A required command installed on request is an optional dependency the
 # package leaves out: its plugin's Requirements section installs it.
-check "doctor reads all shipped required providers from the package list" json_is "$tmp/out" \
-  '"vgs.capture" in d["plugins"] and "vgs.jarvis" in d["plugins"] and all(r["state"] == "present" for rows in [d["core"], *d["plugins"].values()] for r in rows if not r["optional"] and not r["onRequest"])'
+# PATH stubs prove installed commands only; D-Bus services use the private
+# bus above and do not become present when their package has a command stub.
+check "doctor reads all shipped required command providers from the package list" json_is "$tmp/out" \
+  '"vgs.capture" in d["plugins"] and "vgs.jarvis" in d["plugins"] and all(r["state"] == "present" for rows in [d["core"], *d["plugins"].values()] for r in rows if not r["optional"] and not r["onRequest"] and r["bus"] is None)'
 check "the package leaves missing exactly Voice's required commands installed on request" json_is "$tmp/out" \
   '"vgs.voice" in d["plugins"] and {r["name"] for r in d["plugins"]["vgs.voice"] if not r["optional"] and r["onRequest"]} == {r["name"] for r in d["plugins"]["vgs.voice"] if not r["optional"] and r["state"] == "missing"} != set()'
 provider_controls=(

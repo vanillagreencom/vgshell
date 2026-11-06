@@ -63,7 +63,7 @@
 # and VGS only hands it the core's `system apply reboot-notice`, which the
 # stand-in terminal replaces with `true`; the service clears the setting
 # after each choice.
-# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
+# inputs: shell/plugins/vgs.updates/* bin/lib/connectivity.js scripts/smoke/devices.sh shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js bin/lib/pkg-file.js bin/lib/judge-files.js
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -73,6 +73,14 @@ if ! command -v unshare >/dev/null 2>&1 || ! unshare -rm true 2>/dev/null; then
   exit 77
 fi
 mkdir -p "$updates_dir" "$updates_state"
+
+# Use the world's NetworkManager mock, never the host's connectivity.
+updates_nm_state() { "${shell_env[@]}" busctl --system --json=short get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager Connectivity | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
+updates_nm_set() { "${shell_env[@]}" busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Mock UpdateProperties 'sa{sv}' org.freedesktop.NetworkManager 1 Connectivity u "$1" && echo ok; }
+updates_nm_original="$(updates_nm_state)"
+updates_restore_network() { updates_nm_set "$updates_nm_original" >/dev/null; }
+smoke_row_abandon=(updates_restore_network)
+expect "the Updates world has full connectivity" ok updates_nm_set 4
 cp -R "$repo/shell/plugins/vgs.updates/." "$updates_dir/"
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.updates')
 
@@ -323,15 +331,15 @@ expect_poll "the reboot notice offers no choice once the hook is gone" '[]' upda
 expect_poll "the reboot notice rows started no check" STEADY checks_settle_at 1
 expect "the Settings window closes" ok ipc shell hide window vgs.settings
 
-# A request during a check is queued once, not run beside it.
+# Open and manual requests join the active check without redundant work.
 touch "$updates_state/slow-checkupdates"
 expect "an on-demand check starts" started ipc vgs.updates invoke check ''
-expect "a request during the check is queued" queued ipc vgs.updates invoke check ''
-expect "a third request during the check joins the queued one" queued ipc vgs.updates invoke check ''
+expect "a request during the check joins it" queued ipc vgs.updates invoke check ''
+expect "a third request during the check also joins it" queued ipc vgs.updates invoke check ''
 rm -f -- "$updates_state/slow-checkupdates"
-expect_poll "the check and the one queued check both run" 3 checks
-expect_poll "no third check follows" STEADY checks_settle_at 3
-expect_poll "the service is idle after the queued check" idle updates_idle
+expect_poll "the joined requests run only one check" 2 checks
+expect_poll "no redundant check follows" STEADY checks_settle_at 2
+expect_poll "the service is idle after the joined check" idle updates_idle
 
 # A failing source is named and kept beside the others.
 touch "$updates_state/fail-checkupdates"
@@ -442,6 +450,7 @@ open_updates() {
   [[ $(updates_open) == open ]] && return 0
   click_centre "$widget_key" vgs.updates || fail "the click on the updates widget failed"
   expect_poll "the widget's click opens the Updates window" open updates_open
+  expect_poll "the open-time update check ends" idle updates_idle
 }
 # A fresh Updates window, summoned over IPC, with the keyboard: an open
 # one keeps the focus item its last key left, so it is hidden first.
@@ -454,6 +463,7 @@ fresh_updates() { # LABEL
 updates_keyboard() { # LABEL
   expect_poll "the Updates window is focused for $1" "[\"$shell_class\", \"Updates\"]" active_window
   expect_poll "the shell reads the Updates window holding the keyboard for $1" true window_keyboard vgs.updates
+  expect_poll "the open-time check ends before the next keyboard action" idle updates_idle
 }
 # The words after the presenter's `--`, the last `--` in the record: the
 # script's file name and its arguments, as JSON; `absent` before a record
@@ -957,13 +967,24 @@ expect_poll "the recovered AUR probe restores the pending state" '["pending", "r
 expect_poll "the service is idle after AUR recovery" idle updates_idle
 expect "the AUR failure window closes" ok ipc shell hide window vgs.updates
 
-# Checking: the spinner stands in for the icon, the count stays.
+# Checking: the spinner replaces the icon and the historical count is hidden.
 touch "$updates_state/slow-checkupdates"
 expect "a held check starts" started ipc vgs.updates invoke check ''
-expect_poll "a running check spins" '["checking", "refresh-cw", "calm", "7", "accent"]' widget_view
-expect "the widget draws the spinner with the count" '["spinner", null, "7"]' widget_drawn
+expect_poll "a running check spins" '["checking", "refresh-cw", "calm", "", "accent"]' widget_view
+expect "the widget draws the spinner without the old count" '["spinner", null, ""]' widget_drawn
 rm -f -- "$updates_state/slow-checkupdates"
 expect_poll "the service is idle after the held check" idle updates_idle
+
+# Reopening offline reads Connectivity from the shared helper and keeps
+# the historical total without starting any package query.
+before="$(checks)"
+expect "the Updates world becomes offline" ok updates_nm_set 1
+open_updates
+expect_poll "offline admission finishes without a check" '"offline"' updates_field admission
+expect "offline keeps the last known total" 7 updates_field pending
+expect_poll "offline opening starts no package check" STEADY checks_settle_at "$before"
+expect "the offline Updates window closes" ok ipc shell hide window vgs.updates
+expect "the Updates world reconnects" ok updates_nm_set 4
 
 # Failed: a failing source draws the warning tone, and hideWhenCurrent
 # does not hide it.
@@ -1067,6 +1088,9 @@ before="$(checks)"
 expect "a check with no package manager starts" started ipc vgs.updates invoke check ''
 expect_poll "with no manager detected only the VGS rows remain" '["vgs", "plugins", "themes"]' updates_source_names
 expect_poll "no package query ran" STEADY checks_settle_at "$before"
+
+expect "the NetworkManager mock gets back its original connectivity" ok updates_nm_set "$updates_nm_original"
+smoke_row_abandon=()
 
 # Leave the later rows the shipped plugin, disabled.
 expect "disabling the updates service is allowed" ok ipc shell setPluginEnabled vgs.updates false

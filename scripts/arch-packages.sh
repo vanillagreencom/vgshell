@@ -263,8 +263,8 @@ vgshell_version() { # PACKAGE
 }
 
 # The doctor reads D-Bus requirements on a private system bus over the
-# installed system-services directory, so such a requirement reads present
-# only when an installed package can activate its name.
+# installed system-services directory. A systemd-owned provider can instead
+# prove its installed unit and executable without starting the daemon.
 doctor_holds() { # PACKAGE
   local report bus_pid status=0
   mkdir -p /tmp/doctor-home /tmp/doctor-runtime /tmp/doctor-bus
@@ -278,14 +278,77 @@ doctor_holds() { # PACKAGE
     XDG_RUNTIME_DIR=/tmp/doctor-runtime DBUS_SYSTEM_BUS_ADDRESS=unix:path=/tmp/doctor-bus/socket vgshell doctor --json 2>/tmp/doctor.err)" || status=$?
   kill "$bus_pid"
   [[ $status -eq 0 ]] || refuse "doctor=failed package=$1" "$(cat /tmp/doctor.err)"
-  python -c 'import json,sys
+  python - "$report" <<'PY_DOCTOR' || refuse "doctor=required-missing package=$1"
+import json, os, pathlib, re, subprocess, sys
 report=json.loads(sys.argv[1])
+
+def pacman(*args):
+    try:
+        return subprocess.run(["pacman", *args], check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        sys.exit("doctor-provider=query-failed " + str(error))
+
+def installed_provider(row):
+    package = row["packages"].get("pacman")
+    if row["bus"] != "system" or not package:
+        return False
+    # NetworkManager 1.58.1-3 ships this Type=dbus form, without a main
+    # D-Bus activation file (cached Arch package, VGS-2089 provider proof).
+    # Accept only literal absolute executables; no systemd expansion or
+    # command prefix is interpreted here. See systemd.service(5), ExecStart.
+    for name in pacman("-Qlq", "--", package).splitlines():
+        unit = pathlib.Path(name)
+        if unit.parent != pathlib.Path("/usr/lib/systemd/system") or unit.suffix != ".service":
+            continue
+        try:
+            text = unit.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            sys.exit("doctor-provider=unit-unreadable path=" + name + " " + str(error))
+        # systemd.syntax(7): repeated directives are valid, and a trailing
+        # backslash joins lines across comments with a space. The installed
+        # NM initrd units use both. Read only the three scalar proof fields;
+        # unrelated list directives and command bodies are not INI input.
+        service = {}
+        section = pending = ""
+        for physical in text.splitlines():
+            line = physical.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            line = pending + line
+            if line.endswith("\\"):
+                pending = line[:-1] + " "
+                continue
+            pending = ""
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1]
+                continue
+            key, separator, value = line.partition("=")
+            if section == "Service" and separator and key.strip() in ("Type", "BusName", "ExecStart"):
+                service[key.strip()] = value.strip()
+        if pending:
+            sys.exit("doctor-provider=unit-unreadable path=" + name + " cause=unfinished-continuation")
+        if service.get("Type") != "dbus" or service.get("BusName") != row["name"]:
+            continue
+        command = service.get("ExecStart", "")
+        match = re.match(r"(/[A-Za-z0-9_./+-]+)(?:\s|$)", command)
+        if not match:
+            continue
+        executable = match[1]
+        if not os.path.isfile(executable) or not os.access(executable, os.X_OK):
+            continue
+        if any(pacman("-Qqo", "--", path).strip() != package for path in (name, executable)):
+            continue
+        print("arch-packages: doctor-provider=installed-inactive bus=" + row["name"] + " package=" + package + " unit=" + name + " executable=" + executable)
+        return True
+    return False
+
 # A required command installed on request is an optdepends entry the
 # Requirements section of its plugin installs, so the package leaves it
 # missing.
-missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and not row["onRequest"] and row["state"] == "missing"]
-if missing: sys.exit("missing required: " + ",".join(missing))
-if not report["plugins"]: sys.exit("doctor plugin discovery is empty")' "$report" || refuse "doctor=required-missing package=$1"
+missing=[row["name"] for rows in [report["core"], *report["plugins"].values()] for row in rows if not row["optional"] and not row["onRequest"] and row["state"] == "missing" and not installed_provider(row)]
+if missing: sys.exit("doctor-required=missing names=" + ",".join(missing))
+if not report["plugins"]: sys.exit("doctor plugin discovery is empty")
+PY_DOCTOR
 }
 
 # pacman printed every line of the installed first-install text when it

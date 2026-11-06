@@ -25,15 +25,20 @@ FocusScope {
     // again when the plugin's settings change.
     property var shell: null
     readonly property var screen: shell === null ? null : shell.screens.current
-    readonly property var values: shell === null ? ({}) : shell.status.values
+    readonly property var published: shell === null ? ({}) : shell.status.values
+    property string requestState: "idle"
+    readonly property var values: requestState === "opening" ? Object.assign({}, published, { checking: true })
+        : requestState === "failed" ? Object.assign({}, published, { checking: false, admission: "unavailable" }) : published
     readonly property var view: Logic.widgetView(values, false)
     readonly property var rows: Logic.windowRows(values)
     // The refusal the last action was answered with, "" for none.
     property string problem: ""
     property Item initialFocus: sections.firstFocus
+    onPublishedChanged: if (requestState === "opening" && published.checking === true) requestState = "idle"
 
     function open(payloadJson) {
         problem = "";
+        refresh();
     }
     function close() {}
 
@@ -49,7 +54,16 @@ FocusScope {
 
     // Ask the service for a check now; answers its reply, `started` or
     // `queued`.
-    function refresh() { return answered(shell.ipc.call("check", "")); }
+    function refresh() {
+        requestState = "opening";
+        // ipc.call invokes the registered handler synchronously (plugin API,
+        // IPC). Its first status write masks the old readings before return.
+        const reply = answered(shell.ipc.call("check", ""));
+        if (reply !== "started" && reply !== "queued") {
+            requestState = "failed";
+        } else if (published.checking === true) requestState = "idle";
+        return reply;
+    }
 
     function answered(reply) {
         problem = Logic.replyLine(reply);
@@ -136,6 +150,13 @@ FocusScope {
             width: layout.contentWidth
             spacing: Theme.stack.row
 
+            Label {
+                width: parent.width
+                visible: Logic.lastKnown(root.values) && root.rows.length > 0
+                role: "hint"
+                text: "Last known results"
+            }
+
             Repeater {
                 id: rowsRepeater
                 model: ScriptModel {
@@ -168,6 +189,12 @@ FocusScope {
                             size: "md"
                             text: source.modelData.badge
                             tone: source.modelData.badgeTone
+                            width: source.modelData.spinning ? Math.max(implicitWidth, Theme.spinner.size + Theme.control.gap) : implicitWidth
+
+                            Spinner {
+                                anchors.centerIn: parent
+                                visible: source.modelData.spinning
+                            }
                         },
                         RowAction {
                             id: update
@@ -207,22 +234,34 @@ FocusScope {
 
         Label {
             width: layout.contentWidth
-            visible: root.rows.length === 0
+            visible: root.rows.length === 0 && !root.view.spinning
             role: "hint"
             text: "No update results yet"
             wrapMode: Text.Wrap
         }
 
+        Spinner {
+            visible: root.rows.length === 0 && root.view.spinning
+        }
+
         footer: [
             Column {
                 width: layout.contentWidth
-                spacing: Theme.stack.group
+                spacing: Theme.stack.row
+
+                Label {
+                    width: parent.width
+                    role: "hint"
+                    text: Logic.checkedText(root.values.lastCheck, Time.now.getTime(), Timestamp.text, root.view.spinning || Logic.lastKnown(root.values))
+                    wrapMode: Text.Wrap
+                }
 
                 Button {
                     width: parent.width
                     variant: "primary"
                     text: "Update everything"
                     iconName: "download"
+                    disabledReason: Logic.updateDisabledReason(root.values)
                     onClicked: root.run("all")
                 }
 
@@ -237,18 +276,8 @@ FocusScope {
                         variant: "tertiary"
                         text: "Refresh"
                         iconName: "refresh-cw"
+                        disabledReason: root.view.spinning ? "An update check is running. Wait for it to finish." : ""
                         onClicked: root.refresh()
-                    }
-                    Label {
-                        anchors.left: refreshButton.right
-                        anchors.right: logButton.left
-                        anchors.leftMargin: Theme.control.gap
-                        anchors.rightMargin: Theme.control.gap
-                        y: topForCapCenter(parent.height)
-                        horizontalAlignment: Text.AlignHCenter
-                        role: "hint"
-                        text: Logic.checkedText(root.values.lastCheck, Time.now.getTime(), Timestamp.text)
-                        elide: Text.ElideRight
                     }
                     Button {
                         id: logButton

@@ -356,7 +356,7 @@ function verifyView(logic) {
     ["failed source", { pending: 3, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "3", badgeTone: "warning", countLevel: "warning", hidden: false }],
     ["failed check", { pending: 0, checkState: { tone: "danger", text: "exit=2 lock" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", countLevel: "warning", hidden: false }],
     ["stale", { pending: 0, checkState: { tone: "warning", text: "Check stale" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", countLevel: "warning", hidden: false }],
-    ["checking", { pending: 2, checkState: { tone: "info", text: "Checking" }, checking: true }, true, { state: "checking", icon: "refresh-cw", tone: "calm", spinning: true, badge: "2", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["checking", { pending: 2, checkState: { tone: "info", text: "Checking" }, checking: true }, true, { state: "checking", icon: "refresh-cw", tone: "calm", spinning: true, badge: "", badgeTone: "accent", countLevel: "normal", hidden: false }],
     ["not checked", { checkState: { tone: "info", text: "Not checked" }, checking: false }, true, { state: "unchecked", icon: "circle-dashed", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: false }],
     ["nothing published", {}, true, { state: "unchecked", icon: "circle-dashed", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: false }]
   ];
@@ -418,7 +418,7 @@ function verifyView(logic) {
     ]
   });
   same(logic.widgetTooltip({}, now, when), { title: "Not checked yet", details: ["Never checked"] });
-  same(logic.windowRows(values), [
+  same(logic.windowRows(values).map(row => { const made = Object.assign({}, row); delete made.spinning; return made; }), [
     { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, detail: "", lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
     { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: "Could not check", badge: "Failed", badgeTone: "warning", updatable: false, detail: logic.errorText(sources[1].error, true), lines: [], more: "" },
     { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", secondary: "Up to date", badge: "0", badgeTone: "neutral", updatable: false, detail: "", lines: [], more: "" },
@@ -661,7 +661,7 @@ const controls = [
   ["the check state names a new VGS version", 'text: newVersionNoted(snapshot.sources) ? "New VGS version" : "Up to date" };', 'text: "Up to date" };'],
   ["the summary names a new VGS version", 'case "newVersion": return "New VGS version";', 'case "newVersion": return "Up to date";'],
   ["a new VGS version draws the accent", 'newVersion: { icon: "refresh-cw", tone: "accent",', 'newVersion: { icon: "refresh-cw", tone: "calm",'],
-  ["the omitted packages read +N more", "more: typeof row.more === \"number\" && row.more > 0 ? \"+\" + row.more + \" more\" : \"\"", "more: \"\""],
+  ["the omitted packages read +N more", "more: !checking && typeof row.more === \"number\" && row.more > 0 ? \"+\" + row.more + \" more\" : \"\"", "more: \"\""],
   ["a checkout reads its commits behind", "if (typeof pkg.behind === \"number\") return", "if (false) return"],
   ["one source's update names its source", "return { name: \"update-source\", args: [source] };", "return { name: \"update-source\", args: [] };"],
   ["a first TUI state read counts no ended run", "if (previous === null) return false;", "if (false) return false;"],
@@ -690,7 +690,7 @@ const controls = [
   ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
   ["a file or link VGS did not make offers nothing", 'case "denied": return { hidden: true };', 'case "denied": return { tone: "warning", text: "Foreign hook", action: "both" };'],
   ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
-  ["the reboot notice is written", '"sources", "rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"sources", "rebootNotices", "rebootNoticeOwner"]'],
+  ["the reboot notice is written", '"sources", "admission", "rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"sources", "admission", "rebootNotices", "rebootNoticeOwner"]'],
   ["the reboot notice choices are written", '"rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"rebootNotice", "rebootNoticeOwner"]'],
   ["the owner reading is written", '"rebootNotices", "rebootNoticeOwner"]', '"rebootNotices"]'],
   ["the notice in place is the first choice", "return [held, value.action].map(", "return [value.action, held].map("],

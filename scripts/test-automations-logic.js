@@ -542,7 +542,6 @@ function verify(logic) {
     // The connectivity producer returns a uint enum; UNKNOWN and an unread
     // result cannot establish connectivity. Grace expiry never admits.
     for (const value of [0, 1, 2, 3, 4]) {
-        same(logic.nmConnectivity(JSON.stringify({ type: "u", data: value })), value);
         for (const elapsed of [0, 59999, 60000, 900000]) {
             const result = logic.networkAdmission(true, value, elapsed);
             same(result.admit, value === 4);
@@ -550,8 +549,6 @@ function verify(logic) {
             same(logic.networkAdmission(false, value, elapsed), { admit: true, diagnostic: null });
         }
     }
-    for (const reply of ["", "u 4", '{"type":"u","data":[4]}', '{"type":"s","data":"4"}', '{"type":"u","data":4.5}', '{"type":"u","data":5}', '{"type":"u","data":-1}'])
-        same(logic.nmConnectivity(reply), null);
     same(logic.networkAdmission(true, null, 900000), { admit: false, diagnostic: "unavailable" });
     for (const [elapsed, seconds] of [[0, 5], [57000, 3], [59500, 1], [60000, 5], [900000, 5]])
         same(logic.networkWaitSeconds(elapsed), seconds);

@@ -12,13 +12,13 @@ The runner's full package list stays in the status file. Published rows are boun
 
 ## Cadence
 
-The service waits for cache and boot readings before scheduling. It publishes the cached snapshot, checks when due and accepts an explicit request. Only one check runs; requests during it queue one more check. A process failure retains the snapshot and schedules a retry.
+The service waits for cache and boot readings before scheduling. It publishes the cached snapshot, checks when due and accepts an explicit request. Requests during a refresh's startup reads, connectivity admission or check execution join that refresh; an ended TUI queues one replacement instead. The checking mask stays in place across these phases and any queued replacement, and clears only after the result fields publish successfully. A check process failure retains the snapshot and schedules a retry.
 
 `UpdatesLogic` owns cache age, prior-boot handling, retry timing and TUI-end detection. A new service instance does not treat old ended TUIs as new runs.
 
 ## IPC
 
-`check` returns started or queued. `status` returns the published values. The service's registration block is the current handler list.
+`check` returns `started` when the refresh is accepted after status publication; a check process starts only after startup reads complete and connectivity admission succeeds. It returns `queued` when joining an active refresh, without scheduling another check. If checking-status publication fails, it returns `refused: check=status-unavailable` and starts no admission or check process. `status` returns the published values. The service's registration block is the current handler list.
 
 <details>
 <summary>Show command</summary>

@@ -323,8 +323,10 @@ function windowHintText(hint) {
 // says what to do as `hint`, which the Settings page wraps under the badge
 // and summaryText reads. A source's label comes from the snapshot, so the
 // text is bounded to the core's state text limit.
-function checkState(snapshot, checking, now, intervalMs, checkFailure) {
+function checkState(snapshot, checking, now, intervalMs, checkFailure, admission) {
     if (checking) return { tone: "info", text: "Checking" };
+    if (admission === "offline") return { tone: "warning", text: "No internet connection" };
+    if (admission === "unavailable") return { tone: "warning", text: "Internet access unavailable" };
     if (checkFailure !== null && checkFailure !== undefined && checkFailure !== "") return { tone: "danger", text: "Failed", hint: errorText(checkFailure) };
     if (snapshot === null) return { tone: "info", text: "Not checked" };
     if (snapshot.error !== null && snapshot.error !== "") return { tone: "danger", text: "Failed", hint: errorText(snapshot.error) };
@@ -338,8 +340,22 @@ function checkState(snapshot, checking, now, intervalMs, checkFailure) {
 // `checking` is whether a check process runs: the widget's spinner reads
 // it, since the `info` tone of `checkState` also means "not checked".
 // AUR_COMMAND is the plugin's `aurCommand` setting as it stands now.
-function publishValues(snapshot, checking, now, intervalMs, checkFailure, aurCommand) {
-    return { pending: pendingCount(snapshot), lastCheck: snapshot === null ? null : snapshot.checkedAt, checkState: checkState(snapshot, checking, now, intervalMs, checkFailure), checking: checking === true, sources: snapshot === null ? [] : publishedSources(snapshot.sources, aurCommand) };
+function publishValues(snapshot, checking, now, intervalMs, checkFailure, aurCommand, admission) {
+    return { pending: pendingCount(snapshot), lastCheck: snapshot === null ? null : snapshot.checkedAt, checkState: checkState(snapshot, checking, now, intervalMs, checkFailure, admission), checking: checking === true, sources: snapshot === null ? [] : publishedSources(snapshot.sources, aurCommand) };
+}
+
+// The shared helper already decodes NetworkManager's typed reply. Only
+// FULL admits a check; UNKNOWN and an unread result establish no outage.
+function connectivityAdmission(done, text) {
+    if (done === null || done.code !== 0) return "unavailable";
+    var reading;
+    try { reading = JSON.parse(text); } catch (e) { return "unavailable"; }
+    if (!isPlainObject(reading)) return "unavailable";
+    switch (reading.connectivity) {
+    case 4: return "online";
+    case 1: case 2: case 3: return "offline";
+    default: return "unavailable";
+    }
 }
 
 // ROW's note as the service publishes it. The release `vgshell` package
@@ -378,7 +394,11 @@ function statusRecordBytes(values) {
 function statusWrites(previous, next) {
     var before = previous || {};
     var out = [];
-    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
+    var keys = ["pending", "lastCheck", "checkState", "sources", "admission", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
+    // Readers see each write. Mask before entry and unmask only after all
+    // fields belong to the complete accepted result or qualified history.
+    if (next.checking === true) keys.unshift("checking");
+    else keys.push("checking");
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
         if (next[key] === null || next[key] === undefined) continue;
@@ -677,6 +697,7 @@ function countText(count, noun) {
 function widgetState(values) {
     var v = valuesOf(values);
     if (v.checking === true) return "checking";
+    if (v.admission === "offline" || v.admission === "unavailable") return "attention";
     if (!isPlainObject(v.checkState)) return "unchecked";
     switch (v.checkState.tone) {
     case "ok":
@@ -703,7 +724,7 @@ function widgetView(values, hideWhenCurrent) {
     var state = widgetState(values);
     var look = WIDGET_STATES[state];
     var pending = pendingOf(values);
-    return { state: state, icon: look.icon, tone: look.tone, spinning: look.spinning, badge: pending > 0 ? String(pending) : "", badgeTone: look.badgeTone,
+    return { state: state, icon: look.icon, tone: look.tone, spinning: look.spinning, badge: state !== "checking" && pending > 0 ? String(pending) : "", badgeTone: look.badgeTone,
         countLevel: countLevel(look.tone), hidden: hideWhenCurrent === true && state === "current" };
 }
 
@@ -712,6 +733,11 @@ function widgetView(values, hideWhenCurrent) {
 // sentence, its `hint`, where it has one, else its short text.
 function summaryText(values) {
     var state = widgetState(values);
+    var v = valuesOf(values);
+    if (state !== "checking") {
+        if (v.admission === "offline") return (typeof v.lastCheck === "number" ? countText(pendingOf(v), "update") + " waiting - " : "") + "No internet connection";
+        if (v.admission === "unavailable") return "Internet access could not be checked. Select Refresh to try again.";
+    }
     switch (state) {
     case "current": return "Up to date";
     case "pending": return countText(pendingOf(values), "update") + " waiting";
@@ -733,6 +759,7 @@ function summaryText(values) {
 // checkState gives a warning with a failed source only for that source,
 // before an old check.
 function windowSummaryText(values) {
+    if (valuesOf(values).admission === "offline" || valuesOf(values).admission === "unavailable") return summaryText(values);
     if (widgetState(values) !== "attention") return summaryText(values);
     var check = valuesOf(values).checkState;
     var failing = sourcesOf(values).filter(function (row) { return isPlainObject(row) && row.error !== null && row.error !== undefined && row.error !== ""; }).length;
@@ -744,8 +771,9 @@ function windowSummaryText(values) {
 // is qs.Commons Timestamp.text, the shell's one wording of a past moment,
 // handed in by the caller because bin/check and bin/facts load this file
 // under node with no module bindings.
-function checkedText(lastCheck, now, timeText) {
+function checkedText(lastCheck, now, timeText, historical) {
     if (typeof lastCheck !== "number") return "Never checked";
+    if (historical === true) return "Last checked " + timeText(lastCheck, now);
     return "Checked " + timeText(lastCheck, now);
 }
 
@@ -755,9 +783,12 @@ function checkedText(lastCheck, now, timeText) {
 function widgetTooltip(values, now, timeText) {
     var details = [];
     var sources = sourcesOf(values);
+    var checking = valuesOf(values).checking === true;
+    var historical = lastKnown(values);
+    if (historical) details.push("Last known results");
     for (var i = 0; i < sources.length; i++)
-        details.push({ label: sources[i].label, value: sources[i].count === null ? "check failed" : sources[i].count });
-    details.push(checkedText(valuesOf(values).lastCheck, now, timeText));
+        details.push({ label: sources[i].label, value: checking ? "Checking" : sources[i].count === null ? "check failed" : sources[i].count });
+    details.push(checkedText(valuesOf(values).lastCheck, now, timeText, checking || historical));
     return { title: summaryText(values), details: details };
 }
 
@@ -829,22 +860,40 @@ function windowRows(values) {
         var row = sources[i];
         var reading = rowReading(row);
         var packages = Array.isArray(row.packages) ? row.packages : [];
+        var checking = valuesOf(values).checking === true;
+        var historical = lastKnown(values);
         rows.push({
             key: row.source,
             source: row.source,
             label: row.label,
             icon: sourceIcon(row.source),
-            secondary: reading.secondary,
-            badge: reading.badge,
-            badgeTone: reading.badgeTone,
-            updatable: reading.updatable,
+            secondary: checking ? "Checking" : historical ? "Last known" : reading.secondary,
+            badge: checking ? "" : reading.badge,
+            spinning: checking,
+            badgeTone: checking ? "neutral" : reading.badgeTone,
+            updatable: !checking && !historical && reading.updatable,
             actionText: reading.actionText,
-            detail: reading.detail,
-            lines: packages.map(packageLine),
-            more: typeof row.more === "number" && row.more > 0 ? "+" + row.more + " more" : ""
+            detail: checking ? "" : reading.detail,
+            lines: checking ? [] : packages.map(packageLine),
+            more: !checking && typeof row.more === "number" && row.more > 0 ? "+" + row.more + " more" : ""
         });
     }
     return rows;
+}
+
+function lastKnown(values) {
+    var v = valuesOf(values);
+    return v.checking !== true && (v.admission === "offline" || v.admission === "unavailable"
+        || (isPlainObject(v.checkState) && v.checkState.tone === "danger"));
+}
+
+function updateDisabledReason(values) {
+    var v = valuesOf(values);
+    if (v.checking === true) return "An update check is running. Wait for it to finish.";
+    if (v.admission === "offline") return "There is no internet connection. Connect, then select Refresh.";
+    if (v.admission === "unavailable") return "Internet access could not be checked. Select Refresh to try again.";
+    if (lastKnown(v)) return "The update check failed. Select Refresh to try again.";
+    return "";
 }
 
 // The argv `shell.tui.run` takes for a window action: `update` for every
