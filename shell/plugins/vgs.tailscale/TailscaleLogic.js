@@ -293,15 +293,31 @@ function sshCapable(peer) {
 
 // The network devices PEERS hold, Mullvad nodes left out: { rows, count,
 // online }, `rows` online first then by name, at most PEER_MAX: { id, name,
-// os, icon, address, dnsName, online, connects }, `connects` as sshCapable
+// os, icon, address, dnsName, online, connects, tags }, `connects` as sshCapable
 // reads the peer. `count` and `online` count every device, kept or not.
 function devices(peers) {
     var all = peers.filter(function (peer) { return !isMullvad(peer) && validId(peer.ID); }).map(function (peer) {
         return { id: peer.ID, name: peerName(peer), os: line(peer.OS), icon: peerIcon(peer), address: firstIPv4(peer.TailscaleIPs),
-            dnsName: dnsLine(peer), online: peer.Online === true, connects: sshCapable(peer) };
+            dnsName: dnsLine(peer), online: peer.Online === true, connects: sshCapable(peer),
+            tags: Array.isArray(peer.Tags) ? peer.Tags : [] };
     });
     all.sort(onlineFirst);
     return { rows: all.slice(0, PEER_MAX), count: all.length, online: all.filter(function (row) { return row.online; }).length };
+}
+
+// Custom Settings strings reach this owner unchanged. Refuse the whole
+// filter visibly rather than silently applying only its valid members.
+// Tag grammar: tailcfg.CheckTag at Tailscale v1.104.1:
+// https://github.com/tailscale/tailscale/blob/v1.104.1/tailcfg/tailcfg.go
+function connectFilter(value, text) {
+    var tags = text.trim() === "" ? [] : text.split(",").map(function (tag) { return tag.trim(); });
+    if (tags.some(function (tag) { return !/^tag:[A-Za-z][A-Za-z0-9-]*$/.test(tag); }))
+        return { devices: value, problem: "The tag filter is not applied. Use comma-separated tag: names starting with a letter, then letters, numbers or dashes." };
+    var rows = value.rows.map(function (row) {
+        var hidden = row.tags.some(function (tag) { return tags.indexOf(tag) !== -1; });
+        return Object.assign({}, row, { connects: row.connects && !hidden });
+    });
+    return { devices: { rows: rows, count: value.count, online: value.online }, problem: "" };
 }
 
 var BACKEND_STATES = {

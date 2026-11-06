@@ -115,16 +115,32 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(offlineBest.countries[0].best, { id: "mB", city: "Malmö" });
     assert.deepEqual(sheet.devices, {
         rows: [
-            { id: "nSHEET0003CNTRL", name: "attic-nas", os: "linux", icon: "laptop", address: "100.64.0.3", dnsName: "attic-nas.tail-fixture.ts.net", online: true, connects: true },
-            { id: "nSHEET0002CNTRL", name: "gateway", os: "linux", icon: "server", address: "100.64.0.2", dnsName: "gateway.tail-fixture.ts.net", online: true, connects: true },
-            { id: "nSHEET0004CNTRL", name: "pixel", os: "android", icon: "smartphone", address: "100.64.0.4", dnsName: "pixel.tail-fixture.ts.net", online: true, connects: false },
-            { id: "nSHEET0007CNTRL", name: "ipad", os: "iOS", icon: "smartphone", address: "100.64.0.7", dnsName: "ipad.tail-fixture.ts.net", online: false, connects: false },
-            { id: "nSHEET0009CNTRL", name: "old-laptop", os: "windows", icon: "laptop", address: "100.64.0.9", dnsName: "old-laptop.tail-fixture.ts.net", online: false, connects: true }
+            { id: "nSHEET0003CNTRL", name: "attic-nas", os: "linux", icon: "laptop", address: "100.64.0.3", dnsName: "attic-nas.tail-fixture.ts.net", online: true, connects: true, tags: [] },
+            { id: "nSHEET0002CNTRL", name: "gateway", os: "linux", icon: "server", address: "100.64.0.2", dnsName: "gateway.tail-fixture.ts.net", online: true, connects: true, tags: ["tag:server"] },
+            { id: "nSHEET0004CNTRL", name: "pixel", os: "android", icon: "smartphone", address: "100.64.0.4", dnsName: "pixel.tail-fixture.ts.net", online: true, connects: false, tags: [] },
+            { id: "nSHEET0007CNTRL", name: "ipad", os: "iOS", icon: "smartphone", address: "100.64.0.7", dnsName: "ipad.tail-fixture.ts.net", online: false, connects: false, tags: [] },
+            { id: "nSHEET0009CNTRL", name: "old-laptop", os: "windows", icon: "laptop", address: "100.64.0.9", dnsName: "old-laptop.tail-fixture.ts.net", online: false, connects: true, tags: [] }
         ],
         count: 5,
         online: 3
     });
     assert.equal(logic.devicesLine(sheet.devices), "3 of 5 online");
+    assert.equal(manifest.settings.hideConnectTags, "");
+    for (const [setting, hidden, valid] of [
+        ["", [], true], ["  ", [], true], ["tag:server", ["gateway"], true],
+        [" tag:unused, tag:server ", ["gateway"], true], ["tag:server,tag:server", ["gateway"], true],
+        ["tag:serve", [], true], ["tag:Server", [], true], ["tag:Server-2", [], true],
+        ["server", [], false], ["tag:", [], false], ["tag:2server", [], false],
+        ["tag:server_other", [], false], ["tag:sérver", [], false],
+        ["tag:server,", [], false], ["tag:server,,tag:unused", [], false]
+    ]) {
+        const filtered = plain(logic.connectFilter(sheet.devices, setting));
+        assert.equal(filtered.problem === "", valid, "tag filter validity: " + setting);
+        assert.deepEqual(filtered.devices, {
+            ...sheet.devices,
+            rows: sheet.devices.rows.map(row => ({ ...row, connects: row.connects && !hidden.includes(row.name) }))
+        }, "only Connect changes for full matching peer tags: " + setting);
+    }
     // Connect in terminal, by each OS value Tailscale reports, in its own
     // spelling: a device that runs an ssh server and has a DNS name. An
     // unknown value, such as one Tailscale adds later, offers none.
@@ -599,7 +615,7 @@ function suite(logic, service = serviceSource) {
     // shrink/grow transitions and a null setup that clears its state entry.
     const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onPublishedChanged/.exec(service);
     assert.ok(publishBody);
-    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", "inbound", publishBody[1]);
+    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", "inbound", "connectFilter", publishBody[1]);
     let values = {};
     const shell = { status: { isOk: core.statusReplyOk, set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
@@ -610,7 +626,7 @@ function suite(logic, service = serviceSource) {
     } } };
     for (const [data, snap, setupLine] of [[bigValue, largest, ready], [shown, running, denied], [bigValue, largest, denied], [shown, running, null]]) {
         const original = JSON.stringify([data, snap]);
-        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false, snap === largest ? crowdInbound : logic.inboundIdle());
+        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false, snap === largest ? crowdInbound : logic.inboundIdle(), logic.connectFilter(snap.devices, ""));
         assert.equal(JSON.stringify([data, snap]), original);
         assert.equal(values.devices.count, snap.devices.count);
         assert.equal(values.exitNodes.cityCount, snap.exitNodes.cityCount);
@@ -723,6 +739,7 @@ try {
         ["Tailscale's macOS spelling connects", 'return typeof peer.OS === "string" ? peer.OS.toLowerCase() : "";', 'return typeof peer.OS === "string" ? peer.OS : "";'],
         ["a device with no DNS name offers no connect", ' && dnsLine(peer) !== "";', ';'],
         ["a row carries whether it connects", 'dnsName: row.dnsName, connects: row.connects === true', 'dnsName: row.dnsName, connects: false'],
+        ["a listed tag hides only Connect", 'connects: row.connects && !hidden', 'connects: row.connects'],
         ["the city in use survives the bound", 'var kept = keepActive(all, CITY_MAX);', 'var kept = all.slice(0, CITY_MAX);'],
         ["best available is the highest ranked", 'if (country.best === null || beats(ranked, country.best.node))', 'if (country.best === null)'],
         ["best available ranks online nodes first", 'var ranked = { active: false, online: node.online, rank: node.rank };', 'var ranked = { active: false, online: true, rank: node.rank };'],

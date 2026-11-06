@@ -35,9 +35,24 @@
     "order": 30
   },
   "settings": {
-    "pollSeconds": 30
+    "pollSeconds": 30,
+    "hideConnectTags": ""
   },
   "schema": {
+    "hideConnectTags": {
+      "type": "string",
+      "label": "Hide Connect for these tags",
+      "description": "Separate full tags with commas. Empty keeps Connect in terminal on all supported devices.",
+      "presets": [
+        {
+          "value": "tag:server"
+        }
+      ],
+      "separator": ",",
+      "allowCustom": true,
+      "problem": "hideConnectTagsProblem",
+      "group": "Network devices"
+    },
     "pollSeconds": {
       "type": "number",
       "label": "Check every",
@@ -120,6 +135,11 @@
     "tailscale-account-add"
   ],
   "status": {
+    "hideConnectTagsProblem": {
+      "type": "text",
+      "label": "Connect tag filter",
+      "hidden": true
+    },
     "connection": {
       "type": "state",
       "label": "Connection"

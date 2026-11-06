@@ -110,6 +110,7 @@ Item {
         { accounts: accounts, accountsRead: accountsFault === "", outdated: outdated, action: action, login: login, problem: problem,
             suggestion: Logic.suggestion(suggestedName, snapshot),
             backendPresent: stepState("service-tailscaled") !== "absent" })
+    readonly property var connectFilter: Logic.connectFilter(snapshot.devices, shell === null ? "" : shell.settings.hideConnectTags)
 
     // Read from the source, since a change handler can run before the
     // bindings that read it.
@@ -123,8 +124,9 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const writes = Logic.statusWrites(connection, setup, published, snapshot.devices, snapshot.exitNodes, inbound)
-            .concat([["accountAdd", { tone: "info", text: "Add account", action: !outdated && stepState("tailscale-account-add") === "needed" }]]);
+        const writes = Logic.statusWrites(connection, setup, published, connectFilter.devices, snapshot.exitNodes, inbound)
+            .concat([["hideConnectTagsProblem", connectFilter.problem === "" ? null : connectFilter.problem],
+                ["accountAdd", { tone: "info", text: "Add account", action: !outdated && stepState("tailscale-account-add") === "needed" }]]);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
             if (!shell.status.isOk(reply)) console.warn("tailscale: status " + write[0] + " " + reply);
@@ -133,6 +135,7 @@ Item {
     onPublishedChanged: publish()
     onSetupChanged: publish()
     onInboundChanged: publish()
+    onConnectFilterChanged: publish()
 
     onShellChanged: {
         if (shell === null) return;

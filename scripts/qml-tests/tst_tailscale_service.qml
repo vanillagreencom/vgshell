@@ -21,7 +21,7 @@ Item {
     readonly property var profileRows: [{ id: "saved", selected: true, account: "saved@example.test", tailnet: "example.test" }]
     readonly property string running: JSON.stringify({ BackendState: "Running", Self: { ID: "self", HostName: "desk", TailscaleIPs: ["100.64.0.1"] } })
     property var facade: ({
-        settings: { pollSeconds: 30 },
+        settings: { pollSeconds: 30, hideConnectTags: "" },
         requirements: { missing: [], get outdated() { return root.oldTools ? ["tailscale"] : []; }, revision: 0, offer: commands => { root.offers = root.offers.concat([commands]); return "ok"; } },
         system: { get state() { return root.stepsRead ? { "service-tailscaled": { state: "ready" }, "tailscale-operator": { state: root.operatorStep }, "tailscale-account-add": { state: "needed" } } : {}; },
             refresh: done => { root.setupDone = root.setupDone.concat([done]); return "ok"; } },
