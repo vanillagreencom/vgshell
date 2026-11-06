@@ -1585,7 +1585,7 @@ if copy_tree bar-motion-control \
 fi
 
 # Gaps and separators: a right click on the empty bar opens the bar's own
-# menu, Add separator first and Add gap second; the entry lands where a
+# menu, Add widget first, Add separator second and Add gap third; the entry lands where a
 # widget dragged to the click would drop. Each kind is added in every
 # section through the real pointer and keys, read back from the effective
 # layout and the drawn boxes, kept across a restart, dragged into another
@@ -1627,8 +1627,8 @@ spacer_add() {
   read -r x y < <(spacer_point "$1") && [[ $x =~ ^-?[0-9]+$ && $y =~ ^-?[0-9]+$ ]] || { fail "no empty point in the $1 section"; return 1; }
   hover "$((x + 1))" "$y" && right_click "$x" "$y" || { fail "the right click on the empty $1 bar failed"; return 1; }
   expect_poll "a right click on the empty $1 bar opens the add menu" true spacer_read spacerMenuOpen
-  expect "the add menu holds its two entries" 2 spacer_entries
-  if [[ $2 == gap ]]; then type_keys -k Down -k Down -k Return; else type_keys -k Down -k Return; fi
+  expect "the add menu holds its three entries" 3 spacer_entries
+  if [[ $2 == gap ]]; then type_keys -k Down -k Down -k Down -k Return; else type_keys -k Down -k Down -k Return; fi
   expect_poll "choosing Add $2 closes the add menu" false spacer_read spacerMenuOpen
 }
 # The drawn spacers per section, in x order, and every box that breaks

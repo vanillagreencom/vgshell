@@ -84,11 +84,18 @@ Item {
         if (reply !== "ok") console.warn("vgs.bar: add " + family + " " + reply);
     }
 
+    function openWidgets(x) {
+        const reply = shell.surfaces.summon("window", JSON.stringify({
+            screen: screen.name, x: bar.mapToItem(null, x, 0).x
+        }));
+        if (reply !== "ok") console.warn("vgs.bar: add widget " + reply);
+    }
+
     // TapHandler's default DragThreshold policy takes a passive grab, so
     // a widget's own frame handler sees the same right click; overWidget
     // leaves that click to it (Qt Quick TapHandler gesturePolicy reference).
     // pointer-cursor-exempt: it adds the right click to the empty bar, which shows no control
-    // keyboard-path: none; adding a gap or a separator is a pointer arrangement of the bar, as a drag is
+    // keyboard-path: none; the empty-bar menu arranges widgets by pointer, as a drag does
     TapHandler {
         acceptedButtons: Qt.RightButton
         enabled: bar.shell !== null
@@ -131,6 +138,11 @@ Item {
             Menu {
                 id: spacerMenu
 
+                MenuItem {
+                    text: "Add widget"
+                    iconName: "circle-plus"
+                    onTriggered: bar.openWidgets(ui.x)
+                }
                 MenuItem {
                     text: "Add separator"
                     iconName: "separator-vertical"

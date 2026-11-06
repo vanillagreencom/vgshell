@@ -11,6 +11,9 @@ bar
 bar-reconcile
 bar-controls
 hyprland-consent
+# The bar's chooser uses the wired application-window rules, and restores
+# its private fixture and configuration before plugin lifecycle rows.
+add-widget
 plugins
 sources
 capabilities

@@ -5720,14 +5720,16 @@ function withMoved(user, manifest, from, section, index, effective, id) {
 // INDEX of SECTION, the target section's entry index, as barDropIndex
 // answers it with no source entry. The caller checks placedRefusal and
 // that no entry holds ID first.
-function withBuiltinAt(user, id, section, index, effective) {
+function withBuiltinAt(user, widgetId, section, index, effective) {
+    // Shared by plugin widgets and builtins. The caller owns eligibility
+    // and duplicate refusal; neither route writes placement before this.
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
     if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
     var target = out.bar.layout[section];
-    target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: id });
+    target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: widgetId });
     return out;
 }
 

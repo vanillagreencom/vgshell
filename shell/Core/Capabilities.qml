@@ -188,6 +188,7 @@ Singleton {
             setPackageReview: (key, value) => root.managerPackageReview(key, value),
             setEnabled: (id, enabled) => typeof enabled === "boolean" ? Plugins.setEnabled(id, enabled) : "refused: enabled=" + JSON.stringify(enabled) + " want=boolean",
             setPlaced: (id, placed) => typeof placed === "boolean" ? Plugins.setPlaced(id, placed) : "refused: placed=" + JSON.stringify(placed) + " want=boolean",
+            insertWidget: (id, screen, x) => Plugins.insertWidget(id, screen, x),
             moveWidget: (id, section, index) => typeof section !== "string" ? "refused: section=" + JSON.stringify(section) + " want=string" : typeof index === "number" && Number.isInteger(index) && index >= 0 ? Plugins.moveWidget(id, section, index, null) : "refused: index=" + JSON.stringify(index) + " want=integer>=0",
             setSetting: (id, key, value) => root.managerChoose(id, key, value),
             setKey: (id, shortcut, key) => Plugins.setKey(id, shortcut, key),

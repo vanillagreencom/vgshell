@@ -1861,6 +1861,16 @@ function suite(ctx, configLogic, check) {
     check("withBuiltinAt: seeds the user bar from the effective bar", ctx.withBuiltinAt(null, "vgs.bar/gap-1", "center", 0, builtinConfig).bar.layout,
         { left: builtinConfig.bar.layout.left, center: [{ id: "vgs.bar/gap-1" }, { id: "vgs.bar/center-clock" }], right: [] });
     check("withBuiltinAt does not alias the user file", (() => { const u = ctx.clone(builtinConfig); ctx.withBuiltinAt(u, "vgs.bar/gap-1", "right", 0, u); return u.bar.layout.right; })(), []);
+    for (const section of ["left", "center", "right"]) {
+        const user = { version: 4, plugins: [{ id: "acme.added", mode: "kept" }], disabledPlugins: ["acme.off"], other: "kept" };
+        const original = JSON.stringify(user);
+        const inserted = ctx.withBuiltinAt(user, "acme.added", section, 0, builtinConfig);
+        const expected = ctx.clone(builtinConfig.bar);
+        expected.layout[section].unshift({ id: "acme.added" });
+        check("withBuiltinAt inserts a plugin in " + section + " without losing unrelated configuration",
+            inserted, { ...user, bar: expected });
+        check("withBuiltinAt plugin insertion leaves its user input unchanged in " + section, JSON.stringify(user), original);
+    }
     const builtinDefaults = { bar: { id: "vgs.bar", layout: {
         left: [{ id: "acme.widget" }, { id: "vgs.bar/left-workspaces" }, { id: "acme.tick" }],
         center: [{ id: "vgs.bar/center-clock" }], right: [] } } };
