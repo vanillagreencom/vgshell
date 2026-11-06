@@ -48,6 +48,15 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // retired shortcut defaults. Retained converters run in saved-version order.
 var CONFIG_VERSION = 4;
 
+// A newer build produces whole-number versions this build cannot read.
+// Classify them before inspecting any fields of that unknown format.
+function configResult(config) {
+    if (isPlainObject(config) && Number.isInteger(config.version) && config.version > CONFIG_VERSION)
+        return { state: "newer", version: config.version };
+    var error = configError(config);
+    return error === "" ? { state: "loaded" } : { state: "malformed", error: error };
+}
+
 // The first defect of a configuration file (shipped or user), or "". The
 // file is an object; `version`, when present, is CONFIG_VERSION; `plugins`
 // is a list of objects each with a string `id`, and a row's `keys`, when

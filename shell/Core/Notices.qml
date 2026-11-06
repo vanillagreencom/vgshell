@@ -155,6 +155,17 @@ Singleton {
         failure: "",
         busy: false
     })
+    property bool newerDismissed: false
+    readonly property var newerView: ({
+        title: "Settings need a newer VGS",
+        message: PageReference.fileReference(Config.userPath, Config.userPath) + " uses format " + Config.newerVersion
+            + ". This build reads format " + Config.formatVersion + ". The file is untouched. Use the newer VGS build to load these settings."
+            + (Config.preConversionPresent ? "\nSettings saved before the last conversion: " + PageReference.fileReference(Config.preConversionPath, Config.preConversionPath) + "." : ""),
+        lines: [],
+        actions: [{ label: "Close", role: "cancel" }],
+        failure: "",
+        busy: false
+    })
     // Callbacks waiting for a scan that starts after they were asked for,
     // each { scan, versions, fn }: `scan` the Registry.requirementsRevision
     // at which that scan has ended (Registry.rescan), and `versions` whether
@@ -170,10 +181,11 @@ Singleton {
     // The restart notice shows behind every requirement notice, the reset
     // question behind it, the "VGS was reset" notice behind that, and the
     // consent slot last, so the welcome follows a reset's notice.
-    readonly property bool showingRestart: current === null && restart && !restartHeld
-    readonly property bool showingResetAsk: current === null && !restart && resetAsked
-    readonly property bool showingResetDone: current === null && !restart && !resetAsked && resetBackup !== ""
-    readonly property bool showingConsent: current === null && !restart && !resetAsked && resetBackup === "" && consent !== null
+    readonly property bool showingNewer: current === null && Config.userState === "newer" && !newerDismissed
+    readonly property bool showingRestart: current === null && !showingNewer && restart && !restartHeld
+    readonly property bool showingResetAsk: current === null && !showingNewer && !restart && resetAsked
+    readonly property bool showingResetDone: current === null && !showingNewer && !restart && !resetAsked && resetBackup !== ""
+    readonly property bool showingConsent: current === null && !showingNewer && !restart && !resetAsked && resetBackup === "" && consent !== null
     // What the shown notice draws, PluginLogic.noticeView with the owner's
     // id and name and its PluginLogic.noticeTitle, or null while none
     // shows, before the first detection ended, or while its owner is gone
@@ -193,7 +205,7 @@ Singleton {
         return shown;
     }
     readonly property bool installing: current !== null && installingId === current.id
-    readonly property string shownId: current !== null ? current.id : showingRestart ? "core-restart" : showingResetAsk ? "core-reset" : showingResetDone ? "core-reset-done" : showingConsent ? "core-consent" : ""
+    readonly property string shownId: current !== null ? current.id : showingNewer ? "core-config-newer" : showingRestart ? "core-restart" : showingResetAsk ? "core-reset" : showingResetDone ? "core-reset-done" : showingConsent ? "core-consent" : ""
     // The consent slot's answer, `connect`, `decline` or `close`, which
     // HyprlandLayer acts on.
     signal consentAnswered(string answer)
@@ -205,6 +217,12 @@ Singleton {
     }
 
     Component.onCompleted: resetRead.running = true
+
+    Connections {
+        target: Config
+        function onUserStateChanged() { root.newerDismissed = false; }
+        function onNewerVersionChanged() { root.newerDismissed = false; }
+    }
 
     // An attempt whose run ends while no `done` of this shell waits on it,
     // as after a restart during the install, settles from its record.
@@ -244,7 +262,7 @@ Singleton {
     // to the front (FRESH) and when its screen goes, none while no notice
     // shows.
     function settleScreen(fresh) {
-        if (queue.length === 0 && consent === null && !restart && !resetAsked && resetBackup === "") screen = null;
+        if (shownId === "") screen = null;
         else if (fresh || screen === null || Quickshell.screens.indexOf(screen) === -1) screen = Compositor.focusedScreen();
     }
 
@@ -647,7 +665,8 @@ Singleton {
     function dismiss() {
         const notice = current;
         if (notice === null) {
-            if (restart) restart = false;
+            if (showingNewer) newerDismissed = true;
+            else if (restart) restart = false;
             else if (resetAsked) resetAsked = false;
             else if (resetBackup !== "") {
                 resetBackup = "";

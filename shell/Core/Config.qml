@@ -34,6 +34,11 @@ Singleton {
     readonly property string shippedPath: Quickshell.shellDir + "/../config/shell.json"
     readonly property string userDir: Paths.configDir
     readonly property string userPath: userDir + "/shell.json"
+    readonly property string preConversionPath: Paths.stateDir + "/shell-pre-conversion.json"
+    readonly property int formatVersion: ConfigLogic.CONFIG_VERSION
+    property int newerVersion: 0
+    property bool preConversionPresent: false
+    property string copyError: ""
 
     // null until the shipped file loaded once; a later failure keeps the
     // last good value.
@@ -49,7 +54,7 @@ Singleton {
     property var splits: []
     // "pending" until the first answer, then "loaded", "unparseable",
     // "unreadable" or "malformed" (parsed, refused by configError); the user
-    // file may also be "absent". A file that was loaded once keeps its last
+    // file may also be "absent", "newer" or "migration-blocked". A file that was loaded once keeps its last
     // good value through a later failure.
     property string shippedState: "pending"
     property string userState: "pending"
@@ -147,10 +152,10 @@ Singleton {
             return { state: "unparseable" };
         }
         const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations) : { config: value, migrated: false };
-        const bad = moved.error || ConfigLogic.configError(moved.config);
-        if (bad !== "") {
-            console.error("config: " + label + " malformed: " + bad);
-            return { state: "malformed" };
+        const result = moved.error ? { state: "malformed", error: moved.error } : ConfigLogic.configResult(moved.config);
+        if (result.state !== "loaded") {
+            console.error("config: " + label + " " + result.state + ": " + (result.state === "newer" ? "version=" + result.version + " supported=" + ConfigLogic.CONFIG_VERSION : result.error));
+            return result;
         }
         const renamed = migrate ? ConfigLogic.renamePlugins(moved.config, renames) : { config: moved.config, renamed: false };
         const split = migrate ? ConfigLogic.splitPlugins(renamed.config, splits) : { config: renamed.config, split: false };
@@ -183,7 +188,7 @@ Singleton {
         id: userView
         path: root.userPath
         onChanged: read()
-        onLoaded: content => {
+        onLoaded: (content, bytes) => {
             // The conversion context is shipped-only; no user value can redirect it.
             if (root.shipped === null) { root.userAwaitingShipped = true; return; }
             root.saveError = "";
@@ -191,9 +196,19 @@ Singleton {
                 // The disk holds what it held: a write's own notification,
                 // or a file readable again.
                 root.userState = "loaded";
+                root.newerVersion = 0;
                 return;
             }
             const r = root.judge(path, content, true);
+            root.newerVersion = r.state === "newer" ? r.version : 0;
+            // A refused copy leaves the source on disk and blocks all writers,
+            // including writes made by publish handlers. A later read retries.
+            if (r.migrated && !root.savePreConversion(bytes)) {
+                root.userState = "migration-blocked";
+                root.user = r.value;
+                root.publish();
+                return;
+            }
             if (r.state === "loaded") root.userText = content;
             root.userState = r.state;
             // Written once, so the next read finds this version's file, and
@@ -216,6 +231,7 @@ Singleton {
         }
         onLoadFailed: error => {
             root.saveError = "";
+            root.newerVersion = 0;
             if (error === FileViewError.FileNotFound) {
                 root.user = null;
                 root.userText = null;
@@ -234,6 +250,44 @@ Singleton {
             // another write is taken.
             read();
         }
+    }
+
+    // FileView preserves raw bytes through data/setData and blocks writes
+    // through blockWrites. Its v0.3.1 atomic-commit failure can emit saved,
+    // so confirm against a fresh read before replacing the source.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView
+    // https://github.com/quickshell-mirror/quickshell/blob/v0.3.1/src/io/fileview.cpp
+    FileView {
+        id: conversionCopy
+        path: root.preConversionPath
+        printErrors: false
+        blockWrites: true
+        blockAllReads: true
+        onLoaded: root.preConversionPresent = true
+        onLoadFailed: error => {
+            root.preConversionPresent = false;
+            root.copyError = String(error);
+        }
+        onSaveFailed: error => { root.copyError = String(error); }
+    }
+
+    function savePreConversion(bytes) {
+        // Unload the previous buffer: FileView skips bytes matching its last
+        // failed write too. Each conversion must replace the retained copy.
+        conversionCopy.path = "";
+        conversionCopy.path = preConversionPath;
+        copyError = "";
+        conversionCopy.setData(bytes);
+        if (copyError === "") {
+            conversionCopy.reload();
+            const saved = new Uint8Array(conversionCopy.data());
+            const source = new Uint8Array(bytes);
+            if (copyError === "" && (saved.length !== source.length || saved.some((byte, i) => byte !== source[i])))
+                copyError = "readback-mismatch";
+        }
+        if (copyError === "") return true;
+        console.error("config: pre-conversion copy not saved: path=" + preConversionPath + " error=" + copyError);
+        return false;
     }
 
     // The error of a write the disk refused, held until the file is read

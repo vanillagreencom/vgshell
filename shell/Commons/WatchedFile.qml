@@ -33,7 +33,7 @@ Scope {
     readonly property bool busy: operation !== "idle"
     readonly property bool inRead: operation === "reading" || operation === "stale"
 
-    signal loaded(string content)
+    signal loaded(string content, var bytes)
     signal loadFailed(var error)
     signal saved()
     signal saveFailed(var error)
@@ -102,7 +102,10 @@ Scope {
         path: file.path
         printErrors: false
         blockWrites: true
-        onLoaded: if (file.settle()) file.loaded(text())
+        // data() keeps the exact source bytes beside the decoded text, for
+        // owners that save a pre-conversion copy.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView
+        onLoaded: if (file.settle()) file.loaded(text(), data())
         onLoadFailed: error => { if (file.settle()) file.loadFailed(error); }
         onSaved: {
             file.wrote();

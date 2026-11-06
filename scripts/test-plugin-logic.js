@@ -1373,6 +1373,21 @@ function suite(ctx, configLogic, check) {
         check("versionsRead: " + name, ctx.versionsRead(completion, stdout), want);
     check("the core's config/requirements.json passes the requirements judge", ctx.requirementsError(JSON.parse(fs.readFileSync(CORE_REQUIREMENTS, "utf8"))), "");
 
+    // Installed builds can start after a newer build converted this file.
+    for (const [name, config, state, version] of [
+        ["newer", { version: 5, plugins: "unknown format" }, "newer", 5],
+        ["current", { version: 4 }, "loaded", undefined],
+        ["unversioned", {}, "loaded", undefined],
+        ["damaged current", { version: 4, plugins: false }, "malformed", undefined],
+        ["fractional", { version: 5.5 }, "malformed", undefined],
+        ["string", { version: "5" }, "malformed", undefined],
+        ["null version", { version: null }, "malformed", undefined],
+        ["non-object", null, "malformed", undefined]
+    ]) {
+        const result = configLogic.configResult(config);
+        check("configResult: " + name, [result.state, result.version], [state, version]);
+    }
+
     // configError rows: [name, config, want]. A refusal row pins the start of
     // the error text.
     const configRows = [
@@ -3545,6 +3560,7 @@ const PADS_CONTROLS = [
     ["an item enum declares no option groups", "&& entry.items[fields[i]].options.some(function (option) { return isPlainObject(option) && option.group !== undefined; }))", "&& false)"]
 ];
 const CONFIG_CONTROLS = [
+    ["newer settings have a distinct refusal", "Number.isInteger(config.version) && config.version > CONFIG_VERSION", "Number.isInteger(config.version) && false", "configResult:"],
     ["review destination presence wins", "if (!hasOwn(out.packages.review, key)) out.packages.review[key] = row[old];", "if (!out.packages.review[key]) out.packages.review[key] = row[old];", "review transfer:"],
     ["a split always records its target", "        rows.push(target);", "        if (source) rows.push(target);", "splitPlugins:"],
     ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],

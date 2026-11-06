@@ -27,6 +27,7 @@ Separate shipped defaults let an update reach values the user has not changed. O
 ### Migrations
 
 - Run retained format converters at the user-file read boundary through `ConfigLogic.migrateConfig`, before the current judge ([D107](../decisions/D107-format-change-ships-its-migration.md)). `Config.qml` writes the conversion once; `bin/` readers use it in memory. Keep converters and their shipped context usable across skipped releases.
+- Save the source bytes to `Config.preConversionPath` before writing a format conversion. Replace that one state-directory copy on the next conversion; never remove it on a current-format read. Refuse writes if saving or confirming the copy fails. `scripts/qml-tests/tst_config_writes.qml` checks this boundary.
 - Take migration source identities from the shipped layer alone. The package review transfer uses `packageReviewSettingsSource`, runs after layout conversion and preserves destination presence, including false and empty strings. Never invent a saved preference from a manifest default. Invalid source types refuse conversion. `ConfigLogic.migratePackageReview` and `scripts/test-plugin-logic.js` own these semantics.
 - Edit shared package review choices through `ConfigLogic.withPackageReview`. Confirm a live write against fresh disk bytes and the writer's read state. An unconfirmed live reply never authorizes an offline retry. Without a shell, use the guarded writer in `bin/lib/judge-files.js`.
 - Rename former plugin ids before publishing the scan, through `PluginLogic.formerIdClaims`, `Config.adoptRenames` and `ConfigLogic.renamePlugins` ([D108](../decisions/D108-renamed-plugin-declares-former-ids.md)). Only bundled claims grant rename authority; exclude a claim on a scanned plugin's id. Preserve settings, disablement and placement, and keep the converted value in memory if disk refuses it. `scripts/qml-tests/tst_config_writes.qml` checks writes; review holds publication order.
@@ -37,6 +38,7 @@ The `bin/` readers do not apply plugin renames or splits. They can read and writ
 ### Reads and writes
 
 - Judge each parsed layer with `ConfigLogic.configError`. Log a refusal and keep the last good value.
+- Classify a whole-number version above this build's format through `ConfigLogic.configResult` as `newer`, not damaged. Read no fields of that format and refuse writes. The existing core notice names the file, both versions, that the file is untouched and the retained pre-conversion copy when present. `scripts/test-plugin-logic.js` checks the judgement; review holds the notice.
 - Build nothing until the shipped file has loaded and the user file has settled. Review holds this startup boundary; no row starts with an unsettled user file.
 - Write the user file only in `loaded` or `absent` state. After a disk refusal, block writes until another read. Answer `ok` only when the file holds the edit. `scripts/qml-tests/tst_config_writes.qml` checks the writer.
 - Preserve unrelated keys. `scripts/test-plugin-logic.js` checks the edit functions; review holds other writes.
