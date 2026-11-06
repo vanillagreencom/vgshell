@@ -545,6 +545,26 @@ var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };
 // report; keep its form because dependency coverage cannot be established.
 var REVIEWED_BUILD = { paru: ["--skipreview", "--batchinstall"] };
 
+// paru v2.1.0 src/order.rs emits REPO/AUR TARGET, DEP and MAKE rows.
+// --rebuild=tree resolves even installed AUR dependencies (src/resolver.rs),
+// which an Updates rebuild must not retry after their failed upgrade.
+function rebuildOrder(binary, config, target) {
+    if (binary !== "paru") return null;
+    return [binary, "--config", config, "-Po", "--rebuild=tree", "--", target];
+}
+
+function parseBuildOrder(text) {
+    var packages = [];
+    var rows = lines(text.replace(/\r\n/g, "\n"));
+    for (var i = 0; i < rows.length; i++) {
+        var row = /^(REPO|AUR) (TARGET|DEP|MAKE) (\S+) ([A-Za-z0-9@_+.-]+(?: [A-Za-z0-9@_+.-]+)*)$/.exec(rows[i]);
+        if (row === null || (row[1] === "REPO" && row[4].indexOf(" ") >= 0)
+            || (row[1] === "AUR" && !/^[A-Za-z0-9@_+.-]+$/.test(row[3]))) return unreadable(i);
+        row[4].split(" ").forEach(function (name) { packages.push({ origin: row[1], kind: row[2], name: name }); });
+    }
+    return { ok: true, packages: packages };
+}
+
 function reviewedBuild(plan, coverage, dependenciesCovered) {
     if (plan.manager !== "aur" || ["complete", "declined", "unknown"].indexOf(coverage) < 0 || dependenciesCovered !== true)
         return plan;

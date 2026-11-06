@@ -34,9 +34,10 @@ for dir in /lib/modules/*/; do [[ -d $dir ]] && { kernel="$(basename -- "$dir")"
 plugin="$tmp/plugin"
 cp -R -- "$repo/shell/plugins/vgs.updates" "$plugin"
 tree="$tmp/tree"
-mkdir -p "$tree/bin/lib" "$tree/shell/Commons"
+mkdir -p "$tree/bin/lib" "$tree/shell/Commons" "$tree/shell/Core"
 cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/hyprland-instance.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/pkg-config.js" "$tree/bin/lib/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
+cp -- "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/"
 # This fixture loader observes the real library returned to facts. The
 # existing self verb never draws a window, so the fixture checks that same
 # library's window rows without adding a test verb to the shipped command.
@@ -145,6 +146,7 @@ case "$1 $2" in
     printf "{\"version\":1,\"decision\":\"proceed\",\"reviewed\":[],\"skipped\":[],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
   "pkg review-custom-mode") echo unknown ;;
   "pkg review-custom-consume") : ;;
+  "pkg orphan-info"|"pkg rebuild-allowed") shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
   # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
   # its tree and its retry.
   "pkg ensure-helper") [ ! -e "$FIX/fail-ensure-helper" ] || exit 1 ;;
@@ -253,6 +255,7 @@ esac'
 # $FIX/fail-pacman-q exists; pacman -Q NAME answers NAME's line of
 # $FIX/installed.
 stub "$stubs" pacman 'case "$1" in
+  --config) shift 2; [ "$1" != -Qmq ] || { [ ! -e "$FIX/foreign" ] || cat "$FIX/foreign"; exit 0; }; exit 1 ;;
   -Sl) cat "$FIX/sl-$2" ;;
   -Q)
     [ ! -e "$FIX/fail-pacman-q" ] || [ -n "${2:-}" ] || exit 1
@@ -320,13 +323,17 @@ stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
   done
   [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
+case "$*" in
+  *"-Po --rebuild=tree -- vgshell-git") [ ! -e "$FIX/fail-build-order" ] && [ -e "$FIX/build-order" ] || exit 1; cat "$FIX/build-order"; exit 0 ;;
+  *"-Si -- ttfx") printf "Repository : aur\nName : ttfx\nDepends On : None\nMake Deps : ttfx-codegen>=1\nCheck Deps : ttfx-tests\n"; exit 0 ;;
+esac
 [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "${0##*/}" "$@" || exit "$?"
 [ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
 [ ! -e "$FIX/conflict-paru" ] || { printf "\033[1;34m::\033[0m quickshell-\033[2m0.3.1-1\033[0m and quickshell-git-\033[2mr120.g1a2b3c4-1\033[0m are in conflict. Remove quickshell-git? [y/N] error: unresolvable package conflicts detected\nerror: failed to prepare transaction (conflicting dependencies)\n" >&2; exit 1; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
+for tool in bash python3 env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -607,7 +614,7 @@ expected = {
     "Plugin acme.one": "Plugin acme.one installed.",
     "Theme tokyo-night": "Theme tokyo-night failed. Another theme change is still running. Next: wait for it to finish, then update again from the Updates panel.",
     "VGS package": None,
-    "AUR packages": "AUR packages failed. A package could not be built. Next: update again from the Updates panel.",
+    "AUR packages": "AUR packages failed. The package could not be built: build() failed. Next: open this package in your AUR helper to resolve the build failure or wait for its maintainer to fix it, then update from Updates. Open last log has the full output.",
 }
 assert results.keys() == expected.keys(), results
 for part, sentence in expected.items():
@@ -881,6 +888,23 @@ row_orphans() {
   rm -f -- "$fix/answer-orphans"
   pipeline update.sh
   assert "a yes removes the orphans through the package table" has_call "vgshell pkg run remove --manager pacman foo bar"
+  reset_fix
+  printf 'cli11\ncmake\nvulkan-headers\nttfx-codegen\nttfx-tests\nother\n' >"$fix/orphans"
+  printf 'ttfx\n' >"$fix/foreign"
+  echo 1 >"$fix/answer-orphans"
+  pipeline update-source.sh aur
+  local name explanation
+  while IFS='|' read -r name explanation; do
+    assert "$name has only its declaration-backed explanation" out_has "$name ($explanation)"
+  done <<'ROWS'
+cli11|build tool for vgshell-quickshell
+cmake|build tool for vgshell-quickshell
+vulkan-headers|build tool for vgshell-quickshell
+ttfx-codegen|build tool for ttfx
+ttfx-tests|build tool for ttfx
+other|unused dependency
+ROWS
+  assert "the user can keep all explained tools" no_call "vgshell pkg run remove"
 }
 row_yes() {
   reset_fix
@@ -997,37 +1021,189 @@ row_aur_failure() {
 # 1 after ErrUserAbort prints its cause. Neither may retry the declined
 # engine as a dependency of a separate VGS rebuild, through either route.
 row_aur_rebuild_stopped() {
-  local route ending outcome expected aur_call
-  while read -r route ending outcome expected; do
+  local route ending outcome expected rebuild cause aur_call recording
+  while read -r route ending outcome expected rebuild cause; do
     reset_fix
     self_json package '"vgshell-git"' rebuild
     aur_call="vgshell pkg run upgrade --manager aur"
     if [[ $route == custom ]]; then settings "paru -Sua --devel" false; aur_call="paru -Sua --devel"; fi
     printf '%s\n' "$ending" >"$fix/review-ending"
+    printf 'AUR TARGET vgshell-git vgshell-git\nAUR DEP vgshell-quickshell vgshell-quickshell\nREPO MAKE extra cmake\n' >"$fix/build-order"
+    printf '%s\n' "$stubs/paru" >"$fix/helper-path"
+    case "$ending" in
+      unknown) printf 'MISSING engine\n' >>"$fix/build-order" ;;
+      missing-target) printf 'AUR DEP vgshell-quickshell vgshell-quickshell\n' >"$fix/build-order" ;;
+      unread-order) touch "$fix/fail-build-order" ;;
+    esac
+    # Keep captured bytes, including reset controls and the colon-space,
+    # not a reconstructed build error. Only the later queued-stage outcome
+    # is supplied below, from Paru install.rs/exec.rs and sudo tgetpass.c.
+    case "$ending" in
+      recorded-2.1|sudo-eof|sudo-timeout|sudo-read) recording=paru-check-only.out ;;
+      recorded-2.2) recording=paru-2.2-check-only.out ;;
+      *) recording="" ;;
+    esac
+    [[ -z $recording ]] || cp -- "$repo/scripts/fixtures/pkg/check-failure/$recording" "$fix/build-recording"
     cat >"$fix/transaction" <<'SH'
 #!/bin/sh
 case "$1" in
   aur|paru)
     read -r ending <"$FIX/review-ending"
     printf 'Aur (3) agent-browser-bin vgshell-quickshell vsys-git\n'
-    if [ "$ending" = paru ]; then printf ':: Proceed to review? [Y/n]: n\n'
-    else printf ':: Proceed with install? [Y/n] n\naborting due to user\n'
-    fi
+    case "$ending" in
+      paru) printf ':: Proceed to review? [Y/n]: n\n' ;;
+      yay) printf ':: Proceed with install? [Y/n] n\naborting due to user\n' ;;
+      cancel) exit 130 ;;
+      recorded-*) cat "$FIX/build-recording" ;;
+      sudo-*)
+        sed '$d' "$FIX/build-recording"
+        case "$ending" in
+          sudo-eof) printf 'sudo: no password was provided\n' ;;
+          sudo-timeout) printf 'sudo: timed out reading password\n' ;;
+          sudo-read) printf 'sudo: unable to read password: Input/output error\n' ;;
+        esac
+        tail -n 1 "$FIX/build-recording"
+        ;;
+      *)
+        package=ttfx
+        case "$ending" in dependency) package=vgshell-quickshell ;; build-dependency) package=cmake ;; esac
+        [ "$ending" != cleanup-no ] || printf ':: Remove make dependencies after install? [y/N] n\n'
+        printf "==> Making package: %s 0.5.1-1 (Thu)\n==> Starting check()...\n==> ERROR: A failure occurred in check().\n    Aborting...\nerror: failed to build: %s-0.5.1-1\n" "$package" "$package"
+        case "$ending" in
+          install-no) printf ':: Proceed with installation? [Y/n] n\n' ;;
+          conflict-no) printf ':: vgshell-quickshell-0.3.2-5 and quickshell-git-0.3.1-1 are in conflict. Remove quickshell-git? [y/N] n\nerror: failed to prepare transaction (conflicting dependencies)\n' ;;
+          install-error) printf 'error: failed to commit transaction (conflicting files)\nErrors occurred, no packages were upgraded.\n' ;;
+          dependency-error) printf 'error: failed to prepare transaction (could not satisfy dependencies)\n' ;;
+          mixed) printf "error: failed to build: vgshell-quickshell-0.3.2-5\n" ;;
+        esac
+        builds="$package-0.5.1-1"
+        [ "$ending" != mixed ] || builds="$builds  vgshell-quickshell-0.3.2-5"
+        [ "$ending" = incomplete ] || printf "error: packages failed to build: %s\n" "$builds"
+        if [ "$ending" = no-helper ]; then
+          read -r helper <"$FIX/helper-path"
+          mv -- "$helper" "$FIX/paru-saved"
+        fi
+        case "$ending" in term) exit 143 ;; hup) exit 129 ;; esac ;;
+    esac
     exit 1 ;;
 esac
 SH
     chmod +x "$fix/transaction"
     pipeline update.sh
+    [[ ! -e $fix/paru-saved ]] || mv -- "$fix/paru-saved" "$stubs/paru"
     assert "$route $ending reports its original result" test "$status" == "$expected"
-    assert "$route $ending does not re-offer the engine through VGS" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
-    assert "$route $ending records why the rebuild was skipped" diag_has "updates: skipped source=vgshell-git reason=aur-$outcome"
+    if [[ $rebuild == yes ]]; then
+      assert "$route $ending still rebuilds independent VGS" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
+      assert "$route $ending reports package, cause and a pacman-valid next step" result_has "AUR packages failed. ${cause:-ttfx could not be built: check() failed.} Next: open this package in your AUR helper"
+      assert "$route $ending never recommends self update" out_lacks "Next: vgshell self update"
+    else
+      assert "$route $ending does not re-offer the engine through VGS" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+      if [[ $ending != cancel ]]; then
+        assert "$route $ending records why the rebuild was skipped" diag_has "updates: skipped source=vgshell-git reason=aur-$outcome"
+      fi
+      if [[ -n $cause ]]; then
+        assert "$route $ending retains the non-build cause before the aggregate" result_has "AUR packages failed. $cause"
+      fi
+    fi
     assert "$route $ending drops credentials after the AUR" before "$aur_call" "sudo -k"
   done <<'ROWS'
-table paru declined 0
-custom paru declined 0
-table yay failed 1
-custom yay failed 1
+table paru declined 0 no
+custom paru declined 0 no
+table yay failed 1 no
+custom yay failed 1 no
+table cancel cancelled 130 no
+custom cancel cancelled 130 no
+table dependency failed 1 no
+custom dependency failed 1 no
+table build-dependency failed 1 no
+table mixed failed 1 no
+table recorded-2.1 failed 1 yes vgs-fixture-check-only could not be built: check() failed.
+table recorded-2.2 failed 1 yes vgs-fixture-check-only could not be built: check() failed.
+custom unrelated failed 1 yes
+table unknown failed 1 no
+table missing-target failed 1 no
+table unread-order failed 1 no
+table no-helper failed 1 no
+table incomplete failed 1 no
+table term failed 1 no
+custom term failed 1 no
+table hup failed 1 no
+custom hup failed 1 no
+table install-no failed 1 no
+custom install-no failed 1 no
+table conflict-no failed 1 no
+custom conflict-no failed 1 no
+table install-error failed 1 no error: failed to commit transaction (conflicting files).
+custom install-error failed 1 no
+table dependency-error failed 1 no error: failed to prepare transaction (could not satisfy dependencies).
+custom dependency-error failed 1 no
+table sudo-eof failed 1 no sudo: no password was provided.
+custom sudo-timeout failed 1 no sudo: timed out reading password.
+table sudo-read failed 1 no sudo: unable to read password: Input/output error.
+table cleanup-no failed 1 yes
+custom cleanup-no failed 1 yes
 ROWS
+}
+row_build_progress() {
+  reset_fix
+  cat >"$fix/transaction" <<'SH'
+#!/bin/sh
+[ "$1" = aur ] || exit 0
+t=""; for fd in 0 1 2; do [ -t "$fd" ] && t="$t$fd"; done
+printf "%s\n" "$t" >"$FIX/terminals"
+sed -n '/Starting build()/p' "$FIX/build-recording"
+i=0
+while [ "$i" -lt 600 ]; do printf 'compiler output %s\n' "$i"; i=$((i + 1)); done
+printf 'Build question [Y/n]: '
+read -r answer
+if [ -e "$FIX/build-aborted" ]; then
+  printf 'error: packages failed to build: ttfx-0.5.1-1\n'
+  exit 4
+fi
+printf '==> Finished making: ttfx 0.5.1-1\n'
+SH
+  chmod +x "$fix/transaction"
+  local ending answer_pid expected
+  for ending in completed aborted; do
+    expected=0
+    if [[ $ending == aborted ]]; then
+      touch "$fix/build-aborted"; expected=1
+      cp -- "$repo/scripts/fixtures/pkg/check-failure/paru-2.2-check-only.out" "$fix/build-recording"
+    else
+      cp -- "$repo/scripts/fixtures/pkg/check-failure/paru-check-only.out" "$fix/build-recording"
+    fi
+    : >"$tmp/out"
+    (
+      local i=0
+      while ((i < 200)) && ! grep -qF 'Build question [Y/n]:' "$tmp/out"; do sleep 0.05; i=$((i + 1)); done
+      printf 'y\r' >&"$terminal_input"
+    ) &
+    answer_pid=$!
+    PIPE_DEADLINE=30 pipeline update-source.sh aur
+    wait "$answer_pid"
+    assert "$ending build keeps its exit and an answerable prompt" test "$status" == "$expected"
+    assert "$ending build retains stdin, stdout and stderr TTYs" test "$(cat "$fix/terminals")" == 012
+    assert "$ending display names the retained full log" out_has "Building from source (build). Full log: $log"
+    assert "$ending compiler output is not the display" out_lacks "compiler output"
+    assert "$ending full log keeps every compiler line" test "$(grep -c '^compiler output ' "$log")" == 600
+    assert "$ending full log keeps the last compiler line" grep -qF "compiler output 599" "$log"
+    if [[ $ending == aborted ]]; then
+      assert "the failed source restores its final result after the build stops" result_has "AUR packages failed."
+    fi
+  done
+  assert "a lost display drains instead of breaking the recorder pipe" python3 - "$tree/bin/lib/tui.sh" "$BASH" <<'PY'
+import os, subprocess, sys
+master, slave = os.openpty()
+os.close(master)
+try:
+    child = subprocess.Popen([sys.argv[2], "-c", 'source "$1"; _vgs_tui_build_display /fixture/full.log', "display", sys.argv[1]],
+                             stdin=subprocess.PIPE, stdout=slave, stderr=subprocess.PIPE,
+                             env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+    _, error = child.communicate(b"==> Starting build()...\n" + b"compiler output\n" * 10000, timeout=10)
+    assert child.returncode == 0, (child.returncode, error)
+finally:
+    os.close(slave)
+PY
 }
 # packages.elevate names doas: sudo is installed but refuses, and the
 # update runs through doas without a sudo session.
@@ -1401,9 +1577,20 @@ SH
   wait "$first" || :
   assert "two stand-ins recording at once leave two whole lines" test "$(sort "$dir/calls")" == $'pacman -Q\nsleep 60'
 }
+# A focused investigation or control runs only its named row. The normal
+# manifest entry still executes every row and every mutation below.
+if [[ $# -gt 0 ]]; then
+  [[ $# == 2 && $1 == --case ]] || exit 2
+  case "$2" in
+    row_aur_rebuild_stopped|row_build_progress|row_orphans|row_failed_end) "$2" ;;
+    *) exit 2 ;;
+  esac
+  rows_done test-updates-pipeline
+  exit
+fi
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -1473,10 +1660,14 @@ control reboot-mask-missing 'ln -s -- /dev/null' 'ln -s -- /dev/zero' row_reboot
 control answered-question-kept '[[ $rest =~ $_updates_answer ]] || line="$rest"' ':' row_cause
 control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
 control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
-control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]; then' 'if false; then' row_aur_rebuild_stopped
+control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]' 'if false' row_aur_rebuild_stopped
+control rebuild-after-unrelated-failure '[[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]' 'false' row_aur_rebuild_stopped
+control bare-orphan-list 'console.log("  " + row.name + (row.builds.length ? " (build tool for " + row.builds.join(", ") + ")" : " (unused dependency)"));' 'console.log("  " + row.name);' row_orphans
+control raw-build-output 'vgs_tui_log --build-progress "$_updates_log"' 'vgs_tui_log' row_build_progress
+control generic-build-failure '_updates_cause="${_updates_failed_builds[*]:-The package} could not be built${phase:+: $phase() failed}."' '_updates_cause="A package could not be built."' row_aur_rebuild_stopped
 control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a restart."' '  :' row_reboot_unread
 control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
-control cause-keeps-escapes 'sed -E -e $'"'"'s/\e' 'sed -E -e $'"'"'s/NEVER\e' row_failure
+control cause-keeps-escapes 'require(loader).load(judge).transcriptLines(fs.readFileSync(file,"utf8"))' 'fs.readFileSync(file,"utf8").split("\n")' row_failure
 control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
 control no-failure-next-step ' Next: $_updates_next' '' row_failed_end
 control result-unwrapped '  _vgs_tui_lines lines "$width" "$text"' '  lines=("$text")' row_failed_end
@@ -1491,7 +1682,7 @@ control reboot-ignores-mounts "printf 'mounted %s\\n' \"\$value\"" ':' row_reboo
 control reboot-facts-stops-run '} | _updates_facts reboot "$hook" /proc/version)" || status=$?' '} | _updates_facts reboot "$hook" /proc/version)"' row_reboot_core
 control reboot-new-as-upgrade 'then changes+=("install $name")' 'then changes+=("upgrade $name")' row_reboot_core
 control orphans-default-yes 'orphaned package(s)?" --default=false || status=$?' 'orphaned package(s)?" || status=$?' row_orphans
-control log-clobbers 'vgs_tui_log "$UPDATES_LOG_PART"' 'vgs_tui_log "$_updates_log"' row_busy
+control log-clobbers 'vgs_tui_log --build-progress "$_updates_log" "$UPDATES_LOG_PART"' 'vgs_tui_log --build-progress "$_updates_log" "$_updates_log"' row_busy
 control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true || status=$?' row_declined
 control log-elsewhere 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/update.log"' 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/other.log"' row_log
 control log-absent-opens '[[ -f $log ]] || _updates_refuse 1' '[[ -n $log ]] || _updates_refuse 1' row_log tui/log.sh

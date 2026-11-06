@@ -51,7 +51,7 @@ try{
   control("generated-config","one-review",[[owner,'if (!p.complete) state.unknown.push("pending=config-correspondence");','if (true) state.unknown.push("pending=config-correspondence");']],/clean:/,"clean");
   control("review-agent-return","review-again",[[owner,'continue reviewChoice;','return { ...result, decision: "stop" };']],/No: review agents/);
   control("review-offer-return","review-again",[[owner,'if (!reviewable || !["agent", "command"].includes(plan.state)) choice = null;','if (false) choice = null;']],/no-agent-No:/,"no-agent-No");
-  control("helper-repo-format","one-review",[[owner,'/^REPO (TARGET|DEP|MAKE)', '/^INSTALL (TARGET|DEP|MAKE)']],/clean: helper review prompts/,"clean");
+  control("helper-repo-format","one-review",[[owner,'managers.parseBuildOrder(order.stdout)', 'managers.parseBuildOrder(order.stdout.replace(/^REPO /gm, "INSTALL "))']],/clean: helper review prompts/,"clean");
   control("helper-skipped-coverage","one-review",[[owner,'p.aur && permitted.has(p.name)','p.aur']],/skipped: helper review prompts/,"skipped");
   control("receipt-format","one-review",[[owner,'coverage: result.coverage, owner:', 'coverage: result.coverage, skipped: result.skipped, owner:']],/receipt-format: unchanged receipt decision fields/,"receipt-format");
   control("receipt-original-fields","one-review",[[owner,'const origins = state.steps.flatMap(decision => decision.binding === null ? [] : decision.binding.origins);','const origins = Object.values(state.dependents).flat();']],/receipt-format:/,"receipt-format");

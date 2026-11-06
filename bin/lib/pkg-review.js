@@ -234,17 +234,23 @@ function pending(group, config, binary) {
 // checkout and an installed tree read the same path. { names: null, cause }
 // when a recipe cannot be read or none names a package.
 function publishedPackages() {
-    const dir = path.join(repo, "packaging/arch"), names = [];
+    const dir = path.join(repo, "packaging/arch"), names = [], fields = [];
     try {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
-            if (entry.isDirectory()) for (const field of judge.srcinfoFields(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8")))
+            if (entry.isDirectory()) for (const field of judge.srcinfoFields(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8"))) {
+                fields.push({ ...field, recipe: entry.name });
                 if (field.key === "pkgname") names.push(field.value);
-    } catch (e) { return { names: null, cause: e.code || "read" }; }
-    return names.length ? { names, cause: null } : { names: null, cause: "empty" };
+            }
+    } catch (e) { return { names: null, fields: null, cause: e.code || "read" }; }
+    return names.length ? { names, fields, cause: null } : { names: null, fields: null, cause: "empty" };
 }
 // Paru's pending -Si metadata, not the installed publisher recipes, holds
 // these fields: github.com/Morganamilo/paru/blob/v2.1.0/src/info.rs.
 function aurDependencies(text, name) {
+    const fields = aurDependencyFields(text, name);
+    return ["Depends On", "Make Deps", "Check Deps"].flatMap(field => fields.get(field));
+}
+function aurDependencyFields(text, name) {
     const fields = new Map();
     let key = null;
     for (const line of text.split(/\r?\n/)) {
@@ -256,10 +262,11 @@ function aurDependencies(text, name) {
         } else if (/^\s+\S/.test(line) && key !== null) fields.set(key, fields.get(key) + " " + line.trim());
     }
     if (fields.get("Repository") !== "aur" || fields.get("Name") !== name) throw new Error("dependency=metadata-identity name=" + name);
-    return ["Depends On", "Make Deps", "Check Deps"].flatMap(field => {
+    for (const field of ["Depends On", "Make Deps", "Check Deps"]) {
         if (!fields.has(field) || !fields.get(field)) throw new Error("dependency=metadata-missing name=" + name);
-        return fields.get(field) === "None" ? [] : fields.get(field).split(/\s+/);
-    });
+        fields.set(field, fields.get(field) === "None" ? [] : fields.get(field).split(/\s+/));
+    }
+    return fields;
 }
 function dependencyName(entry) {
     const match = /^([A-Za-z0-9@_+.-]+)(?:(?:[<>]=?|=)[^\s\x00-\x1f\x7f]+)?$/.exec(entry);
@@ -290,12 +297,70 @@ function resolveDependency(entry, config, binary) {
     // -Si is a literal metadata lookup. -Po invokes the helper resolver;
     // no -d, which would disable versions (paru v2.1.0 src/resolver.rs).
     const order = output([binary, "--config", config, "-Po", "--", entry]);
-    const targets = order.split(/\r?\n/).filter(line => /^AUR TARGET(?:\s|$)/.test(line));
-    const target = targets.length === 1 && /^AUR TARGET ([A-Za-z0-9@_+.-]+) ([A-Za-z0-9@_+.-]+)$/.exec(targets[0]);
+    const parsed = managers.parseBuildOrder(order);
+    const targets = parsed.ok ? parsed.packages.filter(p => p.origin === "AUR" && p.kind === "TARGET") : [];
+    const target = targets.length === 1 ? targets[0] : null;
     // order.rs has no install provider-choice callback. A differently named
     // provider cannot establish the later interactive install's selection.
-    if (!target || target[2] !== name || /^MISSING(?:\s|$)/m.test(order)) throw new Error("dependency=helper-unresolved entry=" + entry);
-    return { target: target[2], origin: "aur", viaAur: true };
+    if (!target || target.name !== name) throw new Error("dependency=helper-unresolved entry=" + entry);
+    return { target: target.name, origin: "aur", viaAur: true };
+}
+// pacman v7.1.0 lib/libalpm/be_local.c::_alpm_local_db_write omits make/check
+// dependencies from the installed record. Use the
+// shipped publisher declarations and the helper's current foreign metadata;
+// never hide an orphan on a guessed or hard-coded tool list.
+function orphanInfo(names) {
+    const tools = new Map(), unavailable = [];
+    const add = (entry, owner) => {
+        const name = dependencyName(entry);
+        tools.set(name, [...new Set([...(tools.get(name) || []), owner])]);
+    };
+    const published = publishedPackages();
+    if (published.fields === null) unavailable.push("publisher=" + published.cause);
+    else for (const field of published.fields)
+        if (/^(make|check)depends(?:_.+)?$/.test(field.key)) add(field.value, field.recipe);
+    const found = managers.presentManager("aur", onPath);
+    try {
+        if (!found.ok) throw new Error("helper=absent");
+        const config = effectiveConfig({ config: null }, found.binary);
+        const installed = query(["pacman", "--config", config, "-Qmq"]);
+        if (installed.error || installed.signal || installed.stderr || ![0, 1].includes(installed.status)
+            || (installed.status === 1 && installed.stdout)) throw new Error("foreign=unreadable");
+        const foreign = installed.stdout.trim().split(/\s+/).filter(Boolean);
+        if (foreign.some(name => !managers.validName(name))) throw new Error("foreign=malformed");
+        // One helper request bounds network/process cost for the installed
+        // collection. -Si separates records with their Repository field.
+        const metadata = new Map();
+        if (foreign.length) {
+            for (const record of output([found.binary, "--config", config, "-Si", "--", ...foreign]).split(/(?=^Repository\s*:)/m).filter(s => s.trim())) {
+                const name = /^Name\s*:\s*(\S+)\s*$/m.exec(record)?.[1];
+                if (!foreign.includes(name) || metadata.has(name)) throw new Error("foreign=metadata-collection");
+                metadata.set(name, record);
+            }
+        }
+        for (const name of foreign) {
+            try {
+                if (!metadata.has(name)) throw new Error("foreign=metadata-missing");
+                const fields = aurDependencyFields(metadata.get(name), name);
+                for (const field of ["Make Deps", "Check Deps"]) for (const entry of fields.get(field)) add(entry, name);
+            } catch (e) { unavailable.push(name + ":" + e.message); }
+        }
+    } catch (e) { unavailable.push(e.message); }
+    return { packages: names.map(name => ({ name, builds: tools.get(name) || [] })), unavailable };
+}
+// Read-only evidence, never authority to mutate or to skip package tests.
+// Unknown/custom helpers and incomplete order reports preserve the stop.
+function rebuildAllowed(config, target, failed) {
+    if (!failed.length) return false;
+    const found = managers.presentManager("aur", onPath);
+    if (!found.ok) return false;
+    const argv = managers.rebuildOrder(found.binary, config, target);
+    if (argv === null) return false;
+    const answer = query(argv);
+    if (answer.error || answer.signal || answer.status !== 0 || answer.stderr) return false;
+    const order = managers.parseBuildOrder(answer.stdout);
+    if (!order.ok || !order.packages.some(p => p.kind === "TARGET" && p.name === target)) return false;
+    return failed.every(name => !order.packages.some(p => p.name === name));
 }
 function gather(request) {
     const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], dependents: Object.create(null) };
@@ -686,15 +751,10 @@ function helperReviewCovered(step, state) {
         for (const origin of origins)
             if (origin.neededBy === name) permitted.add(origin.target.split("/").pop());
     const covered = new Set(state.packages.filter(p => p.aur && permitted.has(p.name)).map(p => p.name));
-    let aur = false;
-    for (const line of order.stdout.trim().split(/\r?\n/)) {
-        if (/^REPO (TARGET|DEP|MAKE) [^\s]+ [A-Za-z0-9@_+.-]+$/.test(line)) continue;
-        const row = /^AUR (?:TARGET|DEP|MAKE) [A-Za-z0-9@_+.-]+ ([A-Za-z0-9@_+.-]+(?: [A-Za-z0-9@_+.-]+)*)$/.exec(line);
-        if (!row) return unavailable("unknown-output");
-        if (!row[1].split(" ").every(name => covered.has(name))) return false;
-        aur = true;
-    }
-    return aur;
+    const parsed = managers.parseBuildOrder(order.stdout);
+    if (!parsed.ok) return unavailable("unknown-output");
+    const aur = parsed.packages.filter(p => p.origin === "AUR");
+    return aur.length > 0 && aur.every(p => covered.has(p.name));
 }
 function bindingChange(step, current, contentOnly = false) {
     if (current.binding === null) return "unreadable";
@@ -817,4 +877,4 @@ async function bootstrap() {
         return result.decision === "proceed" && !result.skipped.includes("paru") ? 0 : result.status || 1;
     } finally { fs.rmSync(storage, { recursive: true, force: true }); }
 }
-module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, agentHome, ownedDirectory, privateFile, ui, evidenceFailures };
+module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, agentHome, ownedDirectory, privateFile, ui, evidenceFailures, orphanInfo, rebuildAllowed };

@@ -14,9 +14,9 @@ The pipeline takes package plans and execution from the shared package owner. It
 
 ## Outcomes and transcript
 
-A source-step failure records its cause and permits later independent sources. A failed or declined system step skips AUR work and the VGS rebuild that depends on it. A declined or failed AUR transaction does not grant a rebuild permission to retry packages it left out. Interruption stops the run; the header distinguishes source failures from other fatal failures.
+A source-step failure records its cause and permits later independent sources. A failed or declined system step skips AUR work and the VGS rebuild that depends on it. A declined AUR transaction never grants rebuild permission. After a failed build, the package owner must prove that every failed package is outside VGS's dependency build order before the rebuild proceeds. Unknown evidence keeps the rebuild skipped. Interruption stops the run; the header distinguishes source failures from other fatal failures.
 
-The terminal remains attached to both output streams. Cause extraction reads marked ranges from the shared TUI transcript, rather than splitting output through another pipe. An unavailable transcript range reports that the output could not be read; it does not invent a package failure cause.
+The terminal remains attached to both output streams. The outer TUI relay compacts source-build output after recording it, naming the full log while retaining questions on screen. Cause extraction reads marked ranges from the original shared TUI transcript, rather than the compact display. An unavailable transcript range reports that the output could not be read; it does not invent a package failure cause.
 
 The pipeline owns the rebuild-failure record consumed by [the check service](developer.md#sources). Its writer defines the record and ties it to the installed version and helper outcome. The log and diagnostic functions own their file paths.
 

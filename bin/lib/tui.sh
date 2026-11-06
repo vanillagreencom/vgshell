@@ -55,6 +55,9 @@
 #                                    keeping SGR colour and dropping terminal controls;
 #                                    the run reads its unchanged output at
 #                                    $VGS_TUI_TRANSCRIPT
+#   vgs_tui_log --build-progress FULL_LOG FILE [ARG...]
+#                                    Updates keeps the full log as above and compacts
+#                                    makepkg function output on screen, naming FULL_LOG
 #   vgs_tui_transcript [ARG...]      run this script again under script(1) with only
 #                                    $VGS_TUI_TRANSCRIPT, unless the run already has one
 #   vgs_tui_interval_open            mark where a command's output starts in the
@@ -619,13 +622,83 @@ _vgs_tui_log_clean() {
 # when this process exits, which a hangup or TERM makes it do; these
 # traps replace the caller's.
 _vgs_tui_transcript=""
-vgs_tui_log() { # FILE [ARG...]
+vgs_tui_log() { # [--build-progress FULL_LOG] FILE [ARG...]
   [[ ${VGS_TUI_LOGGED:-} == 1 ]] && return 0
+  local _vgs_tui_build_log=""
+  if [[ ${1:-} == --build-progress ]]; then
+    [[ -n ${2:-} ]] || _vgs_tui_refuse 2 "log=build-path-missing" "VGS has no source-build log path." || return
+    _vgs_tui_build_log="$2"
+    shift 2
+  fi
   local file="${1:-}" fd
   [[ -n $file ]] || _vgs_tui_refuse 2 "log=missing" "VGS has no log file for this task. Close it and report the details above." || return
   shift
   exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
   _vgs_tui_rerun "$fd" "$@"
+}
+
+# This is display only, after script(1) recorded the original PTY bytes.
+# makepkg's English function markers delimit noisy source output. Complete
+# questions and status lines pass; an unterminated prompt passes after an
+# idle read, so sudo and a PKGBUILD's own question remain answerable. The
+# command itself still has its terminal on all three standard descriptors.
+_vgs_tui_build_display() { # FULL_LOG
+  node -e '
+const fs = require("node:fs"), path = require("node:path");
+const [log, osc, loader] = process.argv.slice(1);
+const { transcriptLines } = require(loader).load(path.resolve(path.dirname(loader), "../../shell/Core/PackageReview.js"));
+let pending = Buffer.alloc(0), quiet = false, forward = false, visible = true, idle;
+const ended = new RegExp("\\x1b\\]" + osc + ";vgs-step;[^;\\x07]+;end\\x07");
+function write(data) {
+    if (!visible) return;
+    if (typeof data === "string") data = Buffer.from(data);
+    try {
+        while (data.length) data = data.subarray(fs.writeSync(1, data));
+    } catch (error) {
+        if (!["EIO", "EPIPE"].includes(error.code)) throw error;
+        // Keep draining after a window closes, so the recorder can finish.
+        visible = false;
+    }
+}
+function line(data) {
+    const text = data.toString("utf8");
+    if (ended.test(text)) quiet = false;
+    const plain = transcriptLines(text).join("\n").trim();
+    const phase = /^==> Starting (prepare|pkgver|build|check|package(?:_[A-Za-z0-9@_.+-]+)?)\(\)\.\.\.$/.exec(plain);
+    if (phase !== null) {
+        quiet = true;
+        write("Building from source (" + phase[1] + "). Full log: " + log + "\r\n");
+    } else {
+        if (plain.startsWith("==>")) quiet = false;
+        const question = plain.startsWith("::") || /\[[Yy]\/[Nn]\]|[?:]$/.test(plain) || /password/i.test(plain);
+        if (!quiet || question || forward) write(data);
+    }
+    forward = false;
+}
+function flush() {
+    if (ended.test(pending.toString("utf8"))) quiet = false;
+    write(pending);
+    pending = Buffer.alloc(0);
+    forward = true;
+}
+// No stream encoding: recognition alone decodes text; forwarding keeps bytes.
+// Node stream data events deliver Buffers, and writeSync returns bytes written
+// (nodejs.org/api/stream.html#event-data, nodejs.org/api/fs.html#fswritesyncfd-buffer-offset-length-position).
+process.stdin.on("data", data => {
+    clearTimeout(idle);
+    pending = Buffer.concat([pending, data]);
+    let end;
+    while ((end = pending.indexOf(10)) !== -1) {
+        line(pending.subarray(0, end + 1));
+        pending = pending.subarray(end + 1);
+    }
+    if (pending.length >= 65536) flush();
+    // An unterminated password or PKGBUILD question must remain answerable.
+    if (pending.length) idle = setTimeout(flush, 100);
+});
+process.stdin.on("end", () => { clearTimeout(idle); write(pending); });
+process.stdin.on("error", error => { throw error; });
+' "$1" "$_vgs_tui_mark_osc" "${BASH_SOURCE[0]%/*}/qml-library.js"
 }
 
 # vgs_tui_log's run without its clean log, for a script that only cuts
@@ -637,7 +710,7 @@ vgs_tui_transcript() { # [ARG...]
 }
 
 _vgs_tui_rerun() { # LOG_FD [ARG...]
-  local fd="$1" cmd status=0
+  local fd="$1" cmd status=0 display_fd="" display_pid=""
   shift
   cmd="$(printf '%q ' "$BASH" "$0" "$@")"
   _vgs_tui_transcript="$(mktemp -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" vgs-tui-transcript.XXXXXXXX)" ||
@@ -645,6 +718,11 @@ _vgs_tui_rerun() { # LOG_FD [ARG...]
   trap 'rm -f -- "${_vgs_tui_transcript:?}"' EXIT
   trap 'exit 129' HUP
   trap 'exit 143' TERM
+  if [[ -n ${_vgs_tui_build_log:-} ]]; then
+    exec {display_fd}>&1
+    exec > >(_vgs_tui_build_display "$_vgs_tui_build_log" >&"$display_fd")
+    display_pid=$!
+  fi
   if [[ -n $fd ]]; then
     env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
       script -qef --log-out >(_vgs_tui_log_clean >&"$fd") --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&- || status=$?
@@ -653,6 +731,10 @@ _vgs_tui_rerun() { # LOG_FD [ARG...]
   else
     env VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
       script -qef --log-out "$_vgs_tui_transcript" -c "$cmd" || status=$?
+  fi
+  if [[ -n $display_pid ]]; then
+    exec 1>&"$display_fd" {display_fd}>&-
+    wait "$display_pid" || status=1
   fi
   exit "$status"
 }

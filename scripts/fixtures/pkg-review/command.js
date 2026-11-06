@@ -90,6 +90,7 @@ if(name==="pacman"||name==="paru"||name==="yay"){
   process.exit(0);
  }
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}
+ if(args.includes("-Qmq")){const names=dependencies.foreign||[];if(names.length)console.log(names.join("\n"));process.exit(names.length?0:1);}
  if(args.includes("-Qtdq"))process.exit(1);
  if(args.includes("-Q")){console.log(args.includes("--")?args.at(-1)+" 1-1":"widget 1-1\nvgshell-git 1-1");process.exit(0);}
  if(args.includes("-Slq")||args.includes("-Slqa")){console.log("widget");process.exit(0);}

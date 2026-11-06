@@ -85,6 +85,11 @@
 //       Config owns a live save; the offline writer compares original bytes.
 //   vgshell-pkg settled --manager <id> <name>...
 //       read-only installed-name postcheck; exits 1 if any name is missing.
+//   vgshell-pkg orphan-info <name>...
+//       Updates' read-only build-tool annotations, { packages, unavailable }.
+//   vgshell-pkg rebuild-allowed <config> <target> <failed-build>...
+//       Updates' read-only dependency check after an AUR failure; exit 0 only
+//       when a complete helper build order excludes every failed build.
 //   vgshell-pkg review-transaction
 //       Updates allocates its private transaction beneath the stable agent
 //       workspace. It owns the outer EXIT cleanup of the returned directory.
@@ -732,6 +737,15 @@ function pick(action, manager) {
 const [verb, ...args] = process.argv.slice(2);
 main(async () => {
     switch (verb) {
+    case "orphan-info":
+        if (!args.length || args.some(n => !table.validName(n))) usage("orphan-info=names");
+        process.stdout.write(JSON.stringify(require("./lib/pkg-review.js").orphanInfo(args)) + "\n");
+        break;
+    case "rebuild-allowed": {
+        if (args.length < 3 || !path.isAbsolute(args[0]) || args.slice(1).some(n => !table.validName(n))) usage("rebuild-allowed=arguments");
+        process.exitCode = require("./lib/pkg-review.js").rebuildAllowed(args[0], args[1], args.slice(2)) ? 0 : 1;
+        break;
+    }
     case "detect": {
         let json = false;
         let holders = null;

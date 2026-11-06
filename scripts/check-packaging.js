@@ -640,6 +640,11 @@ function engineRules() {
     field("provides", "quickshell=0.3.2");
     field("license", "LGPL-3.0-only");
     field("conflicts", "quickshell,quickshell-git");
+    // Quickshell's default Wayland feature loads Qt's Wayland platform
+    // plugin at runtime (upstream BUILD.md); a build dependency is not enough.
+    const runtime = ["qt6-declarative", "qt6-base>=6.7", "qt6-wayland", "jemalloc", "qt6-svg",
+        "libpipewire", "libxcb", "wayland", "libdrm", "mesa", "cpptrace", "polkit"];
+    if (one((info.depends || []).slice().sort()) !== runtime.slice().sort().join(",")) refuse(`engine=depends recipe=${ENGINE}`);
     if ((info.replaces || []).length) refuse(`engine=replaces recipe=${ENGINE}`);
     field("source", `quickshell::git+https://git.outfoxxed.me/quickshell/quickshell.git#commit=${ENGINE_REVISION},${ENGINE_SOURCES.join(",")}`);
     const sums = info.sha256sums || [];

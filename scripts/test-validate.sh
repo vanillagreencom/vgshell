@@ -601,7 +601,7 @@ recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging
 # The release suite's parity rows build the Arch recipes' host side.
 arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
 # The package review reads each recipe's .SRCINFO for the packages VGS publishes.
-arch_srcinfo_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\nscripts/test-vgshell-pkg-run.sh\n'"$repo_plan"
+arch_srcinfo_plan=$'scripts/test-updates-pipeline.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\nscripts/test-vgshell-pkg-run.sh\n'"$repo_plan"
 settings_core_prefix=$'node scripts/test-tailscale-logic.js\nnode scripts/test-vpn-logic.js\nnode scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
 settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-launcher-model.js\nnode scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\nnode scripts/test-bluetooth-logic.js\nnode scripts/test-displays-logic.js\nnode scripts/test-screensaver-logic.js\n'
@@ -682,7 +682,7 @@ cases=(
   "portal-config|packaging/xdg-desktop-portal/hyprland-portals.conf|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$repo_plan"
   "curl-installer|install.sh|offline|$curl_installer_plan"
   "recipe|packaging/arch/vgshell/PKGBUILD|offline|$arch_recipe_plan"
-  "curl-installer-srcinfo|packaging/arch/vgshell/.SRCINFO|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\nscripts/test-vgshell-pkg-run.sh\n'"$repo_plan"
+  "curl-installer-srcinfo|packaging/arch/vgshell/.SRCINFO|offline|scripts/test-updates-pipeline.sh"$'\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\nscripts/test-vgshell-pkg-run.sh\n'"$repo_plan"
   "recipe-all|packaging/arch/vgshell-git/.SRCINFO|all|$arch_srcinfo_plan"$'\nscripts/arch-packages.sh'
   "debian-recipe|packaging/debian/vgshell-quickshell/control|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-release.sh'
   "debian-builder|scripts/debian-packages.sh|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-release.sh'

@@ -392,6 +392,10 @@ const ROWS = [
     ].map(([name, file, before, after, key]) => ["engine: " + name, t => replaceIn(t, [file], before, after), 1, () => refused(key)]),
     ["engine: either stock conflict is required", t => edit(t, "packaging/arch/vgshell-quickshell/.SRCINFO", "^\\tconflicts = quickshell-git\\n", ""),
         1, () => refused("engine=conflicts recipe=vgshell-quickshell")],
+    ["engine: qt6-wayland is a runtime dependency, not an orphan", t => {
+        edit(t, "packaging/arch/vgshell-quickshell/PKGBUILD", "^  'qt6-wayland'\\n", "");
+        edit(t, "packaging/arch/vgshell-quickshell/.SRCINFO", "^\\tdepends = qt6-wayland\\n", "");
+    }, 1, () => refused("engine=depends recipe=vgshell-quickshell")],
     ["engine: a changed patch checksum is refused", t => edit(t, "packaging/arch/vgshell-quickshell/vgs-1129-fileview-read.patch", "^--- a/", "--- z/"),
         1, () => refused("engine=checksum source=vgs-1129-fileview-read.patch")],
     ...["vgs-989-deletelater.patch", "vgs-1109-log-filter-mutex.patch", "vgs-1993-managed-process-lifetime.patch", "vgs-1129-fileview-read.patch"]
