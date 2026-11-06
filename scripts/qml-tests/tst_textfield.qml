@@ -71,6 +71,72 @@ Item {
 
         function placeholder() { return plain.background.children[1]; }
 
+        function test_search_fills_its_box_without_changing_form_bounds_data() {
+            return [{tag: "parent", layout: false}, {tag: "layout", layout: true}];
+        }
+        function test_search_fills_its_box_without_changing_form_bounds(data) {
+            const holder = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
+                + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
+            const inputs = [
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; width: parent.width; leadingIcon: "search" }', holder),
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width }', holder),
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width; password: true }', holder)
+            ];
+            for (const width of [900, 80, 600]) {
+                holder.width = width;
+                tryCompare(inputs[0], "width", width);
+                for (const field of inputs.slice(1))
+                    tryCompare(field, "width", Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, width)));
+            }
+            compare(inputs[0].sidePadding, 0, "Plugins' icon starts at the content edge");
+            compare(inputs[0].leftPadding, Theme.icon.size.md + Theme.textField.gap);
+            compare(inputs[0].rightPadding, 0);
+            compare(inputs[0].topPadding, 0);
+            compare(inputs[0].bottomPadding, 0);
+        }
+
+        function test_search_rule_and_unchanged_form_decoration_data() {
+            return [{tag: "dark", mode: "dark"}, {tag: "light", mode: "light"}];
+        }
+        function test_search_rule_and_unchanged_form_decoration(data) {
+            compare(UnitTheme.override({scheme: {mode: data.mode}}), "ok");
+            const holder = createTemporaryQmlObject("import QtQuick; Item { width: 360; height: 100 }", root);
+            const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; placeholderText: "Search"; leadingIcon: "search" }', holder);
+            const rule = search.background.children[2];
+            compare(search.background.color.a, 0);
+            compare(search.background.border.width, 0);
+            compare(search.background.radius, 0);
+            compare(rule.visible, true);
+            compare(rule.height, 1);
+            compare([rule.x, rule.y, rule.width], [0, search.height - 1, search.width]);
+            search.forceActiveFocus(Qt.OtherFocusReason);
+            compare(String(rule.color), String(Qt.color(Theme.textField.borderColor)));
+            plain.forceActiveFocus(Qt.OtherFocusReason);
+            search.forceActiveFocus(Qt.TabFocusReason);
+            compare(search.focusReason, Qt.TabFocusReason);
+            compare(String(rule.color), String(Qt.color(Theme.textField.focus)));
+            compare(search.background.children[3].opacity, 0, "keyboard focus draws only the rule");
+            search.error = true;
+            compare(String(rule.color), String(Qt.color(Theme.textField.error)));
+            search.error = false;
+            search.forceActiveFocus(Qt.OtherFocusReason);
+            keyClick("a");
+            compare(search.text, "a");
+            compare(search.background.children[1].visible, false);
+            compare(String(plain.background.color), String(Qt.color(Theme.textField.background)));
+            compare(plain.background.border.width, Theme.textField.border);
+            compare(plain.background.radius, Theme.textField.radius);
+            compare(plain.background.children[2].visible, false);
+            const password = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { password: true; y: 40 }', holder);
+            compare(password.echoMode, TextInput.Password);
+            compare(String(password.background.color), String(Qt.color(Theme.textField.background)));
+            compare(password.background.border.width, Theme.textField.border);
+            compare(password.background.children[2].visible, false);
+            compare(UnitTheme.override({textField: {searchPadding: 3}}), "ok");
+            compare([search.sidePadding, search.topPadding, search.bottomPadding], [3, 3, 3]);
+            compare([password.topPadding, password.bottomPadding], [0, 0], "search inset never changes a password");
+        }
+
         function test_retained_keyboard_border_clears_on_initial_focus_after_one_frame_data() {
             return [{tag: "neutral", hovered: false, error: false}, {tag: "hovered", hovered: true, error: false}, {tag: "error", hovered: true, error: true}];
         }

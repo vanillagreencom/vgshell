@@ -113,12 +113,13 @@ Item {
                 width: tabs.width
                 spacing: root.look.window.sectionGap
 
-                Row {
+                Column {
                     width: parent.width
                     spacing: root.look.row.gap
                     TextField {
                         id: search
-                        width: Math.max(1, parent.width - filter.width - root.look.row.gap)
+                        variant: "search"
+                        width: parent.width
                         leadingIcon: "search"
                         placeholderText: "Search tools"
                         escapeReverts: false

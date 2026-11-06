@@ -298,10 +298,14 @@ Item {
                     title: "Inputs"
                     rowSpacing: Theme.stack.group
                     description: "Text fields, actions, errors and hints"
+                TextField { variant: "search"; width: parent.width; placeholderText: "Search plugins"; leadingIcon: "search" }
+                TextField { variant: "search"; width: parent.width; text: "Focused search"; leadingIcon: "search"; property bool focusPreview: true }
+                TextField { variant: "search"; width: parent.width; text: "Search error"; error: true }
+                TextField { variant: "search"; width: parent.width; text: "Read-only search"; readOnly: true }
                 Flow {
                     width: parent.width
                     spacing: Theme.stack.inline
-                    TextField { placeholderText: "Search plugins"; leadingIcon: "search" }
+                    TextField { placeholderText: "Text field" }
                     TextField { id: named; text: "acme.weather"; trailingIcon: "package"; actions: [ IconButton { iconName: "x"; label: "Clear"; size: "sm"; onClicked: named.clear() } ] }
                     TextField { text: "taken"; error: true }
                     TextField { text: "read only"; readOnly: true; enabled: false }

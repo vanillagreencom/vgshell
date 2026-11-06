@@ -16,14 +16,19 @@ import qs.Ui
 // rounded theme the side padding grows until the text clears the corner.
 // The leading icon takes its top from the placeholder's leading icon
 // reading (Label.topForLeadingIcon), whose role the typed text shares.
+// `search` spans its containing content box, without the form width cap,
+// fill or outline. Its bottom rule carries the same focus/error states.
 T.TextField {
     id: root
 
-    readonly property real minimumWidth: Theme.field.minWidth
-    readonly property real maximumWidth: Theme.control.maxWidth
+    property string variant: "default"
+    readonly property bool searchVariant: variant === "search"
+    readonly property real minimumWidth: searchVariant ? 0 : Theme.field.minWidth
+    readonly property real maximumWidth: searchVariant ? Infinity : Theme.control.maxWidth
     Layout.minimumWidth: minimumWidth
     Layout.maximumWidth: maximumWidth
-    width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
+    Layout.fillWidth: searchVariant
+    width: searchVariant && parent !== null ? parent.width : Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
     InputWidth { target: root }
 
     property string leadingIcon: ""
@@ -34,12 +39,16 @@ T.TextField {
     property string committedText: ""
     property alias actions: actionRow.data
     readonly property color outline: error ? Theme.textField.error : focusRing.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
-    readonly property real sidePadding: Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), contentHeight)
+    readonly property real sidePadding: searchVariant ? Theme.textField.searchPadding : Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), contentHeight)
 
     implicitWidth: Theme.size.panel.sm / 2
     implicitHeight: Math.max(Theme.textField.height, contentHeight + topPadding + bottomPadding)
     leftPadding: sidePadding + (leadingIcon !== "" ? Theme.icon.size.md + Theme.textField.gap : 0)
     rightPadding: sidePadding + (trailing.width > 0 ? Math.max(0, trailing.width - trailing.glyphEnd) + Theme.textField.gap : 0)
+    // TextInput's default top/bottom padding is zero; only search reads
+    // the search inset (https://doc.qt.io/qt-6/qml-qtquick-textinput.html).
+    topPadding: searchVariant ? Theme.textField.searchPadding : 0
+    bottomPadding: searchVariant ? Theme.textField.searchPadding : 0
     verticalAlignment: TextInput.AlignVCenter
     echoMode: password ? TextInput.Password : TextInput.Normal
     hoverEnabled: true
@@ -64,9 +73,9 @@ T.TextField {
     }
 
     background: Rectangle {
-        radius: Theme.textField.radius
-        color: Theme.textField.background
-        border.width: Theme.textField.border
+        radius: root.searchVariant ? 0 : Theme.textField.radius
+        color: root.searchVariant ? "transparent" : Theme.textField.background
+        border.width: root.searchVariant ? 0 : Theme.textField.border
         border.color: root.outline
         // Do not animate the outline: a focus reset must clear the keyboard
         // colour immediately.
@@ -95,7 +104,18 @@ T.TextField {
             elide: Text.ElideRight
         }
 
-        FocusRing { id: focusRing; target: root; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
+        Rectangle {
+            visible: root.searchVariant
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: Theme.border.thin
+            color: root.outline
+        }
+
+        // Keep the shared keyboard-focus judgement. Search draws that
+        // state through its rule, never through an enclosing ring.
+        FocusRing { id: focusRing; target: root; opacity: root.searchVariant ? 0 : 1; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
     }
 
     // A child of the field, not of the background: the control puts its

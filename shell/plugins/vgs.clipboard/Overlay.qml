@@ -172,6 +172,7 @@ FocusScope {
 
         TextField {
             id: search
+            variant: "search"
             x: card.pad
             y: card.pad
             width: card.width - 2 * card.pad

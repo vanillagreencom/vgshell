@@ -674,6 +674,7 @@ FocusScope {
             rowSpacing: Theme.stack.group
             TextField {
                 id: inlineSearch
+                variant: "search"
                 objectName: "tailscale-inline-search"
                 width: parent.width
                 leadingIcon: "search"

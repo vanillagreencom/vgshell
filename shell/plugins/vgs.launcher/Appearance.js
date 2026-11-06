@@ -74,7 +74,6 @@ var TOKENS = {
         // The hook's own neutral for a dark theme.
         foreground: color("#e8e8e8"),
         shadow: color("alpha(#000000, 0.45)"),
-        header: { size: length(18), letterSpacing: offset(-0.2), idle: share(0.38) },
         label: { size: length(16), weight: weight(500), rest: share(1) },
         // A row's detail line and the empty list's message are reading
         // text, at the shell's 13 px floor; the flyout's entries and their
@@ -118,8 +117,6 @@ var TOKENS = {
         // reads so over any wallpaper, with the cursor on the row or off it.
         nearInk: color("mix(mix(#ffffff, {card.base}, {card.opacity}), {text.foreground}, {highlight.strength})"),
         width: length(640),
-        // Half the header plus the padding, 17 + 18: the bare search field
-        // is a pill.
         radius: length(35),
         padding: length(18),
         gap: length(36),
@@ -132,21 +129,6 @@ var TOKENS = {
         enterScale: share(0.965),
         exitScale: share(0.98),
         lift: length(10)
-    },
-
-    header: {
-        height: length(34),
-        glyphInset: length(10),
-        textGap: length(12),
-        textInset: length(10),
-        buttonInset: length(2)
-    },
-
-    search: {
-        size: length(18),
-        stroke: number(1.7, 0, 8),
-        idle: share(0.45),
-        active: share(0.75)
     },
 
     caret: {

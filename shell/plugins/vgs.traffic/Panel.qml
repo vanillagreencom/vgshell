@@ -122,6 +122,18 @@ Item {
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
 
+        header: TextField {
+            id: search
+            variant: "search"
+            width: layout.contentWidth
+            leadingIcon: "search"
+            placeholderText: "Search apps"
+            Keys.onEscapePressed: event => {
+                if (text !== "") { text = ""; event.accepted = true; }
+                else event.accepted = false;
+            }
+        }
+
         RowLayout {
             width: layout.contentWidth
             spacing: Theme.stack.section
@@ -137,16 +149,6 @@ Item {
             }
             Item { Layout.fillWidth: true }
             Label { role: "hint"; text: (root.traffic.apps || []).length + " apps" }
-        }
-        TextField {
-            id: search
-            width: Math.min(layout.contentWidth, Theme.size.panel.md)
-            leadingIcon: "search"
-            placeholderText: "Search apps"
-            Keys.onEscapePressed: event => {
-                if (text !== "") { text = ""; event.accepted = true; }
-                else event.accepted = false;
-            }
         }
         Column {
             id: table

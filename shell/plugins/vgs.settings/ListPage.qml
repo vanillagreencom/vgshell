@@ -138,20 +138,11 @@ FocusScope {
                 }
                 TextField {
                     id: search
-                    // Align the shared background's inset icon with the
-                    // heading, keeping the shared gap before the input text.
-                    x: -sidePadding
+                    variant: "search"
                     width: parent.width
                     placeholderText: "Search plugins"
                     leadingIcon: "search"
-                    rightPadding: 0
-                    topPadding: 0
-                    bottomPadding: 0
                     focus: true
-                    Component.onCompleted: {
-                        background.color = "transparent";
-                        background.border.width = 0;
-                    }
                     onTextChanged: page.query = text
                     Keys.onPressed: event => { event.accepted = nav.handle(event); }
                 }
