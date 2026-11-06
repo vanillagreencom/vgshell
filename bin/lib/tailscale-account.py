@@ -91,11 +91,11 @@ class Transaction:
                         child.kill()
                         child.communicate()
                     raise
+                self.check_cancel()
                 if child.returncode:
                     raise Refused("command-failed")
         except OSError:
             raise Refused("command-start") from None
-        self.check_cancel()
         return out.decode("utf-8")
 
     def ts(self, *args):

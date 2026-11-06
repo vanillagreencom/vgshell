@@ -251,6 +251,10 @@ elif args == ["debug", "prefs"]:
 elif args == ["status", "--json"]:
     backend = "NeedsLogin" if not state["selected"] else ("Running" if state["running"] else "Stopped")
     waiting = state["selected"] == "b2c3" and not (root / "browser-opened").exists()
+    if waiting and mode == "cancel-group":
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        os.killpg(os.getpgrp(), signal.SIGINT)
+        sys.exit(1)
     if waiting:
         backend = "NeedsLogin"
     if mode == "device-approval" and state["selected"] == "b2c3":
@@ -295,8 +299,6 @@ elif len(args) == 4 and args[0] == "login" and args[1].startswith("--operator=")
     signal.signal(signal.SIGTERM, ended)
     if mode == "cancel":
         os.kill(os.getppid(), signal.SIGTERM)
-    if mode == "cancel-group":
-        os.killpg(os.getpgrp(), signal.SIGINT)
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         if mode not in ("deadline", "cancel", "cancel-group", "device-approval") and (root / "browser-opened").exists():
