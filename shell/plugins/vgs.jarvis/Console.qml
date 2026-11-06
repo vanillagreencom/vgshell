@@ -238,6 +238,10 @@ FocusScope {
     function close() {}
 
     function acceptDraft(text) {
+        // Diagnose asks before Service summons this console again. Reopening
+        // clears the ask editor even when the message composer is empty.
+        if (editingAsk !== null)
+            return { ok: false, reason: "Finish or cancel your open ask before retrying Diagnose." };
         const result = Composer.draft(entryField.text, text, state);
         if (!result.ok) return result;
         entryField.text = text;

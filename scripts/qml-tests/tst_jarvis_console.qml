@@ -84,58 +84,115 @@ Item {
                 root.recoveryConsole.destroy();
                 root.recoveryConsole = null;
             }
-
-            function test_handoff_is_unsent_and_preserves_occupied_draft() {
-                const sent = [];
-                const shell = root.shellWith(root.values({}));
-                shell.ipc.call = (name, arg) => { if (name === "say") sent.push(arg); return "ok"; };
-                jarvisConsole.shell = shell;
-                const entry = composerControls().entry;
-                const text = "Facts only: <b>literal</b>\nProgram: ad-crasher\nDiagnose only.";
-                jarvisConsole.open(JSON.stringify({ text: text }));
-                compare(entry.text, text);
-                compare(jarvisConsole.draft, text);
-                compare(sent.length, 0);
-                compare(jarvisConsole.conversation.length, 0);
-                entry.text = "  My own draft\nbytes stay. ";
-                const refused = jarvisConsole.acceptDraft("another failure");
-                verify(!refused.ok);
-                compare(entry.text, "  My own draft\nbytes stay. ");
-                compare(sent.length, 0);
-                entry.text = " ";
-                verify(!jarvisConsole.acceptDraft("another failure").ok);
-                compare(entry.text, " ");
-                compare(sent.length, 0);
-            }
-
-            function test_enter_sends_and_shift_enter_adds_a_line() {
-                const sent = [];
-                const shell = root.shellWith(root.values({}));
-                shell.ipc.call = (name, arg) => { if (name === "say") sent.push(arg); return "ok"; };
-                jarvisConsole.shell = shell;
-                const entry = composerControls().entry;
-                entry.text = "Typed by me";
-                entry.cursorPosition = entry.length;
-                entry.forceActiveFocus(Qt.TabFocusReason);
-                keyClick(Qt.Key_Return, Qt.ShiftModifier);
-                compare(entry.text, "Typed by me\n");
-                compare(sent.length, 0);
-                keyClick(Qt.Key_Return);
-                compare(sent.length, 1);
-                compare(sent[0], "Typed by me\n");
-                compare(entry.text, "");
-                jarvisConsole.open(JSON.stringify({ text: "A reviewed\nfailure draft" }));
-                entry.forceActiveFocus(Qt.TabFocusReason);
-                keyClick(Qt.Key_Enter);
-                compare(sent.length, 2);
-                compare(sent[1], "A reviewed\nfailure draft");
-                entry.text = "Deliberate button press";
-                composerControls().send.clicked();
-                compare(sent.length, 3);
-                compare(sent[2], "Deliberate button press");
-            }
+            jarvisConsole.closeAskEditor();
             jarvisConsole.visible = true;
             wait(0);
+        }
+
+        function test_handoff_is_unsent_and_preserves_occupied_draft() {
+            const sent = [];
+            const shell = root.shellWith(root.values({}));
+            shell.ipc.call = (name, arg) => { if (name === "say") sent.push(arg); return "ok"; };
+            jarvisConsole.shell = shell;
+            const entry = composerControls().entry;
+            const text = "Facts only: <b>literal</b>\nProgram: ad-crasher\nDiagnose only.";
+            jarvisConsole.open(JSON.stringify({ text: text }));
+            compare(entry.text, text);
+            compare(jarvisConsole.draft, text);
+            compare(sent.length, 0);
+            compare(jarvisConsole.conversation.length, 0);
+            entry.text = "  My own draft\nbytes stay. ";
+            const refused = jarvisConsole.acceptDraft("another failure");
+            verify(!refused.ok);
+            compare(entry.text, "  My own draft\nbytes stay. ");
+            compare(sent.length, 0);
+            entry.text = " ";
+            verify(!jarvisConsole.acceptDraft("another failure").ok);
+            compare(entry.text, " ");
+            compare(sent.length, 0);
+        }
+
+        function test_handoff_preserves_active_ask_editor_data() {
+            return [
+                { tag: "reply", action: "reply", text: "  Keep my unsent reply.\nDo not replace it. " },
+                { tag: "reply-whitespace", action: "reply", text: " \n  " },
+                { tag: "later", action: "later", text: "" }
+            ];
+        }
+        function test_handoff_preserves_active_ask_editor(data) {
+            const values = root.values({});
+            const ask = { id: "voice", revision: "one", kind: "jarvis-ask", what: "Choose the voice",
+                askedBy: { id: "jarvis", name: "Jarvis" }, askedAt: new Date().toISOString(),
+                link: { label: "Original thread", url: "https://example.invalid/thread" }, state: "open", snoozedUntil: null,
+                actions: { reply: { allowed: true, reason: "" }, done: { allowed: true, reason: "" }, later: { allowed: true, reason: "" } } };
+            values.ownerAsks = { kind: "ready", homeId: "home", revision: "one", active: [ask], snoozed: [],
+                activeCount: 1, snoozedCount: 0, activeCursor: null, activeNextCursor: null,
+                snoozedCursor: null, snoozedNextCursor: null };
+            const sent = [];
+            const shell = root.shellWith(values);
+            shell.ipc.call = (name, arg) => { sent.push([name, arg]); return "ok"; };
+            jarvisConsole.shell = shell;
+            jarvisConsole.tab = 1;
+            wait(0);
+            const row = collect(jarvisConsole, n => n instanceof MessageRow && n.title === ask.what, [])[0];
+            verify(row !== undefined);
+            const action = row.actionAt(data.action === "reply" ? 0 : 2);
+            action.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(jarvisConsole.editingAsk, ask, "the shipped row action opens this ask");
+            compare(jarvisConsole.editingAction, data.action);
+            const reply = collect(jarvisConsole, n => n.placeholderText === "Write your reply", [])[0];
+            const date = collect(jarvisConsole, n => n instanceof DateField, [])[0];
+            const time = collect(jarvisConsole, n => n.accessibleLabel === "Return time", [])[0];
+            const focused = data.action === "reply" ? reply : date.input;
+            tryCompare(focused, "activeFocus", true);
+            reply.text = data.text;
+            date.date = "2037-04-19";
+            time.currentIndex = 2;
+            const before = [reply.text, date.displayText, time.currentIndex, jarvisConsole.laterInstant()];
+            const entry = composerControls().entry;
+            compare(entry.text, "");
+            const result = jarvisConsole.acceptDraft("Facts only: another failure");
+            verify(!result.ok);
+            verify(result.reason !== "", "the existing recovery receives a cause");
+            wait(0); // Also catch a queued focus change from draft admission.
+            compare(jarvisConsole.editingAsk, ask);
+            compare(jarvisConsole.editingHome, "home");
+            compare(jarvisConsole.editingAction, data.action);
+            compare([reply.text, date.displayText, time.currentIndex, jarvisConsole.laterInstant()], before);
+            compare(jarvisConsole.tab, 1);
+            verify(focused.activeFocus, "refusal leaves the active editor's focus alone");
+            compare(entry.text, "");
+            compare(jarvisConsole.draft, "");
+            compare(sent.length, 0, "refusal sends neither a message nor an ask action");
+            compare(jarvisConsole.conversation.length, 0);
+        }
+
+        function test_enter_sends_and_shift_enter_adds_a_line() {
+            const sent = [];
+            const shell = root.shellWith(root.values({}));
+            shell.ipc.call = (name, arg) => { if (name === "say") sent.push(arg); return "ok"; };
+            jarvisConsole.shell = shell;
+            const entry = composerControls().entry;
+            entry.text = "Typed by me";
+            entry.cursorPosition = entry.length;
+            entry.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return, Qt.ShiftModifier);
+            compare(entry.text, "Typed by me\n");
+            compare(sent.length, 0);
+            keyClick(Qt.Key_Return);
+            compare(sent.length, 1);
+            compare(sent[0], "Typed by me\n");
+            compare(entry.text, "");
+            jarvisConsole.open(JSON.stringify({ text: "A reviewed\nfailure draft" }));
+            entry.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Enter);
+            compare(sent.length, 2);
+            compare(sent[1], "A reviewed\nfailure draft");
+            entry.text = "Deliberate button press";
+            composerControls().send.clicked();
+            compare(sent.length, 3);
+            compare(sent[2], "Deliberate button press");
         }
 
         function test_ask_recovery_survives_console_recreation_data() {
