@@ -101,6 +101,8 @@
 | 2026-11-02 | D119 | [VGS-2210](https://linear.app/vanillagreen/issue/VGS-2210) | A plugin-owned look binds per surface: only the files that bind `Theme.appearance` or read a handed `look.<path>` read the look alone; the plugin's other files read `Theme` | Jarvis's overlay must look the same under every theme while its console and bar widget follow it; the binding line is the scope the token check reads | A surface needs part of a look and part of the theme in one file, or two surfaces of one plugin need different looks | Active | [Full](D119-plugin-look-binds-per-surface.md) |
 | 2026-11-03 | D120 | [VGS-2189](https://linear.app/vanillagreen/issue/VGS-2189) | A satellite's confirmed `fleet.forward` runs the home's `jarvis-session forward` by argv, the one program of a home besides `lane-mail` a brain's action starts; the package owns the SSH connection and outbox, and the record names no speaker | kendex owns the satellite contract as it owns the mailbox; a Talk key proves only the route a request came by, and VGS authenticates no caller | The package moves its forward route, VGS gains a path that knows who spoke, or a satellite needs another program of the home | Active | [Full](D120-satellite-forward-through-the-package.md) |
 
+| 2026-11-05 | D123 | [VGS-2319](https://linear.app/vanillagreen/issue/VGS-2319) | Use standard Arch VCS sources and increase versions with recipe changes | AUR helpers need a visible VCS source and an increased stored version to fetch changed dependencies | Arch changes its VCS contract or standard fetching becomes impractical at a measured repository size | Active | [Full](D123-standard-arch-vcs-source.md) |
+
 ---
 
 ## Format Reference

@@ -33,7 +33,7 @@ set -euo pipefail
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
 suite=test-release
-for tool in git gzip tar sha256sum python3; do
+for tool in git gzip tar sha256sum python3 makepkg; do
   command -v "$tool" >/dev/null || { echo "$suite: status=not-measured missing=$tool"; exit 77; }
 done
 
@@ -238,19 +238,20 @@ parity_row() { # BUILDER CHANNEL [SCRIPT]: the tarball CHANNEL hands its contain
 }
 
 # The Copilot harness sets this protected git option in its tool shells.
-# Exercise both the host runner and the generated recipe's real clone.
+# Exercise the host runner and makepkg's real VCS source download.
 arch_bare_row() { # SCRIPT
-  local result=0 head
+  local result=0 head copy
   run_git_env=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=explicit)
   parity_row "$builder" arch "$1" || result=$?
   if [[ $result == 0 ]]; then
     head="$(g -C "$r" rev-parse HEAD)" &&
-      sed "s|file:///build/srcrepo.git|file://$record/mount/srcrepo.git|" \
-      "$record/mount/vgshell-git/PKGBUILD" >"$tmp/arch-PKGBUILD" &&
-      mkdir -p "$r/clone-src" &&
+      copy_with arch-vcs-source "$record/mount/vgshell-git/PKGBUILD" \
+        'file:///build/srcrepo.git' "file://$record/mount/srcrepo.git" &&
+      cp -- "$copy" "$record/mount/vgshell-git/PKGBUILD" &&
       env -i PATH="$base_path" HOME="$h" GIT_CONFIG_NOSYSTEM=1 "${run_git_env[@]}" \
-        bash -c 'source "$1"; srcdir="$2"; prepare && [[ $(git -C "$srcdir/vgshell" rev-parse HEAD) == "$3" ]]' \
-        _ "$tmp/arch-PKGBUILD" "$r/clone-src" "$head" || result=$?
+        "$BASH" -c 'cd -- "$1" && makepkg --verifysource &&
+          [[ $(git --git-dir="$1/vgshell" rev-parse refs/heads/main) == "$2" ]]' \
+        _ "$record/mount/vgshell-git" "$head" || result=$?
   fi
   run_git_env=()
   return "$result"
@@ -332,7 +333,7 @@ check "a failed gh refuses" gh_failure_row "$script"
 for name in $(printf '%s\n' "${!channels[@]}" | LC_ALL=C sort); do
   check "parity: the $name build hands its container the release asset of its commit" parity_row "$builder" "$name"
 done
-check "Arch host preparation and recipe clone accept explicit bare repositories" arch_bare_row "$repo/scripts/arch-packages.sh"
+check "Arch host preparation and makepkg VCS sources accept explicit bare repositories" arch_bare_row "$repo/scripts/arch-packages.sh"
 check "Arch setup reads the chromium state independently of other target rows" arch_setup_row "$repo/scripts/arch-packages.sh"
 for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
   check "refusal: $name" refusal_row "$script" "$name"
@@ -381,13 +382,13 @@ else
   ok "control: whole-answer matching rejects the multi-line setup answer"
 fi
 copy_with arch-bare "$repo/scripts/arch-packages.sh" \
-  'git --git-dir="$scratch/in/srcrepo.git" config' 'git -C "$scratch/in/srcrepo.git" config'
+  'git --git-dir="$scratch/in/srcrepo.git" symbolic-ref' 'git -C "$scratch/in/srcrepo.git" symbolic-ref'
 if arch_bare_row "$copy" >/dev/null; then
   fail "control: implicit bare repository passed the Arch row"
-elif [[ $status == 1 ]] && grep -q '^arch-packages: refused: git=config path=' "$tmp/out"; then
-  ok "control: implicit bare repository fails at host config"
+elif [[ $status == 1 ]] && grep -q '^arch-packages: refused: git=symbolic-ref path=' "$tmp/out"; then
+  ok "control: implicit bare repository fails at host symbolic-ref"
 else
-  fail "control: implicit bare repository failed outside host config"
+  fail "control: implicit bare repository failed outside host symbolic-ref"
 fi
 # rule NAME ROW NEEDLE REPLACEMENT [ROW_ARG]: a copy of the script without
 # one rule, NEEDLE replaced, on which ROW must fail.

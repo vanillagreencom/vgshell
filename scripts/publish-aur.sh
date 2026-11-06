@@ -25,6 +25,9 @@
 #   - its files are replaced by the recipe directory's tracked files, so a
 #     file edited on the AUR alone is overwritten and one the recipe dropped
 #     is removed; with no change nothing is committed;
+#   - changed vgshell-git content must increase over the AUR HEAD version by
+#     vercmp (provided by pacman); a non-increase refuses as
+#     version=not-increased, including in --dry-run;
 #   - otherwise the change is committed as `PACKAGE <pkgver>-<pkgrel>` with
 #     the maintainer's git identity and pushed to master, which the AUR
 #     serves. Its diff stat is printed first. --dry-run prints the stat and
@@ -98,8 +101,8 @@ work="$(mktemp -d)" || refuse 1 "scratch=mktemp-failed"
 trap 'rm -rf -- "${work:?}"' EXIT
 source_commit="$(git -C "$repo" rev-parse --verify HEAD)" || refuse 1 "git=rev-parse path=$repo"
 
-srcinfo_value() { # PACKAGE KEY: the one `KEY = value` line of the recipe's .SRCINFO
-  local line value="" count=0 path="$repo/packaging/arch/$1/.SRCINFO"
+srcinfo_value() { # PATH KEY: the one `KEY = value` line of .SRCINFO
+  local line value="" count=0 path="$1"
   while IFS= read -r line || [[ -n $line ]]; do
     if [[ $line == $'\t'"$2 = "* ]]; then
       value="${line#*= }"
@@ -155,11 +158,12 @@ process.stdout.write(m[1]);
 # substitution, which prints the refusal; `|| exit 1` ends the run there.
 deferred=0
 for package in "${packages[@]}"; do
-  pkgver="$(srcinfo_value "$package" pkgver)" || exit 1
-  pkgrel="$(srcinfo_value "$package" pkgrel)" || exit 1
+  srcinfo="$repo/packaging/arch/$package/.SRCINFO"
+  pkgver="$(srcinfo_value "$srcinfo" pkgver)" || exit 1
+  pkgrel="$(srcinfo_value "$srcinfo" pkgrel)" || exit 1
   version="$pkgver-$pkgrel"
   if [[ $package == vgshell ]]; then
-    sha="$(srcinfo_value vgshell sha256sums)" || exit 1
+    sha="$(srcinfo_value "$srcinfo" sha256sums)" || exit 1
     state="$(release_state "$pkgver" "$sha")" || exit 1
     if [[ $state != ok ]]; then
       printf 'publish-aur: deferred package=%s %s\n' "$package" "${state#deferred }"
@@ -190,6 +194,20 @@ for package in "${packages[@]}"; do
   if git -C "$clone" diff --cached --quiet; then
     printf 'publish-aur: unchanged package=%s version=%s\n' "$package" "$version"
     continue
+  fi
+  if [[ $package == vgshell-git ]]; then
+    refs="$(git -C "$clone" for-each-ref --format='%(refname)')" || refuse 1 "git=refs package=$package"
+    if [[ -n $refs ]]; then
+      # AUR helpers compare stored versions before fetching changed recipes.
+      # Arch VCS versioning: https://manual.archlinux.page/package-guidelines/vcs/#versioning
+      git -C "$clone" show HEAD:.SRCINFO >"$work/aur.SRCINFO" || refuse 1 "git=srcinfo package=$package"
+      old_pkgver="$(srcinfo_value "$work/aur.SRCINFO" pkgver)" || exit 1
+      old_pkgrel="$(srcinfo_value "$work/aur.SRCINFO" pkgrel)" || exit 1
+      old_version="$old_pkgver-$old_pkgrel"
+      # vercmp(8): https://man.archlinux.org/man/vercmp.8.en
+      comparison="$(vercmp "$version" "$old_version")" || refuse 1 "version=unreadable package=$package"
+      [[ $comparison == 1 ]] || refuse 1 "version=not-increased package=$package have=$version aur=$old_version" "raise pkgver to the current pkgver() output, or pkgrel if that output has not changed"
+    fi
   fi
   git -C "$clone" --no-pager diff --cached --stat
   if [[ $dry_run == true ]]; then printf 'publish-aur: would-publish package=%s version=%s\n' "$package" "$version"; continue; fi

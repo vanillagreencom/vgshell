@@ -492,17 +492,19 @@ const ROWS = [
     ["vgshell-git: a missing git makedepends is refused", t => edit(t, GIT_SRC, "^\\tmakedepends = git\\n", ""), 1, () => refused("makedepends=missing package=git recipe=vgshell-git")],
     ["vgshell: another source is refused", t => edit(t, SRC, "^\\tsource = (.*)$", "\tsource = $1.planted"),
         1, tree => refused(`source=${srcinfo(pristine, SRC, "source")}.planted recipe=vgshell`)],
-    // makepkg mirrors a git+ source with every ref the remote advertises.
-    ["vgshell-git: a source is refused", t => edit(t, GIT_SRC, "^(\\tarch = any\\n)", "$1\tsource = vgshell::git+https://github.com/vanillagreencom/vgshell.git\n"),
+    ["vgshell-git: a stored release-only version is refused", t => edit(t, GIT_SRC, "^\\tpkgver = .*$", "\tpkgver = 0.1.0"),
+        1, () => refused("pkgver=0.1.0 recipe=vgshell-git")],
+    ["vgshell-git: a missing VCS source is refused", t => edit(t, GIT_SRC, "^\\tsource = .*\\n", ""),
+        1, () => refused("source=missing recipe=vgshell-git")],
+    ["vgshell-git: another VCS source is refused", t => edit(t, GIT_SRC, "^\\tsource = .*$", "\tsource = vgshell::git+https://github.com/vanillagreencom/vgshell.git"),
         1, () => refused("source=vgshell::git+https://github.com/vanillagreencom/vgshell.git recipe=vgshell-git")],
+    ["vgshell-git: a fixed checksum is refused", t => edit(t, GIT_SRC, "^\\tsha256sums = .*$", "\tsha256sums = " + sum),
+        1, () => refused(`sha256sums=${sum} recipe=vgshell-git`)],
     ["vgshell-git: another url is refused", t => edit(t, GIT_SRC, "^\\turl = .*$", "\turl = https://github.com/planted/vgshell"),
         1, () => refused("url=https://github.com/planted/vgshell recipe=vgshell-git")],
-    // The clone stays and takes every blob.
-    ["vgshell-git: a prepare() clone without the blob filter is refused", t => replaceIn(t, ["packaging/arch/vgshell-git/PKGBUILD"], "git clone --filter=blob:none --single-branch", "git clone --single-branch"),
-        1, () => refused("fetch=missing recipe=vgshell-git")],
-    // The clone stays in the file and leaves prepare().
-    ["vgshell-git: the clone outside prepare() is refused", t => replaceIn(t, ["packaging/arch/vgshell-git/PKGBUILD"], "\nprepare() {\n", "\n_fetch() {\n"),
-        1, () => refused("fetch=missing recipe=vgshell-git")],
+    ["vgshell-git: the old prepare() clone is refused", t => edit(t, "packaging/arch/vgshell-git/PKGBUILD", "^(pkgver\\(\\) \\{)",
+        'prepare() {\n  git clone --filter=blob:none --single-branch --branch main -- "$url.git" "$srcdir/vgshell"\n}\n\n$1'),
+        1, () => refused("fetch=prepare recipe=vgshell-git")],
     // The first-install text: shipped, and printed by each recipe's scriptlet.
     ["a manifest without the first-install text is refused", t => edit(t, "packaging/install-tree.manifest", "^f " + MESSAGE.replace(/\./g, "\\.") + "\\n", ""),
         1, () => refused(`message=unshipped path=${MESSAGE} manifest=packaging/install-tree.manifest`)],

@@ -14,9 +14,9 @@
 # when the tree is clean, else a commit object over HEAD that no ref names.
 # From that commit the host makes the release tarball with
 # scripts/lib/release-tarball.sh, the builder scripts/release calls, and a
-# bare repository holding it as main and every tag, serving partial clones.
+# bare repository holding it as main and every tag.
 # Copies of the recipes take the tarball's sha256 (vgshell) and, as the URL
-# vgshell-git's prepare() clones, `file://` of that repository; each
+# of vgshell-git's git+ source, `file://` of that repository; each
 # substitution must match exactly once.
 #
 # In the rootless podman container, as root: update the system, install
@@ -37,7 +37,7 @@
 # Then remove
 # vgshell with `pacman -R` and check it is gone, since neither recipe
 # declares conflicts, replaces or provides and both own the same files, and
-# install vgshell-git the same way: its build must have made a partial clone,
+# install vgshell-git the same way: makepkg consumes its VCS source, and
 # the pkgver must be X.Y.Z.r<N>.g<hash> with the hash a prefix of the built
 # commit, and the vgshell checks must hold again.
 #
@@ -106,8 +106,8 @@ sum="$("$repo/scripts/lib/release-tarball.sh" "$commit" "$version" "$scratch/in/
 git init -q --bare "$scratch/in/srcrepo.git" || refuse 1 "git=init path=$scratch/in/srcrepo.git"
 git -C "$repo" push -q "$scratch/in/srcrepo.git" "$commit:refs/heads/main" 'refs/tags/*:refs/tags/*' ||
   refuse 1 "git=push path=$scratch/in/srcrepo.git"
-# Without it the server ignores --filter=blob:none and sends every blob.
-git --git-dir="$scratch/in/srcrepo.git" config uploadpack.allowFilter true || refuse 1 "git=config path=$scratch/in/srcrepo.git"
+# The source's default branch must not depend on the host's init.defaultBranch.
+git --git-dir="$scratch/in/srcrepo.git" symbolic-ref HEAD refs/heads/main || refuse 1 "git=symbolic-ref path=$scratch/in/srcrepo.git"
 
 # Copy a recipe, replacing the one match of PATTERN with REPLACEMENT.
 recipe_copy() { # RECIPE PATTERN REPLACEMENT
@@ -129,7 +129,7 @@ PY
 }
 cp -a -- "$repo/packaging/arch/vgshell-quickshell/." "$scratch/in/vgshell-quickshell/"
 recipe_copy vgshell "^sha256sums=\('[^']*'\)$" "sha256sums=('$sum')"
-recipe_copy vgshell-git ' -- "\$url\.git" "\$srcdir/vgshell"$' ' -- "file:///build/srcrepo.git" "$srcdir/vgshell"'
+recipe_copy vgshell-git '^source=\("vgshell::git\+https://github\.com/vanillagreencom/vgshell\.git#branch=main"\)$' 'source=("vgshell::git+file:///build/srcrepo.git#branch=main")'
 
 cat >"$scratch/in/run.sh" <<'RUN'
 #!/usr/bin/env bash
@@ -251,15 +251,6 @@ for recipe in vgshell vgshell-git; do
     refuse "build=failed recipe=$recipe" "$(tail -n 40 "/tmp/build-$recipe.log")"
 done
 vgs_pkg="$(package_file vgshell)"; git_pkg="$(package_file vgshell-git)"
-# vgshell-git's prepare() cloned without file contents beyond its checkout:
-# some object the history reaches is absent. git sets
-# remote.origin.promisor even when the server ignored the filter, so the
-# setting proves nothing.
-objects="$(runuser -u builder -- git -C /build/vgshell-git/src/vgshell rev-list --objects --missing=print HEAD)" ||
-  refuse "clone=unreadable package=vgshell-git"
-grep -q '^?' <<<"$objects" || refuse "clone=unfiltered package=vgshell-git" "every object the history reaches is in /build/vgshell-git/src/vgshell"
-
-
 install_pkg() { # FILE NAME
   pacman -U --noconfirm "$1" >"/tmp/install-$2.log" 2>&1 ||
     refuse "install=failed package=$2" "$(tail -n 40 "/tmp/install-$2.log")"

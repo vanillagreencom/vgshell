@@ -76,9 +76,9 @@
 // exactly the required union plus portal backends. vgshell: pkgver is VERSION's
 // line; arch is any; source is the release tarball URL; one sha256sums entry, SKIP
 // only while the tag v<pkgver> does not exist, otherwise 64 lower-case hex
-// digits. vgshell-git: arch is any; makedepends holds git; no source; url is
-// the repository URL; the PKGBUILD's prepare() holds GIT_CLONE, the clone of
-// main alone. Both shell recipes: no conflicts, replaces or provides entry, refused as
+// digits. vgshell-git: arch is any; makedepends holds git; source is the
+// repository's git+ main branch with a SKIP sum and no prepare(); stored pkgver
+// has the X.Y.Z.rN.gHASH form. Both shell recipes: no conflicts, replaces or provides entry, refused as
 // <tag>=<value> recipe=<name>; install is <pkgname>.install,
 // the scriptlet beside the PKGBUILD; its post_install prints MESSAGE under
 // /usr and runs the installed first-start helper; the two scriptlets are the same text; the PKGBUILD's package()
@@ -153,10 +153,6 @@ const PORTALS_CONF = "packaging/xdg-desktop-portal/hyprland-portals.conf";
 const AUTOSTART_EXEC = "Exec=$prefix/bin/vgshell start";
 // The system install every Arch recipe's package() runs.
 const PACMAN_INSTALL = 'DESTDIR="$pkgdir" PREFIX=/usr SYSCONFDIR=/etc ./packaging/install-system.sh';
-// The vgshell-git fetch. makepkg clones a git+ source as a mirror of every ref
-// the remote advertises, GitHub's refs/pull/* among them; this takes main's
-// commits, trees and tags and only the blobs of its checkout.
-const GIT_CLONE = 'git clone --filter=blob:none --single-branch --branch main -- "$url.git" "$srcdir/vgshell"';
 const PORTAL_BACKEND_PACKAGES = {
     pacman: { gnome: "xdg-desktop-portal-gnome", gtk: "xdg-desktop-portal-gtk", hyprland: "xdg-desktop-portal-hyprland" },
     dnf: { gnome: "xdg-desktop-portal-gnome", gtk: "xdg-desktop-portal-gtk", hyprland: "xdg-desktop-portal-hyprland" },
@@ -404,8 +400,8 @@ function pacmanRules(recipes, reads, version) {
         const pkgbuild = readText(recipe.dir + "/PKGBUILD", "pkgbuild=missing recipe=" + recipe.name);
         if (!functionHolds(pkgbuild, "package", PACMAN_INSTALL))
             refuse(`installer=missing recipe=${recipe.name}`, "want in package(): " + PACMAN_INSTALL);
-        if (recipe.name === "vgshell-git" && !functionHolds(pkgbuild, "prepare", GIT_CLONE))
-            refuse("fetch=missing recipe=vgshell-git", "want in prepare(): " + GIT_CLONE);
+        if (recipe.name === "vgshell-git" && /^prepare\(\)/m.test(pkgbuild))
+            refuse("fetch=prepare recipe=vgshell-git", "makepkg owns the VCS fetch through source");
         return text;
     });
     if (scriptlets.some(text => text !== scriptlets[0])) refuse("scriptlet=differs recipes=" + recipes.map(r => r.name).join(","));
@@ -427,8 +423,14 @@ function pacmanRules(recipes, reads, version) {
                 refuse("sha256sums=" + sums[0] + " recipe=vgshell", "want SKIP before the tag v" + pkgver + " exists, else 64 lower-case hex digits");
             }
         } else {
-            if ((info.source || []).length > 0) refuse("source=" + one(info.source) + " recipe=vgshell-git", "want none: prepare() clones main alone");
-            if (one(info.url) !== REPO_URL) refuse("url=" + (one(info.url) || "missing") + " recipe=vgshell-git", "want " + REPO_URL + ": prepare() clones $url.git");
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+\.g[0-9a-f]+$/.test(pkgver || ""))
+                refuse("pkgver=" + (pkgver || "missing") + " recipe=vgshell-git", "want X.Y.Z.rN.gHASH from pkgver()");
+            const want = `vgshell::git+${REPO_URL}.git#branch=main`;
+            if ((info.source || []).length !== 1 || one(info.source) !== want)
+                refuse("source=" + (one(info.source) || "missing") + " recipe=vgshell-git", "want " + want);
+            if ((info.sha256sums || []).length !== 1 || one(info.sha256sums) !== "SKIP")
+                refuse("sha256sums=" + (one(info.sha256sums) || "missing") + " recipe=vgshell-git", "want SKIP for the VCS source");
+            if (one(info.url) !== REPO_URL) refuse("url=" + (one(info.url) || "missing") + " recipe=vgshell-git", "want " + REPO_URL);
             if (!(info.makedepends || []).some(text => pacmanEntry(text).name === "git")) refuse("makedepends=missing package=git recipe=vgshell-git");
         }
     });

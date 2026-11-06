@@ -121,6 +121,14 @@ The maintainer cuts every release from their own machine, with their own gpg key
 
 At each landing on `main` that changes `packaging/arch/vgshell-git/`, the overseer publishes `vgshell-git` to the AUR through `scripts/publish-aur.sh` on the maintainer's machine. The landing notice names the AUR commit or the refusal. A refusal leaves the publication acceptance box open.
 
+For an actual recipe change, follow [distribution.md § Channels](docs/architecture/distribution.md#channels): raise the stored pkgver to the current-main `pkgver()` output, or increase pkgrel when that output has not changed. Never publish a recipe just for a pkgver bump. From `packaging/arch/vgshell-git/`, run:
+
+```sh
+makepkg -od && makepkg --printsrcinfo > .SRCINFO
+```
+
+Commit the rewritten PKGBUILD and regenerated `.SRCINFO` with the recipe change. `scripts/publish-aur.sh` needs pacman's `vercmp` and refuses changed `vgshell-git` content whose version does not increase over AUR HEAD, including in a dry run.
+
 The overseer also publishes `vgshell-quickshell` when its recipe or local sources change. Follow [distribution.md § Quickshell engine](docs/architecture/distribution.md#quickshell-engine) for the shared pin, patches and channel boundary. Before raising the engine floor on `main`, commit a coherent candidate and push its revision without advancing `main`. Run the offline recipe check, publish the AUR engine from that checkout, and build the COPR engine from that exact public revision for every target in `packaging/fedora/copr-project`. Wait for the RPMs to appear in repository metadata. The public candidate must also contain the matching flake lock and shared patches.
 
 For Debian checkout consumers, publish the engine asset for the candidate tree's exact `VERSION` tag, with its signature and checksum assets, through the signed release before landing a new floor. Tagged installers retain their own archive's engine declaration. AUR `vgshell` and Fedora `vgshell` receive the dependency at the next VGS release tag containing the change.

@@ -2,7 +2,9 @@
 # Controls for scripts/publish-aur.sh. Each row runs a copy of the script
 # inside a clone of this repository's working tree, as `git add -A` would
 # commit it, so the recipes and scripts/check-packaging.js it runs are the
-# real ones. Rows run under env -i with a fixture HOME that holds the git
+# real ones. The frozen-version incident alone restores the historical
+# judge's acceptance of a release-only pkgver to reach the publisher's guard.
+# Rows run under env -i with a fixture HOME that holds the git
 # identity and, for --dry-run, a url.insteadOf that turns
 # https://aur.archlinux.org/ into a directory of local bare repositories,
 # the AUR's stand-in. A stub ssh first on PATH records its arguments and
@@ -22,7 +24,7 @@ set -euo pipefail
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
 suite=test-publish-aur
-for tool in git makepkg python3 tar diff; do
+for tool in git makepkg vercmp python3 tar diff; do
   command -v "$tool" >/dev/null || { echo "$suite: status=not-measured missing=$tool"; exit 77; }
 done
 
@@ -189,6 +191,7 @@ mirror_row() { # SCRIPT: a file only the AUR holds is removed and an AUR edit ov
   fixture mirror "$1"
   seed="$tmp/seed-$fixtures"
   { g clone -q "$aur/vgshell-git.git" "$seed" 2>/dev/null && printf 'old\n' >"$seed/stale.install" && printf 'edited\n' >"$seed/PKGBUILD" &&
+    printf 'pkgbase = vgshell-git\n\tpkgver = 0.1.0\n\tpkgrel = 3\n' >"$seed/.SRCINFO" &&
     g -C "$seed" add -A && g -C "$seed" commit -q -m seed && g -C "$seed" push -q origin HEAD:master; } || { echo "$suite: fixture=seed" >&2; exit 1; }
   run vgshell-git
   [[ $status == 0 ]] && aur_holds vgshell-git || return 1
@@ -201,6 +204,54 @@ mirror_row() { # SCRIPT: a file only the AUR holds is removed and an AUR edit ov
     g -C "$missing" add -- extra && g -C "$missing" commit -q -m 'add extra AUR member' &&
     g -C "$missing" push -q origin HEAD:master || return 1
   if aur_holds vgshell-git; then return 1; else ok "aur_holds rejects an extra AUR member"; fi
+}
+version_row() { # SCRIPT OLD NEW REL WANT: changed dependencies require a higher Arch version
+  local old="$2" new="$3" rel="$4" want="$5" seed before after
+  fixture version "$1"
+  seed="$tmp/version-seed-$fixtures"
+  {
+    g clone -q "$aur/vgshell-git.git" "$seed" &&
+    cp -a -- "$r/packaging/arch/vgshell-git/." "$seed/" &&
+    python3 - "$seed/PKGBUILD" "$old" "$r/packaging/arch/vgshell-git/PKGBUILD" "$new" "$rel" <<'PY' &&
+import pathlib, re, sys
+old_path, old, new_path, new, rel = sys.argv[1:]
+for filename, version, release in [(old_path, old.rsplit("-", 1)[0], old.rsplit("-", 1)[1]), (new_path, new, rel)]:
+    path = pathlib.Path(filename)
+    text = path.read_text()
+    for key, value in [("pkgver", version), ("pkgrel", release)]:
+        text, count = re.subn(r"^" + key + r"=.*$", key + "=" + value, text, flags=re.M)
+        if count != 1:
+            sys.exit("fixture: " + key + " count=" + str(count))
+    if filename == old_path:
+        text, count = re.subn(r"^  'hyprland>=[^']+'$", "  'hyprland>=0.56'", text, flags=re.M)
+        if count != 1:
+            sys.exit("fixture: hyprland count=" + str(count))
+    path.write_text(text)
+PY
+    (cd -- "$seed" && makepkg --printsrcinfo >.SRCINFO) &&
+    g -C "$seed" add -A && g -C "$seed" commit -q -m 'published older dependency recipe' &&
+    g -C "$seed" push -q origin HEAD:master &&
+    (cd -- "$r/packaging/arch/vgshell-git" && makepkg --printsrcinfo >.SRCINFO)
+  } || { echo "$suite: fixture=version" >&2; exit 1; }
+  if [[ $new == 0.1.0 ]]; then
+    # The incident predates the VCS-form guard. Keep that historical producer
+    # reachable while testing the publisher, not the independent recipe judge.
+    copy_with legacy-version "$r/scripts/check-packaging.js" \
+      'if (!/^[0-9]+\.[0-9]+\.[0-9]+\.r[0-9]+\.g[0-9a-f]+$/.test(pkgver || ""))' \
+      'if (false)'
+    cp -- "$copy" "$r/scripts/check-packaging.js" || return 1
+  fi
+  g -C "$r" commit -q --allow-empty -am 'change recipe dependencies and version' || return 1
+  before="$(g -C "$aur/vgshell-git.git" rev-parse master)" || return 1
+  run vgshell-git
+  after="$(g -C "$aur/vgshell-git.git" rev-parse master)" || return 1
+  if [[ $want == refuse ]]; then
+    [[ $status == 1 && $before == "$after" ]] &&
+      [[ $(first_err) == "publish-aur: refused: version=not-increased package=vgshell-git have=$new-$rel aur=$old" ]]
+  else
+    [[ $status == 0 && $before != "$after" ]] && aur_holds vgshell-git &&
+      has_out "publish-aur: published package=vgshell-git version=$new-$rel commit=$after"
+  fi
 }
 dry_row() { # SCRIPT: --dry-run clones over HTTPS, needs no key and pushes nothing
   fixture dry "$1"
@@ -298,6 +349,18 @@ row_job check "the engine exports its patches and compatibility hook" engine_row
 row_job check "ssh reads the key and the pinned host keys alone" ssh_row "$script"
 row_job check "an unchanged recipe commits nothing" unchanged_row "$script"
 row_job check "the AUR repository ends up holding the recipe's files alone" mirror_row "$script"
+# The reported frozen release version, a current VCS version, a lower version,
+# and each standard way to advance a recipe's Arch version.
+git_version="$(awk -F' = ' '$1 == "\tpkgver" { print $2 }' "$base/packaging/arch/vgshell-git/.SRCINFO")"
+while IFS='|' read -r old new rel want; do
+  row_job check "changed recipe version: $old to $new-$rel $want" version_row "$script" "$old" "$new" "$rel" "$want"
+done <<EOF
+0.1.0-3|0.1.0|3|refuse
+$git_version-1|$git_version|1|refuse
+$git_version-2|$git_version|1|refuse
+0.1.0-3|$git_version|1|publish
+$git_version-1|$git_version|2|publish
+EOF
 row_job check "--dry-run clones over HTTPS and pushes nothing" dry_row "$script"
 row_job check "vgshell is published once its asset's digest is the pinned sha256" release_row "$script"
 for name in $(printf '%s\n' "${!deferrals[@]}" | LC_ALL=C sort); do
@@ -331,5 +394,14 @@ row_job rule unpinned-defers deferral_row '[[ $2 != SKIP ]] ||' 'true ||' unpinn
 row_job rule draft-defers deferral_row 'found[0].isDraft ? "draft" : "published"' '"published"' draft
 row_job rule checksum-defers deferral_row 'elif [[ $state != "$2" ]]; then' 'elif false; then' checksum-mismatch
 row_job rule deferral-status deferral_row '((deferred == 0)) || exit 75' '((deferred == 0)) || exit 0' no-release
+version_control() {
+  copy_with version-increase "$script" '[[ $comparison == 1 ]] || refuse' 'true || refuse'
+  if version_row "$copy" 0.1.0-3 0.1.0 3 refuse; then
+    fail "control: version row passed without version increase"
+  else
+    ok "control: version row rejects a copy without version increase"
+  fi
+}
+row_job version_control
 
 rows_done "$suite"

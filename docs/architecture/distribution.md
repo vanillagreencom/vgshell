@@ -24,7 +24,8 @@ A shared installer prevents channels from shipping different files. Dependency d
 - Keep shell recipes free of conflicts, replacements and provisions, including Fedora `Obsoletes`. The engine has a separate replacement contract. `scripts/check-packaging.js` checks both.
 - Print `bin/lib/post-install.txt` only on first package install; scriptlets keep no separate copy. `scripts/check-packaging.js` checks the text source.
 - Set `SYSCONFDIR` only for system packages. Keep their system integration out of curl and Nix installs. Use an absolute Hyprland-only autostart entry and create no user entry. `scripts/test-install-tree.sh` checks this boundary.
-- Generate Fedora requirements from data with package epochs. Keep the AUR git source a single-branch filtered clone in `prepare()`. `scripts/check-packaging.js` checks recipes.
+- Generate Fedora requirements from data with package epochs. Declare the AUR git source through makepkg's standard `git+` source with a `SKIP` sum, not a clone in `prepare()` ([D123](../decisions/D123-standard-arch-vcs-source.md)). Keep git in makedepends and use no shallow clone. `scripts/check-packaging.js` checks the source, sum and stored VCS version form.
+- Raise the stored `vgshell-git` pkgver to the current-main `pkgver()` output for an actual published recipe change; raise pkgrel when that output has not changed. Never publish only to bump pkgver. `scripts/publish-aur.sh` refuses changed content without a version increase over AUR HEAD by `vercmp`. `DEVELOPMENT.md` § Release owns regeneration.
 - Give each installed Bash script its runtime PATH. Keep Nix's generated path line after its leading comments and keep Hyprland off that PATH. `scripts/test-flake.sh` checks Nix substitution.
 
 ### Quickshell engine
