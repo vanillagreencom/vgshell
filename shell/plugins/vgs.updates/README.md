@@ -8,7 +8,7 @@ Updates checks your system, VGS, plugins, themes and developer tools for updates
 
 - Checks system packages, AUR packages, verified packages such as gliff, Flatpak apps, mise tools, VGS itself, installed plugins and installed themes.
 - A bar icon with the count of waiting updates, and a warning when a check fails.
-- A window on `SUPER+CTRL+U` or a click on the icon, with one row per source. Update installs one source, and Update everything installs all of them.
+- A window on `SUPER+U` or a click on the icon, with one row per source. Update installs one source, and Update everything installs all of them.
 - Open last log shows the log of the last update run.
 - A system snapshot before updates when Snapper or Timeshift is installed and set up.
 - An optional AI review of Arch system and AUR packages before installation. A flagged package lets you skip it or install it anyway.

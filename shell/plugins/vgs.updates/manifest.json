@@ -48,7 +48,7 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+CTRL+U", "info": "Opens the Updates window, or closes it." }
+      { "shortcut": "toggle", "key": "SUPER+U", "info": "Opens the Updates window, or closes it." }
     ]
   },
   "status": {

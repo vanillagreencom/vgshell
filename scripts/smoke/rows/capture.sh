@@ -5,7 +5,7 @@
 # shell runs; capture_wait_cards dismisses its cards before an image
 # reading. Late in the row it is enabled for the notification readings, and
 # shell.json's restore at the end puts it back as found.
-# SUPER+SHIFT+S is typed on the bind hyprland-consent's wired layer holds.
+# SUPER+CTRL+S is typed on the bind hyprland-consent's wired layer holds.
 # Every selection runs over the core's freeze surface, which the service
 # holds for the worker, and is cropped from the frames the core writes of
 # that freeze (D118), so no grim runs before or after the selector. At the
@@ -1005,12 +1005,12 @@ expect "a second press of the same key cancels" ok ipc vgs.capture invoke screen
 expect_poll "the second press leaves capture idle" idle capture_phase
 expect_poll "the second press leaves no selector or freeze" 0 capture_left
 expect "cancelled real selections write no file" "$capture_before" capture_counts
-# SUPER+SHIFT+S from any state: the real key on the real selector. slurp
+# SUPER+CTRL+S from any state: the real key on the real selector. slurp
 # 1.5.0 takes every pointer button as a selection, so without the layer's
 # vgs:selection submap a right click on a bare desktop selected the output
 # box and saved it. A typed key reaches its bind only by keysym, so the
 # option is on until the readings put the harness hyprland.lua back.
-capture_press() { type_keys -M logo -M shift -k s -m shift -m logo; }
+capture_press() { type_keys -M logo -M ctrl -k s -m ctrl -m logo; }
 hypr_lua_save capture
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with typed keys reaching binds" ok hypr reload config-only
@@ -1020,8 +1020,8 @@ expect_poll "the notifications loaded their state with Silence off for the key r
 expect "earlier capture notices expire before the key readings" 0 capture_wait_cards
 capture_before="$(capture_counts)"
 for capture_round in first second; do
-  capture_press || fail "capture: SUPER+SHIFT+S could not be typed"
-  expect "SUPER+SHIFT+S opens the $capture_round selector" True capture_selecting
+  capture_press || fail "capture: SUPER+CTRL+S could not be typed"
+  expect "SUPER+CTRL+S opens the $capture_round selector" True capture_selecting
   right_click "$((mon_w / 2))" "$((mon_h / 2))" || fail "capture: the right click failed"
   expect_poll "the $capture_round right click leaves capture idle" idle capture_phase
   expect_poll "the $capture_round right click leaves no selector or freeze" 0 capture_left
@@ -1029,23 +1029,23 @@ done
 expect "right-click cancels write no file" "$capture_before" capture_counts
 expect "right-click cancels post no notice" quiet capture_no_card_for
 for capture_round in first second; do
-  capture_press || fail "capture: SUPER+SHIFT+S could not be typed"
-  expect "SUPER+SHIFT+S opens the selector for the $capture_round key cancel" True capture_selecting
-  capture_press || fail "capture: SUPER+SHIFT+S could not be typed over the selector"
+  capture_press || fail "capture: SUPER+CTRL+S could not be typed"
+  expect "SUPER+CTRL+S opens the selector for the $capture_round key cancel" True capture_selecting
+  capture_press || fail "capture: SUPER+CTRL+S could not be typed over the selector"
   expect_poll "the $capture_round key cancel leaves capture idle" idle capture_phase
   expect_poll "the $capture_round key cancel leaves no selector or freeze" 0 capture_left
 done
 expect "key cancels write no file" "$capture_before" capture_counts
 expect "key cancels post no notice" quiet capture_no_card_for
 : >"$capture_state/calls.jsonl"
-capture_press || fail "capture: SUPER+SHIFT+S could not be typed"
-expect "SUPER+SHIFT+S opens a selector after the cancels" True capture_selecting
+capture_press || fail "capture: SUPER+CTRL+S could not be typed"
+expect "SUPER+CTRL+S opens a selector after the cancels" True capture_selecting
 drag 100 100 300 250 || fail "capture: the area drag after the cancels failed"
 expect_poll "the capture after the cancels finishes" idle capture_phase
 expect_poll "the capture after the cancels saves its box" "201x151 clipboard=True held" capture_area_png
 capture_before="$(capture_counts)"
 expect "earlier capture notices expire before the right-click control" 0 capture_wait_cards
-capture_press || fail "capture: SUPER+SHIFT+S could not be typed for the right-click control"
+capture_press || fail "capture: SUPER+CTRL+S could not be typed for the right-click control"
 expect "control: the right-click selector maps" True capture_selecting
 expect "control: the selection submap is left by hand" ok hypr dispatch 'hl.dsp.submap("reset")'
 right_click "$((mon_w / 2))" "$((mon_h / 2))" || fail "capture: the control right click failed"
@@ -1076,10 +1076,10 @@ before = "            if self.cancelled(0.05):\n"
 assert source.count(before) == 1, "busy-worker control match"
 helper.write_text(source.replace(before, "            if False:\n"))
 PY
-capture_press || fail "capture: SUPER+SHIFT+S could not be typed for the busy-worker control"
+capture_press || fail "capture: SUPER+CTRL+S could not be typed for the busy-worker control"
 expect "control: the busy-worker selector maps" True capture_selecting
 expect_poll "control: the busy worker runs its selector and freeze" 2 capture_left
-capture_press || fail "capture: SUPER+SHIFT+S could not be typed over the busy-worker selector"
+capture_press || fail "capture: SUPER+CTRL+S could not be typed over the busy-worker selector"
 expect "control: a worker that ignores the key cancel stays busy" busy capture_stays_busy
 cp -- "$capture_state/selector-helper-original.py" "$capture_selector_helper"
 type_keys -k Escape || fail "capture: Escape could not end the busy-worker control"
@@ -1162,8 +1162,8 @@ capture_surface() { # LABEL OPEN_CMD SHOWN_CMD CLOSE_CMD STAYS SUBMAP KIND ID
   expect_poll "the $label shows" True eval "$shown"
   summon_drawn "$7" "$8" || fail "capture: the $label never drew a frame"
   capture_reference "open-$label" || fail "capture: the open $label reference failed"
-  capture_press || fail "capture: SUPER+SHIFT+S could not be typed over the $label"
-  expect "SUPER+SHIFT+S opens a selector over the $label" True capture_selecting
+  capture_press || fail "capture: SUPER+CTRL+S could not be typed over the $label"
+  expect "SUPER+CTRL+S opens a selector over the $label" True capture_selecting
   if [[ $stays == True ]]; then
     expect "the selector leaves the $label open" True eval "$shown"
   else
