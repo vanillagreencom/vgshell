@@ -39,16 +39,16 @@ Item {
     readonly property var languagesInstalled: shell === null || shell.tui.state["install-languages"] === undefined ? null : shell.tui.state["install-languages"].endedAt
     readonly property var tools: ({
         "screenshot": ["grim"],
-        "screenshot-area": ["grim", "slurp"],
-        "screenshot-window": ["grim", "slurp"],
-        "screenshot-display": ["grim", "slurp"],
+        "screenshot-area": ["slurp"],
+        "screenshot-window": ["slurp"],
+        "screenshot-display": ["slurp"],
         "screenshot-all": ["grim"],
         "record": ["grim", "slurp", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "record-window": ["grim", "slurp", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "record-display": ["grim", "slurp", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "record-output": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "record-portal": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
-        "text": ["slurp", "grim", "tesseract", "wl-copy"]
+        "text": ["slurp", "tesseract", "wl-copy"]
     })
     // The actions whose selector holds the keyboard, which it gives back.
     readonly property var selections: ["screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display"]
@@ -174,6 +174,7 @@ Item {
                 publish();
                 return "ok";
             }
+            thaw(activeJob);
             activeJob.write("cancel\n");
             return "ok";
         }
@@ -301,28 +302,32 @@ Item {
         if (address !== "" && Hyprland.toplevels.values.some(t => t.address === address) && (Hyprland.activeToplevel === null || Hyprland.activeToplevel.address !== address)) shell.compositor.focusWindow("0x" + address);
     }
 
-    // The worker asks for the still screen before it starts the selector and
-    // waits on its stdin for `frozen`, written once every output shows its
-    // frame, or `freeze-refused <reply>` when the core refuses the hold. The
-    // hold ends at the worker's `thaw`, at the job's end and with this
-    // instance, so no freeze outlives its selection. A worker that asks for
-    // the still also gets `still <frames JSON>` once the core wrote the held
-    // frame, or `still-failed <reason>`, and crops its image from those
-    // frames; CURSOR puts the pointer in them.
-    function freeze(job, still, cursor) {
+    // `frozen` is the worker's only selection-ready signal. The sole held
+    // view per output includes the cursor when requested. The worker keeps
+    // the hold until its selected PNG has been written, or it cancels.
+    function freeze(job, cursor) {
         if (activeJob !== job) return;
         thaw(freezeJob);
         freezeJob = job;
         const done = answer => { if (root.freezeJob === job && answer === "ok") job.write("frozen\n"); };
-        const frames = answer => {
-            if (root.freezeJob !== job) return;
-            if (typeof answer === "string") job.write("still-failed " + (answer.startsWith("failed: still=") ? answer.slice(14) : answer) + "\n");
-            else job.write("still " + JSON.stringify(answer) + "\n");
-        };
-        const reply = still ? shell.screencopy.freeze(done, { still: frames, cursor: cursor }) : shell.screencopy.freeze(done);
+        const reply = shell.screencopy.freeze(done, { cursor: cursor });
         if (reply === "ok") return;
         freezeJob = null;
         job.write("freeze-refused " + reply + "\n");
+    }
+
+    // The worker owns this already-acquired PNG path and delegates the
+    // write through its trusted capability holder (D010), not a sandbox.
+    function crop(job, geometry, path) {
+        if (activeJob !== job || freezeJob !== job) {
+            job.write("crop-failed unheld\n");
+            return;
+        }
+        const reply = shell.screencopy.crop(geometry, path, answer => {
+            if (root.freezeJob !== job) return;
+            job.write(answer === "ok" ? "cropped\n" : "crop-failed " + answer.slice("failed: crop=".length) + "\n");
+        });
+        if (reply !== "ok") job.write("crop-failed " + reply.slice("refused: crop=".length) + "\n");
     }
 
     function thaw(job) {
@@ -344,7 +349,10 @@ Item {
             restoreFocus(job);
             break;
         case "freeze":
-            freeze(job, event.still === true, event.cursor === true);
+            freeze(job, event.cursor === true);
+            break;
+        case "crop":
+            crop(job, event.geometry, event.path);
             break;
         case "thaw":
             thaw(job);

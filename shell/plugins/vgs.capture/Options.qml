@@ -208,7 +208,7 @@ Item {
             Column {
                 width: parent.width
                 spacing: Theme.stack.row
-                SectionHeader { text: "Options" }
+                SectionHeader { text: "Persistent Options" }
 
                 Column {
                     width: parent.width
