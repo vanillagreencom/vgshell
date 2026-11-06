@@ -1025,7 +1025,7 @@ expect_poll "the slice look control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "slice look"
 # Control for the name over the wash: a card copy that keeps its name with
 # the rest of the card, under the side card's dim wash.
-plugin_control ThemeCard.qml "slice name wash" $'        parent: root.foreground ?? root\n        // The carousel hands' $'        parent: root\n        // The carousel hands'
+plugin_control ThemeCard.qml "slice name wash" $'        readonly property real inset: Theme.carousel.sliceName.inset\n        parent: root.foreground ?? root' $'        readonly property real inset: Theme.carousel.sliceName.inset\n        parent: root'
 press_themes || fail "typing SUPER+SHIFT+T for the slice name wash control failed"
 expect_poll "the slice name wash control opens the theme browser" 1 layer_count vgs:overlay
 expect_poll "the slice name wash control read its cards" true view_value loaded
