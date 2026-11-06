@@ -46,8 +46,6 @@ Scope {
         return Logic.hasOwn(icons, key) ? icons[key] : "";
     }
 
-    // A notification named `workspace`: read the list again when it may now
-    // hold that workspace's icon.
     function want(workspace) {
         if (loading || !Logic.workspaceReload(icons, workspace, loadedAt, Date.now())) return;
         load();

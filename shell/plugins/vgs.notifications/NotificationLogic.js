@@ -1,27 +1,15 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
 
-// The notifications' decisions, with no QML objects and no I/O, so
-// scripts/test-notifications-logic.js runs every function under node: what a
-// notification body may render, which notifications Silence lets through,
-// how long a toast lives, the state file's shape and its judge, the image
-// copies an entry owns, what a restart restores, what a start after a reboot
-// clears, what the history keeps and for how long, what a panel shows,
-// which toast a full stack lets go, which actions a card offers, what opening it does and which window that raises, which
-// message of its sender a card opens, which
-// notifications the service keeps holding for the history, the paused and
-// running clocks of the toasts on screen, the per-application rules that
-// read a sender's workspace and people, the Slack token rows, photo and
-// custom emoji lookups, which two notifications are one message sent
-// twice, which app stream Do Not Disturb or Sound off mutes, and the VGS hints a sender may add and what a click on a card
-// that carries them does.
+// Keep notification decisions free of QML objects and I/O so the same
+// functions run under node in scripts/test-notifications-logic.js.
 
 // Every notification that leaves the screen goes into the history, which
 // keeps it until the user clears it, the machine starts again (fromBoot) or
 // it is HISTORY_AGE old, and the Inbox and the History panel list every
 // entry they show. LIVE_MAX toasts show at once: a newer one lets the oldest
 // non-critical toast go into the history.
-// The owner's decision of 2026-10-09: past HISTORY_MAX the oldest goes first.
+// Past HISTORY_MAX the oldest entry goes first.
 var HISTORY_MAX = 100;
 var HISTORY_AGE = 24 * 3600 * 1000;
 var LIVE_MAX = 20;
@@ -34,10 +22,9 @@ var BODY_MAX = 4096;
 // setting, and a critical notification stays until closed.
 var LOW_LIFETIME = 5000;
 var MAX_LIFETIME = 30000;
-// The state file's format.
 var STATE_VERSION = 4;
-// cb594cd23 wrote up to 720 history entries. The current file judge keeps
-// that capacity so conversion never discards them; new history uses HISTORY_MAX.
+// The state judge accepts the larger saved history capacity so migration
+// preserves entries; new history uses HISTORY_MAX.
 var STATE_HISTORY_MAX = 720;
 // The entry roles an image can sit in, each owned as a copy by a stored
 // entry, named <key>-<role> in the images directory.
@@ -57,7 +44,6 @@ function isPlainObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-// ------------------------------------------------------------------ body
 
 function isChromiumDerived(app, appIcon) {
     var source = (String(app || "") + "\n" + String(appIcon || "")).toLowerCase();
@@ -130,7 +116,6 @@ function splitOrigin(app, appIcon, text) {
     return { host: found[1].toLowerCase(), rest: after.slice(gap[0].length) };
 }
 
-// The host of the site a web notification came from, or "".
 function webOrigin(app, appIcon, body) {
     return splitOrigin(app, appIcon, String(body || "")).host;
 }
@@ -170,7 +155,6 @@ function styledBody(body, app, appIcon, page, linkColor) {
     return styled;
 }
 
-// The plain words an x-vgs-page hint draws as the link, "" for no hint.
 function pageWords(page) {
     return page ? Commons.PageReference.parse(page).words : "";
 }
@@ -191,7 +175,6 @@ function summaryStartsWithGlyph(summary) {
     return spaces >= 2;
 }
 
-// -------------------------------------------------------- enrichment
 
 // A card reads at most FACES_MAX people, the most its AvatarGroup draws
 // as faces; it counts the people past them, which the group shows as a
@@ -258,7 +241,6 @@ function enricherById(id) {
     return null;
 }
 
-// The ids of the rules that keep a workspace list.
 function workspaceRuleIds() {
     return ENRICHERS.filter(function (r) { return !!r.workspaces; }).map(function (r) { return r.id; });
 }
@@ -287,7 +269,6 @@ function fold(name) {
     return String(name).trim().toLowerCase();
 }
 
-// The sender a message body opens with, as "Name: text", or "".
 function bodySender(body) {
     var match = /^([^:\n<>]{1,80}): \S/.exec(body);
     return match ? match[1].trim() : "";
@@ -327,7 +308,6 @@ function readSlack(summary, body) {
     return { workspace: workspace, title: "in " + within[1], people: people };
 }
 
-// The tints a face takes, the names of the Appearance face.tint group.
 var FACE_TINTS = ["coral", "amber", "green", "blue", "indigo", "magenta", "teal", "rose"];
 
 // The tint of a person's face: the same name, case folded, always takes
@@ -435,7 +415,6 @@ function workspaceReload(map, workspace, loadedAt, now) {
 // The states token-status.sh reports for each Slack account, each a value
 // of the core's `presence` status type.
 var SLACK_TOKEN_STATES = ["present", "absent", "locked", "unavailable"];
-// Each workspace account: slack:<team id>.
 var SLACK_ACCOUNT = /^slack:[A-Za-z0-9]{1,32}$/;
 
 // Each Slack account's token state from token-status.sh's stdout, one
@@ -479,8 +458,6 @@ function slackWorkspaceLabel(workspace) {
     return cut + "\u2026";
 }
 
-// What each workspace's token field takes, where the token comes from and
-// what it unlocks, drawn under the field beside its Create Slack app.
 var SLACK_TOKEN_HINT = "User OAuth Token for sender photos. VGS saves it in your keyring.";
 
 // The Settings page's Slack token rows, one per listed workspace.
@@ -595,7 +572,6 @@ function slackPhotos(text) {
     };
 }
 
-// ------------------------------------------------------- custom emoji
 
 // A custom emoji name the card substitutes, `:name:` in a Slack body, as
 // slack-emoji.js admits it; and the most one body substitutes, so a body
@@ -818,7 +794,6 @@ function slackWorkspaceIcon(teams, workspace) {
     return team === null ? "" : team.icon;
 }
 
-// -------------------------------------------------------- duplicates
 
 // Two copies of one message, one from the sender's own client and one from
 // its web client in a browser, arrive within DUPLICATE_WINDOW milliseconds
@@ -829,7 +804,7 @@ function slackWorkspaceIcon(teams, workspace) {
 var DUPLICATE_WINDOW = 10000;
 // About three times the largest gap between two Slack desktop instances'
 // copies: 41 pairs 65-322 ms apart in cachy's stored notification history
-// of 100 entries, read with python3 on 2026-11-03 at 15:15 PT for VGS-2283.
+// of 100 entries, read with python3 on 2026-11-03 at 15:15 PT.
 // Well under the time a person takes to send one text twice in one
 // conversation, which stays two messages.
 var SAME_CLIENT_WINDOW = 1000;
@@ -902,7 +877,6 @@ function receiveMessage(recent, message, onScreen) {
     return { recent: forgetMessage(recent, prior.key), prior: prior, kept: duplicateKept(prior, message, onScreen(prior.key)) };
 }
 
-// ----------------------------------------------------------- Silence
 
 // Silence lets critical notifications through from two senders: the bare
 // command line, whose sender named no application of its own, and a VGS
@@ -922,7 +896,6 @@ function fromPlugin(hints) {
     return isPlainObject(hints) && typeof hints["x-vgs-plugin"] === "string" && hints["x-vgs-plugin"] !== "";
 }
 
-// --------------------------------------------------------- app sounds
 
 // Do Not Disturb and Sound off also quiet the sound an app plays itself
 // for a notification, in its own PipeWire stream, while the app's other
@@ -934,10 +907,10 @@ function fromPlugin(hints) {
 // did, as a call. A stream nobody muted that already plays when the
 // notification comes is never muted. Read on the owner's desktop,
 // 2026-10-10, pw-dump --monitor against dbus-monitor, six Slack messages
-// (VGS-1311): Slack opens a new stream 74 to 121 ms after its Notify call
-// and pauses it 11.6 to 12.0 s later. Read there again on 2026-10-19
-// (VGS-1950): the stream can show before the notification, and one stream
-// played three messages' chimes.
+// Slack opens a stream 74 to 121 ms after Notify and pauses it 11.6 to
+// 12.0 s later. A second reading
+// there on 2026-10-19 found streams arriving before Notify and one stream
+// serving three chimes; admission must handle either order and stream reuse.
 var APP_SOUND_ARM = 1000;
 var APP_SOUND_HOLD = 15000;
 
@@ -1022,7 +995,7 @@ function soundRuleHeld(text) {
 // the rule reports once WirePlumber next starts: `v` and FNV-1a over its
 // UTF-16 units as eight hex digits. The letter keeps it a string: pw-dump prints
 // a metadata value of digits alone as a JSON number (read in the nested
-// sandbox, PipeWire 1.6.9, VGS-1424).
+// sandbox, PipeWire 1.6.9).
 function soundRuleVersion(text) {
     var h = 0x811c9dc5;
     for (var i = 0; i < text.length; i++) {
@@ -1038,7 +1011,7 @@ function soundRuleVersion(text) {
 // optional loads only when a loaded component wants or requires it, and a
 // wanted script that fails to load, as when its file is gone, leaves
 // WirePlumber and its audio running (measured on WirePlumber 0.5.18 in the
-// nested sandbox, VGS-1424). Strings are written as JSON strings, which
+// nested sandbox). Strings are written as JSON strings, which
 // WirePlumber's SPA JSON reads. The standard event source enables only after
 // its initial ObjectManagers are installed (WP 0.5.18,
 // module-standard-event-source.c/on_om_installed); require it before Lua
@@ -1128,7 +1101,7 @@ function disabledIn(text, id) {
 // player: the core's player plays only files of its sounds directory,
 // SOUNDS, and pw-play names the file it plays in media.filename. A pw-play
 // stream carries no application.process.id (read in the nested sandbox,
-// PipeWire 1.6.9, VGS-1424), so its process cannot be judged.
+// PipeWire 1.6.9), so its process cannot be judged.
 function shellPlayer(props, sounds) {
     if (!isPlainObject(props) || typeof sounds !== "string" || sounds === "") return false;
     var file = props["media.filename"];
@@ -1215,7 +1188,7 @@ function soundRuleUpdate(current, text) {
 //   playing  a notification's sound, muted until it pauses or UNTIL.
 // A stream the rule held for its app rests or is pending from its first
 // step, armed or not: an app's chime can start before its notification
-// reaches the shell (VGS-1950), so freeing it until one comes would let
+// reaches the shell, so freeing it until one comes would let
 // the chime play. A muted stream that pauses rests rather than being
 // freed, so the next sound the app plays on it, as Chromium plays each
 // chime on the stream it keeps open, is silent from its first sample
@@ -1246,7 +1219,6 @@ function appSoundStep(hold, armed, stream, now, ruled) {
     return { hold: hold, change: "" };
 }
 
-// ---------------------------------------------------------- lifetime
 
 // How long a toast shows, in milliseconds; 0 is until it is closed.
 // `normal` is a normal toast's floor, the `duration` setting in
@@ -1261,7 +1233,6 @@ function lifetimeFor(urgency, expireTimeout, normal) {
     return Math.min(MAX_LIFETIME, Math.max(floor, Math.round(asked)));
 }
 
-// -------------------------------------------------------------- hints
 
 // The VGS hints any sender may add, each a string hint, and the roles an
 // entry keeps them in (developer.md § Hints):
@@ -1285,8 +1256,7 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 // A hint of another shape is refused whole: its role stays "" and the
 // service logs its name.
 var HINTS = { "x-vgs-avatar": "hintAvatar", "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": "hintOpen", "x-vgs-click": "hintClick", "x-vgs-page": "hintPage" };
-// The hint roles, which a stored entry may leave out: an entry stored
-// before a sender could add hints has none, and reads back with each "".
+// Hint roles are optional in stored entries; an absent role reads as empty.
 var HINT_ROLES = ["hintAvatar", "hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
 var HINT_TONES = ["success", "warning", "danger", "info"];
 // The Lucide icon a VGS plugin's notice draws when it names none, by its
@@ -1413,7 +1383,6 @@ function openNotice(reason) {
     }
 }
 
-// ------------------------------------------------------------ entries
 
 function clip(text, max) {
     var s = String(text === undefined || text === null ? "" : text);
@@ -1557,7 +1526,6 @@ function ownedImages(entries) {
     return names.sort();
 }
 
-// ------------------------------------------------------------- state
 
 // The state file's content for this state. `boot` is the kernel's boot id
 // the state belongs to (fromBoot).
@@ -1649,17 +1617,14 @@ function migrateState(text, boot) {
     }
     if (!isPlainObject(parsed) || !Number.isInteger(parsed.version)
         || parsed.version < 1 || parsed.version >= STATE_VERSION) return same;
-    // cb594cd23: version 2 added the kernel boot identifier.
     if (parsed.version === 1) {
         if (parsed.boot === undefined) parsed.boot = boot;
         parsed.version = 2;
     }
-    // eb2413bf2: version 3 added Sound, previously always on outside DND.
     if (parsed.version === 2) {
         if (parsed.sound === undefined) parsed.sound = true;
         parsed.version = 3;
     }
-    // a6d5cdafc: version 4 allowed optional per-entry read marks.
     if (parsed.version === 3) parsed.version = 4;
     return { text: JSON.stringify(parsed), migrated: true };
 }
@@ -1689,7 +1654,6 @@ function fromBoot(state, boot) {
     };
 }
 
-// ------------------------------------------------------------ restart
 
 // A stored toast on screen carries its clock as the service last settled
 // it: `deadline`, when it runs out while running, or `remaining`, what was
@@ -1733,14 +1697,11 @@ function withoutDeadline(entry) {
     return out;
 }
 
-// ------------------------------------------------------------ history
 
-// Whether an entry is still young enough at `now` to stay in the history.
 function youngAt(entry, now) {
     return entry.timestamp > now - HISTORY_AGE;
 }
 
-// The history without the entries HISTORY_AGE old or older at `now`.
 function pruneHistory(history, now) {
     return history.filter(function (e) { return youngAt(e, now); });
 }
@@ -1793,7 +1754,6 @@ function panelRows(history, mode, readBefore, now) {
     return history.filter(function (e) { return youngAt(e, now) && (mode !== "inbox" || unread(e, readBefore)); });
 }
 
-// The panel's subtitle under its title.
 function panelSubtitle(mode, count, storeState) {
     switch (storeState) {
     case "pending": return "Loading saved history";
@@ -1816,7 +1776,6 @@ function evictionKey(rows) {
     return rows.length > 0 ? rows[rows.length - 1].key : "";
 }
 
-// ------------------------------------------------------------ actions
 
 // The hover actions of a card: the sender's own while the service holds
 // its notification, Open log when its accepted x-vgs-open hint (hintOpen)
@@ -1953,7 +1912,6 @@ function senderWindows(windows, entry) {
     return (site.length > 0 ? site : browsers).map(windowAddress);
 }
 
-// ------------------------------------------------------ message links
 
 // What a choice on a card needs to open its message in its sender:
 // { rule, arrival, team }, or null for a choice or a card that opens
@@ -2075,7 +2033,6 @@ function slackMessageLink(text, arrival, teamId) {
     return link === "" ? { link: "", found: "refused" } : { link: link, found: "one" };
 }
 
-// ------------------------------------------------------------- clocks
 
 // The toasts' lifetimes, as key -> { remaining, since }: `since` is when a
 // running clock last started, null while it is paused. `running` answers
@@ -2108,7 +2065,6 @@ function nextExpiry(clocks, now) {
     return best;
 }
 
-// ---------------------------------------------------------------- IPC
 
 // What an IPC argument asks of an on and off state, `sound` or `silence`,
 // given the current one: `on`, `off`, `toggle`, or empty for no change.

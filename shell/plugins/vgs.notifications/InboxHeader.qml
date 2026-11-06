@@ -2,21 +2,12 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// The panel's header over the stack while the Inbox or the History is open:
-// its title with the Settings gear on the title's line and the subtitle
-// under it, then the Sound, Do Not Disturb and History icons and one pill,
-// Mark all read (Inbox) or Clear history (History). The History icon stays
-// in its place in both views and is checked while the History shows, where
-// a click goes back to the Inbox. Sound off and Do Not Disturb on draw
-// warning glyphs; History open draws an accent glyph. Each icon's
-// screen-reader name states its state. Its
-// caller supplies state and handles each request.
+// The caller owns state and handles requests; the header only presents it.
 Item {
     id: header
 
     required property var look
     required property Item settingsHost
-    // The notifications' own VGlass choice, their `glass` setting.
     property bool glassChoice: false
     property string mode: "inbox"
     property string subtitle: ""
@@ -28,7 +19,6 @@ Item {
     property bool dnd: false
     property bool shown: false
     readonly property bool history: mode === "history"
-    // The stack's text column, which the cards' text starts on.
     required property real textColumn
     signal soundRequested(bool on)
     signal dndRequested(bool on)

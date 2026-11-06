@@ -2,26 +2,17 @@ import QtQuick
 import QtQuick.Layouts
 import "NotificationLogic.js" as Logic
 
-// One toast row of the stack on one screen. While the toast draws glass,
-// the card morphs in from a dot and collapses back into one when it leaves;
-// without glass it fades in at full size as it drops, and fades out. The
-// service owns the row, its lifetime and its end. In a stack at the top the
-// row's gap is above the card and the dot drops in from above; at the
-// bottom the gap is below it and the dot rises from below. The stack's
-// refusal toast is a slot with no row: its key is "" and `refusal` holds
-// its caption.
+// The service owns the row and its lifetime; each screen only animates it.
+// A refusal toast has no model row: its key is empty and `refusal` is its caption.
 Item {
     id: slot
 
-    // The stack this row is drawn in, which says whether the service is
-    // still there.
     required property var host
     // Null once the service or the stack is gone, while the host destroys
     // this copy; every binding on it checks for that.
     readonly property var service: host ? host.service : null
     readonly property bool rising: host ? host.fromBottom : false
     required property var look
-    // The stack's text column, which the card's text starts on.
     required property real textColumn
     required property int index
     required property string key

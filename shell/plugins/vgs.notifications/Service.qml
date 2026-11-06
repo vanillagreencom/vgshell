@@ -8,41 +8,12 @@ import qs.Ui
 import "Appearance.js" as Appearance
 import "NotificationLogic.js" as Logic
 
-// The notification service: every desktop notification the core's server
-// receives becomes a glass toast on every screen, at the edge the `position`
-// setting names, and leaves into the history whatever takes it off the
-// screen: it expires, is dismissed, is opened or acted on, is closed by its
-// sender or is let go by a full stack, transient or not. The history keeps
-// it until the user clears it, the machine starts again, it is a day old
-// or a hundred newer ones are kept (Store, NotificationLogic.HISTORY_MAX).
-// The Inbox lists what arrived since the last Mark read, the History
-// everything kept; while either is open the toasts stay and do not expire.
-// Opening a toast or an inbox row runs its
-// primary action, the sender's default, else its first; a pill runs its
-// own. Each is delivered while the service still holds the notification,
-// brings the sender's window into view (NotificationLogic.choicePlan) and
-// closes a nonresident notification on the server; its history entry stays.
-// A live resident notification stays for further actions. Opening
-// a Slack card also opens its message in Slack (readMessage). Silence,
-// which the header draws as Do Not Disturb, keeps notifications off the
-// screen and records them in the history, bar a critical one from the bare
-// command line, which shows. A notification that shows plays the shell's
-// sound only with Sound on and Silence off; Sound off or Silence on also
-// mutes the sound an app plays itself for its notification (AppSounds,
-// with the WirePlumber rule SoundRule installs).
-// The service owns
-// the rows, their clocks, the notification objects it holds and the store;
-// the stack its layer draws on each screen is only a view of them.
-// Everything it registers is the core's to release.
-//   shortcut vgs.notifications:inbox     SUPER+N from the manifest's
-//                                        `hyprland` binds (README)
-//   shortcut vgs.notifications:act       SUPER+SHIFT+N, a click on the
-//                                        newest notification (actOnLast)
-//   vgshell ipc call vgs.notifications invoke <name> <arg>, names in the README
+// The service owns notification objects, rows, clocks and persistent state.
+// Per-screen stacks only draw those rows. The core releases registrations
+// with the plugin, so views do not own server state or registration teardown.
 Item {
     id: root
 
-    // The core assigns the plugin's scoped shell object after creation.
     property var shell: null
     // A normal toast's lifetime floor, from the `duration` setting in
     // seconds; the manifest's default and the schema's bounds make it a
@@ -104,7 +75,6 @@ Item {
     property var recentMessages: []
     property var duplicates: ({ keptDesktop: 0, keptBrowser: 0 })
 
-    // "", "inbox" or "history".
     property string panelMode: ""
     readonly property bool panelOpen: panelMode !== ""
     property bool panelFocused: false
@@ -133,7 +103,6 @@ Item {
     readonly property int exitTime: toastMotion === null ? 0 : toastMotion.exit
     readonly property int enterTime: toastMotion === null ? 0 : toastMotion.enter
 
-    // It draws nothing: it answers whether the notifications draw glass.
     GlassSurface {
         id: glassState
         visible: false
@@ -343,7 +312,6 @@ Item {
         }
     }
 
-    // ------------------------------------------------------------- rows
 
     function indexOf(key) {
         for (let i = 0; i < rowModel.count; i++)
@@ -360,7 +328,6 @@ Item {
         return out;
     }
 
-    // Every toast on screen leaves into the history; how many did.
     function dismissAll() {
         const keys = rowKeys(() => true);
         for (const key of keys) leave(key, "dismiss");
@@ -424,8 +391,6 @@ Item {
         shownCount = rowKeys(() => true).length;
     }
 
-    // The plain values a notification carries now, or null once the server
-    // has torn it down.
     function fieldsOf(n) {
         try {
             return {
@@ -442,7 +407,6 @@ Item {
         return indexOf(key) !== -1 || store.hasKey(key) || Logic.hasOwn(silencedRefs, key);
     }
 
-    // ------------------------------------------------------- receiving
 
     // A notification arrives: a toast, or under Silence a history entry.
     // Answers whether the service keeps it; one it does not keep is not
@@ -583,11 +547,9 @@ Item {
             if (how === "expire") ref.notification.expire();
             else if (how === "dismiss") ref.notification.dismiss();
         } catch (e) {
-            // The server tore the object down already; nothing is left to tell.
         }
     }
 
-    // Whether the row of `key` is a toast on screen that is not leaving.
     function onScreen(key) {
         const at = indexOf(key);
         return at !== -1 && rowModel.get(at).origin === "live" && rowModel.get(at).leaving === "";
@@ -691,7 +653,6 @@ Item {
         }
     }
 
-    // --------------------------------------------------------- restore
 
     // The toasts the previous shell left on screen come back, with no live
     // actions, and the ones whose time ran out meanwhile go into the history.
@@ -708,7 +669,6 @@ Item {
         countShown();
     }
 
-    // ---------------------------------------------------------- clocks
 
     function startClock(key, lifetime) {
         const next = Object.assign({}, clocks);
@@ -764,7 +724,6 @@ Item {
         settle();
     }
 
-    // ---------------------------------------------------------- leaving
 
     // Start a row's exit. A toast is off the screen for the store at once
     // and into the history, whatever the reason, so a rebuild during the
@@ -794,7 +753,6 @@ Item {
         timer.start();
     }
 
-    // The row off the model, with its exit timer, hover count and clock.
     function removeRow(key) {
         const at = indexOf(key);
         if (at === -1) return;
@@ -947,7 +905,6 @@ Item {
         bumpPanel();
     }
 
-    // ---------------------------------------------------- message links
 
     readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")
 
@@ -1000,7 +957,6 @@ Item {
         }
     }
 
-    // ------------------------------------------------------------ panel
 
     function togglePanel() {
         if (panelOpen) return closePanel();
@@ -1166,9 +1122,7 @@ Item {
         function onDndChanged() { root.bumpPanel(); }
     }
 
-    // --------------------------------------------------------- readback
 
-    // The service's state as one JSON line, for `invoke status`.
     function status() {
         return JSON.stringify({
             sound: store.sound,

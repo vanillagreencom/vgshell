@@ -12,7 +12,7 @@ import "NotificationLogic.js" as Logic
 // configuration file is only read at startup; pipewire.conf(5): the daemon
 // creates context.objects at startup), so a new or updated rule loads at the
 // next normal start of the user's audio services. Nothing here restarts
-// them: a restart drops every live call's devices (VGS-2231).
+// them: a restart drops live calls' devices.
 // Hold intent lives in PipeWire and needs no rule-return event or
 // republish. The existing watcher only reports rule availability.
 Item {
@@ -39,7 +39,6 @@ Item {
     property string step: "installing"
     readonly property string phase: running ? "running" : step
     property string version: ""
-    // The version the rule's metadata reports, "" while none does.
     property string observed: ""
     // Actual rule-held object.serial values, forwarded to AppSounds by Service.
     property var held: []
@@ -51,7 +50,6 @@ Item {
         step = "installed";
         problem = "";
     }
-    // The shipped script's text, null until read.
     property var shipped: null
 
     function state() {
@@ -275,9 +273,8 @@ Item {
     }
 
     Component.onDestruction: {
-        // The view holds the text it read when it was built; reload and
-        // waitForJob read the file as it is now (measured: without them
-        // the disable read the cached text, VGS-1424).
+        // Reload and wait before judging disablement: FileView otherwise
+        // retains the configuration read when this instance was built.
         userConfig.reload();
         userConfig.waitForJob();
         if (!Logic.disabledIn(userConfig.text(), pluginId)) return;

@@ -34,8 +34,6 @@
 # before it runs any secret-tool.
 set -euo pipefail
 
-# The most workspaces NotificationLogic.slackWorkspaces reads from Slack's
-# list, its WORKSPACES_MAX.
 teams_max=16
 if [[ $# -gt $teams_max ]]; then
   echo "notifications-token-status: refused: teams count=$# want<=$teams_max" >&2
@@ -67,7 +65,6 @@ if [[ -n ${VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR:-} ]]; then
   fi
 fi
 
-# probe ACCOUNT: the state of one account, as the rest of its line.
 probe() {
   local status=0 err found=false failure="" line
   err="$(timeout --foreground "$limit" secret-tool search service vgs-notifications account "$1" 2>&1 >/dev/null)" || status=$?

@@ -28,7 +28,6 @@ Item {
     readonly property string path: dir + "/state.json"
     readonly property string imagesDir: dir + "/images"
     readonly property string script: String(Qt.resolvedUrl("images.sh")).replace(/^file:\/\//, "")
-    // The kernel's id for this boot, a new one each start of the machine.
     readonly property string bootPath: "/proc/sys/kernel/random/boot_id"
 
     // pending, loaded, absent, corrupt or unreadable.
@@ -37,7 +36,6 @@ Item {
     readonly property bool writable: (status === "loaded" || status === "absent") && boot !== ""
     // The keyed line naming why the file is not read or written, or "".
     property string problem: ""
-    // This boot's id, "" until it is read or when it cannot be.
     property string boot: ""
     // Whether a notification that shows may play the shell's sound, and
     // Silence, which the header draws as Do Not Disturb.
@@ -49,8 +47,7 @@ Item {
     property var live: []
     property var history: []
 
-    // How many helper runs may wait; a copy past it is dropped and logged,
-    // and the card falls back to the application icon.
+    // Bound pending image work; an overflow drops and logs the queued request.
     readonly property int queueMax: 64
     // { argv, done } helper runs waiting, the one running, and whether a
     // sweep waits already.
@@ -81,16 +78,12 @@ Item {
         live = current.state.live;
         history = current.state.history;
         status = "loaded";
-        // Written once, so the next start reads this version's and this
-        // boot's file.
         if (moved.migrated) console.info("notifications: state migrated: file=" + path + " version=" + Logic.STATE_VERSION);
         if (current.cleared > 0) console.info("notifications: history from an earlier boot cleared: entries=" + current.cleared);
         if (moved.migrated || current.cleared > 0) changed();
         prune();
     }
 
-    // Let go of the history entries that came of age; a write follows
-    // when any did.
     function prune() {
         const young = Logic.pruneHistory(history, Date.now());
         if (young.length === history.length) {
@@ -225,7 +218,6 @@ Item {
         changed();
     }
 
-    // Store one toast on screen, replacing the one with its key.
     function putLive(entry) {
         const at = live.findIndex(e => e.key === entry.key);
         live = at === -1 ? [entry].concat(live) : live.slice(0, at).concat([entry], live.slice(at + 1));
@@ -245,7 +237,6 @@ Item {
         changed();
     }
 
-    // Take one toast off the screen into the history.
     function dropLive(key) {
         const entry = live.find(e => e.key === key);
         if (entry === undefined) return;
@@ -276,7 +267,6 @@ Item {
         changed();
     }
 
-    // A panel card dismissed in `mode` (NotificationLogic.dismissedHistory).
     function dismissHistory(key, mode) {
         const next = Logic.dismissedHistory(history, key, mode);
         if (next === history) return;

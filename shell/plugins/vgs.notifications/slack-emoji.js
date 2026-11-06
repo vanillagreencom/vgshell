@@ -45,7 +45,6 @@ const HEX = /^[0-9a-f]{16}$/;
 const FILE_NAME = /^([0-9a-f]{16})\.png$/;
 const URL_PREFIX = "https://emoji.slack-edge.com/";
 const EMOJI_URL = /^https:\/\/emoji\.slack-edge\.com\/([A-Za-z0-9]{1,32})\/([^/]{1,100})\/[0-9a-f]{16}\.(?:png|gif|jpg)$/;
-// Limits.
 const SOURCE_MAX = 256 * 1024;
 const FILE_MAX = 64 * 1024;
 const TEAM_COUNT_MAX = 2048;
@@ -78,7 +77,6 @@ function executableOnPath(command, envPath) {
             fs.accessSync(candidate, fs.constants.X_OK);
             if (fs.statSync(candidate).isFile()) return candidate;
         } catch (_e) {
-            // Keep looking.
         }
     }
     return "";
@@ -157,7 +155,6 @@ function writeState(root, id, state, atomicWrite) {
     }) + "\n");
 }
 
-// Every file in emoji/ but the images `keep` names.
 function sweepFiles(root, id, keep) {
     const dir = path.join(root, id, EMOJI_DIR);
     let names;
@@ -187,7 +184,6 @@ function fileHolds(root, id, hex) {
     }
 }
 
-// The team ids under the root with an emoji index.
 function stateTeams(root) {
     let names;
     try {
@@ -268,8 +264,6 @@ function candidates(cached, list) {
     return out;
 }
 
-// One ImageMagick run over `jobs`, [{ input, coder, output }]: answers
-// whether it exited 0.
 function magickRun(magick, jobs, timeout) {
     const args = ["-limit", "memory", "64MiB", "-limit", "map", "128MiB", "-limit", "time", String(Math.ceil(timeout / 1000))];
     for (const job of jobs) {
@@ -310,7 +304,6 @@ function convertAll(magick, jobs) {
     return done;
 }
 
-// Put `bytes` at emoji/<hex>.png unless that content is already there.
 function install(root, id, bytes, atomicWrite) {
     const hex = hexOf(bytes);
     if (!fileHolds(root, id, hex)) atomicWrite(path.join(root, id, EMOJI_DIR, hex + ".png"), bytes);

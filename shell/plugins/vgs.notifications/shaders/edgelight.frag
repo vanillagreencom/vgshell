@@ -4,7 +4,7 @@
 // where its surface normal faces it, and a faint glow refracts a few pixels
 // into the glass. The highlight is symmetric around the light, like a real
 // specular reflection, and only the lights move. Compiled to
-// edgelight.frag.qsb by the command in the plugin's README.
+// edgelight.frag.qsb by the command in developer.md under Look.
 
 layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;

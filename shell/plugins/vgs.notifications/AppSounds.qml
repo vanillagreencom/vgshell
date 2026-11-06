@@ -68,8 +68,6 @@ Item {
         else ruleGrace.restart();
     }
 
-    // The app of a notification that arrived: its streams that start to
-    // play in the next APP_SOUND_ARM ms are muted.
     function arm(desktopEntry, appName) {
         const now = Date.now();
         const next = Object.assign({}, arms);
@@ -78,8 +76,6 @@ Item {
         for (const entry of streams) judge(entry.node);
     }
 
-    // What the service's status reports: the node names of the streams
-    // under a mute.
     function state() {
         return { held: Object.keys(holds).map(id => String(holds[id].node.name)).sort(), hold: holdState, writer: writer.processId };
     }
@@ -95,7 +91,6 @@ Item {
         return value === "true" ? true : value === "false" ? false : null;
     }
 
-    // The latest arm of the app NODE belongs to, or null.
     function armOf(node) {
         let latest = null;
         for (const app of Object.keys(arms))
@@ -247,10 +242,9 @@ Item {
         objects: root.streams.map(e => e.node)
     }
 
-    // Read on the next turn, not inside the change: rebuilding from the
-    // removal signal while Quickshell dispatches it has crashed its PipeWire
-    // service (vgs.sound's Audio.qml). Not after Audio.qml's 75 ms either: a
-    // Slack chime's stream starts to play 75 ms after it opens.
+    // Defer rebuilding until Quickshell finishes its PipeWire removal
+    // dispatch, which must not be invalidated (vgs.sound/Audio.qml). Use the
+    // next turn so a newly opened chime is held promptly.
     Connections {
         target: Pipewire.nodes
         function onValuesChanged() { Qt.callLater(root.deferredWork.refresh); }

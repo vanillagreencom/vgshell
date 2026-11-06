@@ -1,9 +1,6 @@
 import QtQuick
 
-// The bead a toast is while it is still a dot, inside its glass: a shade
-// toward the bottom and a specular spot at the top left, which make a small
-// round surface read as a glass bead. `amount`, from 0 to 1, fades it in;
-// the toast's spin to a circle drives it. Lay it in the glass body.
+// Bottom shading and a top-left highlight make the toast dot read as glass.
 Item {
     id: orb
 

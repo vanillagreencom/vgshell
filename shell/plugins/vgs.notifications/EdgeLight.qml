@@ -27,11 +27,9 @@ ShaderEffect {
     transformOrigin: follow.transformOrigin
 
     readonly property real radius: follow.radius
-    // The corner the radius rounds to on this size.
     readonly property real corner: Math.min(radius, width / 2, height / 2)
     readonly property bool running: visible && opacity > 0 && look.motion.scale > 0
 
-    // Shader uniforms, by name.
     readonly property size size: Qt.size(width, height)
     readonly property real thickness: look.edge.thickness
     readonly property real reach: look.edge.reach
@@ -45,7 +43,6 @@ ShaderEffect {
     readonly property real powerA: look.edge.strengthA * boost
     readonly property real powerB: look.edge.strengthB * boost
     readonly property point lightA: orbitPoint(phase)
-    // The counter light trails half an orbit behind, drifting a little.
     readonly property point lightB: orbitPoint(phase + 0.5 + 0.045 * Math.sin(clock / 5.3))
 
     // Phase is a fraction of the orbit, so the lights hold their place
@@ -91,7 +88,6 @@ ShaderEffect {
             // A long frame is capped, so a stall never jumps the lights.
             const dt = Math.min(frameTime, 0.05);
             edge.clock += dt;
-            // An uneven pace: two slow, unrelated waves on the mean speed.
             const pace = 1 + 0.3 * Math.sin(edge.clock * 0.83) + 0.12 * Math.sin(edge.clock * 2.1 + 1.3);
             edge.phase = (edge.phase + dt * (edge.look.edge.speed * pace / edge.orbitLength + edge.spin)) % 1;
         }

@@ -3,8 +3,6 @@ import QtQuick.Templates as T
 import qs.Ui
 import qs.Ui as Ui
 
-// A compact text button on the glass: quiet at rest, a plate on hover, a
-// squish while pressed. `emphasized` lifts it a step at rest.
 T.Button {
     id: pill
 

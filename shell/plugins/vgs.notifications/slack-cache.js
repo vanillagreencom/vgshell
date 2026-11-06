@@ -62,13 +62,11 @@ const KEY_LENGTH_AT = 12;
 const END_RECORD = Buffer.from([0xd8, 0x41, 0x0d, 0x97, 0x45, 0x6f, 0xfa, 0xf4]);
 // The longest key a listing reads.
 const KEY_MAX = 256;
-// The most entries one listing reads. The owner's cache held 17,765 on
-// 2026-09-29.
+// Bound a listing without silently truncating its results.
 const LIST_MAX = 262144;
 // The largest icon body `copy` takes.
 const ICON_MAX = 5 * 1024 * 1024;
 
-// The file name of `url`'s entry.
 function entryName(url) {
     const sum = crypto.createHash("sha1").update(Buffer.from(KEY_PREFIX + url, "utf8")).digest();
     return Buffer.from(sum.subarray(0, 8)).reverse().toString("hex") + "_0";
@@ -86,7 +84,6 @@ function openEntry(file) {
     try {
         if (fs.fstatSync(fd).isFile()) return { fd };
     } catch (_e) {
-        // Not a file the reader can judge.
     }
     fs.closeSync(fd);
     return { reason: "unreadable" };
@@ -103,7 +100,6 @@ function readFully(fd, length) {
     return bytes.subarray(0, read);
 }
 
-// The body of `url`'s entry in `dir`, at most `max` bytes.
 function read(dir, url, max) {
     const key = Buffer.from(KEY_PREFIX + url, "utf8");
     const opened = openEntry(path.join(dir, entryName(url)));
@@ -126,7 +122,6 @@ function read(dir, url, max) {
     }
 }
 
-// Every entry in `dir` whose key's URL starts with `urlPrefix`.
 function list(dir, urlPrefix) {
     const entries = [];
     let names;
@@ -169,7 +164,6 @@ function refuse(status, line) {
     process.exit(status);
 }
 
-// The `copy` verb; `args` follow the verb.
 function copy(args) {
     if (args.length < 2 || args.length % 2 !== 0) refuse(2, "refused: usage");
     const [cacheDir, dir] = args;

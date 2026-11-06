@@ -5,17 +5,8 @@ import Quickshell.Widgets
 import qs.Ui
 import "NotificationLogic.js" as Logic
 
-// One notification as a glass capsule: its image, the Lucide icon its
-// x-vgs-icon hint names in the tone its x-vgs-tone hint names, or its
-// application icon, its summary and its body, and the hover actions at
-// its right end, beside the text, or in their place a muted caption. A sender
-// a NotificationLogic rule reads shows the people it names as faces in the
-// icon's place, and the workspace it belongs to as that workspace's icon,
-// when there is one, before the rule's title in place of the summary. It draws no fill of its
-// own: the GlassSurface under it paints the glass and the slot drives its
-// size, its content fade and its lifetime. It holds no notification
-// object, only the values it draws. A caption-only card, the stack's
-// refusal toast, draws its caption alone.
+// The card holds plain display values, never a live notification object.
+// Its slot owns size, content fade and lifetime; GlassSurface owns the fill.
 Item {
     id: card
 
@@ -33,13 +24,11 @@ Item {
     property string hintAvatar: ""
     property string hintIcon: ""
     property string hintTone: ""
-    // The x-vgs-page hint, whose words the body draws as a link.
     property string hintPage: ""
     // The workspace the card belongs to: the one `enrichment` names, or the
     // one the service resolved for it (NotificationLogic.slackWorkspaceFor),
     // or "".
     property string workspace: ""
-    // The file URL of that workspace's icon, or "".
     property string workspaceIcon: ""
     // One file URL per face, from the optional Slack token cache.
     property var faceImages: []
@@ -73,9 +62,6 @@ Item {
     signal cardClicked()
 
     readonly property real fullWidth: captionOnly ? Math.ceil(captionText.implicitWidth) + 2 * pad : look.card.width
-    // The content, or a caption-only card's caption, with `pad` all round.
-    // The content never outgrows maxHeight less that pad: the body shows
-    // only the lines that fit.
     // A tray releasing the text width must finish the same real layouts
     // before its virtual slot can retain the collapsed card height.
     function settleHeight() {
@@ -89,23 +75,13 @@ Item {
     required property real textColumn
     readonly property string iconSource: image.length > 0 ? image : iconPath(appIcon)
     readonly property string sanitizedBody: Logic.sanitizeBody(body, app, appIcon)
-    // The body as ImageText segments: StyledText with every image tag
-    // stripped and the page hint's words drawn as a link
-    // (NotificationLogic.styledBody), and the workspace's custom emoji as
-    // images (emojiSegments).
     readonly property var bodySegments: Logic.emojiSegments(Logic.styledBody(body, app, appIcon, hintPage, look.text.link), emoji)
     readonly property string linkWords: Logic.pageWords(hintPage)
     readonly property bool singleLine: sanitizedBody.length === 0
     readonly property bool iconInSummary: singleLine && Logic.summaryStartsWithGlyph(summary)
-    // NotificationLogic.enrich's reading of this sender, or null.
     readonly property var enrichment: Logic.enrich(app, desktopEntry, appIcon, summary, body)
     readonly property bool showsFaces: enrichment !== null && enrichment.faces.length > 0
     readonly property bool showsBadge: enrichment !== null && workspace.length > 0 && workspaceIcon.length > 0 && textBlock.badgeStatus === Image.Ready
-    // What the media slot draws: the people the rule read, else the
-    // notification's image, else the Lucide icon its x-vgs-icon hint names,
-    // else its application's icon; none when the one-line summary opens
-    // with its own icon glyph. A hint name the Lucide set lacks draws no
-    // media, and Icon logs it.
     readonly property string mediaKind: showsFaces ? "faces" : iconInSummary ? "" : image.length > 0 ? "thumbnail" : hintAvatar.length > 0 ? "avatar" : hintIcon.length > 0 ? "glyph" : iconSource.length > 0 ? "icon" : ""
     readonly property bool showsSlot: mediaKind !== "" && mediaSlot.drawable
     readonly property real contentLeftInset: showsSlot ? pad : textColumn
@@ -120,8 +96,6 @@ Item {
     // column back.
     readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0)
     readonly property real trayReserve: trayShown || tray.visible ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
-    // The summary as drawn: the rule's title once the workspace's icon
-    // stands in for the workspace.
     readonly property string title: showsBadge ? enrichment.title : summary
 
     // An icon value as an image source: a URL as it is, a path as a file
@@ -191,8 +165,6 @@ Item {
         }
     }
 
-    // The hover actions at the right end, beside the text, the card's pad
-    // in from its end, or the caption while there is one.
     Item {
         id: tray
         anchors.right: parent.right

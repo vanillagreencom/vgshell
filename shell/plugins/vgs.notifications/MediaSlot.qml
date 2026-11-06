@@ -3,20 +3,8 @@ import Quickshell.Widgets
 import qs.Ui
 import "NotificationLogic.js" as Logic
 
-// The one slot a card's media sits in: a square `look.media.size` wide,
-// whatever the media, so the text after it starts at the same x on every
-// card. `kind` names what it draws:
-// `faces`, the people `names` holds through the AvatarGroup of qs.Ui, one
-// person as a circle that fills the slot; `thumbnail`, the image `source`
-// cropped to the square with the slot's corner radius; `icon`, the
-// application icon `source` drawn at the slot's icon size;
-// `glyph`, the Lucide icon `glyph` names at the same icon size in
-// `glyphColor`, the x-vgs-icon hint's. Every kind is centred in the square,
-// whatever the card's text, so a symbol and an application icon share one
-// size and one centre. `avatar` draws a round plugin glyph with an
-// optional filled outcome badge staggered over its top-right corner.
-// Automations opts into this exception to VGS-1613/VGS-1947; ordinary
-// application and symbol icons retain their one size.
+// A fixed media square keeps text aligned across cards. Application and
+// symbol icons share one size; plugin avatars reserve room for an outcome badge.
 Item {
     id: slot
 

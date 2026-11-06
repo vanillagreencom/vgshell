@@ -2,9 +2,6 @@ import QtQuick
 import qs.Ui
 import "NotificationLogic.js" as Logic
 
-// The shared notification face: one card, the glass behind it, the edge
-// light over it and the hover report every surface sends to the service.
-// The edge light and the bead show only while the glass is on.
 Item {
     id: face
 
@@ -29,7 +26,6 @@ Item {
     property var actions: []
     property bool showActions: false
     property string caption: ""
-    // A toast that is only its caption (NotificationCard.captionOnly).
     property bool captionOnly: false
     property int actionIndex: -1
     property bool keyboardActions: false
@@ -38,7 +34,6 @@ Item {
     property real edgeBoost: 1
     property bool edgeVisible: false
     property bool reportHover: true
-    // The notifications' own VGlass choice, their `glass` setting.
     property bool glassChoice: false
     // Whether the pointer is on the card: the card's own hover, unless the
     // surface hands the hover of the slot that holds the card.

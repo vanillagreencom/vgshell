@@ -4,16 +4,8 @@ import qs.Commons
 import "Appearance.js" as Appearance
 import "NotificationLogic.js" as Logic
 
-// The stack on one screen, the content the service hands its layer: the
-// toasts, at the edge the service's `position` names inside the space other
-// layers do not reserve, so never over the bar, with the newest toast
-// nearest that edge, and the act shortcut's caption-only refusal toast,
-// while the service holds one, nearer still. The layer host builds one per
-// screen and assigns `screen`. Presses reach only the toast cards. It
-// keeps no keyboard. The host destroys a copy a moment after the service
-// that declared it can already be gone, so every binding on the service
-// checks it for null, and the look is the stack's own reading of the same
-// table.
+// The host can destroy this per-screen view after its service is gone.
+// Guard service bindings and resolve the look independently for teardown.
 Item {
     id: stack
 
@@ -22,10 +14,7 @@ Item {
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     readonly property bool inputAll: false
     readonly property var inputItems: [column]
-    // With the service gone the model is gone too, so no card is placed.
     readonly property string position: service !== null ? service.position : ""
-    // A bottom position lays the cards out from the bottom edge, which the
-    // slots read for their gap and their entrance.
     readonly property bool fromBottom: position.startsWith("bottom")
     readonly property string side: position.endsWith("-left") ? "left" : position.endsWith("-right") ? "right" : "center"
     // The visible gap between the nearest card and each edge the stack is
@@ -55,7 +44,6 @@ Item {
         CardScroll {
             id: scroll
             look: stack.look
-            // A scrolling stack leaves `far` at the edge across from its own.
             maxHeight: stack.height - stack.look.stack.far - (stack.fromBottom ? stack.bottomInset : stack.topInset)
             fromEnd: stack.fromBottom
             scrollObjectName: "notificationScrollBar"

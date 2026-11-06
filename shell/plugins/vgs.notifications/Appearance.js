@@ -1,19 +1,9 @@
 .pragma library
 
-// The notifications' own look, the table the manifest's `appearance` names
-// and ThemeLogic.acceptAppearance judges. The original values are the Spotlight
-// notification stack's (px13 dotfiles, method.notifications Service.qml,
-// components/NotificationCard.qml and InboxHeader.qml, spotlight/Theme.qml,
-// GlassSurface.qml, EdgeLight.qml, PillButton.qml and Switch.qml, and
-// hooks/theme-set.d/spotlight-menu-tokens.sh), with each style value
-// the reference read stated as the value it resolved to there: Style.space(n)
-// is n at the default spacing scale, Style.gapsOut is 5, the font sizes are
-// the Style.font steps at the 12 px base (bodySmall 11, title 14) and the
-// subtitle role is caption plus one, 11. The theme's foreground the hook
-// wrote is the hook's own neutral here. The active theme reaches this table
-// through three inputs alone, `palette.accent`, `motion.scale` and
-// `font.family.sans`, plus its `scheme.mode`, which applies LIGHT; no other
-// theme value can.
+// This plugin owns its layout and colours; ThemeLogic.acceptAppearance
+// judges the table named by the manifest's appearance declaration.
+// Only palette.accent, motion.scale and font.family.sans reach this table
+// from the theme; scheme.mode selects LIGHT without replacing its layout.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -22,13 +12,11 @@ function family(value) { return { type: "family", value: value }; }
 function weight(value) { return { type: "weight", value: value }; }
 function number(value, min, max) { return { type: "number", value: value, min: min, max: max }; }
 function share(value) { return number(value, 0, 1); }
-// A signed pixel offset, such as a shadow's negative spread.
 function offset(value) { return number(value, -512, 512); }
 // A wait that is not an animation, in milliseconds, so motion.scale leaves it.
 function wait(value) { return number(value, 0, 10000); }
 // One cubic bezier's two control points, as Easing.BezierSpline reads them.
 function curve(x1, y1, x2, y2) { return { x1: share(x1), y1: share(y1), x2: share(x2), y2: share(y2) }; }
-// The foreground at one alpha: every tint the glass draws over its fill.
 function ink(alpha) { return color("alpha({text.foreground}, " + alpha + ")"); }
 
 var TOKENS = {
@@ -40,8 +28,6 @@ var TOKENS = {
 
     motion: {
         scale: number(1, 0, 4),
-        // The Material 3 duration scale the reference names, and the delay
-        // between rows of a cascade.
         duration: {
             short2: duration(100),
             short3: duration(150),
@@ -75,7 +61,6 @@ var TOKENS = {
     },
 
     text: {
-        // The hook's own neutral for a dark theme.
         foreground: color("#e8e8e8"),
         // A 1 px shadow under a title lifts light ink off dark glass: the
         // header's, and the summary's, which the card draws a shade
@@ -90,11 +75,9 @@ var TOKENS = {
         // control's text, chrome at the 12 px floor
         // (shell/Commons/Tokens.js).
         subtitle: { size: length(12), color: color("{text.body.color}") },
-        // A card's body, at the shell's 13 px reading floor
-        // (shell/Commons/Tokens.js), above the reference's 11. Its fade is
-        // its colour's alpha, so an image inline in the body draws at full
-        // strength. scripts/test-notifications-logic.js holds both text
-        // roles to the reading floor over dark and light wallpapers.
+        // Keep body text at the shell's reading floor (shell/Commons/Tokens.js).
+        // Alpha belongs to the text colour so inline images stay at full strength.
+        // scripts/test-notifications-logic.js checks both text roles.
         body: { size: length(13), color: color("alpha({text.foreground}, 0.8)") },
         // A notice's page link in its body, underlined: the theme's accent
         // where it reads at 4.5:1 on the card over any wallpaper, else the
@@ -105,9 +88,6 @@ var TOKENS = {
         label: { size: length(12), weight: weight(500), opacity: share(0.7) }
     },
 
-    // The bead a toast is while it is still a dot, drawn only while the
-    // toast draws glass: a shade toward the bottom and a specular spot at
-    // the top left.
     orb: {
         shadeStop: share(0.45),
         shade: color("alpha(#000000, 0.35)"),
@@ -124,7 +104,6 @@ var TOKENS = {
     radius: {
         // Larger than any side, so a corner rounds to a pill or a circle.
         full: length(4096),
-        // How far inside a rounded end's curve the corners of text stay.
         clearance: length(4)
     },
 
@@ -140,16 +119,12 @@ var TOKENS = {
         tail: length(24),
         // The mask band reserves no layout space.
         fadeHeight: length(96),
-        // The top band of the panel's list, under its header.
         headerFadeHeight: length(48),
         fadeCurve: curve(0.4, 0, 0.6, 1),
         far: length(12)
     },
 
     card: {
-        // The toast colour the hook writes for [notifications], and the
-        // glass fill over it handed to GlassSurface of qs.Ui, which draws
-        // the rest of the glass (Theme.glass).
         base: color("#101010"),
         opacity: share(0.8),
         fill: color("alpha({card.base}, {card.opacity})"),
@@ -159,8 +134,6 @@ var TOKENS = {
         nearInk: color("mix(#ffffff, {card.base}, {card.opacity})"),
         width: length(420),
         gap: length(8),
-        // The dot a toast morphs from, how far it drops in, how much the
-        // landing squashes it and how far a hover lifts it.
         dot: length(34),
         drop: length(14),
         squashWide: share(0.16),
@@ -175,9 +148,7 @@ var TOKENS = {
         // for 94; scripts/test-notifications-logic.js holds the table to it.
         pad: length(14),
         maxHeight: length(94),
-        // Between the media slot and the text.
         gapIcon: length(12),
-        // The stroke of the Lucide icon an x-vgs-icon hint names, in pixels.
         glyphStroke: length(2),
         // Under the summary. At 1 a card in the shipped family shows three
         // body lines at maxHeight: 94 less twice `pad`, the 17 px summary
@@ -217,11 +188,6 @@ var TOKENS = {
         }
     },
 
-    // The people a notification names, as faces in the media slot, laid
-    // out by the AvatarGroup of qs.Ui: one alone fills the slot; two to
-    // four overlap clockwise, each `share` of the slot across, ringed in
-    // the glass and laid over the one before it; past four, three faces
-    // and a "+N" chip.
     face: {
         share: share(0.6),
         ring: color("{card.base}"),
@@ -242,7 +208,6 @@ var TOKENS = {
             teal: color("mix({card.base}, #3fb8a6, 0.6)"),
             rose: color("mix({card.base}, #e06a8c, 0.6)")
         },
-        // The initials' size as a share of the face's diameter.
         initials: share(0.42),
         initialsWeight: weight(600)
     },
@@ -259,7 +224,6 @@ var TOKENS = {
         info: color("#74a7f7")
     },
 
-    // The workspace a summary names, as its small rounded icon before it.
     badge: {
         size: length(16),
         radius: length(4),
@@ -277,7 +241,6 @@ var TOKENS = {
     },
 
     pill: {
-        // Each side's padding around the label.
         padX: length(12),
         height: length(28),
         pressed: ink(0.16),
@@ -297,15 +260,10 @@ var TOKENS = {
         gap: length(4),
         drop: length(10),
         lineGap: length(1),
-        // From the title's end to the gear's glyph on its line.
         titleGap: length(6),
         controlsInset: length(10),
-        // Between the icons and the pill, and between two icons.
         controlsGap: length(8),
         iconGap: length(4),
-        // The box behind a header icon, round as the header is. A checked
-        // icon, a state away from the normal one or the History's view,
-        // draws the accent at the theme's checked-button strengths.
         icon: {
             rest: ink(0),
             hover: ink(0.11),
@@ -318,8 +276,6 @@ var TOKENS = {
         }
     },
 
-    // The slim bar a scrolling stack shows in its side room, as the
-    // launcher's list does: thin at rest, wide under the pointer.
     scrollbar: {
         width: length(12),
         gap: length(4),
@@ -331,9 +287,6 @@ var TOKENS = {
         active: share(0.45)
     },
 
-    // Two point lights orbit just outside a card and its edge reflects them.
-    // The neutral is the reference's grey, the foreground's luminance times
-    // 1.08: 0.9098 * 1.08 = 0.9826 of white, #fbfbfb.
     edge: {
         neutral: color("#fbfbfb"),
         thickness: number(1.25, 0, 16),
@@ -351,7 +304,6 @@ var TOKENS = {
     }
 };
 
-// Light mode: the hook's light toast, and the reference's light alphas.
 var LIGHT = {
     text: {
         foreground: "#2a2a2a"
@@ -361,9 +313,8 @@ var LIGHT = {
         opacity: 0.85,
         nearInk: "mix(#000000, {card.base}, {card.opacity})"
     },
-    // The edge light is white, brighter than the card's #f2f2f2 fill, so the
-    // edge catches light as it does in dark mode. The reference's grey for
-    // light mode, #2d2d2d, draws dark streaks that read as dirt on the card.
+    // Keep the reflection brighter than the pale glass; a dark reflection
+    // reads as a mark on the card.
     edge: {
         neutral: "#ffffff"
     },

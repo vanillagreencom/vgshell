@@ -58,8 +58,7 @@ ColumnLayout {
         rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
         + (rowCard.singleLine ? 0 : bodyText.implicitHeight)
         + (rowCard.summary.length > 0 && !rowCard.singleLine ? spacing : 0)
-    // The real card retains its original ColumnLayout height. The hidden
-    // scan uses these same text items at the card's layout widths.
+    // The hidden scan uses the real card's text items and layout widths.
     function settleLayout() {
         ensurePolished();
         summaryRow.ensurePolished();
@@ -117,9 +116,7 @@ ColumnLayout {
         visible: rowCard.summary.length > 0
         spacing: rowCard.showsBadge ? rowCard.look.badge.gap : 0
 
-        // The workspace's icon, level with the summary's first line.
-        // Its image loads while hidden, and the name gives way to it
-        // only once it has.
+        // Load while hidden so the workspace name stays until its icon is ready.
         ClippingRectangle {
             objectName: "notificationBadge"
             Layout.preferredWidth: rowCard.showsBadge ? rowCard.look.badge.size : 0
@@ -160,8 +157,7 @@ ColumnLayout {
             // The hidden measurer must select the font from content instead.
             font.pixelSize: rowCard.summary.length > 0 ? rowCard.look.text.title.size : rowCard.look.text.body.size
             font.weight: rowCard.summary.length > 0 ? rowCard.look.text.title.weight : Font.Normal
-            // Keep the original Text's font and line box while using Label's
-            // shared capital placement. No typography role changes this title.
+            // Label's capital placement must preserve this title's font and line box.
             font.variableAxes: ({})
             font.letterSpacing: rowCard.look.text.title.letterSpacing
             font.capitalization: Font.MixedCase

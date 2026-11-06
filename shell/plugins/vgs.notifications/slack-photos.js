@@ -97,7 +97,6 @@ function executableOnPath(command) {
             fs.accessSync(candidate, fs.constants.X_OK);
             if (stat.isFile()) return candidate;
         } catch (_e) {
-            // Keep looking.
         }
     }
     return "";
@@ -492,7 +491,6 @@ function refreshPhotos(root, tokens, lines) {
             continue;
         }
         if (held(accounts[entry.account])) {
-            // A token for another team caches nothing for this one.
             if (accounts[entry.account].reason === "team=mismatch") {
                 stale = true;
                 continue;
@@ -531,7 +529,6 @@ function refreshPhotos(root, tokens, lines) {
     };
 }
 
-// The token for team `id`, or "" when absent or refused for another team.
 function tokenFor(tokens, accounts, id) {
     const own = tokens.find(e => e.account === "slack:" + id);
     return own !== undefined && (accounts[own.account] || {}).reason !== "team=mismatch" ? own.token : "";

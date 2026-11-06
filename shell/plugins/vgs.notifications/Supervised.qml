@@ -9,18 +9,17 @@ import "NotificationLogic.js" as Logic
 // and PipeWire is ready, and is started again after an exit nobody
 // asked for, as NotificationLogic.restartStep spaces the starts, since
 // pw-cli, pw-metadata and pw-dump each exit when PipeWire restarts
-// (measured in the nested sandbox, PipeWire 1.6.9, VGS-1424). `label`
+// (measured in the nested sandbox, PipeWire 1.6.9). `label`
 // keys its log lines. An exit is logged at `exitLevel`, `warn` where the
 // owner's work stops without the child; giving up is always a warning.
-// Quickshell kills the child of a destroyed Process (vgs.capture's
-// Service.qml), so the owner's destruction ends it.
+// Quickshell destroys a Process with its owner and ends its child:
+// https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
 Item {
     id: sup
 
     visible: false
 
     required property string label
-    // The program and its arguments.
     required property var argv
     property bool wanted: true
     property bool stdinEnabled: false

@@ -1,6 +1,5 @@
 import QtQuick
 
-// A ColorAnimation on the notifications' motion, as Anim.qml.
 ColorAnimation {
     required property var curve
 

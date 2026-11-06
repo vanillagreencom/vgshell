@@ -124,7 +124,6 @@ FocusScope {
     property bool refreshing: false
     property int refreshQueuedFor: -1
     property Item initialFocus: list
-    // InboxHeader owns this panel's Settings gear.
     readonly property Item settingsHost: parent
 
     // As wide as the column: the cards with their side room, where the
@@ -250,8 +249,7 @@ FocusScope {
         // handlers once its store has read the state file, and a rescan
         // that rebuilds the plugin under an open inbox opens the new panel
         // before that. The service writes panelRevision in the turn it
-        // registers, which refreshes this panel with the state (read in the
-        // notifications smoke row, where the inbox stays open over a rescan).
+        // registers, which refreshes this panel with the restored state.
         if (raw === "unknown: panel-state") return;
         try {
             const state = JSON.parse(raw);
@@ -537,9 +535,7 @@ FocusScope {
                     // The view shrinks when the room does under the
                     // open panel, and a Flickable keeps its place then,
                     // which leaves a selected card near the list's end
-                    // past the view's bottom edge (read in the
-                    // notifications-keys smoke row, on a copy without
-                    // this handler); reveal it again whenever the
+                    // past the view's bottom edge; reveal it whenever the
                     // view's height changes. A move reveals through
                     // onMoved.
                     onViewHeightChanged: root.revealRow(root.currentIndex)
