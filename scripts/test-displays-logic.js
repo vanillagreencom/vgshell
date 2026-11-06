@@ -68,6 +68,11 @@ const KEY_A = "usb:class/hidraw/hidraw1/device#S";
 const KEY_B = "usb:class/hidraw/hidraw2/device#S";
 
 function verify(logic) {
+  for (const [code, text, want] of [
+    [0, "layout=copied\n", true], [0, "layout=unchanged\n", true],
+    [1, "layout=copied\n", false], [null, "layout=copied\n", false],
+    [0, "", false], [0, "ok\n", false], [0, "layout=copied\nextra\n", false]
+  ]) same(logic.layoutCopied(code, text), want, "copy requires the exact successful helper receipt");
   // The same pane-held support read supplies visibility on every display.
   const monitorLogic = pluginLogic.HyprlandLayer.MonitorLogic;
   const panel = mark => "Monitor info:\n\tPanel DP-1: 1920x1080, 60 -> backend wayland\n"

@@ -49,6 +49,10 @@ FocusScope {
     readonly property var vrrChoices: shell === null ? [] : shell.manifest.schema.vrr.presets
     readonly property int vrr: shell === null ? 0 : shell.settings.vrr
     property string vrrProblem: ""
+    readonly property string primaryOutput: shell === null ? "" : shell.settings.primaryOutput
+    readonly property var primaryChoices: values.primaryOutputs || []
+    readonly property int primaryIndex: primaryOutput === "" && primaryChoices.length > 0 ? 0 : primaryChoices.findIndex(choice => choice.value === primaryOutput)
+    property string primaryProblem: ""
     readonly property var selectedColour: selectedRule === null ? null : Logic.colourOf(selected, selectedRule)
     readonly property var colourRows: selectedColour === null ? ({ mode: false, depth: false, hdr: false }) : Logic.colourRows(selectedRule, selectedPanel, selectedColour)
     readonly property var displayChoices: Logic.outputChoices(outputs)
@@ -150,6 +154,13 @@ FocusScope {
         const reply = shell.configure.set("vrr", value);
         vrrProblem = Logic.replyText(reply);
         if (reply !== "ok") console.warn("displays pane: vrr " + reply);
+        return reply;
+    }
+
+    function setPrimaryOutput(value) {
+        const reply = shell.configure.set("primaryOutput", value);
+        primaryProblem = Logic.replyText(reply);
+        if (reply !== "ok") console.warn("displays pane: primaryOutput " + reply);
         return reply;
     }
 
@@ -276,6 +287,28 @@ FocusScope {
                 iconName: "scan-eye"
                 enabled: root.outputs.length > 0
                 onClicked: root.identifyAll()
+            }
+
+            FormRow {
+                width: parent.width
+                label: "Primary display"
+                info: root.shell === null ? "" : root.shell.manifest.schema.primaryOutput.info
+                warning: root.primaryProblem
+                warningTone: "danger"
+
+                Select {
+                    width: parent.width
+                    model: root.primaryChoices
+                    textRole: "label"
+                    currentIndex: root.primaryIndex
+                    placeholderText: root.primaryOutput === "" ? "Automatic" : root.primaryOutput + " (unavailable)"
+                    disabledReason: root.trialState.phase !== "idle" || root.outputDirty ? "Keep or discard the display changes first." : ""
+                    Accessible.name: "Primary display"
+                    onActivated: index => {
+                        root.setPrimaryOutput(index === 0 ? "" : root.primaryChoices[index].value);
+                        currentIndex = Qt.binding(() => root.primaryIndex);
+                    }
+                }
             }
 
             // The canvas leaves out a display that mirrors, so this picks it.

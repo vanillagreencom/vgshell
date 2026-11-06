@@ -696,17 +696,24 @@ install_trusted() {
     [[ -n $dir ]] || break
     dir="${dir%/*}"
   done
-  for path in "$install_root/shell" "$install_root/config/system/greeter" "$greeter_plugin" "$greeter_lua" "$greeter_host" "$greeter_view"; do
-    trusted "$path" || return 1
+  for path in "$install_root/shell" "$install_root/config/system/greeter" "$greeter_plugin" "$greeter_lua" "$greeter_host" "$greeter_view" \
+    "$bin_dir/vgshell-greeter-layout" "$lib_dir/greeter-layout.js" "$lib_dir/qml-library.js" "$lib_dir/judge-files.js" "$install_root/shell/Core/MonitorLogic.js"; do
+    # Every parent matters: a root-owned file in an account-writable directory
+    # can be replaced just as easily as an account-owned executable.
+    while [[ $path != "$install_root" ]]; do
+      trusted "$path" || return 1
+      path="${path%/*}"
+    done
   done
 }
 
-# Whether DIR is a real directory UID owns.
+# Whether DIR is a real directory UID alone can write.
 owned_by() { # DIR UID
-  local owner
+  local owner permissions
   [[ -d $1 && ! -L $1 ]] || return 1
   owner="$(stat -c %u -- "$1")" || return 1
-  [[ $owner == "$2" ]]
+  permissions="$(stat -c %a -- "$1")" || return 1
+  [[ $owner == "$2" ]] && (((8#$permissions & 8#022) == 0))
 }
 
 # Sets sum to TEXT's sha256 as a file holds it: TEXT and one newline, the
@@ -792,6 +799,7 @@ greeter_in_place() {
   for dir in "$greeter_theme" "$greeter_copy" "$greeter_state"; do
     [[ -d $dir && ! -L $dir ]] || return 1
   done
+  trusted "$greeter_dir" && trusted "$greeter_theme" || return 1
 }
 
 # Sets manager to the unit display-manager.service is an alias of, its own
@@ -1289,8 +1297,14 @@ put_text() { # DEST TEXT
 # Refuses DIR when it is a symbolic link or, being there, is no directory
 # root owns and only root can write.
 owned_dir() { # DIR
-  no_symlink "$1"
-  [[ ! -e $1 ]] || trusted "$1" || refuse 1 "untrusted=$1"
+  local dir="$1"
+  while :; do
+    no_symlink "$dir"
+    [[ ! -e $dir ]] || trusted "$dir" || refuse 1 "untrusted=$dir"
+    [[ $dir != / ]] || break
+    dir="${dir%/*}"
+    dir="${dir:-/}"
+  done
 }
 
 apply_greeter() {
@@ -1306,6 +1320,7 @@ apply_greeter() {
   for dir in "$greetd_dir" "$pam_dir" "$units_dir"; do trusted "$dir" || refuse 1 "untrusted=$dir"; done
   for dir in "$dropin_dir" "$greeter_dir" "$greeter_theme"; do owned_dir "$dir"; done
   for dir in "$greeter_copy" "$greeter_state"; do no_symlink "$dir"; done
+  [[ ! -e $greeter_copy ]] || owned_by "$greeter_copy" "$uid" || refuse 1 "destination=ownership path=$greeter_copy"
   if read_record greeter; then
     recorded_config="${record[config]-}" recorded_pam="${record[pam]-}" recorded_dropin="${record[dropin]-}"
     enabled="${record[enabled]-}" target="${record[target]-}"

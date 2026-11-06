@@ -332,6 +332,30 @@ function staysOn(rules, output) {
     return !state.disabled && !state.mirror;
 }
 
+// Primary choices never include a live disabled/mirrored output or one
+// the saved rules disable/mirror. Connector rules take precedence over a
+// description rule through ruleFor, as they do for a layout trial.
+function primaryOutputs(outputs, rules) {
+    return outputs.filter(function (output) {
+        return !output.disabled && output.mirrorOf === null && staysOn(rules, output);
+    });
+}
+
+// One screen name for the login form. SCREENS are the Wayland screens
+// actually available to draw on, in their current order. A lost saved
+// choice is kept, not rewritten, so reconnecting it restores placement.
+// The final fallback keeps login available after the layer's all-off
+// guard relights an output, or while an output read has failed.
+function loginOutput(outputs, rules, primary, screens) {
+    var connected = (outputs || []).filter(function (output) { return screens.indexOf(output.name) !== -1; });
+    var eligible = primaryOutputs(connected, rules);
+    var preferred = outputsByKey(eligible, primary);
+    if (preferred.length > 0) return preferred[0].name;
+    if (eligible.length > 0) return eligible[0].name;
+    var live = connected.filter(function (output) { return !output.disabled && output.mirrorOf === null; });
+    return live.length > 0 ? live[0].name : screens.length > 0 ? screens[0] : "";
+}
+
 // The mirror of rule ID, judged against RULES alone: not its own output,
 // not on an output it turns off, and not onto a rule that mirrors or turns
 // its output off, since Hyprland mirrors no mirror.

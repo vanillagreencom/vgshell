@@ -21,7 +21,7 @@ suite=test-vgshell-system
 source_file="$repo/bin/vgshell-system"
 case "${1-}" in
   "") (($# == 0)) || exit 2 ;;
-  --tailscale) (($# == 1)) || exit 2 ;;
+  --tailscale|--greeter) (($# == 1)) || exit 2 ;;
   *) exit 2 ;;
 esac
 uid="$(id -u)"; gid="$(id -g)"; user="$(id -un)"
@@ -51,9 +51,11 @@ greeter_dropin="$dropin_dir/vgs.conf"
 greeter_dir="$root/var/lib/vgshell/greeter"
 mkdir -p "$bin" "$vgs/bin" "$vgs/shell/Core" "$vgs/shell/plugins/vgs.greeter" "$vgs/config/system/udev" "$tmp/home"
 cp -- "$repo/bin/vgshell" "$vgs/bin/vgshell"
+cp -- "$repo/bin/vgshell-greeter-layout" "$vgs/bin/vgshell-greeter-layout"
 cp -- "$repo/bin/vgshell-pkg" "$vgs/bin/vgshell-pkg"
 cp -R -- "$repo/bin/lib" "$vgs/bin/lib"
 cp -- "$repo/shell/Core/PackageManagers.js" "$vgs/shell/Core/PackageManagers.js"
+cp -- "$repo/shell/Core/MonitorLogic.js" "$vgs/shell/Core/MonitorLogic.js"
 cp -- "$repo/config/system/udev/60-vgs-apple-displays.rules" "$rule_src"
 cp -- "$repo/config/system/udev/69-vgs-disk-sleep.rules" "$disk_rule_src"
 cp -- "$repo/config/system/udev/90-vgs-wake.rules" "$wake_src"
@@ -84,7 +86,11 @@ fi
 out="\$($stat_bin "\$@")" || exit \$?
 owner=""
 [ -f "$tmp/owners" ] && owner="\$(awk -v p="\$last" '{ u = \$1; sub(/^[^ ]* /, ""); if (\$0 == p) o = u } END { print o }' "$tmp/owners")"
-if [ -n "\$owner" ]; then printf '%s\n' "\$out" | sed "s/^[0-9][0-9]*/\$owner/"; else printf '%s\n' "\$out" | sed 's/^$uid /0 /'; fi
+if [ -n "\$owner" ] && { [ "\$1 \$2" = "-c %u" ] || [ "\$1 \$2" = "-c %u %a" ]; }; then
+  printf '%s\n' "\$out" | sed "s/^[0-9][0-9]*/\$owner/"
+else
+  printf '%s\n' "\$out" | sed 's/^$uid /0 /'
+fi
 EOF
 # sudo: -k and -n are recorded and answer at once; any other call is
 # recorded, exits with $tmp/sudo-exit when present, else runs its command
@@ -721,8 +727,9 @@ assert (scratch / "stdin-argv").read_bytes().split(b"\0") == [
 PY
   done
 }
-check "record previews fit physical rows and preserve stdin and argv" stdin_preview_rows "$source_file"
 place "$source_file"
+if [[ ${1-} != --greeter ]]; then
+check "record previews fit physical rows and preserve stdin and argv" stdin_preview_rows "$source_file"
 
 # vgshell's own refusal of a subcommand it does not route.
 fresh
@@ -1234,6 +1241,8 @@ for path in "$capture_wrapper" "${capture_wrapper%/*}"; do
   chmod 0755 "$path"
 done
 
+fi
+
 # greeter: VGS's own greetd configuration, PAM service and drop-in, the
 # theme, theme copy and state directories, then greetd enabled and never
 # started, and graphical.target the default.
@@ -1477,6 +1486,16 @@ fresh
 check "an install path with a space reads denied" test "$(spaced_state)" == "denied install-path-unsupported"
 fresh; mkdir -p "$greeter_dir/theme/vgshell"; printf '1234 %s\n' "$greeter_dir/theme/vgshell" >"$tmp/owners"
 check "a theme copy directory another account owns reads denied" test "$(step_state greeter)" == "denied other-account"
+for dependency in "$vgs/bin/vgshell-greeter-layout" "$vgs/bin/lib/greeter-layout.js" "$vgs/bin/lib/qml-library.js" "$vgs/bin/lib/judge-files.js" "$vgs/shell/Core/MonitorLogic.js" "$vgs/bin/lib" "$vgs/config/system"; do
+  fresh
+  chmod 0775 "$dependency"
+  check "the greeter refuses a writable display-code dependency [$dependency]" test "$(step_state greeter)" == "denied install-untrusted"
+  chmod go-w "$dependency"
+done
+fresh; mkdir -p "$greeter_dir/theme/vgshell"; chmod 0777 "$greeter_dir/theme/vgshell"
+check "a shared-write data directory reads denied" test "$(step_state greeter)" == "denied other-account"
+
+if [[ ${1-} == --greeter ]]; then rows_done "$suite"; exit; fi
 
 # reboot-notice: pacman's own override of the CachyOS reboot hook, a link
 # to /dev/null in the hook directory; any other file there is the user's.

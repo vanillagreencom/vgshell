@@ -28,7 +28,7 @@
 # held and writes no log, and the control reports the defect; with the
 # shipped guard left in place the same check reads `token=claimed
 # log=written` and fails.
-# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
+# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/judge-files.js bin/lib/qml-library.js
 set -euo pipefail
 
 user_config="$home/.config/vgshell/shell.json"
@@ -126,6 +126,42 @@ PY
 expect "enabling vgs.displays for display modes is allowed" ok ipc shell setPluginEnabled vgs.displays true
 expect_poll "vgs.displays is built for display modes" True record_exists vgs.displays
 expect_poll "vgs.displays has outputs" present outputs_state
+# Keep the production copier and helper. Only the readiness input and the
+# helper's fixed destination change in this world's disposable source tree.
+# The QML fixture separately proves the actual system-step readiness gate.
+layout_fixture="$sandbox/greeter-layout-copy"
+mkdir -p -- "$layout_fixture"
+cp -- "$repo/shell/plugins/vgs.displays/Service.qml" "$sandbox/layout-service.saved"
+cp -- "$repo/bin/lib/greeter-layout.js" "$sandbox/layout-helper.saved"
+python3 - "$repo/shell/plugins/vgs.displays/Service.qml" "$repo/bin/lib/greeter-layout.js" "$layout_fixture" <<'PY'
+from pathlib import Path
+import json, sys
+service, helper, destination = sys.argv[1:]
+for file, old, new in [
+    (service, 'readonly property bool greeterReady: steps !== null && steps.greeter !== undefined && steps.greeter.state === "ready"', 'readonly property bool greeterReady: true'),
+    (helper, 'const DIRECTORY = "/var/lib/vgshell/greeter/theme/vgshell";', 'const DIRECTORY = ' + json.dumps(destination) + ';')
+]:
+    path = Path(file)
+    text = path.read_text()
+    assert text.count(old) == 1, old
+    changed = text.replace(old, new)
+    assert changed != text
+    path.write_text(changed)
+PY
+rescan "the saved-layout fixture supplies a ready greeter destination"
+expect_poll "the saved-layout service observes its ready setup input" true read_displays greeterReady
+layout_copy_value() {
+  python3 - "$layout_fixture/displays.json" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as source:
+        value = json.load(source)
+    print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+except (OSError, ValueError):
+    print("unreadable")
+PY
+}
+expect_poll "ready setup automatically copies the initial saved settings" '{"outputs":{},"primaryOutput":""}' layout_copy_value
 display_record_call mark displays-row-start >/dev/null || true
 display_record_call require-display "$shell_pid" "$shell_qs_pid" >/dev/null || true
 display_observer_arm="$(ipc smoke displayEventArm displays-modes)" || display_observer_arm=unavailable
@@ -153,6 +189,7 @@ sleep 16
 expect_poll "the guard reverts the second output's position trial" "$extra_base_position" position_of "$extra_output"
 expect "the display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
+expect "a trial is never copied to the greeter" '{"outputs":{},"primaryOutput":""}' layout_copy_value
 token="$(token_of)"
 sleep 16
 expect_poll "the guard reverts the unkept trial" 1 scale_of "$output"
@@ -162,6 +199,20 @@ expect_poll "the second trial applies scale $trial_scale" "$trial_scale" scale_o
 token="$(token_of)"
 expect "Keep saves the rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$rules}"
 expect_poll "the layer holds the saved monitor rule" yes layer_has_rule
+layout_kept="$(node -e 'const data={outputs:JSON.parse(process.argv[1]),primaryOutput:""}; process.stdout.write(JSON.stringify(data));' "$rules" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')"
+expect_poll "Keep automatically hands the confirmed saved rule to the greeter" "$layout_kept" layout_copy_value
+python3 - "$user_config" "$output" <<'PY'
+import json, os, sys
+path, primary = sys.argv[1:]
+with open(path) as source:
+    config = json.load(source)
+next(row for row in config["plugins"] if row["id"] == "vgs.displays")["primaryOutput"] = primary
+with open(path + ".tmp", "w") as target:
+    json.dump(config, target)
+os.replace(path + ".tmp", path)
+PY
+layout_primary="$(node -e 'const data={outputs:JSON.parse(process.argv[1]),primaryOutput:process.argv[2]}; process.stdout.write(JSON.stringify(data));' "$rules" "$output" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')"
+expect_poll "a primary-only saved change automatically updates the greeter" "$layout_primary" layout_copy_value
 if [[ ${#mode_hold_suspended[@]} -gt 0 ]]; then
   expect "the run's held rule is out of the configuration when the kept rule reloads" absent hold_file_state
 fi
@@ -169,6 +220,10 @@ expect "reload keeps the saved rule" ok hypr reload config-only
 expect_poll "the kept rule survives reload" "$trial_scale" scale_of "$output"
 expect "clearing saved display rules is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the saved monitor rule" no layer_has_rule
+expect_poll "clear automatically removes the greeter rules without inventing a primary" "{\"outputs\":{},\"primaryOutput\":\"$output\"}" layout_copy_value
+cp -- "$sandbox/layout-service.saved" "$repo/shell/plugins/vgs.displays/Service.qml"
+cp -- "$sandbox/layout-helper.saved" "$repo/bin/lib/greeter-layout.js"
+rescan "the production readiness input and fixed destination are restored"
 expect "reload drops the saved rule" ok hypr reload config-only
 release_mode "display modes restores $output" "$output" "$base" 1
 

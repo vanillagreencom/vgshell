@@ -10,6 +10,13 @@ Item {
     readonly property string members: shell === null ? "" : Object.keys(shell.monitors).sort().join(",")
     readonly property var outputs: shell === null ? null : shell.monitors.outputs
     readonly property var support: shell === null ? null : shell.monitors.support
+    readonly property var primaryOutputs: shell === null ? [] : shell.monitors.primaryOutputs({})
+
+    function primaryWithoutFirst() {
+        const rules = {};
+        rules[outputs[0].name] = { disabled: true };
+        return JSON.stringify(shell.monitors.primaryOutputs(rules).map(output => output.name));
+    }
 
     function wantSupport() {
         if (release === null) release = shell.monitors.wantSupport();

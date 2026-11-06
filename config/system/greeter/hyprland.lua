@@ -5,6 +5,22 @@
 -- Hyprland exits, so greetd can start the session or the greeter again.
 -- No logo, no splash and no animations.
 
+-- Only the installed helper's MonitorLogic rendering is executable. The
+-- desktop account writes displays.json as data, never a Lua file to source.
+-- Lua load's text-only mode rejects bytecode; popen.close reports the child's
+-- status (https://www.lua.org/manual/5.4/manual.html#pdf-load and #pdf-io.popen).
+local root = assert(os.getenv("VGS_GREETER_ROOT"), "greeter-layout: root=missing")
+local helper = root .. "/bin/vgshell-greeter-layout"
+local pipe = assert(io.popen("'" .. helper:gsub("'", "'\\''") .. "' render", "r"))
+local monitor_lua = pipe:read("*a")
+local rendered = pipe:close()
+if rendered then
+    assert(load(monitor_lua, "=greeter-layout", "t", { hl = hl, ipairs = ipairs }))()
+else
+    -- Bad saved data must be visible in the log, but cannot prevent sign-in.
+    io.stderr:write("greeter-layout: refused: render=failed\n")
+end
+
 -- The system keyboard layout: the XKB keys of /etc/vconsole.conf, which `localectl
 -- set-x11-keymap` writes on systemd systems, else `us`. A password is
 -- typed here before any user's own configuration loads.

@@ -94,6 +94,20 @@ Item {
     readonly property string assignmentsPath: Paths.stateDir + "/plugins/vgs.displays/assignments.json"
     readonly property string restorePath: Paths.stateDir + "/plugins/vgs.displays/restore.json"
     readonly property string helperPath: String(Qt.resolvedUrl("helper/brightness.py")).replace(/^file:\/\//, "")
+    readonly property bool greeterReady: steps !== null && steps.greeter !== undefined && steps.greeter.state === "ready"
+    // Only confirmed saved settings enter this payload, never trialState,
+    // a pane's draft or the compositor's temporary reading.
+    readonly property string savedLayout: shell === null ? "" : JSON.stringify({ outputs: shell.settings.outputs, primaryOutput: shell.settings.primaryOutput })
+    // choices status ids are nonempty; Settings maps the first offer to
+    // the unset string. The pane makes that same explicit Automatic choice.
+    readonly property var primaryChoices: [{ label: "Automatic", value: "automatic" }].concat(shell === null ? [] : Logic.outputChoices(shell.monitors.primaryOutputs(shell.settings.outputs)))
+    property string layoutPending: ""
+    property string layoutActive: ""
+    property var layoutCopied: null
+    readonly property var layoutValues: ({
+        primaryOutputs: primaryChoices,
+        greeterLayout: Logic.greeterLayoutState(greeterReady, layoutActive !== "" || layoutPending !== "", layoutCopied)
+    })
 
     onShellChanged: start()
     onValuesChanged: publish()
@@ -101,6 +115,37 @@ Item {
     onSystemRevisionChanged: rescan.restart()
     onRequirementsRevisionChanged: rescan.restart()
     onDimAfterSecondsChanged: watchIdle()
+    onSavedLayoutChanged: queueLayout()
+    onGreeterReadyChanged: {
+        layoutCopied = null;
+        if (greeterReady) queueLayout();
+        else layoutPending = "";
+    }
+    onLayoutValuesChanged: publish()
+
+    function queueLayout() {
+        if (!greeterReady || savedLayout === "") return;
+        layoutPending = savedLayout;
+        Qt.callLater(pumpLayout);
+    }
+
+    function pumpLayout() {
+        if (!greeterReady || layoutActive !== "" || layoutPending === "") return;
+        layoutActive = layoutPending;
+        layoutPending = "";
+        layoutCopier.completion = null;
+        layoutCopier.stdinEnabled = true;
+        layoutCopier.running = true;
+    }
+
+    function finishLayout() {
+        if (layoutActive === "") return;
+        const code = layoutCopier.completion;
+        layoutCopied = Logic.layoutCopied(code, layoutOut.text);
+        if (!layoutCopied) console.error("displays: greeter-layout " + (code === null ? "start=failed" : code === 0 ? "receipt=invalid" : "exit=" + code) + " " + layoutErr.text.trim());
+        layoutActive = "";
+        Qt.callLater(pumpLayout);
+    }
 
     function start() {
         if (shell === null || registered) return;
@@ -155,7 +200,7 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const writes = Logic.statusWrites(reported, values);
+        const writes = Logic.statusWrites(reported, Object.assign({}, values, layoutValues));
         if (writes.length === 0) return;
         const next = Object.assign({}, reported);
         for (const write of writes) {
@@ -397,6 +442,23 @@ Item {
             // so the restore must outlive this service instance.
             Quickshell.execDetached(["python3", root.helperPath, "restore", root.restorePath]);
         }
+    }
+
+    Process {
+        id: layoutCopier
+        property var completion: null
+        command: [Quickshell.shellDir + "/../bin/vgshell-greeter-layout", "copy"]
+        stdout: StdioCollector { id: layoutOut; waitForEnd: true }
+        stderr: StdioCollector { id: layoutErr; waitForEnd: true }
+        // Process argv runs without a shell. Write only after started;
+        // stdinEnabled=false closes the channel after the queued write.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+        onStarted: {
+            write(root.layoutActive);
+            stdinEnabled = false;
+        }
+        onExited: code => { completion = code; }
+        onRunningChanged: if (!running) root.finishLayout()
     }
 
     Process {

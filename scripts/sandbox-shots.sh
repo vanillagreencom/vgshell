@@ -23,7 +23,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override, agent-debug or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -444,7 +444,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override|agent-debug) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -619,7 +619,7 @@ scene_ships() {
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
-    displays-override) ships_plugin vgs.system vgs.displays ;;
+    displays-primary|displays-override) ships_plugin vgs.system vgs.displays ;;
     appearance) ships_plugin vgs.system vgs.motion vgs.windows vgs.ui ;;
     sounds) ships_plugin vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis ;;
     network) ships_plugin vgs.system vgs.network ;;
@@ -8506,12 +8506,39 @@ scene_polkit() { # MODE
 # The login screen: the core's greeter host over vgs.greeter's view
 # (docs/decisions/D101-greeter-host-and-greeter-system-step.md), with the smoke's fixture sessions, the
 # mode's theme file and one fixture account.
+scene_displays-primary() { # MODE
+  # This scene keeps both outputs in nonnegative layout coordinates,
+  # which the capture harness's pointer-parking contract requires.
+  local primary=VGS-PRIMARY first_output tree_state
+  devices_ready displays-primary-shot || return 1
+  tree_state="$(devices_system_tree)" || { fail "the primary shot's fake system tree is unavailable"; return 1; }
+  expect "the primary shot enables Displays" ok ipc shell setPluginEnabled vgs.displays true
+  expect "the primary shot enables System Settings" ok ipc shell setPluginEnabled vgs.system true
+  expect_poll "the primary shot lists its brightness fixtures" 3 displays_listed
+  expect "the primary shot adds its second output" ok create_output "$primary"
+  first_output="$(ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["identifier"])')" || return 1
+  expect "the primary shot assigns the XDR" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
+  expect "the primary shot opens Displays" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+  expect_poll "the primary shot mounts Displays" '["vgs.displays"]' window_panes
+  if grep -q -F -- '"primaryOutput"' "$repo/shell/plugins/vgs.displays/manifest.json"; then
+    expect "the Displays pane saves its primary selection" ok ipc smoke invokeInstance window vgs.displays setPrimaryOutput "$primary"
+  fi
+  park_pointer
+  take "displays-primary-$1"
+  expect "the primary shot closes System Settings" ok ipc shell hide window vgs.system
+  expect_poll "the primary shot closes its window" hidden system_shown
+  expect "the primary shot removes its second output" ok hypr output remove "$primary"
+}
+
 scene_greeter() { # MODE
   local dir="$sandbox/shots-greeter-$1" word base_path="" pid ready=false
+  local primary=VGS-PRIMARY saved_output="$SHOT_OUTPUT"
   mkdir -p -- "$dir/config/vgshell" "$dir/state" "$dir/bin"
   if [[ -f $home/.config/vgshell/theme.json ]]; then cp -- "$home/.config/vgshell/theme.json" "$dir/config/vgshell/theme.json"; fi
   printf '#!/bin/sh\n[ "$1" = passwd ] || exit 2\necho "alex:x:1000:1000:Alex Doe:/home/alex:/bin/bash"\n' >"$dir/bin/getent"
   chmod 755 "$dir/bin/getent"
+  expect "the greeter shot adds its saved non-first primary" ok create_output "$primary"
+  printf '{"outputs":{},"primaryOutput":"%s"}\n' "$primary" >"$dir/config/vgshell/displays.json"
   for word in "${shell_env[@]}"; do [[ $word != PATH=* ]] || base_path="${word#PATH=}"; done
   spawn_display "$dir/greeter.log" "${shell_env[@]}" PATH="$dir/bin:$base_path" \
     XDG_DATA_DIRS="$checkout/scripts/smoke/fixtures/greeter/share-a:$checkout/scripts/smoke/fixtures/greeter/share-b" \
@@ -8524,12 +8551,16 @@ scene_greeter() { # MODE
     sleep 0.2
   done
   if [[ $ready == true ]]; then ok "the greeter host lists its sessions"; else fail "the greeter host listed no sessions: $(tail -n 5 -- "$dir/greeter.log")"; fi
-  expect_poll "the greeter host maps its surface" 1 layer_count vgs:greeter
+  expect_poll "the greeter host maps both screens" 2 layer_count vgs:greeter
   park_pointer
   take "greeter-$1"
+  SHOT_OUTPUT="$primary"
+  take "greeter-primary-$1"
+  SHOT_OUTPUT="$saved_output"
   kill -TERM "$pid" 2>/dev/null || fail "stopping the greeter host pid $pid failed"
   wait "$pid" 2>/dev/null || true
   expect_poll "the greeter host's surface is gone" 0 layer_count vgs:greeter
+  expect "the greeter shot removes its primary fixture" ok hypr output remove "$primary"
 }
 
 scene_screensaver() { # MODE

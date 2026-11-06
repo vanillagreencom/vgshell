@@ -17,7 +17,7 @@
     {"command": "ddcutil", "packages": {"pacman": "ddcutil", "apt": "ddcutil", "dnf": "ddcutil", "nix": "ddcutil"}, "optional": true, "purpose": "Sets the brightness of external displays"},
     {"command": "brightnessctl", "packages": {"pacman": "brightnessctl", "apt": "brightnessctl", "dnf": "brightnessctl", "nix": "brightnessctl"}, "optional": true, "purpose": "Sets the brightness of a laptop's built-in display"}
   ],
-  "systemSteps": ["apple-displays", "i2c-dev"],
+  "systemSteps": ["apple-displays", "i2c-dev", "greeter"],
   "settings": {
     "brightnessStep": 5,
     "keysTarget": "focused",
@@ -25,9 +25,11 @@
     "dimAfterSeconds": 120,
     "dimPercent": 30,
     "outputs": {},
+    "primaryOutput": "",
     "vrr": 0
   },
   "schema": {
+    "primaryOutput": {"type": "string", "label": "Primary display", "optionsFrom": "primaryOutputs", "info": "The login form appears on this display. If it is disconnected, off or mirroring, the login form uses another display until it is available again.", "group": "Displays"},
     "vrr": {"type": "number", "label": "Variable refresh rate", "description": "Applies to all capable displays", "min": 0, "max": 3, "step": 1, "presets": [{"value": 0, "label": "Off"}, {"value": 1, "label": "On"}, {"value": 2, "label": "Fullscreen only"}, {"value": 3, "label": "Fullscreen game or video"}], "group": "Displays"},
     "brightnessStep": {"type": "number", "label": "Key and scroll step", "info": "Each brightness key press or bar scroll changes the level by this step. Set the level itself in System Settings → Displays.", "min": 1, "max": 25, "step": 1, "unit": "%", "group": "Brightness"},
     "keysTarget": {"type": "enum", "label": "Brightness keys change", "options": [{"value": "focused", "label": "Focused display"}, {"value": "all", "label": "All displays"}], "group": "Brightness"},
@@ -44,6 +46,8 @@
     ]
   },
   "status": {
+    "primaryOutputs": {"type": "choices", "label": "Primary displays"},
+    "greeterLayout": {"type": "state", "label": "Login screen layout", "group": "Displays", "hint": "Set up the login screen in [Login screen setup](page:vgs.greeter/Setup/greeter)"},
     "displays": {"type": "data", "label": "Displays"},
     "assignments": {"type": "data", "label": "Display choices"},
     "appleAccess": {"type": "state", "label": "Apple displays", "setup": "optional", "group": "Access", "hint": "Allow brightness control for Apple displays", "action": {"label": "Allow", "system": "apple-displays"}},

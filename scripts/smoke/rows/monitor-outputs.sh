@@ -62,13 +62,16 @@ rescan "rescan discovers the monitors fixture"
 expect_poll "the monitors fixture is known" True plugin_known acme.monitors
 expect "enabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors true
 expect_poll "the monitors fixture builds" True record_exists acme.monitors
-expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,revert,support,trial,trialState,wantSupport"' read_monitors members
+expect_poll "the fixture reads back the exact monitors members it was given" '"keep,outputs,overridden,primaryOutputs,revert,support,trial,trialState,wantSupport"' read_monitors members
 expect_poll "the core reads the outputs while a plugin holds monitors" true reads_active
 
 if ! outputs_names="$(listed_names)" || ! outputs_first="$(first_name)" || ! outputs_base="$(unscaled_mode_of "$outputs_first")" || ! outputs_double="$(hidpi_mode_of "$outputs_first")"; then
   fail "the monitor outputs row reads no sized mode at scale 1 on the first monitor ${outputs_first:-unread}"
 else
   expect_poll "the fixture's outputs name every output Hyprland lists, in its order" "$outputs_names" read_names
+  primary_names() { read_monitors primaryOutputs | py_reply 'import json,sys; print(json.dumps([output["name"] for output in json.load(sys.stdin)]))'; }
+  expect_poll "the primary-output API offers the connected independent outputs" "$outputs_names" primary_names
+  expect "the primary-output API omits a saved disabled output" '[]' invoke_monitors primaryWithoutFirst
   # The nested outputs carry no serial, so each is named by its connector.
   expect "an output with no serial is identified by its connector" "$outputs_names" read_identifiers
   expect_poll "the fixture's outputs list $outputs_first at its own mode" "$outputs_base scale=1" output_read "$outputs_first"

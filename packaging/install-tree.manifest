@@ -9,6 +9,7 @@ f share/vgshell/bin/lib/codex-account.js
 f share/vgshell/bin/lib/dbus_wire.py
 f share/vgshell/bin/lib/engine.js
 f share/vgshell/bin/lib/first-start.sh
+f share/vgshell/bin/lib/greeter-layout.js
 f share/vgshell/bin/lib/hyprland-instance.sh
 f share/vgshell/bin/lib/ipc-reply.sh
 f share/vgshell/bin/lib/judge-files.js
@@ -43,6 +44,7 @@ f share/vgshell/bin/vgshell
 f share/vgshell/bin/vgshell-browser-policy
 f share/vgshell/bin/vgshell-dictation
 f share/vgshell/bin/vgshell-display-guard
+f share/vgshell/bin/vgshell-greeter-layout
 f share/vgshell/bin/vgshell-hypr-judge
 f share/vgshell/bin/vgshell-idle-inhibit
 f share/vgshell/bin/vgshell-lock
@@ -212,6 +214,7 @@ f share/vgshell/shell/Core/ThemeRunner.qml
 f share/vgshell/shell/Core/TuiRecords.qml
 f share/vgshell/shell/Core/TuiRunner.qml
 f share/vgshell/shell/Core/qmldir
+f share/vgshell/shell/GreeterSurface.qml
 f share/vgshell/shell/Hosts/AppWindow.qml
 f share/vgshell/shell/Hosts/BackgroundHost.qml
 f share/vgshell/shell/Hosts/BarHost.qml

@@ -14,6 +14,7 @@ Login screen logs you in with your VGS theme and background. It is for a compute
 - Accepts a fingerprint or another method your login configuration sets: press Enter with the password field empty.
 - Offers Suspend, Restart and Shut down.
 - Copies your theme and background for the login screen each time you change them.
+- Uses your saved display layout and puts the login form on the primary display you choose in System Settings → Displays.
 
 ## Setup
 

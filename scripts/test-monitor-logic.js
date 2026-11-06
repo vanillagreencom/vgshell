@@ -164,6 +164,27 @@ function suite(lib, check) {
         bitdepth: 8, colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1
     }] });
     const desk = lib.parseOutputs(reply(DESK));
+    const connected = desk.outputs.slice(0, 2);
+    const names = connected.map(output => output.name);
+    for (const [label, outputs, rules, primary, screens, want] of [
+        ["automatic", connected, {}, "", names, "DP-1"],
+        ["saved connector", connected, {}, "DP-2", names, "DP-2"],
+        ["saved description", connected, {}, connected[0].identifier, names, "DP-1"],
+        ["disconnected", connected, {}, "DP-404", names, "DP-1"],
+        ["disabled saved", connected, { "DP-2": { disabled: true } }, "DP-2", names, "DP-1"],
+        ["mirrored saved", connected, { "DP-2": { mirror: "DP-1" } }, "DP-2", names, "DP-1"],
+        ["disabled live", [connected[0], { ...connected[1], disabled: true }], {}, "DP-2", names, "DP-1"],
+        ["mirrored live", [connected[0], { ...connected[1], mirrorOf: "DP-1" }], {}, "DP-2", names, "DP-1"],
+        ["Wayland screen gone before output read", connected, {}, "DP-2", ["DP-1"], "DP-1"],
+        ["primary only", [connected[1]], {}, "DP-2", ["DP-2"], "DP-2"],
+        ["all-off guard relit", connected, { "DP-1": { disabled: true }, "DP-2": { disabled: true } }, "DP-2", names, "DP-1"],
+        ["output read failed", null, {}, "DP-2", names, "DP-1"],
+        ["no screens", connected, {}, "DP-2", [], ""],
+        ["tiled description", [connected[0], { ...connected[0], name: "DP-5" }], {}, connected[0].identifier, ["DP-1", "DP-5"], "DP-1"],
+        ["connector overrides disabled description", connected, { [connected[0].identifier]: { disabled: true }, "DP-1": {} }, connected[0].identifier, names, "DP-1"]
+    ]) check("login placement: " + label, lib.loginOutput(outputs, rules, primary, screens), want);
+    check("primary choices omit off and mirroring outputs",
+        lib.primaryOutputs(desk.outputs, { "DP-2": { mirror: "DP-1" } }).map(output => output.name), ["DP-1"]);
     check("parseOutputs: a mode list parsed to numbers", desk.ok ? desk.outputs[1].availableModes : desk, [{ width: 3840, height: 2160, refresh: 60 }]);
     const mirrored = lib.parseOutputs(reply([DESK[0], monitor(1, "DP-2", { mirrorOf: "0" })]));
     check("parseOutputs: mirrorOf names the mirrored output", mirrored.ok ? mirrored.outputs.map(o => o.mirrorOf) : mirrored, [null, "DP-1"]);
@@ -506,6 +527,7 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the file and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
+    ["the login ignores the saved primary", "if (preferred.length > 0) return preferred[0].name;", "", "login placement: saved connector"],
     ["the VRR capability is discarded", '["vrr", "\\t\\tvrr capable "]', '["", "\\t\\tvrr capable "]'],
     ["a serial keys by description", 'if (output.serial === "") return output.name;', "return output.name;"],
     ["commas leave the identifier", '.trim().replace(/,/g, "");', ".trim();"],

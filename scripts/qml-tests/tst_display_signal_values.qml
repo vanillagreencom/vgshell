@@ -82,5 +82,16 @@ Item {
             compare(pane.outputDraft["DP-1"].position.x, 96);
             compare(pane.outputDraft["DP-1"].position.y, 96);
         }
+
+        function test_primary_is_an_explicit_saved_preference() {
+            const pane = createTemporaryObject(paneComponent, root);
+            verify(pane !== null);
+            compare(fakeShell.settings.primaryOutput, "", "no primary is invented");
+            compare(pane.setPrimaryOutput("DP-1"), "ok");
+            compare(fakeShell.settings.primaryOutput, "DP-1");
+            compare(root.user.plugins[0].primaryOutput, "DP-1");
+            compare(pane.setPrimaryOutput(""), "ok");
+            compare(fakeShell.settings.primaryOutput, "");
+        }
     }
 }

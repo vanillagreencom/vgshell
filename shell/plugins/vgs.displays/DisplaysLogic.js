@@ -1208,3 +1208,15 @@ function replyText(reply) {
     if (reply === "ok") return "";
     return "That did not work. Try again.";
 }
+
+// The fixed helper's success protocol, not a transport-success guess.
+function layoutCopied(code, text) {
+    return code === 0 && (text === "layout=copied\n" || text === "layout=unchanged\n");
+}
+
+function greeterLayoutState(ready, copying, copied) {
+    if (!ready) return { tone: "info", text: "Login screen is not set up" };
+    if (copying) return { tone: "info", text: "Saving" };
+    if (copied === null) return { tone: "info", text: "Waiting to save" };
+    return copied ? { tone: "ok", text: "Saved" } : { tone: "danger", text: "Could not save the login screen layout" };
+}

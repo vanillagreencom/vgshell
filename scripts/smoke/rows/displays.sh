@@ -457,7 +457,9 @@ expect_poll "reverting clears the dialog hold" 0 disp_read trialDialogs
 ipc smoke revealText window vgs.system SectionHeader Display >/dev/null || fail "restoring the System page scroll failed"
 expect "the System window restores Displays after the modal test" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the arrangement regains keyboard focus after the modal test" '["Arrangement", "Display arrangement"]' disp_focus
-type_keys -k Tab -k Tab || fail "typing Tab to the Resolution choice failed"
+type_keys -k Tab -k Tab -k Tab || fail "typing Tab past the primary info button to its selection failed"
+expect_poll "Tab reaches the saved primary selection" '["Select", "Primary display"]' disp_focus
+type_keys -k Tab || fail "typing Tab from the primary selection failed"
 expect_poll "Tab passes the Use this display switch the only display cannot turn off, and no Mirror choice, to Resolution" '["Select", "Resolution"]' disp_focus
 type_keys -k Tab -k Tab -k Tab -k Tab || fail "typing Tab to the Colour depth choice failed"
 expect_poll "Tab reaches Colour depth, the one colour row the nested panel shows" '["Select", "Colour depth"]' disp_focus

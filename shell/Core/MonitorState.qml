@@ -71,6 +71,7 @@ Scope {
             get outputs() { return root.outputs === null ? null : Logic.frozenJson(root.outputs); },
             get support() { return root.support === null ? null : Logic.frozenJson(root.support); },
             get trialState() { return Logic.frozenJson(root.trialState); },
+            primaryOutputs: rules => Logic.frozenJson(Monitors.primaryOutputs(root.outputs || [], rules)),
             overridden: rules => root.overridden(rules),
             trial: (rules, saved) => root.trial(ctx.id, rules, saved),
             keep: (token, done) => root.keep(ctx.id, token, done),

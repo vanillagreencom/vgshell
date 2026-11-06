@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# vgshell-greeter-layout copy|read|render: the displays service's data handoff,
+# the greeter host's judged JSON, and its compositor's MonitorLogic rendering.
+# copy takes the saved layout on stdin. No verb elevates or accepts a path.
+set -euo pipefail
+
+# Nix supplies this entry point's runtime PATH. Launch through it rather than
+# calling node from Lua, where the package's dependencies need not be on PATH.
+unset NODE_OPTIONS NODE_PATH
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+exec node "${self%/*}/lib/greeter-layout.js" "$@"

@@ -19,6 +19,11 @@ lua_bin="$(command -v lua)" || { echo "$suite: status=not-measured missing=lua";
 # hl.config prints `layout|variant|model|options`.
 cat >"$tmp/stand-in.lua" <<'EOF'
 local real_open = io.open
+io.popen = function(command, mode)
+  assert(command == "'/fixture/bin/vgshell-greeter-layout' render")
+  assert(mode == "r")
+  return assert(real_open(os.getenv("MONITOR_LUA"), "r"))
+end
 io.open = function(path, mode)
   if path == "/etc/vconsole.conf" then path = os.getenv("VCONSOLE") end
   return real_open(path, mode)
@@ -29,9 +34,13 @@ hl = {
     print(i.kb_layout .. "|" .. i.kb_variant .. "|" .. i.kb_model .. "|" .. i.kb_options)
   end,
   on = function() end,
+  monitor = function(m)
+    print(m.output .. "|" .. m.mode .. "|" .. m.position .. "|" .. m.scale .. "|" .. m.transform)
+  end,
 }
 dofile(arg[1])
 EOF
+: >"$tmp/monitors.lua"
 
 # rows: label | /etc/vconsole.conf's text, `-` for no file | the input line.
 declare -a ROWS=(
@@ -51,7 +60,7 @@ run_rows() {
     want="${row#"$name|$text|"}"
     rm -f -- "$tmp/vconsole.conf"
     [[ $text == - ]] || printf "$text" >"$tmp/vconsole.conf"
-    got="$(env -i VCONSOLE="$tmp/vconsole.conf" "$lua_bin" "$tmp/stand-in.lua" "$file" 2>&1)" || got="exit=$? $got"
+    got="$(env -i VGS_GREETER_ROOT=/fixture MONITOR_LUA="$tmp/monitors.lua" VCONSOLE="$tmp/vconsole.conf" "$lua_bin" "$tmp/stand-in.lua" "$file" 2>&1)" || got="exit=$? $got"
     if [[ $got == "$want" ]]; then
       [[ $quiet == quiet ]] || ok "$name"
     else
@@ -75,5 +84,24 @@ for ((i = 0; i < ${#CONTROLS[@]}; i += 3)); do
   copy_with "control-$((i / 3))" "$config" "${CONTROLS[i + 1]}" "${CONTROLS[i + 2]}"
   if run_rows "$copy" quiet; then fail "control: ${CONTROLS[i]}: the rows pass without the rule"; else ok "control: the rows fail without the rule: ${CONTROLS[i]}"; fi
 done
+
+# Use the production renderer, then execute its output inside the actual
+# greeter config. No fixture starts a compositor or reads a system file.
+"$node_bin" - "$repo/bin/lib/greeter-layout.js" >"$tmp/monitors.lua" <<'JS'
+const { judge } = require(process.argv[2]);
+const data = { outputs: {
+  "DP-2": { mode: { width: 5120, height: 2880, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2, transform: 1 },
+  "DP-1": { mode: { width: 6016, height: 3384, refresh: 60 }, position: { x: 1440, y: 620 }, scale: 2, transform: 0 }
+}, primaryOutput: "DP-1" };
+process.stdout.write(judge(JSON.stringify(data)).lines.join("\n"));
+JS
+monitor_rows() {
+  local got
+  got="$(env -i VGS_GREETER_ROOT=/fixture MONITOR_LUA="$tmp/monitors.lua" VCONSOLE="$tmp/no-vconsole" "$lua_bin" "$tmp/stand-in.lua" "$1")" || return
+  [[ $got == $'DP-1|6016x3384@60|1440x620|2|0\nDP-2|5120x2880@60|0x0|2|1\nus|||' ]]
+}
+check "the compositor applies the rotated two-monitor saved layout" monitor_rows "$config"
+copy_with no-monitors "$config" 'local rendered = pipe:close()' 'pipe:close(); local rendered = false'
+if monitor_rows "$copy" 2>/dev/null; then fail "control: the compositor still applies no monitor layout"; else ok "control: missing layout application fails the compositor assertion"; fi
 
 rows_done "$suite"

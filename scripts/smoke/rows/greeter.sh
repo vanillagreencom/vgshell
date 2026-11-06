@@ -42,11 +42,11 @@
 # empty. The host's reads wait up to 20 s, 100 reads 0.2 s apart, for a qs
 # start with no compiled QML cache; every other reading is expect_poll's:
 # 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/GreeterSurface.qml shell/Core/MonitorLogic.js shell/Core/HyprctlReader.qml bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 greeter_status() { ipc smoke statusValues vgs.greeter | py_reply 'import json,sys; v=json.load(sys.stdin).get("greeter"); print(json.dumps(v if v is None else [v["tone"], v.get("action"), v.get("available")]))'; }
 greeter_lent() { ipc smoke readInstance service vgs.greeter steps | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
-greeter_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["holders"].get("system", [])))'; }
+greeter_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([p for p in json.load(sys.stdin)["holders"].get("system", []) if p == "vgs.greeter"]))'; }
 greeter_record() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.greeter"); print(json.dumps(r if r is None else sorted(r["keys"])))'; }
 
 if devices_ready greeter; then
@@ -64,7 +64,7 @@ if devices_ready greeter; then
   expect_poll "a masked greetd reads denied in the lending record" '{"greeter": {"reason": "unit-masked", "state": "denied"}}' greeter_lent
   expect_poll "the service publishes the masked reading" '["info", false, false]' greeter_status
   expect "disabling the greeter plugin is allowed" ok ipc shell setPluginEnabled vgs.greeter false
-  expect_poll "no plugin holds system once the greeter is disabled" '[]' greeter_holders
+  expect_poll "the greeter releases system when disabled" '[]' greeter_holders
   expect_poll "disable dropped the greeter's status record" null greeter_record
   device_reply_clear systemctl
 fi
@@ -112,6 +112,10 @@ greeter_stop() {
   wait "$1" 2>/dev/null || true
   expect_poll "the stopped host leaves no surface" 0 layer_count vgs:greeter
 }
+greeter_primary=SMOKE-GREETER
+greeter_main="$(hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
+expect "the nested compositor adds the saved primary output" ok create_output "$greeter_primary"
+printf '{"outputs":{},"primaryOutput":"%s"}\n' "$greeter_primary" >"$sandbox/greeter-theme/vgshell/displays.json"
 spawn_display "$greeter_log" "${greeter_env[@]}" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
 greeter_pid="$spawn_pid"
 if greeter_wait "greeter: sessions=3 preselected=wayland-sessions/hyprland-uwsm.desktop" "$greeter_log" "$greeter_pid"; then ok "the greeter host lists the sessions and preselects the uwsm-managed Hyprland session"; else fail "the greeter host's preselection line, log: $(tail -n 20 -- "$greeter_log")"; fi
@@ -126,7 +130,20 @@ expect "the view lists the X entry, available only with startx" 1 greeter_lines 
 expect "the view lists no other session" 3 greeter_count "greeter: session id=" "$greeter_log"
 expect "the view refuses the file with no Exec by its path" 1 greeter_lines "greeter: refused: session=$greeter_fixtures/share-b/wayland-sessions/broken.desktop reason=exec-missing" "$greeter_log"
 expect_poll "the host builds one surface per screen" "$greeter_screens" layer_count vgs:greeter
+expect_poll "the login form uses the saved non-first output" 1 greeter_lines "greeter: interactive=$greeter_primary" "$greeter_log"
+expect "the two-screen host builds exactly one interactive session list" 1 greeter_count "greeter: sessions=" "$greeter_log"
+expect "the nested compositor unplugs the primary output" ok hypr output remove "$greeter_primary"
+expect_poll "the form moves to the remaining output" 1 greeter_lines "greeter: interactive=$greeter_main" "$greeter_log"
+expect_poll "the unplugged output leaves one greeter surface" "$monitors" layer_count vgs:greeter
+expect "hotplug preserves the interactive view rather than another login owner" 1 greeter_count "greeter: sessions=" "$greeter_log"
+expect "the nested compositor reconnects the primary output" ok create_output "$greeter_primary"
+expect_poll "reconnecting restores the saved primary" 2 greeter_lines "greeter: interactive=$greeter_primary" "$greeter_log"
+expect_poll "reconnecting restores the passive surface too" "$greeter_screens" layer_count vgs:greeter
+expect "reconnecting creates no second interactive session list" 1 greeter_count "greeter: sessions=" "$greeter_log"
 greeter_stop "$greeter_pid"
+expect "the nested compositor removes the primary fixture" ok hypr output remove "$greeter_primary"
+printf '{"outputs":{},"primaryOutput":""}\n' >"$sandbox/greeter-theme/vgshell/displays.json"
+greeter_screens="$monitors"
 
 # The next boot: the memory the view writes before a launch.
 greeter_user="$(id -un)"
