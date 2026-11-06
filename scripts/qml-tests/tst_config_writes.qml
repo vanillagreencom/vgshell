@@ -179,8 +179,11 @@ Item {
             const acceptedBytes = JSON.stringify(accepted) + "\n";
             for (const [kind, recovery] of cases) {
                 finishNextRead(Config.userPath, acceptedBytes);
-                const converted = { version: 4, disabledPlugins: [], bar: { layout: { right: [{ id: "acme.other" }] } } };
+                const converted = { version: 4, disabledPlugins: [], bar: { layout: { right: [{ id: "acme.other-" + kind + "-" + recovery }] } } };
                 const bytes = JSON.stringify(Object.assign({}, converted, { version: 3 })) + "\n";
+                // A lost write must find stale bytes, never a prior row's
+                // successful retry of the same source.
+                copy.diskData = new Uint8Array(bytesOf(acceptedBytes)).buffer;
                 if (kind === "reported") copy.failNextWrite = 28;
                 else copy.loseNextWrite = true;
                 finishNextRead(Config.userPath, bytes);

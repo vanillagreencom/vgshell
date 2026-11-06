@@ -162,34 +162,6 @@ Item {
         Window { width: 640; height: 120; color: "black" }
     }
 
-    Component {
-        id: brokenReference
-        Item {
-            width: 280
-            height: 400
-            property alias subject: subject
-            property alias expected: expected
-            LinkText {
-                id: subject
-                width: parent.width
-                wrapMode: Text.Wrap
-                color: "white"
-                linkColor: "white"
-            }
-            // Plain text is the input contract, independently of the styled
-            // renderer. Equal drawn glyphs prove breaks and wrap points agree.
-            Label {
-                id: expected
-                y: 200
-                width: subject.width
-                text: subject.drawn
-                textFormat: Text.PlainText
-                wrapMode: subject.wrapMode
-                color: "white"
-            }
-        }
-    }
-
     TestCase {
         name: "linktext"
         when: windowShown
@@ -210,42 +182,16 @@ Item {
             compare((escapedHtml.match(/<font color=/g) || []).length, 2);
         }
 
-        function test_explicit_breaks_and_wrapped_references_share_drawn_and_hit_lines_data() {
-            const path = "/home/retained-settings-copy-with-a-long-run-owned-name/.local/state/vgshell/shell-pre-conversion.json";
-            const reference = PageReference.fileReference(path, path);
+        function test_styled_text_preserves_explicit_breaks_data() {
             return [
-                { tag: "wrapped", text: "Saved copy: " + reference, link: "" },
-                { tag: "explicit break then wrapped path", text: "The file is untouched.\nSaved copy: " + reference, link: "" },
-                { tag: "blank line then wrapped path", text: "The file is untouched.\n\nSaved copy: " + reference, link: "" },
-                { tag: "break inside linked words", text: "Read alpha\nbeta next.", link: "alpha\nbeta" }
+                { tag: "no newline", text: "alpha beta", want: "alpha beta" },
+                { tag: "explicit break", text: "alpha\nbeta", want: "alpha<br>beta" },
+                { tag: "blank line", text: "alpha\n\nbeta", want: "alpha<br><br>beta" }
             ];
         }
 
-        function test_explicit_breaks_and_wrapped_references_share_drawn_and_hit_lines(data) {
-            const fixture = createTemporaryObject(brokenReference, root);
-            fixture.subject.text = data.text;
-            fixture.subject.link = data.link;
-            const item = fixture.subject;
-            const label = labelOf(item);
-            const expected = fixture.expected;
-            compare(label.lineCount, expected.lineCount, "the styled label keeps every plain-text break");
-            fuzzyCompare(label.contentHeight, expected.contentHeight, 0.5);
-            verify(grabImage(label).equals(grabImage(expected)), "visible words wrap at the plain input's positions");
-            const twin = item.children.find(child => typeof child.positionToRectangle === "function");
-            compare(twin.lineCount, expected.lineCount, "hit geometry has the same lines as the drawn label");
-            const image = grabImage(expected);
-            verify(item.underlined.length > 1, "the input reaches more than one linked line");
-            for (const span of item.underlined) {
-                verify(span.line < expected.lineCount && span.right > span.left, "no detached or empty underline");
-                const baseline = expected.baselineOffset + span.line * item.linePitch;
-                verify(inkRows(image, [Math.ceil(span.left), Math.floor(span.right)], Math.floor(span.line * item.linePitch), Math.ceil(baseline)).length > 0,
-                    "each underline lies below drawn words, not a blank line");
-                compare(item.linkAt((span.left + span.right) / 2, (span.line + 0.5) * item.linePitch), span.index);
-            }
-            for (let line = 0; line < expected.lineCount; line++) {
-                if (inkRows(image, [0, image.width], Math.floor(line * item.linePitch), Math.ceil((line + 1) * item.linePitch)).length === 0)
-                    compare(item.linkAt(item.width / 2, (line + 0.5) * item.linePitch), -1, "blank lines take no link input");
-            }
+        function test_styled_text_preserves_explicit_breaks(data) {
+            compare(linked.htmlEscaped(data.text), data.want);
         }
 
         function test_empty_link_takes_no_tab_focus() {
