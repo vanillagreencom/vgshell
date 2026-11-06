@@ -1620,7 +1620,10 @@ point_item() { # LOOKUP [DX DY]
   for i in $(seq 1 "$smoke_poll_n"); do
     rect="$(control_box "${lookup[@]}")" || return 1
     if [[ $rect == absent ]]; then
-      [[ $i -gt 1 ]] || return 1
+      if [[ $i -eq 1 ]]; then
+        printf 'point_item: reading=first box=absent lookup=%s\n' "${lookup[*]}" >&2
+        return 1
+      fi
       held=0; seen=""; sleep 0.1; continue
     fi
     if [[ $rect != "$seen" ]]; then
@@ -3192,11 +3195,14 @@ settings_open_tui() { ipc smoke invokeInstance window vgs.settings openTui "{\"i
 settings_press() {
   local shown type=Button lookup
   if [[ $1 == --type ]]; then type="$2"; shift 2; fi
-  shown="$(ipc smoke revealText window vgs.settings "$type" "$1")" || return 1
+  if [[ $# -eq 3 ]]; then
+    shown="$(ipc smoke revealScopedText window vgs.settings "$2" "$3" "$type" "$1")" || return 1
+    lookup=(scoped:Plugins window vgs.settings "$2" "$3" "$type" "$1")
+  else
+    shown="$(ipc smoke revealText window vgs.settings "$type" "$1")" || return 1
+    lookup=(window:Plugins window vgs.settings "$type" "$1")
+  fi
   [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_press: no $type $1 to reveal: $shown" >&2; return 1; }
-  sleep 0.2
-  if [[ $# -eq 3 ]]; then lookup=(scoped:Plugins window vgs.settings "$2" "$3" "$type" "$1")
-  else lookup=(window:Plugins window vgs.settings "$type" "$1"); fi
   if ! click_item "${lookup[@]}"; then
     echo "settings_press: pointer-not-ready=$type $1" >&2
     return 1

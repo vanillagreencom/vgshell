@@ -294,6 +294,56 @@ warden_info_unready() {
    if settings_press --type InfoButton "About Warden" Field Warden 2>&1 >/dev/null; then echo pressed; fi)
 }
 expect "a scoped press the Warden row's info icon cannot take yet fails at the press with its cause" "settings_press: pointer-not-ready=InfoButton About Warden" warden_info_unready
+# Observe the reveal request while forwarding the real IPC and click. The
+# request must carry the same scope as the subsequent pointer lookup even
+# when the page currently has only one matching InfoButton.
+printf 'warden_reveal_%s\n' "$(declare -f ipc)" >"$sandbox/warden-reveal-ipc.sh"
+declare -f settings_press | python3 -c 'import sys
+text = sys.stdin.read()
+before = "ipc smoke revealScopedText window vgs.settings \"$2\" \"$3\" \"$type\" \"$1\""
+after = "ipc smoke revealText window vgs.settings \"$type\" \"$1\""
+assert text.count(before) == 1, "scoped reveal control match"
+changed = text.replace(before, after)
+assert changed != text, "scoped reveal control unchanged"
+print(changed)' >"$sandbox/warden-reveal-unscoped.sh" || fail "the unscoped settings_press control could not be written"
+warden_scoped_reveal() {
+  (
+    source "$sandbox/warden-reveal-ipc.sh" || return 1
+    ipc() {
+      if [[ $1 == smoke && ( $2 == revealText || $2 == revealScopedText ) ]]; then
+        printf '%s\n' "$@" >"$sandbox/warden-reveal-args"
+      fi
+      warden_reveal_ipc "$@"
+    }
+    settings_press --type InfoButton "About Warden" Field Warden || return 1
+    cat -- "$sandbox/warden-reveal-args"
+  )
+}
+warden_scoped_reveal_check() {
+  expect "a scoped press reveals its own scope before pointing" $'smoke\nrevealScopedText\nwindow\nvgs.settings\nField\nWarden\nInfoButton\nAbout Warden' warden_scoped_reveal
+}
+warden_scoped_reveal_check
+expect_poll "the scoped reveal regression opens Warden's info dialog" "shown|shown" warden_info_dialog
+info_close_click Warden || fail "closing the scoped reveal regression's info dialog failed"
+expect_poll "the scoped reveal regression's info dialog closes" absent warden_info_closed
+warden_scoped_reveal_control() {
+  (
+    source "$sandbox/warden-reveal-unscoped.sh" || return 1
+    failures=0 behaviour_failures=0
+    warden_scoped_reveal_check >"$sandbox/warden-reveal-control.log"
+    echo "$failures"
+  )
+}
+expect "control: restoring page-wide reveal fails the same scope assertion" 1 warden_scoped_reveal_control
+sed 's/^/  CONTROL  /' "$sandbox/warden-reveal-control.log"
+expect_poll "the page-wide reveal control still reaches the real info button" "shown|shown" warden_info_dialog
+info_close_click Warden || fail "closing the page-wide reveal control's info dialog failed"
+expect_poll "the page-wide reveal control's info dialog closes" absent warden_info_closed
+warden_first_absent() {
+  (control_box() { echo absent; }
+   if point_item scoped:Plugins window vgs.settings Field Warden InfoButton "About Warden" 2>&1 >/dev/null; then echo pointed; fi)
+}
+expect "a first absent box names its reading and lookup" "point_item: reading=first box=absent lookup=scoped:Plugins window vgs.settings Field Warden InfoButton About Warden" warden_first_absent
 # The copy sits beside DismissScope, a type internal to qs.Ui, which the
 # directory's own files reach and a file outside the module does not.
 info_control_dir="$repo/shell/Ui/overlay"
