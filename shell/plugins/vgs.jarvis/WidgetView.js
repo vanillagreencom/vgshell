@@ -8,14 +8,14 @@
 // Unsupported values refuse instead of manufacturing a ready state.
 
 var LOOKS = {
-    "off": { icon: "vgs-letter-j", tone: "neutral" },
-    "loading": { icon: "loader", tone: "info" },
-    "ready": { icon: "vgs-letter-j", tone: "calm" },
-    "listening": { icon: "audio-lines", tone: "accent" },
-    "working": { icon: "brain", tone: "info" },
-    "speaking": { icon: "volume-2", tone: "accent" },
-    "muted": { icon: "mic-off", tone: "neutral" },
-    "problem": { icon: "circle-alert", tone: "danger" }
+    "off": { icon: "vgs-letter-j", tone: "neutral", stateDot: "warning", title: "Not set up" },
+    "loading": { icon: "vgs-letter-j", tone: "info", stateDot: "info", title: "Starting" },
+    "ready": { icon: "vgs-letter-j", tone: "calm", stateDot: "", title: "Ready" },
+    "listening": { icon: "vgs-letter-j", tone: "accent", stateDot: "success", title: "Listening" },
+    "working": { icon: "vgs-letter-j", tone: "info", stateDot: "info", title: "Working" },
+    "speaking": { icon: "vgs-letter-j", tone: "accent", stateDot: "success", title: "Speaking" },
+    "muted": { icon: "vgs-letter-j", tone: "neutral", stateDot: "warning", title: "Microphone muted" },
+    "problem": { icon: "vgs-letter-j", tone: "danger", stateDot: "danger", title: "Problem" }
 };
 // Session's gate-down reasons (Session.js validate).
 var GATE_TEXT = {
@@ -28,9 +28,9 @@ var GATE_TEXT = {
 // The Session phases (Session.js phaseOf) in which Jarvis is working with
 // its microphone closed. `acting` is a running tool.
 var WORK_TEXT = {
-    "thinking": "Jarvis is thinking",
-    "confirming": "Jarvis is waiting for your confirmation",
-    "acting": "Jarvis is running a task"
+    "thinking": "Thinking",
+    "confirming": "Waiting for confirmation",
+    "acting": "Running a task"
 };
 // The required Setup steps the service publishes (SetupGate.readiness), in
 // the engine's order, and what the bar says while one is still to do.
@@ -293,30 +293,29 @@ function conversationResetNotice(reason) {
             : "Jarvis started a fresh conversation. Earlier messages remain in the console's History." };
 }
 
-var RESUME_TITLE = "Resume Jarvis from before the restart";
-
 function look(state, title, action) {
     var style = LOOKS[state];
     var recovery = [];
     if ((state === "problem" || state === "off") && typeof action === "string") {
         var parsed = Commons.PageReference.references(action);
-        if (parsed.links.length > 0) {
-            var first = parsed.links[0];
-            recovery.push(parsed.text.slice(0, first.start) + first.reference + parsed.text.slice(first.end));
-        }
+        // Some faults only offer waiting or an automatic retry. Keep that
+        // action, with the existing Settings route as its one recovery link.
+        if (parsed.links.length === 0)
+            parsed = Commons.PageReference.references(action + " Open [Settings > Jarvis](page:vgs.jarvis/Settings).");
+        var first = parsed.links[0];
+        recovery.push(parsed.text.slice(0, first.start) + first.reference + parsed.text.slice(first.end));
     }
-    return { state: state, icon: style.icon, tone: style.tone, tooltip: title, tooltipDetails: recovery };
+    return { state: state, icon: style.icon, tone: style.tone, stateDot: style.stateDot,
+        tooltip: "Jarvis: " + (title === undefined ? style.title : title), tooltipDetails: recovery };
 }
 
-function textLook(state, text) { return look(state, text.title, text.action); }
-function reportLook(state, value) { return look(state, value.text, value.hint === undefined ? RESTART : value.hint); }
+function textLook(state, text) { return look(state, undefined, text.action); }
+function reportLook(state, value) { return look(state, undefined, value.hint === undefined ? RESTART : value.hint); }
 
 // One status reading for the bar. Key hints and the console's model and
 // voice information belong to their own views.
 function view(values, voice) {
     var out = stateView(values, voice);
-    var detail = values.detail === undefined ? null : values.detail;
-    var state = detail === null ? null : detail.state;
     var session = values.jarvisSession;
     out.click = "console";
     if (session !== undefined && session !== null) {
@@ -324,13 +323,8 @@ function view(values, voice) {
                 || session.offer !== null && (typeof session.offer !== "object" || Array.isArray(session.offer))) refuse("jarvisSession", session);
         if (session.offer !== null) {
             out.click = "resume";
-            out.tooltip = RESUME_TITLE;
         }
     }
-    var lines = [];
-    if (state !== null && state.voiceMute.kind === "on") lines.push("Jarvis's voice muted");
-    if (microphoneMuted(values.microphoneMute) === true && out.tooltip !== "Microphone muted") lines.push("Microphone muted");
-    out.tooltipDetails = lines.concat(out.tooltipDetails);
     return out;
 }
 
@@ -342,24 +336,28 @@ function stateView(values, voice) {
             || detail.state === null || typeof detail.state !== "object")) refuse("detail", detail);
     var state = detail === null ? null : detail.state;
     var micMuted = microphoneMuted(values.microphoneMute) === true;
-    if (state !== null && microphoneOpen(state.capture)) return look(micMuted ? "muted" : "listening", micMuted ? "Microphone muted" : "Jarvis is listening");
+    if (state !== null && microphoneOpen(state.capture)) return look(micMuted ? "muted" : "listening");
     if (daemon !== null && (daemon.tone === "danger" || daemon.tone === "warning" && daemon.hint !== undefined)) return reportLook("problem", daemon);
     if (detail !== null && detail.phase === "error") return textLook("problem", faultText(state.fault, state.engine.kind, voice));
     if (audio !== null && audio.tone === "danger") return textLook("problem", AUDIO_TEXT);
     if (state === null) return textLook("loading", GATE_TEXT.starting);
     var down = gateDown(state.gate);
     if (down && state.gate.reason === "starting") return textLook("loading", GATE_TEXT.starting);
-    if (micMuted) return look("muted", "Microphone muted");
+    if (micMuted) return look("muted");
     if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return textLook("off", homeText(values));
-    if (down && state.gate.reason === "unconfigured" && setupChecking(values)) return look("loading", "Jarvis is checking setup");
+    if (down && state.gate.reason === "unconfigured" && setupChecking(values)) return look("loading", "Checking setup");
     if ((!down || state.gate.reason === "unconfigured") && voiceLoading(values)) return look("loading",
-        values.setupVoice && values.setupVoice.text === Gate.SETTING_UP.text ? "Jarvis is setting up its local voice" : "Jarvis is loading its voice");
+        values.setupVoice && values.setupVoice.text === Gate.SETTING_UP.text ? "Setting up" : "Loading");
     if (down && state.gate.reason === "unconfigured" && values.setupVoice && values.setupVoice.text === Gate.KEY_REFUSED) return textLook("problem", keyRefusedText(voice));
-    if (down) return textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason]);
+    if (down) {
+        if (state.gate.reason === "unconfigured") return textLook("off", unconfiguredText(values));
+        if (state.gate.reason === "node") return textLook("off", GATE_TEXT.node);
+        return look("off", state.gate.reason === "locked" ? "Screen locked" : "Checking screen lock");
+    }
     switch (detail.phase) {
     case "thinking": case "confirming": case "acting": return look("working", WORK_TEXT[detail.phase]);
-    case "speaking": return look("speaking", "Jarvis is speaking");
-    case "idle": return look("ready", state.conversation.kind === "ended" ? "Conversation closed" : "Conversation open");
+    case "speaking": return look("speaking");
+    case "idle": return look("ready");
     default: refuse("phase", detail.phase);
     }
 }

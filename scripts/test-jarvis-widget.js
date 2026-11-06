@@ -2,6 +2,8 @@
 // Jarvis's status-only bar projection runs the
 // shipped WidgetView.js over Session records. The same input checks status,
 // recovery links, system microphone observation and independent voice mute.
+// Tooltip wording is product output: VGS-2312 requires the state-only title
+// and forbids shortcut, selected-model and selected-voice details.
 // The service callbacks below protect notice and approval-frame identity.
 // No process, network, audio or real clock is used.
 "use strict";
@@ -33,36 +35,39 @@ const up = (regions = {}, extra = {}) => ({ daemon: { tone: "info", text: "Ready
 const links = lines => lines.flatMap(line => Array.from(pageReference.references(line).links));
 function verify(view) {
     const rows = [
-        ["starting", {}, "loading", "loader", "info"],
-        ["closed", up(), "ready", "vgs-letter-j", "calm"],
-        ["open at rest", up({ conversation: { kind: "active", purpose: "conversation" } }), "ready", "vgs-letter-j", "calm"],
-        ["listening", up(OPEN), "listening", "audio-lines", "accent"],
-        ["capture opening", up({ capture: { kind: "opening", gen: 1, op: 2, mode: "conversation" } }), "listening", "audio-lines", "accent"],
-        ["capture closing", up({ capture: { kind: "closing", gen: 1, op: 2 } }), "listening", "audio-lines", "accent"],
-        ["thinking", up(THINKING), "working", "brain", "info"],
-        ["cancelling", up({ turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }), "working", "brain", "info"],
-        ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "speaking", "volume-2", "accent"],
+        ["starting", {}, "loading", "info", "info", "Starting", 0],
+        ["closed", up(), "ready", "calm", "", "Ready", 0],
+        ["open at rest", up({ conversation: { kind: "active", purpose: "conversation" } }), "ready", "calm", "", "Ready", 0],
+        ["listening", up(OPEN), "listening", "accent", "success", "Listening", 0],
+        ["capture opening", up({ capture: { kind: "opening", gen: 1, op: 2, mode: "conversation" } }), "listening", "accent", "success", "Listening", 0],
+        ["capture closing", up({ capture: { kind: "closing", gen: 1, op: 2 } }), "listening", "accent", "success", "Listening", 0],
+        ["thinking", up(THINKING), "working", "info", "info", "Thinking", 0],
+        ["cancelling", up({ turn: { kind: "cancelling", gen: 1, op: 4, deadline: 70 } }), "working", "info", "info", "Thinking", 0],
+        ["speaking", up({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "speaking", "accent", "success", "Speaking", 0],
         ["confirming", up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
-            physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), "working", "brain", "info"],
-        ["acting", up({ action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } }), "working", "brain", "info"],
-        ["fault", up({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), "problem", "circle-alert", "danger"],
-        ["audio fault", up({}, { audio: { tone: "danger", text: "capture-overflow" } }), "problem", "circle-alert", "danger"],
-        ["locked", up({ gate: { kind: "down", reason: "locked" } }), "off", "vgs-letter-j", "neutral"],
-        ["unconfigured", up({ gate: { kind: "down", reason: "unconfigured" } }), "off", "vgs-letter-j", "neutral"],
-        ["system microphone muted", up({}, { microphoneMute: { kind: "ready", muted: true } }), "muted", "mic-off", "neutral"],
-        ["system microphone muted while listening", up(OPEN, { microphoneMute: { kind: "ready", muted: true } }), "muted", "mic-off", "neutral"]
+            physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), "working", "info", "info", "Waiting for confirmation", 0],
+        ["acting", up({ action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } }), "working", "info", "info", "Running a task", 0],
+        ["fault", up({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), "problem", "danger", "danger", "Problem", 1],
+        ["audio fault", up({}, { audio: { tone: "danger", text: "capture-overflow" } }), "problem", "danger", "danger", "Problem", 1],
+        ["daemon retry", up({}, { daemon: { tone: "warning", text: "Restarting", hint: "Jarvis is trying again by itself" } }), "problem", "danger", "danger", "Problem", 1],
+        ["locked", up({ gate: { kind: "down", reason: "locked" } }), "off", "neutral", "warning", "Screen locked", 0],
+        ["lock unknown", up({ gate: { kind: "down", reason: "lock-unknown" } }), "off", "neutral", "warning", "Checking screen lock", 0],
+        ["node missing", up({ gate: { kind: "down", reason: "node" } }), "off", "neutral", "warning", "Not set up", 1],
+        ["unconfigured", up({ gate: { kind: "down", reason: "unconfigured" } }), "off", "neutral", "warning", "Not set up", 1],
+        ["system microphone muted", up({}, { microphoneMute: { kind: "ready", muted: true } }), "muted", "neutral", "warning", "Microphone muted", 0],
+        ["system microphone muted while listening", up(OPEN, { microphoneMute: { kind: "ready", muted: true } }), "muted", "neutral", "warning", "Microphone muted", 0]
     ];
-    for (const [label, values, state, icon, tone] of rows) {
+    for (const [label, values, state, tone, stateDot, title, actionLines] of rows) {
         const bar = view.view(values, null);
-        assert.deepEqual([bar.state, bar.icon, bar.tone], [state, icon, tone], label);
+        assert.deepEqual([bar.state, bar.icon, bar.tone, bar.stateDot], [state, "vgs-letter-j", tone, stateDot], label);
         assert.ok(Object.hasOwn(Lucide.ICONS, bar.icon), label + ": shipped icon");
-        assert.ok(links(bar.tooltipDetails).length <= 1, label + ": at most one recovery link");
+        assert.equal(bar.tooltip, "Jarvis: " + title, label + ": state-only product title");
+        assert.equal(bar.tooltipDetails.length, actionLines, label + ": only the required action line");
+        assert.equal(links(bar.tooltipDetails).length, actionLines, label + ": one link per action");
         assert.equal(links([bar.tooltip]).length, 0, label + ": status title has no link");
-        assert.equal(bar.tooltipDetails.some(line => /AI model:|Voice:|Press |Click |Super\+/.test(line)), false, label + ": status only on the bar");
+        assert.equal([bar.tooltip].concat(bar.tooltipDetails).some(line => /AI model:|Voice:|Press |Click |Tap or hold |Super\+/.test(line)), false, label + ": status only on the bar");
     }
-    assert.equal(view.view(up(), null).tooltip, "Conversation closed");
-    assert.equal(view.view(up({ conversation: { kind: "active", purpose: "conversation" } }), null).tooltip, "Conversation open");
-    assert.equal(view.view(up({ conversation: { kind: "interrupted", purpose: "conversation" } }), null).tooltip, "Conversation open");
+    assert.equal(view.view(up({ conversation: { kind: "interrupted", purpose: "conversation" } }), null).tooltip, "Jarvis: Ready");
     const values = up({}, { voiceRoute: { tone: "ok", text: "Fixture voice" } });
     values.detail.brain = "Fixture model";
     assert.deepEqual(copy(view.view(values, null).tooltipDetails), [], "status does not expose model or voice details");
@@ -70,10 +75,10 @@ function verify(view) {
         for (const voice of [false, true]) {
             const values = up({ voiceMute: { kind: voice ? "on" : "off" } }, mic === undefined ? {} : { microphoneMute: mic });
             const bar = view.view(values, null);
-            const drawn = [bar.tooltip].concat(bar.tooltipDetails);
-            assert.equal(drawn.filter(text => text === "Microphone muted").length, mic?.muted === true ? 1 : 0);
-            assert.equal(drawn.includes("Jarvis's voice muted"), voice, "voice mute stays independent");
+            assert.equal(bar.tooltip, mic?.muted === true ? "Jarvis: Microphone muted" : "Jarvis: Ready");
+            assert.deepEqual(copy(bar.tooltipDetails), [], "voice mute adds no tooltip detail");
             assert.equal(view.microphoneMuted(mic), mic?.kind === "ready" ? mic.muted : null, "unknown source stays unavailable");
+            assert.equal(view.menuEntries(view.microphoneMuted(mic), voice)[0].intent, "voice-mute", "voice mute remains a menu action");
         }
     for (const cause of ["home=link", "brain=unselected", "speech=local-not-set-up"]) {
         const setup = SetupGate.readiness({ kind: "answered", causes: [cause] }, { kind: "ready", path: "/fixture" });
@@ -95,7 +100,7 @@ function verify(view) {
     const record = { model: "fixture-model", since: "11:02", offer: { unlock: "1password" }, steps: [], checkedAt: null };
     const resumed = view.view(up({}, { jarvisSession: record }), null);
     assert.equal(resumed.click, "resume");
-    assert.equal(resumed.tooltip, "Resume Jarvis from before the restart", "the offer keeps its actionable title");
+    assert.equal(resumed.tooltip, "Jarvis: Ready", "the offer changes the click, not the state title");
     record.offer = null;
     assert.deepEqual(copy(view.view(up({}, { jarvisSession: record }), null).tooltipDetails), [], "session model and start time are not bar details");
     const defaults = Object.fromEntries(manifest.hyprland.binds.map(bind => [bind.shortcut, bind.key]));
@@ -127,6 +132,9 @@ function verify(view) {
         assert.equal(view.faultKind(fault), kind, reason + ": the current producer's category");
         const out = view.view(up({ fault }), null);
         assert.equal(out.state, "problem");
+        assert.equal(out.tooltip, "Jarvis: Problem", "the state title exposes no model, voice or provider detail");
+        assert.equal(out.tooltipDetails.length, 1, reason + ": exactly one action line");
+        assert.equal(links(out.tooltipDetails).length, 1, reason + ": exactly one recovery link");
         assert.equal(/(?:jarvis: )?[a-z-]+=[a-z0-9-]/.test(out.tooltip + " " + out.tooltipDetails.join(" ")), false);
     }
     const bent = (change) => { const values = up(); change(values.detail); return values; };
@@ -185,8 +193,11 @@ verify(load(path.join(dir, "WidgetView.js")));
 }
 const controls = [
     ["bar loses recovery", '(state === "problem" || state === "off")', 'false'],
+    ["bar changes the J while listening", '"listening": { icon: "vgs-letter-j"', '"listening": { icon: "audio-lines"'],
+    ["bar loses state dots", 'stateDot: style.stateDot', 'stateDot: ""'],
+    ["bar restores shortcut guidance", 'tooltipDetails: recovery', 'tooltipDetails: recovery.concat(["Tap or hold Super+J to talk."])'],
+    ["bar loses its state prefix", 'tooltip: "Jarvis: " + ', 'tooltip: "" + '],
     ["microphone guessed unmuted", 'if (value === undefined) return null;', 'if (value === undefined) return false;'],
-    ["voice status lost", 'lines.push("Jarvis\'s voice muted")', 'void ("Jarvis\'s voice muted")'],
     ["menu accepts missing source", 'micMuted === null ? "Connect a microphone or choose one in Sound" : ""', '""'],
     ["prompt loses file path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: ""'],
     ["report hint shape unchecked", 'if (value.hint !== undefined && typeof value.hint !== "string") refuse(name, value);', ''],

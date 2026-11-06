@@ -26,8 +26,10 @@ Item {
     // A shell with VALUES as its status and an ipc that records each call.
     function shellWith(values) {
         return {
+            screens: { current: null },
+            session: { locked: false },
             status: { values: values },
-            settings: { holdToTalk: false, voiceProvider: "local" },
+            settings: { holdToTalk: false, voiceProvider: "local", home: "" },
             shortcut: { keys: { talk: "SUPER+code:44", "voice-mute": "SUPER+CTRL+M", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
             ipc: { call: (name, arg) => { root.calls = root.calls.concat([[name, arg]]); return root.reply; } },
             surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([[page, tab]]); return "ok"; } }
@@ -41,6 +43,9 @@ Item {
     }
 
     Widget { id: widget }
+    // Both real views consume the same status publication. The hidden
+    // console is read for its Needs you tab's actual unreadCounts binding.
+    Console { id: jarvisConsole; visible: false; shell: widget.shell }
 
     TestCase {
         name: "jarvisWidget"
@@ -66,6 +71,11 @@ Item {
         function button() { return find(widget, n => n.iconName !== undefined && n.label !== undefined); }
         function tooltip() { return find(widget, n => n.anchorItem !== undefined && n.text !== undefined); }
         function icon() { return find(button().contentItem, n => n.name !== undefined && n.paths !== undefined); }
+        function collect(node, test) {
+            let out = test(node) ? [node] : [];
+            for (const child of node.children) out = out.concat(collect(child, test));
+            return out;
+        }
 
         function themeTokens(path) {
             const request = new XMLHttpRequest();
@@ -74,8 +84,8 @@ Item {
             return JSON.parse(request.responseText).tokens;
         }
 
-        // Each state glyph draws in the Theme.color role of its tone, never
-        // the badge foreground of that tone, under vgs and flexoki-light.
+        // The J stays in every state. Its shared dot draws the Theme.color
+        // role beside it, under vgs and flexoki-light.
         function test_states_draw_their_icon_tone_and_tooltip_data() {
             return [{ tag: "vgs", theme: "vgs" }, { tag: "flexoki-light", theme: "catalog/flexoki-light" }];
         }
@@ -86,25 +96,82 @@ Item {
             const muted = root.ready({});
             muted.microphoneMute = { kind: "ready", muted: true };
             const rows = [
-                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.color.info, "Jarvis is starting"],
-                [root.ready({}), "vgs-letter-j", Theme.bar.foreground, "Conversation closed"],
-                [root.ready({ conversation: { kind: "active", purpose: "conversation" } }), "vgs-letter-j", Theme.bar.foreground, "Conversation open"],
-                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }), "audio-lines", Theme.color.accent, "Jarvis is listening"],
-                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.color.info, "Jarvis is thinking"],
-                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.color.accent, "Jarvis is speaking"],
-                [muted, "mic-off", Theme.color.textMuted, "Microphone muted"]
+                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, Theme.color.info, "info", "Jarvis: Starting", 0],
+                [root.ready({}), Theme.bar.foreground, "", "Jarvis: Ready", 0],
+                [root.ready({ conversation: { kind: "active", purpose: "conversation" } }), Theme.bar.foreground, "", "Jarvis: Ready", 0],
+                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }), Theme.color.accent, "success", "Jarvis: Listening", 0],
+                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), Theme.color.info, "info", "Jarvis: Thinking", 0],
+                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), Theme.color.accent, "success", "Jarvis: Speaking", 0],
+                [muted, Theme.color.textMuted, "warning", "Jarvis: Microphone muted", 0],
+                [root.ready({ gate: { kind: "down", reason: "unconfigured" } }), Theme.color.textMuted, "warning", "Jarvis: Not set up", 1],
+                [root.ready({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }), Theme.color.danger, "danger", "Jarvis: Problem", 1]
             ];
             const badges = [Theme.badge.tone.info, Theme.badge.tone.accent, Theme.badge.tone.neutral, Theme.badge.tone.danger].map(t => String(Qt.color(t.foreground)));
-            for (const [values, name, colour, text] of rows) {
-                const tip = text.split("\n");
+            for (const [values, colour, dotRole, text, actionLines] of rows) {
                 widget.shell = root.shellWith(values);
-                compare(icon().name, name, name);
-                compare(String(icon().color), String(Qt.color(colour)), name + " colour");
-                verify(badges.indexOf(String(icon().color)) === -1, name + " draws no badge foreground");
-                compare(button().label, "Jarvis");
-                compare(tooltip().text, tip[0]);
-                compare(JSON.stringify(tooltip().details), JSON.stringify(tip.slice(1)));
+                compare(icon().name, "vgs-letter-j", text);
+                compare(String(icon().color), String(Qt.color(colour)), text + " colour");
+                verify(badges.indexOf(String(icon().color)) === -1, text + " draws no badge foreground");
+                compare(button().label, text);
+                compare(tooltip().text, text);
+                compare(tooltip().details.length, actionLines);
+                compare(button().stateDot, dotRole);
+                const dot = find(button(), n => n.objectName === "bar-item-state-dot");
+                verify(dot !== null, "the shared BarItem owns the dot");
+                tryCompare(dot, "active", dotRole !== "");
+                if (dotRole !== "") {
+                    verify(dot.item !== null);
+                    compare(String(dot.item.color), String(Qt.color(Theme.color[dotRole])));
+                }
+                compare(collect(button(), n => n instanceof Badge).length, dotRole === "" ? 0 : 1, "no second dot or private badge");
             }
+        }
+
+        function test_count_equals_console_needs_you_data() {
+            return [
+                { tag: "unpublished", asks: undefined, count: "", drawn: "" },
+                { tag: "status-full", asks: null, count: "", drawn: "" },
+                { tag: "reading", asks: { kind: "reading" }, count: "", drawn: "" },
+                { tag: "unavailable", asks: { kind: "unavailable", cause: "Fixture unavailable" }, count: "", drawn: "" },
+                { tag: "zero", total: 0, count: "", drawn: "" },
+                { tag: "three", total: 3, count: "3", drawn: "3" },
+                { tag: "above-corner-limit", total: 13, count: "13", drawn: "9+" }
+            ];
+        }
+        function test_count_equals_console_needs_you(data) {
+            const values = root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } });
+            // JarvisProtocol.ownerAsksPage accepts an empty final page with
+            // a non-null cursor. Its total is not that page's row count.
+            if (data.total !== undefined) values.ownerAsks = {
+                kind: "ready", homeId: "fixture-home", revision: "fixture-revision",
+                observedAt: "2026-11-06T15:00:00.000Z", activeCount: data.total, snoozedCount: 0,
+                active: [], snoozed: [], activeCursor: data.total > 0 ? "fixture-last-page" : null,
+                activeNextCursor: null, snoozedCursor: null, snoozedNextCursor: null
+            };
+            else if (data.asks !== undefined) values.ownerAsks = data.asks;
+            widget.shell = root.shellWith(values);
+            const tabs = find(jarvisConsole, n => n.unreadCounts !== undefined && n.model !== undefined);
+            verify(tabs !== null, "read the real Console tabs");
+            const consoleCount = tabs.unreadCounts["Needs you"];
+            compare(button().count, data.count, data.tag);
+            compare(button().count, consoleCount === undefined ? "" : String(consoleCount), "same publication as Console");
+            compare(button().implicitWidth, button().implicitHeight, "count takes no row width");
+            compare(tooltip().text, "Jarvis: Listening");
+            compare(tooltip().details.length, 0, "the count adds no tooltip line");
+            const count = find(button(), n => n.objectName === "bar-item-count");
+            verify(count !== null, "the shared BarItem owns the count");
+            tryCompare(count, "active", data.count !== "");
+            if (data.count !== "") {
+                verify(count.item !== null);
+                compare(count.item.text, data.count, "full total reaches the shared badge");
+                compare(count.item.displayedText, data.drawn, "shared corner compaction");
+                verify(button().label.indexOf(data.count) !== -1, "accessible name keeps the full count");
+            }
+            const dot = find(button(), n => n.objectName === "bar-item-state-dot");
+            verify(dot !== null && dot.item !== null);
+            compare(button().stateDot, "success", "the state remains independent of asks");
+            compare(collect(button(), n => n instanceof Badge).length, data.count === "" ? 1 : 2, "one dot and at most one count");
+            if (data.count !== "") verify(dot.x + dot.width <= count.x, "dot and count do not overlap");
         }
 
         function test_a_click_calls_console_once() {

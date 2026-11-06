@@ -1,5 +1,5 @@
-# The Jarvis widget draws its status, opens the console and controls its
-# independent voice mute through the shared menu.
+# The Jarvis widget keeps its J, draws the shared state dot and asks count,
+# opens the console and controls independent voice mute through the shared menu.
 # No audio, account, provider or
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
@@ -37,36 +37,85 @@ jarvis_widget_tones="$(python3 -c 'import json,sys; print(json.dumps(dict(zip(["
   "$(ipc smoke themeValue bar.foreground)" "$(ipc smoke themeValue color.textMuted)" \
   "$(ipc smoke themeValue color.accent)" "$(ipc smoke themeValue color.info)" \
   "$(ipc smoke themeValue color.danger)")" || fail "the widget tones are unreadable"
-# The widget as drawn: [icon, tone, state, status-line count], the tone named by the token
-# whose colour the icon draws in, or `absent`.
+jarvis_widget_dot_colours="$(python3 -c 'import json,sys; print(json.dumps(dict(zip(["info", "success", "warning", "danger"], [json.loads(v).lower() for v in sys.argv[1:]]))))' \
+  "$(ipc smoke themeValue color.info)" "$(ipc smoke themeValue color.success)" \
+  "$(ipc smoke themeValue color.warning)" "$(ipc smoke themeValue color.danger)")" || fail "the widget dot colours are unreadable"
+# The widget as drawn: [icon, tone, state, action-line count, dot role, count].
+# Read the shared loaders and their painted badges too: a role alone cannot
+# prove a dot is drawn, and a private badge must not duplicate either one.
 jarvis_widget() {
-  local icon colours tip details view
+  local icon colours tip details view item loaders badges
   icon="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Icon name)" \
     && colours="$(ipc smoke itemColours "$jarvis_widget_key" vgs.jarvis Widget Icon)" \
     && tip="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip text)" \
     && details="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip details)" \
-    && view="$(ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis view)" || return
-  python3 - "$icon" "$colours" "$tip" "$details" "$jarvis_widget_tones" "$view" <<'PY'
+    && view="$(ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis view)" \
+    && item="$(ipc smoke itemValues "$jarvis_widget_key" vgs.jarvis BarItem stateDot,count)" \
+    && loaders="$(ipc smoke itemValues "$jarvis_widget_key" vgs.jarvis Loader objectName,active,item.text,item.displayedText)" \
+    && badges="$(ipc smoke itemColours "$jarvis_widget_key" vgs.jarvis Widget Badge)" || return
+  py_reply '
 import json, sys
-icon, colours, tip, details, tones = sys.argv[1:6]
-if "absent" in (icon, colours, tip, details):
+icon, colours, tip, details, tones, items, loaders, badges, dot_colours = sys.argv[1:]
+if any(value in ("absent", "undefined", "missing", "empty") for value in (icon, colours, tip, details, items, loaders, badges)):
     print("absent"); sys.exit()
-colour = json.loads(colours)[0][0]
+colours, items, loaders, badges = map(json.loads, (colours, items, loaders, badges))
+if len(colours) != 1 or len(colours[0]) != 1 or len(items) != 1 or len(badges) != 1:
+    print("draw-incomplete"); sys.exit()
+colour = colours[0][0]
 names = [name for name, value in json.loads(tones).items() if "#" + value[3:9] + value[1:3] == colour]
-view = json.loads(sys.argv[6])
+view = json.load(sys.stdin)
 drawn = json.loads(tip) == view["tooltip"] and json.loads(details) == view["tooltipDetails"]
-print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, view["state"] if drawn else "draw-mismatch", len(json.loads(details))]))
-PY
+dot, count = items[0].get("stateDot"), items[0].get("count")
+for name, active in (("bar-item-state-dot", bool(dot)), ("bar-item-count", bool(count))):
+    found = [loader for loader in loaders if loader.get("objectName") == name]
+    if len(found) != 1 or found[0].get("active") != active:
+        print("badge-loader-mismatch"); sys.exit()
+    if name == "bar-item-count" and active and found[0].get("item.text") != count:
+        print("count-draw-mismatch"); sys.exit()
+if len(badges[0]) != int(bool(dot)) + int(bool(count)):
+    print("badge-draw-mismatch"); sys.exit()
+if dot:
+    value = json.loads(dot_colours).get(dot)
+    if value is None or "#" + value[3:9] + value[1:3] not in badges[0]:
+        print("dot-colour-mismatch"); sys.exit()
+print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour,
+    view["state"] if drawn else "draw-mismatch", len(json.loads(details)), dot, count]))
+' "$icon" "$colours" "$tip" "$details" "$jarvis_widget_tones" "$item" "$loaders" "$badges" "$jarvis_widget_dot_colours" <<<"$view"
 }
-jarvis_widget_ready='["vgs-letter-j", "calm", "ready", 0]'
-jarvis_widget_listening='["audio-lines", "accent", "listening", 0]'
-jarvis_widget_voice_muted='["vgs-letter-j", "calm", "ready", 1]'
+jarvis_widget_ready='["vgs-letter-j", "calm", "ready", 0, "", ""]'
+jarvis_widget_listening='["vgs-letter-j", "accent", "listening", 0, "success", ""]'
 jarvis_widget_click() { click_centre "$jarvis_widget_key" vgs.jarvis || fail "the click on the Jarvis widget failed"; }
 jarvis_widget_consoles() { window_count Jarvis; }
 jarvis_widget_click_opens() { expect_poll "a click on the widget opens the console" 1 jarvis_widget_consoles; }
 jarvis_widget_console_close() {
   expect "the console opened from the widget hides" ok ipc shell hide window vgs.jarvis
   expect_poll "the console opened from the widget is gone" 0 jarvis_widget_consoles
+}
+# Read Console's real Needs you tab and the shared corner badge, not only
+# the widget's input. The fixture supplies one status publication to both.
+jarvis_widget_count() {
+  local asks count loaders tabs
+  asks="$(ipc smoke readInstance "$jarvis_widget_key" vgs.jarvis ownerAsks)" \
+    && count="$(ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis BarItem count)" \
+    && loaders="$(ipc smoke itemValues "$jarvis_widget_key" vgs.jarvis Loader objectName,active,item.text,item.displayedText)" \
+    && tabs="$(ipc smoke itemValues window vgs.jarvis Tabs unreadCounts)" || return
+  py_reply '
+import json, sys
+asks, count, loaders = sys.argv[1:]
+if any(value in ("absent", "undefined", "missing", "empty") for value in (asks, count, loaders)):
+    print("absent"); sys.exit()
+asks, count, loaders = map(json.loads, (asks, count, loaders))
+tabs = json.load(sys.stdin)
+badge = [loader for loader in loaders if loader.get("objectName") == "bar-item-count"]
+if len(tabs) != 1 or len(badge) != 1 or not isinstance(tabs[0].get("unreadCounts"), dict):
+    print("count-incomplete"); sys.exit()
+badge = badge[0]
+if badge.get("active") != bool(count) or count and badge.get("item.text") != count:
+    print("count-draw-mismatch"); sys.exit()
+console = tabs[0]["unreadCounts"].get("Needs you")
+print(json.dumps([asks.get("kind") if isinstance(asks, dict) else "unpublished", count,
+    "" if console is None else str(console), badge.get("item.displayedText") if count else ""]))
+' "$asks" "$count" "$loaders" <<<"$tabs"
 }
 jarvis_widget_click_control() {
   (failures=0 behaviour_failures=0
@@ -136,20 +185,17 @@ PY
 jarvis_widget_restarting() {
   local widget process
   widget="$(jarvis_widget)" && process="$(ipc smoke jarvisProcess)" || return
-  python3 - "$widget" "$process" <<'PY'
+  py_reply '
 import json, sys
-t, p = sys.argv[1], sys.argv[2]
-r = None if t == "absent" else json.loads(t)
+r, p = json.load(sys.stdin), sys.argv[1]
 d = None if p in ("absent", "missing") else json.loads(p)
-ok = (r is not None and d is not None and r[:3] == ["circle-alert", "danger", "problem"]
+ok = (d is not None and r == ["vgs-letter-j", "danger", "problem", 1, "danger", ""]
       and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning"
       and d["status"]["daemon"].get("hint") == "Jarvis is trying again by itself")
-print("restarting" if ok else t)
-PY
+print("restarting" if ok else json.dumps(r))
+' "$process" <<<"$widget"
 }
-# The widget's icon and tone alone.
-jarvis_widget_look() { jarvis_widget | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if t == "absent" else json.dumps(json.loads(t)[:2]))'; }
-jarvis_widget_restart_assertion() { expect_poll "the widget reads loading after the daemon ends" restarting jarvis_widget_restarting; }
+jarvis_widget_restart_assertion() { expect_poll "the widget reads a problem while the daemon retries" restarting jarvis_widget_restarting; }
 jarvis_widget_restart_control() {
   (failures=0 behaviour_failures=0
    jarvis_widget_restart_assertion >"$sandbox/jarvis-widget-restart-control.log"
@@ -179,7 +225,7 @@ rm -f -- "$jarvis_gate" "$jarvis_seen"
 expect "the gated widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "enabling places the widget in the bar's right section" right jarvis_widget_section
 expect_poll "the startup daemon consumes hello" seen jarvis_seen_hello
-expect_poll "the widget reads loading before the first state" '["loader", "info", "loading", 0]' jarvis_widget
+expect_poll "the widget reads loading before the first state" '["vgs-letter-j", "info", "loading", 0, "info", ""]' jarvis_widget
 : >"$jarvis_gate"
 expect "the gated daemon answers hello" ready jarvis_wait_ready
 expect_poll "the widget reads ready" "$jarvis_widget_ready" jarvis_widget
@@ -199,10 +245,10 @@ expect_poll "talk down opens capture" listening jarvis_key_state phase
 expect_poll "the widget reads listening while Jarvis listens" "$jarvis_widget_listening" jarvis_widget
 jarvis_key_talk_up
 expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase
-expect_poll "the widget reads working while Jarvis thinks" '["brain", "info", "working", 0]' jarvis_widget
+expect_poll "the widget reads working while Jarvis thinks" '["vgs-letter-j", "info", "working", 0, "info", ""]' jarvis_widget
 jarvis_widget_gate brain
 expect_poll "the scripted brain speaks" speaking jarvis_key_state phase
-expect_poll "the widget reads speaking during playback" '["volume-2", "accent", "speaking", 0]' jarvis_widget
+expect_poll "the widget reads speaking during playback" '["vgs-letter-j", "accent", "speaking", 0, "success", ""]' jarvis_widget
 jarvis_widget_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 expect_poll "the widget reads ready after the answer" "$jarvis_widget_ready" jarvis_widget
@@ -210,15 +256,42 @@ expect_poll "the widget reads ready after the answer" "$jarvis_widget_ready" jar
 jarvis_widget_click
 jarvis_widget_click_opens
 jarvis_widget_console_close
-jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
+# JarvisProtocol.ownerAsksPage permits an empty final page with a cursor;
+# its activeCount still supplies the total. Substitute only the service's
+# publication in the disposable tree, leaving both consumers unchanged.
+for jarvis_widget_asks_count in 3 0 unavailable; do
+  jarvis_disable
+  if [[ $jarvis_widget_asks_count == unavailable ]]; then
+    jarvis_widget_asks_snapshot='{ kind: "unavailable", cause: "Fixture asks unavailable" }'
+    jarvis_widget_asks_expected='["unavailable", "", "", ""]'
+    jarvis_widget_bar_count=""
+  else
+    jarvis_widget_asks_snapshot="{ kind: \"ready\", homeId: \"fixture-home\", revision: \"fixture-revision\", observedAt: \"2026-11-06T15:00:00.000Z\", activeCount: $jarvis_widget_asks_count, snoozedCount: 0, active: [], snoozed: [], activeCursor: \"fixture-last-page\", activeNextCursor: null, snoozedCursor: null, snoozedNextCursor: null }"
+    jarvis_widget_bar_count=""
+    [[ $jarvis_widget_asks_count == 0 ]] || jarvis_widget_bar_count="$jarvis_widget_asks_count"
+    jarvis_widget_asks_expected="[\"ready\", \"$jarvis_widget_bar_count\", \"$jarvis_widget_bar_count\", \"$jarvis_widget_bar_count\"]"
+  fi
+  jarvis_widget_plant Service.qml 'StatusPublication.write(shell.status, "ownerAsks", message.snapshot)' \
+    "StatusPublication.write(shell.status, \"ownerAsks\", $jarvis_widget_asks_snapshot)"
+  jarvis_enable
+  expect_poll "asks $jarvis_widget_asks_count keeps the J and uses the shared count" \
+    "[\"vgs-letter-j\", \"calm\", \"ready\", 0, \"\", \"$jarvis_widget_bar_count\"]" jarvis_widget
+  jarvis_widget_click
+  jarvis_widget_click_opens
+  expect_poll "asks $jarvis_widget_asks_count agrees with Console and its drawn corner count" "$jarvis_widget_asks_expected" jarvis_widget_count
+  jarvis_widget_console_close
+done
+jarvis_widget_restore Service.qml
+jarvis_enable
+jarvis_widget_menu_choose "Mute Jarvis's voice" "[\"Hide\",\"Mute Jarvis's voice\",\"Mute microphone\",\"Stop Jarvis\",\"New conversation\",\"Key hints\",\"Readme\",\"Settings\"]"
 expect_poll "the menu toggles independent voice mute" on jarvis_key_state voiceMute
-expect_poll "the status-only tooltip includes voice mute" "$jarvis_widget_voice_muted" jarvis_widget
+expect_poll "voice mute leaves the state-only tooltip ready" "$jarvis_widget_ready" jarvis_widget
 jarvis_disable
 jarvis_enable
 expect_poll "voice mute survives daemon restart" on jarvis_key_state voiceMute
 jarvis_widget_menu_choose "Unmute Jarvis's voice"
 expect_poll "the menu unmutes Jarvis's voice" off jarvis_key_state voiceMute
-expect_poll "the tooltip removes the voice mute status" "$jarvis_widget_ready" jarvis_widget
+expect_poll "voice unmute leaves the state-only tooltip ready" "$jarvis_widget_ready" jarvis_widget
 jarvis_disable
 jarvis_widget_plant Service.qml "$jarvis_widget_retry_needle" "$jarvis_widget_retry_delay"
 jarvis_enable
@@ -254,7 +327,7 @@ cp -- "$sandbox/jarvis-widget-before-jarvisd.js" "$jarvis_widget_dir/backend/jar
 jarvis_rescan
 expect "the permanent-problem widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
-expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]' jarvis_widget_look
+expect_poll "the widget reads the permanent problem" '["vgs-letter-j", "danger", "problem", 1, "danger", ""]' jarvis_widget
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 
 hold_stop_keyboard
@@ -270,7 +343,7 @@ expect "restore the Jarvis widget configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
-expect_poll "the unconfigured widget keeps its status-only tooltip" '["vgs-letter-j", "neutral", "off", 1]' jarvis_widget
+expect_poll "the unconfigured widget keeps its state-only tooltip" '["vgs-letter-j", "neutral", "off", 1, "warning", ""]' jarvis_widget
 # Tooltip links live in the popup, so read their screen box there. The
 # click rests on the first underlined span through click_item, which waits
 # for the link to report the pointer and restores a reset hold.

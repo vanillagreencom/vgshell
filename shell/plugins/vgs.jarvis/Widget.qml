@@ -69,16 +69,13 @@ BarWidget {
     BarItem {
         id: item
         anchors.centerIn: parent
-        label: "Jarvis"
+        label: root.view.tooltip + (root.hasAsks ? ", " + root.ownerAsks.activeCount + " asks need you" : "")
         iconName: root.view.icon
         tone: root.toneColor(root.view.tone)
+        stateDot: root.view.stateDot
+        count: root.hasAsks ? String(root.ownerAsks.activeCount) : ""
         tooltip: root.view.tooltip
-        tooltipDetails: root.view.tooltipDetails.concat(root.hasAsks ? [root.ownerAsks.activeCount + " asks need you"] : [])
-        contentItem: Row {
-            spacing: Theme.stack.inline
-            Icon { name: item.iconName; size: Theme.bar.item.icon; color: item.tone; anchors.verticalCenter: parent.verticalCenter }
-            Badge { visible: root.hasAsks; variant: "unread"; text: root.hasAsks ? String(root.ownerAsks.activeCount) : ""; anchors.verticalCenter: parent.verticalCenter }
-        }
+        tooltipDetails: root.view.tooltipDetails
         onTooltipPageActivated: (page, tab) => root.frame.openPage(page, tab)
         onClicked: root.view.click === "resume" ? root.offer("resume-session") : root.openConsole()
     }
