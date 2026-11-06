@@ -29,8 +29,16 @@
 # The harness starts the plugin disabled; the row enables it with no agent
 # and ends with it disabled, its stand-ins gone and the failure it planted
 # cleared.
-# inputs: shell/plugins/vgs.agent-debug/manifest.json shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/Core/Capabilities.qml shell/Core/Notices.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/plugins/acme.probe/* bin/vgshell-tui
+# Jarvis handoff uses the actual notification callback, offer, and Console
+# composer, with only the offline scripted daemon. It checks exact scalar
+# text, no conversation, occupied text, saved unavailable selection and
+# explicit one-off recovery. The altered-builder control edits only the
+# world's disposable plugin copy and must fail the exact-text assertion.
+# No latency ceiling; state polling is once per nested IPC round trip.
+# inputs: shell/plugins/vgs.agent-debug/manifest.json shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/plugins/vgs.agent-debug/Diagnose.js shell/plugins/vgs.agent-debug/Recovery.qml shell/Core/Capabilities.qml shell/Core/HandoffRegistry.qml shell/Core/Notices.qml shell/plugins/vgs.jarvis/* packaging/jarvis-home/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh scripts/smoke/rows/jarvis.sh scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/plugins/acme.probe/* bin/vgshell-tui
 set -euo pipefail
+source "$source_repo/scripts/smoke/jarvis-console.sh"
+expected_errors+=("${jarvis_provoked_errors[@]}")
 ad_probe_was="$(plugin_enabled acme.probe)"
 expect "the fixture holds the notification server for core sends" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the notification fixture service is built" True record_exists acme.probe
@@ -49,6 +57,7 @@ expected_errors+=('agent-debug: watch=stopped exit=')
 # and the row's stand-ins leave the shell's PATH.
 ad_abandon() {
   local result=0
+  if [[ ${ad_jarvis_prepared:-false} == true ]]; then ad_jarvis_restore || result=1; fi
   terminal_stand_in || result=1
   if [[ -f $ad_dir/vgshell-pkg.real ]]; then cp -- "$ad_dir/vgshell-pkg.real" "$repo/bin/vgshell-pkg" || result=1; fi
   rm -f -- "${shim:?}/journalctl" "${shim:?}/notify-send" "${shim:?}/claude" "${shim:?}/codex" || result=1
@@ -281,6 +290,134 @@ expect "disabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.need
 ad_removed() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.needs 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "acme.needs is removed" "ok removed=acme.needs" ad_removed
 expect_poll "acme.needs leaves the list" False plugin_known acme.needs
+
+# The offer and composer remain production code. Only daemon ports and Home
+# session reads use the existing offline fixture.
+ad_jarvis_prepared=false
+ad_jarvis_restore() {
+  ipc shell hide window vgs.jarvis >/dev/null || return 1
+  ipc shell hide window vgs.agent-debug >/dev/null || return 1
+  ipc shell setPluginEnabled vgs.jarvis false >/dev/null || return 1
+  cp -- "$ad_dir/jarvisd-before.js" "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" || return 1
+  cp -- "$ad_dir/engine-before.js" "$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js" || return 1
+  rm -f -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js" || return 1
+  cp -- "$ad_dir/Diagnose-before.js" "$repo/shell/plugins/vgs.agent-debug/Diagnose.js" || return 1
+  jarvis_asks_restore || return 1
+  user_config_restore "$ad_dir/config-before-jarvis.json" || return 1
+  ipc shell reloadConfig >/dev/null || return 1
+  jarvis_restore_requirements || return 1
+  ad_jarvis_prepared=false
+}
+cp -- "$home/.config/vgshell/shell.json" "$ad_dir/config-before-jarvis.json"
+cp -- "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" "$ad_dir/jarvisd-before.js"
+cp -- "$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js" "$ad_dir/engine-before.js"
+cp -- "$repo/shell/plugins/vgs.agent-debug/Diagnose.js" "$ad_dir/Diagnose-before.js"
+jarvis_setup_requirements
+jarvis_asks_fixture "$source_repo"
+ad_jarvis_prepared=true
+expect "the handoff selects a private Home" ok ipc shell reloadConfig
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" "$ad_dir/gates" --mapped-indicator
+rescan "the offline Jarvis ports are scanned"
+expect "Jarvis enables for the handoff" ok ipc shell setPluginEnabled vgs.jarvis true
+ad_target() {
+  ipc smoke readInstance service vgs.agent-debug targets | py_reply 'import json,sys
+r=next((r for r in json.load(sys.stdin) if r["label"]=="Jarvis"),None)
+print("absent" if r is None else json.dumps([r["key"],r["available"]]))'
+}
+ad_conversation() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("conversation", [])))'; }
+ad_draft() { ipc smoke readShownDescendant window vgs.jarvis TextArea text; }
+ad_json_text() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+ad_prompt() { # PROGRAM: expected text independent of the shared builder
+  printf '%s\n' "A program crashed on this computer and I want to know why." "What systemd-coredump recorded:" \
+    "- Program: $1" "- Process ID: 7890" "- Binary: /tmp/ad bin" "- Signal: SIGSEGV" "- Time: $ad_time" \
+    "Use the vgs-diagnose skill." "Diagnose only: change nothing on this computer."
+}
+ad_dispatch() { # PROGRAM: same notification -> Diagnose -> offer -> Console
+  forget_record
+  printf 'default\n' >"$ad_press"
+  ad_crash "$1" 7890
+  expect_poll "the actual Diagnose notification opens Jarvis" 1 window_count Jarvis
+  rm -f -- "${ad_press:?}"
+}
+ad_exact_draft() {
+  expect "the actual Diagnose composer holds the exact facts-only prompt" "$(ad_json_text "$(ad_prompt "$1")")" ad_draft
+}
+expect_poll "Agent Debug discovers the live Jarvis offer" '["handoff:vgs.jarvis/compose", true]' ad_target
+ad_set agent '"handoff:vgs.jarvis/compose"'
+expect_poll "Jarvis is the saved diagnosis choice" '"handoff:vgs.jarvis/compose"' ipc smoke readInstance service vgs.agent-debug agent
+ad_dispatch ad-jarvis
+ad_exact_draft ad-jarvis
+expect "opening the draft sends no conversation turn" '[]' ad_conversation
+expect "opening the draft starts no terminal" absent recorded
+expect "the unsent draft closes" ok ipc shell hide window vgs.jarvis
+
+# The same exercised dispatch with changed delivered text. Qt and the
+# scanner read a new published revision from this disposable world tree.
+python3 - "$repo/shell/plugins/vgs.agent-debug/Diagnose.js" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+needle='return lines.join("\\n");'
+assert s.count(needle)==1
+t=s.replace(needle,'return lines.join("\\n") + "\\nchanged delivery";')
+assert t!=s
+p.write_text(t)
+PY
+rescan "the altered delivery control is published"
+expect_poll "the control still discovers the actual Jarvis receiver" '["handoff:vgs.jarvis/compose", true]' ad_target
+ad_dispatch ad-jarvis-control
+ad_control="$(
+  failures=0 behaviour_failures=0
+  ad_exact_draft ad-jarvis-control >"$smoke_log_dir/agent-debug-handoff-control.log"
+  printf '%s' "$failures"
+)"
+expect "the changed delivery fails exactly one composer assertion" 1 echo "$ad_control"
+expect "the control fails the intended exact-text assertion" 1 grep -c 'FAIL.*the actual Diagnose composer holds the exact facts-only prompt' "$smoke_log_dir/agent-debug-handoff-control.log"
+expect "the changed text actually reached the production composer" \
+  "$(ad_json_text "$(ad_prompt ad-jarvis-control)"$'\nchanged delivery')" ad_draft
+expect "the control still starts no conversation" '[]' ad_conversation
+expect "the control console closes" ok ipc shell hide window vgs.jarvis
+cp -- "$ad_dir/Diagnose-before.js" "$repo/shell/plugins/vgs.agent-debug/Diagnose.js"
+rescan "the original shared builder is restored"
+expect_poll "the restored service discovers Jarvis" '["handoff:vgs.jarvis/compose", true]' ad_target
+
+# An occupied production TextArea must not lose any typed bytes.
+expect "an empty console opens for typing" ok ipc shell summon window vgs.jarvis '{}'
+expect_poll "the empty console maps" 1 window_count Jarvis
+type_keys '  my unsent text  ' || fail "typing an occupied draft failed"
+expect_poll "the composer keeps surrounding whitespace" "$(ad_json_text '  my unsent text  ')" ad_draft
+printf 'default\n' >"$ad_press"
+ad_crash ad-occupied 7891
+expect_poll "occupied text opens explicit recovery" 1 window_count "Agent Debug"
+rm -f -- "${ad_press:?}"
+expect "a refused handoff preserves every typed byte" "$(ad_json_text '  my unsent text  ')" ad_draft
+expect "an occupied handoff sends no conversation" '[]' ad_conversation
+expect "occupied recovery cancels explicitly" ok ipc vgs.agent-debug invoke recover cancel
+expect "the recovery window closes" ok ipc shell hide window vgs.agent-debug
+expect "the occupied console closes" ok ipc shell hide window vgs.jarvis
+
+expect "turning Jarvis off withdraws its live receiver" ok ipc shell setPluginEnabled vgs.jarvis false
+expect_poll "the declared Jarvis target remains unavailable" '["handoff:vgs.jarvis/compose", false]' ad_target
+ad_unavailable_choice() { ad_value agents | py_reply 'import json,sys; print(any(r["value"]=="handoff:vgs.jarvis/compose" and "unavailable" in r["label"] for r in json.load(sys.stdin)))'; }
+expect_poll "the picker marks saved Jarvis unavailable" True ad_unavailable_choice
+for ad_recovery_agent in claude codex; do
+  forget_record
+  printf 'default\n' >"$ad_press"
+  ad_crash "ad-unavailable-$ad_recovery_agent" 7892
+  expect_poll "unavailable Jarvis opens recovery for $ad_recovery_agent" 1 window_count "Agent Debug"
+  rm -f -- "${ad_press:?}"
+  expect "recovery names Jarvis's actual disabled cause" '"Jarvis is turned off."' ipc smoke readInstance window vgs.agent-debug reason
+  expect "unavailable Diagnose starts no terminal by itself" absent recorded
+  expect "the user explicitly chooses $ad_recovery_agent for this failure" ok ipc vgs.agent-debug invoke recover "$ad_recovery_agent"
+  expect_poll "one-off recovery passes the scalar facts to $ad_recovery_agent" \
+    "$(words vgs.agent-debug/diagnose tui/diagnose.sh "$ad_recovery_agent" crash "ad-unavailable-$ad_recovery_agent" 7892 SIGSEGV "$ad_time" '/tmp/ad bin')" recorded_tail
+  expect_poll "one-off terminal diagnosis ends" idle key_idle vgs.agent-debug/diagnose
+  expect "one-off recovery keeps the saved Jarvis choice" '"handoff:vgs.jarvis/compose"' ipc smoke readInstance service vgs.agent-debug agent
+  expect "the one-off recovery window closes" ok ipc shell hide window vgs.agent-debug
+done
+ad_jarvis_restore
+expect_poll "the pre-handoff terminal choice returns" '"claude"' ipc smoke readInstance service vgs.agent-debug agent
 
 # The follower's lifetime: its end with a disable, and a follower that
 # ends on its own, which reads Stopped until the agent changes.

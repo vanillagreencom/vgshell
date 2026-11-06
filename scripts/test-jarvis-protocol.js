@@ -291,7 +291,8 @@ const cases = [
     ["say-empty", changed(say, { text: "" }), "shell", "say-text"],
     ["say-blank", changed(say, { text: "   " }), "shell", "say-text"],
     ["say-long", changed(say, { text: "a".repeat(4097) }), "shell", "say-text"],
-    ["say-control", changed(say, { text: "a\nb" }), "shell", "say-text"],
+    ["say-control", changed(say, { text: "a\u0000b" }), "shell", "say-text"],
+    ["say-carriage-return", changed(say, { text: "a\rb" }), "shell", "say-text"],
     ["confirm-shape", changed(confirm, { extra: true }), "shell", "shape-confirm"],
     ["confirm-id", changed(confirm, { id: "made-up" }), "shell", "approval-id"],
     ["confirm-digest", changed(confirm, { digest: "A".repeat(64) }), "shell", "approval-digest"],
@@ -474,6 +475,8 @@ for (const name of ["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice
 // A preview always names the voice it plays (Service.previewVoice).
 assert.equal(Protocol.accept(changed(intent, { intent: "preview", voice: "marin" }), "shell").voice, "marin");
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
+const multilineSay = changed(say, { text: "first line\nsecond line" });
+assert.equal(JSON.stringify(Protocol.accept(multilineSay, "shell")), multilineSay);
 for (const shown of [personality, { ...personality, personality: { kind: "none" } }, { ...personality, personality: { kind: "missing" } }, voices, { ...voices, voices: [] },
     startText, { ...startText, size: { kind: "unreadable" } }, { ...startText, size: { kind: "read", tokens: 1350, layers: [] } },
     { ...startText, size: { kind: "read", tokens: 9000, layers: ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"].map(layer => ({ layer, tokens: 100 })) } }])
@@ -709,7 +712,7 @@ try {
             '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],
         ["preview-voice-text", 'if (!printable(message.voice, 1, 128)) fail("preview-voice");', "", "preview-empty-voice"],
         ["say-shape", 'keys(message, fields.concat(["text"]), "say");', 'if (false) keys(message, fields.concat(["text"]), "say");', "say-shape"],
-        ["say-text", 'if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");',
+        ["say-text", 'if (typeof message.text !== "string" || !printable(message.text.replace(/\\n/g, " "), 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");',
             'if (false) fail("say-text");', "say-empty"],
         ["audio-fault-direction", 'if (direction !== "daemon") fail("direction-audio-fault");',
             'if (false) fail("direction-audio-fault");', "audio-fault-direction"],

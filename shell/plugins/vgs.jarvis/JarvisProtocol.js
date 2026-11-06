@@ -606,7 +606,9 @@ function accept(line, direction) {
                     || !printable(message.expectedRevision, 1, 128)) fail("owner-asks-page-intent");
         } else if (message.intent === "say") {
             keys(message, fields.concat(["text"]), "say");
-            if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
+            // Typed messages can contain line feeds. Keep every other wire
+            // field's single-line contract; this replacement preserves length.
+            if (typeof message.text !== "string" || !printable(message.text.replace(/\n/g, " "), 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
         } else if (message.intent === "preview") {
             // A preview of one offer of the Voice list, beside its speaker
             // button; the engine plays it only if its voice offers it.

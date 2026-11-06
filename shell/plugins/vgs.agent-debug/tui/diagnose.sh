@@ -10,12 +10,11 @@
 # AGENT is claude, codex, copilot, pi or opencode. A fact the service could
 # not give is `-`. The prompt names the run record of a failed task, never
 # its lines, and tells the agent to use the vgs-diagnose skill, which this
-# script copies from the plugin into the agent's own skills folder first:
+# script copies from VGS's shared Home render into the agent's skills folder:
 # only where no file stands or where the file there is one VGS wrote, a
 # regular file whose front matter carries `source: vgshell`, and never
-# through a link. Elsewhere the prompt names the plugin's copy, which
-# bin/vgshell-tui keeps until the agent exits, since the agent takes this
-# script's place. The agent starts in a folder of its own under the runtime
+# through a link. Elsewhere the prompt names the shipped copy. The agent
+# starts in a folder of its own under the runtime
 # dir, which holds none of the user's files, so it asks before it reads any
 # file of the home folder.
 set -euo pipefail
@@ -51,7 +50,7 @@ esac
 # offered.
 command -v "$agent" >/dev/null || { vgs_tui_error "$name is not installed. Choose an installed agent on the Agent Debug page in Settings."; exit 1; }
 
-shipped="${VGS_PLUGIN_DIR:?}/skills/vgs-diagnose/SKILL.md"
+shipped="${VGS_TUI_LIB%/*}/../../packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md"
 folder="$skills/vgs-diagnose"
 copy="$folder/SKILL.md"
 # Whether FILE is a copy VGS wrote: a regular file, not a link, whose front
@@ -78,30 +77,11 @@ install_skill() {
 }
 if install_skill 2>/dev/null; then skill="$copy"; else skill="$shipped"; fi
 
-case "$kind" in
-  crash)
-    printf -v prompt '%s\n' \
-      "A program crashed on this computer and I want to know why." \
-      "What systemd-coredump recorded:" \
-      "- Program: $3" \
-      "- Process ID: $4" \
-      "- Binary: $7" \
-      "- Signal: $5" \
-      "- Time: $6" \
-      "Use the vgs-diagnose skill. If you cannot load skills, read $skill and follow it." \
-      "Diagnose only: change nothing on this computer." ;;
-  task)
-    printf -v prompt '%s\n' \
-      "A VGS setup task failed on this computer and I want to know why." \
-      "- Task: $4 the tools of the VGS plugin $3" \
-      "- Package manager: $5" \
-      "- Packages: $6" \
-      "- Time: $7" \
-      "- Run record: $8" \
-      "Use the vgs-diagnose skill. If you cannot load skills, read $skill and follow it." \
-      "Diagnose only: change nothing on this computer." ;;
-esac
-prompt="${prompt%$'\n'}"
+prompt="$(node - "${VGS_TUI_LIB%/*}/qml-library.js" "${VGS_PLUGIN_DIR:?}/Diagnose.js" "$skill" "${@:2}" <<'JS'
+const { load } = require(process.argv[2]);
+process.stdout.write(load(process.argv[3]).prompt(process.argv.slice(5), process.argv[4]));
+JS
+)"
 
 # The prompt is one argument and never a shell string. Each form starts the
 # agent's interactive session in its default mode, which asks before a

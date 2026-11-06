@@ -58,14 +58,14 @@ p=Path(sys.argv[1])
 print(sum(json.loads(line).get("kind")=="brain-send" and json.loads(line).get("text")=="typed from console" for line in p.read_text().splitlines()) if p.exists() else 0)
 PY
 }
-jarvis_console_text_field_focused() {
-  ipc smoke itemValues window vgs.jarvis TextField activeFocus | py_reply '
+jarvis_console_composer_focused() {
+  ipc smoke itemValues window vgs.jarvis TextArea activeFocus | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
 print("true" if any(row.get("activeFocus") is True for row in rows) else "false")
 '
 }
-jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextField text; }
+jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextArea text; }
 jarvis_console_hint_has() { # TEXT
   ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
 import json,sys
@@ -98,7 +98,7 @@ jarvis_console_engine_kind() {
 }
 jarvis_console_speech_only_check() {
   expect_poll "a duplex voice shows the speech-only line" shown jarvis_console_speech_line
-  expect "a duplex voice shows no message box" 0 jarvis_console_shown TextField
+  expect "a duplex voice shows no message box" 0 jarvis_console_shown TextArea
   expect "a duplex voice shows no Send" 0 jarvis_console_send_shown
 }
 jarvis_console_speech_only_control() {
@@ -118,7 +118,7 @@ jarvis_console_open_control() {
 }
 jarvis_console_focus_control() {
   (failures=0 behaviour_failures=0
-   expect_poll "the console text field has focus" true jarvis_console_text_field_focused >"$sandbox/jarvis-console-focus-control.log"
+   expect_poll "the console text field has focus" true jarvis_console_composer_focused >"$sandbox/jarvis-console-focus-control.log"
    echo "$failures")
 }
 jarvis_console_tabs() {
@@ -168,10 +168,10 @@ jarvis_console_audit_groups() {
 }
 jarvis_console_audit_groups_check() { expect_poll "History groups its problems with shared separators" '[2]' jarvis_console_audit_groups; }
 jarvis_console_tasks_path() {
-  expect_poll "Now has composer focus before its tab switch" true jarvis_console_text_field_focused
+  expect_poll "Now has composer focus before its tab switch" true jarvis_console_composer_focused
   type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "switching to History failed"
   jarvis_console_tasks_tab_check
-  expect_poll "History focuses its search" true jarvis_console_text_field_focused
+  expect_poll "History focuses its search" true ipc smoke activeFocusWithin window vgs.jarvis TextField
   jarvis_history_filter Tasks || fail "filtering History to tasks failed"
   type_keys -k Tab || fail "reaching the coding tasks by keyboard failed"
   expect_poll "History tasks take keyboard focus" true jarvis_console_body_focused
@@ -244,7 +244,7 @@ hold_barrier
 # its bundled-window loop opens one client for each window plugin, and its
 # Themes panel control proves non-window surfaces do not count as clients.
 expect "a second console key press keeps one Jarvis window" 1 jarvis_console_client_count
-expect_poll "the console text field has focus" true jarvis_console_text_field_focused
+expect_poll "the console text field has focus" true jarvis_console_composer_focused
 jarvis_asks_contract_check
 jarvis_asks_ui_path
 say_before="$(jarvis_console_say_count)"
@@ -258,8 +258,8 @@ jarvis_key_mute
 expect_poll "muted state reaches the console" on jarvis_key_state mute
 type_keys " stays in field" || fail "typing while muted failed"
 type_keys -k Return || fail "pressing Enter while muted failed"
-expect_poll "muted Send is refused in the composer" shown jarvis_console_hint_has "Unmute Jarvis to type"
-expect "muted Send names why it is off" '"Unmute Jarvis to type"' jarvis_console_send_reason
+expect_poll "muted Send is refused in the composer" shown jarvis_console_hint_has "Jarvis is muted. Unmute Jarvis before typing."
+expect "muted Send names why it is off" '"Jarvis is muted. Unmute Jarvis before typing."' jarvis_console_send_reason
 expect 'muted refusal keeps the typed text' '" stays in field"' jarvis_console_field_text
 expect "muted refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
 jarvis_key_mute
@@ -294,7 +294,7 @@ expect_poll "Left selects Needs you" '[[3, 1]]' jarvis_console_tabs
 expect_poll "Needs you takes keyboard focus" true jarvis_console_body_focused
 type_keys -M ctrl -k Tab -m ctrl || fail "returning to History failed"
 expect_poll "the console returns to History" '[[3, 2]]' jarvis_console_tabs
-expect_poll "History returns focus to its search" true jarvis_console_text_field_focused
+expect_poll "History returns focus to its search" true ipc smoke activeFocusWithin window vgs.jarvis TextField
 jarvis_history_filter Problems || fail "filtering History to problems failed"
 jarvis_console_audit_check
 jarvis_console_audit_cause_check
@@ -325,10 +325,12 @@ cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
 python3 - "$jarvis_console_service" <<'PY'
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]); s=p.read_text()
-needle='shell.surfaces.summon("window", "{}")'
+p=Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
+needle='    function summonConsole() {\n        if (shell === null) return;\n        const reply = shell.surfaces.summon("window", "{}");'
 assert s.count(needle)==1
-p.write_text(s.replace(needle, '"ok"'))
+changed=s.replace(needle, '    function summonConsole() {\n        if (shell === null) return;\n        const reply = "ok";')
+assert changed!=s
+p.write_text(changed)
 PY
 jarvis_rescan
 jarvis_enable
@@ -393,7 +395,7 @@ PY_CONTROL
   jarvis_enable
   jarvis_console_open
   hold_barrier
-  expect_poll "the mutant Now has composer focus before switching" true jarvis_console_text_field_focused
+  expect_poll "the mutant Now has composer focus before switching" true jarvis_console_composer_focused
   if [[ $jarvis_console_mutant == tabs ]]; then
     type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "switching the mutant History tab failed"
     expect "control: dropping History breaks the tab assertion" 1 jarvis_console_tab_control

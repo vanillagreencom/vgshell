@@ -22,6 +22,7 @@ Singleton {
     ShortcutRegistry { id: shortcuts; bindsSource: hyprlandState }
     IdleRegistry { id: idleWatches }
     IpcRegistry { id: commands }
+    HandoffRegistry { id: handoffs; manifests: Registry.manifests; enabledIds: Registry.enabledIds }
     NotificationHub { id: notifications; active: root.notificationsHeld }
     SessionLock { id: sessionLock; idle: idleWatches; covers: coverPresentation }
     CoverPresentation { id: coverPresentation; idle: idleWatches; sessionLock: sessionLock }
@@ -151,6 +152,7 @@ Singleton {
         idle: idleWatches.provider,
         cover: coverPresentation.provider,
         ipc: commands.provider,
+        handoff: handoffs.provider,
         lock: sessionLock.provider,
         session: sessionLock.sessionProvider,
         notifications: notifications.provider,

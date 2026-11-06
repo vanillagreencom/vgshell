@@ -146,6 +146,7 @@ f share/vgshell/packaging/jarvis-home/.codex/agents/scout.toml
 f share/vgshell/packaging/jarvis-home/.gitignore
 f share/vgshell/packaging/jarvis-home/.kendex-lock.json
 f share/vgshell/packaging/jarvis-home/kendex.toml
+f share/vgshell/packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md
 f share/vgshell/shell/Commons/AccountDirectories.js
 f share/vgshell/shell/Commons/AnchorTracker.qml
 f share/vgshell/shell/Commons/ClearingInset.qml
@@ -178,6 +179,7 @@ f share/vgshell/shell/Core/CoverPresentation.qml
 f share/vgshell/shell/Core/Dictation.qml
 f share/vgshell/shell/Core/DictationModel.js
 f share/vgshell/shell/Core/Dispatch.js
+f share/vgshell/shell/Core/HandoffRegistry.qml
 f share/vgshell/shell/Core/HyprctlReader.qml
 f share/vgshell/shell/Core/HyprlandLayer.js
 f share/vgshell/shell/Core/HyprlandLayer.qml
@@ -358,9 +360,10 @@ f share/vgshell/shell/assets/sounds/ping.wav
 f share/vgshell/shell/assets/sounds/pop.wav
 f share/vgshell/shell/greeter.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/Debug.js
+f share/vgshell/shell/plugins/vgs.agent-debug/Diagnose.js
+f share/vgshell/shell/plugins/vgs.agent-debug/Recovery.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/Service.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/manifest.json
-f share/vgshell/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md
 f share/vgshell/shell/plugins/vgs.agent-debug/tui/diagnose.sh
 f share/vgshell/shell/plugins/vgs.agent-debug/tui/unmute.sh
 f share/vgshell/shell/plugins/vgs.agent-warden/Notices.js
@@ -492,6 +495,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/Appearance.js
 f share/vgshell/shell/plugins/vgs.jarvis/BrowserRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Bubble.qml
 f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
+f share/vgshell/shell/plugins/vgs.jarvis/Composer.js
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
 f share/vgshell/shell/plugins/vgs.jarvis/Field.js

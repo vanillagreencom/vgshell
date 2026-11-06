@@ -43,14 +43,16 @@ function filesBelow(folder) {
     return fs.readdirSync(folder, { recursive: true }).map(name => String(name))
         .filter(name => fs.lstatSync(path.join(folder, name)).isFile()).sort();
 }
-const RENDERED = HARNESS.flatMap(harness => filesBelow(path.join(SHIPPED, harness)).map(name => harness + "/" + name)).sort();
+const DIAGNOSE = "skills/own/vgs-diagnose/SKILL.md";
+const BASE_RENDERED = HARNESS.flatMap(harness => filesBelow(path.join(SHIPPED, harness)).map(name => harness + "/" + name)).sort();
+const RENDERED = [...BASE_RENDERED, DIAGNOSE].sort();
 // The help topics of the package's skill, its references and its workflows.
 const REFERENCES = fs.readdirSync(path.join(SHIPPED, RENDER, "references")).map(name => "base/jarvis/" + name.slice(0, -3));
 const WORKFLOWS = fs.readdirSync(path.join(SHIPPED, RENDER, "workflows")).map(name => "base/jarvis/workflows/" + name.slice(0, -3));
 const byTopic = (left, right) => left < right ? -1 : left > right ? 1 : 0;
-const TOPICS = ["base/jarvis", ...REFERENCES, ...WORKFLOWS].sort(byTopic);
+const TOPICS = ["base/jarvis", ...REFERENCES, ...WORKFLOWS, "own/vgs-diagnose"].sort(byTopic);
 // The file a base topic is read from.
-const topicFile = topic => RENDER + (topic === "base/jarvis" ? "/SKILL.md"
+const topicFile = topic => topic === "own/vgs-diagnose" ? DIAGNOSE : RENDER + (topic === "base/jarvis" ? "/SKILL.md"
     : topic.startsWith("base/jarvis/workflows/") ? "/workflows/" + topic.slice(22) + ".md" : "/references/" + topic.slice(12) + ".md");
 // The floor a broken walk or a moved render fails: the package's own two
 // files read by name, a reference and a workflow.
@@ -247,6 +249,59 @@ world(() => {
                     assert.equal(executable(path.join(SHIPPED, tool)), true, tool + ": the render's mail tool runs");
                     assert.equal(executable(path.join(folder, tool)), true, tool + ": the home's mail tool runs");
                 }
+        },
+        diagnose(Home) {
+            for (const kendexOwned of [false, true]) {
+                for (const content of ["absent", "foreign", "owned", "link", "folder-link", "claimed"]) {
+                    const folder = kendexOwned ? kendex() : fresh();
+                    const outside = path.join(path.dirname(folder), "diagnose-outside");
+                    write(outside, "SKILL.md", "OUTSIDE\n");
+                    if (content !== "absent") fs.mkdirSync(path.join(folder, "skills/own"), { recursive: true });
+                    if (["foreign", "owned", "claimed"].includes(content)) write(folder, DIAGNOSE, "MINE\n");
+                    if (content === "owned") write(folder, RECORD, JSON.stringify({ files: [DIAGNOSE] }));
+                    if (content === "link") {
+                        fs.mkdirSync(path.dirname(path.join(folder, DIAGNOSE)));
+                        fs.symlinkSync(path.join(outside, "SKILL.md"), path.join(folder, DIAGNOSE));
+                    }
+                    if (content === "folder-link") fs.symlinkSync(outside, path.dirname(path.join(folder, DIAGNOSE)));
+                    if (content === "claimed") {
+                        writeLock(folder, [...(kendexOwned ? SHIPPED_ENTRIES : []),
+                            lockEntry("skill", "vgs-diagnose", "own", ["skills/own/vgs-diagnose"])]);
+                    }
+                    const before = kendexOwned ? kendexStamps(folder) : null;
+                    if (content.endsWith("link")) {
+                        keyed(() => Home.layout(folder), "link", content);
+                        assert.equal(fs.readFileSync(path.join(outside, "SKILL.md"), "utf8"), "OUTSIDE\n");
+                        assert.equal(fs.lstatSync(content === "link" ? path.join(folder, DIAGNOSE)
+                            : path.dirname(path.join(folder, DIAGNOSE))).isSymbolicLink(), true);
+                        continue;
+                    }
+                    Home.layout(folder);
+                    if (kendexOwned) assert.deepEqual(kendexStamps(folder), before, "base package remains kendex's");
+                    const ours = !["foreign", "claimed"].includes(content);
+                    assert.equal(recordOf(folder).includes(DIAGNOSE), ours, content);
+                    assert.equal(fs.lstatSync(path.join(folder, DIAGNOSE)).isFile(), true);
+                    assert.equal(Home.skills(folder).skills.some(row => row.topic === "own/vgs-diagnose" && row.file === DIAGNOSE), true);
+                    assert.equal(Home.skill(folder, "own/vgs-diagnose"),
+                        ours ? fs.readFileSync(path.join(SHIPPED, DIAGNOSE), "utf8") : "MINE\n");
+                }
+                const folder = kendexOwned ? kendex() : fresh();
+                let cut = false;
+                fsFault("renameSync", (original, from, to) => {
+                    if (String(to).endsWith("/SKILL.md") && fs.realpathSync(path.dirname(String(to))).endsWith("/vgs-diagnose")) {
+                        cut = true;
+                        throw Object.assign(new Error("cut diagnosis copy"), { code: "EIO" });
+                    }
+                    return original(from, to);
+                }, () => keyed(() => Home.layout(folder), "unwritable", "interrupted skill copy"));
+                assert.equal(cut, true);
+                assert.equal(recordOf(folder).includes(DIAGNOSE), true, "ownership precedes copy");
+                assert.equal(fs.existsSync(path.join(folder, DIAGNOSE)), false);
+                Home.layout(folder);
+                same(folder, DIAGNOSE);
+                assert.equal(Home.skill(folder, "own/vgs-diagnose"), fs.readFileSync(path.join(SHIPPED, DIAGNOSE), "utf8"));
+                assert.deepEqual(listing(folder).filter(name => name.endsWith(".new")), []);
+            }
         },
         // A folder that already holds files keeps every byte of them, a
         // layout file among them, and gains only what it lacks; a second
@@ -655,6 +710,9 @@ world(() => {
             write(".agents/skills/stray.md", "# Stray\n");
             writeLock(folder, [lockEntry("skill", "jarvis", "codex", [RENDER]), lockEntry("skill", "mailbox", "codex", [".agents/skills/mailbox"])]);
             Home.layout(folder);
+            // This case owns the index variations; diagnose owns the shipped
+            // product skill's discovery and whole-body read.
+            fs.rmSync(path.join(folder, "skills/own/vgs-diagnose"), { recursive: true });
             write("skills/own/alpha.md", "\n# Alpha skill\nbody\n");
             write("skills/own/beta/SKILL.md", "---\nname: beta\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
             write("skills/own/gamma.md", "---\nname: gamma\ndescription: >\n  folded\n---\n\nGamma first line\n");
@@ -943,6 +1001,9 @@ world(() => {
         render(Home) {
             for (const standing of ["none", "copy", "link"]) {
                 const folder = kendex();
+                // A Jarvis-owned home need not claim every file VGS's base
+                // render carries. Those unclaimed base files still stay out.
+                if (standing === "none") writeLock(folder, SHIPPED_ENTRIES.filter(([, entry]) => entry.kind === "skill" && entry.name === "jarvis"));
                 const outside = path.join(path.dirname(folder), "outside");
                 write(outside, "SKILL.md", "OUTSIDE\n");
                 if (standing === "copy") write(folder, "skills/base/jarvis/SKILL.md", "# Older\n");
@@ -955,7 +1016,7 @@ world(() => {
                     assert.doesNotThrow(() => Home.layout(folder), standing);
                     assert.equal(fs.lstatSync(path.join(folder, "skills/base"), { throwIfNoEntry: false }), undefined, standing + ": no skills/base");
                     assert.deepEqual(kendexStamps(folder), before, standing + ": every file kendex wrote keeps every byte");
-                    assert.equal(fs.existsSync(path.join(folder, RECORD)), false, standing + ": no record of VGS's");
+                    assert.deepEqual(recordOf(folder), [DIAGNOSE], standing + ": only the product skill is VGS's");
                     assert.deepEqual([fs.readdirSync(outside), fs.readFileSync(path.join(outside, "SKILL.md"), "utf8")], [["SKILL.md"], "OUTSIDE\n"], standing);
                     assert.equal(Home.baseSet(folder), ".agents/skills");
                     assert.equal(Home.skill(folder, "base/jarvis"), fs.readFileSync(path.join(folder, RENDER, "SKILL.md"), "utf8"), "the brain's skill text is the render's");
@@ -995,7 +1056,7 @@ world(() => {
             const before = kendexStamps(folder);
             for (let round = 0; round < 2; round++) {
                 assert.doesNotThrow(() => Home.layout(folder));
-                assert.equal(fs.existsSync(path.join(folder, RECORD)), false, "VGS's record goes");
+                assert.deepEqual(recordOf(folder), [DIAGNOSE], "only the product skill stays VGS's");
                 assert.deepEqual(kendexStamps(folder), before, "kendex's edits survive, and nothing is written again");
                 assert.equal(fs.existsSync(path.join(folder, ".codex/agents/scout.toml")), false, "a file kendex removed stays removed");
             }
@@ -1255,7 +1316,8 @@ world(() => {
         ["lock-version", "lock?.version !== LOCK_VERSION || ", "", "renderBroken"],
         ["render-plain-path", '                const parts = plainParts(at);\n                if (parts === null) fail("package");\n',
             '                const parts = at.split("/");\n', "renderBroken"],
-        ["render-unreadable", '    } catch { return fail("package"); }\n', "    } catch (error) { throw error; }\n", "renderBroken"],
+        ["render-unreadable", '    } catch { return fail("package"); }\n    finally { fs.closeSync(root); }',
+            "    } catch (error) { throw error; }\n    finally { fs.closeSync(root); }", "renderBroken"],
         // The record and the sync.
         ["sync-record-first", "    record(fd, [...new Set([...kept, ...names])]);\n", "", "interrupted"],
         ["record-final", "    record(fd, names);\n", "", "update"],
@@ -1272,11 +1334,11 @@ world(() => {
         ["claude-shim-bytes", 'compare(held.get("."), claude, Buffer.from(shim), false) === "same"', "true", "claudeShim"],
         ["claude-shim-mode", 'Buffer.from(shim), false)', "Buffer.from(shim), true)", "claudeShim"],
         ["claude-shim-file", 'kindOf(held.get("."), claude) === "file" && ', "", "claudeShim"],
-        ["kendex-home-untouched", "if (kendex?.jarvis) {", "if (false) {", "render"],
-        ["kendex-home-not-restored", "if (kendex?.jarvis) {", "if (false) {", "removed"],
+        ["kendex-home-untouched", "kendex?.jarvis ? [] : rendered()", "rendered()", "render"],
+        ["kendex-home-not-restored", "if (kendex?.jarvis) source(held.get(\".\"));", "", "removed"],
         ["kendex-any-harness", 'row?.kind === "skill" && row.name === PACKAGE', 'row?.kind === "skill" && row.name === PACKAGE && row.harness === "codex"', "claudeOnly"],
-        ["kendex-record-dropped", '            if (before !== null) fs.unlinkSync(Core.anchored().child(held.get("."), RECORD));\n', "            void before;\n", "adopted"],
-        ["claimed-skipped", "rendered().filter(([name]) => !under(name, claimed))", "rendered()", "fleet"],
+        ["own-skill-copied", "...ownSkills()", "...[]", "diagnose"],
+        ["claimed-skipped", "files.filter(([name]) => !under(name, claimed))", "files", "fleet"],
         ["claimed-not-dropped", "if (!names.includes(name) && !under(name, claimed)) drop(fd, name);", "if (!names.includes(name)) drop(fd, name);", "fleet"],
         ["claimed-below", 'name === at || name.startsWith(at + "/")', "name === at", "fleet"],
         ["kendex-lock-link", '    if (kind === "link") fail("link");\n    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, LOCK)',

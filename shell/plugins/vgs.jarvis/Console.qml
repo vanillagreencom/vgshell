@@ -7,6 +7,7 @@ import "Session.js" as Session
 import "WidgetView.js" as WidgetView
 import "SetupGate.js" as Gate
 import "History.js" as History
+import "Composer.js" as Composer
 
 // Jarvis console: a keyboard-first window for typed turns. It asks the
 // service through IPC, reads the service's bounded conversation status, and
@@ -183,6 +184,12 @@ FocusScope {
     readonly property var taskRows: History.tasks(Array.isArray(values.taskList) ? values.taskList : [], historyQuery)
     readonly property var auditRows: Array.isArray(values.auditFailures) ? values.auditFailures.slice().reverse() : []
     property string draft: ""
+    property bool composerRegistered: false
+    onShellChanged: {
+        if (shell === null || composerRegistered) return;
+        composerRegistered = true;
+        shell.ipc.handle("compose-draft", text => JSON.stringify(acceptDraft(text)));
+    }
     readonly property var refusal: Session.sayRefusal(state)
     readonly property bool ready: shell !== null && state !== null && refusal === null
     readonly property string stopKey: shell === null || shell.shortcut.keys.stop === undefined || shell.shortcut.keys.stop === null ? "" : shell.shortcut.keys.stop
@@ -215,6 +222,10 @@ FocusScope {
 
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
+        if (payload.text !== undefined) {
+            const result = acceptDraft(payload.text);
+            if (!result.ok) throw new Error("draft=refused");
+        }
         problem = "";
         tab = 0;
         editingAsk = null;
@@ -225,6 +236,21 @@ FocusScope {
     }
 
     function close() {}
+
+    function acceptDraft(text) {
+        // Diagnose asks before Service summons this console again. Reopening
+        // clears the ask editor even when the message composer is empty.
+        if (editingAsk !== null)
+            return { ok: false, reason: "Finish or cancel your open ask before retrying Diagnose." };
+        const result = Composer.draft(entryField.text, text, state);
+        if (!result.ok) return result;
+        entryField.text = text;
+        entryField.cursorPosition = 0;
+        tab = 0;
+        problem = "";
+        Qt.callLater(() => entryField.forceActiveFocus(Qt.OtherFocusReason));
+        return result;
+    }
 
     function focusTab() {
         layout.scrollArea.contentY = 0;
@@ -347,13 +373,8 @@ FocusScope {
 
     function refusalText(key) {
         if (key === null) return draft.trim() === "" ? "Type a message to Jarvis" : "Enter sends the message";
-        if (key === "muted") return "Unmute Jarvis to type";
-        if (key === "speaking") return "Wait for Jarvis to finish speaking, or press Stop";
-        if (key === "busy") return "Wait, or press Stop";
-        if (key === "held") return "Confirm or cancel the request first";
-        if (key === "duplex") return "Typing is unavailable with this voice provider: speak to Jarvis instead";
         if (key === "say-text") return "Use up to " + Gate.numberText(messageLimit.maximum) + " characters of plain text";
-        return "Jarvis is not ready";
+        return Composer.refusalText(key);
     }
 
     function refusalReply(reply) {
@@ -897,17 +918,35 @@ FocusScope {
                         width: parent.width
                         spacing: Theme.control.gap
 
-                        TextField {
-                            id: entryField
+                        ScrollArea {
+                            id: draftScroll
                             width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
-                            placeholderText: "Message Jarvis"
-                            maximumLength: Session.TRANSCRIPT_CHARS
-                            onTextChanged: root.draft = text
-                            Keys.onReturnPressed: event => { root.sendMessage(); event.accepted = true; }
-                            Keys.onEnterPressed: event => { root.sendMessage(); event.accepted = true; }
-                            Keys.onPressed: event => {
-                                if (root.handleBacktab(event)) return;
-                                if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+                            implicitHeight: Math.min(entryField.implicitHeight, Theme.size.control.lg * 8)
+                            keyboardScroll: false
+                            // TextEdit does not scroll itself. The shared ScrollArea
+                            // owns wheel/overflow; cursor changes reveal its line.
+                            // https://doc.qt.io/qt-6/qml-qtquick-textedit.html
+                            TextArea {
+                                id: entryField
+                                width: draftScroll.contentWidth
+                                placeholderText: "Message Jarvis"
+                                textFormat: TextEdit.PlainText
+                                onTextChanged: root.draft = text
+                                onCursorRectangleChanged: {
+                                    draftScroll.contentY = Math.max(0, Math.min(draftScroll.contentHeight - draftScroll.height,
+                                        Math.max(cursorRectangle.y + cursorRectangle.height - draftScroll.height,
+                                            Math.min(draftScroll.contentY, cursorRectangle.y))));
+                                }
+                                Keys.onPressed: event => {
+                                    if (root.handleBacktab(event)) return;
+                                    // Keys runs before TextEdit; Shift+Enter alone
+                                    // reaches its native newline insertion.
+                                    // https://doc.qt.io/qt-6/qml-qtquick-keys.html
+                                    if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
+                                        root.sendMessage(); event.accepted = true; return;
+                                    }
+                                    if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+                                }
                             }
                         }
                         IconButton {
@@ -931,6 +970,7 @@ FocusScope {
                         afterActions: true
                         hints: root.speechOnly ? [] : [
                             { key: "Enter", text: "Send" },
+                            { key: "SHIFT+Enter", text: "New line" },
                             { key: root.shell === null ? "" : root.shell.shortcut.keys.talk || "", text: "Talk" },
                             { key: root.stopKey, text: "Stop" }
                         ]

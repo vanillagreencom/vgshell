@@ -23,7 +23,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "cover", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings", "dictation"];
+var CAPABILITIES = ["compositor", "configure", "cover", "handoff", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings", "dictation"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
@@ -131,7 +131,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection", "handoffs"];
 
 // The stages of the idle path in the order they are meant to fire
 // (docs/architecture/power.md). A manifest's `idleStages` names each one the
@@ -1294,6 +1294,23 @@ function soundValueFits(entry, value) {
 // Whether EVENT of MANIFEST is one whose value the plugin holds.
 function soundHeld(manifest, event) {
     return hasOwn(manifest.sounds, event) && manifest.sounds[event].held === true;
+}
+
+// Text targets declare only a local registration name and a label. Readiness
+// and the receiver belong to the live instance, never the manifest.
+function handoffsError(handoffs, capabilities) {
+    if (!isPlainObject(handoffs) || Object.keys(handoffs).length === 0)
+        return "handoffs must be a non-empty object";
+    if (capabilities.indexOf("handoff") === -1) return "handoffs needs capability handoff";
+    for (var name of Object.keys(handoffs)) {
+        if (!ConfigLogic.NAME_PATTERN.test(name)) return "handoffs has malformed name " + JSON.stringify(name);
+        var target = handoffs[name];
+        if (!isPlainObject(target) || Object.keys(target).some(function (key) { return key !== "label"; }))
+            return "handoffs." + name + " takes only label";
+        if (!isPrintableLine(target.label, STATUS_LABEL_MAX))
+            return "handoffs." + name + ".label must be a printable line";
+    }
+    return "";
 }
 
 // The first defect of a manifest's `sounds` key, or "": a non-empty object
@@ -5129,6 +5146,10 @@ function validateManifest(raw, sourceDir) {
     } else if (capabilities.indexOf("sounds") !== -1) {
         return { ok: false, error: "capability sounds needs a sounds declaration" };
     }
+    if (raw.handoffs !== undefined) {
+        var badHandoffs = handoffsError(raw.handoffs, capabilities);
+        if (badHandoffs !== "") return { ok: false, error: badHandoffs };
+    }
     var badPlacement = pagePlacementError(raw.status || {}, schema, raw.secrets !== undefined);
     if (badPlacement !== "") return { ok: false, error: badPlacement };
     var badGuide = setupGuideError(raw.setupGuide, raw.status || {});
@@ -5143,6 +5164,7 @@ function validateManifest(raw, sourceDir) {
     manifest.schema = clone(schema);
     manifest.status = raw.status === undefined ? {} : clone(raw.status);
     manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);
+    manifest.handoffs = raw.handoffs === undefined ? {} : clone(raw.handoffs);
     manifest.idleStages = raw.idleStages === undefined ? {} : clone(raw.idleStages);
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();

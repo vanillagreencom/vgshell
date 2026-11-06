@@ -9,6 +9,7 @@ Agent Debug tells you when a program crashes or a VGS setup task fails, and offe
 - A notification when one of your programs crashes, with Diagnose and Mute.
 - A notification when a VGS setup task, the install or update of a plugin's tools, fails, with Diagnose.
 - Diagnose opens Claude Code, Codex, Copilot, Pi or OpenCode in a floating terminal. The agent asks you before it runs a command.
+- With Jarvis, Diagnose opens an editable message in its console. Send or Enter sends it; Shift+Enter adds a line.
 - At most one notification for each program or task in a minute.
 - Muted programs on the Settings tab, each with Unmute.
 
@@ -18,11 +19,13 @@ Agent Debug notifies you only after you choose an agent on its Settings tab. It 
 
 Diagnose gives the agent the facts of the failure and asks it to read the records on this computer. It asks for an explanation without changes, with proved facts kept apart from possible causes.
 
+Jarvis cannot read the system crash store, journal or package logs through its command sandbox. It can use the supplied failure facts and readable files in your home outside protected folders. It states what it cannot prove rather than asking for more access.
+
 At the end of a crash diagnosis the agent asks whether to mute that program, and mutes it only when you say yes.
 
 ## Setup
 
-Choose an agent on the Settings tab. The list shows the agents installed on this computer. The Tools step on the Setup tab offers to install missing tools.
+Choose an agent on the Settings tab. The list shows installed terminal agents and available message receivers. A saved unavailable choice stays selected. Diagnose explains the cause and offers Claude Code or Codex for that failure without changing your saved choice. The Tools step on the Setup tab offers to install missing tools.
 
 | Setting | What it changes |
 | --- | --- |

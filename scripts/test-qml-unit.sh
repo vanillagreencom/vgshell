@@ -71,6 +71,7 @@ fi
 mutations=(
   "restoring accepted bytes after refused conversion keeps stale settings|../Core/Config.qml|                root.userText = null;"$'\n'"                root.user = r.value;|                root.userText = root.userText;"$'\n'"                root.user = r.value;|tst_config_writes.qml"
   "a link label folds explicit breaks unlike its geometry twin|feedback/LinkText.qml|.replace(/\\n/g, \"<br>\")|.replace(/\\n/g, \"\\n\")|tst_linktext.qml"
+  "a text handoff changes the message|../Core/HandoffRegistry.qml|return record.accept(text);|return record.accept(\"changed text\");|tst_handoff.qml"
   "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
   "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
   "message responses lose their secondary button style|layout/MessageRow.qml|variant: \"secondary\"|variant: \"primary\"|tst_message_patterns.qml"
@@ -762,6 +763,8 @@ mutations=(
   "a muted duplex console offers typing|../plugins/vgs.jarvis/Console.qml|state !== null && state.engine.kind === \"duplex\"|refusal === \"duplex\"|tst_jarvis_console.qml"
   "the replaced composer keeps hidden focus|../plugins/vgs.jarvis/Console.qml|if (previous !== undefined) composerFocus.forceActiveFocus(previous.focusReason);|if (false) composerFocus.forceActiveFocus(previous.focusReason);|tst_jarvis_console.qml"
   "Tab enters the hidden message composer|../plugins/vgs.jarvis/Console.qml|root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch|root.tab === 0 ? entryField : root.tab === 1 ? asksBody : historySearch|tst_jarvis_console.qml"
+  "a Diagnose draft replaces an active Reply or Later editor|../plugins/vgs.jarvis/Console.qml|        if (editingAsk !== null)"$'\n'"            return { ok: false, reason: \"Finish or cancel your open ask before retrying Diagnose.\" };|        if (false)"$'\n'"            return { ok: false, reason: \"Finish or cancel your open ask before retrying Diagnose.\" };|tst_jarvis_console.qml"
+  "Shift+Return sends a Jarvis message instead of adding a line|../plugins/vgs.jarvis/Console.qml|&& !(event.modifiers & Qt.ShiftModifier)) {|&& true) {|tst_jarvis_console.qml"
   "a recreated console loses the canonical uncertain ask|../plugins/vgs.jarvis/Console.qml|? askOperation.request : null|? null : null|tst_jarvis_console.qml"
   "an ended task's row offers Stop|../plugins/vgs.jarvis/Console.qml|if ([\"starting\", \"working\", \"waiting\"].includes(row.state)) actions.push(|if (true) actions.push(|tst_jarvis_console.qml"
   "a starting task's row opens no terminal yet without a reason|../plugins/vgs.jarvis/Console.qml|(row.state === \"starting\" ? \"Wait for the task's terminal to start.\" : \"\")|\"\"|tst_jarvis_console.qml"
