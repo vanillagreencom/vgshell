@@ -5,11 +5,7 @@ real tool on a nested socket.
 The fixture config names allowed display/runtime, geometry, text and failures.
 Each tool writes `<tool>-pid-<pid>` before it runs, so a check can read
 whether that process is still alive. A failing tool fails after `failAfter`
-seconds. With no real `hyprctl` in the config, as no shell draws a freeze,
-`hyprctl -j layers` lists one output holding a mapped bar layer and the
-service's freeze as freezeLayer says: `mapped` (the default) at alpha 1,
-`unmapped` at alpha 0, as Hyprland lists a layer it has not mapped, or
-`absent`. Every hyprctl call goes to the real `hyprctl` the config names
+seconds. Every hyprctl call goes to the real `hyprctl` the config names
 when it names one, kept out of calls.jsonl, so the shell keeps its own.
 With VGS_CAPTURE_LOG set, hyprctl appends one JSON line there per call,
 `call` with its argv, and one `exit` line for a call it ends without the
@@ -24,8 +20,7 @@ or, writing to `-`, prints a loudnorm measurement of -40 LUFS;
 ffmpegHold holds it half way until `ffmpeg-release` exists, and
 ffmpegOutlivesTerm keeps that held ffmpeg past its first SIGTERM; a second
 ends it, as a tool still finishing when its owner signals again. grimHeldCall N
-holds the Nth grim run until `grim-release` exists. grim `-t ppm` writes
-a 2560x1440 layout of known pixels. slurpAnswersTerm holds
+holds the Nth grim run until `grim-release` exists. slurpAnswersTerm holds
 slurp, then answers the terminate a cancel sends with its box, a stderr
 line and exit 0, as a slurp that answered just before the signal does.
 pw-dump prints the fixture's
@@ -64,11 +59,6 @@ def nested(config):
 
 def hyprctl():
     config = read_config()
-    if sys.argv[1:] == ["-j", "layers"] and "hyprctl" not in config:
-        freeze = config.get("freezeLayer", "mapped")
-        overlay = [] if freeze == "absent" else [{"namespace": "vgs:freeze", "alpha": int(freeze == "mapped")}]
-        print(json.dumps({"NESTED": {"levels": {"2": [{"namespace": "vgs:bar", "alpha": 1}], "3": overlay}}}))
-        sys.exit(0)
     if "hyprctl" not in config:
         sys.exit("capture-fixture: no real hyprctl")
     nested(config)
@@ -147,21 +137,6 @@ match tool:
             (root / "grim-ready").write_text(str(os.getpid()))
             while not (root / "grim-release").exists():
                 time.sleep(0.01)
-        if "-t" in sys.argv and sys.argv[sys.argv.index("-t") + 1] == "ppm":
-            # The layout as PPM, 2560x1440, larger than any test's layout or
-            # the nested output a row selects on, its pixel at x,y being
-            # (x, y, x + 2y), each mod 256, so a crop of it holds known pixels.
-            red = bytes(x % 256 for x in range(2560))
-            blue = bytes(x % 256 for x in range(2560 + 256))
-            out = [b"P6\n2560 1440\n255\n"]
-            for y in range(1440):
-                row = bytearray(2560 * 3)
-                row[0::3] = red
-                row[1::3] = bytes([y % 256]) * 2560
-                row[2::3] = blue[2 * y % 256:2 * y % 256 + 2560]
-                out.append(bytes(row))
-            sys.stdout.buffer.write(b"".join(out))
-            sys.exit(0)
         # A whole grey 320x240 PNG, which an image reader decodes, then the
         # frame token, which a PNG reader ignores past IEND.
         def chunk(kind, body):

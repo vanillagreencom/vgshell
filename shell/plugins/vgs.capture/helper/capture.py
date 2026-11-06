@@ -3,15 +3,15 @@
 
 An error's optional reason language-data-unavailable selects its notice title.
 
-A selection asks the service to hold the screen still with freeze, then
-reads `frozen` or `freeze-refused <reply>` on stdin; thaw ends the hold.
-A freeze with `still` true also gets `still <frames JSON>`, the held frame the
-core wrote, or `still-failed <reason>`, at any point of the hold; an undelayed
-screenshot or a text selection asks for it and crops its image from those
-frames, and `cursor` puts the pointer in them. A delayed screenshot and a
-recording ask for no still, and a delayed screenshot runs grim after its
-countdown.
-While the freeze is awaited, an area is selected or the still is awaited, and
+A selection asks the service to read targets and hold the screen still with
+freeze, then reads `frozen {"windows":[...],"outputs":[...]}` or
+`freeze-refused <reply>` on stdin; thaw ends the hold. That one snapshot is
+read after countdown, immediately before capture.
+A freeze's `cursor` puts the pointer in that same capture. After selection,
+`crop` hands the service the selected logical geometry and an already acquired
+PNG path. `cropped` or `crop-failed <reason>` completes that write before thaw.
+A screenshot's countdown precedes its sole capture, including selection.
+While the freeze is awaited, an area is selected or the crop is awaited, and
 until a screenshot's file is written, one `cancel` line or stdin EOF ends the
 capture with no file and emits cancelled.
 A selection with a request emits selection-ended for focus restoration.
@@ -30,10 +30,8 @@ clipboard provider stays alive until another copy replaces it.
 notification emits ready, action, closed and error JSON lines until closed.
 """
 import fcntl
-import bisect
 import json
 import math
-import mmap
 import ctypes
 from contextlib import contextmanager
 import io
@@ -45,12 +43,10 @@ import shlex
 import shutil
 import signal
 import stat
-import struct
 import subprocess
 import sys
 import tempfile
 import time
-import zlib
 from datetime import datetime
 
 
@@ -66,16 +62,14 @@ class CaptureFailure(RuntimeError):
         self.reason = reason
 
 
-# The namespace of the core's freeze surface, one per output
-# (shell/Hosts/FreezeHost.qml, D115).
-FREEZE_LAYER = "vgs:freeze"
-# How long the service may take to show the freeze on every output before
-# the freeze counts as failed.
-FREEZE_TIMEOUT = 10
+# Service.qml's windowDeadline allows 10 seconds for its compositor read,
+# followed by the existing 10-second frame-ready opportunity. One control
+# wait covers both phases, including a read timeout's box-free degradation.
+FREEZE_TIMEOUT = 20
 # How long one grim run, and the service's answer that its countdown left the
 # screen, may take before the screenshot counts as failed. It is the default
-# of the setting this replaced, and FREEZE_TIMEOUT's bound for the same kind
-# of wait: a tool or a reply that hangs. No measured grim time sets it.
+# of the setting this replaced, retained for a tool or a reply that hangs.
+# No measured grim time sets it.
 CAPTURE_TIMEOUT = 10
 # slurp's default wash, white at 25%, shows on a dark desktop where a dark dim
 # does not: on host cachy on 2026-10-04 grim read DP-1's mean level 16 -> 76
@@ -90,11 +84,6 @@ SELECTION_MODES = {
 }
 # slurp's own Escape answer, which is a cancel and not a failure.
 SELECTION_CANCELLED = b"selection cancelled"
-# zlib's level for a cropped selection's PNG. grim writes level 6 with
-# libpng's row filters; this writes no filter, so level 6 here takes 39 ms
-# for a 2000x1200 crop of a photo and 216 ms for a whole 5120x2880 one
-# (python3 zlib on host cachy, 2026-11-02, the VGS-2232 round notes).
-PNG_LEVEL = 6
 
 # Nix substitutes these constants in its existing install phase.
 NOTICE_GIO_LIBRARY = "libgio-2.0.so.0"
@@ -162,9 +151,6 @@ class Capture:
         self.pidfds = {}
         self.recorder = None
         self.control = b""
-        # The service's `still` or `still-failed` line, set aside whenever
-        # it arrives (read_control).
-        self.still_answer = None
         self.signalled = 0
         signal.signal(signal.SIGTERM, self.terminate)
         signal.signal(signal.SIGHUP, self.terminate)
@@ -255,10 +241,6 @@ class Capture:
         Service.qml can write an acknowledgement and cancel together. Keep
         unread bytes here so every phase sees queued lines before waiting
         on the descriptor, without a separate text stream buffering them.
-        The service writes the held frame's `still` or `still-failed` line
-        whenever the core wrote it, during the freeze wait or the selection
-        as well, so that line is set aside in still_answer and never handed
-        to a phase that reads only its own lines.
         """
         deadline = time.monotonic() + timeout
         while True:
@@ -277,44 +259,35 @@ class Capture:
                 self.control += data
             line, self.control = self.control.split(b"\n", 1)
             line = line.decode().strip()
-            if not line.startswith(("still ", "still-failed ")):
-                return line
-            self.still_answer = line
+            return line
 
     def cancelled(self, timeout=0):
         """Whether a `cancel` line or stdin EOF arrives within TIMEOUT seconds."""
         return self.read_control(timeout) in ("", "cancel")
 
     @contextmanager
-    def selection(self, request=None, outputs=None, cursor=False):
-        """Yield (picked, frame): the selected (geometry, groups) over a
-        frozen screen, or None, and the held frame as a Still, or None
-        without OUTPUTS.
+    def selection(self, request=None, cursor=False):
+        """Yield the selected (geometry, groups), or None, over the held frame.
 
-        The request's action names the mode of SELECTION_MODES; without a
-        request slurp offers no boxes. With OUTPUTS, output_rectangles of
-        the layout, the freeze asks the core to write its held frame, with
-        the pointer when CURSOR is set, and a selection is cropped from it,
-        so nothing that maps or changes after the freeze reaches the image
-        and no capture runs before or after the selector. The freeze lasts
-        until the block ends. A cancel while the freeze or the still is
-        awaited yields None.
+        The request's action names SELECTION_MODES; without one slurp offers
+        no boxes. The hold lasts through the caller's crop write.
         """
-        args, boxes, mode = self.targets(request)
-        if outputs is not None and not outputs:
-            raise CaptureFailure("no-targets", "No enabled displays are available")
         ended = False
-        frame = None
         try:
-            picked = self.choose(request, args, boxes, mode) if self.frozen(outputs is not None, cursor) else None
+            snapshot = self.frozen(cursor)
+            picked = None
+            if snapshot is not None:
+                if not snapshot["outputs"]:
+                    raise CaptureFailure("no-targets", "No enabled displays are available")
+                if request is not None:
+                    request["windows"] = snapshot["windows"]
+                    request["outputs"] = output_rectangles(snapshot["outputs"])
+                args, boxes, mode = self.targets(request)
+                picked = self.choose(request, args, boxes, mode)
             if request is not None:
                 emit("selection-ended")
                 ended = True
-            if picked is not None and outputs is not None:
-                frame = self.still(outputs)
-                if frame is None:
-                    picked = None
-            yield picked, frame
+            yield picked
         finally:
             # The service also ends the hold at this worker's terminal event
             # and exit, so a crash here leaves no freeze.
@@ -359,44 +332,34 @@ class Capture:
                 picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))
         return picked
 
-    def frozen(self, still=False, cursor=False):
-        """Ask the service for the freeze, and with STILL for its held
-        frame, CURSOR putting the pointer in it; True once it shows on every
-        output, False when a cancel or stdin EOF arrives first.
+    def frozen(self, cursor=False):
+        """Ask the service for the freeze, CURSOR putting the pointer in its
+        sole capture; return its target snapshot once it shows on every
+        output, or None when a cancel or stdin EOF arrives first.
 
-        The service answers `frozen` once each output draws its still frame,
-        or `freeze-refused <reply>` when the core refuses the hold. A capture
+        The service answers `frozen <JSON>` with windows and raw outputs from
+        its pre-freeze read once each output draws its still frame, or
+        `freeze-refused <reply>` when the read or core refuses the hold. A capture
         that delivers no frame gets no answer, since Quickshell 0.3.1's
         ScreencopyView never emits stopped, so FREEZE_TIMEOUT bounds the
         wait. A layer maps above the layers mapped before it, so slurp must
         map after the freeze to stay on top and receive input. The freeze
-        surface maps transparent before its frame (FreezeHost.qml), so
-        Hyprland's layer list is read only after `frozen`; a layer's
-        `alpha`, the fade's goal, is 0 until it maps (Hyprland 0.56.2
-        HyprCtl.cpp layersRequest, LayerSurface.cpp onMap).
+        service's `frozen` is the ready signal; no compositor polling adds
+        another readiness decision.
         """
         deadline = time.monotonic() + FREEZE_TIMEOUT
-        emit("freeze", still=still, cursor=cursor)
+        emit("freeze", cursor=cursor)
         while True:
             line = self.read_control(max(0, deadline - time.monotonic()))
             if line is None:
                 raise CaptureFailure("timeout", "The screen freeze did not show")
             if line in ("", "cancel"):
-                return False
-            if line == "frozen":
-                break
+                return None
+            if line.startswith("frozen "):
+                return json.loads(line.removeprefix("frozen "))
             if line.startswith("freeze-refused "):
                 raise RuntimeError("The screen freeze was refused: " + line.removeprefix("freeze-refused "))
             raise RuntimeError(f"Unexpected freeze answer: {line}")
-        while (left := deadline - time.monotonic()) > 0:
-            if self.cancelled():
-                return False
-            outputs = json.loads(self.run(["hyprctl", "-j", "layers"], timeout=left, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
-            if outputs and all(any(layer["namespace"] == FREEZE_LAYER and layer["alpha"] > 0 for layers in output["levels"].values() for layer in layers)
-                               for output in outputs.values()):
-                return True
-            time.sleep(0.05)
-        raise CaptureFailure("timeout", "The screen freeze did not show")
 
     def pick(self, argv, boxes=None):
         if boxes is None:
@@ -426,47 +389,43 @@ class Capture:
             raise RuntimeError("slurp returned invalid geometry")
         return geometry, match.groups()
 
-    def still(self, outputs):
-        """The held frame of OUTPUTS, output_rectangles, from the files the
-        core wrote for this freeze, or None once a cancel or stdin EOF
-        arrives first. The service's line may have come during the freeze
-        wait or the selection, set aside by read_control. FREEZE_TIMEOUT
-        bounds the wait as it bounds the freeze's, a failure bound only:
-        the core calls back once or, for a capture that never delivers a
-        frame, never (ScreenFreeze.qml)."""
-        deadline = time.monotonic() + FREEZE_TIMEOUT
-        while self.still_answer is None:
+    def crop(self, picked, path):
+        """Write only PICKED's box from the held frame into the acquired PATH."""
+        x, y, width, height = map(int, picked[1])
+        emit("crop", geometry={"x": x, "y": y, "width": width, "height": height}, path=str(path))
+        deadline = time.monotonic() + CAPTURE_TIMEOUT
+        while True:
             line = self.read_control(max(0, deadline - time.monotonic()))
             if line is None:
                 raise CaptureFailure("timeout", "The frozen screen was not written")
             if line in ("", "cancel"):
-                return None
-            raise RuntimeError(f"Unexpected still answer: {line}")
-        kind, _, body = self.still_answer.partition(" ")
-        if kind == "still-failed":
-            raise RuntimeError("The frozen screen could not be written: " + body)
-        return Still(outputs, json.loads(body))
+                raise CaptureCancelled()
+            if line == "cropped":
+                return
+            if line.startswith("crop-failed "):
+                raise RuntimeError("The frozen selection could not be written: " + line.removeprefix("crop-failed "))
+            raise RuntimeError(f"Unexpected crop answer: {line}")
 
     def screenshot(self, request):
-        request = {**request, "outputs": output_rectangles(request["outputs"])}
         delay = request.get("delay", 0)
         if type(delay) is not int or not 0 <= delay <= 60:
             raise CaptureFailure("invalid-delay", "Invalid screenshot delay")
         processing = request.get("processing", "save-copy")
         if processing not in ("save-copy", "copy", "save"):
             raise CaptureFailure("invalid-processing", "Invalid screenshot processing choice")
+        if delay:
+            if not self.countdown(delay):
+                emit("cancelled")
+                return
         if request["action"] in ("screenshot-area", "screenshot-window", "screenshot-display"):
-            # A delayed capture reads the screen as the countdown leaves it.
-            outputs = None if delay else request["outputs"]
-            with self.selection(request=request, outputs=outputs, cursor=request.get("cursor", False)) as (picked, frame):
+            with self.selection(request=request, cursor=request.get("cursor", False)) as picked:
                 if picked is not None:
-                    args = ["grim", "-g", picked[0]]
-                    if not delay:
-                        path, child = self.deliver(request, image=png(*frame.crop(picked[0])))
+                    path, child = self.deliver(request, picked=picked)
             if picked is None:
                 emit("cancelled")
                 return
         else:
+            request = {**request, "outputs": output_rectangles(request["outputs"])}
             if request["action"] == "screenshot-all":
                 outputs = request.get("outputs", [])
                 if not outputs:
@@ -478,12 +437,6 @@ class Capture:
                 args = ["grim", "-g", f"{left},{top} {right - left}x{bottom - top}"]
             else:
                 args = ["grim", "-o", request["output"]]
-            if not delay:
-                path, child = self.deliver(request, args)
-        if delay:
-            if not self.countdown(delay):
-                emit("cancelled")
-                return
             path, child = self.deliver(request, args)
         if path is None:
             emit("copied")
@@ -511,18 +464,18 @@ class Capture:
                     return True
         raise CaptureFailure("timeout", "The screenshot countdown did not close")
 
-    def deliver(self, request, args=None, image=None):
-        """Save, copy or both one PNG: grim's run of ARGS, or IMAGE's bytes."""
+    def deliver(self, request, args=None, picked=None):
+        """Save, copy or both one PNG: grim's run of ARGS, or the held box."""
         if args is not None:
             args = args + (["-c"] if request.get("cursor", False) else [])
         processing = request.get("processing", "save-copy")
         if processing == "copy":
             with tempfile.TemporaryDirectory(prefix="vgs-screenshot-") as scratch:
-                path = self.grab(request, args, image, Path(scratch))
+                path = self.grab(request, args, picked, Path(scratch))
                 with path.open("rb") as image:
                     child = self.copy(image, "image/png")
             return None, child
-        path = self.grab(request, args, image)
+        path = self.grab(request, args, picked)
         child = None
         if processing != "save":
             try:
@@ -532,17 +485,17 @@ class Capture:
                 raise RuntimeError(f"Screenshot saved to {path}; clipboard failed: {error}") from error
         return path, child
 
-    def grab(self, request, args, image, folder=None):
+    def grab(self, request, args, picked, folder=None):
         if folder is None:
             folder = capture_folder(request["folder"], "PICTURES", "Screenshots")
         path = new_file(folder, "screenshot", ".png")
         try:
-            if image is None:
+            if picked is None:
                 self.run(args + [str(path)], timeout=CAPTURE_TIMEOUT, stderr=subprocess.PIPE)
             else:
-                path.write_bytes(image)
+                self.crop(picked, path)
             if path.stat().st_size == 0:
-                raise RuntimeError("grim wrote no image")
+                raise RuntimeError("The screenshot wrote no image")
             if self.cancelled():
                 raise CaptureCancelled()
         except BaseException:
@@ -554,20 +507,17 @@ class Capture:
         languages = request.get("ocrLanguages", "eng")
         if not isinstance(languages, str) or not LANGUAGES.fullmatch(languages):
             raise CaptureFailure("invalid-languages", "Invalid text recognition languages")
-        with self.selection(outputs=output_rectangles(request.get("outputs", []))) as (picked, frame):
-            if picked is not None:
-                image = png(*frame.crop(picked[0]))
-        if picked is None:
-            emit("cancelled")
-            return
-        # A file holds the image, so no retry of the polled wait has to carry
-        # unsent input through a pipe.
-        with tempfile.TemporaryFile() as source:
-            source.write(image)
-            source.seek(0)
-            reader = self.spawn(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", languages, "--dpi", "300", "-c", "preserve_interword_spaces=1"],
-                                stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        text, err = self.wait(reader)
+        with tempfile.TemporaryDirectory(prefix="vgs-text-") as scratch:
+            with self.selection() as picked:
+                if picked is None:
+                    emit("cancelled")
+                    return
+                path = self.grab(request, None, picked, Path(scratch))
+            # Keep the image file until the reader has acquired its descriptor.
+            with path.open("rb") as source:
+                reader = self.spawn(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", languages, "--dpi", "300", "-c", "preserve_interword_spaces=1"],
+                                    stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            text, err = self.wait(reader)
         if reader.returncode:
             detail = err.decode(errors="replace").strip()
             for pattern, reason, message in OCR_FAILURES:
@@ -609,7 +559,6 @@ class Capture:
         os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)
 
     def record(self, request):
-        request = {**request, "outputs": output_rectangles(request["outputs"])}
         options = recorder_options(request)
         devices = None
         if request["webcam"] or any(not item["source"] for item in request["audioSources"]):
@@ -630,7 +579,7 @@ class Capture:
         elif request["action"] == "record-output":
             target = request["output"]
         else:
-            with self.selection(request=request) as (picked, _):
+            with self.selection(request=request) as picked:
                 pass
             if picked is None:
                 emit("cancelled")
@@ -978,9 +927,8 @@ def remove_stale_processing(folder):
 
 
 def output_rectangles(outputs):
-    """Each output's logical rectangle, and `scale`, the one grim gives it:
-    its turned mode width over its logical width (grim 1.5.0 main.c
-    xdg_output_handle_done). The logical size rounds: Hyprland 0.57.0
+    """Each output's upright logical rectangle. The logical size rounds:
+    Hyprland 0.57.0
     prints a snapped scale as a float a hair off its ratio, such as
     1.3333334 for 2560/1920 (src/ipc/s1/Commands.cpp), which truncation
     would take to 1919."""
@@ -988,192 +936,10 @@ def output_rectangles(outputs):
     for output in outputs:
         width = round(output["width"] / output["scale"])
         height = round(output["height"] / output["scale"])
-        mode = output["width"]
         if output["transform"] in (1, 3, 5, 7):
             width, height = height, width
-            mode = output["height"]
-        rectangles.append({"name": output["name"], "x": output["x"], "y": output["y"], "width": width, "height": height, "scale": mode / width})
+        rectangles.append({"name": output["name"], "x": output["x"], "y": output["y"], "width": width, "height": height})
     return rectangles
-
-
-# A band file's header as QImage::save writes PPM: `P6`, the width, the
-# height and 255, each followed by one whitespace byte (the nested
-# measurement in the VGS-2232 run notes read `P6\n6016 3384\n255\n`).
-PPM_HEADER = re.compile(rb"P6\s(\d+)\s(\d+)\s255\s")
-
-
-class Frame:
-    """One output's held frame at one ratio: the core's band files, top to
-    bottom, each mapped read-only and its header checked against the
-    answer. A mapping outlives the core's removal of its file at the
-    thaw."""
-
-    def __init__(self, answer):
-        self.width, self.height = answer["width"], answer["height"]
-        self.bands, self.starts = [], []
-        top = 0
-        for band in answer["bands"]:
-            with open(band["path"], "rb") as file:
-                data = mmap.mmap(file.fileno(), 0, prot=mmap.PROT_READ)
-            match = PPM_HEADER.match(data)
-            if match is None or (int(match.group(1)), int(match.group(2))) != (self.width, band["rows"]) or len(data) != match.end() + self.width * band["rows"] * 3:
-                raise RuntimeError(f"The frozen screen's band {band['path']} is not a {self.width}x{band['rows']} image")
-            self.bands.append((data, match.end()))
-            self.starts.append(top)
-            top += band["rows"]
-        if top != self.height:
-            raise RuntimeError(f"The frozen screen's bands hold {top} of {self.height} rows")
-
-    def pixels(self, y, first, last):
-        """The RGB bytes of row Y from column FIRST up to LAST."""
-        index = bisect.bisect_right(self.starts, y) - 1
-        data, offset = self.bands[index]
-        start = offset + ((y - self.starts[index]) * self.width + first) * 3
-        return data[start:start + (last - first) * 3]
-
-
-class Still:
-    """The held frame the core wrote for the freeze (ScreenFreeze.qml,
-    D118): each screen's frame at its own ratio and at every greater one in
-    the layout, keyed by the screen's name and the ratio in 120ths, and
-    their crops."""
-
-    def __init__(self, outputs, answer):
-        self.outputs = outputs
-        self.screens = {screen["name"]: screen for screen in answer["screens"]}
-        self.frames = {}
-
-    def frame(self, output, ratio):
-        """OUTPUT's frame at RATIO, mapped once."""
-        key = (output["name"], ratio)
-        if key not in self.frames:
-            screen = self.screens.get(output["name"], {"frames": []})
-            found = next((frame for frame in screen["frames"] if frame["ratio"] == ratio), None)
-            if found is None:
-                raise RuntimeError(f"The frozen screen holds no frame of {output['name']} at scale {ratio / 120:g}")
-            self.frames[key] = Frame(found)
-        return self.frames[key]
-
-    def crop(self, geometry):
-        """GEOMETRY's box as (width, height, RGB rows, alpha rows or None),
-        with grim's edge coverage over the held frame's colours. grim
-        1.5.0 renders a box that
-        meets an output at the greatest scale of the outputs it meets
-        (main.c), sized (int)(width * scale) by (int)(height * scale), each
-        output placed at its offset from the box times the scale (render.c
-        render), here rounded half up, as a nested run matched a box at
-        scale 1.5 (the VGS-2232 round notes). Each output's colours come from
-        its frame at that scale. Coverage follows grim's bilinear filter
-        over native pixels, with OP_OVER at shared edges, and its PNG
-        writer's unpremultiplication (grim 1.5.0 render.c, write_png.c;
-        VGS-2265 nested references). Qt's resampled colours can differ
-        from grim's on nonuniform content."""
-        match = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
-        if match is None:
-            raise RuntimeError("Invalid selection geometry")
-        x, y, w, h = map(int, match.groups())
-        met = [o for o in self.outputs if o["x"] < x + w and x < o["x"] + o["width"] and o["y"] < y + h and y < o["y"] + o["height"]]
-        if not met:
-            raise RuntimeError("The selection lies on no display")
-        scale = max(o["scale"] for o in met)
-        # The core's frames are keyed by the ratio a window draws at, which
-        # wp-fractional-scale-v1 gives in 120ths.
-        ratio = round(scale * 120)
-        edge = lambda value: math.floor(value * scale + 0.5)
-        cw, ch = int(w * scale), int(h * scale)
-
-        def coverage(origin, extent, native, count):
-            # pixman transforms use 16.16 coordinates and the bilinear
-            # filter's seven fractional bits (pixman-private.h). Keep the
-            # transform relative to grim's floored composite destination:
-            # rounding a whole-layout offset changes its sampling phase.
-            left = math.floor(origin)
-            step = math.floor(native / extent * 65536 + 0.5)
-            offset = math.floor((left - origin) * native / extent * 65536 + 0.5)
-            values = [0] * count
-            for pos in range(max(0, left), min(count, math.ceil(origin + extent))):
-                sample = (pos - left) * step + step // 2 + offset - 32768
-                pixel, fraction = sample // 65536, ((sample >> 9) & 127) * 2
-                values[pos] = ((256 - fraction) if 0 <= pixel < native else 0) + (fraction if 0 <= pixel + 1 < native else 0)
-            return values
-
-        def parts(output):
-            self.frame(output, ratio)
-            own = round(output["scale"] * 120)
-            native = next(f for f in self.screens[output["name"]]["frames"] if f["ratio"] == own)
-            return (coverage((output["x"] - x) * scale, output["width"] * scale, native["width"], cw),
-                    coverage((output["y"] - y) * scale, output["height"] * scale, native["height"], ch))
-
-        masks = [parts(output) for output in met]
-        if len(met) == 1 and all(a == 256 for axis in masks[0] for a in axis):
-            # A box inside one output, as every display and window box and
-            # most areas are, is that frame's rows as they stand.
-            frame = self.frame(met[0], ratio)
-            dx, dy = edge(met[0]["x"] - x), edge(met[0]["y"] - y)
-            if dx <= 0 and dy <= 0 and dx + frame.width >= cw and dy + frame.height >= ch:
-                return cw, ch, [frame.pixels(r - dy, -dx, cw - dx) for r in range(ch)], None
-        rows = [bytearray(cw * 3) for _ in range(ch)]
-        alphas = [bytearray(cw) for _ in range(ch)]
-        edges = set()
-        for output, (horizontal, vertical) in zip(met, masks):
-            frame = self.frame(output, ratio)
-            dx, dy = edge(output["x"] - x), edge(output["y"] - y)
-            columns = [i for i, a in enumerate(horizontal) if a]
-            if not columns:
-                continue
-            x0, x1 = columns[0], columns[-1] + 1
-            full = [i for i in columns if horizontal[i] == 256]
-            partial = [i for i in columns if horizontal[i] < 256]
-            for r, ay in enumerate(vertical):
-                if not ay:
-                    continue
-                sy = min(max(r - dy, 0), frame.height - 1)
-                line = (frame.pixels(sy, 0, 1) * max(0, dx - x0)
-                        + frame.pixels(sy, max(0, x0 - dx), min(frame.width, x1 - dx))
-                        + frame.pixels(sy, frame.width - 1, frame.width) * max(0, x1 - dx - frame.width))
-                if ay == 256 and full:
-                    first, last = full[0], full[-1] + 1
-                    rows[r][first * 3:last * 3] = line[(first - x0) * 3:(last - x0) * 3]
-                    alphas[r][first:last] = b"\xff" * (last - first)
-                for column in (columns if ay < 256 else partial):
-                    edges.add((r, column))
-                    weight = horizontal[column] * ay
-                    alpha = (255 * weight) >> 16
-                    inverse = 255 - alpha
-                    for channel in range(3):
-                        at = column * 3 + channel
-                        old = rows[r][at] * inverse + 128
-                        rows[r][at] = (line[(column - x0) * 3 + channel] * weight >> 16) + ((old + (old >> 8)) >> 8)
-                    old = alphas[r][column] * inverse + 128
-                    alphas[r][column] = alpha + ((old + (old >> 8)) >> 8)
-        opaque = all(alpha.count(255) == cw for alpha in alphas)
-        if not opaque:
-            for r, column in edges:
-                value = alphas[r][column]
-                if value not in (0, 255):
-                    inverse = (255 << 16) // value
-                    for channel in range(3):
-                        at = column * 3 + channel
-                        rows[r][at] = min(255, rows[r][at] * inverse >> 16)
-        return cw, ch, [bytes(row) for row in rows], None if opaque else [bytes(alpha) for alpha in alphas]
-
-
-def png(width, height, rows, alphas=None):
-    """A PNG of RGB ROWS, with ALPHAS as RGBA, each row unfiltered."""
-    if alphas is not None:
-        joined = []
-        for row, alpha in zip(rows, alphas):
-            rgba = bytearray(width * 4)
-            for channel in range(3):
-                rgba[channel::4] = row[channel::3]
-            rgba[3::4] = alpha
-            joined.append(bytes(rgba))
-        rows = joined
-    def chunk(kind, body):
-        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
-    header = struct.pack(">IIBBBBB", width, height, 8, 2 if alphas is None else 6, 0, 0, 0)
-    raw = b"".join(b"\x00" + row for row in rows)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw, PNG_LEVEL)) + chunk(b"IEND", b"")
 
 
 def rectangle_geometry(rectangle):

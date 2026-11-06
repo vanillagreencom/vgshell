@@ -178,7 +178,6 @@ f share/vgshell/shell/Core/CoverPresentation.qml
 f share/vgshell/shell/Core/Dictation.qml
 f share/vgshell/shell/Core/DictationModel.js
 f share/vgshell/shell/Core/Dispatch.js
-f share/vgshell/shell/Core/FreezeBands.js
 f share/vgshell/shell/Core/HyprctlReader.qml
 f share/vgshell/shell/Core/HyprlandLayer.js
 f share/vgshell/shell/Core/HyprlandLayer.qml

@@ -1,54 +1,32 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import qs.Commons
 import qs.Core
-import "../Core/FreezeBands.js" as Bands
 
-// The core owns the whole-output freeze so plugins create no surfaces
-// (D115). It takes no input; the selection tool maps above it.
+// A whole-output, input-transparent still (D115). Map each surface drawing
+// nothing first: Quickshell's buffer manager needs a window's render
+// formats before its first view can capture (2b4501a buffer/manager.cpp
+// initWindow, proxywindow.cpp callOnScenegraphInit). Draw only after every
+// output has its frame, so no frame contains a drawn freeze.
 //
-// Each surface maps drawing nothing and captures its frame then, so the
-// frame holds no freeze; every surface draws its frame in the same turn
-// once each screen has one, and a screen added during the hold draws its
-// own once it arrives. The surface maps first because a view captures
-// only once Quickshell's buffer manager has read a window's render
-// formats, and it waits for a window whose scene graph starts after the
-// view asks, so the first view in an unmapped window never captures
-// (quickshell 2b4501a src/wayland/buffer/manager.cpp initWindow,
-// src/window/proxywindow.cpp callOnScenegraphInit). ScreencopyView applies the frame's own transform: it
-// prefers ext-image-copy-capture, whose frame carries the output's
-// transform, and transposes the source size for a turned frame
-// (quickshell 2b4501a src/wayland/screencopy/manager.cpp createContext,
-// image_copy_capture.cpp ext_image_copy_capture_frame_v1_transform,
-// view.cpp onFrameCaptured), so a rotated output's frame stands upright
-// whether the compositor sends it turned (Hyprland 0.56.2) or upright
-// (0.57.0, which renders every capture in the normal transform). With
-// `live` false the view captures once when its context starts
-// (https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/ScreencopyView).
-//
-// A hold that asks for the still gets its frames written (D118) once every
-// screen shows its frame and ScreenFreeze made the hold's directory: one
-// chain of bands over every screen, each band a hidden ShaderEffectSource
-// over a strip of the saved view, grabbed and saved as PPM. Each band's
-// callback asks for the next band before it saves its own, and a grab
-// completes only on its window's next frame (Qt 6.12
-// qquickitemgrabresult.cpp: create requests window()->update(), the image
-// comes from afterRendering and the callback from a posted event), so one
-// GUI turn saves one band's image, not a whole screen's.
+// ScreencopyView applies the captured frame's transform, not the output's
+// current transform, and transposes sourceSize for turned frames (2b4501a
+// screencopy/image_copy_capture.cpp and view.cpp onFrameCaptured). Keep
+// that upright image in logical output coordinates; never rotate it again.
+// live:false captures once; paintCursor selects the pointer in that same
+// capture, not a second view:
+// https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/ScreencopyView
 Scope {
     id: host
 
-    // Every surface's frame has arrived; set once per hold, so a screen
-    // that joins later does not take the others down.
     property bool framed: false
     readonly property bool allFramed: surfaces.instances.length > 0
         && surfaces.instances.length === Quickshell.screens.length
         && surfaces.instances.every(surface => surface.hasFrame)
     readonly property bool allPresented: framed && surfaces.instances.length > 0
         && surfaces.instances.every(surface => surface.presented)
-    readonly property bool cursor: ScreenFreeze.cursor
-    property var chain: null
-    readonly property bool stillReady: allPresented && ScreenFreeze.frameDir !== ""
+    property var run: null
 
     onAllFramedChanged: if (allFramed && ScreenFreeze.holding) framed = true
     onAllPresentedChanged: {
@@ -57,137 +35,295 @@ Scope {
         ScreenFreeze.shown = true;
         ScreenFreeze.answer("ok");
     }
-    onStillReadyChanged: if (stillReady && chain === null) startStill()
 
     Connections {
         target: ScreenFreeze
         function onHoldingChanged() {
             host.framed = false;
-            host.chain = null;
             host.rebuild();
+        }
+        function onCropRequestChanged() {
+            if (ScreenFreeze.cropRequest === null) host.releaseCrop();
+            else host.crop(ScreenFreeze.cropRequest);
         }
     }
 
-    // The screens the surfaces stand on: every screen while a hold lasts,
-    // none otherwise, so each hold builds its surfaces anew. A surface's
-    // window is hidden before the surface goes: quickshell 2b4501a's
-    // ~ProxyWindowBase deleteLater()s a window it leaves visible while the
-    // surface's items, a band's pending grab result among them, go at once
-    // (src/window/proxywindow.cpp deleteWindow), and the render thread could
-    // then finish that grab on a deleted result. Hiding the window stops its
-    // render thread first (Qt 6.12 qsgthreadedrenderloop.cpp hide:
-    // handleObscurity and releaseResources wait on it).
+    // Hide before destroying items with an in-flight grab. Qt 6.12's
+    // qquickitemgrabresult.cpp parents the pending result to the item;
+    // qsgthreadedrenderloop.cpp hide stops the window's render thread
+    // before those items can go. Quickshell 2b4501a otherwise deleteLater()s
+    // a still-visible window (proxywindow.cpp deleteWindow).
     property var built: []
     function rebuild() {
-        const next = ScreenFreeze.holding ? Quickshell.screens.slice() : [];
+        // Keep the cursor choice immutable for each view. Changing
+        // paintCursor recreates its capture context (2b4501a view.cpp
+        // setPaintCursors), including while a hold is being torn down.
+        const next = ScreenFreeze.holding ? Quickshell.screens.map(screen =>
+            built.find(entry => entry.screen === screen) || { screen: screen, cursor: ScreenFreeze.cursor }) : [];
+        // Variants round-trips records through QVariantMap (2b4501a
+        // variants.cpp setModel/updateVariants), not JS object identity.
+        // Retain windows by their screen QObject.
         for (const surface of surfaces.instances) {
-            if (next.indexOf(surface.modelData) < 0) surface.visible = false;
+            if (!next.some(entry => entry.screen === surface.screen)) surface.visible = false;
         }
         built = next;
     }
 
-    // A screen that leaves while its bands are written takes its window,
-    // and the grab result parented to its band, with it, so its callback
-    // never comes (Qt 6.12 qquickitemgrabresult.cpp create parents the
-    // result to the item); the chain ends here with screen-gone. The
-    // leaving surface's window is hidden before this runs: Hyprland closes
-    // the output's layer surfaces first and Quickshell closes the window on
-    // that (quickshell 2b4501a src/wayland/wlr_layershell/surface.cpp
-    // zwlr_layer_surface_v1_closed); rebuild() hides it too.
     Connections {
         target: Quickshell
         function onScreensChanged() {
-            const run = host.chain;
-            if (run !== null && !run.done) {
-                const names = Quickshell.screens.map(screen => screen.name);
-                if (run.screens.some(screen => names.indexOf(screen.name) < 0)) host.stillFailed(run, "screen-gone");
-            }
+            if (host.run !== null) host.finishCrop("screen-gone");
             host.rebuild();
         }
     }
 
-    function startStill() {
-        const planned = Bands.plan(surfaces.instances.map(surface => ({ name: surface.screen.name, x: surface.screen.x, y: surface.screen.y,
-            width: surface.screen.width, height: surface.screen.height, ratio: surface.ratio })), ScreenFreeze.frameDir);
-        const run = { serial: ScreenFreeze.serial, jobs: planned.jobs, screens: planned.screens, done: false };
-        chain = run;
-        grab(run, 0);
+    function cropParts(box, frames) {
+        const parts = [];
+        for (const entry of frames) {
+            const frame = entry.frame;
+            const x = Math.max(box.x, frame.x);
+            const y = Math.max(box.y, frame.y);
+            const right = Math.min(box.x + box.width, frame.x + frame.width);
+            const bottom = Math.min(box.y + box.height, frame.y + frame.height);
+            if (right > x && bottom > y) parts.push({ surface: entry.surface, frame: frame, x: x, y: y, width: right - x, height: bottom - y });
+        }
+        return parts;
     }
 
-    // A band is grabbed only from the screen it was planned for: a screen
-    // whose ratio or size changed since would give a band of another size.
-    function grab(run, index) {
-        const job = run.jobs[index];
-        const surface = surfaces.instances.find(candidate => candidate.screen.name === job.screen);
-        if (surface === undefined) {
-            stillFailed(run, "screen-gone");
+    function crop(request) {
+        const box = request.geometry;
+        const frames = [];
+        for (const surface of surfaces.instances) {
+            const frame = surface.frameGeometry;
+            if (!surface.hasFrame || frame === null || !surface.backingWindowVisible) {
+                ScreenFreeze.cropped(request, "screen-gone");
+                return;
+            }
+            if (frame.x !== surface.screen.x || frame.y !== surface.screen.y
+                    || frame.width !== surface.screen.width || frame.height !== surface.screen.height
+                    || frame.scale !== surface.devicePixelRatio) {
+                ScreenFreeze.cropped(request, "size");
+                return;
+            }
+            frames.push({ surface: surface, frame: frame });
+        }
+        let parts = cropParts(box, frames);
+        if (parts.length === 0) {
+            ScreenFreeze.cropped(request, "geometry");
             return;
         }
-        if (surface.ratio !== job.own || surface.screen.width !== job.logical[0] || surface.screen.height !== job.logical[1]) {
-            stillFailed(run, "size");
-            return;
+        // The highest-scale intersecting output owns the grab window, so
+        // Qt's targetSize * window DPR gives the selected device size
+        // without a second scale conversion (Qt 6.12
+        // qquickitemgrabresult.cpp render).
+        const target = parts.reduce((a, b) => a.frame.scale >= b.frame.scale ? a : b);
+        const canvas = target.surface.cropCanvas;
+        canvas.width = box.width;
+        canvas.height = box.height;
+        run = { request: request, pieces: [], pixelCopy: null, grab: null };
+        const pending = run;
+        const ratio = target.frame.scale;
+        // Qt 6.12.0's native 1x1 flip skips the ownership copy:
+        // tmp/vgs2322-qt-defect-facts.md. Remove this special case once
+        // the Qt VGS builds against carries the fix; the existing exact-color
+        // tiny Capture case must then prove the plain path.
+        // qquickitemgrabresult.cpp rounds targetSize * DPR (minimum 1).
+        // Its default-size grab of 2/DPR with child Scale 1/(box size * DPR)
+        // keeps the original box-center sample at native (pixelX, pixelY).
+        // Canvas uses this same window DPR: qt_drawImage copies the native
+        // source rect, equal extents skip scaled(), and QPainter cancels
+        // matching image/device DPR. Explicit save size copies native 1x1.
+        // Both grab roots stay surface-owned until hide stops its render thread.
+        const nativePixel = Math.max(1, Math.round(box.width * ratio)) === 1
+            && Math.max(1, Math.round(box.height * ratio)) === 1;
+        let grabItem = canvas;
+        let composition = canvas;
+        let footprint = box;
+        const pixelX = box.x + 2 * box.width <= target.frame.x + target.frame.width ? 0 : 1;
+        const pixelY = box.y + 2 * box.height <= target.frame.y + target.frame.height ? 0 : 1;
+        if (nativePixel) {
+            grabItem = target.surface.pixelCanvas;
+            grabItem.ratio = ratio;
+            grabItem.cellWidth = box.width;
+            grabItem.cellHeight = box.height;
+            composition = grabItem.composition;
+            footprint = { x: box.x - pixelX * box.width, y: box.y - pixelY * box.height,
+                width: 2 * box.width, height: 2 * box.height };
+            parts = cropParts(footprint, frames);
         }
-        const asked = Date.now();
-        if (!surface.grabBand(job, result => host.banded(run, index, result, asked))) stillFailed(run, "grab");
-    }
-
-    function banded(run, index, result, asked) {
-        const back = Date.now();
-        if (chain !== run || run.done) {
+        for (const part of parts) {
+            const piece = cropPiece.createObject(composition, { x: part.x - footprint.x, y: part.y - footprint.y, width: part.width, height: part.height });
+            if (piece === null) {
+                finishCrop("grab");
+                return;
+            }
+            run.pieces.push(piece);
+            piece.attach(part);
+        }
+        const receive = result => {
+            if (host.run !== pending || ScreenFreeze.cropRequest !== request) {
+                result.destroy();
+                return;
+            }
+            if (nativePixel) {
+                pending.grab = result;
+                const url = result.url.toString();
+                if (url === "") {
+                    host.finishCrop("grab");
+                    return;
+                }
+                const copy = pixelCopy.createObject(canvas, { width: Math.ceil(1 / ratio), height: Math.ceil(1 / ratio),
+                    sourceUrl: url, sourceX: pixelX, sourceY: pixelY });
+                if (copy === null) {
+                    host.finishCrop("grab");
+                    return;
+                }
+                pending.pixelCopy = copy;
+                copy.pending = pending;
+                copy.start();
+                return;
+            }
+            const saved = result.saveToFile(request.path);
             result.destroy();
-            return;
-        }
-        const job = run.jobs[index];
-        const last = index + 1 === run.jobs.length;
-        if (!last) grab(run, index + 1);
-        // QImage::save chooses PPM from the suffix; the holder reads RGB bands.
-        const saved = result.saveToFile(job.path);
-        const done = Date.now();
-        // Release the result's image now rather than waiting for collection.
-        result.destroy();
-        if (!saved) {
-            stillFailed(run, "save");
-            return;
-        }
-        ScreenFreeze.noteBand(run.serial, { screen: job.screen, ratio: job.frame.ratio, frame: job.frame.width + "x" + job.frame.height, rows: job.band.height,
-            askedAt: asked, readbackMs: back - asked, saveMs: done - back });
-        if (!last || run.done) return;
-        run.done = true;
-        ScreenFreeze.stillWritten(run.serial, { screens: run.screens });
+            host.finishCrop(saved ? "" : "save");
+        };
+        const started = nativePixel ? grabItem.grabToImage(receive)
+            : canvas.grabToImage(receive, Qt.size(box.width, box.height));
+        if (!started) finishCrop("grab");
     }
 
-    function stillFailed(run, reason) {
-        if (run.done) return;
-        run.done = true;
-        ScreenFreeze.stillFailed(run.serial, reason);
+    function finishCrop(reason) {
+        const request = run.request;
+        releaseCrop();
+        ScreenFreeze.cropped(request, reason);
+    }
+
+    function releaseCrop() {
+        if (run === null) return;
+        const pending = run;
+        run = null;
+        if (pending.pixelCopy !== null) {
+            pending.pixelCopy.pending = null;
+            pending.pixelCopy.unloadImage(pending.pixelCopy.sourceUrl);
+            pending.pixelCopy.destroy();
+        }
+        if (pending.grab !== null) pending.grab.destroy();
+        for (const piece of pending.pieces) {
+            piece.release();
+            piece.destroy();
+        }
+    }
+
+    Component {
+        id: pixelCopy
+        Canvas {
+            property var pending: null
+            property string sourceUrl: ""
+            property int sourceX: 0
+            property int sourceY: 0
+            property string stage: "new"
+            visible: false
+            renderTarget: Canvas.Image
+            renderStrategy: Canvas.Immediate
+            smooth: false
+            antialiasing: false
+
+            function isCurrent() {
+                return pending !== null && host.run === pending && ScreenFreeze.cropRequest === pending.request;
+            }
+
+            function start() {
+                if (!isCurrent() || !available || stage !== "new") return;
+                stage = "loading";
+                loadImage(sourceUrl);
+                imageReady();
+            }
+
+            function imageReady() {
+                if (!isCurrent() || stage !== "loading") return;
+                if (isImageError(sourceUrl)) host.finishCrop("grab");
+                else if (isImageLoaded(sourceUrl)) {
+                    stage = "paint";
+                    requestPaint();
+                }
+            }
+
+            onAvailableChanged: if (available) start()
+            onImageLoaded: imageReady()
+            onPaint: {
+                if (!isCurrent() || stage !== "paint") return;
+                stage = "done";
+                const ctx = getContext("2d");
+                if (ctx === null) {
+                    host.finishCrop("grab");
+                    return;
+                }
+                ctx.globalCompositeOperation = "copy";
+                ctx.drawImage(sourceUrl, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
+                if (!isCurrent()) return;
+                const saved = save(pending.request.path, Qt.size(1, 1));
+                host.finishCrop(saved ? "" : "save");
+            }
+        }
+    }
+
+    Component {
+        id: cropPiece
+        Item {
+            property Item heldView: null
+            property Item home: null
+
+            // Clip the held view's drawing, not an intermediate texture.
+            // Item.clip also clips its children to its bounds:
+            // https://doc.qt.io/qt-6/qml-qtquick-item.html#clip-prop
+            clip: true
+
+            function attach(part) {
+                home = part.surface.frameItem;
+                heldView = part.surface.heldView;
+                sourceHome.x = part.frame.x - part.x;
+                sourceHome.y = part.frame.y - part.y;
+                // Preserve anchors.fill's full-output dimensions while
+                // translating the selected intersection to this clip.
+                sourceHome.width = part.frame.width;
+                sourceHome.height = part.frame.height;
+                // The grab renders its window's item tree (Qt 6.12
+                // qquickitemgrabresult.cpp setup). Move the existing view,
+                // not its capture source: Quickshell 2b4501a view.cpp keeps
+                // its held context across reparenting without a capture.
+                heldView.parent = sourceHome;
+            }
+
+            function release() {
+                if (heldView !== null && home !== null) heldView.parent = home;
+            }
+
+            // Only the canvas is hidden: the grab includes explicitly
+            // visible children (Qt 6.12 qquickwindow.cpp fetchNextNode).
+            Item { id: sourceHome }
+        }
     }
 
     Variants {
         id: surfaces
-        // Built anew at each hold, so each hold captures its own frame: a
-        // surface kept past the thaw shows the previous hold's frame.
         model: host.built
 
         PanelWindow {
             id: surface
-
             required property var modelData
-            // With the cursor asked, a screen counts as framed only once
-            // its pointer frame is in too, so that frame is taken before
-            // any freeze shows and holds none.
-            readonly property bool hasFrame: view.hasContent && (!host.cursor || cursorView.hasContent)
+            readonly property bool hasFrame: view.hasContent
+            property var frameGeometry: null
             property bool framePresented: false
-            readonly property bool presented: view.visible && backingWindowVisible && framePresented
-            // The window's ratio in 120ths, as wp-fractional-scale-v1 sends
-            // it (FreezeBands.js frame).
-            readonly property int ratio: Math.round(devicePixelRatio * 120)
+            readonly property bool presented: frozen.visible && backingWindowVisible && framePresented
+            property alias heldView: view
+            property alias frameItem: frame
+            property alias cropCanvas: canvas
+            property alias pixelCanvas: pixelGrid
 
-            screen: modelData
+            screen: modelData.screen
             anchors { top: true; bottom: true; left: true; right: true }
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
-            // An empty region passes every press through; the selection
-            // tool that maps above takes the pointer.
             mask: Region {}
             WlrLayershell.namespace: "vgs:freeze"
             WlrLayershell.layer: WlrLayer.Overlay
@@ -195,56 +331,74 @@ Scope {
 
             onBackingWindowVisibleChanged: framePresented = false
 
-            function grabBand(job, done) {
-                band.sourceRect = Qt.rect(0, job.band.y, surface.screen.width, job.band.rows);
-                band.textureSize = Qt.size(job.frame.width, job.band.height);
-                band.width = job.targetWidth;
-                band.height = job.band.targetHeight;
-                return band.grabToImage(done, Qt.size(job.targetWidth, job.band.targetHeight));
-            }
-
             Connections {
                 target: surface.contentItem.Window.window
                 function onFrameSwapped() {
-                    if (view.visible && surface.backingWindowVisible) surface.framePresented = true;
+                    if (frozen.visible && surface.backingWindowVisible) surface.framePresented = true;
                 }
             }
 
-            ScreencopyView {
-                id: view
+            Item {
+                id: frame
                 anchors.fill: parent
-                captureSource: surface.modelData
+                visible: false
+                ScreencopyView {
+                    id: view
+                    anchors.fill: parent
+                    captureSource: surface.modelData.screen
+                    live: false
+                    paintCursor: surface.modelData.cursor
+                    onHasContentChanged: if (hasContent) surface.frameGeometry = {
+                        x: surface.screen.x, y: surface.screen.y, width: surface.screen.width,
+                        height: surface.screen.height, scale: surface.devicePixelRatio
+                    }
+                }
+            }
+
+            // A GPU-only snapshot keeps the drawn freeze unchanged while
+            // selected views move to one window for the crop. live:false
+            // keeps the image even as frame's children move:
+            // https://doc.qt.io/qt-6/qml-qtquick-shadereffectsource.html
+            ShaderEffectSource {
+                id: frozen
+                anchors.fill: parent
+                sourceItem: host.framed && surface.hasFrame ? frame : null
                 live: false
-                visible: host.framed && hasContent
+                visible: host.framed && surface.hasFrame
                 onVisibleChanged: surface.framePresented = false
             }
 
-            // The pointer for the saved frames: the same screen captured
-            // once more with the pointer drawn, never shown, so the freeze
-            // a person sees has no still pointer under the selector's. A
-            // view captures whether or not it is visible (quickshell
-            // 2b4501a view.cpp: componentComplete and createContext read
-            // no visibility).
-            ScreencopyView {
-                id: cursorView
-                anchors.fill: parent
-                captureSource: host.cursor ? surface.modelData : null
-                live: false
-                paintCursor: true
+            // The shared token is fixed opaque black by ThemeLogic's
+            // fixed-background check: image gaps must not change with the
+            // theme. grabToImage renders this hidden item (Qt 6.12
+            // qquickitemgrabresult.cpp refFromEffectItem).
+            Rectangle {
+                id: canvas
                 visible: false
+                color: Theme.screensaver.background
             }
 
-            // One band of the saved view. A ShaderEffectSource takes its
-            // source by reference whether or not either is visible, so the
-            // hidden pointer view renders into it (Qt 6.12
-            // qquickshadereffectsource.cpp setSourceItem), and a grab
-            // renders a hidden item (qquickitemgrabresult.cpp create
-            // references it the same way). Its texture is the band's
-            // device size, so it samples the view one to one.
-            ShaderEffectSource {
-                id: band
+            Item {
+                id: pixelGrid
+                readonly property int nativeCellPixels: 1
+                property real ratio: 1
+                property real cellWidth: nativeCellPixels
+                property real cellHeight: nativeCellPixels
+                property alias composition: content
                 visible: false
-                sourceItem: host.cursor ? cursorView : view
+                width: 2 / ratio
+                height: 2 / ratio
+
+                Rectangle {
+                    id: content
+                    width: 2 * pixelGrid.cellWidth
+                    height: 2 * pixelGrid.cellHeight
+                    color: Theme.screensaver.background
+                    transform: Scale {
+                        xScale: 1 / (pixelGrid.cellWidth * pixelGrid.ratio)
+                        yScale: 1 / (pixelGrid.cellHeight * pixelGrid.ratio)
+                    }
+                }
             }
         }
     }
