@@ -541,7 +541,7 @@ if copy_tree unsaved-host \
   && edit_tree unsaved-host shell/plugins/vgs.settings/PluginPage.qml 'onEditedChanged: if (!edited && saveBar.activeFocus) tabs.tabs.forceActiveFocus(Qt.TabFocusReason)' 'onEditedChanged: {}' \
   && edit_tree unsaved-host shell/Ui/controls/ShortcutField.qml 'readonly property alias typing: entry.open' 'readonly property bool typing: entry.visible' \
   && edit_tree unsaved-host shell/plugins/vgs.settings/Window.qml 'choice === "save" ? detail.save() : choice === "discard";' 'choice === "save" ? (detail.save(), true) : choice === "discard";' \
-  && edit_tree unsaved-host shell/Core/Config.qml 'root.user = r.value;' 'if (root.user === null) root.user = r.value;'; then
+  && edit_tree unsaved-host shell/Core/Config.qml 'if (r.state === "loaded") root.user = r.value;' 'if (r.state === "loaded" && root.user === null) root.user = r.value;'; then
   stop_shell
   start_shell "$sandbox/tree-unsaved-host" "$sandbox/unsaved-host.log" || fail "the control shell of the tree copy starts"
   settings_page_open "$uo_id"
