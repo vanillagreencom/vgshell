@@ -1,14 +1,8 @@
 .pragma library
 .import qs.Ui 1.0 as Ui
 
-// The browsers' decisions, with no QML object and no I/O, so
-// scripts/test-themes-browser.js runs every function under node: the
-// overlay's views and their payload; for the theme view the cards merged
-// from the theme list, the catalog and the image list, the typed filter,
-// the selection kept across a filter or a refresh and the wallpaper
-// download offer; for the wallpaper view its sources, its monitor scopes,
-// its cards, the download or update card, its keys and its selection; and
-// the text both show for a download's progress and a failed step.
+// Keep view decisions free of QML objects and I/O so
+// scripts/test-themes-browser.js can run them under Node.
 
 // The overlay's views, one row each: the payload's `view` and the global
 // shortcut, `vgs.themes:<name>`, that Service.qml registers to open or close
@@ -41,7 +35,6 @@ function viewNames() {
     return VIEWS.map(function (v) { return v.name; });
 }
 
-// The file that draws view NAME, one of VIEWS.
 function viewSource(name) {
     for (var i = 0; i < VIEWS.length; i++)
         if (VIEWS[i].name === name) return VIEWS[i].source;
@@ -148,23 +141,18 @@ function cards(packages, entries, images, current) {
     return out;
 }
 
-// Whether CARD matches the typed filter TEXT: its name or its label holds
-// the text, in any case. An empty filter matches every card.
 function matches(card, text) {
     var needle = String(text).toLowerCase();
     return needle === "" || card.name.toLowerCase().indexOf(needle) !== -1 || card.label.toLowerCase().indexOf(needle) !== -1;
 }
 
-// The cards the rail shows: every theme, installed or not, that matches
-// the filter TEXT.
 function shown(list, text) {
     return list.filter(function (card) { return matches(card, text); });
 }
 
-// The identity of CARD on the rail: everything its content draws. The
-// carousel hands a card's content its entry once, so a card whose label,
-// image or palette changed is rebuilt under a new key, and one whose drawn
-// inputs stayed is kept.
+// Rebuild a card when its label, preview or theme values change. Wallpaper
+// replacement has its own generation in railKey, so reopening unchanged
+// content can reuse its decoded image.
 function cardKey(card) {
     return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);
 }
@@ -203,14 +191,12 @@ function inkCentredTop(box, capTop, baseline) {
     return Math.round((box - capTop - baseline) / 2);
 }
 
-// The index to select in LIST: the card named NAME, else the first.
 function selection(list, name) {
     for (var i = 0; i < list.length; i++)
         if (list[i].name === name) return i;
     return 0;
 }
 
-// Whether a typed TEXT is one printable character the filter takes.
 function typable(text) {
     if (typeof text !== "string" || text.length !== 1) return false;
     var code = text.charCodeAt(0);
@@ -236,9 +222,6 @@ function editFilter(text, edit) {
     }
 }
 
-// Whether the browser offers to download CARD's wallpapers: the package is
-// installed and displayed, and its catalog pin names an archive with bytes
-// that is not unpacked.
 function downloadOffer(card) {
     return card !== null && card.installed && card.displayed && card.imagery !== null && !card.imagery.installed && card.imagery.size > 0;
 }
@@ -286,8 +269,6 @@ function progressText(downloading) {
     }
 }
 
-// The share of the step done, for a determinate bar, or null while the
-// runner names no total.
 function progressValue(downloading) {
     if (downloading === null || downloading.total === null || downloading.total <= 0) return null;
     return Math.min(1, downloading.bytes / downloading.total);
@@ -394,13 +375,10 @@ function wallpaperAction(key, shift, control, alt, meta, scoped) {
     return "";
 }
 
-// Whether the scope control shows: with two screens or more.
 function scopeShown(screenCount) {
     return screenCount >= 2;
 }
 
-// The scope in force: the one at INDEX in SCREEN_SCOPES while the control
-// shows for SCREENCOUNT screens, else the first.
 function screenScope(index, screenCount) {
     return scopeShown(screenCount) ? SCREEN_SCOPES[index].scope : SCREEN_SCOPES[0].scope;
 }
@@ -510,8 +488,6 @@ function wallpaperShown(list, text) {
     return list.filter(function (card) { return wallpaperMatches(card, text); });
 }
 
-// The index to select in the wallpaper cards LIST: the card whose key is
-// KEY, else the first.
 function wallpaperSelection(list, key) {
     for (var i = 0; i < list.length; i++)
         if (list[i].key === key) return i;
@@ -529,7 +505,6 @@ function wallpaperEmpty(loaded, source, applied, cards, filter, packages) {
     return { kind: "no-wallpapers", iconName: "image-off", text: source === "theme" ? label(applied, packages) + " has no wallpapers" : "No wallpaper is installed", actionText: "" };
 }
 
-// Whether an apply RESULT left its package applied, every target or not.
 function applied(result) {
     return APPLIED_STATES.indexOf(result.state) !== -1;
 }

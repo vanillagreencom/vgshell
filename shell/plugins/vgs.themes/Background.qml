@@ -17,7 +17,6 @@ Item {
     // Whether the image drew its source; it stays true while a new source
     // loads, since the old image stays on screen until the new one is ready.
     property bool drawn: false
-    // The source WallpaperState names for this screen, its own or `current`.
     readonly property string wanted: wallpaper.sourceFor(root.screen === null ? "" : root.screen.name)
     readonly property string current: wallpaper.source
     readonly property string currentTheme: shell === null ? "" : shell.theme.current
@@ -66,7 +65,6 @@ Item {
         // has no size while the host maps no surface.
         sourceSize.width: root.screen === null ? 0 : Math.ceil(root.screen.width * root.screen.devicePixelRatio)
         sourceSize.height: root.screen === null ? 0 : Math.ceil(root.screen.height * root.screen.devicePixelRatio)
-        // Each screen holds its own decode.
         cache: false
         onStatusChanged: {
             if (status === Image.Ready) root.drawn = true;

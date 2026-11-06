@@ -4,38 +4,9 @@ import qs.Commons
 import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 
-// The wallpaper view of the browser: the applied theme's wallpapers, or
-// every package's and the user folder's, as angled cards on a rail, one
-// dim hint line under it, naming what typing searches beside Show all or
-// Show theme, and with two screens or more the scope words, All monitors and This
-// monitor. At rest the view draws the cards, the tabs, that line and those
-// words alone: the selection, which
-// opens on the image the scope shows, marks it. Enter or a click on the selected
-// image sets it for the scope: on every screen, each screen's own image
-// cleared, or on the screen the browser shows on. The browser stays open
-// while the set runs, closes once it lands, and shows a line naming the
-// reason when it fails. Under Theme, a last card downloads the applied
-// catalog theme's wallpapers when they are missing, or updates them when
-// the catalog pins a newer archive; it shows the download's progress from
-// `last.downloading`, applies the theme again so its image shows, reads
-// the lists again and stays open.
-//
-// Keys, BrowserLogic.WALLPAPER_KEYS: Left and Up step back, Right and Down
-// step forward, Home and End go to the first and the last card, and Enter
-// sets the selected image or runs the selected card. Tab and Shift+Tab
-// switch the top tabs. A printable character types into the filter, which
-// shows under the rail, Backspace erases a character, Ctrl+Backspace a
-// word and Ctrl+U the whole filter. Escape clears the filter, then asks to
-// close. Alt+S or a click on Show all flips the source, and Alt+M or a
-// click on a scope word flips the scope while the words show. An item of
-// the view holds the keyboard and the rail never takes the focus, so Tab
-// cannot leave the view before the view handles it.
-//
-// The view is built with each open and destroyed with the browser, so the
-// scope starts on All monitors every time. It reads every image and the
-// catalog on open, again after a download and whenever the applied theme
-// changes. The selection starts on the image the chosen scope shows, and
-// follows it until a key or a click moves it.
+// Keep the keyboard on the view's dedicated item so Tab reaches the
+// view's handler before focus can leave it. Each new view starts with
+// All monitors; follow that scope's image until the user moves selection.
 FocusScope {
     id: root
 
@@ -46,14 +17,12 @@ FocusScope {
     signal closeRequested()
     signal switchRequested(int direction)
 
-    // The last answers: every source's images and the catalog's entries,
-    // each null before it arrives or after it failed, beside the reason it
-    // failed or "".
+    // The service retains the last successful images and catalog beside
+    // each read's failure reason; null means no successful answer yet.
     property var images: null
     property string imagesReason: ""
     property var entries: null
     property string catalogReason: ""
-    // Whether the first image list and catalog have both answered.
     property bool loaded: images !== null
     property bool started: false
 
@@ -63,16 +32,13 @@ FocusScope {
     readonly property int screenCount: shell === null ? 0 : shell.screens.all.length
     readonly property bool scoped: BrowserLogic.scopeShown(screenCount)
     readonly property string scope: BrowserLogic.screenScope(scopeIndex, screenCount)
-    // The output the browser shows on, "" before the shell arrives.
     readonly property string screenName: shell === null || shell.screens.current === null ? "" : shell.screens.current.name
     readonly property string applied: Theme.name
-    // The last list's packages, which title the applied theme; null before it arrives.
     readonly property var packages: shell === null || shell.theme.listing === null ? null : shell.theme.listing.packages
     readonly property var cards: images === null ? [] : BrowserLogic.wallpaperCards(images, entries, applied, source)
     property string filterText: ""
     readonly property var shownCards: BrowserLogic.wallpaperShown(cards, filterText)
     readonly property var emptyState: BrowserLogic.wallpaperEmpty(loaded, source, applied, cards, filterText, packages)
-    // The image the chosen scope shows now, "" for none.
     readonly property string shownPath: BrowserLogic.shownPath(scope, wallpaper.path, wallpaper.screenPaths, screenName)
     // The selected card's key once a key or a click moved it.
     property string selectedKey: ""
@@ -99,7 +65,6 @@ FocusScope {
     // `last.downloading` as last read while a download this view started
     // runs, else null.
     property var downloading: null
-    // What the last step that failed answered, "" when none did.
     property string problem: ""
 
     WallpaperState { id: wallpaper }
@@ -170,7 +135,6 @@ FocusScope {
         }
     }
 
-    // Read every image and the catalog; each answer is kept as it arrives.
     function refresh() {
         const data = browserData.snapshot;
         if (data === null) return;
@@ -180,16 +144,14 @@ FocusScope {
         if (JSON.stringify(entries) !== JSON.stringify(data.catalog.entries)) entries = data.catalog.entries;
     }
 
-    // Select the card the user chose, or until one moved the rail, the
-    // image the chosen scope shows; the first card when neither is shown.
     function reselect() {
         seeding = true;
         carousel.currentIndex = BrowserLogic.wallpaperSelection(shownCards, moved ? selectedKey : shownPath);
         seeding = false;
     }
 
-    // shownCards follows cards, so its change alone reselects: a handler on
-    // cards ran while the view was built, before shownCards held a list.
+    // Reselect on shownCards alone: it depends on cards and must hold its
+    // derived list before selection reads it.
     onShownCardsChanged: reselect()
     onShownPathChanged: if (!moved) reselect()
 
@@ -197,7 +159,6 @@ FocusScope {
         sourceIndex = (sourceIndex + 1) % BrowserLogic.WALLPAPER_SOURCES.length;
     }
 
-    // A new scope selects the image it shows.
     function chooseScope(index) {
         scopeIndex = index;
         moved = false;
@@ -234,9 +195,8 @@ FocusScope {
         }
     }
 
-    // End the running step with LINE, "" for none, and read the lists
-    // again: a step that failed may still have changed what is on disk, so
-    // the rail loads every image again too.
+    // Read the lists again even on failure: a failed step can still change
+    // what is on disk.
     function finish(line) {
         job = null;
         problem = line;
@@ -244,7 +204,6 @@ FocusScope {
         refresh();
     }
 
-    // Enter or a click on the selected card.
     function activate() {
         const card = selected;
         if (busy || card === null) return;
@@ -294,12 +253,9 @@ FocusScope {
         downloading = shell.theme.last.downloading;
     }
 
-    // Apply NAME again after the download card KEY ran, the card's Spinner
-    // turning until the lists are read again.
     function reapply(name, key) {
         job = { step: "apply", key: key, name: name };
         const reply = shell.theme.apply(name, result => {
-            // The selection follows the image the apply shows.
             root.moved = false;
             root.finish(BrowserLogic.problem("apply", name, result, root.packages));
         });
@@ -317,7 +273,6 @@ FocusScope {
     Component.onCompleted: start()
     onShellChanged: start()
 
-    // An apply from elsewhere changes the applied theme's images.
     Connections {
         target: Theme
         function onDocumentRevisionChanged() {
@@ -332,9 +287,6 @@ FocusScope {
         onTriggered: root.downloading = root.shell.theme.last.downloading
     }
 
-    // One inset box centred on the output, as the theme view's: the tabs and
-    // the scope words in the header, the rail in the body, and the typed
-    // filter or its hint line and a download's progress in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -348,7 +300,6 @@ FocusScope {
                 width: layout.contentWidth
                 spacing: Theme.stack.group
 
-                // The tabs sit on the scrim, as the rail's text does.
                 Tabs {
                     anchors.horizontalCenter: parent.horizontalCenter
                     foreground: Theme.carousel.hint
@@ -362,11 +313,7 @@ FocusScope {
                     onCurrentIndexChanged: if (currentIndex !== 1) root.switchRequested(-1)
                 }
 
-                // The scope line: Apply to: and the scope words with a slash
-                // between them, the chosen word brighter. The label and the
-                // slash take no pointer and draw at `scopeLabelOpacity`, the
-                // words at `scopeOpacity`. A MouseArea takes no focus, so the
-                // view keeps the keyboard.
+                // Use MouseArea so choosing a scope does not take the view's keyboard focus.
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: root.scoped
@@ -432,8 +379,6 @@ FocusScope {
             }
         ]
 
-        // The rail takes the height its width asks for, or the room the
-        // pane leaves its body on the output.
         Item {
             width: layout.contentWidth
             height: Math.min(carousel.implicitHeight, layout.bodyRoom)
@@ -458,8 +403,6 @@ FocusScope {
                 onActivated: root.activate()
             }
 
-            // No card to show: the lists loading, or no image under the
-            // source, which the source line under the rail flips.
             BrowserEmptyState {
                 x: Math.round((parent.width - width) / 2)
                 y: Math.round((parent.height - height) / 2)
@@ -480,15 +423,9 @@ FocusScope {
                 width: Math.min(layout.contentWidth, Theme.carousel.expandedWidth)
                 spacing: Theme.stack.group
 
-                // The search line, the hint while no filter is typed and the
-                // typed filter in its place, sits on the scrim as the tabs
-                // and the scope words do: the filter in `carousel.hintActive`
-                // and the rest in `carousel.hint`. The line is as tall for
-                // either, so typing moves nothing above it. The line and
-                // each of its items start on a whole pixel, every width
-                // whole: a text at a fractional x spreads each stem over
-                // two columns, so Show all would read fainter for some typed
-                // filters than others.
+                // Keep the search line as tall as either text so typing moves nothing
+                // above it. Snap positions and widths to whole pixels: fractional x
+                // spreads text stems across columns and makes the source hint fainter.
                 BrowserSlot {
                     id: searchSlot
                     x: Math.round((parent.width - width) / 2)
@@ -522,8 +459,6 @@ FocusScope {
                             text: "Type a wallpaper or image file name to search"
                             color: Theme.carousel.hint
                         }
-                        // The divider belongs to the source line: it stays
-                        // between the typed filter and Show all too.
                         Label {
                             id: searchDivider
                             y: BrowserLogic.inkCentredTop(searchSlot.height, capTop(), lastBaseline())
@@ -533,10 +468,7 @@ FocusScope {
                             color: Theme.carousel.hint
                         }
 
-                        // The source line names the source a click shows, its eye
-                        // open while it offers every image and shut while it offers
-                        // the theme's alone. A MouseArea takes no focus, so the view
-                        // keeps the keyboard.
+                        // Use MouseArea so switching sources keeps the keyboard on the view.
                         // keyboard-path: Alt+S flips the source as a click does
                         MouseArea {
                             id: sourceLine

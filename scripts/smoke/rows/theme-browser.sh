@@ -1056,7 +1056,7 @@ type_keys -k Escape || fail "clearing the clear filter control's filter failed"
 type_keys -k Escape || fail "closing the clear filter control failed"
 expect_poll "the clear filter control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "clear filter"
-plugin_control ThemeView.qml "rail band" '            // No card to show: the list loading, no theme at all, or a' $'            MouseArea { anchors.fill: parent }\n            // No card to show: the list loading, no theme at all, or a'
+plugin_control ThemeView.qml "rail band" '            BrowserEmptyState {' $'            MouseArea { anchors.fill: parent }\n            BrowserEmptyState {'
 band_click "control: a rail band that takes the press" || fail "the rail band control's click failed"
 expect "control: a band that takes the press leaves the browser open" 1 layer_count vgs:overlay
 expect "the rail band control browser hides" ok ipc shell hide overlay vgs.themes

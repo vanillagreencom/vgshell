@@ -2,12 +2,8 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// What an empty rail shows: an icon, one line and, for a filter no card
-// matches, Clear filter, each `stack.group` from the next. They sit on the
-// scrim in the rail's text colours, as the tabs and the search line do.
-// Clear filter is a word like Show all: brighter and underlined under the
-// pointer, since `carousel.hint` and `carousel.hintActive` are near one
-// black or white there.
+// Use an underline as well as brighter ink for hover because
+// `carousel.hint` and `carousel.hintActive` can be near the same black or white.
 BrowserSlot {
     id: root
 

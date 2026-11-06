@@ -1,15 +1,10 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
 
-// The Browser theming row of the plugin's Settings page, pure so
-// scripts/test-themes-setup.js runs it under node: what `vgshell theme setup
-// --json` says of the chromium target's one-time setup, the writer
-// `vgshell theme browser-policy install` puts on PATH
-// (docs/architecture/themes.md § Targets).
+// Keep setup-report decisions pure so scripts/test-themes-setup.js
+// can run them under Node (docs/architecture/themes.md § Targets).
 
-// The shipped target whose setup the row reports.
 var TARGET = "chromium";
-// The states `vgshell theme setup` reports a setup in.
 var STATES = ["not-detected", "absent", "done"];
 var STATUS_LIST_MAX = 32;
 var LABEL_MAX = 60;

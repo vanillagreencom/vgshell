@@ -25,13 +25,10 @@ Item {
     // the Hyprland output name; empty for a state file that cannot be read
     // and for one the runner did not write.
     property var screens: ({})
-    // Each output's own image as its absolute path, keyed as `screens`.
     property var screenPaths: ({})
     // The runner's remembered image names, used when a saved path fails.
     property var themes: ({})
 
-    // The source the output NAME draws: its own entry in `screens`, else
-    // `current`.
     function sourceFor(name) {
         return Object.prototype.hasOwnProperty.call(screens, name) ? screens[name] : source;
     }
@@ -60,9 +57,6 @@ Item {
         themes = {};
     }
 
-    // Set `path`, `source`, `screens` and `screenPaths` from
-    // backgrounds.json's TEXT; a document the runner did not write is
-    // logged and names no image.
     function take(text) {
         let doc = null;
         try {

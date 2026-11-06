@@ -18,7 +18,6 @@ Item {
 
     // The core assigns the plugin's scoped shell object after creation.
     property var shell: null
-    // The view the browser shows, "" before the first open.
     property string view: ""
     readonly property bool busy: page.item !== null && page.item.busy
     readonly property Item initialFocus: page.item === null ? null : page.item.initialFocus
@@ -49,7 +48,6 @@ Item {
             page.item.navigate(direction);
     }
 
-    // Ask the host to take the browser down, unless a step runs.
     function dismiss() {
         if (busy) return;
         const reply = shell.surfaces.hide("overlay");

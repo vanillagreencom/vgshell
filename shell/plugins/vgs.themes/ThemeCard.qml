@@ -5,28 +5,12 @@ import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 import "Files.js" as Files
 
-// One theme's card on the browser's rail. A slice shows the theme's
-// sixteen terminal colours (BrowserLogic.swatches) two side by side down
-// eight rows and the theme's name up the slice, reading upward from `carousel.sliceName.inset` above
-// its bottom edge, in the `carousel.sliceName` text and shadow, which no
-// mode changes: the shadow keeps the name readable on every colour of the
-// stack. The stack and the name sit in the card's foreground, over the
-// side card's dim wash, so neither the dim nor a hover's lighter dim
-// reaches their colours or the name's shadow. The name runs along the slice's
-// slanted axis, so it lies parallel to both slanted edges and its gap from
-// each is the same at every height, bottom-anchored or not: half of the
-// slice's width less its lean, times the cosine of the slant, less half the
-// name's line box, at the carousel's unit. The selected card shows the
-// package's preview image when one ships, else the theme's first wallpaper
-// over its background, else its background and name, and the sixteen
-// colours in two rows of eight across its foot. A card with no colours, a refused
-// package's, names its theme instead, across the card at its centre; that
-// name keeps the card's lean from each side, which clears the angled edge
-// at mid-height for every unit up to `carousel.maxScale` 2, where the drawn
-// lean is twice the token. Every built card loads its image at the
-// carousel's decodeSize, so a step finds the next card's picture decoded. A
-// Spinner turns over the card while the browser installs or applies its
-// theme.
+// Keep the palette and name above the side card's dim wash so their
+// colours and the name's shadow stay unchanged on hover. The shadow
+// keeps the name readable over every palette colour.
+// Align the name with the slice's slanted axis to keep its edge gaps equal.
+// Inset a centred name by the card's lean to clear the angled edges.
+// Load every built card at decodeSize so the next card is already decoded.
 Item {
     id: root
 
@@ -41,21 +25,15 @@ Item {
     // delegates that declare it; null draws the stack and the name with the
     // rest of the card.
     property Item foreground: null
-    // Whether the browser is installing, applying or downloading for this
-    // theme.
     property bool busy: false
 
     readonly property var colors: modelData.palette
     readonly property var swatches: BrowserLogic.swatches(modelData.terminal)
     readonly property bool packagePreview: typeof modelData.previewImage === "string" && modelData.previewImage !== ""
-    // An accepted package with no preview draws its own backdrop: its
-    // wallpaper, else its background and name.
     readonly property bool backdrop: !packagePreview && modelData.state === "ok"
-    // The first wallpaper: the package's first image.
     readonly property string wallpaper: typeof modelData.image === "string" ? modelData.image : ""
     readonly property string image: packagePreview ? modelData.previewImage : backdrop ? wallpaper : ""
     readonly property bool expanded: current && (packagePreview || backdrop)
-    // The image the card draws, "" for none: a slice draws none.
     readonly property string picture: expanded ? image : ""
     // The slant of a slice's axis from the vertical. The slant is the
     // card's lean over its height, which the carousel scales by one unit,
@@ -90,10 +68,6 @@ Item {
         colours: root.swatches === null ? [] : root.swatches
     }
 
-    // The name turns about its start, which stands the inset up the axis
-    // from the bottom edge's centre, where the axis meets that edge half the
-    // drawn lean in from the slice's width. It is as long as its text, up
-    // to the axis less the inset at each end, where it elides.
     Label {
         id: sliceName
         objectName: "sliceName"
@@ -116,14 +90,11 @@ Item {
         layer.enabled: visible
         layer.smooth: true
         // MultiEffect (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html):
-        // shadowBlur 1 is the full blur blurMax allows, so the shadow blurs
-        // exactly the token's pixels. The shadow offsets are in the effect's
-        // own frame, which a layer's effect shares with its item, so the
-        // screen's down-right offset is turned back through the name's
-        // rotation (the theme-browser shots show it falling down and right).
-        // Automatic padding covers blurMax alone and an offset shadow would
-        // be clipped, so the padding is set by hand: the blur plus the
-        // offset's length on every side.
+        // shadowBlur 1 uses the full blurMax radius. Turn the screen's
+        // down-right shadow offset back through the name's rotation because
+        // the layer effect shares the item's frame.
+        // Automatic padding covers blurMax alone; add the offset's length
+        // on every side to prevent clipping the shadow.
         layer.effect: MultiEffect {
             readonly property real offset: Theme.carousel.sliceName.shadowOffset
             readonly property real turn: sliceName.rotation * Math.PI / 180

@@ -1,8 +1,6 @@
 import QtQuick
 import qs.Commons
 
-// A package's palette as a row of small chips, one per colour, in the
-// order `shell.theme.swatch` answers them; null draws nothing.
 Row {
     id: root
 

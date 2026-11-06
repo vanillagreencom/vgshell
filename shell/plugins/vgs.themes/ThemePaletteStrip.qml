@@ -1,8 +1,6 @@
 import QtQuick
 import qs.Commons
 
-// A theme card's colours as equal blocks in `columns` columns, filled row
-// by row, as many rows as the colours need. The card places and sizes it.
 Grid {
     id: root
 

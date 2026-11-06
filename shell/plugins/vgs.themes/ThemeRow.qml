@@ -2,11 +2,6 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// One row in the themes panel. An installed row applies its package, an
-// uninstalled catalog row runs its action, and a row with neither is not a
-// click target. The row shows the package name, source or catalog metadata,
-// badges, a swatch, an optional RowAction and problem lines; the action
-// sits inside the item. Problem lines start at the row's text column.
 Column {
     id: root
 
@@ -18,31 +13,23 @@ Column {
     property string reason: ""
     // The package's palette as `shell.theme.swatch` answers it, or null.
     property var swatch: null
-    // The shell displays this package now.
     property bool displayed: false
     // The theme file names this package and differs from its package.
     property bool modified: false
-    // An apply is running for this row.
     property bool applying: false
-    // A catalog entry is installed as a package.
     property bool installed: false
     // The catalog definition differs from the installed catalog package.
     property bool definitionUpdate: false
     // The catalog imagery pin differs from the installed wallpaper marker.
     property bool imageryUpdate: false
-    // A row click applies the package.
     property bool applicable: false
-    // The row's action's text, or "" when absent.
     property string actionLabel: ""
-    // Whether the row's action can run now.
     property bool actionEnabled: true
     // A line shown beside a spinner while the row's action runs.
     property string busyText: ""
     // Danger lines under the row.
     property var lines: []
-    // The row's stable key in its owning list.
     property string rowKey: ""
-    // The owning list's current keyboard selection.
     property string currentKey: ""
     property ListCursor cursor: null
     property bool listActiveFocus: false
@@ -52,10 +39,7 @@ Column {
     readonly property bool selected: rowKey !== "" && rowKey === currentKey
     readonly property bool secondaryShortcutShown: selected && listActiveFocus && actionLabel !== "" && applicable
 
-    // Emitted when a row click applies the package.
     signal activated()
-    // Emitted when the row's action, or an action row click,
-    // requests the row's action.
     signal actionRequested()
 
     spacing: Theme.stack.row
@@ -145,8 +129,6 @@ Column {
                         spacing: Theme.space.xxs
                         KeyCaps {
                             shortcut: "ALT+D"
-                            // The list's selected plate over the panel's
-                            // ground.
                             backgroundContext: root.hintGround === null ? null : ({ fill: root.hintGround, plate: Theme.listItem.selected })
                         }
                     }

@@ -48,7 +48,6 @@ Item {
         revision = next.revision;
         snapshot = next;
     }
-    // Ask the service to read its sources again.
     function refresh() {
         const reply = shell.ipc.call("refresh-browser-data", "");
         if (reply !== "ok") throw new Error("themes: data refresh " + reply);

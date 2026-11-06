@@ -4,30 +4,10 @@ import qs.Commons
 import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 
-// The theme view of the browser: every shipped, installed and catalog
-// theme as an angled card on one rail, a typed filter, and Enter or a
-// click on the selected card installing a catalog theme if it needs it and
-// applying it. At rest the view draws the cards, the tabs, and the
-// selected theme's name and a hint under the rail naming what typing
-// searches: the selection, which opens on the
-// applied theme, marks it, and a busy card turns its own Spinner while its
-// install or apply runs. After an apply of a theme whose wallpapers are
-// not downloaded, a Dialog offers the download; Download runs it on the
-// download lane, shows its progress from `last.downloading` and applies the
-// theme again, so its first wallpaper shows. A step that fails leaves the
-// view open with a line naming it and the reason; a step that succeeds and
-// offers nothing asks the browser to close. An apply that changes the
-// displayed theme asks it on the publish, before the answer, and hands the
-// answer to the service, which reports a failure or a partial apply.
-//
-// Keys: Left, Right, Home, End and the wheel move through the rail, and Up
-// and Down step as Left and Right do. Tab and Shift+Tab switch the top
-// tabs. A printable character types into the filter, Backspace erases a character, Ctrl+Backspace a word and Ctrl+U
-// the whole filter. Escape clears the filter, then asks to close. Enter
-// applies the selected card.
-//
-// The view is built with the overlay. It draws retained service data
-// without starting a catalog, list or image read on open.
+// A browser can close on theme publication before application targets
+// finish. Hand its apply result to the service so failure reporting
+// outlives this view. Read retained service data to draw without waiting
+// for a catalog, list or image read.
 FocusScope {
     id: root
 
@@ -38,16 +18,14 @@ FocusScope {
     signal closeRequested()
     signal switchRequested(int direction)
 
-    // The last answers: the list's packages, the catalog's entries and
-    // every package's images, each null before it arrives or after it
-    // failed, beside the reason it failed or "".
+    // The list can become null on failure. The service retains the last
+    // successful catalog and images beside each read's failure reason.
     property var packages: null
     property string listReason: ""
     property var entries: null
     property string catalogReason: ""
     property var images: null
     property string imagesReason: ""
-    // Whether the first list, catalog and image list have all answered.
     property bool loaded: packages !== null
     property bool started: false
 
@@ -71,12 +49,10 @@ FocusScope {
     // Keep that result here until the theme name confirms the same package.
     property var pendingApply: null
     readonly property bool busy: job !== null
-    // The card whose wallpapers the Dialog offers, or null.
     property var offer: null
     // `last.downloading` as last read while a download this view started
     // runs, else null.
     property var downloading: null
-    // What the last step that failed answered, "" when none did.
     property string problem: ""
     // The service advances only the changed package's image stamp. A
     // reopen uses the same URL and Qt's decoded pixmap cache.
@@ -89,7 +65,6 @@ FocusScope {
         onSnapshotChanged: root.refresh()
     }
 
-    // Draw the shell-known packages and the service's retained answer.
     function refresh(then) {
         if (shell === null) return;
         const data = browserData.snapshot;
@@ -108,8 +83,6 @@ FocusScope {
         if (then !== undefined) then();
     }
 
-    // Keep the selection on its theme when the shown cards change, else on
-    // the first card.
     onShownCardsChanged: {
         const index = BrowserLogic.selection(shownCards, selectedName);
         carousel.currentIndex = index;
@@ -143,7 +116,6 @@ FocusScope {
         if (line !== "") refresh();
     }
 
-    // Enter or a click on the selected card.
     function activate() {
         const card = selected;
         if (busy || offer !== null || card === null) return;
@@ -173,8 +145,6 @@ FocusScope {
         if (reply !== "ok") finish(BrowserLogic.reasonText(reply));
     }
 
-    // Apply NAME; once the refreshed cards hold its catalog state, offer its
-    // wallpapers or ask to close.
     function apply(name, downloaded = false) {
         const started = { step: "apply", name: name, shown: Theme.name === name, downloaded: downloaded };
         job = started;
@@ -249,7 +219,6 @@ FocusScope {
         focusRail();
     }
 
-    // Escape: the filter first, then the browser.
     function cancel() {
         if (filterText !== "") filterText = "";
         else closeRequested();
@@ -270,7 +239,6 @@ FocusScope {
     Component.onCompleted: start()
     onShellChanged: start()
 
-    // An apply from elsewhere changes the cards' applied and installed state.
     Connections {
         target: Theme
         function onDocumentRevisionChanged() {
@@ -336,12 +304,8 @@ FocusScope {
         event.accepted = true;
     }
 
-    // Keys the carousel passes on.
     Keys.onPressed: event => root.handleKey(event)
 
-    // One inset box centred on the output: the tabs in the header, the rail
-    // in the body, and the selected name and the typed filter or its hint
-    // in the footer.
     Pane {
         id: layout
         anchors.centerIn: parent
@@ -354,7 +318,6 @@ FocusScope {
             Column {
                 width: layout.contentWidth
 
-                // The tabs sit on the scrim, as the rail's text does.
                 Tabs {
                     anchors.horizontalCenter: parent.horizontalCenter
                     foreground: Theme.carousel.hint
@@ -370,8 +333,6 @@ FocusScope {
             }
         ]
 
-        // The rail takes the height its width asks for, or the room the
-        // pane leaves its body on the output.
         Item {
             width: layout.contentWidth
             height: Math.min(carousel.implicitHeight, layout.bodyRoom)
@@ -399,8 +360,6 @@ FocusScope {
                 onActivated: root.activate()
             }
 
-            // No card to show: the list loading, no theme at all, or a
-            // filter no card matches, which Clear filter, as Escape, undoes.
             BrowserEmptyState {
                 x: Math.round((parent.width - width) / 2)
                 y: Math.round((parent.height - height) / 2)
@@ -433,11 +392,8 @@ FocusScope {
                     text: root.selected === null ? "" : root.selected.label
                 }
 
-                // The search line, the hint while no filter is typed and the
-                // typed filter in its place, sits on the scrim as the tabs
-                // do: the hint in `carousel.hint` and the filter in
-                // `carousel.hintActive`, as the name above it. The line is
-                // as tall for either, so typing moves nothing above it.
+                // Keep the search line as tall as either text so typing moves nothing
+                // above it.
                 BrowserSlot {
                     id: searchLine
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -454,7 +410,6 @@ FocusScope {
                         color: Theme.carousel.hintActive
                         text: root.filterText
                     }
-                    // The wallpaper view's hint without its source line.
                     Label {
                         id: hintLine
                         y: BrowserLogic.inkCentredTop(searchLine.height, capTop(), lastBaseline())

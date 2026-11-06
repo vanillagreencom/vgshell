@@ -5,53 +5,22 @@ import qs.Commons
 import "BrowserLogic.js" as BrowserLogic
 import "SetupLogic.js" as SetupLogic
 
-// The themes service: one global shortcut per browser view, from the view
-// table in BrowserLogic.js, each summoning the plugin's overlay on that
-// view, and the Browser theming status row. It draws nothing; each
-// registration's disposer is the core's, so disabling the plugin releases
-// them. The row asks `vgshell theme setup --json` at start, after each plugin
-// requirements scan, after each theme apply result and after each run of the
-// `browser-policy` TUI, whoever opened it. It publishes
-// SetupLogic.browserTheming's answer and the wired theme files; the Details
-// tab offers Install browser theming, that TUI, while the browser row says
-// so (D061). Settings asks for a scan each time it opens, so the row also
-// reads a setup run from a terminal or a package installed while the shell
-// ran. The theme browser closes on the publish of an apply it ran, before
-// the answer, and hands the answer here through `report-apply`; the next
-// apply result, as the queue runs one job at a time, is that apply's, and a
-// failure or a partial apply becomes one notice. The browsers' data, the
-// theme list, every image and the catalog, is read once at registration,
-// when a browser view opens and on a view's own request; a watched source
-// change and an apply read it again only while a view is open, since the
-// next view to open reads it then. Nothing reads it on a timer. One
-// helper process, helper/watch.py, watches every source with one inotify
-// instance while the service is registered.
-//   shortcut vgs.themes:themes              SUPER+SHIFT+T from the manifest's
-//                                            `hyprland` binds (README)
-//   shortcut vgs.themes:wallpapers          SUPER+SHIFT+W, the same way
-//   shortcut vgs.themes:panel               SUPER+CTRL+J from the manifest's
-//                                            `hyprland` binds
-//   shortcut vgs.themes:gaps                SUPER+SHIFT+BACKSPACE from the
-//                                            manifest's `hyprland` binds;
-//                                            the launcher's Style row runs
-//                                            it too (README)
-//   vgshell ipc call vgs.themes invoke gaps ''  the same toggle
-// The gaps toggle flips the `noWindowGaps` setting through `configure`, so
-// it holds across a restart; the Hyprland layer writes the zero gaps.
-// A shortcut summons rather than toggles: the overlay's `open` closes it
-// when it already shows that view and switches to the view otherwise, so a
-// second view's key moves an open browser to it instead of closing it.
+// Shortcut registrations belong to the core, so disabling the plugin
+// releases them. Browser-policy setup remains an actionable TUI (D061).
+// The browser can close before its apply answers; report-apply hands that
+// answer here so a failed or partial apply still produces a notice.
+// Read watched changes only while a view is open: its next opening reads
+// again. Keep all source watches in one helper/inotify instance.
+// Summon rather than toggle so another view's shortcut switches an open
+// browser to that view instead of closing it.
 Item {
     id: root
 
-    // The core assigns the plugin's scoped shell object after creation.
     property var shell: null
     // The shell this service registered with, so a settings change that
     // hands over a new object registers nothing twice.
     property var registeredWith: null
 
-    // The end of the browser-policy TUI's last run: each new end asks the
-    // setup report again.
     readonly property var policyEnd: shell === null || !shell.tui.state["browser-policy"] ? null : shell.tui.state["browser-policy"].endedAt
     readonly property int requirementsRevision: shell === null ? -1 : shell.requirements.revision
 
@@ -151,7 +120,7 @@ Item {
     // helper makes, such as a file's creation and its finished write, and
     // one line can name a list change and packages at once. A call
     // Qt.callLater already queued and not yet run takes no second place
-    // (qtdeclarative 6.12 qqmldelayedcallqueue.cpp addUniqueCall, keyed by
+    // (qtdeclarative 6.12 qqmldelayedcallqueue.cpp addUniquelyAndExecuteLater, keyed by
     // object and method), so the lines of one turn cost one read, and the
     // queue skips the call once this service is deleted or queued for
     // deletion. With no view open a change only marks a package's images
@@ -328,14 +297,12 @@ Item {
         }
     }
 
-    // The overlay host's reply: `ok`, or its refusal.
     function summon(view) {
         const reply = shell.surfaces.summon("overlay", JSON.stringify({ view: view }));
         if (reply !== "ok") console.warn("themes: summon " + view + " " + reply);
         return reply;
     }
 
-    // The configure capability's reply: `ok`, or its refusal.
     function toggleGaps() {
         const reply = shell.configure.set("noWindowGaps", shell.settings.noWindowGaps !== true);
         if (reply !== "ok") console.warn("themes: gaps " + reply);

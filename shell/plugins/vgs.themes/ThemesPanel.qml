@@ -4,28 +4,18 @@ import qs.Commons
 import qs.Ui
 import "BrowserLogic.js" as BrowserLogic
 
-// The themes panel: the current wallpaper with a step to the next or the
-// previous one, then every theme package the runner lists, each with its
-// palette and its state, and a click that applies one. It is built on
-// summon and destroyed on hide, so it reads the retained shell state on open:
-// the wallpaper from WallpaperState, which follows every change of the
-// runner's state file, the list, and `last`, which the core keeps across
-// instances, so a panel closed during an apply and reopened after it shows
-// the result.
+// Read retained runner state on open so a panel closed during an apply
+// still shows the result when reopened.
 Item {
     id: root
 
     property var shell: null
-    // The last list's packages, [] before it arrives or after it failed.
     property var packages: []
     // The last list's theme file: its state, its named package and whether
     // it is modified; null before the list arrives or after it failed.
     property var file: null
-    // Why the last list failed, "" when it did not.
     property string listReason: ""
-    // The catalog entries, [] before they arrive or after the read failed.
     property var catalogEntries: []
-    // Why the last catalog read failed, "" when it did not.
     property string catalogReason: ""
     // Follow the core's apply and download state directly, including a
     // result from elsewhere that writes no new theme or browser data.
@@ -33,22 +23,17 @@ Item {
     // The package a click asked for and the refusal `apply` answered at
     // once, or null; shown on its row until the next click.
     property var refusal: null
-    // The current wallpaper's file name, "" while no image is current.
     readonly property string wallpaperName: wallpaper.path === "" ? "" : wallpaper.path.slice(wallpaper.path.lastIndexOf("/") + 1)
-    // The running wallpaper download's progress line, "" while none runs.
     readonly property string downloadProgress: BrowserLogic.progressText(last.downloading)
-    // Whether a wallpaper step this instance asked for is still running.
     property bool stepping: false
     // Why the last wallpaper step failed, "" when it did not; shown until
     // the next click.
     property string stepProblem: ""
-    // The catalog action this instance asked for, "" while none runs.
     property string catalogAction: ""
     // The catalog action kind: "install", "wallpapers" or "".
     property string catalogActionKind: ""
     // The last catalog action problem, or null. Shown on its catalog row.
     property var catalogProblem: null
-    // A refused Add from URL TUI launch, "" when the last launch started.
     property string tuiProblem: ""
     readonly property bool canStep: wallpaper.path !== "" && !stepping
     property string currentKey: ""
@@ -67,7 +52,6 @@ Item {
     }
     function close() {}
 
-    // Draw the core's last package list and the service's retained catalog.
     function refresh() {
         const known = shell.theme.listing;
         packages = known === null ? [] : known.packages;
@@ -85,7 +69,6 @@ Item {
         browserData.refresh();
     }
 
-    // Apply package `name`; answers the capability's reply.
     function apply(name) {
         const reply = shell.theme.apply(name, result => root.refresh());
         refusal = reply === "ok" ? null : { name: name, reply: reply };
@@ -261,8 +244,6 @@ Item {
         return lines;
     }
 
-    // Every line the row of package `name` shows: the last result's, then
-    // the refusal a click on it was answered with.
     function linesFor(name) {
         const lines = resultLines(name);
         if (refusal !== null && refusal.name === name) lines.push(BrowserLogic.reasonText(refusal.reply));
@@ -285,10 +266,6 @@ Item {
         anchors.fill: parent
     }
 
-    // One inset box: the title, the wallpaper, the installed packages and
-    // the catalog in the scrolling body, and Add from URL in a footer that
-    // stays in view while the body scrolls. The panel fits its content up
-    // to `size.panel.maxHeight`.
     Pane {
         id: layout
         anchors.fill: parent
