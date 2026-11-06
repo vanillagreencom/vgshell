@@ -80,7 +80,10 @@ Item {
             const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; width: parent.width; leadingIcon: "search" }', searchBox);
             for (const width of [900, 80]) {
                 searchBox.width = width;
-                tryCompare(search, "width", width);
+                // Process InputWidth's Qt.callLater allocation before reading:
+                // https://doc.qt.io/qt-6/qml-qttest-testcase.html#wait-method
+                wait(0);
+                compare(search.width, width);
             }
             compare(search.sidePadding, 0, "Plugins' icon starts at the content edge");
             compare(search.leftPadding, Theme.icon.size.md + Theme.textField.gap);
