@@ -166,14 +166,6 @@ Item {
             return "ok";
         }
         if ((phase === "capturing" || phase === "delaying") && action === name) {
-            if (activeJob === null) {
-                windowDeadline.stop();
-                windowsAsked += 1;
-                phase = "idle";
-                action = "";
-                publish();
-                return "ok";
-            }
             thaw(activeJob);
             activeJob.write("cancel\n");
             return "ok";
@@ -194,30 +186,22 @@ Item {
         }
         phase = "capturing";
         action = name;
-        // A selection reads the windows first, for the window it gives the
-        // keyboard back to and, where it offers them, the window boxes. They
-        // come from Hyprland's own reply: Quickshell's Hyprland.toplevels can
-        // keep a closed window.
-        if (selections.indexOf(name) >= 0) {
-            const asked = windowsAsked + 1;
-            windowsAsked = asked;
-            windowDeadline.restart();
-            shell.compositor.readWindows(state => root.windowsRead(asked, state));
-            publish();
-            return "ok";
-        }
-        return launch(name, output, [], "");
+        return launch(name, output);
     }
 
-    function windowsRead(asked, state) {
-        if (asked !== windowsAsked || !windowDeadline.running) return;
+    function windowsRead(asked, job, state) {
+        if (asked !== windowsAsked || !windowDeadline.running || activeJob !== job) return;
         windowDeadline.stop();
         if (!state.ok) {
             console.error("capture: " + state.error);
             windowsUnread();
             return;
         }
-        launch(action, "", offersWindows(action) ? windowRectangles(state.clients, state.monitors) : [], restoreTarget(state.clients, state.monitors));
+        job.focusAddress = restoreTarget(state.clients, state.monitors);
+        holdFreeze(job, job.freezeCursor, {
+            windows: offersWindows(job.actionName) ? windowRectangles(state.clients, state.monitors) : [],
+            outputs: outputRectangles(state.monitors)
+        });
     }
 
     // Whether the selection NAME offers window boxes, which need Hyprland's
@@ -246,32 +230,29 @@ Item {
     // reply; any other starts with no window to give the keyboard back to.
     function windowsUnread() {
         windowsAsked += 1;
-        if (!offersWindows(action)) {
-            launch(action, "", [], "");
+        const job = activeJob;
+        if (job === null) return;
+        if (!offersWindows(job.actionName)) {
+            holdFreeze(job, job.freezeCursor, { windows: [], outputs: outputRectangles(outputs) });
             return;
         }
-        phase = "idle";
-        action = "";
-        notice("Capture failed", "Window information could not be read");
-        publish();
+        job.write("freeze-refused Window information could not be read\n");
     }
 
     function windowRectangles(clients, monitors) {
         return clients.filter(window => window.mapped && !window.hidden && !optionsWindow(window) && shell.compositor.onScreen(window, monitors) && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
     }
 
-    function outputRectangles() {
-        return outputs === null ? [] : outputs.filter(output => !output.disabled).map(output => ({ name: output.name, x: output.x, y: output.y, width: output.width, height: output.height, scale: output.scale, transform: output.transform }));
+    function outputRectangles(monitors) {
+        return monitors === null ? [] : monitors.filter(output => !output.disabled).map(output => ({ name: output.name, x: output.x, y: output.y, width: output.width, height: output.height, scale: output.scale, transform: output.transform }));
     }
 
-    // WINDOWS holds the window boxes a selection offers and FOCUS the window
-    // it gives the keyboard back to, both from windowsRead.
-    function launch(name, output, windows, focus) {
+    function launch(name, output) {
         const s = shell.settings;
         const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
-            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, browser: s.browser, stateDir: Paths.stateDir, windows: windows, outputs: outputRectangles() };
-        const job = workerComponent.createObject(root, { actionName: name, focusAddress: focus, command: ["python3", helperPath, JSON.stringify(request)] });
+            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, browser: s.browser, stateDir: Paths.stateDir, outputs: outputRectangles(outputs) };
+        const job = workerComponent.createObject(root, { actionName: name, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";
             action = "";
@@ -302,14 +283,33 @@ Item {
         if (address !== "" && Hyprland.toplevels.values.some(t => t.address === address) && (Hyprland.activeToplevel === null || Hyprland.activeToplevel.address !== address)) shell.compositor.focusWindow("0x" + address);
     }
 
-    // `frozen` is the worker's only selection-ready signal. The sole held
-    // view per output includes the cursor when requested. The worker keeps
-    // the hold until its selected PNG has been written, or it cancels.
+    // `frozen` carries the target snapshot and is the worker's only
+    // selection-ready signal. The sole held view per output includes the
+    // cursor when requested. The worker keeps the hold until its selected
+    // PNG has been written, or it cancels.
     function freeze(job, cursor) {
+        if (activeJob !== job) return;
+        if (selections.indexOf(job.actionName) < 0) {
+            holdFreeze(job, cursor, { windows: [], outputs: outputRectangles(outputs) });
+            return;
+        }
+        // The worker asks only after its countdown leaves the screen.
+        // One fresh compositor reply supplies boxes, outputs and focus
+        // immediately before capture, not before the worker's delay.
+        // Hyprland.toplevels can retain closed windows; readWindows owns
+        // the j/clients and j/monitors batch (hyprland.md, Dispatch).
+        job.freezeCursor = cursor;
+        const asked = windowsAsked + 1;
+        windowsAsked = asked;
+        windowDeadline.restart();
+        shell.compositor.readWindows(state => root.windowsRead(asked, job, state));
+    }
+
+    function holdFreeze(job, cursor, snapshot) {
         if (activeJob !== job) return;
         thaw(freezeJob);
         freezeJob = job;
-        const done = answer => { if (root.freezeJob === job && answer === "ok") job.write("frozen\n"); };
+        const done = answer => { if (root.freezeJob === job && answer === "ok") job.write("frozen " + JSON.stringify(snapshot) + "\n"); };
         const reply = shell.screencopy.freeze(done, { cursor: cursor });
         if (reply === "ok") return;
         freezeJob = null;
@@ -331,7 +331,12 @@ Item {
     }
 
     function thaw(job) {
-        if (job === null || freezeJob !== job) return;
+        if (job === null) return;
+        if (activeJob === job) {
+            windowDeadline.stop();
+            windowsAsked += 1;
+        }
+        if (freezeJob !== job) return;
         freezeJob = null;
         const reply = shell.screencopy.thaw();
         if (reply !== "ok") console.error("capture: thaw " + reply);
@@ -552,6 +557,7 @@ Item {
             id: worker
             property string actionName: ""
             property string focusAddress: ""
+            property bool freezeCursor: false
             property bool armed: false
             property string terminalEvent: ""
             property var completion: null

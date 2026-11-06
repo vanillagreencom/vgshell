@@ -20,6 +20,8 @@
 # getManagedSession), so the second hold reads a mirror only its damage
 # tracking refreshed. A disposable tree whose surfaces outlive the thaw
 # keeps the first hold's frame and fails the check on both outputs.
+# Removing the turned output during a hold leaves only the first mapped,
+# with its held pixels still available to the selected crop.
 # inputs: scripts/smoke/fixtures/plugins/acme.freeze/* shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/shell.qml themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 freeze_world="$sandbox/screen-freeze"
@@ -299,13 +301,6 @@ copy_tree screen-freeze-stale
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
   'const next = ScreenFreeze.holding ? Quickshell.screens.map(screen =>' \
   'const next = ScreenFreeze.holding || host.built.length > 0 ? Quickshell.screens.map(screen =>'
-# Variants round-trips entry records through QVariantMap (2b4501a
-# variants.cpp setModel/updateVariants), not JS object identity. Keep
-# retained windows mapped by their screen QObject, or the hide-before-
-# destroy loop hides them even though Variants keeps their value.
-edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
-  'if (next.indexOf(surface.modelData) < 0) surface.visible = false;' \
-  'if (!next.some(entry => entry.screen === surface.screen)) surface.visible = false;'
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
   '            host.framed = false;' \
   '            host.framed = ScreenFreeze.holding && host.allFramed;'
@@ -324,9 +319,29 @@ stop_shell || :
 
 start_shell "$repo" "$freeze_world/restored-shell.log"
 
+expect "the removal fixture enables" ok ipc shell setPluginEnabled acme.freeze true
+expect_poll "the removal fixture is built" True record_exists acme.freeze
+rest_pointer || return 1
+freeze_grab removal-live
+: >"$freeze_world/surviving.png"
+shot_grim "$freeze_socket" "$rt_dir" -g "20,60 400x520" "$freeze_world/surviving-reference.png"
+expect "the removal hold starts over both outputs" ok ipc acme.freeze invoke freeze ''
+expect_poll "the removal hold is ready" '["ok"]' freeze_answers
+expect "both outputs have a mapped freeze before removal" 2 freeze_on_overlay
+expect "the row-owned turned output is removed during the hold" ok hypr output remove "$freeze_turned"
+expect_poll "only the surviving output keeps its whole-output freeze" "$(freeze_rects)" layers_of vgs:freeze
+expect "only one freeze remains on the overlay layer" 1 freeze_on_overlay
+shot_grab "$freeze_socket" "$rt_dir" "$freeze_first" "$freeze_frames/removal-held-$freeze_first.png" || return 1
+expect "the surviving output retains its held frame" True freeze_match removal-live removal-held "$freeze_first"
+expect "the surviving held crop is accepted after removal" ok ipc acme.freeze invoke crop "$(freeze_crop_request 20 60 "$freeze_world/surviving.png")"
+expect_poll "the surviving held crop completes once" 1 freeze_crop_count
+expect "the surviving held crop succeeds" '["ok"]' freeze_crops
+expect "the surviving crop preserves its held pixels" True freeze_crop_match "$freeze_world/surviving.png" "$freeze_world/surviving-reference.png"
+expect "the removal fixture disables" ok ipc shell setPluginEnabled acme.freeze false
+expect_poll "disable releases the surviving freeze" 0 layer_count vgs:freeze
+
 if [[ -e $freeze_world/theme-found.json ]]; then cp -- "$freeze_world/theme-found.json" "$freeze_theme"; else rm -f -- "${freeze_theme:?}"; fi
 expect_poll "the theme goes back as the row found it" "$freeze_theme_found" ipc smoke themeName
 rm -rf -- "${freeze_plugin:?}"
 rescan "the freeze fixture leaves the registry"
-expect "the row-owned rotated output is removed" ok hypr output remove "$freeze_turned"
 hypr_lua_restore screen-freeze

@@ -78,7 +78,7 @@ def window_source():
     capabilities = (REPO / "shell/Core/Capabilities.qml").read_text()
     options = [line.strip() for line in service.splitlines() if line.startswith("    function optionsWindow(client) {")]
     assert len(options) == 1, "options window function boundary"
-    start, end = "    function windowRectangles(clients, monitors) {\n", "\n    }\n\n    function outputRectangles()"
+    start, end = "    function windowRectangles(clients, monitors) {\n", "\n    }\n\n    function outputRectangles(monitors)"
     assert service.count(start) == service.count(end) == 1, "window rectangle function boundary"
     body = options[0] + "\n" + service.split(start)[1].split(end)[0]
     start, end = "        compositor: ctx => {\n", "\n        },\n        configure:"
@@ -166,14 +166,17 @@ def restore_target():
     """
     service = (HELPER.parent.parent / "Service.qml").read_text()
     options = [line.strip() for line in service.splitlines() if line.startswith("    function optionsWindow(client) {")]
-    assert len(options) == 1, "options window function boundary"
-    body = options[0] + "\n" + service_function(service, "restoreTarget")
+    offers = [line.strip() for line in service.splitlines() if line.startswith("    function offersWindows(name) {")]
+    assert len(options) == len(offers) == 1, "selection helper function boundaries"
+    body = "\n".join([options[0], offers[0]] + [service_function(service, name) for name in
+        ("restoreTarget", "windowsRead", "outputRectangles", "windowRectangles")])
     _, factory = window_source()
     def client(address, ws, history, **extra):
         return {"address": "0x" + address, "class": "app", "title": address, "mapped": True, "hidden": False, "visible": True, "monitor": 0,
                 "workspace": {"id": ws, "name": str(ws)}, "focusHistoryID": history, **extra}
     options_window = client("options", 1, 0, **{"class": "org.vgs.shell", "title": "Capture"})
-    monitor = {"id": 0, "focused": True, "activeWorkspace": {"id": 1, "name": "1"}, "specialWorkspace": {"id": 0, "name": ""}}
+    monitor = {"id": 0, "focused": True, "activeWorkspace": {"id": 1, "name": "1"}, "specialWorkspace": {"id": 0, "name": ""},
+               "name": "READY", "x": -160, "y": 20, "width": 480, "height": 640, "scale": 2, "transform": 1}
     rows = [
         ("a press in the options window", [options_window, client("user", 1, 1), client("elsewhere", 2, 2)], [monitor], "user"),
         ("the options window is already gone", [client("user", 1, 0), client("elsewhere", 2, 1)], [monitor], "user"),
@@ -192,7 +195,17 @@ const path = require("path");
 const input = JSON.parse(process.argv[1]);
 const Dispatch = require(path.join(input.repo, "bin/lib/qml-library.js")).load(path.join(input.repo, "shell/Core/Dispatch.js"));
 const compositor = new Function("Dispatch", "Compositor", "ctx", input.factory)(Dispatch, {}, { active: true });
-const run = (body, clients, monitors) => new Function("shell", body + "; return restoreTarget;")({ compositor, manifest: { name: "Capture" } })(clients, monitors);
+const run = (body, clients, monitors) => {
+    let snapshot = null;
+    const job = { actionName: "screenshot-display", focusAddress: "", freezeCursor: true };
+    const root = { windowsAsked: 7, activeJob: job, outputs: [{ name: "STALE" }],
+        shell: { compositor, manifest: { name: "Capture" }, settings: { smart: false } } };
+    const windowDeadline = { running: true, stop() { this.running = false; } };
+    const read = new Function("root", "windowDeadline", "holdFreeze", "with(root) { " + body + "; return windowsRead; }")(
+        root, windowDeadline, (held, cursor, value) => { if (held === job && cursor) snapshot = value; });
+    read(7, job, { ok: true, clients, monitors });
+    return [job.focusAddress, snapshot];
+};
 console.log(JSON.stringify([input.rows.map(([, clients, monitors]) => run(input.body, clients, monitors)), input.rows.map(([, clients, monitors]) => run(input.control, clients, monitors))]));
 '''
     before = " && shell.compositor.onScreen(client, focused)"
@@ -202,9 +215,11 @@ console.log(JSON.stringify([input.rows.map(([, clients, monitors]) => run(input.
     result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
     actual, controlled = json.loads(result.stdout)
-    for (name, _, _, want), got in zip(rows, actual):
+    for (name, _, monitors, want), (got, snapshot) in zip(rows, actual):
         assert got == want, (name, got)
-    wrong = {name for (name, _, _, want), got in zip(rows, controlled) if got != want}
+        assert snapshot == {"windows": [], "outputs": [{key: value for key, value in m.items()
+            if key in ("name", "x", "y", "width", "height", "scale", "transform")} for m in monitors]}, (name, snapshot)
+    wrong = {name for (name, _, _, want), (got, _) in zip(rows, controlled) if got != want}
     assert "the only other window is on another workspace" in wrong, ("a target from the whole focus history must fail the other-workspace row", sorted(wrong))
 
 
@@ -216,21 +231,45 @@ def unread_windows():
     Each row: the action, Smart, and whether it starts or fails.
     """
     service = (HELPER.parent.parent / "Service.qml").read_text()
-    body = "\n".join(service_function(service, name) for name in ("offersWindows", "windowsUnread"))
+    offers = [line.strip() for line in service.splitlines() if line.startswith("    function offersWindows(name) {")]
+    assert len(offers) == 1, "offered windows function boundary"
+    body = "\n".join([offers[0]] + [service_function(service, name) for name in
+        ("windowsUnread", "windowsRead", "freeze", "thaw", "outputRectangles")])
     rows = [("screenshot-display", True, "starts"), ("record-display", True, "starts"), ("screenshot-area", False, "starts"), ("record", False, "starts"),
             ("screenshot-area", True, "fails"), ("record", True, "fails"), ("screenshot-window", True, "fails"), ("record-window", False, "fails")]
     program = r'''
 const input = JSON.parse(process.argv[1]);
 const run = (body, action, smart) => {
     const seen = [];
-    const root = { windowsAsked: 0, phase: "capturing", action: action, shell: { settings: { smart: smart } } };
-    const scope = new Function("root", "launch", "notice", "publish", "with (root) { " + body + "; return windowsUnread; }");
-    scope(root, (...args) => { seen.push(["launch", ...args]); return "ok"; }, (title) => seen.push(["notice", title]), () => {})();
-    return [root.windowsAsked, seen];
+    const job = { actionName: action, freezeCursor: true, write: line => seen.push(["write", line.split(" ")[0]]) };
+    const root = { windowsAsked: 0, activeJob: job, freezeJob: null, selections: [action], outputs: [],
+        shell: { settings: { smart }, compositor: { readWindows: callback => { root.reply = callback; } } } };
+    const windowDeadline = { running: false, restart() { this.running = true; }, stop() { this.running = false; } };
+    const scope = new Function("root", "windowDeadline", "holdFreeze", "with (root) { " + body + "; return {windowsUnread, windowsRead, freeze, thaw}; }");
+    const methods = scope(root, windowDeadline, (held, cursor, snapshot) => seen.push(["hold", held === job, cursor, snapshot]));
+    root.windowsRead = methods.windowsRead;
+    methods.freeze(job, true);
+    const requested = root.windowsAsked === 1 && windowDeadline.running && typeof root.reply === "function" && seen.length === 0;
+    // Both failed reads and deadline expiry enter windowsUnread. Its generation
+    // invalidates a later successful reply without launching a second worker.
+    methods.windowsUnread();
+    root.reply({ ok: true });
+    const result = [requested, root.windowsAsked, seen.slice()];
+    const late = ["cancel", "exit", "replacement", "expired"].map(kind => {
+        seen.length = 0;
+        root.activeJob = job;
+        methods.freeze(job, true);
+        if (kind === "replacement") root.activeJob = {};
+        else if (kind === "expired") windowDeadline.stop();
+        else { methods.thaw(job); if (kind === "exit") root.activeJob = null; }
+        root.reply({ ok: true });
+        return seen.length === 0;
+    });
+    return [result, late];
 };
 console.log(JSON.stringify([input.rows.map(([action, smart]) => run(input.body, action, smart)), input.rows.map(([action, smart]) => run(input.control, action, smart))]));
 '''
-    before = "        if (!offersWindows(action)) {\n            launch(action, \"\", [], \"\");\n            return;\n        }\n"
+    before = "        if (!offersWindows(job.actionName)) {\n            holdFreeze(job, job.freezeCursor, { windows: [], outputs: outputRectangles(outputs) });\n            return;\n        }\n"
     assert body.count(before) == 1, "unread windows control"
     control = body.replace(before, "")
     payload = dict(body=body, control=control, rows=rows)
@@ -238,9 +277,10 @@ console.log(JSON.stringify([input.rows.map(([action, smart]) => run(input.body, 
     assert result.returncode == 0, result.stderr
     actual, controlled = json.loads(result.stdout)
     def outcome(action, reading):
-        asked, seen = reading
-        if asked == 1 and seen == [["launch", action, "", [], ""]]: return "starts"
-        if asked == 1 and seen == [["notice", "Capture failed"]]: return "fails"
+        (requested, asked, seen), late = reading
+        if not requested or not all(late): return json.dumps(reading)
+        if asked == 2 and seen == [["hold", True, True, {"windows": [], "outputs": []}]]: return "starts"
+        if asked == 2 and seen == [["write", "freeze-refused"]]: return "fails"
         return json.dumps(reading)
     for (action, smart, want), reading in zip(rows, actual):
         assert outcome(action, reading) == want, (action, smart, reading)
@@ -369,9 +409,9 @@ console.log(JSON.stringify(sent));
 const input = JSON.parse(process.argv[1]);
 const requests = [];
 const workerComponent = { createObject: (parent, properties) => { requests.push(JSON.parse(properties.command[2])); return {}; } };
-const launch = new Function("shell", "Hyprland", "Paths", "outputRectangles", "workerComponent", "root", "helperPath", "publish", "jobs", "activeJob", input.body + "; return launch;")(
-    { settings: input.settings }, { activeToplevel: null }, { stateDir: "/state" }, () => [], workerComponent, {}, "/helper", () => {}, [], null);
-console.log(JSON.stringify([launch("screenshot", "NESTED", [], ""), requests]));
+const launch = new Function("shell", "Hyprland", "Paths", "outputs", "outputRectangles", "workerComponent", "root", "helperPath", "publish", "jobs", "activeJob", input.body + "; return launch;")(
+    { settings: input.settings }, { activeToplevel: null }, { stateDir: "/state" }, [], monitors => monitors, workerComponent, {}, "/helper", () => {}, [], null);
+console.log(JSON.stringify([launch("screenshot", "NESTED"), requests]));
 """
     def launched(source):
         reply, requests = run(start, {"body": service_function(source, "launch"), "settings": {**manifest["settings"], "delay": 7, "timeout": 30, "browser": "fixture-browser --select %f"}})
@@ -437,6 +477,7 @@ def start_worker(argv, *, env, stdin, stdout, stderr, text=False):
     """
     proc = subprocess.Popen(argv, env=env, stdin=stdin, stdout=stdout, stderr=stderr, text=text)
     root = Path(env["HOME"]).parent
+    payload = json.loads(argv[-1])
     raw = proc.stdout
     reader, writer = os.pipe()
     proc.stdout = os.fdopen(reader, "r" if text else "rb")
@@ -451,7 +492,8 @@ def start_worker(argv, *, env, stdin, stdout, stderr, text=False):
                 if event["event"] == "freeze":
                     captures += 1
                     assert REGISTERED[proc.pid].wait(5), "service control registration"
-                    answer = config.get("freezeAnswer", "frozen")
+                    snapshot = config.get("snapshot", {"windows": payload.get("windows", []), "outputs": payload["outputs"]})
+                    answer = config.get("freezeAnswer", "frozen " + json.dumps(snapshot))
                     if answer is not None:
                         os.write(CONTROLS[proc.pid], (answer + "\n").encode())
                 if event["event"] == "countdown" and event["remaining"] == 0 and config.get("autoCountdown"):
@@ -531,11 +573,20 @@ def freeze_crop_cases(base, world):
     Cancel or failure while writing keeps the previous clipboard and removes
     the acquired file. The no-ready control reaches the same service table.
     """
+    module = runpy.run_path(str(HELPER), run_name="capture_ready_test")
+    owner = module["Capture"].__new__(module["Capture"])
+    snapshot = {"windows": [], "outputs": []}
+    owner.read_control = lambda left: "frozen " + json.dumps(snapshot) if left > 0 else None
+    # A reply just after the service's 10-second read deadline still has
+    # the core-ready opportunity. Inject elapsed time, not a real delay.
+    with patch.object(module["time"], "monotonic", side_effect=[0, 10.5]), \
+            patch.dict(owner.frozen.__globals__, {"emit": lambda *args, **kwargs: None}):
+        assert owner.frozen() == snapshot, "one waiter must cover the read and frame-ready phases"
     source = HELPER.read_text()
     needle = "CAPTURE_TIMEOUT = 10\n"
     assert source.count(needle) == 1
     source = source.replace(needle, "CAPTURE_TIMEOUT = 1\n")
-    needle = "FREEZE_TIMEOUT = 10\n"
+    needle = "FREEZE_TIMEOUT = 20\n"
     assert source.count(needle) == 1
     source = source.replace(needle, "FREEZE_TIMEOUT = 1\n")
     helper = base / "crop-handshake.py"
@@ -544,6 +595,8 @@ def freeze_crop_cases(base, world):
         ("ready", {}, 0, "saved", True),
         ("refused", {"freezeAnswer": "freeze-refused refused: freeze=busy holder=acme.freeze"}, 1, "error", False),
         ("freeze-cancel", {"freezeAnswer": "cancel"}, 0, "cancelled", False),
+        ("empty-targets", {"snapshot": {"windows": [], "outputs": []}}, 1, "error", False),
+        ("empty-snapshot", {"freezeAnswer": "frozen {}"}, 1, "error", False),
         ("unanswered-freeze", {"freezeAnswer": None}, 1, "error", False),
         ("crop-failed", {"cropAnswer": "crop-failed save"}, 1, "error", True),
         ("crop-cancel", {"cropAnswer": "cancel"}, 0, "cancelled", True),
@@ -565,10 +618,10 @@ def freeze_crop_cases(base, world):
                 return False
         return True
     assert holds(helper, "actual"), "freeze readiness and crop completion/cancellation"
-    needle = "self.choose(request, args, boxes, mode) if self.frozen(cursor) else None"
+    needle = "snapshot = self.frozen(cursor)"
     assert source.count(needle) == 1
     control = base / "unawaited-freeze.py"
-    control.write_text(source.replace(needle, 'emit("freeze", cursor=cursor) or self.choose(request, args, boxes, mode)'))
+    control.write_text(source.replace(needle, 'snapshot = {"windows": request.get("windows", []), "outputs": request["outputs"]}; emit("freeze", cursor=cursor)'))
     assert not holds(control, "unawaited"), "selection without the ready answer must fail the same table"
 
 def events(output):
@@ -825,7 +878,8 @@ def choice_holds(root, helper, payload, geometry=None, boxes=None, cursor=False,
     return (root / "clipboard").read_bytes() == Path(messages[-1]["path"]).read_bytes()
 
 
-def delay_holds(root, payload, helper, cancel=False, acknowledge=True, cancel_after_hidden=False):
+def delay_holds(root, payload, helper, cancel=False, acknowledge=True, cancel_after_hidden=False,
+                snapshot=None, boxes=None, geometry=None):
     config = json.loads((root / "config.json").read_text())
     control, writer = os.pipe()
     proc = start_worker([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
@@ -849,6 +903,8 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True, cancel_af
                         valid = valid and time.monotonic() - started >= payload["delay"]
                         if acknowledge:
                             config["frame"] = "after-countdown"
+                            if snapshot is not None:
+                                config["snapshot"] = snapshot
                             (root / "config.json").write_text(json.dumps(config))
                             os.write(writer, b"countdown-hidden\n" + (b"cancel\n" if cancel_after_hidden else b""))
                     elif cancel:
@@ -864,7 +920,9 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True, cancel_af
         if not acknowledge:
             return valid and proc.returncode == 1 and ticks == [1, 0] and observed[-1].get("reason") == "timeout" and not (root / "pictures").exists()
         return (valid and proc.returncode == 0 and ticks == list(range(payload["delay"], -1, -1))
-                and observed[-1]["event"] == "saved" and Path(observed[-1]["path"]).read_bytes().endswith(b"after-countdown"))
+                and observed[-1]["event"] == "saved" and Path(observed[-1]["path"]).read_bytes().endswith(b"after-countdown")
+                and (boxes is None or (root / "slurp-input").read_text() == boxes)
+                and (geometry is None or [crop["geometry"] for crop in crop_requests(root)] == [geometry_object(geometry)]))
     except subprocess.TimeoutExpired:
         return False
     finally:
@@ -989,17 +1047,44 @@ def screenshot_choices(base, source):
     assert source.count(bound) == 1, "tool bound"
     quick = base / "quick-bound.py"
     quick.write_text(source.replace(bound, "CAPTURE_TIMEOUT = 1\n"))
-    for name, cancel, acknowledge, cancel_after_hidden in [
-        ("delay", False, True, False),
-        ("delay-cancel", True, True, False),
-        ("delay-ack", False, False, False),
-        ("delay-hidden-cancel", False, True, True),
+    fresh = {"windows": [{**window, "x": 210, "y": 60, "width": 100, "height": 70}],
+             "outputs": [{"name": "READY", "x": 200, "y": 40, "width": 480, "height": 640, "scale": 2, "transform": 1}]}
+    for name, action, smart, cancel, acknowledge, cancel_after_hidden in [
+        ("delay", "screenshot-area", False, False, True, False),
+        ("delay-cancel", "screenshot-area", False, True, True, False),
+        ("delay-ack", "screenshot-area", False, False, False, False),
+        ("delay-hidden-cancel", "screenshot-area", False, False, True, True),
+        ("delay-moved-window", "screenshot-window", True, False, True, False),
+        ("delay-moved-smart", "screenshot-area", True, False, True, False),
     ]:
-        root = world(name)
-        payload = request(root, "screenshot-area")
-        payload["delay"] = 1
+        moved = name.startswith("delay-moved")
+        selected = "220,70 1x1" if smart and action == "screenshot-area" else "210,60 100x70"
+        root = world(name, **({"geometry": selected} if moved else {}))
+        payload = request(root, action)
+        payload.update(delay=1, smart=smart, windows=[window])
+        if moved:
+            payload["outputs"] = []
+        boxes = ("210,60 100x70\n" + ("200,40 320x240\n" if action == "screenshot-area" else "")) if moved else None
         assert delay_holds(root, payload, HELPER if acknowledge else quick, cancel=cancel, acknowledge=acknowledge,
-                           cancel_after_hidden=cancel_after_hidden), name
+                           cancel_after_hidden=cancel_after_hidden, snapshot=fresh if moved else None,
+                           boxes=boxes, geometry="210,60 100x70" if moved else None), name
+    before = "                args, boxes, mode = self.targets(request)\n"
+    assert source.count(before) == 1
+    ready = "            snapshot = self.frozen(cursor)\n"
+    assert source.count(ready) == 1
+    early = source.replace(before, "").replace(ready,
+        "            args, boxes, mode = self.targets(request)\n            snapshot = self.frozen(cursor)\n")
+    assert early != source
+    helper = base / "stale-delay-targets.py"
+    helper.write_text(early)
+    for action, selected, boxes in [
+        ("screenshot-window", "210,60 100x70", "210,60 100x70\n"),
+        ("screenshot-area", "220,70 1x1", "210,60 100x70\n200,40 320x240\n"),
+    ]:
+        root = world("stale-" + action, geometry=selected)
+        payload = request(root, action)
+        payload.update(delay=1, smart=True, windows=[window])
+        assert not delay_holds(root, payload, helper, snapshot=fresh, boxes=boxes, geometry="210,60 100x70"), action
     # A held grim run; a selection runs none.
     root = world("timeout-screenshot", grimHold=True)
     assert timeout_holds(root, quick, "screenshot"), "screenshot"
@@ -1043,8 +1128,8 @@ def screenshot_choices(base, source):
             payload[setting] = value
             holds = refusal_holds(root, helper, payload, kind)
         elif kind.startswith("empty-"):
-            # A window selection with no window refuses before any tool runs
-            # or any freeze is asked.
+            # A window selection with no window in the ready snapshot refuses
+            # before any selector or capture tool runs.
             if kind == "empty-selection":
                 payload.update(action="screenshot-window", windows=[])
             else:
@@ -1880,8 +1965,17 @@ def recording_functions(base, source):
     modes = {case[0]: case for case in mode_cases()}
     def mode_holds(name, helper):
         _, action, extra, geometry, target, region, slurp, boxes = modes[name]
-        root = world(name + "-" + helper.stem, **({"geometry": geometry} if geometry else {}))
-        return target_holds(root, helper, mode_payload(root, action, extra), target, region, slurp, boxes)
+        config = {"geometry": geometry} if geometry else {}
+        if name == "record-display":
+            # The ready output is both scaled and turned. Its logical box
+            # matches LEFT; the launch-time outputs no longer describe it.
+            config["snapshot"] = {"windows": [], "outputs": [
+                {"name": "LEFT", "x": -160, "y": -40, "width": 480, "height": 320, "scale": 2, "transform": 1}, OUTPUTS[1]]}
+        root = world(name + "-" + helper.stem, **config)
+        payload = mode_payload(root, action, extra)
+        if name == "record-display":
+            payload["outputs"] = []
+        return target_holds(root, helper, payload, target, region, slurp, boxes)
     for name in modes:
         assert mode_holds(name, HELPER), name
     for name, case, before, after in [

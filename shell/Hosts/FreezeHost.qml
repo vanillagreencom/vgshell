@@ -60,8 +60,11 @@ Scope {
         // setPaintCursors), including while a hold is being torn down.
         const next = ScreenFreeze.holding ? Quickshell.screens.map(screen =>
             built.find(entry => entry.screen === screen) || { screen: screen, cursor: ScreenFreeze.cursor }) : [];
+        // Variants round-trips records through QVariantMap (2b4501a
+        // variants.cpp setModel/updateVariants), not JS object identity.
+        // Retain windows by their screen QObject.
         for (const surface of surfaces.instances) {
-            if (next.indexOf(surface.modelData) < 0) surface.visible = false;
+            if (!next.some(entry => entry.screen === surface.screen)) surface.visible = false;
         }
         built = next;
     }

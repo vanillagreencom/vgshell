@@ -1612,9 +1612,9 @@ for capture_restore_case in area display; do
   capture_options_selection "$capture_restore_case"
   expect_poll "options $capture_restore_case: selection restores the window the options opened over" "$capture_target_address" capture_active_address
 done
-# A copy that takes the window to restore from the active toplevel, as
-# before, hands the keyboard back to the closed options window from
-# Display's immediate launch, so the second window keeps it.
+# A copy that takes the restore target at launch from the active toplevel
+# remembers the options window the press closes, so the second window keeps
+# the keyboard. The production read instead uses the pre-freeze reply.
 capture_restore_service="$repo/shell/plugins/vgs.capture/Service.qml"
 capture_restore_plant() { # active | original
   expect "capture stops before the $1 restore copy" ok capture_enable false
@@ -1630,9 +1630,8 @@ if not original.exists():
 source = original.read_text()
 changes = {
     "active": [
-        ("if (selections.indexOf(name) >= 0) {", "if (name === \"screenshot-window\" || name === \"record-window\" || ((name === \"screenshot-area\" || name === \"record\") && shell.settings.smart)) {"),
-        ("return launch(name, output, [], \"\");", "return launch(name, output, [], selections.indexOf(name) >= 0 && Hyprland.activeToplevel !== null ? Hyprland.activeToplevel.address : \"\");"),
-        ("restoreTarget(state.clients, state.monitors));", "Hyprland.activeToplevel === null ? \"\" : Hyprland.activeToplevel.address);"),
+        ("{ actionName: name, command:", "{ actionName: name, focusAddress: Hyprland.activeToplevel === null ? \"\" : Hyprland.activeToplevel.address, command:"),
+        ("job.focusAddress = restoreTarget(state.clients, state.monitors);", "job.focusAddress = job.focusAddress;"),
     ],
     "original": [],
 }

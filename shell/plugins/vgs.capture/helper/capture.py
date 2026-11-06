@@ -3,8 +3,10 @@
 
 An error's optional reason language-data-unavailable selects its notice title.
 
-A selection asks the service to hold the screen still with freeze, then
-reads `frozen` or `freeze-refused <reply>` on stdin; thaw ends the hold.
+A selection asks the service to read targets and hold the screen still with
+freeze, then reads `frozen {"windows":[...],"outputs":[...]}` or
+`freeze-refused <reply>` on stdin; thaw ends the hold. That one snapshot is
+read after countdown, immediately before capture.
 A freeze's `cursor` puts the pointer in that same capture. After selection,
 `crop` hands the service the selected logical geometry and an already acquired
 PNG path. `cropped` or `crop-failed <reason>` completes that write before thaw.
@@ -60,13 +62,14 @@ class CaptureFailure(RuntimeError):
         self.reason = reason
 
 
-# How long the service may take to show the freeze on every output before
-# the freeze counts as failed.
-FREEZE_TIMEOUT = 10
+# Service.qml's windowDeadline allows 10 seconds for its compositor read,
+# followed by the existing 10-second frame-ready opportunity. One control
+# wait covers both phases, including a read timeout's box-free degradation.
+FREEZE_TIMEOUT = 20
 # How long one grim run, and the service's answer that its countdown left the
 # screen, may take before the screenshot counts as failed. It is the default
-# of the setting this replaced, and FREEZE_TIMEOUT's bound for the same kind
-# of wait: a tool or a reply that hangs. No measured grim time sets it.
+# of the setting this replaced, retained for a tool or a reply that hangs.
+# No measured grim time sets it.
 CAPTURE_TIMEOUT = 10
 # slurp's default wash, white at 25%, shows on a dark desktop where a dark dim
 # does not: on host cachy on 2026-10-04 grim read DP-1's mean level 16 -> 76
@@ -269,10 +272,18 @@ class Capture:
         The request's action names SELECTION_MODES; without one slurp offers
         no boxes. The hold lasts through the caller's crop write.
         """
-        args, boxes, mode = self.targets(request)
         ended = False
         try:
-            picked = self.choose(request, args, boxes, mode) if self.frozen(cursor) else None
+            snapshot = self.frozen(cursor)
+            picked = None
+            if snapshot is not None:
+                if not snapshot["outputs"]:
+                    raise CaptureFailure("no-targets", "No enabled displays are available")
+                if request is not None:
+                    request["windows"] = snapshot["windows"]
+                    request["outputs"] = output_rectangles(snapshot["outputs"])
+                args, boxes, mode = self.targets(request)
+                picked = self.choose(request, args, boxes, mode)
             if request is not None:
                 emit("selection-ended")
                 ended = True
@@ -323,11 +334,12 @@ class Capture:
 
     def frozen(self, cursor=False):
         """Ask the service for the freeze, CURSOR putting the pointer in its
-        sole capture; True once it shows on every
-        output, False when a cancel or stdin EOF arrives first.
+        sole capture; return its target snapshot once it shows on every
+        output, or None when a cancel or stdin EOF arrives first.
 
-        The service answers `frozen` once each output draws its still frame,
-        or `freeze-refused <reply>` when the core refuses the hold. A capture
+        The service answers `frozen <JSON>` with windows and raw outputs from
+        its pre-freeze read once each output draws its still frame, or
+        `freeze-refused <reply>` when the read or core refuses the hold. A capture
         that delivers no frame gets no answer, since Quickshell 0.3.1's
         ScreencopyView never emits stopped, so FREEZE_TIMEOUT bounds the
         wait. A layer maps above the layers mapped before it, so slurp must
@@ -342,9 +354,9 @@ class Capture:
             if line is None:
                 raise CaptureFailure("timeout", "The screen freeze did not show")
             if line in ("", "cancel"):
-                return False
-            if line == "frozen":
-                return True
+                return None
+            if line.startswith("frozen "):
+                return json.loads(line.removeprefix("frozen "))
             if line.startswith("freeze-refused "):
                 raise RuntimeError("The screen freeze was refused: " + line.removeprefix("freeze-refused "))
             raise RuntimeError(f"Unexpected freeze answer: {line}")
@@ -395,7 +407,6 @@ class Capture:
             raise RuntimeError(f"Unexpected crop answer: {line}")
 
     def screenshot(self, request):
-        request = {**request, "outputs": output_rectangles(request["outputs"])}
         delay = request.get("delay", 0)
         if type(delay) is not int or not 0 <= delay <= 60:
             raise CaptureFailure("invalid-delay", "Invalid screenshot delay")
@@ -407,8 +418,6 @@ class Capture:
                 emit("cancelled")
                 return
         if request["action"] in ("screenshot-area", "screenshot-window", "screenshot-display"):
-            if not request["outputs"]:
-                raise CaptureFailure("no-targets", "No enabled displays are available")
             with self.selection(request=request, cursor=request.get("cursor", False)) as picked:
                 if picked is not None:
                     path, child = self.deliver(request, picked=picked)
@@ -416,6 +425,7 @@ class Capture:
                 emit("cancelled")
                 return
         else:
+            request = {**request, "outputs": output_rectangles(request["outputs"])}
             if request["action"] == "screenshot-all":
                 outputs = request.get("outputs", [])
                 if not outputs:
@@ -497,8 +507,6 @@ class Capture:
         languages = request.get("ocrLanguages", "eng")
         if not isinstance(languages, str) or not LANGUAGES.fullmatch(languages):
             raise CaptureFailure("invalid-languages", "Invalid text recognition languages")
-        if not request.get("outputs"):
-            raise CaptureFailure("no-targets", "No enabled displays are available")
         with tempfile.TemporaryDirectory(prefix="vgs-text-") as scratch:
             with self.selection() as picked:
                 if picked is None:
@@ -551,7 +559,6 @@ class Capture:
         os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)
 
     def record(self, request):
-        request = {**request, "outputs": output_rectangles(request["outputs"])}
         options = recorder_options(request)
         devices = None
         if request["webcam"] or any(not item["source"] for item in request["audioSources"]):
