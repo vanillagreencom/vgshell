@@ -185,8 +185,9 @@ if copy_tree configuration-renamed; then
 fi
 
 if copy_tree configuration-renames-late && edit_tree configuration-renames-late shell/Core/Registry.qml \
-    $'        if (isChanged) renameUserFile(next);\n        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n' \
-    $'        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n        if (isChanged) renameUserFile(next);\n'; then
+    $'        if (isChanged) renameUserFile(next);\n' '' \
+    && edit_tree configuration-renames-late shell/Core/Registry.qml \
+    '        root.scanned = true;' $'        root.scanned = true;\n        if (isChanged) renameUserFile(next);'; then
   stop_shell || :
   config_plant_renamed configuration-renames-late || fail "control: planting the renamed plugin and its user file failed"
   if start_shell "$sandbox/tree-configuration-renames-late" "$sandbox/configuration-renames-late-qs.log"; then
@@ -237,8 +238,9 @@ if copy_tree configuration-split; then
   configuration_control_restore
 fi
 if copy_tree configuration-splits-late && edit_tree configuration-splits-late shell/Core/Registry.qml \
-    $'        if (isChanged) renameUserFile(next);\n        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n' \
-    $'        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n        if (isChanged) renameUserFile(next);\n'; then
+    $'        if (isChanged) renameUserFile(next);\n' '' \
+    && edit_tree configuration-splits-late shell/Core/Registry.qml \
+    '        root.scanned = true;' $'        root.scanned = true;\n        if (isChanged) renameUserFile(next);'; then
   stop_shell || :
   config_plant_split configuration-splits-late || fail "control: planting the split fixture failed"
   if start_shell "$sandbox/tree-configuration-splits-late" "$sandbox/configuration-splits-late-qs.log"; then

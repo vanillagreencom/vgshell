@@ -840,7 +840,7 @@ python3 - "$nk_panel" <<'PY_HEIGHT_TRACE'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]);s=p.read_text()
-needle="        // The estimate belongs only to an unbuilt row."
+needle="        if (resting) cached.collapsed = height;"
 assert s.count(needle)==1
 trace='        console.log("notification-height-trace:" + JSON.stringify({ key: key, summary: rows[indexOfKey(key)].summary, old: cached.height, height: height, estimate: cached.estimate, collapsed: cached.collapsed, resting: resting }));\n'
 p.write_text(s.replace(needle,trace+needle))
@@ -871,7 +871,7 @@ python3 - "$nk_panel" <<'PY_ESTIMATE_RESTORE'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]);s=p.read_text()
-needle='                            // An unloaded slot keeps its last real height.'
+needle='                            sourceComponent: Component {'
 assert s.count(needle)==1
 replacement="                            onActiveChanged: if (!active) root.queueEstimateRestore(slot.entry.key)\n"
 slot_needle="                        onSelectedChanged: if (selected) root.updateSelectionHover()"
@@ -887,7 +887,7 @@ slot_restore='''                        function restoreEstimateIfUnloaded() {
                         }
 '''
 s=s.replace(slot_needle,slot_restore+slot_needle)
-root_needle="    // Qt ListModel moves retain delegates"
+root_needle="    function reconcileRows(next) {"
 assert s.count(root_needle)==1
 root_timer='''    property var pendingEstimateRestores: ({})
     function queueEstimateRestore(key) {

@@ -485,7 +485,7 @@ rows=(
   "cli|packaging recipe check|node scripts/check-packaging.js|scripts/preflight-floor.js bin/lib/engine.js packaging/arch/* packaging/fedora/* packaging/debian/* scripts/debian-packages.sh packaging/xdg-desktop-portal/* bin/vgshell config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js bin/lib/qml-library.js bin/vgshell-scan packaging/install-tree.manifest bin/lib/first-start.sh packaging/install-system.sh flake.nix flake.lock install.sh config/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md bin/lib/dbus_wire.py"
   "cli|packaging recipe check controls|node scripts/test-check-packaging.js|scripts/check-packaging.js scripts/preflight-floor.js bin/lib/engine.js config/runtime-libraries.json packaging/arch/* packaging/fedora/* packaging/debian/* scripts/debian-packages.sh packaging/xdg-desktop-portal/* bin/vgshell config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js bin/lib/qml-library.js bin/vgshell-scan packaging/install-tree.manifest bin/lib/first-start.sh packaging/install-system.sh flake.nix flake.lock install.sh config/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md bin/lib/dbus_wire.py"
   "cli|engine publication availability|node scripts/check-packaging.js --engine-availability|scripts/lib/engine-availability.js scripts/preflight-floor.js bin/lib/engine.js packaging/arch/vgshell-quickshell/* packaging/fedora/vgshell-quickshell.spec packaging/fedora/copr-project packaging/debian/vgshell-quickshell/* scripts/debian-packages.sh flake.nix flake.lock VERSION|network"
-  "cli|engine availability controls|node scripts/test-engine-availability.js|scripts/check-packaging.js scripts/validate scripts/smoke/row-inputs.sh scripts/lib/engine-availability.js scripts/preflight-floor.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js packaging/arch/vgshell-quickshell/* packaging/fedora/vgshell-quickshell.spec packaging/fedora/copr-project packaging/debian/vgshell-quickshell/* scripts/debian-packages.sh flake.nix flake.lock VERSION"
+  "cli|engine availability controls|node scripts/test-engine-availability.js|scripts/check-packaging.js scripts/validate scripts/shell_source.py scripts/smoke/row-inputs.sh scripts/lib/engine-availability.js scripts/preflight-floor.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js packaging/arch/vgshell-quickshell/* packaging/fedora/vgshell-quickshell.spec packaging/fedora/copr-project packaging/debian/vgshell-quickshell/* scripts/debian-packages.sh flake.nix flake.lock VERSION"
   "cli|README install section check controls|node scripts/test-check-readme.js|scripts/check-readme.js bin/lib/qml-library.js shell/Core/PackageManagers.js README.md VERSION bin/vgshell bin/vgshell-scan install.sh docs/architecture/runtime.md packaging/arch/* shell/plugins/* bin/lib/dbus_wire.py"
   "cli|README install runner host-side controls|scripts/test-readme-install.sh|scripts/readme-install.sh scripts/check-readme.js bin/lib/qml-library.js shell/Core/PackageManagers.js README.md VERSION bin/vgshell bin/vgshell-scan install.sh docs/architecture/runtime.md packaging/arch/* shell/plugins/* bin/lib/dbus_wire.py"
   "cli|plugin list controls|scripts/test-vgshell-plugin-list.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-plugin-judge bin/vgshell-pkg bin/lib/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js"
@@ -566,7 +566,7 @@ rows=(
   "tools|smoke stand-in terminal writer controls|python3 scripts/test-check-smoke-terminal.py|scripts/check-smoke-terminal.py scripts/smoke/rows/*"
   "tools|smoke PATH absence assertions|python3 scripts/check-smoke-hidden.py|scripts/qml-smoke.sh scripts/smoke/rows/*"
   "tools|smoke PATH absence assertion controls|python3 scripts/test-check-smoke-hidden.py|scripts/check-smoke-hidden.py scripts/qml-smoke.sh scripts/smoke/rows/*"
-  "tools|smoke rows name the rows they read|smoke_reads_named|scripts/validate scripts/smoke/* scripts/qml-smoke.sh"
+  "tools|smoke rows name the rows they read|smoke_reads_named|scripts/validate scripts/shell_source.py scripts/smoke/* scripts/qml-smoke.sh"
   "tools|smoke teardown controls|scripts/test-smoke-teardown.sh|scripts/smoke/teardown.sh scripts/smoke/harness.sh scripts/smoke/rows/read-only-prefix.sh"
   "tools|smoke persisted input controls|python3 scripts/test-smoke-persisted-inputs.py|scripts/test-smoke-persisted-inputs.py scripts/smoke/persisted-inputs.py scripts/smoke/leaks.sh scripts/smoke/harness.sh"
   "tools|smoke failed row evidence controls|python3 scripts/test-smoke-evidence.py|scripts/test-smoke-evidence.py scripts/smoke/evidence.py scripts/smoke/harness.sh scripts/smoke/teardown.sh scripts/smoke/gpu-fence.sh scripts/qml-smoke.sh scripts/smoke/rows/notifications.sh scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py scripts/smoke/verdict.sh"
@@ -594,6 +594,9 @@ rows=(
   "tools|Jarvis local speech sidecar controls|python3 scripts/test-jarvis-local-speech.py|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/backend/clone-speech.py scripts/fixtures/jarvis-local-speech/clone-standin.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/check-jarvis-local-speech.sh"
   "tools|Jarvis actual local speech models|scripts/check-jarvis-local-speech.sh|shell/plugins/vgs.jarvis/backend/local-speech.py shell/plugins/vgs.jarvis/setup-local shell/plugins/vgs.jarvis/measure-local shell/plugins/vgs.jarvis/artifacts.json shell/plugins/vgs.jarvis/fixtures/* scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-local-speech/real.py \$JARVIS_LOCAL_MODELS \$JARVIS_LOCAL_PYTHON"
   "tools|Jarvis self-test host-side controls|scripts/test-jarvis-selftest.sh|scripts/jarvis-selftest.sh scripts/jarvis-selftest-cases/* scripts/smoke/devices.sh scripts/smoke/harness.sh shell/plugins/vgs.jarvis/* bin/lib/anchored.js bin/lib/account-folders.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js .agents/skills/orch/scripts/* .agents/skills/orch/scripts/lib/* .agents/skills/mailbox/scripts/* .agents/skills/mailbox/scripts/lib/* config/voxtype/* scripts/smoke/gpu-fence.sh"
+  "tools|QML source comment reader controls|python3 scripts/test-qml-source.py|scripts/qml_source.py bin/vgshell-scan bin/lib/dbus_wire.py"
+  "tools|smoke edit needles|python3 scripts/check-smoke-needles.py|scripts/shell_source.py scripts/qml_source.py scripts/smoke/harness.sh scripts/smoke/tree.sh scripts/smoke/rows/* shell/* bin/vgshell-scan bin/lib/dbus_wire.py"
+  "tools|smoke edit needle controls|python3 scripts/test-check-smoke-needles.py|scripts/check-smoke-needles.py scripts/shell_source.py scripts/qml_source.py scripts/smoke/harness.sh scripts/smoke/tree.sh scripts/smoke/rows/* shell/* bin/vgshell-scan bin/lib/dbus_wire.py"
   "repo|whitespace errors against the base|whitespace_check|"
   "repo|every test file has a row|rows_cover_tests|"
   "repo|the runtime loads nothing under scripts/|runtime_reads_no_scripts|"
@@ -601,7 +604,7 @@ rows=(
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/qml_controls.py scripts/qml_source.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh scripts/smoke/rows/updates.sh scripts/smoke/rows/agent-warden.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows/gallery.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/shell_source.py scripts/qml_controls.py scripts/qml_source.py scripts/check-smoke-needles.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh scripts/smoke/rows/updates.sh scripts/smoke/rows/agent-warden.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh scripts/smoke/rows/gallery.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/PluginStatus.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.updates/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/Words.qml shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml"
@@ -1026,25 +1029,11 @@ smoke_reads_check() { # ROW...
   local facts fact row kind name definers definer named reach_mode=false
   [[ ${1:-} != --reach ]] || reach_mode=true
   smoke_function_reach=""
-  if ! facts="$(python3 -I - "$@" <<'PY'
+  if ! facts="$(python3 -I -B - "$@" <<'PY'
 import pathlib, re, subprocess, sys
 
-NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?\+?=")
-HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)\\?([A-Za-z_][A-Za-z0-9_]*)\2")
-SOURCE = re.compile(r'^\s*(?:source|\.)\s+"\$repo/([^"]+)"', re.M)
-DECLARE = {"local", "declare", "typeset", "export", "readonly"}
-RESET = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "time"}
-TAKES = {"read": set("dinNptu"), "mapfile": set("dnOsuCc"), "readarray": set("dnOsuCc")}
-
-
-def head(words):
-    """The index of a command's first word that is not an assignment."""
-    at = 0
-    while at < len(words) - 1 and ASSIGN.match(words[at][0]):
-        at += 1
-    return at
-
+sys.path.insert(0, str(pathlib.Path("scripts").resolve()))
+from shell_source import NAME, Scan, head, SOURCE
 
 def calls(scan, runs):
     """The words SCAN runs as commands: each command's first word and, while
@@ -1062,275 +1051,6 @@ def calls(scan, runs):
             at += runs[name] + 1
     return found
 
-
-class Scan:
-    """One bash file's functions, the names it assigns or declares, the
-    variables it expands, its commands as word lists, the rows it runs
-    through smoke_row, and its runners: FUNCTION -> N for each function
-    whose body runs "$@" as a command after one `shift N`. Quotes, heredocs,
-    comments, arithmetic and { } bodies are read as bash reads them; broken
-    is set when a quote, heredoc or substitution runs to the end."""
-
-    def __init__(self, text):
-        self.t, self.n, self.broken = text, len(text), False
-        self.funcs, self.sets, self.reads, self.rows = set(), set(), set(), set()
-        self.sources = set()
-        self.commands, self.runners, self.heredocs = [], {}, []
-        self.depth, self.defining, self.bodies = 0, None, []
-        self.words, self.spans, self.open_spans = [], [], []
-        self.code(0, None)
-        self.broken |= bool(self.heredocs)
-        # The existing name reader need not partition every brace. Function
-        # attribution is stricter, without changing that reader's verdict.
-        self.partition_broken = bool(self.open_spans) or self.depth != 0
-
-    def dollar(self, i):
-        t, j = self.t, i + 1
-        if j >= self.n:
-            return j
-        if t[j] == "(":
-            return self.arith(j + 2) if t.startswith("((", j) else self.code(j + 1, ")")
-        if t[j] == "'":
-            return self.single(j + 1, ansi=True)
-        if t[j] == "{":
-            j += 1
-            if j < self.n and t[j] in "#!":
-                j += 1
-        m = NAME.match(t, j)
-        if not m:
-            return j + 1 if j < self.n and t[j] in "?$#@!*-0123456789" else j
-        self.reads.add(m.group())
-        return m.end()
-
-    def single(self, i, ansi=False):
-        t = self.t
-        while i < self.n and t[i] != "'":
-            i += 2 if ansi and t[i] == "\\" else 1
-        self.broken |= i >= self.n
-        return i + 1
-
-    def arith(self, i):
-        t, depth = self.t, 0
-        while i < self.n:
-            c = t[i]
-            if c == "$":
-                i = self.dollar(i)
-                continue
-            if c == "(":
-                depth += 1
-            elif c == ")":
-                if depth == 0 and t.startswith("))", i):
-                    return i + 2
-                depth -= 1
-            m = NAME.match(t, i)
-            if m and not (t[i - 1].isalnum() or t[i - 1] in "_#"):
-                if re.match(r"\s*(\+\+|--|[-+*/%&|^]?=(?!=))", t[m.end():]):
-                    self.sets.add(m.group())
-                self.reads.add(m.group())
-                i = m.end()
-                continue
-            i += 1
-        self.broken = True
-        return i
-
-    def expand(self, i, end, quote):
-        """The expansions up to END, or to the closing QUOTE when set."""
-        t = self.t
-        while i < end:
-            c = t[i]
-            if c == "\\":
-                i += 2
-            elif quote and c == quote:
-                return i + 1
-            elif c == "$":
-                i = self.dollar(i)
-            else:
-                i += 1
-        self.broken |= bool(quote)
-        return i
-
-    def take_heredocs(self, i):
-        t = self.t
-        while self.heredocs:
-            delim, quoted, strip = self.heredocs[0]
-            start = i
-            while i < self.n:
-                end = t.find("\n", i)
-                end = self.n if end < 0 else end
-                line = t[i:end]
-                i = end + 1
-                if (line.lstrip("\t") if strip else line) == delim:
-                    self.words.append((start, end - len(line), t[start:end - len(line)]))
-                    if not quoted:
-                        self.expand(start, end - len(line), None)
-                    self.heredocs.pop(0)
-                    break
-            else:
-                return i
-        return i
-
-    def code(self, i, close, values=False):
-        t = self.t
-        words = []  # per word: (its unquoted literal text, that text when the word is all literal, its source text)
-        cur = None
-        case = 0
-
-        def end_word():
-            nonlocal cur, case
-            if cur is not None:
-                words.append((cur[0], cur[0] if cur[1] else None, t[cur[2]:i], cur[2], i))
-                self.words.append((cur[2], i, t[cur[2]:i]))
-                cur = None
-                if not values:
-                    case += self.word(words)
-
-        def end_command():
-            end_word()
-            if words and not values:
-                self.command(words)
-            words.clear()
-
-        def part(literal):
-            nonlocal cur
-            cur = cur or ["", True, i]
-            if literal is None:
-                cur[1] = False
-            elif cur[1]:
-                cur[0] += literal
-
-        while i < self.n:
-            c = t[i]
-            if c == "\n":
-                end_command()
-                i = self.take_heredocs(i + 1)
-            elif c in " \t":
-                end_word()
-                i += 1
-            elif c == "#" and cur is None:
-                j = t.find("\n", i)
-                i = self.n if j < 0 else j
-            elif c == "\\":
-                if not t.startswith("\n", i + 1):
-                    part(t[i + 1:i + 2])
-                i += 2
-            elif c == "'":
-                part(None)
-                i = self.single(i + 1)
-            elif c == '"':
-                part(None)
-                i = self.expand(i + 1, self.n, '"')
-            elif c == "$":
-                part(None)
-                i = self.dollar(i)
-            elif t.startswith("<<", i) and not t.startswith("<<<", i):
-                end_word()
-                m = HEREDOC.match(t, i)
-                if m:
-                    self.heredocs.append((m.group(3), bool(m.group(2)), bool(m.group(1))))
-                i = m.end() if m else i + 2
-            elif c in "<>" and t.startswith("(", i + 1):
-                end_word()
-                i = self.code(i + 2, ")")
-            elif c == "(":
-                if cur is not None and cur[1] and cur[0] and t.startswith(")", i + 1):
-                    self.funcs.add(cur[0])
-                    self.defining = (cur[0], cur[2])
-                    cur = None
-                    words.clear()
-                    i += 2
-                elif cur is not None and cur[1] and cur[0].endswith("="):
-                    end_word()  # name=( WORDS ): the words are values
-                    i = self.code(i + 1, ")", values=True)
-                elif cur is None and t.startswith("((", i):
-                    i = self.arith(i + 2)
-                else:
-                    end_command()
-                    i = self.code(i + 1, ")")
-            elif c == ")":
-                end_command()
-                i += 1
-                if close == ")" and not case:
-                    return i
-            elif c in ";|&":
-                end_command()
-                i += 1
-            elif c in "<>":
-                end_word()
-                i += 1
-            else:
-                part(c)
-                i += 1
-        end_command()
-        self.broken |= close is not None
-        return i
-
-    def word(self, words):
-        """Read the word that just ended; return the change in case depth."""
-        prefix, whole = words[-1][:2]
-        pos, at = len(words) - 1, head(words)
-        if pos == at:
-            if whole != "{":
-                self.defining = None
-            m = ASSIGN.match(prefix)
-            if m:
-                self.sets.add(m.group(1))
-            elif whole == "{":
-                self.depth += 1
-                if self.defining:
-                    name, start = self.defining
-                    self.bodies.append((name, self.depth, []))
-                    self.open_spans.append((name, start, self.depth))
-                    self.defining = None
-                words.clear()
-            elif whole == "}":
-                if self.open_spans and self.open_spans[-1][2] == self.depth:
-                    name, start, _ = self.open_spans.pop()
-                    self.spans.append((name, start, words[-1][4]))
-                if self.bodies and self.bodies[-1][1] == self.depth:
-                    name, _, shifts = self.bodies.pop()
-                    if shifts and shifts[-1] == "runs" and len(shifts) <= 2 and None not in shifts:
-                        self.runners[name] = shifts[0] if len(shifts) == 2 else 0
-                self.depth -= 1
-            elif whole in RESET:
-                words.clear()
-            return {"case": 1, "esac": -1}.get(whole, 0)
-        cmd, args = words[at][1], [w[1] for w in words[at + 1:]]
-        prev = args[-2] if len(args) > 1 else None
-        if cmd == "smoke_row" and len(args) == 1 and whole:
-            self.rows.add(whole)
-        elif cmd == "function" and len(args) == 1 and whole:
-            self.funcs.add(whole)
-        elif cmd in DECLARE:
-            m = NAME.match(prefix)
-            if m and not prefix.startswith("-"):
-                self.sets.add(m.group())
-        elif cmd in ("for", "select") and len(args) == 1 and whole:
-            self.sets.add(whole)
-        elif cmd == "printf" and prev == "-v" and whole:
-            self.sets.add(whole)
-        elif cmd == "getopts" and len(args) == 2 and whole:
-            self.sets.add(whole)
-        elif cmd in TAKES and whole and NAME.fullmatch(whole):
-            if not (prev and prev.startswith("-") and prev[-1] in TAKES[cmd]):
-                self.sets.add(whole)
-        return 0
-
-    def command(self, words):
-        """Keep a command's words, and note in the innermost open function
-        body each shift and the "$@" it runs: a body runs its arguments when
-        it holds at most one literal shift and then runs "$@"."""
-        self.commands.append(list(words))
-        source = SOURCE.match(" ".join(word[2] for word in words[head(words):]))
-        if source and re.fullmatch(r"scripts/smoke/rows/[a-z0-9-]+\.sh", source[1]):
-            self.sources.add(pathlib.Path(source[1]).stem)
-        if not self.bodies or self.bodies[-1][2][-1:] == ["runs"]:
-            return
-        at, shifts = head(words), self.bodies[-1][2]
-        if words[at][1] == "shift":
-            count = words[at + 1][1] if at + 1 < len(words) else "1"
-            shifts.append(int(count) if count and count.isdigit() else None)
-        elif words[at][2] == '"$@"':
-            shifts.append("runs")
 
 
 def read(rel):
@@ -2221,12 +1941,95 @@ path_reach() { # PATH
   path_hit[$path]="$hits"
 }
 
+comment_dependencies=unread
+comment_inputs=""
+comment_coverage() { # PATH
+  local kind dependency row reach_read=false
+  if [[ $comment_dependencies == unread ]]; then
+    if comment_inputs="$(python3 -B scripts/check-smoke-needles.py --unresolved-inputs)"; then
+      comment_dependencies=read
+    else
+      comment_dependencies=failed
+    fi
+  fi
+  [[ $comment_dependencies == read ]] || return 1
+  while IFS=$'\t' read -r kind dependency; do
+    case "$kind" in
+      '') ;;
+      target) [[ $1 != "$dependency" ]] || return 1 ;;
+      producer)
+        if [[ $reach_read == false ]]; then
+          smoke_rows_read
+          [[ -z $smoke_read_fault ]] || return 1
+          smoke_path_reach "$change_base" "$1"
+          reach_read=true
+        fi
+        case "$smoke_reach" in harness|untraced*) return 1 ;; esac
+        if [[ $dependency == scripts/smoke/rows/* ]]; then
+          row=${dependency##*/}; row=${row%.sh}
+          [[ " $smoke_reach " != *" $row "* ]] || return 1
+        else
+          [[ -z $smoke_reach ]] || return 1
+        fi ;;
+      *) return 1 ;;
+    esac
+  done <<<"$comment_inputs"
+}
+
+# D124 grants source comments only after equality and needle coverage agree.
+comment_only() { # BASE PATH
+  python3 -I -B - "$1" "$2" <<'PY_COMMENT' || return 1
+import pathlib, re, subprocess, sys
+sys.path.insert(0, str(pathlib.Path("scripts").resolve()))
+from qml_source import blank_comments
+base, name = sys.argv[1:]
+def reading(text):
+    spans = []
+    blank_comments(text, comments=spans)
+    ordinary = []
+    for a, b in spans:
+        if not re.match(r"//[ \t]*(?:keyboard-path|pointer-cursor-exempt|focus-indicator):", text[a:b]):
+            ordinary.append((a, b))
+    kept = []
+    offset = 0
+    for a, b in ordinary:
+        start = text.rfind("\n", 0, a) + 1
+        end = text.find("\n", b)
+        end = len(text) if end < 0 else end
+        if not text[start:a].strip() and not text[b:end].strip():
+            a, b = start, min(end + 1, len(text))
+            replacement = ""
+        else:
+            # Inline block-comment line terminators participate in JS ASI,
+            # including return/throw and postfix increment/decrement.
+            replacement = "".join(re.findall(r"\r\n|[\n\r\u2028\u2029]", text[a:b]))
+        kept.append(text[offset:a])
+        kept.append(replacement)
+        offset = b
+    kept.append(text[offset:])
+    return "".join(kept)
+
+try:
+    path = pathlib.Path(name)
+    raw = subprocess.check_output(["git", "diff", "--raw", "--no-renames", base, "--", name], text=True).split()
+    if not raw or raw[4] != "M" or raw[0][1:] != raw[1] or path.is_symlink():
+        sys.exit(1)
+    old = subprocess.check_output(["git", "show", f"{base}:{name}"]).decode("utf-8")
+    new = path.read_bytes().decode("utf-8")
+    sys.exit(0 if reading(old) == reading(new) else 1)
+except (OSError, UnicodeError, subprocess.CalledProcessError):
+    sys.exit(1)
+PY_COMMENT
+  comment_coverage "$2"
+}
+
 # The tree a passing run records is read before the diff that selects its
 # rows, so an edit after that diff changes the end tree and records nothing.
 # The row records bind their inputs in it too, so --list reads it as well.
 pass_tree="$(worktree_tree)"
 unset VGS_VALIDATE_CHANGED
 text_only=false
+comment_text=false
 smoke_scoped=false
 affected=()
 for i in "${!rows[@]}"; do affected[i]=true; done
@@ -2246,6 +2049,12 @@ if [[ -n $change_base ]]; then
       for path in "${changed_paths[@]}"; do
         case "$path" in
           *.md|*.markdown|*.txt|LICENSE) ;;
+          shell/*.qml|shell/*.js)
+            if [[ $area == qml ]] || ! comment_only "$change_base" "$path"; then
+              text_only=false; break
+            fi
+            comment_text=true
+            ;;
           *) text_only=false; break ;;
         esac
       done
@@ -2599,6 +2408,8 @@ for i in "${!rows[@]}"; do
     case "$command" in
       whitespace_check|md_refs_check|python3\ scripts/check-user-commands.py) ;;
       doc_limits_check) [[ ${affected[i]} == true ]] || continue ;;
+      python3\ scripts/check-keyboard.py\ shell|python3\ scripts/check-pointer-cursor.py|python3\ scripts/check-smoke-needles.py)
+        [[ $comment_text == true ]] || continue ;;
       *) continue ;;
     esac
   else

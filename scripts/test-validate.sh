@@ -112,7 +112,7 @@ template() {
   # The smoke row selection's load reading and the readers it imports,
   # borrowed with their citations.
   mkdir -p "$dir/bin/lib"
-  cp -- "$repo/scripts/qml_controls.py" "$repo/scripts/qml_source.py" "$dir/scripts/"
+  cp -- "$repo/scripts/qml_controls.py" "$repo/scripts/qml_source.py" "$repo/scripts/shell_source.py" "$repo/scripts/check-smoke-needles.py" "$dir/scripts/"
   cp -- "$repo/bin/vgshell-scan" "$dir/bin/vgshell-scan"
   cp -- "$repo/bin/lib/dbus_wire.py" "$dir/bin/lib/dbus_wire.py"
   printf '%s\tborrowed reader, whose citations name the full repository\n' bin/vgshell-scan bin/lib/dbus_wire.py 'scripts/qml_*.py' >>"$dir/tools/md-excludes"
@@ -1021,6 +1021,32 @@ plan_consumer_case() { # SPEC
     fi
   done
 }
+# The needle rows read all product sources to locate each old text in its
+# comment spans, and every row to discover edit calls. Add those commands
+# to each existing fixture's independent expected plan at the tools boundary.
+needle_rows=$'python3 scripts/check-smoke-needles.py\npython3 scripts/test-check-smoke-needles.py\n'
+for i in "${!cases[@]}"; do
+  IFS='|' read -r case_name case_input case_area _ <<<"${cases[i]}"
+  case_plan="${cases[i]#*|*|*|}"
+  additions=""
+  if [[ $case_plan != text:* && ( $case_area == all || $case_area == offline || $case_area == tools ) ]]; then
+    case "$case_input" in
+      scripts/qml_source.py|bin/vgshell-scan|bin/lib/dbus_wire.py)
+        additions=$'python3 scripts/test-qml-source.py\n'"$needle_rows" ;;
+      shell/*|scripts/smoke/rows/*|scripts/smoke/harness.sh|scripts/smoke/tree.sh|scripts/shell_source.py) additions="$needle_rows" ;;
+    esac
+  fi
+  if [[ -n $additions ]]; then
+    if [[ $case_plan == *whitespace_check* ]]; then
+      case_plan="${case_plan/whitespace_check/${additions}whitespace_check}"
+    elif [[ $case_plan == *scripts/test-validate.sh* ]]; then
+      case_plan="${case_plan/scripts\/test-validate.sh/${additions}scripts/test-validate.sh}"
+    else
+      case_plan+=$'\n'"${additions%$'\n'}"
+    fi
+    cases[i]="$case_name|$case_input|$case_area|$case_plan"
+  fi
+done
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
 
 # plant FILE OLD NEW: replace the one occurrence of OLD in FILE, a copy of a
@@ -1077,6 +1103,86 @@ for variant in text mixed control full unreadable; do
     mixed|full|unreadable)
       row "$variant README selection retains product coverage" "$d" 0 "" \
         'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' ;;
+  esac
+done
+test_args=()
+
+# D124 compares complete existing source, with directive comments outside
+# the grant. Each variant uses product inputs so losing the grant is visible.
+for variant in qml js mixed directive-keyboard directive-pointer directive-focus pragma comment-added comment-removed multiline code literal-string literal-template asi-return asi-return-cr asi-return-separator asi-throw asi-postfix fixture self-reading whitespace added removed renamed unreadable explicit-qml full control; do
+  d="$tmp/comment-scope-$variant"; fresh "$d"
+  file=shell/plugins/vgs.keyboard/Service.qml
+  case "$variant" in
+    js|asi-*) file=shell/plugins/vgs.keyboard/KeyboardLogic.js ;;
+    fixture) file=scripts/smoke/fixtures/sysmon/Service.qml ;;
+    self-reading) file=scripts/test-keyboard-logic.js ;;
+  esac
+  mkdir -p "$d/${file%/*}"
+  cp -- "$repo/$file" "$d/$file"
+  printf '\n// ordinary old\n' >>"$d/$file"
+  case "$variant" in
+    literal-string) printf 'property string url: "https://old/*literal*/"\n' >>"$d/$file" ;;
+    literal-template) printf 'const template = `// old ${1} /*literal*/`;\n' >>"$d/$file" ;;
+    asi-throw) printf 'function probe() { throw /* old */error; }\n' >>"$d/$file" ;;
+    asi-postfix) printf 'function probe() { value /* old */++; }\n' >>"$d/$file" ;;
+  esac
+  commit "$d" source
+  if [[ $variant == control ]]; then
+    plant "$d/scripts/validate" 'if [[ $area == qml ]] || ! comment_only "$change_base" "$path"; then' 'if true; then'
+    commit "$d" control
+  fi
+  case "$variant" in
+    directive-*)
+      case "$variant" in
+        directive-keyboard) directive=keyboard-path ;;
+        directive-pointer) directive=pointer-cursor-exempt ;;
+        directive-focus) directive=focus-indicator ;;
+      esac
+      plant "$d/$file" '// ordinary old' "// $directive: old"
+      commit "$d" directive
+      plant "$d/$file" "// $directive: old" "// $directive: changed" ;;
+    pragma)
+      printf '//@ pragma Env QV4_GC_TIMELIMIT = 0\n' >>"$d/$file"
+      commit "$d" pragma
+      plant "$d/$file" '//@ pragma Env QV4_GC_TIMELIMIT = 0' '//@ pragma Env QV4_GC_TIMELIMIT = 1' ;;
+    comment-added) printf '// added ordinary comment\n' >>"$d/$file" ;;
+    comment-removed) plant "$d/$file" $'// ordinary old\n' '' ;;
+    multiline) plant "$d/$file" '// ordinary old' $'/* ordinary\nchanged */' ;;
+    code) printf 'Item {}\n' >>"$d/$file" ;;
+    literal-string) plant "$d/$file" 'https://old/*literal*/' 'https://changed/*literal*/' ;;
+    literal-template) plant "$d/$file" '`// old ${1} /*literal*/`' '`// changed ${1} /*literal*/`' ;;
+    asi-return) plant "$d/$file" 'return layouts;' $'return /* explanation\n*/layouts;' ;;
+    asi-return-cr) plant "$d/$file" 'return layouts;' $'return /* explanation\r*/layouts;' ;;
+    asi-return-separator) plant "$d/$file" 'return layouts;' $'return /* explanation\u2028*/layouts;' ;;
+    asi-throw|asi-postfix) plant "$d/$file" '/* old */' $'/* changed\n*/' ;;
+    whitespace) printf ' \n' >>"$d/$file" ;;
+    added) cp -- "$d/$file" "$d/shell/plugins/vgs.keyboard/Added.qml" ;;
+    removed) rm -- "${d:?}/$file" ;;
+    renamed) mv -- "$d/$file" "$d/shell/plugins/vgs.keyboard/Renamed.qml" ;;
+    *) plant "$d/$file" '// ordinary old' '// ordinary changed length' ;;
+  esac
+  [[ $variant != mixed ]] || printf '\nchanged\n' >>"$d/clean.txt"
+  [[ $variant != unreadable ]] || chmod 000 "$d/$file"
+  test_area=all test_args=(--changed HEAD --list)
+  [[ $variant != explicit-qml ]] || test_area=qml
+  [[ $variant != full ]] || test_args=(--full --list)
+  case "$variant" in
+    qml|js|mixed|comment-added|comment-removed|multiline)
+      row "$variant ordinary comments select text and comment consumers" "$d" 0 "" \
+        whitespace_check md_refs_check 'python3 scripts/check-user-commands.py' \
+        'python3 scripts/check-keyboard.py shell' 'python3 scripts/check-pointer-cursor.py' 'python3 scripts/check-smoke-needles.py' \
+        '!scripts/qml-unit.sh' '!scripts/qml-smoke.sh' '!scripts/test-keyboard-ui.sh' ;;
+    control)
+      if (failures=0; row "comment-only guarantee" "$d" 0 "" '!scripts/qml-smoke.sh'; ((failures == 0))) >"$tmp/comment-text-control.log"; then
+        fail "control: input selection leaves the comment-only assertion green"
+      elif grep -qF 'exit=0 want=0 missing= present=[scripts/qml-smoke.sh]' "$tmp/comment-text-control.log"; then
+        ok "control: ordinary source input selection fails the comment-only assertion"
+      else
+        cat -- "$tmp/comment-text-control.log"
+        fail "control: comment assertion failed for another cause"
+      fi ;;
+    self-reading|asi-*) row "$variant source retains product selection" "$d" 0 "" 'node scripts/test-keyboard-logic.js' ;;
+    *) row "$variant source retains product selection" "$d" 0 "" 'scripts/qml-smoke.sh' ;;
   esac
 done
 test_args=()
@@ -1484,7 +1590,7 @@ printf 'source\n' >"$d/shell/Core/Dispatch.js"
 "${base_env[@]}" git -C "$d" mv shell/Core/Dispatch.js README.md
 # The removed path's consumers, and README.md's: the install tree and the
 # README check, and the ceiling row, since README.md is a document.
-rename_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
+rename_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
 if ! rename_plan="$(with_daemon_consumers shell/Core/Dispatch.js offline "$rename_plan")"; then
   fail "the rename's expected consumer plan could not be built"
 fi
@@ -1779,6 +1885,32 @@ PYTAILSCALEINPUT
 smoke_always='bare,stale,twice,blank,lost'
 smoke_core='bar,hyprland-consent,session'
 smoke_tail='start-order,auth-sentinel'
+
+# Unknown inline edit operands retain the producing row's existing reach.
+# An unrelated source must keep its grant, so a global fallback cannot pass.
+for variant in literal unknown-needle unknown-target unknown-target-output unrelated; do
+  d="$tmp/comment-inline-$variant"; smoke_fixture "$d"
+  printf '# inputs: shell/plugins/acme.other/*\n' >"$d/scripts/smoke/rows/twice.sh"
+  file=shell/plugins/acme.launcher/Panel.qml
+  [[ $variant != unrelated ]] || file=shell/Core/Consent.qml
+  printf '// ordinary old\n' >>"$d/$file"
+  inline_target="p = Path('shell/plugins/acme.launcher/Panel.qml')"
+  inline_needle='old = "clean"'
+  case "$variant" in
+    unknown-needle|unrelated) inline_needle='old = make_needle()' ;;
+    unknown-target) inline_target='p = Path(sys.argv[1]) / choose_name()' ;;
+    unknown-target-output) inline_target=$'p = Path(sys.argv[1]) / choose_name()\noutput = Path("shell/plugins/acme.launcher/Panel.qml")' ;;
+  esac
+  printf '%s\n' 'python3 - "$repo" <<'"'PY'" 'from pathlib import Path' 'import sys' "$inline_target" 'text = p.read_text()' "$inline_needle" 'assert text.count(old) == 1' 'p.write_text(text.replace(old, "changed"))' 'PY' >>"$d/scripts/smoke/rows/launcher.sh"
+  commit "$d" inline-producer
+  plant "$d/$file" '// ordinary old' '// ordinary changed'
+  test_area=all test_args=(--changed HEAD --list)
+  case "$variant" in
+    literal|unrelated) row "$variant inline dependency permits the comment grant" "$d" 0 "" '!scripts/qml-smoke.sh' 'python3 scripts/check-smoke-needles.py' ;;
+    *) row_re "$variant inline dependency retains product reach" "$d" 0 "" '%^scripts/qml-smoke.sh --rows .*launcher' ;;
+  esac
+done
+test_args=()
 smoke_launcher="scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_always,$smoke_tail"
 smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notifications-keys,$smoke_always,$smoke_tail"
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
@@ -2064,7 +2196,9 @@ smoke_reads_controls=(
 for spec in "${smoke_reads_controls[@]}"; do
   IFS='|' read -r mutant old new wanted_a wanted_b <<<"$spec"
   d="$tmp/smoke-reads-$mutant"; smoke_fixture "$d"
-  python3 - "$d/scripts/validate" "$old" "$new" <<'PY'
+  control_file="$d/scripts/validate"
+  [[ $mutant != array-values ]] || control_file="$d/scripts/shell_source.py"
+  python3 - "$control_file" "$old" "$new" <<'PY'
 from pathlib import Path
 import sys
 path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
