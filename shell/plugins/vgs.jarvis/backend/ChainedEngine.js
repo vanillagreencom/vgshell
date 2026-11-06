@@ -668,6 +668,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
     // Release generation-owned resources before another can start. A retained
     // brain stays suspended until its cancellation acknowledges completion.
+    // REVISIT(D121): Revisit retention when exact native context export/import
+    // becomes available without new persistence or retained generation authority.
     function end(keepHistory = false) {
         const c = conversation;
         if (c === null) return;
@@ -1682,6 +1684,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 c.historyLabels.clear();
                 c.turns = 0;
             }
+            // REVISIT(D121): Revisit this bound only when the owner changes
+            // history semantics, preserving the attempted next turn.
             if (c.turns >= HISTORY_TURNS && e.text.trim() !== "") {
                 c.brainOwner.value?.close();
                 c.brainOwner.value = null;

@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-01
 
-**Status**: Active
+**Status**: Active (brain and voice connection lifetimes → D121)
 
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623), [VGS-652](https://linear.app/vanillagreen/issue/VGS-652)
 
