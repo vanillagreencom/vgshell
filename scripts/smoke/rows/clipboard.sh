@@ -573,7 +573,7 @@ fi
 # An application, then the launcher's search field over it: a layer, which
 # has the keyboard while Hyprland's active window is still the application.
 clip_launcher_before="$(plugin_enabled vgs.launcher)" || clip_launcher_before=unread
-clip_field() { ipc smoke readShownDescendant overlay vgs.launcher QQuickTextInput "$1"; }
+clip_field() { ipc smoke readShownDescendant overlay vgs.launcher TextField "$1"; }
 clip_field_stays() { local got; for _ in $(seq 1 10); do got="$(clip_field text)" || return 1; [[ $got == "$1" ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo "$1"; }
 if clip_window "$sandbox/clipboard-keys-app.log" smoke.clipboard-app "Clipboard application"; then
   clip_keys_pid="$toplevel_pid"

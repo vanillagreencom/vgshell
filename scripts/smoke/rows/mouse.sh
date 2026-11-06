@@ -170,7 +170,7 @@ expect_poll "the Try it area draws with its Click target inside it" '[true, true
 # System Settings supplies the real parent-width bindings. The same reader
 # must reject a visible slider whose width the probe sets past its token.
 mouse_input_widths() {
-  ipc smoke descendantGeometry window vgs.system | py_reply '
+  ipc smoke descendantGeometry window vgs.mouse | py_reply '
 import json, math, sys
 rows = json.load(sys.stdin)
 inputs = [r for r in rows if r["visible"] and "maximumWidth" in r and r["box"][2] > 0]
@@ -209,7 +209,7 @@ mouse_input_oversize="$(python3 -c 'import sys; print(int(float(sys.argv[1])) + 
 expect "the Mouse page opens in wide Settings" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
 expect_poll "wide Settings mounts Mouse" '["vgs.mouse"]' window_panes
 geometry expect_poll "Settings is wider than twice the input maximum" True mouse_wide_window
-expect_poll "every visible input in wide Settings respects its maximum" bounded mouse_input_widths
+expect_poll "every visible Mouse input in wide Settings respects its maximum" bounded mouse_input_widths
 expect "control: the probe renders an oversized slider" "$mouse_input_oversize" ipc smoke forceInputWidth window vgs.system Slider "$mouse_input_oversize"
 expect "control: the wide Settings check rejects an oversized rendered slider" oversized mouse_input_widths
 expect "the oversized control window closes" ok ipc shell hide window vgs.system
