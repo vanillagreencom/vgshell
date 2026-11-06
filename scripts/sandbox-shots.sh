@@ -3146,13 +3146,13 @@ scene_capture() { # MODE
   # Record and Text, chosen on the mode switch by keys.
   type_keys -M shift -k Tab -m shift || fail "the first Shift+Tab to Capture's tiles failed"
   type_keys -M shift -k Tab -m shift || fail "the second Shift+Tab to Capture's mode switch failed"
-  expect_poll "Shift+Tab reaches Capture's mode switch" true ipc smoke readDescendant window vgs.capture SegmentedControl activeFocus
+  expect_poll "Shift+Tab reaches Capture's mode switch" true ipc smoke readShownDescendant window vgs.capture Tabs activeFocus
   type_keys -k Right || fail "Right to Capture's Record failed"
-  expect_poll "Capture shows its Record options" 1 ipc smoke readDescendant window vgs.capture SegmentedControl currentIndex
+  expect_poll "Capture shows its Record options" 1 ipc smoke readShownDescendant window vgs.capture Tabs currentIndex
   park_pointer
   take "capture-$1-options-record"
   type_keys -k Right || fail "Right to Capture's Text failed"
-  expect_poll "Capture shows its Text options" 2 ipc smoke readDescendant window vgs.capture SegmentedControl currentIndex
+  expect_poll "Capture shows its Text options" 2 ipc smoke readShownDescendant window vgs.capture Tabs currentIndex
   park_pointer
   take "capture-$1-options-text"
   expect "Capture's options window hides" ok ipc shell hide window vgs.capture

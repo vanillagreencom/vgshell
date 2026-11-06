@@ -1424,7 +1424,8 @@ capture_is() { [[ "$($1)" == "$2" ]] && echo True || echo False; }
 capture_focus() { ipc smoke focused window vgs.capture | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 capture_focus_type() { ipc smoke focused window vgs.capture | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
 capture_primary() { ipc smoke readDescendant window vgs.capture Options primaryActionName | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
-capture_choice() { ipc smoke readDescendant window vgs.capture "$1" currentIndex; }
+# The hidden sharing pane also has Tabs; read the shown options alone.
+capture_choice() { ipc smoke readShownDescendant window vgs.capture "$1" currentIndex; }
 capture_action() { capture_read action | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
 capture_back() { type_keys -M shift -k Tab -m shift || fail "capture: sending Shift+Tab to the options window failed"; }
 capture_key() { type_keys -k "$1" || fail "capture: sending $1 to the options window failed"; }
@@ -1450,7 +1451,7 @@ if not original.exists():
 source = original.read_text()
 changes = {
     "walk": [
-        ("onActivated: index => root.chooseMode(index)", "onActivated: index => {}"),
+        ("readonly property string mode: modes[modeSwitch.currentIndex]", 'readonly property string mode: "Screenshot"'),
         ("onActivated: index => root.chooseTarget(index)", "onActivated: index => {}"),
         ("onClicked: root.invoke(root.primaryActionName)", 'onClicked: root.invoke("screenshot")'),
     ],
@@ -1500,9 +1501,9 @@ capture_key Right
 expect_poll "Right chooses the Window tile" 1 capture_choice TileGroup
 expect "the Window tile makes the primary action a window screenshot" screenshot-window capture_primary
 capture_back
-expect_poll "Shift+Tab reaches the mode switch" SegmentedControl capture_focus_type
+expect_poll "Shift+Tab reaches the mode switch" Tabs capture_focus_type
 capture_key Right
-expect_poll "Right chooses Record" 1 capture_choice SegmentedControl
+expect_poll "Right chooses Record" 1 capture_choice Tabs
 expect_poll "the window holds every Record option unscrolled" True capture_unscrolled
 expect "Record makes the primary action an area recording" record capture_primary
 capture_key Tab
@@ -1511,9 +1512,9 @@ expect_poll "Tab returns to the primary action" Button capture_focus_type
 expect "Record names the primary action Start recording" "$capture_record_focus" capture_focus
 capture_back
 capture_back
-expect_poll "Shift+Tab reaches the mode switch again" SegmentedControl capture_focus_type
+expect_poll "Shift+Tab reaches the mode switch again" Tabs capture_focus_type
 capture_key Left
-expect_poll "Left chooses Screenshot" 0 capture_choice SegmentedControl
+expect_poll "Left chooses Screenshot" 0 capture_choice Tabs
 capture_key Tab
 capture_key End
 expect_poll "End chooses the All tile" 3 capture_choice TileGroup
@@ -1539,9 +1540,9 @@ capture_key Right
 expect_poll "control: Right moves the walk copy's tiles" 1 capture_choice TileGroup
 expect "control: a tile choice the options window drops fails the window-screenshot readback" False capture_is capture_primary screenshot-window
 capture_back
-expect_poll "control: Shift+Tab reaches the walk copy's mode switch" SegmentedControl capture_focus_type
+expect_poll "control: Shift+Tab reaches the walk copy's mode switch" Tabs capture_focus_type
 capture_key Right
-expect_poll "control: Right moves the walk copy's mode switch" 1 capture_choice SegmentedControl
+expect_poll "control: Right moves the walk copy's mode switch" 1 capture_choice Tabs
 expect "control: a mode choice the options window drops fails the area-recording readback" False capture_is capture_primary record
 capture_key Tab
 capture_key Tab
@@ -1556,12 +1557,12 @@ expect_poll "control: the walk copy's countdown leaves capture idle" idle captur
 expect_poll "control: the walk copy's options window closes" absent capture_options
 capture_options_plant focus
 expect "capture opens the focus copy's options window" ok ipc vgs.capture invoke toggle ''
-expect_poll "control: the focus copy opens on the mode switch" SegmentedControl capture_focus_type
+expect_poll "control: the focus copy opens on the mode switch" Tabs capture_focus_type
 capture_key Right
-expect_poll "control: Right chooses the focus copy's Record" 1 capture_choice SegmentedControl
+expect_poll "control: Right chooses the focus copy's Record" 1 capture_choice Tabs
 expect_poll "control: a window that keeps its Screenshot height fails the unscrolled Record readback" False capture_unscrolled
 capture_key Left
-expect_poll "control: Left returns the focus copy to Screenshot" 0 capture_choice SegmentedControl
+expect_poll "control: Left returns the focus copy to Screenshot" 0 capture_choice Tabs
 expect "control: opening on the mode switch fails the Take screenshot readback" False capture_is capture_focus "$capture_shot_initial"
 expect "capture closes the focus copy's options window" ok ipc vgs.capture invoke toggle ''
 expect_poll "the focus copy's options window unmaps" absent capture_options
@@ -1709,9 +1710,9 @@ expect "capture opens its options window without OCR" ok ipc vgs.capture invoke 
 expect_poll "the options window without OCR opens on its primary action" Button capture_focus_type
 capture_back
 capture_back
-expect_poll "Shift+Tab reaches the mode switch without OCR" SegmentedControl capture_focus_type
+expect_poll "Shift+Tab reaches the mode switch without OCR" Tabs capture_focus_type
 capture_key End
-expect_poll "End chooses Text" 2 capture_choice SegmentedControl
+expect_poll "End chooses Text" 2 capture_choice Tabs
 expect_poll "the window holds every Text option unscrolled" True capture_unscrolled
 capture_key Tab
 expect_poll "Tab from the mode switch reaches Copy text, past the hidden tiles" '["Button", "Copy text", true, true, true]' capture_focus
@@ -2232,11 +2233,11 @@ forget_record
 hold_runs
 capture_back
 capture_back
-expect_poll "Shift+Tab reaches the mode switch for Install languages" SegmentedControl capture_focus_type
+expect_poll "Shift+Tab reaches the mode switch for Install languages" Tabs capture_focus_type
 # capture_key reads notification keys from here on, so the keys go
 # through type_keys.
 type_keys -k End || fail "capture: sending End to the options window failed"
-expect_poll "End chooses Text for Install languages" 2 capture_choice SegmentedControl
+expect_poll "End chooses Text for Install languages" 2 capture_choice Tabs
 type_keys -k Tab -k Tab -k Tab || fail "capture: sending Tab to the options window failed"
 expect_poll "Tab reaches Install languages past Copy text and the language select" RowAction capture_focus_type
 type_keys -k Return || fail "capture: sending Return to Install languages failed"

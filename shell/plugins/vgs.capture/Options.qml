@@ -12,7 +12,7 @@ Item {
     property var shell: null
     property Item initialFocus: primaryAction
     property string problem: ""
-    property string mode: "Screenshot"
+    readonly property string mode: modes[modeSwitch.currentIndex]
     // Each mode's own target, kept while the window is open.
     property int screenshotTargetIndex: 0
     property int recordTargetIndex: 0
@@ -22,7 +22,6 @@ Item {
     readonly property var languagesRow: shell === null ? null : shell.status.rows.find(row => row.key === "languages") || null
     readonly property bool languagesOffered: languagesRow !== null && languagesRow.action !== null && languagesRow.action.offered
     readonly property var modes: ["Screenshot", "Record", "Text"]
-    readonly property int modeIndex: modes.indexOf(mode)
     // Each option here names its setting and its choices as the Settings
     // page does, from the manifest's schema entry.
     readonly property var schema: shell === null ? ({}) : shell.manifest.schema
@@ -90,10 +89,6 @@ Item {
         problem = reply === "ok" ? "" : "The setting could not be saved.";
         return reply;
     }
-    function chooseMode(index) {
-        mode = modes[index];
-        modeSwitch.currentIndex = Qt.binding(() => root.modeIndex);
-    }
     function chooseTarget(index) {
         if (mode === "Record") recordTargetIndex = index;
         else screenshotTargetIndex = index;
@@ -159,12 +154,11 @@ Item {
             width: layout.contentWidth
             spacing: Theme.stack.section
 
-            SegmentedControl {
+            Tabs {
                 id: modeSwitch
                 width: parent.width
                 model: root.modes
-                currentIndex: root.modeIndex
-                onActivated: index => root.chooseMode(index)
+                currentIndex: 0
             }
 
             Column {
