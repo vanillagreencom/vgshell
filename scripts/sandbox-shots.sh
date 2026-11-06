@@ -3554,12 +3554,12 @@ print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else a["kind"])
   }
   jarvis_console_mute() { ipc smoke jarvisProcess | py_reply 'import json,sys; print(json.load(sys.stdin)["status"]["detail"]["state"]["mute"]["kind"])'; }
   jarvis_console_focused() {
-    ipc smoke itemValues window vgs.jarvis TextField activeFocus | py_reply '
+    ipc smoke itemValues window vgs.jarvis TextArea activeFocus | py_reply '
 import json,sys
 print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdin)) else "false")
 '
   }
-  jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextField text; }
+  jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextArea text; }
   jarvis_console_summon() {
     expect "the Jarvis console summons" ok ipc shell summon window vgs.jarvis '{}'
     expect_poll "the Jarvis console maps" 1 window_count Jarvis
@@ -3800,7 +3800,7 @@ print(json.dumps(sorted(problems)))
       [[ $size != narrow ]] || narrow_begin
       expect "the History console summons" ok ipc shell summon window vgs.jarvis '{}'
       expect_poll "the History console maps" 1 window_count Jarvis
-      expect_poll "the History console composer has focus" true ipc smoke activeFocusWithin window vgs.jarvis TextField
+      expect_poll "the History console composer has focus" true ipc smoke activeFocusWithin window vgs.jarvis TextArea
       type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "selecting History failed"
       expect_poll "History is the current tab" '[2]' jarvis_history_tabs
       jarvis_history_filter Problems || fail "selecting only History problems failed"

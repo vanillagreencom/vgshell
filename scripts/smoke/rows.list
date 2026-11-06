@@ -52,9 +52,6 @@ tui
 # vgs.sudo and gives it back disabled, its tree's sudo the sentinel again.
 sudo
 notices
-# After notices, through the same stand-in terminal and the acme.needs
-# fixture's requirement notice; it enables its plugin and disables it again.
-agent-debug
 overlays
 gallery
 launcher
@@ -81,6 +78,9 @@ system-steps
 greeter
 bluetooth-agent
 jarvis
+# Uses Jarvis's shared fixture helpers after their owner has run, and the
+# notices/TUI fixtures for failed tasks and explicit terminal recovery.
+agent-debug
 jarvis-controls
 jarvis-setup
 jarvis-home-repair

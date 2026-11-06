@@ -46,8 +46,8 @@ const LOCK_VERSION = 11;
 // The kinds of the render VGS copies into a home. A hook needs its
 // harness's settings as well, which nothing here writes yet.
 const COPIED_KINDS = Object.freeze(["skill", "agent"]);
-// VGS's record of the package files it wrote in a home, {files: [path]}, so
-// it replaces and removes those files only.
+// VGS's record of the base and product skill files it wrote in a home,
+// {files: [path]}, so it replaces and removes those files only.
 const RECORD = ".vgs-package.json";
 const RECORD_BYTES = 1 << 20;
 // The Home step reads the last repair result, never as proof of readiness.
@@ -418,15 +418,15 @@ function under(name, paths) {
 }
 
 // Make the home held as FD, whose record named BEFORE (null for none), hold
-// the render's package files but at a path below CLAIMED, kendex's, and
+// FILES but at a path below CLAIMED, kendex's, and
 // none of BEFORE's the render dropped. A file VGS did not write that differs
 // from the render's stays the user's, unrecorded; one already equal joins
 // the record. A path kendex took leaves the record and keeps its file. The
 // record names every file before it is written, so a write cut short leaves
 // no file of VGS's out of it, and the next open finishes the work.
-function sync(fd, before, claimed) {
+function sync(fd, before, claimed, files) {
     const kept = before === null ? [] : before;
-    const found = rendered().filter(([name]) => !under(name, claimed))
+    const found = files.filter(([name]) => !under(name, claimed))
         .map(file => [file, compare(fd, ...file)])
         .filter(([[name], state]) => state !== "differs" || kept.includes(name));
     const names = found.map(([[name]]) => name);
@@ -445,6 +445,19 @@ function sync(fd, before, claimed) {
 // Write VGS's record in the home held as FD: FILES, sorted.
 function record(fd, files) {
     replace(fd, RECORD, JSON.stringify({ files: [...files].sort() }) + "\n", false);
+}
+
+// Product skills are shared with terminal consumers, outside kendex's base
+// package. They use the same record and no-follow copy as the base files.
+function ownSkills() {
+    let fd;
+    try {
+        fd = fs.openSync(path.join(Core.homeRender(), "skills"), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+        const files = entries(fd, null, "skills/").filter(([name]) => !name.endsWith("/"));
+        if (!files.some(([name]) => name === "skills/own/vgs-diagnose/SKILL.md")) fail("package");
+        return files;
+    } catch { return fail("package"); }
+    finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
 // kendex's own record of what it installed in the home held as FD, its
@@ -507,8 +520,9 @@ function repairResult(home, result) {
 /**
  * Create the entries of LAYOUT the home lacks, and the home itself. Where
  * kendex's lock in the home names the package's skill, kendex is the
- * package's one writer there: VGS writes no package file and drops its own
- * record. Elsewhere make the home hold the package files of the render VGS
+ * package's one writer there: VGS writes no base package file. Product
+ * skills under skills/own use the same record in either home. Elsewhere
+ * make the home hold the package files of the render VGS
  * ships, at their paths in it, but those at a path kendex's lock names and
  * a file VGS did not write that differs, and none of those VGS wrote that
  * the render dropped (sync). The open removes skills/base, VGS's copy of
@@ -543,9 +557,10 @@ function layout(home) {
             fs.unlinkSync(Core.anchored().child(held.get("."), claude));
         const before = recorded(held.get("."));
         const kendex = installed(held.get("."));
-        if (kendex?.jarvis) {
-            if (before !== null) fs.unlinkSync(Core.anchored().child(held.get("."), RECORD));
-        } else sync(held.get("."), before, kendex === null ? [] : kendex.paths);
+        // Validate kendex's base before any product copy, without repairing it.
+        if (kendex?.jarvis) source(held.get("."));
+        sync(held.get("."), before, kendex === null ? [] : kendex.paths,
+            [...(kendex?.jarvis ? [] : rendered()), ...ownSkills()]);
         source(held.get("."));
     } catch (error) {
         if (/^jarvis: home=/.test(error.message)) throw error;

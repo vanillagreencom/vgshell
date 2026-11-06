@@ -77,6 +77,11 @@ holds_no_project_instructions() { # FILE
 installed_skill="$dest/usr/share/vgshell/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md"
 check "the installed jarvis skill equals the checkout's render" cmp -s -- "$installed_skill" "$repo/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md"
 check "the installed render keeps its lock" cmp -s -- "$dest/usr/share/vgshell/packaging/jarvis-home/.kendex-lock.json" "$repo/packaging/jarvis-home/.kendex-lock.json"
+check "the shared diagnosis skill is installed" cmp -s -- "$dest/usr/share/vgshell/packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md" "$repo/packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md"
+check "the former plugin-owned skill is absent" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md"
+for fixture in acme.handoff acme.handoff-sender; do
+  check "the test-only $fixture is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/$fixture"
+done
 check "the installed jarvis skill carries no project instructions" holds_no_project_instructions "$installed_skill"
 planted_skill="$tmp/planted-SKILL.md"
 cp -- "$installed_skill" "$planted_skill"

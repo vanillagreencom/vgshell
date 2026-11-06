@@ -6,7 +6,7 @@
 # every fact and never the run record's lines, the vgs-diagnose skill is
 # copied into the agent's own skills folder where no file or only VGS's own
 # copy stands, a foreign file, a link and a linked folder are left as they
-# are with the prompt naming the plugin's copy. unmute.sh: a yes asks the
+# are with the prompt naming the shipped shared copy. unmute.sh: a yes asks the
 # service to unmute that program, a program already unmuted is done, and a
 # refusal ends the run failed with a sentence, never the reply's key. No run
 # reaches a real agent or the shell: each agent and vgshell is a stand-in
@@ -23,7 +23,7 @@ TMP_ROOT="$(mktemp -d)" || { echo "test-agent-debug-tui: scratch=mktemp-failed" 
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-agent-debug-tui: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-agent-debug-tui: scratch=resolve-failed" >&2; exit 1; }
 trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
-for tool in setsid python3 awk cmp mktemp; do
+for tool in setsid node python3 awk cmp mktemp; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'test-agent-debug-tui: status=not-measured missing=%s\n' "$tool"
     exit 77
@@ -36,7 +36,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 tools="$TMP_ROOT/tools"
 mkdir -p "$tools"
-for tool in bash python3 awk cmp mkdir mktemp cp mv rm cat; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
+for tool in bash node python3 awk cmp mkdir mktemp cp mv rm cat; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
 # Each agent and vgshell records its argv as one JSON line in
 # $TMP_ROOT/calls, and its working folder in $TMP_ROOT/cwd. vgshell answers what $TMP_ROOT/answer holds.
 for agent in claude codex copilot pi opencode vgshell; do
@@ -54,7 +54,7 @@ chmod 755 "$tools"/{claude,codex,copilot,pi,opencode,vgshell,gum}
 # The plugin as bin/vgshell-tui hands it to a script: a private copy.
 snapshot="$TMP_ROOT/snapshot"
 cp -R -- "$plugin" "$snapshot"
-shipped="$snapshot/skills/vgs-diagnose/SKILL.md"
+shipped="$repo/bin/lib/../../packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md"
 home="$TMP_ROOT/home"
 runtime="$TMP_ROOT/runtime"
 mkdir -p "$runtime"
@@ -130,7 +130,7 @@ case_an_older_vgs_copy_is_replaced() {
   run "$1" claude "${crash_facts[@]}"
   [[ $status == 0 ]] && cmp -s -- "$shipped" "$home/.claude/skills/vgs-diagnose/SKILL.md" && [[ -z $(ls -A -- "$home/.claude/skills/vgs-diagnose" | grep -v -x SKILL.md) ]]
 }
-case_a_foreign_skill_is_left_and_the_prompt_names_the_plugin_copy() {
+case_a_foreign_skill_is_left_and_the_prompt_names_the_shipped_copy() {
   fresh_home
   mkdir -p "$home/.claude/skills/vgs-diagnose"
   printf -- '---\nname: vgs-diagnose\n---\nmine, source: vgshell\n' >"$home/.claude/skills/vgs-diagnose/SKILL.md"
@@ -171,7 +171,7 @@ case_unmute_refused_fails_plainly() {
   [[ $status == 1 && $(cat "$TMP_ROOT/err") != *"user-config"* ]]
 }
 CASES=(case_each_agent_starts_with_the_prompt_and_its_skill case_the_task_prompt_names_the_record_never_its_lines case_an_older_vgs_copy_is_replaced
-  case_a_foreign_skill_is_left_and_the_prompt_names_the_plugin_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
+  case_a_foreign_skill_is_left_and_the_prompt_names_the_shipped_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
   case_unmute_yes_asks_the_service case_unmute_of_an_unmuted_program_is_done case_unmute_refused_fails_plainly)
 SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
 for i in "${!CASES[@]}"; do
@@ -183,7 +183,7 @@ done
 # Controls: a case, the script, the line it needs and a replacement
 # without the rule.
 CONTROL_CASES=(case_each_agent_starts_with_the_prompt_and_its_skill case_each_agent_starts_with_the_prompt_and_its_skill case_each_agent_starts_with_the_prompt_and_its_skill
-  case_a_foreign_skill_is_left_and_the_prompt_names_the_plugin_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
+  case_a_foreign_skill_is_left_and_the_prompt_names_the_shipped_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
   case_unmute_yes_asks_the_service case_unmute_of_an_unmuted_program_is_done case_unmute_refused_fails_plainly)
 CONTROL_SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
 CONTROL_LINES=(

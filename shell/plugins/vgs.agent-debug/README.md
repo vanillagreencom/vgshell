@@ -19,6 +19,8 @@ Agent Debug notifies you only after you choose an agent on its Settings tab. It 
 
 Diagnose gives the agent the facts of the failure and asks it to read the records on this computer. It asks for an explanation without changes, with proved facts kept apart from possible causes.
 
+Jarvis cannot read the system crash store, journal or package logs through its command sandbox. It can use the supplied failure facts and readable files in your home outside protected folders. It states what it cannot prove rather than asking for more access.
+
 At the end of a crash diagnosis the agent asks whether to mute that program, and mutes it only when you say yes.
 
 ## Setup

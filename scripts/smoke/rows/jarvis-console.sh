@@ -59,13 +59,13 @@ print(sum(json.loads(line).get("kind")=="brain-send" and json.loads(line).get("t
 PY
 }
 jarvis_console_text_field_focused() {
-  ipc smoke itemValues window vgs.jarvis TextField activeFocus | py_reply '
+  ipc smoke itemValues window vgs.jarvis TextArea activeFocus | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
 print("true" if any(row.get("activeFocus") is True for row in rows) else "false")
 '
 }
-jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextField text; }
+jarvis_console_field_text() { ipc smoke readShownDescendant window vgs.jarvis TextArea text; }
 jarvis_console_hint_has() { # TEXT
   ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
 import json,sys
@@ -98,7 +98,7 @@ jarvis_console_engine_kind() {
 }
 jarvis_console_speech_only_check() {
   expect_poll "a duplex voice shows the speech-only line" shown jarvis_console_speech_line
-  expect "a duplex voice shows no message box" 0 jarvis_console_shown TextField
+  expect "a duplex voice shows no message box" 0 jarvis_console_shown TextArea
   expect "a duplex voice shows no Send" 0 jarvis_console_send_shown
 }
 jarvis_console_speech_only_control() {
