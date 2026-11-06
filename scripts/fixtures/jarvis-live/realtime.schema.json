@@ -12,14 +12,17 @@
    "https://developers.openai.com/api/docs/guides/realtime-transcription"
   ],
   "nativeInputReference": "https://developers.openai.com/api/docs/guides/realtime-conversations",
-  "nativeInputRead": "2026-11-05"
+  "nativeInputRead": "2026-11-05",
+  "capReference": "https://developers.openai.com/api/reference/resources/realtime/server-events",
+  "capRead": "2026-11-05"
  },
  "rule": [
   "Each schema transcribes the interface of the same name in the types file to the checker's keyword set. String literals become enums; optional members stay optional.",
   "RealtimeSessionCreateRequest keeps its realtime branch. tools items, noise_reduction and a tracing object stay open, since the engine sends an empty tools list and a null tracing value.",
   "RealtimeResponse and RealtimeResponseCreateParams keep the members a spoken out-of-band response carries. input holds ConversationItem, the items of a response's own context. output items, usage and audio stay open.",
   "ConversationItem keeps its user message and assistant message branches, the items a spoken turn and a spoken response make.",
-  "The checker closes every other object."
+  "The checker closes every other object.",
+  "RealtimeSessionCreateResponse adds the documented optional Unix-seconds expires_at field for server-created and server-updated sessions; client updates retain the request schema."
  ],
  "omitted": [
   "Client events the duplex engine does not send: conversation.item.create, retrieve, truncate and delete, response.cancel, output_audio_buffer.clear.",
@@ -501,7 +504,7 @@
      "type": "string"
     },
     "session": {
-     "$ref": "#/schemas/RealtimeSessionCreateRequest"
+     "$ref": "#/schemas/RealtimeSessionCreateResponse"
     }
    },
    "required": [
@@ -523,7 +526,7 @@
      "type": "string"
     },
     "session": {
-     "$ref": "#/schemas/RealtimeSessionCreateRequest"
+     "$ref": "#/schemas/RealtimeSessionCreateResponse"
     }
    },
    "required": [
@@ -1498,6 +1501,123 @@
     },
     "event_id": {
      "type": "string"
+    }
+   },
+   "required": [
+    "type"
+   ]
+  },
+  "RealtimeSessionCreateResponse": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "realtime"
+     ]
+    },
+    "audio": {
+     "type": "object",
+     "properties": {
+      "input": {
+       "type": "object",
+       "properties": {
+        "format": {
+         "$ref": "#/schemas/AudioPCM"
+        },
+        "noise_reduction": {
+         "type": "object",
+         "additionalProperties": true,
+         "nullable": true
+        },
+        "transcription": {
+         "$ref": "#/schemas/AudioTranscription"
+        },
+        "turn_detection": {
+         "anyOf": [
+          {
+           "$ref": "#/schemas/TurnDetection"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       }
+      },
+      "output": {
+       "type": "object",
+       "properties": {
+        "format": {
+         "$ref": "#/schemas/AudioPCM"
+        },
+        "speed": {
+         "type": "number"
+        },
+        "voice": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    },
+    "include": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "item.input_audio_transcription.logprobs"
+      ]
+     }
+    },
+    "instructions": {
+     "type": "string"
+    },
+    "max_output_tokens": {
+     "type": [
+      "integer",
+      "string"
+     ]
+    },
+    "model": {
+     "type": "string"
+    },
+    "output_modalities": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "text",
+       "audio"
+      ]
+     }
+    },
+    "parallel_tool_calls": {
+     "type": "boolean"
+    },
+    "tool_choice": {
+     "type": "string"
+    },
+    "tools": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "tracing": {
+     "type": [
+      "string",
+      "object"
+     ],
+     "nullable": true,
+     "additionalProperties": true
+    },
+    "truncation": {
+     "type": "string"
+    },
+    "expires_at": {
+     "type": "integer"
     }
    },
    "required": [

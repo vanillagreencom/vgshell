@@ -84,7 +84,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let files = null;
     let shell = null;
     let requirementsScan = -1;
-    const clock = { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
+    const clock = { now: () => performance.now(), wallNow: Date.now,
+        set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
     let tasks = null;
     let publishedTasks = null;
     let publishedVoices = null;

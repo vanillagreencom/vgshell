@@ -2173,6 +2173,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         refusedKey = keyIdentity(c.plan.speech.key);
                         rejudge();
                     }
+                }, interrupted: value => {
+                    const turn = c.last;
+                    if (conversation === c && turn?.delegation === value.id) heard(c, turn, value.text);
                 } };
                 c.liveOpen = { e: reopen, events: own };
                 c.live.port.open(e, own);

@@ -210,10 +210,11 @@ async function until(check, label, ms = 2000) {
         await new Promise(resolve => setTimeout(resolve, 2));
     }
 }
-function manual() {
+function manual(wallEpoch = 0) {
     let now = 0, next = 1;
     const timers = new Map();
-    return { now: () => now, set(fn, ms) { timers.set(next, { at: now + Math.max(0, ms), fn }); return next++; },
+    return { now: () => now, wallNow: () => wallEpoch + now,
+        set(fn, ms) { timers.set(next, { at: now + Math.max(0, ms), fn }); return next++; },
         clear(id) { timers.delete(id); },
         advance(ms) {
             const end = now + ms;
@@ -396,14 +397,14 @@ world(async () => {
     }
 
     // thinking keeps each brain turn open: its port never reports done. ack
-    // is a line the brain speaks inside the delegation, as the engine's
-    // acknowledgement does. protocol is the adapter: REALTIME or GEMINI.
+    // speaks inside the delegation; ackLine distinguishes a fixed progress
+    // line from a reply. protocol is the adapter: REALTIME or GEMINI.
     function rig(kit, { key = "own", holdToTalk = true, synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
-        ack } = {}) {
-        const clock = manual();
+        ack, ackLine = true, wallEpoch = 0 } = {}) {
+        const clock = manual(wallEpoch);
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
-            stall: false, read: null, dues: [], inputResults: [], captures: [], urls: [], protocol };
+            stall: false, read: null, dues: [], inputResults: [], interrupted: [], captures: [], urls: [], speechOpens: [], protocol };
         const Adapter = protocol === GEMINI ? kit.Gemini : kit.Live;
         voice ??= Adapter.VOICES[0].value;
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
@@ -483,12 +484,15 @@ world(async () => {
         };
         ports.voiceMute = { store: () => {} };
         // Each due report the engine raises, read where the runner hears it.
-        ports.speech = { ...engine.port, open: (e, events) => engine.port.open(e,
-            { ...events, due: value => { w.dues.push(value); events.due(value); },
-                inputEnded: value => { w.inputResults.push(value); events.inputEnded(value); } }) };
+        ports.speech = { ...engine.port, open: (e, events) => {
+            w.speechOpens.push({ gen: e.gen, op: e.op });
+            return engine.port.open(e, { ...events, due: value => { w.dues.push(value); events.due(value); },
+                inputEnded: value => { w.inputResults.push(value); events.inputEnded(value); },
+                interrupted: value => w.interrupted.push(value) });
+        } };
         ports.brain = { ...ports.brain, send: (e, done) => {
             w.delegations.push(e);
-            if (ack !== undefined) w.engine.commentary(e.delegation, kit.Policy.item(ack, ["speech"]), { line: true });
+            if (ack !== undefined) w.engine.commentary(e.delegation, kit.Policy.item(ack, ["speech"]), { line: ackLine });
             if (!thinking) done("brain-done");
         } };
         ports.approval = { ...ports.approval, show: () => {}, end: e => w.approvals.push(e.reason) };
@@ -565,6 +569,366 @@ world(async () => {
         await nativeEnd(conn);
         await until(() => w.state.capture.kind === "closed", "release closes the recorder");
         return { w, conn };
+    }
+    // Both fixtures advertise a deadline at clock 120000. Provider fields
+    // supply that deadline; the application's lead policy chooses renewal.
+    async function capReady(kit, P = REALTIME, expiryOn = "created", options = {}) {
+        const { w, conn } = await connecting(kit, { ...options, protocol: P });
+        if (P === REALTIME) {
+            const advertised = name => {
+                const event = script(name);
+                if (event.session.expires_at !== undefined)
+                    event.session.expires_at += Math.floor(w.clock.wallNow() / 1000);
+                conn.send(event);
+            };
+            advertised(expiryOn === "created" ? "cap-created" : "created");
+            await conn.event("session.update");
+            advertised(expiryOn === "updated" ? "cap-updated" : "updated");
+        } else {
+            await conn.event("setup");
+            conn.play("setup-complete");
+            conn.play("cap-warning");
+        }
+        await conn.sync();
+        w.clock.advance(TAP);
+        return { w, conn };
+    }
+    function capIdentity(w) {
+        return { gen: w.state.gen, history: JSON.parse(JSON.stringify(w.state.history)),
+            speech: { gen: w.state.speech.gen, op: w.state.speech.op } };
+    }
+    function capContinues(w, identity) {
+        assert.deepEqual(capIdentity(w), identity, "transport renewal keeps conversation, history and speech identities");
+        assert.equal(w.state.conversation.kind, "active");
+        assert.equal(w.state.fault.kind, "none");
+        assert.equal(w.state.cue.kind, "none");
+        assert.deepEqual(w.speechOpens, [identity.speech], "renewal creates no second Session speech-open effect");
+        assert.ok(w.handed.every(secret => secret.every(byte => byte === 0)), "every transport key is zeroed");
+    }
+    async function capIdle(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P);
+        const identity = capIdentity(w), sink = w.sink, oldEvents = w.channelEvents;
+        w.clock.advance(60000 - w.clock.now());
+        const next = await main.accept(w);
+        await P.open(next);
+        await next.sync();
+        await until(() => conn.ended, "safe-boundary renewal releases the old socket");
+        capContinues(w, identity);
+        assert.equal(w.sink, sink, "quiet held input keeps its existing capture owner");
+        assert.equal(P.sent(next).length, 0, "renewal generates and replays no microphone audio");
+        assert.deepEqual(w.delegations, []);
+        assert.deepEqual(w.transcripts.filter(event => event.role === "assistant" && event.stage === "final"), [],
+            "a settled renewal needs no repeat notice");
+        const before = JSON.stringify(w.state);
+        oldEvents.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(P === REALTIME
+            ? { type: "error", event_id: "old-error", error: { type: "server_error", message: PRIVATE, code: "old" } }
+            : { serverContent: { inputTranscription: { text: "Old input", finished: true } } }) }));
+        oldEvents.dispatchEvent(Object.assign(new Event("close"), { code: 1006, wasClean: false }));
+        await turn();
+        assert.equal(JSON.stringify(w.state), before, "old transport callbacks cannot fault or refresh the renewed conversation");
+        assert.deepEqual(w.delegations, []);
+        quiet(w, next);
+    }
+    async function capActive(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P);
+        const identity = capIdentity(w);
+        w.sink.write(Buffer.alloc(4800, 5));
+        await conn.event(APPEND);
+        w.clock.advance(60000 - w.clock.now());
+        await conn.sync();
+        assert.equal(w.urls.length, 1, "the renewal lead waits for an actual microphone boundary");
+        w.dispatch("talk-up");
+        await nativeEnd(conn);
+        await until(() => w.state.capture.kind === "closed", "the original recorder acknowledges its close");
+        assert.equal(w.urls.length, 1, "unanswered native transcription also holds the safe boundary");
+        nativeResult(conn, "cap_complete", "Complete request");
+        if (P === GEMINI) conn.nativeSend({ serverContent: { turnComplete: true } });
+        await until(() => w.delegations.length === 1, "the completed input reaches the independent brain once");
+        const next = await main.accept(w);
+        await P.open(next);
+        await next.sync();
+        capContinues(w, identity);
+        assert.deepEqual(w.delegations.map(event => event.text), ["Complete request"]);
+        assert.equal(P.sent(next).length, 0, "the completed microphone segment is never replayed");
+        assert.deepEqual(w.transcripts.filter(event => event.role === "assistant" && event.stage === "final"), []);
+    }
+    async function capAutomatic(kit, P = REALTIME) {
+        const { w } = await capReady(kit, P, "created", { holdToTalk: false });
+        const identity = capIdentity(w);
+        w.clock.advance(60000 - w.clock.now());
+        const next = await main.accept(w);
+        await P.open(next);
+        await next.sync();
+        capContinues(w, identity);
+        assert.equal(w.state.capture.kind, "open", "automatic listening remains open through quiet renewal");
+        const capture = w.captures.at(-1);
+        w.sink.write(Buffer.alloc(4800, 9));
+        await next.event(APPEND);
+        w.sink.endInput();
+        await nativeEnd(next);
+        nativeResult(next, "automatic_renewal", "Automatic request");
+        if (P === GEMINI) next.nativeSend({ serverContent: { turnComplete: true } });
+        await until(() => w.delegations.length === 1 && w.captures.at(-1) !== capture && w.state.capture.kind === "open",
+            "the next automatic turn returns to listening on the replacement transport");
+        assert.deepEqual(w.delegations.map(event => event.text), ["Automatic request"]);
+        capContinues(w, identity);
+    }
+    async function capUnfinished(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P);
+        const identity = capIdentity(w), sink = w.sink;
+        sink.write(Buffer.alloc(4800, 5));
+        await conn.event(APPEND);
+        if (P === GEMINI) conn.nativeSend({ serverContent: { inputTranscription: { text: "Unfinished" } } });
+        await conn.sync();
+        // The 20-second start bound and one-second margin force replacement
+        // before the advertised deadline when no safe boundary has arrived.
+        w.clock.advance(99000 - w.clock.now());
+        const next = await main.accept(w);
+        await P.open(next);
+        await next.sync();
+        capContinues(w, identity);
+        assert.equal(w.sink, sink, "transport expiry does not replace the live capture operation");
+        assert.deepEqual(w.delegations, [], "an unfinished native turn never becomes recognized input");
+        const notices = () => w.transcripts.filter(event => event.role === "assistant" && event.stage === "final");
+        assert.equal(notices().length, 1, "an unfinished segment receives one nonfault repeat notice");
+        sink.write(Buffer.alloc(4800, 7));
+        await next.sync();
+        assert.equal(P.sent(next).length, 0, "the cut segment stays discarded after reconnect");
+        sink.endInput();
+        await next.sync();
+        assert.equal(notices().length, 1, "the gate end adds no repeated notice");
+        assert.deepEqual(w.delegations, []);
+        sink.write(Buffer.alloc(4800, 9));
+        await next.event(APPEND);
+        sink.endInput();
+        await nativeEnd(next);
+        nativeResult(next, "cap_repeated", "Repeated request");
+        if (P === GEMINI) next.nativeSend({ serverContent: { turnComplete: true } });
+        await until(() => w.delegations.length === 1, "fresh post-boundary input reaches the brain");
+        assert.deepEqual(w.delegations.map(event => event.text), ["Repeated request"]);
+        assert.equal(notices().length, 1, "the UI notice is not a new model turn");
+        assert.ok(P.sent(next).every(byte => byte === 9), "only fresh input crosses the replacement transport");
+    }
+    async function capConnectingInput(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P);
+        const identity = capIdentity(w);
+        await capUser(w, conn, P, "Earlier request", "before_renewal");
+        w.clock.advance(60000 - w.clock.now());
+        const next = await main.accept(w);
+        w.dispatch("talk-down");
+        w.clock.advance(100);
+        const capture = w.captures.at(-1);
+        w.sink.write(Buffer.alloc(4800, 9));
+        w.dispatch("talk-up");
+        assert.equal(P.sent(next).length, 0, "new microphone input waits for replacement setup");
+        await P.open(next);
+        await next.event(APPEND);
+        await nativeEnd(next);
+        nativeResult(next, "after_renewal", "Fresh request");
+        if (P === GEMINI) next.nativeSend({ serverContent: { turnComplete: true } });
+        await until(() => w.delegations.length === 2, "new input queued during reconnect reaches the brain once");
+        assert.deepEqual(w.delegations.map(event => event.text), ["Earlier request", "Fresh request"]);
+        assert.equal(P.sent(next).length, 4800 * P.rate, "every fresh byte leaves once");
+        assert.ok(P.sent(next).every(byte => byte === 9), "PCM sent to the old provider is never replayed");
+        assert.deepEqual(w.inputResults.at(-1), { capture, empty: false }, "a short tap keeps its nonempty native input decision");
+        assert.deepEqual(w.transcripts.filter(event => event.role === "assistant" && event.stage === "final"), [],
+            "wholly new queued input needs no repeat notice");
+        capContinues(w, identity);
+    }
+    async function capUser(w, conn, P, text, item) {
+        const count = w.delegations.length;
+        if (w.state.capture.kind === "closed") w.dispatch("talk-down");
+        w.clock.advance(TAP);
+        w.sink.write(Buffer.alloc(4800, 5));
+        await conn.event(APPEND);
+        w.dispatch("talk-up");
+        await nativeEnd(conn);
+        nativeResult(conn, item, text);
+        if (P === GEMINI) conn.nativeSend({ serverContent: { turnComplete: true } });
+        await until(() => w.delegations.length === count + 1, "a real completed turn keeps the conversation active");
+    }
+    async function capQueuedSpeech(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P);
+        const identity = capIdentity(w);
+        await capUser(w, conn, P, "Speak twice", "cap_words");
+        assert.equal(say(w, "Already heard."), true);
+        assert.equal(words(await conn.event(SPEAK)), "Already heard.");
+        P.begin(conn);
+        P.chunk(conn, 4800, 0x11);
+        P.said(conn, "Already heard.");
+        P.end(conn);
+        await until(() => bytes(w, 0x11) === 4800, "the first sentence reaches playback");
+        w.clock.advance(500);
+        await until(() => w.state.playback.kind === "idle", "the first sentence plays out");
+        w.clock.advance(60000 - w.clock.now());
+        const next = await main.accept(w);
+        assert.equal(say(w, "After renewal."), true, "released words can wait for the replacement transport");
+        await P.open(next);
+        const spoken = await next.event(SPEAK);
+        assert.equal(words(spoken), "After renewal.", "renewal speaks queued words without repeating the earlier sentence");
+        assert.deepEqual(next.events.filter(event => P.kind(event) === P.SPEAK).map(words), ["After renewal."]);
+        P.begin(next, "resp_new");
+        P.chunk(next, 4800, 0x22, "resp_new");
+        P.said(next, "After renewal.", "resp_new");
+        P.end(next, "resp_new");
+        await until(() => bytes(w, 0x22) === 4800, "the queued sentence reaches playback after renewal");
+        assert.equal(bytes(w, 0x11), 4800, "already heard PCM is never replayed");
+        capContinues(w, identity);
+        assert.equal(P.sent(next).length, 0);
+    }
+    async function capCutSpeech(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P, "created", { ack: "Already heard.", ackLine: false });
+        const identity = capIdentity(w);
+        w.sink.write(Buffer.alloc(4800, 5));
+        await conn.event(APPEND);
+        // Actual unfinished input holds the safe renewal boundary until
+        // this late turn can start a reply within its response deadline.
+        w.clock.advance(80000 - w.clock.now());
+        w.dispatch("talk-up");
+        await nativeEnd(conn);
+        nativeResult(conn, "cap_cut", "Speak through renewal");
+        if (P === GEMINI) conn.nativeSend({ serverContent: { turnComplete: true } });
+        assert.equal(words(await conn.event(SPEAK)), "Already heard.");
+        const id = w.delegations.at(-1).delegation;
+        assert.equal(say(w, "Incomplete words."), true);
+        assert.equal(w.engine.commentary(id, kit.Policy.item("Later queued.", ["desktop"])), true);
+        w.stall = true;
+        P.begin(conn);
+        P.chunk(conn, 4800, 0x11);
+        P.said(conn, "Already heard.");
+        P.end(conn);
+        assert.equal(words(await conn.event(SPEAK)), "Incomplete words.");
+        P.begin(conn, "resp_cut");
+        P.chunk(conn, 2400, 0x22, "resp_cut");
+        P.said(conn, "Incomplete", "resp_cut");
+        await conn.sync();
+        w.clock.advance(99000 - w.clock.now());
+        const next = await main.accept(w);
+        await P.open(next);
+        assert.equal(words(await next.event(SPEAK)), "Later queued.", "only later queued words survive a forced chunk cut");
+        assert.equal(w.engine.heard(id).pending, true, "cutoff accounting waits for the old Audio source");
+        assert.deepEqual(w.interrupted, []);
+        w.read();
+        await until(() => w.interrupted.length === 1, "the old source played acknowledgement accounts the forced cutoff");
+        assert.deepEqual(w.interrupted, [{ id, text: "Already heard." }], "only completed response marks become the heard prefix");
+        assert.equal(bytes(w, 0x11), 4800);
+        assert.equal(bytes(w, 0x22), 2400, "partial native audio is not replayed");
+        w.stall = false;
+        P.begin(next, "resp_later");
+        P.chunk(next, 4800, 0x33, "resp_later");
+        P.said(next, "Later queued.", "resp_later");
+        P.end(next, "resp_later");
+        await until(() => bytes(w, 0x33) === 4800, "later queued words play after the cut source");
+        w.clock.advance(500);
+        await until(() => w.state.playback.kind === "idle", "the surviving speech drains");
+        assert.equal(w.engine.heard(id).text(null), "Already heard. Later queued.");
+        assert.deepEqual(w.interrupted, [{ id, text: "Already heard." }], "a cutoff reports once");
+        const released = w.judged.find(item => item.content.includes("Later queued."));
+        assert.deepEqual([...released.labels], ["desktop"], "queued speech retains its producer labels across renewal");
+        capContinues(w, identity);
+    }
+    async function capTeardown(kit, P = REALTIME) {
+        for (const ending of ["close", "lease"]) {
+            const { w } = await capReady(kit, P);
+            w.clock.advance(60000 - w.clock.now());
+            const next = await main.accept(w);
+            const events = w.channelEvents;
+            if (ending === "lease") w.runner.close();
+            else w.dispatch("toggle");
+            await until(() => next.ended, ending + " releases a replacement still waiting for setup");
+            const before = JSON.stringify(w.state), opened = w.urls.length;
+            events.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(P === REALTIME
+                ? script("created") : gscript("setup-complete")) }));
+            events.dispatchEvent(Object.assign(new Event("close"), { code: 1006, wasClean: false }));
+            w.clock.advance(120000);
+            await turn();
+            assert.equal(w.urls.length, opened, ending + " forbids a late timer or callback from reopening transport");
+            assert.equal(JSON.stringify(w.state), before);
+            assert.equal(w.state.conversation.kind, "ended");
+            assert.equal(w.state.fault.kind, "none");
+            assert.ok(w.handed.every(secret => secret.every(byte => byte === 0)));
+        }
+    }
+    async function capStop(kit, P = REALTIME) {
+        const { w, conn } = await capReady(kit, P);
+        const identity = capIdentity(w);
+        await capUser(w, conn, P, "Start work", "cap_stop");
+        w.clock.advance(60000 - w.clock.now());
+        const next = await main.accept(w);
+        assert.equal(say(w, "Discard this queued sentence."), true);
+        w.dispatch("stop");
+        await P.open(next);
+        await next.sync();
+        capContinues(w, identity);
+        assert.deepEqual(next.events.filter(event => P.kind(event) === P.SPEAK), [], "Stop drops work queued during renewal");
+        await capUser(w, next, P, "Fresh request", "cap_after_stop");
+        assert.deepEqual(w.delegations.map(event => event.text), ["Start work", "Fresh request"]);
+        capContinues(w, identity);
+    }
+    async function capExpiry(kit) {
+        for (const expiryOn of ["created", "updated"]) {
+            const { w } = await capReady(kit, REALTIME, expiryOn);
+            w.clock.advance(59999 - w.clock.now());
+            await turn();
+            assert.equal(w.urls.length, 1, expiryOn + " expiry is interpreted in Unix seconds");
+            w.clock.advance(1);
+            const next = await main.accept(w);
+            await REALTIME.open(next);
+            assert.equal(w.urls.length, 2, expiryOn + " advertises the renewal deadline");
+            assert.equal(w.state.fault.kind, "none");
+        }
+    }
+    async function capWallClock(kit) {
+        const { w } = await capReady(kit, REALTIME, "created", { wallEpoch: 1700000000000 });
+        const identity = capIdentity(w);
+        assert.equal(w.clock.wallNow() - w.clock.now(), 1700000000000);
+        w.clock.advance(59999 - w.clock.now());
+        await turn();
+        assert.equal(w.urls.length, 1, "Unix expiry is translated to the independent monotonic timer");
+        w.clock.advance(1);
+        const next = await main.accept(w);
+        await REALTIME.open(next);
+        capContinues(w, identity);
+        assert.equal(w.urls.length, 2, "the wall-clock epoch does not postpone cap renewal");
+    }
+    async function capFallback(kit) {
+        const { w, conn } = await starting(kit);
+        REALTIME.go(conn);
+        await conn.sync();
+        const identity = capIdentity(w);
+        // Real completed input at each interval keeps Session's independent
+        // thirty-minute quiet close from ending this active-hour workload.
+        for (const at of [20 * 60000, 40 * 60000]) {
+            w.clock.advance(at - w.clock.now());
+            await capUser(w, conn, REALTIME, "Still active " + at, "fallback_" + at);
+        }
+        w.clock.advance(59 * 60000 - 1 - w.clock.now());
+        await conn.sync();
+        assert.equal(w.urls.length, 1, "an omitted expiry keeps the documented sixty-minute lifetime");
+        w.clock.advance(1);
+        const next = await main.accept(w);
+        await REALTIME.open(next);
+        capContinues(w, identity);
+        assert.equal(w.urls.length, 2, "the fallback renews one minute before the maximum");
+    }
+    async function gcapWarnings(kit) {
+        for (const remaining of ["120.5s", undefined]) {
+            const { w, conn } = await starting(kit, { protocol: GEMINI });
+            GEMINI.go(conn);
+            conn.nativeSend({ goAway: remaining === undefined ? {} : { timeLeft: remaining } });
+            await conn.sync();
+            const identity = capIdentity(w);
+            if (remaining !== undefined) {
+                w.clock.advance(60499);
+                await conn.sync();
+                assert.equal(w.urls.length, 1, "protobuf fractional seconds retain their unit");
+                w.clock.advance(1);
+            }
+            const next = await main.accept(w);
+            const setup = await GEMINI.open(next);
+            assert.equal(Object.hasOwn(setup.setup, "sessionResumption"), false, "a replacement voice starts without server persistence");
+            capContinues(w, identity);
+        }
     }
     // The first user turn has reached the brain.
     async function conversing(kit, options) {
@@ -1293,6 +1657,14 @@ world(async () => {
         })), "live=format"],
         ["updated-shape", starting, conn => conn.raw(off("updated", event => ({ ...event, session: { type: "realtime" } }))),
             "live=frame-shape"],
+        ["expiry-type", starting, conn => conn.raw(off("updated", event => {
+            event.session.expires_at = "120";
+            return event;
+        })), "live=frame-shape"],
+        ["expiry-negative", starting, conn => conn.raw(off("updated", event => {
+            event.session.expires_at = -1;
+            return event;
+        })), "live=frame-shape"],
         ["early-audio", starting, conn => conn.send(script("reply-old", 1)), "live=event-order"],
         ["early-turn", starting, conn => conn.nativeSend(script("turn", -1)), "live=event-order"],
         ["early-update", connecting, conn => conn.play("updated"), "live=event-order"]
@@ -2212,7 +2584,8 @@ world(async () => {
         return event;
     }));
     const growsList = [
-        ["go-away", grunning, conn => conn.play("go-away"), "live=go-away"],
+        ["go-away-type", grunning, conn => conn.raw(JSON.stringify({ goAway: { timeLeft: 120 } })), "live=frame-shape"],
+        ["go-away-duration", grunning, conn => conn.raw(JSON.stringify({ goAway: { timeLeft: "120ms" } })), "live=frame-shape"],
         ["tool-call", grunning, conn => conn.play("tool-call"), "live=message type=toolCall"],
         ["tool-cancel", grunning, conn => conn.play("tool-cancel"), "live=message type=toolCallCancellation"],
         ["unknown", grunning, conn => conn.raw(JSON.stringify({ realtimeOutput: {} })), "live=message type=realtimeOutput"],
@@ -2311,6 +2684,7 @@ world(async () => {
     }
 
     const cases = { roundTrip, preview, vocabulary, nativeInput, inputOutcomes, quietInput, stoppedInput, inputFrame, nativeResultsBound, keyRefused, closing, captions, interruptPlaying,
+        capIdle, capActive, capAutomatic, capUnfinished, capConnectingInput, capQueuedSpeech, capCutSpeech, capTeardown, capStop, capExpiry, capWallClock, capFallback,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, responseEnded, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
@@ -2318,13 +2692,14 @@ world(async () => {
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
         daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
         daemonFailover: kit => daemonDelegation(kit, "failover"),
-        groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures,
+        groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures, gcapWarnings,
         gredirect, gstartTimeout, gkeys,
         ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key"]
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
     // The session rules both adapters keep, which run once for each: the
     // Realtime rows above take the adapter as their second argument.
     const SHARED = ["nativeInput", "inputOutcomes", "quietInput", "stoppedInput", "inputFrame", "nativeResultsBound", "keyRefused", "closing", "interruptPlaying", "interruptQueued",
+        "capIdle", "capActive", "capAutomatic", "capUnfinished", "capConnectingInput", "capQueuedSpeech", "capCutSpeech", "capTeardown", "capStop",
         "replacedReply", "heardAccount", "replyDue", "replyDueCarried", "releaseDue", "labels", "responseTimeout", "responseEnded", "opening",
         "releaseLifetime", "pacing", "replyQueue", "backlog", "lineQueue", "violations"];
     // Realtime's own rows and the Gemini Live rows that hold the same rule
@@ -2375,7 +2750,7 @@ world(async () => {
             if (SHARED.includes(spec.case)) return folder => cases[spec.case](kitFrom(folder), GEMINI);
             return Object.hasOwn(GEMINI_CASE, spec.case) ? folder => cases[GEMINI_CASE[spec.case]](kitFrom(folder)) : null;
         };
-        const disconnected = 'answer.events.addEventListener("close", event => failed(session,\n            Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code));';
+        const disconnected = 'answer.events.addEventListener("close", event => {\n            if (session.channel === answer) failed(session,\n                Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code);\n        });';
         const mutations = [
             ["manual-input", "turn_detection: null", 'turn_detection: { type: "semantic_vad" }', as("roundTrip")],
             ["native-end-wire", '{ type: "input_audio_buffer.commit" }', '{ type: "input_audio_buffer.clear" }', as("nativeInput")],
@@ -2383,8 +2758,14 @@ world(async () => {
             ["native-minimum", "if (bytes < PCM_RATE * 2 / 10)", "if (false)", as("nativeInput")],
             ["native-empty", "empty: !capture.words", "empty: false", as("inputOutcomes")],
             ["native-result-pending", "capture.pending !== 0", "false", as("inputOutcomes")],
-            ["stopped-native-input", "for (const capture of session.commits) capture.discarded = true;", "", as("stoppedInput")],
-            ["stop-queued-input", "session.pending = [];\n            session.pendingBytes = 0;", "", as("stoppedInput")],
+            ["stopped-native-input", "for (const capture of session.commits) capture.discarded = true;\n            for (const capture of session.inputs.values()) capture.discarded = true;",
+                "for (const capture of session.inputs.values()) capture.discarded = true;", as("stoppedInput")],
+            ["stop-queued-input", "if (session.capture !== null) session.capture.inputRecord.discarded = true;\n            session.pending = [];\n            session.pendingBytes = 0;",
+                "if (session.capture !== null) session.capture.inputRecord.discarded = true;", as("stoppedInput")],
+            ["cap-discard", "session.capture?.discardInput();", "", as("capUnfinished")],
+            ["cap-cut-account", "session.events.interrupted?.({ id: cut.id, text: cut.account.text(null) });",
+                'session.events.interrupted?.({ id: cut.id, text: "" });', as("capCutSpeech")],
+            ["cap-wall-clock", "clock.now() + event.expiresAt - clock.wallNow()", "event.expiresAt", as("capWallClock")],
             ["native-results-bound", "session.commits.length + session.inputs.size >= 128", "session.commits.length + session.inputs.size > 128", as("nativeResultsBound")],
             ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
             ["no-voice", "output: { format: FORMAT, voice: session.voice } }", "output: { format: FORMAT } }", as("preview")],
@@ -2477,13 +2858,15 @@ world(async () => {
             ["updated-shape", 'if (!plain(audio)) fail("frame-shape");', "if (!plain(audio)) return { kind: \"started\" };", row("updated-shape")],
             ["early-turn", 'if (kind !== "running" && !["created", "started", "ignored"].includes(event.kind)) fail("event-order");', "", row("early-turn")],
             ["unread", 'case "response.output_audio.done": ', "", as("unread")],
-            ["start-timeout", 'clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS)', "null", as("startTimeout")],
+            ["start-timeout", 'live = session;\n            session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);',
+                "live = session;\n            session.timers.start = null;", as("startTimeout")],
             ["response-timeout", 'clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS)', "null", as("responseTimeout")],
-            ["response-wait-end", 'clear(session, "words");', "", as("responseEnded")],
+            ["response-wait-end", 'active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text, line: active.line });\n                session.speech.active = null;\n                clear(session, "words");',
+                'active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text, line: active.line });\n                session.speech.active = null;', as("responseEnded")],
             ["key-first", "Net.assertKeyTarget(provider.base, key.reference.origin);", "", as("keys")],
             ["key-zero", "} finally { secret.fill(0); }", "} finally { void secret; }", as("roundTrip")],
             ["pending", "session.pending.push(Buffer.from(pcm));", "", as("roundTrip")],
-            ["reply-end", "reply.stream.push(null);", "", as("roundTrip")],
+            ["reply-end", 'reply.kind = "ended";\n            reply.stream.push(null);', 'reply.kind = "ended";', as("roundTrip")],
             ["reply-open", 'if (session.playing !== reply || reply.kind !== "open" || !quiet(session)) return;', 'if (session.playing !== reply || reply.kind !== "open") return;', as("roundTrip")],
             ["caption-turn", "if (segment !== null && segment.source !== source) segment = session.segments[role] = null;", "", as("captions")],
             ["caption-overlap", 'session.segments.user.source === event.item) conclude(session, "user");', 'true) conclude(session, "user");', as("captions")],
@@ -2508,6 +2891,8 @@ world(async () => {
                 folder => releaseConnect(kitFrom(folder, [withheldConnect]))]
         ];
         for (const [name, needle, replacement, spec] of mutations) await control(name, needle, replacement, checkFor(spec, REALTIME));
+        await control("cap-renewal-lead", "const RENEW_BEFORE_MS = 60000;", "const RENEW_BEFORE_MS = 59000;",
+            folder => capExpiry(kitFrom(folder)), { file: "VoiceRollover.js" });
         // The refused handshake's status, which net.js reports to both adapters.
         for (const [name, needle, replacement] of [["net-handshake-status", "            status = response.statusCode;", "            void response;"],
             ["net-key-refused-403", "return close.status === 401 || close.status === 403;", "return close.status === 401;"]])
@@ -2532,7 +2917,9 @@ world(async () => {
             ["model", '"models/" + provider.model', '"models/gemini-live"', as("groundTrip")],
             ["unasked-rule", 'session.reader + "\\n\\n" + UNASKED', "session.reader", as("groundTrip")],
             ["voice", "prebuiltVoiceConfig: { voiceName: voice }", 'prebuiltVoiceConfig: { voiceName: "Zephyr" }', as("gpreview")],
-            ["setup-first", 'answer.events.addEventListener("open", () => opened(session));', "", as("groundTrip")],
+            ["setup-first", 'answer.events.addEventListener("open", () => { if (session.channel === answer) opened(session); });', "", as("groundTrip")],
+            ["stopped-native-input", 'for (const capture of session.commits) capture.discarded = true;\n            if (session.capture !== null) session.capture.inputRecord.discarded = true;',
+                'if (session.capture !== null) session.capture.inputRecord.discarded = true;', as("stoppedInput"), "stopped-native-input"],
             ["input-24k", 'data: out.toString("base64")', 'data: pcm.toString("base64")', as("groundTrip")],
             ["input-rate", 'const INPUT_MIME = "audio/pcm;rate=16000";', 'const INPUT_MIME = "audio/pcm;rate=24000";', as("groundTrip")],
             ["resample-mean", "(all.readInt16LE(group * 6 + 2) + all.readInt16LE(group * 6 + 4)) >> 1", "all.readInt16LE(group * 6 + 2)", as("groundTrip")],
@@ -2542,17 +2929,20 @@ world(async () => {
             ["hold-model", unasked, "            if (active === null) void 0;\n            else if", as("gthought")],
             ["hold-model-timeout", unasked, "            if (active === null) void 0;\n            else if", as("gunbiddenTimeout")],
             ["hold-wait", "if (session.hold) {", "if (false) {", as("gheld")],
-            ["hold-lift", "session.hold = false;\n            clear(session, \"hold\");", "clear(session, \"hold\");", as("gheld")],
+            ["hold-lift", 'if (session.turn !== null) conclude(session, "user");\n            session.turn = null;\n            session.hold = false;\n            clear(session, "hold");',
+                'if (session.turn !== null) conclude(session, "user");\n            session.turn = null;\n            clear(session, "hold");', as("gheld")],
             ["hold-timeout", 'session.timers.hold = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);', "void 0;",
                 as("gunbiddenTimeout")],
-            ["hold-timer-end", 'session.hold = false;\n            clear(session, "hold");', "session.hold = false;", as("gheld")],
+            ["hold-timer-end", 'if (session.turn !== null) conclude(session, "user");\n            session.turn = null;\n            session.hold = false;\n            clear(session, "hold");',
+                'if (session.turn !== null) conclude(session, "user");\n            session.turn = null;\n            session.hold = false;', as("gheld")],
             ["unasked-plays", unasked, "            if (active === null) for (const pcm of event.audio) output(session, { reply: null }, pcm);\n            else if",
                 as("groundTrip")],
             ["unasked-captioned", unasked, '            if (active === null) { session.hold = true; if (event.said !== "") caption(session, "assistant", event.said); }\n            else if',
                 as("gcaptions")],
             ["turn-ends-at-turn-complete", "            delegate(session);\n            if (session.state.kind === \"ended\") return;\n            if (session.turn !== null)",
                 "            if (session.state.kind === \"ended\") return;\n            if (session.turn !== null)", as("gcaptions")],
-            ["turn-closes", "session.turn = null;\n            session.hold = false;", "session.hold = false;", as("gdelegation")],
+            ["turn-closes", 'if (session.turn !== null) conclude(session, "user");\n            session.turn = null;\n            session.hold = false;',
+                'if (session.turn !== null) conclude(session, "user");\n            session.hold = false;', as("gdelegation")],
             ["finished-ends-turn", "if (!discarded) delegate(session);", "void session;", as("gheld")],
             ["late-words", "if (session.turn === null) {", "if (session.turn === null || session.turn.delegated) {", as("gdelegation")],
             ["delegate-once", "if (turn === null || turn.delegated) return;", "if (turn === null) return;", as("gdelegation")],
@@ -2569,7 +2959,6 @@ world(async () => {
                 'if (session.turn === null) {', as("gcaptions"), "caption-reply-end"],
             ["cut-discards", "if (event.interrupted && active !== null) active.discarded = true;", "", as("ginterrupted")],
             ["flush-discards", "if (session.speech.active !== null) session.speech.active.discarded = true;", "", as("interruptPlaying"), "discard"],
-            ["go-away", 'return fail("go-away");', 'return { kind: "ignored" };', grow("go-away")],
             ["tool-call", 'return fail("message type=" + token(kind));', 'return { kind: "ignored" };', grow("tool-call"), "function-call"],
             ["tool-cancel", 'return fail("message type=" + token(kind));', 'return { kind: "ignored" };', grow("tool-cancel")],
             ["unknown", 'return fail("message type=" + token(kind));', 'return { kind: "ignored" };', grow("unknown"), "unrequested"],
@@ -2597,6 +2986,8 @@ world(async () => {
             ["early-turn", 'if (kind !== "running" && !["started", "ignored"].includes(event.kind)) fail("event-order");', "", grow("early-turn"), "early-turn"],
             ["response-timeout", 'session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);\n        try {', "try {",
                 as("responseTimeout"), "response-timeout"],
+            ["response-wait-end", 'active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text, line: active.line });\n            session.speech.active = null;\n            clear(session, "words");',
+                'active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text, line: active.line });\n            session.speech.active = null;', as("responseEnded"), "response-wait-end"],
             ["release", 'if (answer.kind !== "send") fail("release-" + answer.kind);\n        if (session.channel', "if (session.channel",
                 folder => grelease(kitFrom(folder, [geminiWithheld])), "release"],
             ["release-connect", 'if (answer.kind !== "channel") fail("release-" + answer.kind);', 'if (answer.kind !== "channel") return;',

@@ -338,6 +338,13 @@
      }
     }
    }
+  ],
+  "cap-warning": [
+   {
+    "goAway": {
+     "timeLeft": "120s"
+    }
+   }
   ]
  }
 }

@@ -520,6 +520,76 @@
     "content_index": 0,
     "transcript": ""
    }
+  ],
+  "cap-created": [
+   {
+    "type": "session.created",
+    "event_id": "evt_created",
+    "session": {
+     "type": "realtime",
+     "output_modalities": [
+      "audio"
+     ],
+     "tools": [],
+     "tool_choice": "auto",
+     "instructions": "Fixture default instructions.",
+     "audio": {
+      "input": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "turn_detection": {
+        "type": "server_vad",
+        "create_response": true,
+        "interrupt_response": true
+       }
+      },
+      "output": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "voice": "marin"
+      }
+     },
+     "expires_at": 120
+    }
+   }
+  ],
+  "cap-updated": [
+   {
+    "type": "session.updated",
+    "event_id": "evt_updated",
+    "session": {
+     "type": "realtime",
+     "output_modalities": [
+      "audio"
+     ],
+     "tools": [],
+     "tracing": null,
+     "audio": {
+      "input": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "transcription": {
+        "model": "gpt-live-transcribe"
+       },
+       "turn_detection": null
+      },
+      "output": {
+       "format": {
+        "type": "audio/pcm",
+        "rate": 24000
+       },
+       "voice": "marin"
+      }
+     },
+     "expires_at": 120
+    }
+   }
   ]
  }
 }

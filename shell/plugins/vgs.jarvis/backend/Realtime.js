@@ -21,6 +21,7 @@ const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
 const Child = require("./Child.js");
+const VoiceRollover = require("./VoiceRollover.js");
 const { sourceLimit, PCM_RATE } = require("./Audio.js");
 
 const FORMAT = Object.freeze({ type: "audio/pcm", rate: PCM_RATE });
@@ -29,6 +30,8 @@ const FORMAT = Object.freeze({ type: "audio/pcm", rate: PCM_RATE });
 const TRANSCRIBE = "gpt-live-transcribe";
 // Recovery bounds and grouping rules, not measured latency budgets.
 const START_WAIT_MS = 20000;      // connect, session.created and session.updated
+// Realtime conversations guide, read 2026-11-05: maximum session duration.
+const SESSION_MS = 60 * 60 * 1000;
 const RESPONSE_WAIT_MS = 30000;   // response.create to its response.done
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
 const PUMP_MS = 100;
@@ -75,6 +78,15 @@ function identity(value) {
 function token(value) { return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : "unrecognized"; }
 function reasonOf(error) { return String(error.message).replace(/^jarvis: /, "").slice(0, 160); }
 function clean(text) { return text.replace(/[\x00-\x1f\x7f]/g, " "); }
+// Server session.created/session.updated, RealtimeSessionCreateResponse:
+// https://developers.openai.com/api/reference/resources/realtime/server-events
+// This is session expiry, never the client_secret credential expiry.
+function expiresAt(value) {
+    const seconds = plain(value.session) ? value.session.expires_at : undefined;
+    if (seconds === undefined) return null;
+    if (!Number.isSafeInteger(seconds) || seconds < 0) fail("frame-shape");
+    return seconds * 1000;
+}
 
 /**
  * The target words of the user's voxtype [text.replacements], once each in
@@ -122,14 +134,14 @@ function eventOf(data) {
     if (!plain(value) || typeof value.type !== "string") fail("frame-shape");
     switch (value.type) {
     case "session.created":
-        return { kind: "created" };
+        return { kind: "created", expiresAt: expiresAt(value) };
     case "session.updated": {
         const audio = plain(value.session) ? value.session.audio : undefined;
         if (!plain(audio)) fail("frame-shape");
         for (const side of [audio.input, audio.output])
             if (!plain(side) || !plain(side.format) || side.format.type !== FORMAT.type || side.format.rate !== FORMAT.rate)
                 fail("format");
-        return { kind: "started" };
+        return { kind: "started", expiresAt: expiresAt(value) };
     }
     case "input_audio_buffer.speech_started":
         return { kind: "activity" };
@@ -199,6 +211,9 @@ function eventOf(data) {
  * Session ends the conversation. captionLimit
  * is the wire's transcript bound. log receives keyed diagnostic lines. One
  * session at a time is live.
+ * clock.now is monotonic; clock.wallNow converts the server's Unix expiry.
+ * events.interrupted({id, text}) hands the engine a cap-cut reply's heard
+ * prefix after Audio acknowledges its completed native response marks.
  */
 function create({ provider, clock, conversation, captionLimit, log }) {
     Providers.assertRow(provider);
@@ -211,6 +226,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.timers[name] = null;
     }
     function release(session) {
+        session.rollover?.close();
         if (session.segments.assistant !== null) tally(session, session.segments.assistant.text);
         session.segments = { user: null, assistant: null };
         for (const name of Object.keys(session.timers)) clear(session, name);
@@ -223,6 +239,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.delegation = null;
         session.said = [];
         session.taken = null;
+        session.cut = null;
         session.reading.abort();
         // Closing a connecting channel can emit close synchronously. The
         // released session must refuse that callback before it closes.
@@ -234,6 +251,60 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (session.state.kind === "ended") return;
         release(session);
         session.events.failed(reason);
+    }
+    function boundary(session) { session.rollover?.boundary(); }
+    function repeatNotice(session) {
+        if (session.repeatNotice) return;
+        session.repeatNotice = true;
+        emit(session, "assistant", VoiceRollover.REPEAT_LINE, "final");
+    }
+    function reportCut(session) {
+        const cut = session.cut;
+        if (cut === null) return;
+        session.cut = null;
+        session.events.interrupted?.({ id: cut.id, text: cut.account.text(null) });
+    }
+    function renew(session, forced) {
+        if (session.state.kind === "ended") return;
+        session.rollover.close();
+        const old = session.channel;
+        session.channel = null;
+        session.state = { kind: "connecting" };
+        session.renewing = true;
+        session.repeatNotice = false;
+        if (forced) {
+            const interrupted = (session.capture?.inputRecord.bytes ?? 0) !== 0
+                || session.pending.length !== 0 || session.commits.length !== 0 || session.inputs.size !== 0;
+            for (const capture of [...session.commits, ...session.inputs.values()]) capture.discarded = true;
+            session.commits = [];
+            session.inputs.clear();
+            session.pending = [];
+            session.pendingBytes = 0;
+            if (interrupted) {
+                session.capture?.discardInput();
+                session.segments.user = null;
+                repeatNotice(session);
+            }
+            // No timing can identify unplayed words inside a partial native
+            // response. Cut that chunk rather than repeat words already heard.
+            const active = session.speech.active;
+            if (active !== null) {
+                session.cut ??= { id: session.delegation, reply: active.reply, account: heard(session.delegation) };
+                active.discarded = true;
+                if (active.reply?.kind === "open") {
+                    active.reply.kind = "ended";
+                    active.reply.stream.push(null);
+                }
+                session.speech.active = null;
+                clear(session, "words");
+                if (session.speech.queue.length === 0) session.events.due(false);
+                if (active.reply === null) reportCut(session);
+            }
+        }
+        old?.close();
+        clear(session, "start");
+        session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);
+        try { connect(session, conversation(session.effect)); } catch (error) { failed(session, reasonOf(error)); }
     }
     function send(session, value, items = [Policy.item("", ["speech"])]) {
         const frame = Policy.summary(JSON.stringify(value), items);
@@ -424,11 +495,13 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         try {
             if (kind !== "running" && !["created", "started", "ignored"].includes(event.kind)) fail("event-order");
             switch (event.kind) {
-            case "created":
+            case "created": {
                 if (kind !== "connecting") fail("event-order");
                 session.state = { kind: "starting" };
-                void session.vocabulary.then(answer => configure(session, answer));
+                const channel = session.channel;
+                void session.vocabulary.then(answer => { if (session.channel === channel) configure(session, answer); });
                 break;
+            }
             case "started":
                 if (kind !== "starting") fail("event-order");
                 clear(session, "start");
@@ -440,6 +513,8 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                     session.delegation = PREVIEW;
                     commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));
                 }
+                session.renewing = false;
+                speak(session);
                 break;
             case "activity": break;
             case "stopped": break;
@@ -500,12 +575,16 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 session.speech.active = null;
                 clear(session, "words");
 
+                boundary(session);
                 if (speak(session)) settle(session);
                 break;
             }
             case "ignored": break;
             default: throw new Error("jarvis: live=event-kind");
             }
+            if (event.expiresAt !== undefined && event.expiresAt !== null)
+                session.rollover.arm(clock.now() + event.expiresAt - clock.wallNow());
+            boundary(session);
         } catch (error) { failed(session, reasonOf(error)); }
     }
     // The session's configuration, once the provider created it and the
@@ -545,23 +624,31 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         } finally { secret.fill(0); }
         if (answer.kind !== "channel") fail("release-" + answer.kind);
         session.channel = answer;
-        answer.events.addEventListener("message", event => receive(session, event.data));
+        session.rollover = VoiceRollover.create({ clock, connectWait: START_WAIT_MS,
+            idle: () => session.state.kind === "running" && session.pending.length === 0 && session.commits.length === 0
+                && session.inputs.size === 0 && (session.capture?.inputRecord.bytes ?? 0) === 0 && session.speech.active === null,
+            reconnect: forced => renew(session, forced) });
+        session.rollover.arm(clock.now() + SESSION_MS);
+        answer.events.addEventListener("message", event => { if (session.channel === answer) receive(session, event.data); });
         // WHATWG WebSocket fires close after every error, a refused redirect
         // included; close owns the outcome.
         // A handshake answered 401 or 403 refused the key; its body is never read.
-        answer.events.addEventListener("close", event => failed(session,
-            Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code));
+        answer.events.addEventListener("close", event => {
+            if (session.channel === answer) failed(session,
+                Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code);
+        });
         // Read while the handshake runs. Node throws, rather than emits, a
         // spawn errno outside EACCES, EAGAIN, EMFILE, ENFILE and ENOENT
         // (lib/internal/child_process.js, Node 26.12.1).
-        session.vocabulary = vocabulary(clock, session.reading.signal)
+        session.vocabulary ??= vocabulary(clock, session.reading.signal)
             .catch(error => ({ kind: "unread", cause: "thrown=" + token(error.code) }));
     }
 
     const port = {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
-            const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, voice: null, reader: "",
+            const session = { op: e.op, effect: e, events, state: { kind: "connecting" }, channel: null, voice: null, reader: "",
+                rollover: null, renewing: false, repeatNotice: false, cut: null,
                 reading: new AbortController(), vocabulary: null,
                 timers: { start: null, pump: null, gap: null, words: null, preview: null },
                 pending: [], pendingBytes: 0, capture: null, commits: [], inputs: new Map(),
@@ -611,13 +698,14 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             // Audio's flush releases the reply it holds.
             session.playing = null;
             session.taken = null;
+            session.cut = null;
 
         }
     };
 
     function commentary(id, item, options = {}) {
         const session = live;
-        if (session === null || session.state.kind !== "running" || session.delegation !== id) return false;
+        if (session === null || session.state.kind !== "running" && !session.renewing || session.delegation !== id) return false;
         const isLine = options.line === true;
         if (isLine) {
             const waiting = session.speech.queue.findIndex(words => words.line === true);
@@ -651,22 +739,33 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function captureSink(e) {
         const session = live;
         if (session === null) return null;
-        const capture = { op: e.op, bytes: 0, committed: false, pending: 0,
-            closed: false, words: false, reported: false, discarded: false };
+        const record = () => ({ op: e.op, bytes: 0, committed: false, pending: 0,
+            closed: false, words: false, reported: false, discarded: false });
+        let capture = record();
+        let discarding = false;
         const sink = new Writable({
             write(pcm, encoding, done) {
                 if (session.capture !== sink || session.state.kind === "ended") { done(); return; }
                 if (pcm.length % 2 !== 0) { done(new Error("jarvis: live=input-frame")); return; }
+                if (discarding) { done(); return; }
                 capture.bytes += pcm.length;
                 input(session, pcm);
                 done();
             }
         });
         sink.inputRecord = capture;
+        sink.discardInput = () => { capture.discarded = true; discarding = true; };
         // Audio calls this only when its level gate closes. A true answer
         // records a native boundary queued locally, not provider acceptance
         // or recognized words. Native results retain the capture identity.
         sink.endInput = () => {
+            if (discarding) {
+                discarding = false;
+                capture = record();
+                sink.inputRecord = capture;
+                boundary(session);
+                return false;
+            }
             if (session.state.kind === "ended" || capture.discarded || capture.bytes === 0) return false;
             const bytes = capture.bytes;
             capture.bytes = 0;
@@ -676,6 +775,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             if (bytes < PCM_RATE * 2 / 10) {
                 session.pending.push({ clear: true });
                 pump(session);
+                boundary(session);
                 return false;
             }
             capture.committed = true;
@@ -689,6 +789,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             capture.closed = true;
             reportInput(session, capture);
             if (session.capture === sink) session.capture = null;
+            boundary(session);
         });
         return sink;
     }
@@ -717,7 +818,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         const session = live;
         if (session === null || session.op !== source || session.taken === null) return;
         session.said.push(...session.taken.marks);
+        if (session.cut?.reply === session.taken) reportCut(session);
         session.taken = null;
+        boundary(session);
         // Session hears Audio's played after this call; the idle report that
         // ends a preview's conversation waits for it, on a timer of its own
         // that the reply's close, which restarts the idle wait, leaves.
@@ -736,6 +839,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function heard(id) {
         const session = live;
         if (session === null || session.delegation !== id) return null;
+        if (session.cut?.id === id) return { ...session.cut.account, pending: true };
         const { said, taken, op } = session;
         return Object.freeze({
             pending: replyPending(session),

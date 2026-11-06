@@ -66,7 +66,8 @@ function rig(kit, server, options = {}) {
     // Session deadlines run on an injected clock that only the case advances.
     let at = 0;
     const timers = new Map();
-    const runnerClock = { now: () => at, set: (fn, ms) => { const key = {}; timers.set(key, { fn, at: at + ms }); return key; },
+    const runnerClock = { now: () => at, wallNow: () => at,
+        set: (fn, ms) => { const key = {}; timers.set(key, { fn, at: at + ms }); return key; },
         clear: key => timers.delete(key) };
     const advanceRunner = ms => {
         at += ms;
@@ -4172,7 +4173,8 @@ async function keyRefusedHold(root, handshake, engineEdits = []) {
         const engine = Engine.create({ captionLimit: 1, state: () => ({ gen: 0 }),
             accounts: () => ({ secrets: { lookup: () => Buffer.from("test-key-must-stay-private"), revision: () => String(revision) }, choose: elevenAccounts.choose,
                 resolve: id => ["key 1", "key 2"].includes(id) ? keyOf(id) : null }),
-            clock: { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) },
+            clock: { now: () => performance.now(), wallNow: Date.now,
+                set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) },
             policy: () => ({ profile: "standard", cloudVision: "ask" }),
             audit: { before: (event, start) => ({ kind: "started", value: start() }), record: event => { records.push(event); return { kind: "recorded" }; } },
             configured: answer => answers.push(answer), rejudge: () => answers.push(engine.configure(settings)) });

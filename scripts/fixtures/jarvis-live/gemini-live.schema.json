@@ -10,7 +10,9 @@
    "https://ai.google.dev/gemini-api/docs/speech-generation"
   ],
   "nativeInputReference": "https://aistudio.google.com/docs/live-api/capabilities",
-  "nativeInputRead": "2026-11-05"
+  "nativeInputRead": "2026-11-05",
+  "capReference": "https://ai.google.dev/api/live#GoAway",
+  "capRead": "2026-11-05"
  },
  "rule": [
   "Each schema transcribes the message of the same name in the Live API reference to the checker's keyword set. A client or server message is an object holding one message kind; enum values stay as the reference spells them; optional members stay optional.",
