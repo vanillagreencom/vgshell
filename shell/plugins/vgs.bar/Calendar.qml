@@ -121,7 +121,7 @@ Item {
                 locale: grid.locale
                 delegate: Label {
                     required property string shortName
-                    role: "label"
+                    role: "calendarWeekday"
                     text: shortName
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

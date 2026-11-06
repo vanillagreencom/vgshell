@@ -112,6 +112,7 @@ Item {
                 { tag: "hint", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.55 },
                 { tag: "eyebrow", family: mono, size: 12, weight: 700, spacing: 0.18, uppercase: true, lineHeight: 1 },
                 { tag: "label", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
+                { tag: "calendarWeekday", family: mono, size: 10, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
                 { tag: "value", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "button", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
                 { tag: "kbd", family: mono, size: 12, weight: 600, spacing: 0.02, uppercase: false, lineHeight: 1 },
@@ -145,10 +146,11 @@ Item {
         }
 
         // The scale's steps, restated: a role at a size between them adds a
-        // step the hierarchy does not need. A menu entry's text takes 14.
+        // step the hierarchy does not need. A menu entry's text takes 14;
+        // the owner-requested calendar weekday header takes 10.
         function test_roles_use_the_reference_scale() {
             const sizes = Object.keys(Theme.text).map(name => Theme.text[name].size);
-            compare(Array.from(new Set(sizes)).sort((a, b) => a - b), [11, 12, 13, 14, 15, 16, 18, 20, 24, 34]);
+            compare(Array.from(new Set(sizes)).sort((a, b) => a - b), [10, 11, 12, 13, 14, 15, 16, 18, 20, 24, 34]);
         }
 
         // A key/value row's label and its value: capitals within a pixel of

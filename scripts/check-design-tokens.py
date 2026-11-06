@@ -189,7 +189,8 @@ APPEARANCE = (
     "const out = { error: null, appearance: null, pane: null, refusals: [], paths: [], small: [] };"
     # keyName draws only inside the shared hint's cap (Kbd.qml), never in a
     # plugin-owned look, so it sets no floor for one.
-    "const floor = Math.min.apply(null, Object.keys(shell.text).filter(role => role !== 'keyName').map(role => shell.text[role].size));"
+    # calendarWeekday is the owner-requested 10px calendar header, not a look's floor.
+    "const floor = Math.min.apply(null, Object.keys(shell.text).filter(role => role !== 'keyName' && role !== 'calendarWeekday').map(role => shell.text[role].size));"
     "let raw; try { raw = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); } catch (e) { out.error = e.message; }"
     "const judged = out.error === null ? plugins.validateManifest(raw, dir) : null;"
     "if (judged !== null && !judged.ok) out.error = 'manifest: ' + judged.error;"

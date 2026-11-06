@@ -92,8 +92,9 @@ function merge() {
 // caps, code and the bar) draws in mono at 12 and 13 px. At the default
 // size the floors are 13 px for reading text and 12 px for chrome; a
 // plugin that owns its look draws no smaller. `keyName`, a hint's key name
-// at 11 px, draws only inside the shared hint's cap and sets no floor. A
-// `lineHeight` is a multiple of the role's font size, chosen so a
+// at 11 px, draws only inside the shared hint's cap and sets no floor.
+// `calendarWeekday`, the owner-requested 10 px calendar header, also sets
+// no floor. A `lineHeight` is a multiple of the role's font size, chosen so a
 // multi-line role's line box is a multiple of 4 px at the default size.
 // Label turns it into a fixed line box unless that would undercut the
 // font's own line box.
@@ -123,6 +124,7 @@ var TEXT = {
     // beside it. The capitals of the two are within a pixel of one height,
     // so centred on one row they share a baseline and read as one line.
     label: role("caps", 0.8, 500, 0.08, 1, true, "textMuted"),
+    calendarWeekday: role("caps", 2 / 3, 500, 0.08, 1, true, "textMuted"),
     value: role("sans", 0.87, 400, 0, 1, false, "text"),
     hint: role("sans", 0.87, 400, 0, 1.55, false, "textFaint"),
     tooltip: role("sans", 0.8, 500, 0, 1.333, false, "text"),
