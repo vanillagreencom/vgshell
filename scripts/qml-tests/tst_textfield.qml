@@ -75,27 +75,34 @@ Item {
             return [{tag: "parent", layout: false}, {tag: "layout", layout: true}];
         }
         function test_search_fills_its_box_without_changing_form_bounds(data) {
-            const holder = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
+            const searchBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
+                + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
+            const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; width: parent.width; leadingIcon: "search" }', searchBox);
+            for (const width of [900, 80]) {
+                searchBox.width = width;
+                tryCompare(search, "width", width);
+            }
+            compare(search.sidePadding, 0, "Plugins' icon starts at the content edge");
+            compare(search.leftPadding, Theme.icon.size.md + Theme.textField.gap);
+            compare(search.rightPadding, 0);
+            compare(search.topPadding, 0);
+            compare(search.bottomPadding, 0);
+
+            // Standalone search boxes have no form siblings imposing a minimum.
+            const formBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
                 + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
             const inputs = [
-                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; width: parent.width; leadingIcon: "search" }', holder),
-                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width }', holder),
-                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width; password: true }', holder)
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width }', formBox),
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width; password: true }', formBox)
             ];
             for (const width of [900, 80, 600]) {
-                holder.width = width;
-                tryCompare(inputs[0], "width", width);
+                formBox.width = width;
                 // Without fillWidth, a layout keeps the preferred implicit width:
                 // https://doc.qt.io/qt-6/qtquicklayouts-overview.html#specifying-preferred-size
                 const formWidth = data.layout ? Theme.size.panel.sm / 2 : width;
-                for (const field of inputs.slice(1))
+                for (const field of inputs)
                     tryCompare(field, "width", Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, formWidth)));
             }
-            compare(inputs[0].sidePadding, 0, "Plugins' icon starts at the content edge");
-            compare(inputs[0].leftPadding, Theme.icon.size.md + Theme.textField.gap);
-            compare(inputs[0].rightPadding, 0);
-            compare(inputs[0].topPadding, 0);
-            compare(inputs[0].bottomPadding, 0);
         }
 
         function test_search_rule_and_unchanged_form_decoration_data() {
