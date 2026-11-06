@@ -940,7 +940,7 @@ function firstRead(serviceSource, gate, manifest, changed, reply) {
     // A fresh shell's status holds no retained owner-ask operation.
     const shell = { settings: { ...plain(manifest.settings), ...changed }, shortcut: { register: () => { throw started; } },
         configure: { set: (key, value) => { writes.push([key, value]); return reply; } }, status: { values: {} } };
-    const root = { shell, lifetime: { kind: "new" }, voiceSettled: false };
+    const root = { shell, lifetime: { kind: "new" }, voiceSettled: false, refreshTextOffer: () => {} };
     const install = methods.map(found => "root." + found[0].match(/function (\w+)/)[1] + " = (" + found[0] + ");").join(" ");
     let went = false;
     try {

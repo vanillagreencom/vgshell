@@ -24,6 +24,7 @@ Item {
     property string errorTail: ""
     property string cause: ""
     property var releaseTextOffer: null
+    property bool destroying: false
     readonly property string textOfferReason: locked ? "Jarvis cannot take a message while the session is locked."
         : cause !== "" ? PageReference.plain(Gate.startCause(cause).lines[0] + " " + Gate.startCause(cause).action)
         : lifetime.kind !== "ready" || !child.running ? "The Jarvis service is not ready. Check its Setup tab."
@@ -42,7 +43,7 @@ Item {
 
     function refreshTextOffer() {
         if (releaseTextOffer !== null) { releaseTextOffer(); releaseTextOffer = null; }
-        if (shell === null) return;
+        if (shell === null || destroying) return;
         releaseTextOffer = shell.handoff.offer("compose", textOfferReason === "" ? text => root.composeDraft(text) : null, textOfferReason);
     }
 
@@ -1430,6 +1431,9 @@ Item {
     function turnedOff() { sessionStart.turnedOff(); }
 
     Component.onDestruction: {
+        // Plugins.destroyBuilt drains the context before destroying this
+        // object. Readiness changes below still emit property signals.
+        destroying = true;
         if (ownerAskOperation() !== null) setOwnerAskOperation(null);
         cancelDictation();
         lifetime = { kind: "stopped", pendingMute: "none" };

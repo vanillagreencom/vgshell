@@ -407,7 +407,7 @@ for ad_recovery_agent in claude codex; do
   ad_crash "ad-unavailable-$ad_recovery_agent" 7892
   expect_poll "unavailable Jarvis opens recovery for $ad_recovery_agent" 1 window_count "Agent Debug"
   rm -f -- "${ad_press:?}"
-  expect "recovery names Jarvis's actual disabled cause" '"Jarvis is turned off. Turn it on in Settings."' ipc smoke readInstance window vgs.agent-debug reason
+  expect "recovery names Jarvis's actual disabled cause" '"Jarvis is turned off."' ipc smoke readInstance window vgs.agent-debug reason
   expect "unavailable Diagnose starts no terminal by itself" absent recorded
   expect "the user explicitly chooses $ad_recovery_agent for this failure" ok ipc vgs.agent-debug invoke recover "$ad_recovery_agent"
   expect_poll "one-off recovery passes the scalar facts to $ad_recovery_agent" \

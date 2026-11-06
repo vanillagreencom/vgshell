@@ -46,8 +46,8 @@ Item {
                 const current = enabled && record !== undefined && record.ctx.active
                     && record.ctx.manifest.__revision === manifest.__revision;
                 const label = manifest.handoffs[name].label;
-                const reason = !enabled ? label + " is turned off. Turn it on in Settings."
-                    : !current ? label + " has not started. Check its Setup tab."
+                const reason = !enabled ? label + " is turned off."
+                    : !current ? label + " has not started."
                     : record.reason;
                 const available = current && record.accept !== null;
                 out.push(Object.freeze({
