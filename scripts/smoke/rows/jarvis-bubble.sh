@@ -576,7 +576,7 @@ jarvis_bubble_accept() { # key|BUTTON EFFECT EXPECTED
 jarvis_bubble_console() {
   local field hint card output
   field="$(control_box window:Jarvis window vgs.jarvis TextArea '')" &&
-    hint="$(control_box window:Jarvis window vgs.jarvis Label 'Confirm or cancel the request first')" &&
+    hint="$(control_box window:Jarvis window vgs.jarvis Label 'Jarvis is waiting for your answer. Confirm or cancel the request first.')" &&
     card="$(control_box vgs:layer vgs.jarvis QQuickItem objectName overlay)" &&
     output="$(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["focused"]); print(json.dumps([m["x"], m["y"], m["width"] / m["scale"], m["height"] / m["scale"]]))')" || return 1
   [[ $field == \[* && $hint == \[* && $card == \[* ]] || { echo absent; return; }
