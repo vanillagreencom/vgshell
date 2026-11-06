@@ -530,7 +530,7 @@ var KEY_PASSTHROUGH = {
 // function Dispatch.padRequest calls with a pad's name and a screen. The
 // pads move in and out on `curve`, a copy of the theme's motion preset's
 // workspace curve.
-// The toggle's refusals are `vgs-pad=<answer>` with ANSWERS' keys:
+// The toggle's named outcomes are `vgs-pad=<answer>` with ANSWERS' keys:
 // `no-pad` for a name the table does not hold, `no-window` for a pad whose
 // workspace holds no window, `no-screen` for a screen Hyprland does not
 // list. A plugin reads Hyprland's answer by this key.
@@ -1396,10 +1396,10 @@ function padMotion(theme) {
 // (padMotion): a table of each pad's judged values, one window rule per
 // pad that maps its class's windows hidden, tiled and unfocused into the
 // pad's special workspace, and the functions on `hl.<PADS.table>`.
-// `toggle(name, screen)` answers the function hl.dispatch runs, since
-// `hyprctl dispatch X` runs `return hl.dispatch(X)` in a Lua session: it
-// hides a shown pad and gives the focus back to the window that had it;
-// it refuses a pad whose workspace holds no window; otherwise it moves
+// `toggle(name, screen)` answers the callback Dispatch.padRequest invokes
+// through REPL: it hides a shown pad and gives the focus back to the window
+// that had it; it returns `vgs-pad=no-window` for the caller to start the
+// app when its workspace holds no window; otherwise it moves
 // the workspace to SCREEN's monitor, or the focused one for "", writes
 // that workspace's gaps from the pad's shares of the monitor's work area,
 // sets the special workspace leaves to the pad's motion, shows it there
@@ -1477,9 +1477,9 @@ function padLines(section, motion) {
         "            if pads.list[name] == nil then error(\"vgs-pad=no-pad name=\" .. name) end",
         "            local id = pads.prefix .. name",
         "            local visible = shown(name)",
-        "            if visible ~= nil then return hide(name, visible.monitor, true) end",
+        "            if visible ~= nil then hide(name, visible.monitor, true) return \"ok\" end",
         "            local ws = hl.get_workspace(id)",
-        "            if ws == nil or ws.windows == 0 then error(\"vgs-pad=no-window name=\" .. name) end",
+        "            if ws == nil or ws.windows == 0 then return \"vgs-pad=no-window name=\" .. name end",
         "            local mon = screen == \"\" and hl.get_active_monitor() or hl.get_monitor(screen)",
         "            if mon == nil then error(\"vgs-pad=no-screen screen=\" .. screen) end",
         "            if ws.monitor == nil or ws.monitor.name ~= mon.name then hl.dispatch(hl.dsp.workspace.move({ workspace = id, monitor = mon.name })) end",
@@ -1491,6 +1491,7 @@ function padLines(section, motion) {
         "            hl.dispatch(hl.dsp.focus({ monitor = mon.name }))",
         "            local windows = hl.get_workspace_windows(id)",
         "            if windows[1] ~= nil then hl.dispatch(hl.dsp.focus({ window = \"address:\" .. windows[1].address })) end",
+        "            return \"ok\"",
         "        end",
         "    end",
         "    hl.on(\"window.active\", function(window)",

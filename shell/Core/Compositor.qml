@@ -356,7 +356,12 @@ Singleton {
     // refusals are answers a plugin acts on, so only a toggle without one
     // logs a refusal.
     function togglePad(name, screen, done) {
-        return enqueueRequest(Dispatch.padRequest(name, screen, Hyprland.usingLua), done, typeof done === "function");
+        const r = Dispatch.padRequest(name, screen, Hyprland.usingLua);
+        if (!r.ok) {
+            console.error("compositor: " + r.error);
+            return r.error;
+        }
+        return enqueue(r.argv, done, typeof done === "function");
     }
 
     // Size and place a floating window in one request

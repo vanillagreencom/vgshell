@@ -199,11 +199,18 @@ function passthroughRequest(verb, usingLua) {
 // Show or hide pad NAME on SCREEN, an output name, or the focused monitor
 // for "", through the function the Hyprland layer defines for a plugin's
 // `hyprland.pads` (HyprlandLayer.PADS): a plugin sends it through its
-// compositor capability, and the layer answers an error for a pad it does
-// not know or whose workspace holds no window. Both arguments pass the
+// compositor capability. The callback returns `ok` or `vgs-pad=no-window`
+// for the caller to start its app; unknown pads and screens raise errors.
+// Hyprland v0.57.0 ConfigManager.cpp:881-899 publishes return values only
+// in REPL mode; Commands.cpp:1325 selects it for `hyprctl repl`, whereas
+// dispatch's ordinary eval discards them (1337-1340).
+// https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/config/lua/ConfigManager.cpp#L881-L899
+// https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/ipc/s1/Commands.cpp#L1325-L1340
+// Invoke the returned callback once in that value-returning chunk.
+// Both arguments pass the
 // dispatchers' own patterns, so neither ends the Lua string it sits in.
 // The layer is Lua alone, so a classic session is refused.
-// { ok: true, request } or { ok: false, error } with a keyed line.
+// { ok: true, argv } or { ok: false, error } with a keyed line.
 function padRequest(name, screen, usingLua) {
     if (typeof name !== "string" || !SPECIAL.test(name))
         return { ok: false, error: "refused: pad=" + JSON.stringify(name) + " malformed" };
@@ -212,7 +219,7 @@ function padRequest(name, screen, usingLua) {
     if (usingLua !== true)
         return { ok: false, error: "refused: pad=" + name + " session=classic" };
     var pads = HyprlandLayer.PADS;
-    return { ok: true, request: "hl." + pads.table + "." + pads.verb + "(\"" + name + "\",\"" + screen + "\")" };
+    return { ok: true, argv: ["hyprctl", "repl", "return hl." + pads.table + "." + pads.verb + "(\"" + name + "\",\"" + screen + "\")()"] };
 }
 
 // The special workspace that holds pad NAME's window, which the layer's

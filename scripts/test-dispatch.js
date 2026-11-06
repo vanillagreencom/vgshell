@@ -8,6 +8,7 @@
 "use strict";
 const path = require("path");
 const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 
 const ctx = require("../bin/lib/qml-library.js").load(path.join(__dirname, "..", "shell", "Core", "Dispatch.js"));
 
@@ -364,8 +365,8 @@ function verifyPads(lib, report) {
     };
     // rows: [name, pad, screen, usingLua, want]
     const rows = [
-        ["a pad on the focused screen", "1", "", true, { ok: true, request: "hl.__vgs_pads.toggle(\"1\",\"\")" }],
-        ["a pad on a named screen", "term", "DP-1", true, { ok: true, request: "hl.__vgs_pads.toggle(\"term\",\"DP-1\")" }],
+        ["a pad on the focused screen", "1", "", true, { ok: true, argv: ["hyprctl", "repl", "return hl.__vgs_pads.toggle(\"1\",\"\")()"] }],
+        ["a pad on a named screen", "term", "DP-1", true, { ok: true, argv: ["hyprctl", "repl", "return hl.__vgs_pads.toggle(\"term\",\"DP-1\")()"] }],
         ["a classic session", "1", "", false, { ok: false, error: "refused: pad=1 session=classic" }],
         ["a name that ends the string", "1\")", "", true, { ok: false, error: "refused: pad=\"1\\\")\" malformed" }],
         ["an empty name", "", "", true, { ok: false, error: "refused: pad=\"\" malformed" }],
@@ -380,6 +381,61 @@ function verifyPads(lib, report) {
     return bad;
 }
 failures += verifyPads(ctx, true);
+
+// Execute the production chunk and generated callback, not a second toggle
+// implementation. Only Hyprland's object/dispatcher boundary is a fixture.
+// Service.qml consumes these exact protocol strings to decide whether to
+// start an app; a nil return must not become a successful show or hide.
+function verifyPadAnswers(lib, report) {
+    const layer = lib.HyprlandLayer.padLines({ id: "acme.pads", version: "1.0.0",
+        pads: [{ name: "1", class: "org.acme.pad", x: "center", y: "start", width: 60, height: 50, margin: 2, entry: "top", motion: "none" }] }, null).join("\n");
+    const cases = [
+        ["absent workspace", "absent", "1", "", "return:vgs-pad=no-window name=1"],
+        ["empty workspace", "empty", "1", "", "return:vgs-pad=no-window name=1"],
+        ["show", "hidden", "1", "DP-1", "return:ok"],
+        ["hide", "shown", "1", "", "return:ok"],
+        ["unknown pad", "hidden", "missing", "", "error:vgs-pad=no-pad name=missing"],
+        ["unknown screen", "hidden", "1", "missing", "error:vgs-pad=no-screen screen=missing"]
+    ];
+    const program = `
+local function answer(state, request)
+    local mon = { name = "DP-1", scale = 1, width = 1920, height = 1080, transform = 0,
+        reserved = { left = 0, right = 0, top = 0, bottom = 0 } }
+    function mon:set_special_workspace(ws) self.special = ws end
+    local ws = state ~= "absent" and { name = "special:vgs-pad-1", windows = state == "empty" and 0 or 1,
+        visible = state == "shown", monitor = mon } or nil
+    hl = {
+        window_rule = function() end, workspace_rule = function() end, animation = function() end,
+        exec_scheduled_prop_refresh_immediately = function() end, on = function() end,
+        get_workspace = function() return ws end, get_active_monitor = function() return mon end,
+        get_monitor = function(name) if name == mon.name then return mon end end,
+        get_active_window = function() return nil end,
+        get_workspace_windows = function() return { { address = "0xabc" } } end,
+        dispatch = function() end, dsp = { focus = function(args) return args end,
+            workspace = { move = function(args) return args end } }
+    }
+    assert(load(${JSON.stringify(layer)}))()
+    local ok, value = pcall(assert(load(request)))
+    return ok and "return:" .. tostring(value) or "error:" .. (tostring(value):match("vgs%-pad=.+$") or tostring(value))
+end
+` + cases.map(([, state, pad, screen]) => {
+        const request = lib.padRequest(pad, screen, true);
+        if (!request.ok) throw new Error("pad fixture request refused: " + request.error);
+        return "print(answer(" + JSON.stringify(state) + ", " + JSON.stringify(request.argv[2]) + "))";
+    }).join("\n");
+    const run = spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000,
+        env: { PATH: "/usr/bin:/bin", LANG: "C" } });
+    if (run.error || run.status !== 0) throw new Error("pad Lua fixture failed: " + (run.error || run.stderr));
+    const answers = run.stdout.trim().split("\n");
+    let bad = answers.length === cases.length ? 0 : 1;
+    if (report) check("pad answers: every case ran", answers.length, cases.length);
+    cases.forEach(([name, , , , want], i) => {
+        if (answers[i] !== want) bad += 1;
+        if (report) check("pad answer: " + name, answers[i], want);
+    });
+    return bad;
+}
+failures += verifyPadAnswers(ctx, true);
 
 // A window's place: the resize and the move of one window as one hyprctl
 // batch in each dialect, each half refused by its own dispatcher's rule,
@@ -589,8 +645,10 @@ try {
         ["the screen is judged", "(screen !== \"\" && !WORKSPACE.test(screen))", "false"],
         ["the screen is text", "if (typeof screen !== \"string\" || (", "if (("],
         ["a pad's classic session is refused", "if (usingLua !== true)\n        return { ok: false, error: \"refused: pad=", "if (false)\n        return { ok: false, error: \"refused: pad="],
-        ["the pad request names the layer's function", "\"hl.\" + pads.table + \".\" + pads.verb + \"(\\\"\"", "\"hl.\" + pads.table + \".show(\\\"\""],
-        ["the pad request passes the screen", "\"\\\",\\\"\" + screen + \"\\\")\"", "\"\\\",\\\"\\\")\""],
+        ["the pad request names the layer's function", "\"return hl.\" + pads.table + \".\" + pads.verb + \"(\\\"\"", "\"return hl.\" + pads.table + \".show(\\\"\""],
+        ["the pad request passes the screen", "\"\\\",\\\"\" + screen + \"\\\")()\"", "\"\\\",\\\"\\\")()\""],
+        ["the pad request uses the value-returning transport", 'argv: ["hyprctl", "repl", "return hl."', 'argv: ["hyprctl", "dispatch", "return hl."'],
+        ["the pad request invokes the callback", '+ screen + "\\")()"]', '+ screen + "\\")"]'],
         ["a pad's workspace is the layer's", "return HyprlandLayer.PADS.workspace + name;", "return \"special:\" + name;"]
     ];
     for (const [name, needle, replacement] of padControls) {
