@@ -171,19 +171,42 @@ Item {
         // expected-log: config: pre-conversion copy not saved: -- both the reported and false-success failures
         function test_failed_conversion_copy_blocks_source_writes_and_retries_on_read() {
             const copy = watched(Config.preConversionPath);
-            for (const kind of ["reported", "lost"]) {
-                const bytes = '{"version":3,"copyFailure":"' + kind + '"}\n';
+            const cases = [
+                ["reported", "retry"], ["lost", "retry"],
+                ["reported", "restore"], ["lost", "restore"]
+            ];
+            const accepted = { version: 4, disabledPlugins: ["acme.off"], bar: { layout: { right: [{ id: "acme.kept" }] } } };
+            const acceptedBytes = JSON.stringify(accepted) + "\n";
+            for (const [kind, recovery] of cases) {
+                finishNextRead(Config.userPath, acceptedBytes);
+                const converted = { version: 4, disabledPlugins: [], bar: { layout: { right: [{ id: "acme.other" }] } } };
+                const bytes = JSON.stringify(Object.assign({}, converted, { version: 3 })) + "\n";
                 if (kind === "reported") copy.failNextWrite = 28;
                 else copy.loseNextWrite = true;
                 finishNextRead(Config.userPath, bytes);
                 compare(Config.userState, "migration-blocked");
+                compare(Config.user, converted);
+                compare(Config.effective, converted);
                 compare(view(Config.userPath).content, bytes);
                 verify(Config.writeUser({ version: 4, lost: true }) !== "ok");
                 compare(view(Config.userPath).content, bytes);
-                finishNextRead(Config.userPath, bytes);
+                finishNextRead(Config.userPath, recovery === "retry" ? bytes : acceptedBytes);
                 compare(Config.userState, "loaded");
-                fileHolds({ version: 4, copyFailure: kind });
-                compare(Array.from(new Uint8Array(copy.diskData)), bytesOf(bytes));
+                const recovered = recovery === "retry" ? converted : accepted;
+                compare(Config.user, recovered);
+                compare(Config.effective, recovered);
+                fileHolds(recovered);
+                if (recovery === "retry") compare(Array.from(new Uint8Array(copy.diskData)), bytesOf(bytes));
+                else {
+                    // Settings clones Config.user through this edit before
+                    // calling the writer; restored unrelated values must survive.
+                    const manifest = { id: "acme.edit", schema: { choice: { type: "string" } } };
+                    compare(Config.writeUser(PluginLogic.withSetting(Config.user, manifest, "choice", "next", Config.effective)), "ok");
+                    const written = Object.assign({}, accepted, { plugins: [{ id: "acme.edit", choice: "next" }] });
+                    compare(Config.user, written);
+                    compare(Config.effective, written);
+                    fileHolds(written);
+                }
             }
         }
 

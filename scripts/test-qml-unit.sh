@@ -68,6 +68,8 @@ fi
 # shipped themes by a relative path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
+  "restoring accepted bytes after refused conversion keeps stale settings|../Core/Config.qml|                root.userText = null;|                root.userText = root.userText;|tst_config_writes.qml"
+  "a link label folds explicit breaks unlike its geometry twin|feedback/LinkText.qml|.replace(/\\n/g, \"<br>\")|.replace(/\\n/g, \"\\n\")|tst_linktext.qml"
   "saved display changes stop reaching the greeter|../plugins/vgs.displays/Service.qml|onSavedLayoutChanged: queueLayout()|onSavedLayoutChanged: {}|tst_displays_greeter_layout.qml"
   "opening Updates starts no fresh check|../plugins/vgs.updates/Window.qml|        refresh();|        void 0;|tst_updates_refresh.qml"
   "message responses lose their secondary button style|layout/MessageRow.qml|variant: \"secondary\"|variant: \"primary\"|tst_message_patterns.qml"

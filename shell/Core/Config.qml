@@ -205,6 +205,9 @@ Singleton {
             // including writes made by publish handlers. A later read retries.
             if (r.migrated && !root.savePreConversion(bytes)) {
                 root.userState = "migration-blocked";
+                // The published conversion no longer represents the accepted
+                // bytes. Restoring those bytes must judge and publish them again.
+                root.userText = null;
                 root.user = r.value;
                 root.publish();
                 return;
