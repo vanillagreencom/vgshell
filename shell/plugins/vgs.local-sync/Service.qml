@@ -8,8 +8,9 @@ import "SyncLogic.js" as Logic
 // the watches that tell when one copies, the Remove of a job the user made
 // outside VGS, IPC and the one status write. The bar item and the flyout
 // read the published `jobs` value only. Local Sync keeps no state of its
-// own: every reading comes from systemd, the jobs' own files and the
-// journal, and nothing is written to disk.
+// own and writes no file of its own: every reading comes from systemd, the
+// jobs' own files and the journal, and its one change to the system is
+// Remove, which disables a job the user made outside VGS.
 //
 // A read of the jobs (`read`) runs these steps, one process at a time:
 //   1. the installed services: systemctl --user list-unit-files;
@@ -17,24 +18,31 @@ import "SyncLogic.js" as Logic
 //   3. the scripts their commands name, as data, never run: head, at most
 //      SyncLogic.SCRIPT_BYTES of each, one file at a time;
 //   4. the Automations store's last reading, for the automations that copy;
-//      the store is watched, read only, and a change reads the jobs again;
+//      the store is watched, read only, and a change to its text reads the
+//      jobs again;
 //   5. which jobs copy now: systemd's GetUnitProcesses through busctl, one
-//      job at a time (the copy check);
+//      unit at a time (the copy check);
 //   6. each job's journal: journalctl --user -u <unit>, one job at a time.
 // SyncLogic judges each answer. A read starts at start, when the user
 // manager reports a change to a listed job or reloads, when a copy ends,
-// on the flyout's open and on the `refresh` IPC; a read asked for while
-// one runs runs once after it.
+// when the store's text changes, on the flyout's open and on the `refresh`
+// IPC. One read or one copy check runs at a time: a read asked for while
+// either runs runs once after it, and so does a copy check.
 //
 // Two processes stay up while the plugin is on, neither of them a poll:
 // - inotifywait on the engine programs: running an engine opens its file,
-//   which wakes a copy check (step 5 alone). An open alone never means a
-//   copy, since anything may read the file; the check decides.
+//   which wakes a copy check of every job. An open alone never means a
+//   copy, since anything may read the file; the check decides. An
+//   upgrade that replaces a program ends the watch on its old file, so
+//   any other event finds the programs again and watches the new files.
 // - journalctl --follow on the user manager's own lines: a unit started,
 //   finished or failed, or the manager reloaded its units.
-// While a copy runs, the copy check runs every `copyPoll` interval until no
-// engine runs in a job, since a script's copy ends with no journal line
-// and no file event; with no copy running nothing polls.
+// Either one that ends while the plugin is on starts again, at most
+// `watchRetries` times in a row.
+// While a copy runs, the copy check of the copying jobs runs every
+// `copyPoll` interval until no engine runs in them, since a script's copy
+// ends with no journal line and no file event; with no copy running
+// nothing polls.
 //
 //   vgshell ipc call vgs.local-sync invoke <name> <arg>   with <name>:
 //     status    the published values, JSON
@@ -49,13 +57,20 @@ Item {
 
     property var shell: null
     property bool registered: false
+    // Set as the engine destroys the service, so the ends of its processes
+    // that follow are not read as failures.
+    property bool disposing: false
     readonly property var missing: shell === null ? null : shell.requirements.missing
     readonly property bool canRead: missing !== null && ["systemctl", "journalctl", "busctl", "head", "realpath"].every(command => missing.indexOf(command) === -1)
     readonly property bool canWatch: canRead && missing.indexOf("inotifywait") === -1
-    // The engines realpath found on PATH, null before that read; a job
-    // whose engine this computer lacks is unavailable.
+    // The engines this computer lacks, from the core's requirements scan,
+    // which the Setup page's install and rescan run again; a job whose
+    // engine is missing is unavailable.
+    readonly property var missingEngines: missing === null ? [] : Logic.ENGINES.filter(engine => missing.indexOf(engine) !== -1)
+    onMissingEnginesChanged: rescanEngines()
+    // The engine programs realpath found on PATH, the files the exec watch
+    // watches; null before that read.
     property var enginePaths: null
-    readonly property var missingEngines: Logic.ENGINES.filter(engine => enginePaths !== null && !enginePaths.some(path => path.endsWith("/" + engine)))
     // The Automations store, the file bin/automations names under
     // $XDG_CONFIG_HOME, else ~/.config, as Paths resolves it.
     readonly property string storeFile: Paths.configDir + "/automations/automations.json"
@@ -86,12 +101,24 @@ Item {
     property bool readAgain: false
     property var journalQueue: []
 
+    // The long-lived processes start again after an end the service did
+    // not ask for, this many times in a row; an event of the watch or a
+    // line of the follower resets the count.
+    readonly property int watchRetries: 3
+    property int execRetries: 0
+    property int followRetries: 0
+    // The exec watch was stopped to watch the engines' new files.
+    property bool rewatch: false
+    // A find of the engines was asked for while one ran.
+    property bool enginesAgain: false
+
     onShellChanged: start()
     onCanReadChanged: if (registered && canRead) {
         managerFollow.running = true;
-        if (!enginePathsRead.running) enginePathsRead.running = true;
+        rescanEngines();
     }
-    onCanWatchChanged: if (registered && canWatch && !enginePathsRead.running && !execWatch.running) enginePathsRead.running = true
+    onCanWatchChanged: if (registered && canWatch) rescanEngines()
+    Component.onDestruction: disposing = true
 
     function start() {
         if (shell === null || registered) return;
@@ -103,27 +130,47 @@ Item {
         });
         shell.ipc.handle("remove", unit => root.remove(unit));
         publish();
-        // The engines' paths come first: a job's availability and the
-        // copy watch both read them, and their end starts the first read.
+        // The engines' paths come first: the copy watch reads them, and
+        // their end starts the first read.
         if (canRead) {
-            enginePathsRead.running = true;
+            rescanEngines();
             managerFollow.running = true;
         }
     }
 
-    // Start a read of the jobs, or mark one to run after the current one.
+    // Start a read of the jobs, or mark one to run once the read or the
+    // copy check in progress ends: a check that ran beside a read would
+    // take the other's answers.
     function read() {
         if (!canRead) {
             problem = "Local Sync needs systemd's tools to read the jobs.";
             publish();
             return;
         }
-        if (pending !== null) {
+        if (pending !== null || check !== null) {
             readAgain = true;
             return;
         }
+        // The store's folder may not exist yet, and a folder that does not
+        // exist is not watched (QFileSystemWatcher::addPath adds only an
+        // existing path), so every read reads the store again too.
+        store.read();
         pending = { step: "files", names: [], records: [], scripts: {}, automations: {} };
         run(["systemctl", "--user", "list-unit-files", "--type=service", "--no-legend", "--plain"]);
+    }
+
+    // The read and the copy check are done: start what was asked for while
+    // they ran, a read before a check.
+    function settle() {
+        if (pending !== null || check !== null) return;
+        if (readAgain) {
+            readAgain = false;
+            read();
+        } else if (checkWanted !== "") {
+            const scope = checkWanted;
+            checkWanted = "";
+            checkCopies(scope);
+        }
     }
 
     function run(command) {
@@ -136,10 +183,7 @@ Item {
         problem = "Local Sync could not read the sync jobs.";
         pending = null;
         publish();
-        if (readAgain) {
-            readAgain = false;
-            read();
-        }
+        settle();
     }
 
     function ending(completion, stderr) {
@@ -191,7 +235,7 @@ Item {
         const next = Logic.jobs(pending.records, pending.scripts, pending.automations, Paths.home, missingEngines);
         jobs = next;
         pending.step = "copies";
-        startCheck(next.map(job => job.unit), units => {
+        startCheck(Logic.checkUnits(next), units => {
             noteCopies(units);
             journalQueue = next.map(job => job.unit);
             pending.step = "journal";
@@ -208,15 +252,13 @@ Item {
             problem = "";
             ready = true;
             publish();
-            if (readAgain) {
-                readAgain = false;
-                read();
-            }
+            settle();
             return;
         }
         pending.unit = journalQueue[0];
         journalQueue = journalQueue.slice(1);
-        run(["journalctl", "--user", "--no-pager", "-o", "json", "-n", "200", "-u", pending.unit]);
+        const job = jobs.find(each => each.unit === pending.unit);
+        run(["journalctl", "--user", "--no-pager", "-o", "json", "-n", "200"].concat(Logic.journalUnits(job)));
     }
 
     // UNITS copy now: a unit that starts copying records its start, and one
@@ -255,11 +297,14 @@ Item {
     }
 
     // The copy check: asks systemd for each of UNITS' processes, one unit
-    // at a time, then calls DONE with the units an engine runs in. A unit
-    // whose processes could not be read is logged and counts as not
-    // copying: nothing confirmed a copy there.
+    // at a time, UNITS being SyncLogic.checkUnits' { unit, job }, then calls
+    // DONE with the jobs an engine runs in. A unit whose processes could
+    // not be read is logged and counts as not copying: nothing confirmed a
+    // copy there.
     property var check: null
-    property bool checkAgain: false
+    // The copy check asked for while a read or a check ran: "copying" for
+    // the jobs that copy, "all" for every job, "" for none.
+    property string checkWanted: ""
 
     function startCheck(units, done) {
         check = { units: units, copying: [], done: done };
@@ -271,36 +316,35 @@ Item {
             const finished = check;
             check = null;
             finished.done(finished.copying);
-            if (checkAgain && check === null && pending === null) {
-                checkAgain = false;
-                checkCopies();
-            }
+            settle();
             return;
         }
         check.unit = check.units[0];
         check.units = check.units.slice(1);
         copyCheck.command = ["busctl", "--user", "--json=short", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
-            "org.freedesktop.systemd1.Manager", "GetUnitProcesses", "s", check.unit];
+            "org.freedesktop.systemd1.Manager", "GetUnitProcesses", "s", check.unit.unit];
         copyCheck.running = true;
     }
 
     function unitChecked(completion, text) {
         const running = completion !== null && completion.status === 0 && completion.code === 0 ? Logic.engineRunning(text) : null;
-        if (running === null) console.warn("local-sync: processes=unread unit=" + check.unit + " " + ending(completion, copyCheckErr.text));
-        else if (running) check.copying = check.copying.concat([check.unit]);
+        if (running === null) console.warn("local-sync: processes=unread unit=" + check.unit.unit + " " + ending(completion, copyCheckErr.text));
+        else if (running && check.copying.indexOf(check.unit.job) === -1) check.copying = check.copying.concat([check.unit.job]);
         nextCheck();
     }
 
-    // The copy check alone: which jobs copy now. A copy that ended reads
+    // The copy check alone: which jobs copy now, of the jobs that copy
+    // (SCOPE "copying") or of every job ("all"). A copy that ended reads
     // the jobs again, for its journal lines and its unit's result. A check
-    // asked for while a read or a check runs runs once after it.
-    function checkCopies() {
+    // asked for while a read or a check runs runs once after it, as wide as
+    // the widest one asked for.
+    function checkCopies(scope) {
         if (!canRead) return;
         if (pending !== null || check !== null) {
-            if (pending === null) checkAgain = true;
+            if (checkWanted !== "all") checkWanted = scope;
             return;
         }
-        startCheck(jobs.map(job => job.unit), units => {
+        startCheck(Logic.checkUnits(scope === "copying" ? jobs.filter(job => copying.indexOf(job.unit) !== -1) : jobs), units => {
             if (noteCopies(units)) read();
             else publish();
         });
@@ -317,6 +361,27 @@ Item {
         return "ok";
     }
 
+    // Find the engine programs again and watch their files: a running watch
+    // stops first, and its end starts the find.
+    function rescanEngines() {
+        if (!registered || !canRead) return;
+        if (execWatch.running) {
+            rewatch = true;
+            execWatch.running = false;
+            return;
+        }
+        if (enginePathsRead.running) enginesAgain = true;
+        else enginePathsRead.running = true;
+    }
+
+    // The long-lived process NAME ended while the plugin is on, after
+    // RETRIES starts in a row, with STDERR: log why, and answer the count
+    // for its next start, or -1 once `watchRetries` starts were spent.
+    function lost(name, retries, stderr) {
+        console.warn("local-sync: " + name + "=exited retry=" + (retries < watchRetries ? retries + 1 : "none") + " stderr=" + JSON.stringify(String(stderr).trim().split("\n").pop()));
+        return retries < watchRetries ? retries + 1 : -1;
+    }
+
     function publish() {
         if (shell === null) return;
         const value = {
@@ -329,6 +394,7 @@ Item {
             copying: copying,
             cleanEnds: cleanEnds,
             engines: Logic.ENGINES.filter(engine => missingEngines.indexOf(engine) === -1),
+            // The smoke row's reading of the exec watch; no surface draws it.
             watching: execWatch.running
         };
         const reply = shell.status.set("jobs", value);
@@ -351,17 +417,26 @@ Item {
         }
     }
 
-    // The Automations store, watched and read only, never written: a
-    // change, such as a sync job Automations saved, reads the jobs again.
+    // The Automations store, watched and read only, never written. A
+    // change, such as a sync job Automations saved, or a store that went,
+    // reads the jobs again. WatchedFile reports a change it saw while idle
+    // only as `changed` (shell/Commons/WatchedFile.qml), and Quickshell's
+    // FileView watches the file's folder too, so a store made after the
+    // start is seen (src/io/fileview.cpp, onWatchedDirectoryChanged).
     WatchedFile {
         id: store
         path: root.storeFile
-        onLoaded: content => {
-            const changed = content !== root.storeText;
-            root.storeText = content;
-            if (changed && root.registered && root.canRead) readSoon.restart();
-        }
-        onLoadFailed: error => root.storeText = null
+        onChanged: store.read()
+        onLoaded: content => root.storeRead(content)
+        onLoadFailed: error => root.storeRead(null)
+    }
+
+    // The store's TEXT, null when it could not be read: a change to it
+    // reads the jobs again.
+    function storeRead(text) {
+        if (text === storeText) return;
+        storeText = text;
+        if (registered && canRead) readSoon.restart();
     }
 
     Process {
@@ -378,12 +453,14 @@ Item {
         }
     }
 
-    // While a copy runs: its end has no event of its own.
+    // While a copy runs: its end has no event of its own. A new copy's start
+    // wakes `checkSoon` through the exec watch, so while the watch runs the
+    // poll asks only about the jobs that copy.
     Timer {
         id: copyPoll
         interval: 2000
         repeat: true
-        onTriggered: root.checkCopies()
+        onTriggered: root.checkCopies(execWatch.running ? "copying" : "all")
     }
 
     // Several opens of an engine come together when it starts (inotifywait
@@ -392,7 +469,7 @@ Item {
     Timer {
         id: checkSoon
         interval: 200
-        onTriggered: root.checkCopies()
+        onTriggered: root.checkCopies("all")
     }
 
     Timer {
@@ -401,8 +478,26 @@ Item {
         onTriggered: root.read()
     }
 
-    // Each engine's program on PATH, once. realpath exits 1 when a candidate
-    // is missing and prints the ones it found; --no-symlinks keeps each
+    // A long-lived process that ended starts again after this.
+    Timer {
+        id: restartExec
+        interval: 5000
+        onTriggered: root.rescanEngines()
+    }
+
+    Timer {
+        id: restartFollow
+        interval: 5000
+        onTriggered: {
+            if (!root.registered || !root.canRead || managerFollow.running) return;
+            managerFollow.running = true;
+            // Lines the follower missed while it was down.
+            root.read();
+        }
+    }
+
+    // Each engine's program on PATH. realpath exits 1 when a candidate is
+    // missing and prints the ones it found; --no-symlinks keeps each
     // engine's own name, and inotifywait follows a link to the program.
     Process {
         id: enginePathsRead
@@ -414,27 +509,56 @@ Item {
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
+            if (root.enginesAgain) {
+                root.enginesAgain = false;
+                running = true;
+                return;
+            }
             const found = [];
             for (const line of enginePathsOut.text.split("\n"))
                 if (line !== "" && found.indexOf(line) === -1) found.push(line);
             root.enginePaths = found;
             if (root.registered && root.canRead) readSoon.restart();
-            if (found.length === 0 || !root.canWatch) return;
-            execWatch.command = ["inotifywait", "--monitor", "--quiet", "--event", "open", "--format", "%w", "--"].concat(found);
+            if (found.length === 0 || !root.canWatch || execWatch.running) return;
+            execWatch.command = ["inotifywait", "--monitor", "--quiet", "--event", "open,attrib,delete_self,move_self", "--format", "%e %w", "--"].concat(found);
             execWatch.running = true;
         }
     }
 
     // Running a program opens its file, and inotify reports that open
     // (inotifywait on /usr/bin/true printed OPEN when it ran, cachy,
-    // 2026-11-06); `--monitor` keeps the watch, one line an event.
+    // 2026-11-06); `--monitor` keeps the watch, one line an event. A
+    // program replaced by a rename over it, as a package upgrade does,
+    // reports ATTRIB and DELETE_SELF, after which its new file is not
+    // watched and running it reports nothing, while inotifywait keeps
+    // running (inotifywait 4.23 on a scratch program and `mv -f`, cachy,
+    // 2026-11-07).
     Process {
         id: execWatch
-        stdout: SplitParser { onRead: line => checkSoon.restart() }
+        stdout: SplitParser {
+            onRead: line => {
+                if (/^OPEN(,|\s)/.test(line)) {
+                    root.execRetries = 0;
+                    checkSoon.restart();
+                } else {
+                    root.rescanEngines();
+                }
+            }
+        }
         stderr: StdioCollector { id: execWatchErr }
         onRunningChanged: {
             root.publish();
-            if (!running) console.warn("local-sync: watch=stopped stderr=" + JSON.stringify(execWatchErr.text.trim().split("\n").pop()));
+            if (running || root.disposing) return;
+            if (root.rewatch) {
+                root.rewatch = false;
+                root.rescanEngines();
+                return;
+            }
+            if (!root.registered || !root.canWatch) return;
+            const next = root.lost("watch", root.execRetries, execWatchErr.text);
+            if (next === -1) return;
+            root.execRetries = next;
+            restartExec.restart();
         }
     }
 
@@ -446,11 +570,18 @@ Item {
         command: ["journalctl", "--user", "--follow", "--lines=0", "--output=json", "_SYSTEMD_USER_UNIT=init.scope"]
         stdout: SplitParser {
             onRead: line => {
+                root.followRetries = 0;
                 if (Logic.managerLineMatters(Logic.journalEntry(line), root.jobs)) readSoon.restart();
             }
         }
         stderr: StdioCollector { id: managerErr }
-        onRunningChanged: if (!running) console.warn("local-sync: follow=stopped stderr=" + JSON.stringify(managerErr.text.trim().split("\n").pop()))
+        onRunningChanged: {
+            if (running || root.disposing || !root.registered || !root.canRead) return;
+            const next = root.lost("follow", root.followRetries, managerErr.text);
+            if (next === -1) return;
+            root.followRetries = next;
+            restartFollow.restart();
+        }
     }
 
     Process {

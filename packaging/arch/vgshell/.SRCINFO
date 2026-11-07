@@ -103,6 +103,8 @@ pkgbase = vgshell
 	optdepends = vivaldi: opens a calendar day in a Vivaldi profile
 	optdepends = microsoft-edge-stable-bin: opens a calendar day in a Microsoft Edge profile
 	optdepends = inotify-tools: notices when a copy starts in the Local Sync plugin
+	optdepends = rsync: runs the sync jobs that copy with rsync in the Local Sync plugin
+	optdepends = unison: runs the two-way sync jobs that use Unison in the Local Sync plugin
 	source = vgshell-0.1.4.tar.gz::https://github.com/vanillagreencom/vgshell/releases/download/v0.1.4/vgshell-0.1.4.tar.gz
 	sha256sums = 8adc9bd3b7ad549bcd05c2b920b23eca817baef525f8e4ea6ea411180b95981e
 

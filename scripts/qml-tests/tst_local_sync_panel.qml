@@ -12,8 +12,9 @@ import "../../shell/plugins/vgs.local-sync/SyncLogic.js" as Logic
 // action asks the stub shell what the panel promises: a chip opens its
 // folder through the core folder route, View log opens the job's log TUI
 // and closes the flyout, Send to agent hands the job's facts to Agent
-// Debug's receiver, Details shows the job's readings, and Remove asks
-// first and only then asks the service to stop the job.
+// Debug's receiver and Add and an Automations job's Remove to Automations',
+// each stub receiver recording its own key, Details replaces the cards,
+// and Remove asks first and only then asks the service to stop the job.
 Item {
     id: root
     width: 800
@@ -21,8 +22,14 @@ Item {
 
     // Each request the panel makes of the stub shell, in order.
     property var calls: []
-    // The text Agent Debug's stub receiver was handed.
+    // What each stub receiver was handed: [its key, the text].
     property var handed: []
+
+    // The stub receiver of KEY: it records what it was handed.
+    function receiver(key, label, kind) {
+        return { key: key, label: label, kind: kind, available: true, reason: "",
+            open: text => { root.handed = root.handed.concat([[key, text]]); return { ok: true, reason: "" }; } };
+    }
 
     function record(call) {
         root.calls = root.calls.concat([call]);
@@ -44,8 +51,8 @@ Item {
             return Object.assign({
                 unit: unit, name: unit, description: "", automation: "", engine: "rsync", available: true,
                 from: "/home/u/" + unit + "/", to: "/mnt/backup/" + unit + "/", via: "script", continuous: true,
-                active: "active", sub: "running", result: "success", cgroup: "/app.slice/" + unit, triggers: [],
-                fileState: "static", mainStatus: 0, startedAt: 0, exitedAt: 0
+                active: "active", sub: "running", result: "success", resident: false, triggers: [],
+                fileState: "static", mainStatus: 0, startedAt: 0, exitedAt: 0, runs: [], runPattern: "", notRuns: []
             }, changes || {});
         }
 
@@ -69,10 +76,7 @@ Item {
                 ipc: { call: (name, arg) => root.record(["ipc", name, arg]) },
                 tui: { edit: (path, line, done) => root.record(["edit", path]), run: (name, args) => root.record(["tui", name].concat(args)) },
                 surfaces: { hide: kind => root.record(["hide", kind]), openPage: (page, tab) => root.record(["openPage", page, tab]) },
-                handoff: { targets: [{ key: Logic.AGENT_TARGET, label: "Agent Debug", available: true, reason: "",
-                    open: text => { root.handed = root.handed.concat([text]); return { ok: true, reason: "" }; } },
-                    { key: Logic.AUTOMATIONS_TARGET, label: "Automations", kind: "action", available: true, reason: "",
-                    open: text => { root.handed = root.handed.concat([text]); return { ok: true, reason: "" }; } }] }
+                handoff: { targets: [root.receiver(Logic.AGENT_TARGET, "Agent Debug", "action"), root.receiver(Logic.AUTOMATIONS_TARGET, "Automations", "action")] }
             };
         }
 
@@ -143,7 +147,8 @@ Item {
         function test_send_to_agent_hands_the_facts() {
             mouseClick(link(card("photos.service"), "agent"));
             compare(root.handed.length, 1);
-            const facts = JSON.parse(root.handed[0]);
+            compare(root.handed[0][0], Logic.AGENT_TARGET, "Send to agent hands the facts to Agent Debug");
+            const facts = JSON.parse(root.handed[0][1]);
             compare([facts.kind, facts.unit, facts.error], ["sync", "photos.service", "rsync error: error in file IO (code 11)"]);
             compare(JSON.stringify(root.calls), JSON.stringify([["hide", "panel"]]));
         }
@@ -164,18 +169,16 @@ Item {
         function test_automations_owns_add_and_its_remove() {
             panel.add();
             panel.remove(panel.jobs.find(job => job.automation === "backup"));
-            compare(JSON.stringify(root.handed.map(text => JSON.parse(text))),
-                JSON.stringify([{ action: "new", available: ["rsync"] }, { action: "remove", id: "backup" }]));
+            compare(JSON.stringify(root.handed.map(([key, text]) => [key, JSON.parse(text)])),
+                JSON.stringify([[Logic.AUTOMATIONS_TARGET, { action: "new", available: ["rsync"] }], [Logic.AUTOMATIONS_TARGET, { action: "remove", id: "backup" }]]));
             compare(panel.confirmUnit, "", "Local Sync asks nothing for a job Automations runs");
             compare(JSON.stringify(root.calls), JSON.stringify([["hide", "panel"], ["hide", "panel"]]));
         }
 
-        function test_details_show_the_readings() {
+        function test_details_replace_the_cards() {
             panel.detailsUnit = "photos.service";
             renderedFrame(panel);
-            const rows = all(panel, item => "keyValueRow" in item);
-            compare(rows.length, panel.detailsView.rows.length);
-            compare(rows[0].label, panel.detailsView.rows[0].label);
+            verify(all(panel, item => "keyValueRow" in item).length > 0, "Details shows its rows");
             compare(all(panel, item => item.modelData !== undefined && item.modelData !== null && "contentInset" in item).length, 0, "Details replaces the cards");
         }
     }

@@ -105,6 +105,26 @@ Item {
             compare([window.confirmAction, window.confirmTarget], ["remove", "photos"]);
         }
 
+        // A window the host builds anew holds no automations until its
+        // first list arrives: a Remove asked of it waits for that list, and
+        // one naming an automation the list lacks says so.
+        function test_remove_payload_waits_for_the_first_list() {
+            const window = createTemporaryObject(windowComponent, root);
+            verify(window !== null);
+            const definition = View.definitionFromDraft(View.blankDraft(Date.now(), Engine), Engine);
+            definition.id = "photos";
+            definition.name = "Photos";
+            definition.command = "true";
+            window.open(JSON.stringify({ remove: "photos" }));
+            compare(window.confirmAction, "", "nothing is asked before the list arrives");
+            window.listArrived({ automations: [Object.assign({}, definition, { pending: null, nextRun: null, lastRun: null, summary: "" })] });
+            compare([window.confirmAction, window.confirmTarget], ["remove", "photos"]);
+            window.open(JSON.stringify({ remove: "gone" }));
+            compare([window.notice.tone, window.heldOpen.id], ["neutral", "gone"], "a Remove the list lacks waits for the next list");
+            window.listArrived({ automations: [] });
+            compare([window.notice.tone, window.heldOpen], ["danger", null], "a Remove of an automation the list lacks is refused in the window");
+        }
+
         function test_weekday_edit_reaches_the_draft_and_engine_definition() {
             const window = opened();
             const weekdays = descendants(window).find(item => item instanceof WeekdayChipGroup && !item.exclusive);

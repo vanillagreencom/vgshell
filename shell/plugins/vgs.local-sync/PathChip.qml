@@ -12,6 +12,12 @@ import qs.Ui
 // outside the chip. A folder on another computer, such as an ssh root of
 // a unison job, is text only. The chip is as wide as its path up to
 // `maxWidth` and wraps anywhere past it, so no path is cut.
+// It stays in the plugin, not qs.Ui: Local Sync is its one user, and qs.Ui
+// has no control it repeats. Its `pathChip` tokens sit in the shell's
+// table because a plugin that follows the theme draws only through Theme
+// (scripts/check-design-tokens.py refuses a literal), and a plugin's own
+// table is for a look that stays the same under every theme (D119), which
+// this chip does not.
 T.AbstractButton {
     id: chip
 
@@ -46,6 +52,8 @@ T.AbstractButton {
             y: lineCount <= 1 ? topForCapCenter(chip.height) : Theme.pathChip.padding
             width: chip.width - 2 * Theme.pathChip.padding
             role: "pathChip"
+            // A path comes from the job's unit or script.
+            textFormat: Text.PlainText
             text: chip.text
             wrapMode: Text.WrapAnywhere
         }

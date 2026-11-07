@@ -82,7 +82,12 @@ Item {
         const reply = shell.surfaces.summon("window", JSON.stringify(payload));
         if (reply === "ok") return { ok: true, reason: "" };
         console.warn("automations: sync-job " + reply);
-        return { ok: false, reason: "Automations holds an unsaved change. Save or discard it, then try again." };
+        // The window refuses this payload, which this function built, only
+        // while its editor holds an unsaved change (Window.qml open); the
+        // host's other refusals name no such cause.
+        if (reply.indexOf("refused: open-failed=") === 0)
+            return { ok: false, reason: "Automations holds an unsaved change. Save or discard it, then try again." };
+        return { ok: false, reason: "Automations could not open its window. Try again." };
     }
 
     function request(args) {

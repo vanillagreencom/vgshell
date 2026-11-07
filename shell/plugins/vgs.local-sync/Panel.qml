@@ -28,21 +28,16 @@ Item {
     readonly property bool known: value !== undefined && value !== null
     readonly property double now: Time.now.getTime()
     readonly property var jobs: known ? value.jobs : []
-    readonly property var cards: jobs.map(job => cardOf(job))
+    readonly property var cards: known ? Logic.cards(value, now, Timestamp.text) : []
     // The job Details shows, and the one Remove asks about, "" for none.
     property string detailsUnit: ""
     property string confirmUnit: ""
     readonly property var detailsJob: jobs.find(job => job.unit === detailsUnit) || null
     readonly property var confirmJob: jobs.find(job => job.unit === confirmUnit) || null
-    readonly property var detailsView: detailsJob === null ? null : Logic.details(detailsJob, factsOf(detailsJob), copyingOf(detailsJob), cleanOf(detailsJob), now, Timestamp.text)
+    readonly property var detailsView: detailsJob === null ? null : Logic.detailsOf(value, detailsJob, now, Timestamp.text)
     // The refusal the last press was answered with, "" for none.
     property string problem: ""
     readonly property string problemLine: problem !== "" ? problem : !known ? "" : value.removeProblem !== "" ? value.removeProblem : value.problem !== "" ? value.problem : value.storeProblem
-
-    function factsOf(job) { return value.facts[job.unit] || Logic.journalFacts([], job); }
-    function copyingOf(job) { return value.copying.indexOf(job.unit) !== -1; }
-    function cleanOf(job) { return value.cleanEnds[job.unit] || 0; }
-    function cardOf(job) { return Logic.card(job, factsOf(job), copyingOf(job), cleanOf(job), now, Timestamp.text); }
 
     function open(payloadJson) {
         problem = "";
@@ -124,7 +119,7 @@ Item {
     // runs in the agent chosen there.
     function sendToAgent(unit) {
         const job = jobs.find(each => each.unit === unit);
-        if (job !== undefined) handTo(agentTarget, Logic.agentFacts(job, factsOf(job)));
+        if (job !== undefined) handTo(agentTarget, Logic.agentFacts(job, Logic.factsOf(value, job)));
     }
 
     function linkText(action) {
@@ -196,6 +191,8 @@ Item {
                         width: parent.width - options.width - Theme.stack.inline
                         anchors.verticalCenter: parent.verticalCenter
                         role: "bodyStrong"
+                        // A job's name comes from its unit or the user.
+                        textFormat: Text.PlainText
                         text: jobCard.modelData.name
                         wrapMode: Text.Wrap
                     }
@@ -323,6 +320,7 @@ Item {
                 Label {
                     anchors.verticalCenter: parent.verticalCenter
                     role: "h3"
+                    textFormat: Text.PlainText
                     text: root.detailsJob === null ? "" : root.detailsJob.name
                 }
             }
@@ -358,9 +356,12 @@ Item {
                     required property var modelData
                     width: parent.width
                     label: modelData.label
+                    // A reading holds the unit's and the journal's own text,
+                    // such as an engine's error line, which may hold markup.
                     Label {
                         width: parent.width
                         role: "value"
+                        textFormat: Text.PlainText
                         text: reading.modelData.value
                         color: reading.modelData.tone === "danger" ? Theme.color.danger : Theme.color.text
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere

@@ -361,7 +361,9 @@ f share/vgshell/shell/assets/sounds/pop.wav
 f share/vgshell/shell/greeter.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/Debug.js
 f share/vgshell/shell/plugins/vgs.agent-debug/Diagnose.js
+f share/vgshell/shell/plugins/vgs.agent-debug/DiagnoseDraft.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/Recovery.qml
+f share/vgshell/shell/plugins/vgs.agent-debug/RecoveryChoice.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/Service.qml
 f share/vgshell/shell/plugins/vgs.agent-debug/manifest.json
 f share/vgshell/shell/plugins/vgs.agent-debug/tui/diagnose.sh

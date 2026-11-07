@@ -21,8 +21,9 @@ var SHOW_PROPERTIES = ["Id", "Description", "LoadState", "ActiveState", "SubStat
     "ExecMainStartTimestamp", "ExecMainExitTimestamp"];
 
 // The lines of a script that matter to the reader: lines that name an
-// engine, simple assignments and a unison profile's `root =` lines.
-var SCRIPT_LINE = /(rsync|unison)|^\s*((export|readonly|local|declare)\s+)?[A-Za-z_][A-Za-z0-9_]*=|^\s*root\s*=/;
+// engine, simple assignments and a unison profile's `root =` and `repeat =`
+// lines.
+var SCRIPT_LINE = /(rsync|unison)|^\s*((export|readonly|local|declare)\s+)?[A-Za-z_][A-Za-z0-9_]*=|^\s*(root|repeat)\s*=/;
 
 // The most of a script the service reads: `head --bytes`, so a program a
 // unit names, which is no script, costs no more than this.
@@ -33,8 +34,17 @@ var SCRIPT_BYTES = 65536;
 var SYSTEM_DIRS = /^\/(usr\/(?!local\/)|bin\/|sbin\/|lib|nix\/store\/)/;
 
 // A unit the Automations engine writes for an automation
-// (vgs.automations AutomationsLogic.unitName).
+// (vgs.automations AutomationsLogic.unitName), and the transient unit its
+// Run now starts for one, `vgs-automation-<id>-now-<ms>.service`
+// (vgs.automations bin/automations runNowVerb). An id may itself end in
+// `-now-<digits>`, so only the store tells the two apart (automationOf).
 var AUTOMATION_UNIT = /^vgs-automation-([A-Za-z0-9][A-Za-z0-9_-]*)\.service$/;
+var RUN_NOW = /^(.+)-now-\d+$/;
+
+// How long after an error line the job's own lines still belong to that
+// failure: the PROBLEMS lines that name it, and the lines a script writes
+// as it ends the failed copy. A job line later than this is a later try.
+var FAILURE_WINDOW = 60000;
 
 // The rsync exit status its manual calls a warning, not an error: "Partial
 // transfer due to vanished source files" (rsync(1), EXIT VALUES).
@@ -221,21 +231,56 @@ function expand(text, vars) {
     return unknown ? null : out;
 }
 
+// The words of an engine call's ARGS that are not options. unison's
+// `-repeat` takes the next word as its value (unison manual, Preferences:
+// `repeat`), which is no root or profile.
+function plainWords(call) {
+    var out = [];
+    for (var i = 0; i < call.args.length; i++) {
+        var word = call.args[i];
+        if (call.engine === "unison" && word === "-repeat") i++;
+        else if (word !== "" && word.charAt(0) !== "-") out.push(word);
+    }
+    return out;
+}
+
+// The profile a unison call names, { roots, repeat } from PROFILES, or
+// null: its one plain word, when it names no second root.
+function profileOf(call, profiles) {
+    var plain = plainWords(call);
+    return call.engine === "unison" && plain.length === 1 && hasOwn(profiles, plain[0]) ? profiles[plain[0]] : null;
+}
+
+// Whether an engine call stays running between its copies, so an engine
+// process in its unit is no copy: unison's `repeat` preference, on its
+// command line or in the profile it reads, makes it synchronize again and
+// again, by a time or by watching the files (unison manual, Preferences:
+// `repeat`; "When synchronizing continuously (time interval repeat or
+// with filesystem monitoring)"), and rsync's `--daemon` serves clients
+// until it is stopped (rsync(1), --daemon).
+function resident(call, profiles) {
+    if (call.engine === "rsync") return call.args.indexOf("--daemon") !== -1;
+    if (call.args.some(function (word) { return word === "-repeat" || word.indexOf("-repeat=") === 0; })) return true;
+    var profile = profileOf(call, profiles);
+    return profile !== null && profile.repeat;
+}
+
 // The two folders an engine call copies between, { from, to }, each ""
 // when not readable. rsync copies `SRC... DEST`, so the last two words
 // that are not options are the last source and the destination (rsync(1),
 // SYNOPSIS); unison syncs two roots, given as its first two words or by
 // a profile (unison manual, Profiles). PROFILES maps a profile name to its
-// roots.
+// { roots, repeat }.
 function folders(call, vars, profiles) {
-    var plain = call.args.filter(function (word) { return word !== "" && word.charAt(0) !== "-"; });
+    var plain = plainWords(call);
+    var profile = profileOf(call, profiles);
     var pair;
     if (call.engine === "rsync") {
         pair = plain.length >= 2 ? plain.slice(-2) : [];
     } else if (plain.length >= 2) {
         pair = plain.slice(0, 2);
-    } else if (plain.length === 1 && hasOwn(profiles, plain[0])) {
-        pair = profiles[plain[0]];
+    } else if (profile !== null) {
+        pair = profile.roots;
     } else {
         pair = [];
     }
@@ -247,8 +292,8 @@ function folders(call, vars, profiles) {
     return { from: read(pair[0]), to: read(pair[1]) };
 }
 
-// What a script's LINES copy: { engine, from, to }, or null when no line
-// runs an engine. Assignments before the engine's line set the variables
+// What a script's LINES copy: { engine, from, to, resident }, or null when
+// no line runs an engine. Assignments before the engine's line set the variables
 // it reads; HOME seeds them.
 function scriptJob(lines, home, profiles) {
     var vars = { HOME: home };
@@ -263,21 +308,23 @@ function scriptJob(lines, home, profiles) {
         var call = engineCall(lines[i]);
         if (call !== null) {
             var pair = folders(call, vars, profiles || {});
-            return { engine: call.engine, from: pair.from, to: pair.to };
+            return { engine: call.engine, from: pair.from, to: pair.to, resident: resident(call, profiles || {}) };
         }
     }
     return null;
 }
 
-// A unison profile's roots from its LINES, `root = <path>` each
-// (unison manual, Profiles).
-function profileRoots(lines) {
-    var roots = [];
+// A unison profile's LINES as { roots, repeat }: its `root = <path>`
+// lines, and whether a `repeat = <value>` line makes it run continuously
+// (unison manual, Profiles and Preferences: `repeat`).
+function profileRead(lines) {
+    var out = { roots: [], repeat: false };
     lines.forEach(function (line) {
         var match = /^\s*root\s*=\s*(.+?)\s*$/.exec(line);
-        if (match !== null) roots.push(match[1]);
+        if (match !== null) out.roots.push(match[1]);
+        if (/^\s*repeat\s*=\s*\S/.test(line)) out.repeat = true;
     });
-    return roots;
+    return out;
 }
 
 // The shells a unit's command can name before its script.
@@ -323,8 +370,8 @@ function scriptFiles(records, home) {
             var script = commandScript(argv);
             if (script !== null && script.file !== undefined && !SYSTEM_DIRS.test(script.file)) add(script.file);
             if (script !== null && script.engine === "unison") {
-                script.args.forEach(function (word) {
-                    if (/^[A-Za-z0-9_.-]+$/.test(word) && word.charAt(0) !== "-") add(home + "/.unison/" + word + ".prf");
+                plainWords(script).forEach(function (word) {
+                    if (/^[A-Za-z0-9_.-]+$/.test(word)) add(home + "/.unison/" + word + ".prf");
                 });
             }
         });
@@ -337,10 +384,39 @@ function scriptLines(text) {
     return String(text || "").split("\n").filter(function (line) { return SCRIPT_LINE.test(line); });
 }
 
-// The automation an Automations unit runs, or "".
+// The automation id an Automations unit's name holds, or "": for a Run
+// now unit, the id with its `-now-<ms>` (automationOf parts them).
 function automationId(unit) {
     var match = AUTOMATION_UNIT.exec(String(unit));
     return match === null ? "" : match[1];
+}
+
+// Which automation of AUTOMATIONS, the store's, an Automations UNIT runs:
+// { id, run }, `run` true for a Run now unit of that automation; null for
+// no Automations unit. An id the store holds is that automation's own
+// unit, even when it ends in `-now-<digits>`.
+function automationOf(unit, automations) {
+    var id = automationId(unit);
+    if (id === "") return null;
+    if (hasOwn(automations || {}, id)) return { id: id, run: false };
+    var run = RUN_NOW.exec(id);
+    if (run !== null && hasOwn(automations || {}, run[1])) return { id: run[1], run: true };
+    return { id: id, run: false };
+}
+
+// Whether UNIT is a Run now unit of JOB, an automation's job: its id's
+// `-now-<ms>` unit, and none of the units JOB.notRuns names, the store's
+// own automations whose ids look like one.
+function isRunOf(unit, job) {
+    if (job.automation === "" || job.notRuns.indexOf(unit) !== -1) return false;
+    var run = RUN_NOW.exec(automationId(unit));
+    return run !== null && run[1] === job.automation;
+}
+
+// Whether UNIT's lines and processes are JOB's: its own unit, or a Run now
+// unit of it.
+function ownsUnit(job, unit) {
+    return unit === job.unit || isRunOf(unit, job);
 }
 
 // A unit name as words: `scribd-brain-backup.service` reads "Scribd brain
@@ -354,12 +430,14 @@ function unitTitle(unit) {
 // command runs an engine, directly or through a script SCRIPTS holds the
 // lines of, or an automation of AUTOMATIONS (the Automations store's
 // `automations`, keyed by id) whose command runs one. MISSING lists the
-// engines this computer lacks.
+// engines this computer lacks. A Run now unit is no job of its own: its
+// automation's job lists it in `runs` while systemd holds it, and
+// `runPattern` names every one for the journal read.
 function jobs(records, scripts, automations, home, missing) {
     var profiles = {};
     Object.keys(scripts).forEach(function (file) {
         var match = /\/\.unison\/([^/]+)\.prf$/.exec(file);
-        if (match !== null) profiles[match[1]] = profileRoots(scripts[file]);
+        if (match !== null) profiles[match[1]] = profileRead(scripts[file]);
     });
     var out = [];
     records.forEach(function (record) {
@@ -367,9 +445,10 @@ function jobs(records, scripts, automations, home, missing) {
         var found = null;
         var via = "";
         var name = "";
-        var id = automationId(record.Id);
-        if (id !== "") {
-            var automation = hasOwn(automations || {}, id) ? automations[id] : null;
+        var owner = automationOf(record.Id, automations);
+        var id = owner === null ? "" : owner.id;
+        if (owner !== null) {
+            var automation = hasOwn(automations || {}, id) && !owner.run ? automations[id] : null;
             if (automation === null) return;
             found = scriptJob([automation.command], home, profiles);
             via = "automation";
@@ -381,7 +460,7 @@ function jobs(records, scripts, automations, home, missing) {
                 if (script === null) continue;
                 if (script.engine !== undefined) {
                     var pair = folders(script, { HOME: home }, profiles);
-                    found = { engine: script.engine, from: pair.from, to: pair.to };
+                    found = { engine: script.engine, from: pair.from, to: pair.to, resident: resident(script, profiles) };
                     via = "direct";
                 } else if (script.text !== undefined) {
                     found = scriptJob([script.text], home, profiles);
@@ -403,7 +482,12 @@ function jobs(records, scripts, automations, home, missing) {
             from: found.from,
             to: found.to,
             via: via,
-            continuous: record.Type !== "oneshot" && via === "script",
+            // A script that runs as a service, or an engine that stays
+            // running between copies: its unit's end is no copy's end.
+            continuous: record.Type !== "oneshot" && (via === "script" || found.resident),
+            // An engine process that stays running is no copy, so the copy
+            // check leaves this job out.
+            resident: found.resident,
             active: record.ActiveState || "",
             sub: record.SubState || "",
             result: record.Result || "",
@@ -411,7 +495,16 @@ function jobs(records, scripts, automations, home, missing) {
             fileState: record.UnitFileState || "",
             mainStatus: Number(record.ExecMainStatus || 0),
             startedAt: showTime(record.ExecMainStartTimestamp),
-            exitedAt: showTime(record.ExecMainExitTimestamp)
+            exitedAt: showTime(record.ExecMainExitTimestamp),
+            runs: id === "" ? [] : records.filter(function (other) {
+                var of = other.LoadState === "loaded" ? automationOf(other.Id, automations) : null;
+                return of !== null && of.run && of.id === id;
+            }).map(function (other) { return other.Id; }),
+            runPattern: id === "" ? "" : "vgs-automation-" + id + "-now-*.service",
+            notRuns: id === "" ? [] : Object.keys(automations || {}).filter(function (other) {
+                var run = RUN_NOW.exec(other);
+                return run !== null && run[1] === id;
+            }).map(function (other) { return "vgs-automation-" + other + ".service"; })
         });
     });
     out.sort(function (a, b) { return a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit); });
@@ -420,8 +513,13 @@ function jobs(records, scripts, automations, home, missing) {
 
 // The Automations store's version this reader knows. The store's format
 // belongs to vgs.automations: bin/automations names the file and
-// AutomationsLogic.js (STORE_VERSION, parseStore) judges it; a change there
-// changes this reader.
+// AutomationsLogic.js (STORE_VERSION, parseStore, unitName) judges it.
+// Automations documents `automations list --json` as the reading of its
+// jobs, but that program lives in vgs.automations' own tree, which no
+// plugin may name as a requirement (D035 names commands, never another
+// plugin), and it would start Automations' engine for every store change;
+// the file is read only. scripts/test-local-sync-logic.js loads
+// AutomationsLogic.js, so a change to the format fails Local Sync's test.
 var STORE_VERSION = 2;
 
 // The Automations store's TEXT, read only: { ok: true, automations: { id:
@@ -512,16 +610,31 @@ function isError(entry, job) {
     return code !== 0 && !(exit[1].toLowerCase() === "rsync" && RSYNC_WARNINGS.indexOf(code) !== -1);
 }
 
-// What JOB's journal ENTRIES say: { tried, failedAt, error, problem }.
-// `tried` is the newest line of the job's own processes, which a script
-// writes when it acts; `failedAt` and `error` the newest error line and
-// its text; `problem` the key of the PROBLEMS entry the job's error lines
-// within a minute before that one name, or "". The facts are plain JSON,
-// so the service publishes them as they are.
+// The user manager's own line that a unit's run ended clean: a one-shot's
+// "Finished <unit> - <description>." and a service's "Deactivated
+// successfully." (journalctl --user -o json on cachy, systemd 262,
+// 2026-11-06). A failed run's lines read "Failed with result ..." instead.
+var MANAGER_CLEAN = /^(Finished\b|Deactivated successfully\.)/;
+
+// What JOB's journal ENTRIES say: { tried, failedAt, error, problem,
+// finishedAt }. `tried` is the newest line of the job's own processes,
+// which a script writes when it acts; `failedAt` and `error` the newest
+// error line and its text; `problem` the key of the PROBLEMS entry the
+// job's error lines within FAILURE_WINDOW before that one name, or "";
+// `finishedAt` the newest manager line that a run of the job ended clean
+// (MANAGER_CLEAN), which `journalctl -u` reads with the unit's own lines
+// (journalctl(1), --unit: "additional matches for messages from
+// systemd"). A job's Run now units count as the job. The facts are plain
+// JSON, so the service publishes them as they are.
 function journalFacts(entries, job) {
-    var facts = { tried: 0, failedAt: 0, error: "", problem: "" };
+    var facts = { tried: 0, failedAt: 0, error: "", problem: "", finishedAt: 0 };
     entries.forEach(function (entry) {
-        if (entry === null || entry.unit !== job.unit || entry.comm === "systemd") return;
+        if (entry === null) return;
+        if (entry.comm === "systemd") {
+            if (ownsUnit(job, entry.about) && MANAGER_CLEAN.test(entry.message) && entry.at > facts.finishedAt) facts.finishedAt = entry.at;
+            return;
+        }
+        if (!ownsUnit(job, entry.unit)) return;
         if (entry.at > facts.tried) facts.tried = entry.at;
         if (!isError(entry, job)) return;
         if (entry.at >= facts.failedAt) {
@@ -531,7 +644,7 @@ function journalFacts(entries, job) {
     });
     if (facts.failedAt > 0) {
         entries.forEach(function (entry) {
-            if (entry === null || entry.unit !== job.unit || facts.failedAt - entry.at > 60000 || entry.at > facts.failedAt) return;
+            if (entry === null || entry.comm === "systemd" || !ownsUnit(job, entry.unit) || facts.failedAt - entry.at > FAILURE_WINDOW || entry.at > facts.failedAt) return;
             PROBLEMS.forEach(function (problem) {
                 if (problem.pattern.test(entry.message)) facts.problem = problem.key;
             });
@@ -541,11 +654,51 @@ function journalFacts(entries, job) {
 }
 
 // Whether a manager line ABOUT a unit, or one that reloads the manager,
-// can change what JOBS read: the service reads every job again for it.
+// can change what JOBS read: the service reads every job again for it. A
+// Run now unit of a job is about that job.
 function managerLineMatters(entry, jobList) {
     if (entry === null) return false;
     if (/^Reload(ing|ed)\b/.test(entry.message)) return true;
-    return entry.about !== "" && jobList.some(function (job) { return job.unit === entry.about; });
+    return entry.about !== "" && jobList.some(function (job) { return ownsUnit(job, entry.about); });
+}
+
+// The units the copy check asks about for JOBS: { unit, job } for each
+// job's unit and its Run now units, job being the job's own unit. A job
+// whose engine stays running is left out (resident).
+function checkUnits(jobList) {
+    var out = [];
+    jobList.forEach(function (job) {
+        if (job.resident) return;
+        [job.unit].concat(job.runs).forEach(function (unit) { out.push({ unit: unit, job: job.unit }); });
+    });
+    return out;
+}
+
+// The `journalctl` match words for JOB's journal read: its unit, and the
+// pattern every Run now unit of it matches (journalctl(1), --unit=PATTERN).
+function journalUnits(job) {
+    return ["-u", job.unit].concat(job.runPattern === "" ? [] : ["-u", job.runPattern]);
+}
+
+// JOB's two moments, { good, tried }, from its FACTS and SEEN, the end of
+// the last copy this service saw end with no error line: `good` the last
+// copy known to end clean, `tried` the last try. A continuous job's unit
+// keeps running across its copies, so its unit's exit and the manager's
+// line about it tell nothing of a copy.
+function times(job, facts, seen) {
+    var unitGood = job.continuous ? 0 : Math.max(job.result === "success" ? job.exitedAt : 0, facts.finishedAt || 0);
+    return {
+        good: Math.max(seen || 0, unitGood),
+        tried: Math.max(facts.tried, job.continuous ? 0 : job.startedAt)
+    };
+}
+
+// Whether JOB's newest error line stands: no copy known to end clean came
+// after it, and no try came after the lines of that failure
+// (FAILURE_WINDOW). A later try with no error line does not confirm a
+// success, so it only clears the failure.
+function errorStands(facts, moments) {
+    return facts.failedAt > 0 && facts.failedAt > moments.good && facts.tried <= facts.failedAt + FAILURE_WINDOW;
 }
 
 // JOB's state, one of: copying, failed, attention, unavailable, watching,
@@ -557,9 +710,8 @@ function managerLineMatters(entry, jobList) {
 function jobState(job, facts, copying, seen) {
     if (!job.available) return "unavailable";
     if (copying) return "copying";
-    var failed = job.active === "failed" || (!job.continuous && job.result !== "" && job.result !== "success");
-    var lastGood = Math.max(seen || 0, !job.continuous && job.result === "success" ? job.exitedAt : 0);
-    if (!failed && facts.failedAt > 0 && facts.failedAt > lastGood) failed = true;
+    var failed = job.active === "failed" || (!job.continuous && job.result !== "" && job.result !== "success")
+        || errorStands(facts, times(job, facts, seen));
     if (failed) return problemOf(facts.problem) !== null ? "attention" : "failed";
     if (job.active === "active" || job.active === "activating") return job.continuous ? "watching" : "starting";
     if (job.triggers.length > 0) return "waiting";
@@ -581,14 +733,19 @@ function unavailableText(engine) {
     return engine === "unison" ? "Two-way copy is not available on this computer" : "Copying is not available on this computer";
 }
 
-// The flyout card of JOB: { name, state, stateText, tone, from, to,
-// recent, explanation, next, actions }. TONE is neutral, info or danger;
-// ACTIONS are keys the panel draws as links: `log`, `agent` and `setup`.
-// WHEN words a past moment (Timestamp.text with NOW).
+// The sentence that says a continuous job cannot confirm a copy's end.
+var NO_END = "This job does not report when a copy ends.";
+
+// The flyout card of JOB: { unit, name, state, stateText, tone, from, to,
+// recent, explanation, next, actions, good, tried }. TONE is neutral, info
+// or danger; ACTIONS are keys the panel draws as links: `log`, `agent` and
+// `setup`; GOOD and TRIED are its moments (times). WHEN words a past
+// moment (Timestamp.text with NOW).
 function card(job, facts, copying, seen, now, when) {
     var state = jobState(job, facts, copying, seen);
-    var good = Math.max(seen || 0, !job.continuous && job.result === "success" ? job.exitedAt : 0);
-    var tried = Math.max(facts.tried, job.continuous ? 0 : job.startedAt);
+    var moments = times(job, facts, seen);
+    var good = moments.good;
+    var tried = moments.tried;
     var out = {
         unit: job.unit,
         name: job.name,
@@ -600,7 +757,9 @@ function card(job, facts, copying, seen, now, when) {
         recent: "",
         explanation: "",
         next: "",
-        actions: []
+        actions: [],
+        good: good,
+        tried: tried
     };
     // systemd's timestamps are whole seconds and the journal's finer, so
     // an exit within the second of the last line covers it.
@@ -617,33 +776,54 @@ function card(job, facts, copying, seen, now, when) {
     } else if (state === "unavailable") {
         out.actions = ["setup"];
     } else if (job.continuous && good === 0 && tried > 0 && state !== "copying") {
-        out.explanation = "Finish time and result are not available. This job does not report when a copy finishes.";
+        out.explanation = NO_END;
     }
     return out;
 }
 
 // The Details rows of JOB: [{ label, value, tone }], in the order the
-// Details sheet shows them, and its help line.
+// Details sheet shows them, and its help line: a continuous job with no
+// copy known to end clean says once that its copies' ends are unknown, and
+// each row keeps to its own fact.
 function details(job, facts, copying, seen, now, when) {
     var c = card(job, facts, copying, seen, now, when);
-    var good = Math.max(seen || 0, !job.continuous && job.result === "success" ? job.exitedAt : 0);
-    var tried = Math.max(facts.tried, job.continuous ? 0 : job.startedAt);
+    var failing = c.state === "failed" || c.state === "attention";
+    var how = job.via === "automation" ? "Automations job" : job.continuous ? "runs all the time"
+        : job.triggers.length > 0 ? "Started by " + job.triggers.join(", ") : "Runs once when started";
     var rows = [
         { label: "System job", value: job.unit, tone: "neutral" },
         { label: "Description", value: job.description, tone: "neutral" },
-        { label: "Engine", value: job.engine + " · " + (job.via === "automation" ? "Automations job" : job.continuous ? "Continuous wrapper" : job.triggers.length > 0 ? "Started by " + job.triggers.join(", ") : "One-shot"), tone: "neutral" },
+        { label: "Engine", value: job.engine + " · " + how, tone: "neutral" },
         { label: "From", value: job.from === "" ? "Not readable from the job" : job.from, tone: "neutral" },
         { label: "To", value: job.to === "" ? "Not readable from the job" : job.to, tone: "neutral" },
         { label: "State", value: c.stateText, tone: c.tone },
-        { label: "Last attempt", value: tried > 0 ? when(tried, now) : "Not recorded", tone: "neutral" },
-        { label: "Last sync", value: good > 0 ? when(good, now) : tried > 0 ? "End time not recorded" : "Not recorded", tone: "neutral" },
-        { label: "Last result", value: c.state === "failed" || c.state === "attention" ? (job.mainStatus > 0 && !job.continuous ? "Failed · Exit code " + job.mainStatus : "Failed") : good > 0 ? "Success" : "No result recorded", tone: c.state === "failed" || c.state === "attention" ? "danger" : "neutral" },
-        { label: "Errors", value: facts.error !== "" ? facts.error : good > 0 ? "No errors recorded" : "No errors recorded · This does not confirm success", tone: facts.error !== "" ? "danger" : "neutral" }
+        { label: "Last attempt", value: c.tried > 0 ? when(c.tried, now) : "Not recorded", tone: "neutral" },
+        { label: "Last sync", value: c.good > 0 ? when(c.good, now) : "Not recorded", tone: "neutral" },
+        { label: "Last result", value: failing ? (job.mainStatus > 0 && !job.continuous ? "Failed · Exit code " + job.mainStatus : "Failed") : c.good > 0 ? "Success" : "Not recorded", tone: failing ? "danger" : "neutral" },
+        { label: "Errors", value: failing && facts.error !== "" ? facts.error : "No errors recorded", tone: failing && facts.error !== "" ? "danger" : "neutral" }
     ].filter(function (row) { return row.value !== ""; });
-    var help = job.continuous && good === 0
-        ? "This job logs starts and errors, not successful exits. Completion is available when the job reports it to its journal."
-        : "";
-    return { rows: rows, help: help };
+    return { rows: rows, help: job.continuous && c.good === 0 ? NO_END : "" };
+}
+
+// JOB's journal facts in VALUE, the service's published `jobs` value, or
+// the facts of no line while its journal is not read yet.
+function factsOf(value, job) {
+    return hasOwn(value.facts, job.unit) ? value.facts[job.unit] : journalFacts([], job);
+}
+
+// The card of JOB from VALUE, the service's published `jobs` value.
+function cardOf(value, job, now, when) {
+    return card(job, factsOf(value, job), value.copying.indexOf(job.unit) !== -1, value.cleanEnds[job.unit] || 0, now, when);
+}
+
+// Every job's card from VALUE, in its order.
+function cards(value, now, when) {
+    return value.jobs.map(function (job) { return cardOf(value, job, now, when); });
+}
+
+// The Details of JOB from VALUE.
+function detailsOf(value, job, now, when) {
+    return details(job, factsOf(value, job), value.copying.indexOf(job.unit) !== -1, value.cleanEnds[job.unit] || 0, now, when);
 }
 
 // The bar item over CARDS: { state, label, tooltip, lines }. STATE is idle,
@@ -703,7 +883,7 @@ function agentFacts(job, facts) {
 function removal(job) {
     return {
         title: "Remove " + job.name + "?",
-        text: "This stops and turns off the job. Its file stays.",
+        text: "This stops the job and turns it off. Your folders and the job's setup file stay.",
         action: "Stop and turn off"
     };
 }

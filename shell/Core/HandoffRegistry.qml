@@ -65,7 +65,9 @@ Item {
         if (record === undefined || records[key] !== record || !record.ctx.active
                 || enabledIds.indexOf(record.ctx.id) === -1
                 || manifests[record.ctx.id]?.__revision !== record.ctx.manifest.__revision)
-            return { ok: false, reason: "This message target changed. Choose it again and retry Diagnose." };
+            // Any sender reads this, a fixed target's (D127) too, so it
+            // names no step of one sender.
+            return { ok: false, reason: "The receiver changed. Try again." };
         if (record.accept === null) return { ok: false, reason: record.reason };
         if (typeof text !== "string" || text.trim() === "") return { ok: false, reason: "The message is empty." };
         try {

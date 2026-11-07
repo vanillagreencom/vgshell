@@ -132,10 +132,10 @@ FocusScope {
                         Row {
                             spacing: Theme.stack.inline
                             Repeater {
-                                model: View.SYNC_ENGINES
+                                model: Engine.SYNC_JOB_ENGINES
                                 ToggleButton {
                                     required property string modelData
-                                    text: modelData === "unison" ? "Unison" : "rsync"
+                                    text: Engine.syncEngineLabel(modelData)
                                     checked: page.draft.sync !== undefined && page.draft.sync.engine === modelData
                                     disabledReason: page.draft.sync === undefined || page.draft.sync.available.indexOf(modelData) !== -1 ? ""
                                         : modelData === "unison" ? "Install Unison to use two-way sync." : "Install rsync to copy folders."

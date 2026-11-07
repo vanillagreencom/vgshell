@@ -8,8 +8,10 @@
 // owner's scribd-brain-backup wrapper, systemd's GetUnitProcesses answer as
 // `busctl --json=short` prints it and `journalctl -o json` entries. A
 // card is held by its state, tone and actions, never its words; the bar by
-// its state and dot. Controls edit a copy of the logic, one rule each, and
-// require this suite to fail on it.
+// its state and dot. The Automations store is built with vgs.automations'
+// own AutomationsLogic.js, so a change to its format fails here. Controls
+// edit a copy of the logic, one rule each, and require this suite to fail
+// on it.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -18,6 +20,8 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.local-sync", "SyncLogic.js");
+const Automations = load(path.join(__dirname, "..", "shell", "plugins", "vgs.automations", "AutomationsLogic.js"),
+    { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } });
 const HOME = "/home/user";
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 const CG = "/user.slice/user-1000.slice/user@1000.service/app.slice/";
@@ -59,6 +63,23 @@ function entry(unitName, at, message, comm) {
     return JSON.stringify({ __REALTIME_TIMESTAMP: String(at * 1000), MESSAGE: message, _COMM: comm || "bash", PRIORITY: "6", _SYSTEMD_USER_UNIT: unitName });
 }
 
+// A user manager line ABOUT a unit, as journalctl -o json prints it.
+function managerEntry(about, at, message) {
+    return JSON.stringify({ __REALTIME_TIMESTAMP: String(at * 1000), MESSAGE: message, _COMM: "systemd", PRIORITY: "6", _SYSTEMD_USER_UNIT: "init.scope", USER_UNIT: about });
+}
+
+// The Automations store as bin/automations writes it, through
+// AutomationsLogic's own add and serialize.
+function automationsStore(definitions) {
+    let store = Automations.emptyStore();
+    for (const definition of definitions) {
+        const added = Automations.addAutomation(store, Object.assign({ schedule: { frequency: "daily", interval: 1, times: ["09:00"], start: "2026-01-01", end: { type: "never" } } }, definition));
+        assert.equal(added.ok, true, "the fixture automation is one Automations accepts: " + JSON.stringify(added.error));
+        store = added.store;
+    }
+    return Automations.serializeStore(store);
+}
+
 function verify(L) {
     const records = L.parseShow([
         block(unit("scribd-brain-backup.service", [HOME + "/.local/bin/scribd-brain-backup-sync"], { Type: "simple", ActiveState: "active", SubState: "running", TriggeredBy: "scribd-brain-backup.path" })),
@@ -73,6 +94,15 @@ function verify(L) {
         block(unit("gone.service", ["/usr/bin/rsync", "/a/", "/b/"], { LoadState: "not-found" })),
         block(unit("vgs-automation-backup.service", ["/usr/bin/flock", "-n", "/lock", "/usr/bin/node", "/engine", "run", "--scheduled", "backup"])),
         block(unit("vgs-automation-other.service", ["/usr/bin/flock", "-n", "/lock", "/usr/bin/node", "/engine", "run", "--scheduled", "other"])),
+        // Run now of backup, a transient unit while it runs, and an
+        // automation whose own id looks like a Run now of it.
+        block(unit("vgs-automation-backup-now-1794044488532.service", ["/usr/bin/node", "/engine", "run", "--manual", "backup"], { Type: "simple", ActiveState: "active" })),
+        block(unit("vgs-automation-backup-now-2.service", ["/usr/bin/flock", "-n", "/lock", "/usr/bin/node", "/engine", "run", "--scheduled", "backup-now-2"])),
+        // An engine that stays running: unison watching by its command
+        // line, by its profile, and an rsync daemon.
+        block(unit("mirror-watch.service", ["/usr/bin/unison", "mirror", "-repeat", "watch"], { Type: "simple", ActiveState: "active" })),
+        block(unit("mirror-profile.service", ["/usr/bin/unison", "repeating"], { Type: "simple", ActiveState: "active" })),
+        block(unit("rsyncd.service", ["/usr/bin/rsync", "--daemon", "--no-detach"], { Type: "simple", ActiveState: "active" })),
         // A unit listed again, as `show '*.service' <files>` prints a loaded
         // installed unit twice.
         block(unit("notes.service", ["/usr/bin/true"]))
@@ -83,21 +113,31 @@ function verify(L) {
     const files = L.scriptFiles(records, HOME);
     for (const wanted of [HOME + "/.local/bin/scribd-brain-backup-sync", HOME + "/.unison/scribd-brain.prf", HOME + "/bin/run.sh"])
         assert.ok(files.indexOf(wanted) !== -1, "reads " + wanted);
-    for (const unwanted of ["/var/log/rsync.log", "/usr/bin/rsync", "/usr/bin/flock", "/engine", "/usr/bin/dbus-broker-launch"])
+    for (const unwanted of ["/var/log/rsync.log", "/usr/bin/rsync", "/usr/bin/flock", "/engine", "/usr/bin/dbus-broker-launch", HOME + "/.unison/watch.prf"])
         assert.equal(files.indexOf(unwanted), -1, "does not read " + unwanted);
 
     const scripts = {
         [HOME + "/.local/bin/scribd-brain-backup-sync"]: L.scriptLines(WRAPPER.join("\n")),
         [HOME + "/.unison/scribd-brain.prf"]: L.scriptLines("# Unison preferences\nroot = /home/user/dev/scribd-brain\nroot = ssh://user@host//home/user/dev/scribd-brain\nbatch = true\n"),
+        [HOME + "/.unison/mirror.prf"]: L.scriptLines("root = /home/user/m\nroot = /mnt/m\n"),
+        [HOME + "/.unison/repeating.prf"]: L.scriptLines("root = /home/user/r\nroot = /mnt/r\nrepeat = watch\n"),
         "/var/log/rsync.log": ["rsync -a /x/ /y/"]
     };
     assert.equal(scripts[HOME + "/.local/bin/scribd-brain-backup-sync"].indexOf("while [ -d \"$SRC\" ]; do"), -1, "a line that names no engine and sets nothing is not read");
-    const store = L.readStore(JSON.stringify({ version: 2, automations: [
+    // The store Automations writes, read by this reader: its version and
+    // its unit names are Automations' own.
+    assert.equal(L.STORE_VERSION, Automations.STORE_VERSION, "the store version is Automations'");
+    for (const id of ["backup", "backup-now-2"])
+        assert.equal(L.automationId(Automations.unitName(id, "service")), id, "an automation's unit names its id: " + id);
+    const store = L.readStore(automationsStore([
         { id: "backup", name: "Photos backup", command: "rsync -a --delete /home/user/Pictures/ /mnt/photos/" },
-        { id: "other", name: "Pull repos", command: "git -C ~/dev pull" }
-    ] }));
-    assert.equal(store.ok, true);
+        { id: "other", name: "Pull repos", command: "git -C ~/dev pull" },
+        { id: "backup-now-2", name: "Backup now 2", command: "rsync -a /home/user/x/ /mnt/x/" }
+    ]));
+    assert.equal(store.ok, true, "the store Automations writes reads");
     const automations = store.automations;
+    same(L.automationOf("vgs-automation-backup-now-1794044488532.service", automations), { id: "backup", run: true }, "a Run now unit is its automation's");
+    same(L.automationOf("vgs-automation-backup-now-2.service", automations), { id: "backup-now-2", run: false }, "a stored id is its own automation");
     // A store this reader does not know lists no automation, and says so
     // while an automation's unit exists: [case, text].
     for (const [name, text] of [["absent", null], ["not JSON", "not json"], ["another version", JSON.stringify({ version: 3, automations: [] })]]) {
@@ -111,25 +151,41 @@ function verify(L) {
     const jobs = L.jobs(records, scripts, automations, HOME, ["unison"]);
     const byUnit = {};
     for (const job of jobs) byUnit[job.unit] = job;
-    same(Object.keys(byUnit).sort(), ["inline.service", "notes.service", "scribd-brain-backup.service", "scribd-brain-sync.service", "vgs-automation-backup.service"], "the sync jobs");
+    same(Object.keys(byUnit).sort(), ["inline.service", "mirror-profile.service", "mirror-watch.service", "notes.service", "rsyncd.service", "scribd-brain-backup.service",
+        "scribd-brain-sync.service", "vgs-automation-backup-now-2.service", "vgs-automation-backup.service"], "the sync jobs, a Run now unit none of its own");
 
-    // [unit, engine, via, continuous, from, to, available, automation]
-    for (const [name, engine, via, continuous, from, to, available, automation] of [
-        ["scribd-brain-backup.service", "rsync", "script", true, "/run/media/user/Tertiary/scribd-brain/", HOME + "/dev/scribd-brain-backup/", true, ""],
-        ["scribd-brain-sync.service", "unison", "direct", false, "/home/user/dev/scribd-brain", "ssh://user@host//home/user/dev/scribd-brain", false, ""],
-        ["notes.service", "rsync", "direct", false, "/home/user/notes/", "/mnt/archive/notes/", true, ""],
-        ["inline.service", "rsync", "script", false, HOME + "/a/", "/b/", true, ""],
-        ["vgs-automation-backup.service", "rsync", "automation", false, "/home/user/Pictures/", "/mnt/photos/", true, "backup"]
+    // [unit, engine, via, continuous, resident, from, to, available, automation]
+    for (const [name, engine, via, continuous, stays, from, to, available, automation] of [
+        ["scribd-brain-backup.service", "rsync", "script", true, false, "/run/media/user/Tertiary/scribd-brain/", HOME + "/dev/scribd-brain-backup/", true, ""],
+        ["scribd-brain-sync.service", "unison", "direct", false, false, "/home/user/dev/scribd-brain", "ssh://user@host//home/user/dev/scribd-brain", false, ""],
+        ["notes.service", "rsync", "direct", false, false, "/home/user/notes/", "/mnt/archive/notes/", true, ""],
+        ["inline.service", "rsync", "script", false, false, HOME + "/a/", "/b/", true, ""],
+        ["vgs-automation-backup.service", "rsync", "automation", false, false, "/home/user/Pictures/", "/mnt/photos/", true, "backup"],
+        ["mirror-watch.service", "unison", "direct", true, true, "/home/user/m", "/mnt/m", false, ""],
+        ["mirror-profile.service", "unison", "direct", true, true, "/home/user/r", "/mnt/r", false, ""],
+        ["rsyncd.service", "rsync", "direct", true, true, "", "", true, ""]
     ]) {
         const job = byUnit[name];
-        same([job.engine, job.via, job.continuous, job.from, job.to, job.available, job.automation],
-            [engine, via, continuous, from, to, available, automation], "job " + name);
+        same([job.engine, job.via, job.continuous, job.resident, job.from, job.to, job.available, job.automation],
+            [engine, via, continuous, stays, from, to, available, automation], "job " + name);
     }
     assert.equal(byUnit["vgs-automation-backup.service"].name, "Photos backup", "an automation keeps its own name");
+    same(byUnit["vgs-automation-backup.service"].runs, ["vgs-automation-backup-now-1794044488532.service"], "a Run now unit is listed with its automation's job");
+    same(byUnit["vgs-automation-backup-now-2.service"].runs, [], "an automation whose id looks like a Run now has its own runs");
+
+    // The copy check asks about every job's units but an engine that
+    // stays running, each answer counted for its job.
+    const checked = L.checkUnits(jobs);
+    same(checked.filter(c => c.job === "vgs-automation-backup.service").map(c => c.unit),
+        ["vgs-automation-backup.service", "vgs-automation-backup-now-1794044488532.service"], "the copy check asks about a job's Run now unit");
+    for (const name of ["mirror-watch.service", "mirror-profile.service", "rsyncd.service"])
+        assert.equal(checked.some(c => c.job === name), false, "the copy check leaves out an engine that stays running: " + name);
+    same(L.journalUnits(byUnit["vgs-automation-backup.service"]), ["-u", "vgs-automation-backup.service", "-u", "vgs-automation-backup-now-*.service"], "the journal read names the Run now units");
+    same(L.journalUnits(byUnit["notes.service"]), ["-u", "notes.service"]);
 
     // A value from a command, or a variable no line sets, is not read.
-    same(L.scriptJob(["SRC=$(pick)", "rsync -a \"$SRC/\" /b/"], HOME, {}), { engine: "rsync", from: "", to: "/b/" });
-    same(L.scriptJob(["rsync -a \"$UNSET/\" \"${DEST:-/fallback}\""], HOME, {}), { engine: "rsync", from: "", to: "/fallback" });
+    same(L.scriptJob(["SRC=$(pick)", "rsync -a \"$SRC/\" /b/"], HOME, {}), { engine: "rsync", from: "", to: "/b/", resident: false });
+    same(L.scriptJob(["rsync -a \"$UNSET/\" \"${DEST:-/fallback}\""], HOME, {}), { engine: "rsync", from: "", to: "/fallback", resident: false });
     assert.equal(L.scriptJob(["echo \"rsync -a /x/ /y/\"", "log rsync started"], HOME, {}), null, "an engine named inside another command's words runs nothing");
     assert.equal(L.scriptJob(["nice -n 10 rsync -a /x/ /y/ && echo done"], HOME, {}).to, "/y/", "a command prefix leads to the engine, and its arguments end at the next command");
 
@@ -165,24 +221,66 @@ function verify(L) {
         same(JSON.parse(JSON.stringify(facts)), facts, "facts are plain JSON: " + name);
     }
 
-    // States: [case, job changes, facts, copying, clean end, state, tone, actions].
-    const none = { tried: 0, failedAt: 0, error: "", problem: "" };
+    // An automation's journal: [case, entries, failedAt, finishedAt]. A Run
+    // now unit's lines are the job's; another automation's are not, even
+    // when its id looks like a Run now; the manager's clean end of a run
+    // is its finish.
+    const auto = byUnit["vgs-automation-backup.service"];
+    const run = "vgs-automation-backup-now-1794044488532.service";
+    for (const [name, lines, failedAt, finishedAt] of [
+        ["a Run now's error", [entry(run, 5000, "rsync error: error in file IO (code 11)", "rsync")], 5000, 0],
+        ["a look-alike automation's error", [entry("vgs-automation-backup-now-2.service", 5000, "rsync error: error in file IO (code 11)", "rsync")], 0, 0],
+        ["a one-shot's clean finish", [managerEntry(auto.unit, 6000, "Finished vgs-automation-backup.service - Photos backup.")], 0, 6000],
+        ["a Run now's clean end", [managerEntry(run, 7000, "Deactivated successfully.")], 0, 7000],
+        ["a failed run's manager line", [managerEntry(auto.unit, 8000, "Failed with result 'exit-code'.")], 0, 0]
+    ]) {
+        const facts = L.journalFacts(lines.map(L.journalEntry), auto);
+        same([facts.failedAt, facts.finishedAt], [failedAt, finishedAt], "automation journal: " + name);
+    }
+    for (const [name, about, matters] of [["its Run now", run, true], ["a look-alike automation", "vgs-automation-backup-now-2.service", false]])
+        assert.equal(L.managerLineMatters({ about: about, message: "Started x." }, [auto]), matters, "manager line about " + name);
+
+    // States: [case, job changes, facts, copying, clean end, state, tone,
+    // actions, the moment the card words, the Errors row's tone and whether
+    // it shows the error line]. The moment is "good" for the last clean end,
+    // "tried" for the last try, "" for none, read from the moment the card
+    // hands its `when`.
+    const none = { tried: 0, failedAt: 0, error: "", problem: "", finishedAt: 0 };
+    const fail = (at, extra) => Object.assign({ tried: at, failedAt: at, error: "rsync exited 12", problem: "", finishedAt: 0 }, extra || {});
     const notes = byUnit["notes.service"];
-    for (const [name, changes, facts, copying, clean, state, tone, actions] of [
-        ["a watching wrapper", {}, none, false, 0, "watching", "neutral", []],
-        ["a wrapper's copy", {}, none, true, 0, "copying", "info", []],
-        ["a wrapper's failed copy", {}, { tried: 2000, failedAt: 2000, error: "rsync exited 12", problem: "" }, false, 0, "failed", "danger", ["log", "agent"]],
-        ["a wrapper's unreachable folder", {}, { tried: 2000, failedAt: 2000, error: "x", problem: "to" }, false, 0, "attention", "danger", ["log"]],
-        ["a clean copy after the error", {}, { tried: 2000, failedAt: 2000, error: "x", problem: "" }, false, 3000, "watching", "neutral", []],
-        ["a failed unit", { active: "failed" }, none, false, 0, "failed", "danger", ["log", "agent"]],
-        ["a missing engine", { available: false }, none, false, 0, "unavailable", "neutral", ["setup"]],
-        ["a stopped unit", { active: "inactive", triggers: [] }, none, false, 0, "stopped", "neutral", []],
-        ["a timer's unit", { active: "inactive" }, none, false, 0, "waiting", "neutral", []]
+    for (const [name, changes, facts, copying, clean, state, tone, actions, moment, errorTone, showsError] of [
+        ["a watching wrapper", {}, none, false, 0, "watching", "neutral", [], "", "neutral", false],
+        ["a wrapper's copy", {}, none, true, 0, "copying", "info", [], "", "neutral", false],
+        ["a wrapper's try", {}, Object.assign({}, none, { tried: 2000 }), false, 0, "watching", "neutral", [], "tried", "neutral", false],
+        ["a wrapper's failed copy", {}, fail(2000), false, 0, "failed", "danger", ["log", "agent"], "tried", "danger", true],
+        ["a wrapper's unreachable folder", {}, fail(2000, { problem: "to" }), false, 0, "attention", "danger", ["log"], "tried", "danger", true],
+        ["a clean copy after the error", {}, fail(2000), false, 3000, "watching", "neutral", [], "good", "neutral", false],
+        ["the failure's own later lines", {}, fail(2000, { tried: 2000 + 30000 }), false, 0, "failed", "danger", ["log", "agent"], "tried", "danger", true],
+        ["a later try with no error", {}, fail(2000, { tried: 2000 + 61000 }), false, 0, "watching", "neutral", [], "tried", "neutral", false],
+        ["a failed unit", { active: "failed" }, none, false, 0, "failed", "danger", ["log", "agent"], "", "neutral", false],
+        ["a missing engine", { available: false }, none, false, 0, "unavailable", "neutral", ["setup"], "", "neutral", false],
+        ["a stopped unit", { active: "inactive", triggers: [] }, none, false, 0, "stopped", "neutral", [], "", "neutral", false],
+        ["a timer's unit", { active: "inactive" }, none, false, 0, "waiting", "neutral", [], "", "neutral", false],
+        ["an engine that stays running", { via: "direct", resident: true }, none, false, 0, "watching", "neutral", [], "", "neutral", false]
     ]) {
         const job = Object.assign({}, backup, changes);
-        const card = L.card(job, facts, copying, clean, 10000, ms => String(ms));
-        same([card.state, card.tone, card.actions], [state, tone, actions], "card: " + name);
+        const worded = [];
+        const when = ms => { worded.push(ms); return "@" + ms; };
+        const card = L.card(job, facts, copying, clean, 10000, when);
+        const wanted = moment === "good" ? clean : moment === "tried" ? facts.tried : null;
+        same([card.state, card.tone, card.actions, worded.length === 0 ? null : worded[0]], [state, tone, actions, wanted], "card: " + name);
+        const errors = L.details(job, facts, copying, clean, 10000, when).rows.find(row => row.label === "Errors");
+        same([errors.tone, errors.value === facts.error], [errorTone, showsError], "Errors row: " + name);
     }
+    // A one-shot's clean run, from systemd's result or the manager's
+    // finish line, is its last sync; a continuous job's unit exit is none.
+    const oneshotGood = Object.assign({}, notes, { result: "success", mainStatus: 0, exitedAt: 4000, startedAt: 3500 });
+    for (const [name, job, facts, good] of [
+        ["systemd's result", oneshotGood, fail(3000, { tried: 3000 }), 4000],
+        ["the manager's finish line", Object.assign({}, oneshotGood, { exitedAt: 0 }), fail(3000, { tried: 3000, finishedAt: 5000 }), 5000],
+        ["a continuous job's unit exit", Object.assign({}, oneshotGood, { continuous: true }), Object.assign({}, none, { finishedAt: 5000 }), 0]
+    ])
+        same([L.card(job, facts, false, 0, 10000, ms => "@" + ms).good, L.jobState(job, facts, false, 0) === "failed"], [good, good === 0 && facts.failedAt > 0], "last sync: " + name);
     const oneshot = L.card(notes, none, false, 0, 10000, ms => String(ms));
     same([oneshot.state, oneshot.actions], ["failed", ["log", "agent"]], "a one-shot unit's failed result");
     const active = L.card(Object.assign({}, notes, { result: "success", active: "activating" }), none, false, 0, 10000, ms => String(ms));
@@ -192,6 +290,7 @@ function verify(L) {
     for (const [name, states, state, failed] of [
         ["no jobs", [], "idle", false],
         ["watching only", ["watching", "waiting"], "idle", false],
+        ["an engine that stays running", [L.card(byUnit["rsyncd.service"], none, false, 0, 10000, String).state], "idle", false],
         ["a copy", ["copying", "watching"], "syncing", false],
         ["a failure", ["failed", "watching"], "failed", true],
         ["a copy beside a failure", ["copying", "attention"], "syncing", true]
@@ -220,7 +319,12 @@ const controls = [
     ["a system program is read as a script", "if (script !== null && script.file !== undefined && !SYSTEM_DIRS.test(script.file)) add(script.file);", "if (script !== null && script.file !== undefined) add(script.file);"],
     ["a command's arguments are read as scripts", "if (argv[i].charAt(0) !== \"-\") return argv[i].charAt(0) === \"/\" ? { file: argv[i] } : null;", "if (argv[i].charAt(0) !== \"-\") continue;"],
     ["an active one-shot copies", "return job.continuous ? \"watching\" : \"starting\";", "return job.continuous ? \"watching\" : \"copying\";"],
-    ["a clean copy does not clear an error", "var lastGood = Math.max(seen || 0,", "var lastGood = Math.max(0,"],
+    ["a clean copy does not clear an error", "good: Math.max(seen || 0, unitGood),", "good: Math.max(0, unitGood),"],
+    ["a later try does not clear an error", " && facts.tried <= facts.failedAt + FAILURE_WINDOW;", ";"],
+    ["an engine that stays running copies", "        if (job.resident) return;\n", ""],
+    ["unison's repeat is ignored", "    if (call.args.some(function (word) { return word === \"-repeat\" || word.indexOf(\"-repeat=\") === 0; })) return true;\n", ""],
+    ["a Run now unit is a job of its own", "if (hasOwn(automations || {}, id)) return { id: id, run: false };", "return { id: id, run: false };"],
+    ["the manager's clean end is ignored", "if (ownsUnit(job, entry.about) && MANAGER_CLEAN.test(entry.message) && entry.at > facts.finishedAt) facts.finishedAt = entry.at;", ""],
     ["any store version is read", " || doc.version !== STORE_VERSION || ", " || "]
 ];
 

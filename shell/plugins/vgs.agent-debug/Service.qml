@@ -18,9 +18,13 @@ import "Diagnose.js" as Diagnose
 //   vgshell ipc call vgs.agent-debug invoke draft ""
 //     the waiting Diagnose draft, JSON { facts, agent }, facts null for none
 //   vgshell ipc call vgs.agent-debug invoke draft-run ""
+//     the window's Run: `ok` once the agent opened; `recovery` when the
+//     saved message target refused and the window now offers the one-off
+//     choice in the draft's place; `refused: draft=none`,
+//     `refused: agent=none`, or the terminal's refusal, which keeps the
+//     draft
 //   vgshell ipc call vgs.agent-debug invoke draft-cancel ""
-//     the window's Run and Cancel: `ok`, or `refused: draft=none`,
-//     `refused: agent=none`
+//     the window's Cancel: `ok`, or `refused: draft=none`
 //
 // Another plugin hands a failure to the `diagnose` receiver as text: a
 // failed sync job's facts (Debug.syncFacts). The receiver opens a draft in
@@ -206,22 +210,27 @@ Item {
     }
 
     // The window's Run: Diagnose for the waiting draft, through the agent
-    // the user chose.
+    // the user chose. A terminal that could not open keeps the draft, so
+    // Run can try again; Diagnose's answer is Run's.
     function runDraft() {
         if (draft === null) return "refused: draft=none";
         if (agent === "") return "refused: agent=none";
         const facts = draft;
         draft = null;
-        diagnose({ kind: "sync", entry: facts, read: Date.now() });
-        return "ok";
+        const reply = diagnose({ kind: "sync", entry: facts, read: Date.now() });
+        if (reply !== "ok" && reply !== "recovery") draft = facts;
+        return reply;
     }
 
     // Choose at the press, never when the notification was built. Terminal
     // arguments and the text prompt share the same admitted scalar facts.
+    // Answers `ok` when the agent opened, `recovery` when the saved message
+    // target refused and the window was summoned on the one-off choice, or
+    // the refusal.
     function diagnose(facts) {
         if (agent === "") {
             console.warn("agent-debug: diagnose refused=no-agent");
-            return;
+            return "refused: agent=none";
         }
         let args;
         if (facts.kind === "crash") {
@@ -238,15 +247,15 @@ Item {
             const target = targets.find(row => row.key === agent);
             const result = target === undefined ? { ok: false, reason: "Your saved message target is no longer installed." }
                 : !target.available ? { ok: false, reason: target.reason } : target.open(Diagnose.prompt(args.slice(1), ""));
-            if (!result.ok) {
-                recoveryArgs = args.slice(1);
-                recoveryReason = result.reason;
-                const reply = shell.surfaces.summon("window", "{}");
-                if (reply !== "ok") console.error("agent-debug: recovery " + reply);
-            }
-            return;
+            if (result.ok) return "ok";
+            recoveryArgs = args.slice(1);
+            recoveryReason = result.reason;
+            const reply = shell.surfaces.summon("window", "{}");
+            if (reply === "ok") return "recovery";
+            console.error("agent-debug: recovery " + reply);
+            return reply;
         }
-        terminal(args);
+        return terminal(args);
     }
 
     function terminal(args) {

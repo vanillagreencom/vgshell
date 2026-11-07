@@ -108,9 +108,6 @@ function blankDraft(nowMs, logic) {
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
-// The copy engines a sync job can run; the first is the default.
-var SYNC_ENGINES = ["rsync", "unison"];
-
 // A new sync job's draft, the editor's sync form: a draft whose `sync`
 // holds the engine, the From and To folders and AVAILABLE, the engines
 // this computer has, and whose command the form writes (syncCommand). A
@@ -119,8 +116,8 @@ function syncDraft(available, nowMs, logic) {
     var draft = blankDraft(nowMs, logic);
     draft.name = "New sync job";
     draft.requiresNetwork = false;
-    var engines = SYNC_ENGINES.filter(function (engine) { return (available || []).indexOf(engine) !== -1; });
-    draft.sync = { engine: engines.length > 0 ? engines[0] : SYNC_ENGINES[0], from: "", to: "", available: engines };
+    var engines = logic.SYNC_JOB_ENGINES.filter(function (engine) { return (available || []).indexOf(engine) !== -1; });
+    draft.sync = { engine: engines.length > 0 ? engines[0] : logic.SYNC_JOB_ENGINES[0], from: "", to: "", available: engines };
     draft.command = "";
     return draft;
 }
@@ -323,7 +320,7 @@ function validation(draft, logic, nowMs) {
     if (draft.sync !== undefined) {
         if (String(draft.sync.from || "").charAt(0) !== "/") errors.from = "Choose the folder to copy from.";
         if (String(draft.sync.to || "").charAt(0) !== "/") errors.to = "Choose the folder to copy to.";
-        if ((draft.sync.available || []).indexOf(draft.sync.engine) === -1) errors.engine = "Install " + (draft.sync.engine === "unison" ? "Unison" : "rsync") + " to use this job.";
+        if ((draft.sync.available || []).indexOf(draft.sync.engine) === -1) errors.engine = "Install " + logic.syncEngineLabel(draft.sync.engine) + " to use this job.";
     } else if (String(draft.command || "").trim() === "") errors.command = "Add the command this automation runs.";
     if (logic.parseDate(draft.start) === null) errors.start = "Use a real start date.";
     if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times) || draft.times.length === 0)) errors.times = "Add at least one time.";

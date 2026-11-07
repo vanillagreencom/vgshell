@@ -18,7 +18,9 @@
     {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Finds which job a running copy belongs to"},
     {"command": "head", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Reads which folders a job's script copies"},
     {"command": "realpath", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds the copy programs to watch"},
-    {"command": "inotifywait", "packages": {"pacman": "inotify-tools", "apt": "inotify-tools", "dnf": "inotify-tools", "nix": "inotify-tools"}, "optional": true, "purpose": "Notices when a copy starts"}
+    {"command": "inotifywait", "packages": {"pacman": "inotify-tools", "apt": "inotify-tools", "dnf": "inotify-tools", "nix": "inotify-tools"}, "optional": true, "purpose": "Notices when a copy starts"},
+    {"command": "rsync", "packages": {"pacman": "rsync", "apt": "rsync", "dnf": "rsync", "nix": "rsync"}, "optional": true, "purpose": "Runs the sync jobs that copy with rsync"},
+    {"command": "unison", "packages": {"pacman": "unison", "apt": "unison", "dnf": "unison", "nix": "unison"}, "optional": true, "purpose": "Runs the two-way sync jobs that use Unison"}
   ],
   "settings": {},
   "tui": {"log": {"script": "tui/log.sh", "title": "Sync job log", "size": "wide", "requires": ["journalctl"]}},

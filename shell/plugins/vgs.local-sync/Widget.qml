@@ -15,9 +15,7 @@ BarWidget {
     id: widget
 
     readonly property var value: shell === null ? undefined : shell.status.values.jobs
-    readonly property var cards: value === undefined || value === null ? [] : value.jobs.map(job => Logic.card(job,
-        value.facts[job.unit] || Logic.journalFacts([], job), value.copying.indexOf(job.unit) !== -1,
-        value.cleanEnds[job.unit] || 0, Time.now.getTime(), Timestamp.text))
+    readonly property var cards: value === undefined || value === null ? [] : Logic.cards(value, Time.now.getTime(), Timestamp.text)
     readonly property var view: Logic.bar(cards)
     readonly property bool syncing: view.state === "syncing"
 

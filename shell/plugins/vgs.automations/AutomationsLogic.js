@@ -1586,12 +1586,20 @@ function changedKeys(reported, values) {
     return out;
 }
 
+// The copy engines a sync job can run, the first the default: the engines
+// the `sync-job` request may name and the editor's sync form offers.
+var SYNC_JOB_ENGINES = ["rsync", "unison"];
+
+// ENGINE, one of SYNC_JOB_ENGINES, as the user reads its name.
+function syncEngineLabel(engine) {
+    return engine === "unison" ? "Unison" : "rsync";
+}
+
 // The `sync-job` handoff receiver's request in TEXT: { action: "new",
 // available } with the copy engines this computer has, or { action:
 // "remove", id } naming one of IDS, the listed automations; null for any
 // other text. Local Sync writes it (vgs.local-sync SyncLogic.addRequest and
 // removeRequest).
-var SYNC_JOB_ENGINES = ["rsync", "unison"];
 
 function syncJobRequest(text, ids) {
     var doc;

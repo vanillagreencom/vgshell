@@ -111,6 +111,8 @@ optdepends=(
   'vivaldi: opens a calendar day in a Vivaldi profile'
   'microsoft-edge-stable-bin: opens a calendar day in a Microsoft Edge profile'
   'inotify-tools: notices when a copy starts in the Local Sync plugin'
+  'rsync: runs the sync jobs that copy with rsync in the Local Sync plugin'
+  'unison: runs the two-way sync jobs that use Unison in the Local Sync plugin'
 )
 makedepends=('git')
 install=vgshell-git.install
