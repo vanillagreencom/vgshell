@@ -1124,6 +1124,106 @@ automations_stand_ins_restore() { # STUB
   done
 }
 
+# local_sync_stand_ins WORLD: vgs.local-sync's reads of the user manager
+# and its journal over the fixture world in WORLD, so no shell that runs
+# Local Sync reads the host's journal or its user manager. The device
+# stand-in systemctl answers the unit list and the unit properties with no
+# unit, which a caller plants over with device_reply for its own units. A
+# journalctl in the shell's own PATH directory answers a job's journal
+# read with the lines of WORLD/journal.jsonl whose _SYSTEMD_USER_UNIT the
+# read's -u words name, a pattern as journalctl matches it, and follows
+# WORLD/manager.jsonl from its end for the user manager's lines, writing
+# its pid to WORLD/follow.calls; any other read is refused. A busctl there
+# answers GetUnitProcesses on the user bus with the processes of the tree
+# whose root pid WORLD/pids/<unit> holds, only the root while
+# WORLD/hide-engines exists, and none for a unit with no such file; any
+# other call runs the host's busctl unchanged. Each logs its argv as one
+# JSON line in WORLD/<name>.calls. local_sync_stand_ins_restore WORLD puts
+# back the shim files and the systemctl replies they covered.
+local_sync_stand_in_names=(journalctl busctl)
+local_sync_stand_ins() { # WORLD
+  local world="$1" name props busctl_bin
+  # A tree that ships no Local Sync, as an older one a capture runs, has
+  # nothing to stand in for.
+  [[ -f $repo/shell/plugins/vgs.local-sync/SyncLogic.js ]] || return 0
+  busctl_bin="$(command -v busctl)" || { fail "local_sync_stand_ins: busctl is not on PATH"; return 1; }
+  props="$(node -e 'const { load } = require(process.argv[1]); process.stdout.write(load(process.argv[2]).SHOW_PROPERTIES.join(","))' \
+    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.local-sync/SyncLogic.js")" || { fail "local_sync_stand_ins: the unit property list is unreadable"; return 1; }
+  mkdir -p -- "$world/saved" "$world/pids"
+  touch -- "$world/journal.jsonl" "$world/manager.jsonl"
+  for name in "${local_sync_stand_in_names[@]}"; do
+    if [[ -e $shim/$name && ! -e $world/saved/$name ]]; then mv -- "$shim/$name" "$world/saved/$name"; fi
+  done
+  if [[ -e $devices_dir/replies/systemctl.json && ! -e $world/saved/systemctl.json ]]; then cp -- "$devices_dir/replies/systemctl.json" "$world/saved/systemctl.json"; fi
+  printf '%s\n' "$props" >"$world/props"
+  device_reply systemctl 0 "" --user list-unit-files --type=service --no-legend --plain
+  device_reply systemctl 0 "" --user show --timestamp=unix -p "$props" "*.service"
+  cat >"$shim/journalctl" <<EOF
+#!/usr/bin/env bash
+python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$world/journalctl.calls"
+if [[ "\$*" == "--user --follow --lines=0 --output=json _SYSTEMD_USER_UNIT=init.scope" ]]; then
+  printf '%s\n' "\$\$" >>"$world/follow.calls"
+  exec tail -n 0 -F -- "$world/manager.jsonl"
+fi
+exec python3 - "$world/journal.jsonl" "\$@" <<'PY'
+import fnmatch, json, sys
+path, argv = sys.argv[1], sys.argv[2:]
+head = ["--user", "--no-pager", "-o", "json", "-n", "200"]
+units = argv[len(head):]
+if argv[:len(head)] != head or not units or len(units) % 2 or any(w != "-u" for w in units[0::2]):
+    sys.exit("stand-in journalctl: argv=" + json.dumps(argv))
+patterns = units[1::2]
+lines = [l for l in open(path).read().splitlines() if l and any(fnmatch.fnmatchcase(json.loads(l).get("_SYSTEMD_USER_UNIT", ""), p) for p in patterns)]
+print("\n".join(lines[-200:]))
+PY
+EOF
+  cat >"$shim/busctl" <<EOF
+#!/usr/bin/env bash
+if [[ \$# == 9 && "\${*:1:8}" == "--user --json=short call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager GetUnitProcesses s" ]]; then
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$world/busctl.calls"
+  exec python3 - "$world" "\$9" <<'PY'
+import json, os, sys
+world, unit = sys.argv[1], sys.argv[2]
+procs = []
+root_file = os.path.join(world, "pids", unit)
+if "/" not in unit and os.path.exists(root_file):
+    root = int(open(root_file).read())
+    parents = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                parents[int(entry)] = int(open(f"/proc/{entry}/stat").read().rsplit(")", 1)[1].split()[1])
+            except (OSError, IndexError, ValueError):
+                pass
+    tree, queue = [root], [root]
+    while queue and not os.path.exists(os.path.join(world, "hide-engines")):
+        pid = queue.pop()
+        for child, parent in parents.items():
+            if parent == pid:
+                tree.append(child)
+                queue.append(child)
+    for pid in tree:
+        try:
+            line = open(f"/proc/{pid}/cmdline").read().rstrip("\0").replace("\0", " ")
+        except OSError:
+            continue
+        procs.append(["/user.slice/user-1000.slice/user@1000.service/app.slice/" + unit, pid, line])
+print(json.dumps({"type": "a(sus)", "data": [procs]}))
+PY
+fi
+exec $(printf '%q' "$busctl_bin") "\$@"
+EOF
+  chmod 755 "$shim/journalctl" "$shim/busctl"
+}
+local_sync_stand_ins_restore() { # WORLD
+  local name
+  [[ -f $1/props ]] || return 0
+  for name in "${local_sync_stand_in_names[@]}"; do
+    if [[ -e $1/saved/$name ]]; then mv -f -- "$1/saved/$name" "$shim/$name"; else rm -f -- "${shim:?}/$name"; fi
+  done
+  if [[ -e $1/saved/systemctl.json ]]; then mv -f -- "$1/saved/systemctl.json" "$devices_dir/replies/systemctl.json"; else rm -f -- "${devices_dir:?}/replies/systemctl.json"; fi
+}
+
 # The libsecret stand-in vgs.notifications reads its Slack tokens
 # through, in the directory the harness hands the shell as
 # VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR. $shim/secret-tool.states
@@ -1224,17 +1324,11 @@ PY
 # under the sandbox HOME and asks xdg-mime for the https default;
 # vgs.printers's lpstat and ipptool reach their stand-ins, which answer
 # from the sandbox's CUPS world, and its dbus-monitor listens on the
-# sandbox's system bus; vgs.local-sync lists the user manager's units
-# through the device stand-in systemctl, answered here with no unit, so it
-# reads no script, asks busctl about no unit and only follows the
-# journal.
+# sandbox's system bus; vgs.local-sync reads no unit and follows an
+# empty manager journal through local_sync_stand_ins.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
-  local sync_props
   expected_errors+=("${dictation_absent_errors[@]}")
-  sync_props="$(node -e 'const { load } = require(process.argv[1]); process.stdout.write(load(process.argv[2]).SHOW_PROPERTIES.join(","))' \
-    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.local-sync/SyncLogic.js")" || return
-  device_reply systemctl 0 "" --user list-unit-files --type=service --no-legend --plain
-  device_reply systemctl 0 "" --user show --timestamp=unix -p "$sync_props" "*.service"
+  local_sync_stand_ins "$sandbox/local-sync-default" || return
   devtools_stand_ins
   updates_cache_fresh
   user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'

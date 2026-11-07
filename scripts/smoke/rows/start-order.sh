@@ -48,6 +48,7 @@ start_order_paths=(
   "$home/.config/vgshell/plugins/acme.locker"
   "$home/.config/vgshell/plugins/acme.contention"
   "$shim/mise" "$shim/docker" "$shim/podman" "$shim/pacman"
+  "$shim/journalctl" "$shim/busctl" "$devices_dir/replies/systemctl.json"
   "$dev_state" "$home/.local/state/vgshell/updates/status.json"
 )
 for i in "${!start_order_paths[@]}"; do
