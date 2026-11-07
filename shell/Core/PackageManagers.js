@@ -543,7 +543,12 @@ var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };
 // paru(8) v2.1.0 documents both options and its complete build-order report.
 // yay(8) v12.5.0 has --batchinstall but no documented equivalent order
 // report; keep its form because dependency coverage cannot be established.
-var REVIEWED_BUILD = { paru: ["--skipreview", "--batchinstall"] };
+// paru v2.1.0 (300f76a4) src/install.rs:179-209 retains the cached
+// .SRCINFO even after downloading its replacement. :815-822 drops devel
+// info absent from that snapshot. --gendb reads the downloaded .SRCINFO
+// and adds only missing bases (src/devel.rs:121-126,153-161,204-210),
+// preserving other tracked commits after a recipe gains a git source.
+var REVIEWED_BUILD = { paru: { options: ["--skipreview", "--batchinstall"], complete: ["--gendb"] } };
 
 // paru v2.1.0 src/order.rs emits REPO/AUR TARGET, DEP and MAKE rows.
 // --rebuild=tree resolves even installed AUR dependencies (src/resolver.rs),
@@ -565,15 +570,18 @@ function parseBuildOrder(text) {
     return { ok: true, packages: packages };
 }
 
-function reviewedBuild(plan, coverage, dependenciesCovered) {
+function reviewedBuild(plan, coverage, dependenciesCovered, config) {
     if (plan.manager !== "aur" || ["complete", "declined", "unknown"].indexOf(coverage) < 0 || dependenciesCovered !== true)
         return plan;
-    var words = REVIEWED_BUILD[plan.binary];
-    if (words === undefined) return plan;
+    var build = REVIEWED_BUILD[plan.binary];
+    if (build === undefined) return plan;
     plan.steps.forEach(function (step) {
         var end = step.indexOf("--");
-        step.splice.apply(step, [end < 0 ? step.length : end, 0].concat(words));
+        step.splice.apply(step, [end < 0 ? step.length : end, 0].concat(build.options));
     });
+    // The existing step runner stops on failure, so tracking completes only
+    // after every install succeeds and its own failure remains a failed run.
+    plan.steps.push([plan.binary].concat(config === undefined ? [] : ["--config", config], build.complete));
     return plan;
 }
 // The helper bootstrap's build of paru's recipe, in the tree the package

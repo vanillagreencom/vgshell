@@ -454,7 +454,8 @@ function verifyTable(t) {
             const plan = t.plan("aur", action, names, onPathOf([binary])).plan;
             const words = binary === "paru" && coverage !== undefined && dependenciesCovered ? ["--skipreview", "--batchinstall"] : [];
             const expected = [binary, action === "upgrade" ? "-Sua" : "-S", ...words, ...(names.length ? ["--", ...names] : [])];
-            if (!same(t.reviewedBuild(plan, coverage, dependenciesCovered).steps, [expected]))
+            const steps = [expected, ...(words.length ? [[binary, "--gendb"]] : [])];
+            if (!same(t.reviewedBuild(plan, coverage, dependenciesCovered).steps, steps))
                 failures.push("reviewed build: " + JSON.stringify({binary, action, coverage, dependenciesCovered}));
         }
     for (const [name, manager, missing, outdated, commands, want] of OWED_ROWS) {

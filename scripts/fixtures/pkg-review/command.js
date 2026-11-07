@@ -41,6 +41,33 @@ function build(){
 }
 const configAt=args.indexOf("--config"),effectiveConfig=configAt<0?"/etc/pacman.conf":args[configAt+1];if(configAt>=0)args.splice(configAt,2);
 const dependencyFile=path.join(root,"dependency-world.json"),dependencies=fs.existsSync(dependencyFile)?JSON.parse(fs.readFileSync(dependencyFile)):{};
+// Paru v2.1.0, 300f76a4: install.rs:179-209 snapshots cached .SRCINFO
+// before download; devel.rs:503-525 reads its git sources; install.rs:815-822
+// removes a base with none. gendb (devel.rs:121-126,153-161,204-210) reads
+// the new file for missing bases and leaves existing tracked commits alone.
+// This stand-in writes only this world's scratch state, never a host file.
+const develFile=path.join(root,"devel-world.json");
+function devel(gendb){
+ if(!fs.existsSync(develFile))return;
+ const state=JSON.parse(fs.readFileSync(develFile));
+ if(gendb){
+  log("devel-completion",{config:effectiveConfig});
+  if(state.trackingStatus)process.exit(state.trackingStatus);
+  for(const [base,source] of Object.entries(state.sources))if(!state.tracked[base]&&source)state.tracked[base]=source;
+ }else{
+  if(state.installStatus)process.exit(state.installStatus);
+  const targets=args.includes("-Sua")?dependencies.pending:args.slice(args.indexOf("--")+1);
+  for(const base of targets){
+   if(state.cachedSources[base])state.tracked[base]=state.cachedSources[base];
+   else delete state.tracked[base];
+   state.cachedSources[base]=state.sources[base];
+  }
+ }
+ const dir=path.join(process.env.XDG_STATE_HOME,"paru");fs.mkdirSync(dir,{recursive:true});
+ fs.writeFileSync(path.join(dir,"devel.toml"),Object.entries(state.tracked).map(([base,source])=>`[[${base}.repos]]\nurl = ${JSON.stringify(source.url)}\ncommit = ${JSON.stringify(source.commit)}\n`).join("\n"));
+ fs.writeFileSync(develFile,JSON.stringify(state));
+}
+if(name==="paru"&&args.includes("--gendb")){devel(true);process.exit(0);}
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
  if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":""));
@@ -119,7 +146,9 @@ if(name==="pacman"||name==="paru"||name==="yay"){
  }
  // pacman builds no recipe: a scenario's failing pacman exits with its status alone.
  if(name==="pacman"){if(dependencies.prompts)log("pacman-confirmation",{transaction:"system-upgrade"});const file=path.join(root,"build.json");process.exit(fs.existsSync(file)?JSON.parse(fs.readFileSync(file)).pacman||0:0);}
- process.exit(build());
+ const status=build();
+ if(status===0&&name==="paru")devel(false);
+ process.exit(status);
 }
 if(name==="snapper"){
  if(args.includes("list-configs"))console.log("config,subvolume\nroot,/");else log("snapshot");process.exit(0);

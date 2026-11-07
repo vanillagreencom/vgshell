@@ -493,7 +493,7 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
         pkgFile().releaseSignals();
     } else r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath, config) : table.plan(manager, action, names, onPath, ignored, config);
     if (!r.ok) refuse(r.error);
-    if (receipt !== undefined) r.plan = table.reviewedBuild(r.plan, admitted.coverage, admitted.dependenciesCovered);
+    if (receipt !== undefined) r.plan = table.reviewedBuild(r.plan, admitted.coverage, admitted.dependenciesCovered, config);
     let command = manager === "aur" ? "build" : "none";
     const chosen = planElevator(r.plan);
     if (chosen !== null) {

@@ -4,7 +4,7 @@
 "use strict";
 const assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),cp=require("node:child_process");
 const [root,owner,scenario,writer=owner]=process.argv.slice(2);
-function run(args,entry=owner){const r=cp.spawnSync(process.execPath,[entry,...args],{env,stdio:"inherit"});if(r.status!==0)process.exit(r.status||1);}
+function run(args,entry=owner){const r=cp.spawnSync(process.execPath,[entry,...args],{env,stdio:"inherit"});if(r.status!==0)throw Object.assign(new Error("package step failed"),{status:r.status||1});}
 const created=cp.spawnSync(process.execPath,[owner,"review-transaction"],{encoding:"utf8"});
 if(created.status!==0)throw Error(created.stderr);
 const env={...process.env,VGS_PACKAGE_TRANSACTION:created.stdout.trim()};
@@ -26,5 +26,14 @@ try{
  for(const [action,manager,names] of [["upgrade","pacman",[]],["upgrade","aur",[]],["reinstall","aur",["vgshell-git"]]]){
   if(action==="reinstall"&&reply.skipped.includes("vgshell-git"))continue;
   run(["run",action,"--manager",manager,"--review-receipt",reply.receipt,"--config",config,...(action==="upgrade"&&reply.skipped.length?["--ignore",...reply.skipped]:[]),...names],action==="upgrade"?writer:owner);
+  if(scenario==="devel"&&manager==="aur"){
+   const tracked=fs.readFileSync(path.join(process.env.XDG_STATE_HOME,"paru/devel.toml"),"utf8");
+   assert.match(tracked,/\[\[vgshell-git\.repos\]\]\nurl = "https:\/\/example\.org\/vgs\.git"\ncommit = "new-vgs-commit"/,"devel: installed git package remains tracked");
+   assert.match(tracked,/\[\[other-git\.repos\]\]\nurl = "https:\/\/example\.org\/other\.git"\ncommit = "other-installed-commit"/,"devel: unrelated tracked commit remains unchanged");
+   fs.appendFileSync(path.join(root,"devel-checkpoints.jsonl"),JSON.stringify({action,tracked})+"\n");
+  }
  }
+}catch(error){
+ if(error.status===undefined)throw error;
+ process.exitCode=error.status;
 }finally{fs.rmSync(env.VGS_PACKAGE_TRANSACTION,{recursive:true,force:true});}
