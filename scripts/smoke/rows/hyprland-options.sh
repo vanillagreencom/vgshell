@@ -194,7 +194,8 @@ expect_poll "a user bind on the same key shows in foreignBinds" True foreign_has
 bind_line="$(wc -l <"$user_hypr/hyprland.lua")"
 expect_poll "the capture names the user's file and line for the key" "[[\"~/.config/hypr/hyprland.lua\", $bind_line, true]]" user_bind_rows
 settings_page_open acme.hyprland
-expect_poll "the Keys row's line names the user's file and line" "\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $bind_line.\"" key_field acme.hyprland ping conflict
+expect_poll "the occupied default is absent from the layer" no layer_has 'hl.bind("SUPER + F7", hl.dsp.global("acme.hyprland:ping"), { description = "acme.hyprland:ping" })'
+expect_poll "the Keys row reads the occupied default as taken" '"Taken by your key in Hyprland."' key_field acme.hyprland ping conflict
 expect_poll "the Keys row's line links the user's file and line" "\"~/.config/hypr/hyprland.lua line $bind_line\"" ipc smoke readShownDescendant window vgs.settings ShortcutField hintLink
 settings_press --type RowAction "Remove my line" || fail "the click on Remove my line failed"
 expect_poll "Remove my line asks before it removes" True removal_asked

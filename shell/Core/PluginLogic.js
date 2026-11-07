@@ -2216,6 +2216,10 @@ function keyConflicts(key, sections, foreign, id, shortcut, bindPlan, identities
 // could not be read. "" when nobody else asks and the read did not fail.
 // Every surface that shows a key draws this one line.
 function conflictHint(found, names) {
+    if (found.suppressed === true) {
+        var labels = found.userLabels || [];
+        return labels.length > 0 ? "Taken by your key: " + labels.join("; ") : "Taken by your key in Hyprland.";
+    }
     var places = (found.userBinds || []).map(function (row) { return row.place + " line " + row.line; });
     var holders = found.plugins.map(function (p) {
         return (hasOwn(names, p.id) ? names[p.id] : p.id) + " (" + p.shortcut + ")";
@@ -5331,6 +5335,7 @@ function hyprlandSection(config, manifest) {
     return {
         id: manifest.id,
         version: manifest.version,
+        chosenKeys: Object.keys(keys),
         binds: binds.concat(pads.binds),
         layerRules: clone(declared.layerRules),
         appearance: appearance,

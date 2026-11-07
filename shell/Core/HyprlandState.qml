@@ -56,6 +56,9 @@ Scope {
     property var optionValues: null
     readonly property var displayWake: Logic.frozenJson(State.displayWake(optionValues))
     property var foreignKeys: null
+    // Only key and description from the same binds reply. Settings names the
+    // user's action without copying its dispatcher or command into a hint.
+    property var foreignBindRows: null
     // [{ id, path, value }] for each written option the user's
     // configuration gave another value, which the layer then replaced; null
     // while unread or after a failed read.
@@ -95,6 +98,7 @@ Scope {
         optionValues = null;
         userValueRows = null;
         foreignKeys = null;
+        foreignBindRows = null;
         bindsFailure = "";
         userBindRows = null;
         userPermissions = null;
@@ -189,6 +193,12 @@ Scope {
 
     function readBinds() {
         if (!active) return;
+        // HyprctlReader drops an in-flight reply when a new read is queued.
+        // Invalidate both readings now, so a reload never admits old user
+        // binds under its new keymap revision while replacements are pending.
+        foreignKeys = null;
+        foreignBindRows = null;
+        userBindRows = null;
         bindsReader.read(State.BINDS_REQUEST, null);
         userBindsReader.read(State.USER_BINDS_REQUEST, null);
     }
@@ -448,10 +458,12 @@ Scope {
             const read = failure === "" ? State.foreignBinds(text, root.layerBinds) : { ok: false, error: failure };
             if (!read.ok) {
                 root.foreignKeys = null;
+                root.foreignBindRows = null;
                 root.bindsFailure = read.error;
                 console.error("hyprland: " + read.error);
             } else {
                 root.bindsFailure = "";
+                if (!root.same(read.binds, root.foreignBindRows)) root.foreignBindRows = read.binds;
                 if (!root.same(read.keys, root.foreignKeys)) root.foreignKeys = read.keys;
             }
         }

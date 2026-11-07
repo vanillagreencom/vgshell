@@ -239,6 +239,13 @@ Scope {
             if (Logic.hasOwn(Registry.manifests, p.id)) names[p.id] = Registry.manifests[p.id].name;
         const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key, identities) : [];
         const answer = { plugins: found.plugins, user: found.user, binds: state, userBinds: userBinds };
+        const plan = Registry.hyprlandBindPlan;
+        const row = plan === null ? undefined : plan.sections.find(row => row.section.id === id);
+        answer.suppressed = row !== undefined && row.binds.some(entry => entry.kind === "taken"
+            && entry.bind.shortcut === shortcut && entry.bind.key === ConfigLogic.hyprlandKey(key).key);
+        answer.userLabels = state !== "read" ? [] : (source.foreignBindRows || [])
+            .filter(row => Layer.sameKey(row.key, ConfigLogic.hyprlandKey(key).key, identities) && row.description.trim() !== "")
+            .map(row => row.description).filter((label, index, all) => all.indexOf(label) === index);
         answer.hint = Logic.conflictHint(answer, names);
         return Object.freeze(answer);
     }

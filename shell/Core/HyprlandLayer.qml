@@ -61,15 +61,37 @@ Scope {
     readonly property string bindRequest: Registry.scanned && Config.ready && bindSourcesReady
         ? JSON.stringify([Layer.requestedBindKeys(sections, Capabilities.hyprland.foreignKeys,
             Capabilities.hyprland.userBindRows), Capabilities.hyprland.keymapRevision]) : ""
-    // Only the merge pairs' identities and the keymap they were read under
-    // change the plan's binds; any other key change admits at once with the
-    // last snapshot, whose reply then refreshes the other identities.
+    // Merge pairs, the keymap revision and foreign-key changes require a
+    // new snapshot. Other edits reuse its facts only when the comparisons
+    // that decide default admission are already answerable.
     readonly property string bindAdmission: bindRequest === "" ? ""
-        : JSON.stringify([Layer.mergeKeys(sections), Capabilities.hyprland.keymapRevision])
+        : JSON.stringify([Layer.mergeKeys(sections), Capabilities.hyprland.keymapRevision, Capabilities.hyprland.foreignKeys])
     property var bindSnapshot: null
     readonly property var bindLifetime: ({ active: true })
-    readonly property var bindPlan: bindSnapshot !== null && bindSnapshot.admission === bindAdmission
-        && bindSnapshot.read.kind !== "failed" ? Layer.resolveBinds(sections, bindSnapshot.read.identities) : null
+    readonly property var bindPlan: {
+        if (!bindSourcesReady || bindSnapshot === null || bindSnapshot.admission !== bindAdmission
+                || bindSnapshot.read.kind === "failed") return null;
+        const read = bindSnapshot.read;
+        const plan = Layer.resolveBinds(sections, read.identities, "admitted", Capabilities.hyprland.foreignKeys);
+        // Enabling, rescanning or resetting a default can introduce a key
+        // absent from the last successful snapshot. Use the judge's rows so
+        // explicit choices, nulls, taken keys and plugin losers do not wait.
+        // A refused map keeps the judge's established string-only policy.
+        if (read.kind === "resolved") {
+            for (const row of plan.sections) {
+                for (const entry of row.binds) {
+                    if (entry.kind !== "bound" || (row.section.chosenKeys || []).indexOf(entry.bind.shortcut) !== -1) continue;
+                    const key = entry.bind.key;
+                    if (Capabilities.hyprland.foreignKeys.some(foreign =>
+                            key.substring(0, key.lastIndexOf("+")) === foreign.substring(0, foreign.lastIndexOf("+"))
+                            && !(Layer.isPhysicalKey(key) && Layer.isPhysicalKey(foreign))
+                            && (read.identities[key] === undefined || read.identities[foreign] === undefined)))
+                        return null;
+                }
+            }
+        }
+        return plan;
+    }
     readonly property bool touchpadsNeeded: Layer.wantsTouchpads(root.sections)
     readonly property bool coreInputsReady: Registry.scanned && Config.ready && Theme.fileState !== "pending"
     readonly property bool inputsReady: coreInputsReady
@@ -217,7 +239,9 @@ Scope {
     Binding { target: Capabilities.hyprland; property: "written"; value: root.rendered === null ? [] : root.rendered.options }
     Binding { target: Capabilities.hyprland; property: "appearanceWritten"; value: root.rendered === null ? [] : root.rendered.appearance }
     Binding { target: Capabilities.hyprland; property: "optionConflicts"; value: root.rendered === null ? [] : root.rendered.optionConflicts }
-    Binding { target: Capabilities.hyprland; property: "layerBinds"; value: root.rendered === null ? [] : root.rendered.binds }
+    // Exclude registrations VGS owns even before the first admitted render,
+    // and after suppressing a default still present in the loaded old layer.
+    Binding { target: Capabilities.hyprland; property: "layerBinds"; value: Layer.boundDescriptions(Layer.resolveBinds(root.sections)) }
     Binding { target: Capabilities.hyprland; property: "permissionState"; value: root.rendered === null ? null : root.rendered.permissions }
     Binding { target: Capabilities.monitors; property: "ownerId"; value: Registry.monitorRuleOwnerId }
     Binding { target: Notices; property: "consent"; value: Logic.consentSlotView(root.machine.consent, root.welcome, Config.shipped, root.sections, root.publishedBindPlan) }
@@ -337,11 +361,13 @@ Scope {
     // A start over a layer already on disk writes nothing until its keys
     // are admitted, so it never replaces that file and its binds with a core
     // file. A failed read keeps holding until a reload or a devices change
-    // reads again. Unread or failed bind sources leave no request, and the
-    // core publishes at once.
+    // reads again. Unread or failed bind sources hold an existing disk layer
+    // as well; they cannot establish which defaults the user leaves free.
+    // A core file this run wrote is not an inherited layer: its reload
+    // must still reach the consent probe while keys remain pending.
     function holdsFirstRender() {
-        return rendered === null && typeof machine.onDisk === "string" && bindRequest !== ""
-            && bindPlan === null;
+        return (rendered === null || rendered.plan.phase === "core") && typeof machine.onDisk === "string"
+            && !machine.reloaded && bindPlan === null;
     }
 
     // Write the layer and reload Hyprland now, whatever the bytes, reading
@@ -356,7 +382,13 @@ Scope {
 
     function feed(event) {
         const before = machine;
-        const next = Layer.step(machine, event, rendered === null ? null : rendered.text);
+        // The disk read may finish after a core-only render. With an existing
+        // layer, wait for admission rather than writing those provisional
+        // bytes from the loaded callback. QML bindings track these properties:
+        // https://quickshell.org/docs/v0.3.1/guide/qml-language
+        const existing = !machine.reloaded && (event.type === "loaded" ? typeof event.content === "string" : typeof machine.onDisk === "string");
+        const text = rendered === null || (existing && !admissionReady && rendered.plan.phase === "core") ? null : rendered.text;
+        const next = Layer.step(machine, event, text);
         machine = next.state;
         if (machine.failure !== "" && machine.failure !== before.failure) console.error("hyprland: " + machine.failure);
         if (machine.consent !== before.consent) welcomeFeed({ type: "consent", before: before.consent, after: machine.consent });

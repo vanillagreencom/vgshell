@@ -2,7 +2,8 @@
 # draws one row for each bind of an enabled first-party plugin: the same
 # set as the binds `hyprctl -j binds` reports with a `vgs.` description in
 # the default submap, a hold's release companion folded into its bind, and
-# one row with no key for a bind that has none. The row enables Voice for
+# one row for a keyless or suppressed bind. Suppressed defaults keep their
+# picker and taken hint but have no registration. The row enables Voice for
 # that keyless bind, its tap shortcut, whatever set the shell started over,
 # and unbinds the tap from its row, then resets it, which binds its default
 # keys again; with Voice disabled the window draws the same keyed rows and
@@ -90,13 +91,14 @@ kh_bound_has() { kh_bound | py_reply 'import json,sys; print(sys.argv[1] in json
 # absent; else every list.
 kh_same() {
   local rows bound
-  rows="$(ipc smoke itemValues window vgs.keyhints BindField pluginId,bind)" && bound="$(kh_bound)" || return 1
+  rows="$(ipc smoke itemValues window vgs.keyhints BindField pluginId,bind,found)" && bound="$(kh_bound)" || return 1
   python3 -c 'import json,sys
 items, b = json.loads(sys.argv[1]), json.loads(sys.argv[2])
-rows = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is not None)
+rows = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is not None and not (r["found"] or {}).get("suppressed", False))
+suppressed = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and (r["found"] or {}).get("suppressed", False))
 keyless = sorted("%s:%s" % (r["pluginId"], r["bind"]["shortcut"]) for r in items if r["pluginId"].startswith("vgs.") and r["bind"]["key"] is None)
 required = {"vgs.keyhints:toggle", "vgs.themes:themes"}
-keyed = rows == b and required <= set(rows)
+keyed = rows == b and required <= set(rows + suppressed) and not set(suppressed).intersection(b)
 if keyed and "vgs.voice:tap" in keyless:
     print("same")
 elif keyed:
@@ -165,12 +167,12 @@ unset kh_record_reader
 hypr_lua_save keyhints
 kh_lua
 expect "the nested instance reloads with the Key Hints harness bind without configuration errors" '[]' hypr_reload_errors
-kh_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("SUPER + SHIFT + T"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
+kh_user_hint='"Taken by your key: Smoke keyhints t"'
 
 kh_voice_before="$(plugin_enabled vgs.voice)" || kh_voice_before=unread
 kh_themes_before="$(plugin_enabled vgs.themes)" || kh_themes_before=unread
 expect "enabling Themes for its Key Hints row is allowed" ok ipc shell setPluginEnabled vgs.themes true
-expect_poll "the Themes shortcut reaches Hyprland before its row is read" True kh_bound_has vgs.themes:themes
+expect_poll "the occupied Themes default stays out of Hyprland before its row is read" False kh_bound_has vgs.themes:themes
 # Voice holds `dictation`, and no smoke shell finds voxtype.
 expected_errors+=("${dictation_absent_errors[@]}")
 # voxtype and its bridge are required, so enabling Voice raises their
@@ -212,7 +214,7 @@ expect_poll "the Voice tap row's unbind is applied" applied ipc smoke invokeInst
 expect_poll "the unbound Voice tap leaves hyprctl binds" False kh_bound_has vgs.voice:tap
 expect_poll "the window draws exactly the vgs. binds hyprctl reports" same kh_same
 expect "Key Hints rows use the shared group spacing token" True kh_spacing
-expect_poll "the Themes row shows the user bind on its default key with no interaction" "$kh_user_hint" kh_field "$kh_themes" conflict
+expect_poll "the Themes row shows its occupied default as taken with no interaction" "$kh_user_hint" kh_field "$kh_themes" conflict
 
 expect_poll "the Themes row's field takes the focus" focused ipc smoke invokeInstance window vgs.keyhints focusKeyField "$kh_themes"
 type_keys -k Return || fail "Return on the Key Hints field failed"
@@ -280,7 +282,7 @@ kh_drawn_has() { kh_rows vgs.themes | py_reply 'import json,sys; print("vgs.them
 expect "the unbound Themes row stays drawn" True kh_drawn_has
 expect_poll "the unbound Themes row holds no key" '""' kh_field "$kh_themes" key
 expect "the Themes key is reset" applied ipc smoke invokeInstance window vgs.keyhints applyKey "$kh_themes"
-expect_poll "the reset Themes bind is back in hyprctl binds" True kh_bound_has vgs.themes:themes
+expect_poll "the reset Themes default is still suppressed in hyprctl binds" False kh_bound_has vgs.themes:themes
 
 kh_toggle || fail "typing SUPER+SLASH to close failed"
 expect_poll "SUPER+SLASH closes the Key Hints window" 0 window_count "$kh_title"

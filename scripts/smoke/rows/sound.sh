@@ -488,19 +488,24 @@ middle_click "$wx" "$wy" || fail "the second middle click on the widget failed"
 expect_poll "a second middle click unmutes them" false snd_muted vgs-smoke-speakers
 expect "the widget's actions started no process a stand-in or recorder sees" "$calls_before" snd_calls_all
 
-# The nested instance for the keys: binds by keysym, the user's own bind
-# on XF86AudioMicMute, and monitor focus held while a second output comes.
+# The nested instance for the free microphone keys, by keysym, and monitor
+# focus held while a second output comes. Occupy the default only after
+# both independent toggle guarantees have been exercised.
 hypr_lua_save sound
 {
   printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true, follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })'
-  printf '%s\n' "hl.bind(\"XF86AudioMicMute\", hl.dsp.exec_cmd(\"touch $sandbox/sound-user-mic\"), { description = \"Smoke user mic mute\" })"
 } >>"$home/.config/hypr/hyprland.lua"
-snd_user_hint="\"Also used by your Hyprland config at ~/.config/hypr/hyprland.lua line $(grep -nF 'hl.bind("XF86AudioMicMute"' "$home/.config/hypr/hyprland.lua" | cut -d: -f1).\""
 expect "the nested instance reloads with the Sound row's binds without configuration errors" '[]' hypr_reload_errors
+expect_poll "the free microphone defaults reach Hyprland" "$snd_all_binds" snd_binds
 expect_poll "both microphone keys start with the same default source" '"vgs-smoke-microphone"' snd_audio '["defaults"]["source"]'
 expect_poll "the default microphone starts unmuted" false snd_muted vgs-smoke-microphone
 snd_mic_toggle XF86AudioMicMute -k XF86AudioMicMute
 snd_mic_toggle SUPER+M -M logo -k m -m logo
+printf '%s\n' "hl.bind(\"XF86AudioMicMute\", hl.dsp.exec_cmd(\"touch $sandbox/sound-user-mic\"), { description = \"Smoke user mic mute\" })" >>"$home/.config/hypr/hyprland.lua"
+snd_user_hint='"Taken by your key: Smoke user mic mute"'
+snd_free_binds='[["M", "vgs.sound:mic-mute-alt"], ["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]'
+expect "the nested instance reloads with the occupied microphone default without configuration errors" '[]' hypr_reload_errors
+expect_poll "the occupied microphone default is suppressed" "$snd_free_binds" snd_binds
 
 # The keyboard alone: SUPER+COMMA, Enter into the section, Down on the
 # output's Select, then Tab through every control, Space on each button
@@ -606,7 +611,7 @@ settings_page_close vgs.sound
 # reading follows the press.
 snd_row_set keys -
 expect "the configuration reloads with the manifest's keys" ok ipc shell reloadConfig
-expect_poll "XF86AudioMicMute is the Sound shortcut's again" "$snd_all_binds" snd_binds
+expect_poll "resetting the microphone key suppresses its occupied default again" "$snd_free_binds" snd_binds
 rm -rf -- "${snd_settings_copy:?}"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$snd_settings_copy"
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings at ')
@@ -627,7 +632,7 @@ expect_poll "control: the copy offers Use my binding too" 1 snd_use_mine
 rest_pointer || fail "control: resting the pointer failed"
 settings_press --type RowAction "Use my binding" || fail "control: the click on the copy's Use my binding failed"
 expect_poll "control: the copy's Use my binding writes the key in effect" '"XF86AUDIOMICMUTE"' snd_key mic-mute
-expect "control: a Use my binding that sends the key in effect leaves the shortcut bound" stayed snd_stays "$snd_all_binds" snd_binds
+expect_poll "control: a Use my binding that sends the key in effect leaves the shortcut bound" stayed snd_stays "$snd_all_binds" snd_binds
 settings_page_close vgs.sound
 rm -rf -- "${snd_settings_copy:?}"
 rescan "rescan drops the Settings copy"

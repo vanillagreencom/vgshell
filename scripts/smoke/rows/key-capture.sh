@@ -84,7 +84,7 @@ expect "the nested instance reloads with the key capture harness binds without c
 kc_space_line="$(grep -nF 'hl.bind("SUPER + SPACE"' "$kc_hypr_lua" | cut -d: -f1)"
 
 expect "enabling Launcher, whose shortcut asks for SUPER+SPACE, is allowed" ok ipc shell setPluginEnabled vgs.launcher true
-kc_loaded "enabling Launcher" vgs.launcher:toggle "64 space"
+kc_loaded "enabling Launcher suppresses its occupied default" vgs.launcher:toggle absent
 kc_open "key capture"
 key_reset "key capture start"
 kc_loaded "key capture start" vgs.settings:toggle "64 period"

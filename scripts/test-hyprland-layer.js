@@ -21,6 +21,7 @@ const os = require("os");
 const path = require("path");
 const vm = require("vm");
 const { load } = require("../bin/lib/qml-library.js");
+const { closure } = require("../bin/lib/qml-library.js");
 
 // A library's objects come from another realm, so they are compared as the
 // JSON they write.
@@ -80,6 +81,177 @@ function assertLockedTwins(applied, label) {
 const glowTokens = { color: "#ff1a1020", colorEnd: "#ff202428", angle: 45, inactive: "#00101010", range: 35, renderPower: 2 };
 const glassWindow = { opacity: 0.9, inactiveOpacity: 0.8, blurSize: 6, blurPasses: 3, shadowRange: 20, shadowPower: 2, shadowColor: "#73000000" };
 const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" }, glow: glowTokens }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false, glow: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 }, tuiCell: { width: 10, height: 22 }, windowTopShare: 0.2 };
+
+// The owner rule is admission, not a problem report. Exercise the shipped
+// QML bindPlan binding, its real key judge and the renderer's registrations.
+function verifyUserBindAdmission(layer) {
+    const source = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.qml"), "utf8");
+    const binding = source.match(/readonly property var bindPlan: ([\s\S]*?)\n    readonly property bool touchpadsNeeded:/);
+    assert.ok(binding, "production bind admission is readable");
+    const logic = load(logicFile);
+    const state = load(stateFile);
+    const manifest = manifestOf(logic, { id: "vgs.capture", hyprland: { binds: [
+        { shortcut: "screenshot-area", key: "SUPER+SHIFT+S" },
+        { shortcut: "toggle", key: "SUPER+CTRL+SHIFT+S" }
+    ] } });
+    const incident = { submap: "", key: "S", keycode: 0, modmask: 65,
+        description: "Move window down", dispatcher: "exec", arg: "private-fixture-command" };
+    const cases = [
+        { name: "user default clash", binds: [incident], want: ["vgs.capture:toggle"], taken: true },
+        { name: "free default", binds: [], want: ["vgs.capture:screenshot-area", "vgs.capture:toggle"] },
+        { name: "Settings chose the same key", binds: [incident], keys: { "screenshot-area": "SUPER+SHIFT+S" },
+            want: ["vgs.capture:screenshot-area", "vgs.capture:toggle"] },
+        { name: "Settings chose another occupied key", binds: [Object.assign({}, incident, { key: "P" })],
+            keys: { "screenshot-area": "SUPER+SHIFT+P" }, want: ["vgs.capture:screenshot-area", "vgs.capture:toggle"] },
+        { name: "null unbind", binds: [incident], keys: { "screenshot-area": null }, want: ["vgs.capture:toggle"] },
+        { name: "named submap", binds: [Object.assign({}, incident, { submap: "resize" })],
+            want: ["vgs.capture:screenshot-area", "vgs.capture:toggle"] },
+        { name: "default spelling", binds: [Object.assign({}, incident, { submap: "default" })], want: ["vgs.capture:toggle"], taken: true },
+        { name: "startup over VGS layer", binds: [Object.assign({}, incident, { description: "vgs.capture:screenshot-area" })],
+            want: ["vgs.capture:screenshot-area", "vgs.capture:toggle"] },
+        { name: "VGS plus user", binds: [Object.assign({}, incident, { description: "vgs.capture:screenshot-area" }), incident],
+            want: ["vgs.capture:toggle"], taken: true },
+        { name: "other modifiers", binds: [Object.assign({}, incident, { modmask: 64 })],
+            want: ["vgs.capture:screenshot-area", "vgs.capture:toggle"] },
+        { name: "physical identity", binds: [Object.assign({}, incident, { key: "", keycode: 39 })],
+            identities: { "SUPER+SHIFT+S": "SUPER+SHIFT+code:39", "SUPER+SHIFT+code:39": "SUPER+SHIFT+code:39" },
+            want: ["vgs.capture:toggle"], taken: true },
+        { name: "pending bind read", binds: null, want: null },
+        { name: "failed identity read", binds: [incident], failed: true, want: null },
+        { name: "old admission revision", binds: [incident], stale: true, want: null }
+    ];
+    for (const row of cases) {
+        const config = row.keys === undefined ? {} : { plugins: [{ id: manifest.id, keys: row.keys }] };
+        const sections = [logic.hyprlandSection(config, manifest)];
+        const read = row.binds === null ? null : state.foreignBinds(JSON.stringify(row.binds), []);
+        if (read !== null) assert.equal(read.ok, true, row.name);
+        const plan = vm.runInNewContext("(function() " + binding[1] + ")()", {
+            Layer: layer, sections, bindSourcesReady: read !== null, bindAdmission: "current",
+            bindSnapshot: { admission: row.stale ? "previous" : "current",
+                read: row.failed ? { kind: "failed" } : { kind: "resolved",
+                    identities: row.identities || { "SUPER+SHIFT+S": "SUPER+SHIFT+code:39" } } },
+            Capabilities: { hyprland: { foreignKeys: read === null ? null : read.keys } }
+        });
+        if (row.want === null) { assert.equal(plan, null, row.name); continue; }
+        const rendered = layer.render(sections, theme, "vgs", 1, null, "", "", plan);
+        same(rendered.binds, row.want, row.name + ": only admitted VGS binds register");
+        same(layer.shortcutKeys(sections, manifest.id, plan), {
+            "screenshot-area": row.taken || row.keys && row.keys["screenshot-area"] === null ? null
+                : row.keys ? row.keys["screenshot-area"] : "SUPER+SHIFT+S",
+            toggle: "SUPER+CTRL+SHIFT+S"
+        }, row.name + ": registration readback");
+        for (const entry of plan.sections[0].binds)
+            assert.equal(rendered.text.includes('hl.bind("' + layer.bindKeys(entry.bind.key || "") + '", hl.dsp.global("' + entry.global + '")'),
+                entry.kind === "bound", row.name + ": actual Lua registration");
+        assert.equal(rendered.conflicts.length, 0, row.name + ": no problem-list clash");
+    }
+    const first = logic.hyprlandSection({}, manifestOf(logic, { id: "acme.first", hyprland: { binds: [{ shortcut: "take", key: "SUPER+SHIFT+S" }] } }));
+    const plan = layer.resolveBinds([first, logic.hyprlandSection({}, manifest)], null, "admitted", ["SUPER+SHIFT+S"]);
+    same(plan.conflicts, [{ id: "vgs.capture", shortcut: "screenshot-area", key: "SUPER+SHIFT+S", heldBy: "acme.first" }],
+        "user suppression does not hand plugin ownership to a later plugin");
+}
+
+function testUserBindAdmission() {
+    verifyUserBindAdmission(load(layerFile));
+    const source = fs.readFileSync(layerFile, "utf8");
+    const needle = '(foreign || []).some(function (key) { return sameKey(bind.key, key, identities); })';
+    assert.equal(source.split(needle).length, 2, "admission control matches once");
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "user-bind-admission-control-"));
+    try {
+        const mutant = path.join(scratch, "HyprlandLayer.js");
+        for (const dependency of closure(layerFile))
+            if (dependency !== layerFile)
+                fs.copyFileSync(dependency, path.join(scratch, path.relative(path.dirname(layerFile), dependency)));
+        fs.writeFileSync(mutant, source.replace(needle, 'false && ' + needle));
+        assert.throws(() => verifyUserBindAdmission(load(mutant)), error => error.code === "ERR_ASSERTION"
+            && JSON.stringify(error.actual) === '["vgs.capture:screenshot-area","vgs.capture:toggle"]'
+            && JSON.stringify(error.expected) === '["vgs.capture:toggle"]');
+        console.log("test-hyprland-layer: user-bind-admission pass control=killed");
+    } finally {
+        fs.rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
+function verifyUserBindLifecycle() {
+    const layerSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.qml"), "utf8");
+    const stateSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandState.qml"), "utf8");
+    const captureSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "KeyCapture.qml"), "utf8");
+    const method = (source, name) => {
+        const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{[\\s\\S]*?^    \\}", "gm"))];
+        assert.equal(found.length, 1, name + " has one production method");
+        return found[0][0];
+    };
+    const state = load(stateFile);
+    const layer = load(layerFile);
+    const logic = load(logicFile);
+    const calls = [];
+    const context = vm.createContext({
+        active: true, keymapRevision: 0, foreignKeys: ["SUPER+SHIFT+S"],
+        foreignBindRows: [{ key: "SUPER+SHIFT+S", description: "Old bind" }], userBindRows: [],
+        bindsFailure: "", layerBinds: [], State: state, console: { error: error => calls.push(error) },
+        bindsReader: { read: (...args) => calls.push(["binds", ...args]) },
+        userBindsReader: { read: (...args) => calls.push(["user", ...args]) },
+        readDevices: () => {}, readOptions: () => {}, readUserValues: () => {}, readPermissions: () => {}
+    });
+    context.root = context;
+    vm.runInContext(method(stateSource, "same") + "\n" + method(stateSource, "readBinds"), context);
+    const reload = stateSource.match(/function onRawEvent\(event\) \{([\s\S]*?)\n        \}\n    \}/);
+    assert.ok(reload, "the production reload handler is available");
+    vm.runInContext("(function(event) {" + reload[1] + "})({name:'configreloaded'})", context);
+    assert.equal(context.keymapRevision, 1, "reload invalidates key identities");
+    same([context.foreignKeys, context.foreignBindRows, context.userBindRows], [null, null, null],
+        "reload invalidates stale user bindings before a replacement read");
+    same(calls, [["binds", state.BINDS_REQUEST, null], ["user", state.USER_BINDS_REQUEST, null]],
+        "reload requests both existing readers");
+    const callback = stateSource.match(/id: bindsReader[\s\S]*?onReadDone: \(request, text, failure\) => \{([\s\S]*?)\n        \}\n    \}/);
+    assert.ok(callback, "production binds callback is available");
+    const bind = { submap: "", key: "S", keycode: 0, modmask: 65, description: "Move window down" };
+    context.text = JSON.stringify([bind]);
+    vm.runInContext("(function(request,text,failure) {" + callback[1] + "})(null,text,'')", context);
+    same(context.foreignKeys, ["SUPER+SHIFT+S"], "successful refresh restores the key reading");
+    same(context.foreignBindRows, [{ key: "SUPER+SHIFT+S", description: "Move window down" }], "hint and admission use one reply");
+    vm.runInContext("(function(request,text,failure) {" + callback[1] + "})(null,'','binds=failed')", context);
+    same([context.foreignKeys, context.foreignBindRows], [null, null], "failed read grants no empty admission");
+    vm.runInContext("(function(request,text,failure) {" + callback[1] + "})(null,'[]','')", context);
+    same([context.foreignKeys, context.foreignBindRows, context.bindsFailure], [[], [], ""], "a cleared bind refresh removes the clash");
+
+    const sections = [logic.hyprlandSection({}, manifestOf(logic, {
+        id: "vgs.capture", hyprland: { binds: [{ shortcut: "screenshot-area", key: "SUPER+SHIFT+S" }] }
+    }))];
+    const plan = layer.resolveBinds(sections, null, "admitted", ["SUPER+SHIFT+S"]);
+    const hintContext = vm.createContext({
+        Logic: logic, Layer: layer, ConfigLogic: load(configFile), bindsState: "read",
+        Registry: { hyprlandSections: sections, hyprlandBindPlan: plan, hyprlandKeyIdentities: null, manifests: {} },
+        bindsSource: { foreignKeys: ["SUPER+SHIFT+S"], foreignBindRows: [{ key: "SUPER+SHIFT+S", description: "Move window down" }],
+            userBindsFor: () => [] }
+    });
+    vm.runInContext(method(captureSource, "conflictAnswer"), hintContext);
+    const hint = vm.runInContext("conflictAnswer('SUPER+SHIFT+S','vgs.capture','screenshot-area')", hintContext);
+    assert.equal(hint.suppressed, true, "the shared hint consumes suppressed admission");
+    same(hint.userLabels, ["Move window down"], "the hint names the user action without its command");
+    assert.ok(hint.hint.length > 0, "the existing hint mechanism displays the clash");
+
+    const writer = vm.createContext({
+        Layer: layer, machine: layer.initialState(), rendered: { plan: { phase: "core" }, text: "provisional core" },
+        admissionReady: false, perform: action => calls.push(action), welcomeFeed: () => {}, console: { error: () => {} }
+    });
+    vm.runInContext(method(layerSource, "feed"), writer);
+    vm.runInContext("feed({type:'loaded',content:'previous VGS layer'})", writer);
+    assert.equal(writer.machine.onDisk, "previous VGS layer", "startup retains the disk layer");
+    assert.equal(writer.machine.phase, "idle", "pending admission starts no disk write");
+    assert.equal(calls[calls.length - 1], "none", "the loaded callback issues no provisional write");
+    writer.admissionReady = true;
+    writer.rendered = { plan, text: "admitted layer" };
+    vm.runInContext("feed({type:'render'})", writer);
+    assert.equal(writer.machine.pending, "admitted layer", "successful admission releases the writer");
+    assert.equal(calls[calls.length - 1], "mkdir", "the admitted render starts the normal write cycle");
+}
+
+if (process.argv.includes("--user-bind-admission")) {
+    testUserBindAdmission();
+    verifyUserBindLifecycle();
+    process.exit(0);
+}
 // The floating TUIs' window rules as the layer writes them, byte for byte:
 // in the Lua literal `\\.` is the regex `\.`, a literal dot. Each size is
 // the class's share of the output, at least its cells and the padding's 2
@@ -930,6 +1102,7 @@ function verify(logic, configLogic, layer, shellText) {
     same(logic.settingsFor(config, declared), { size: 3 }, "a plugins row's keys are no setting");
     same(logic.hyprlandSection(config, declared), {
         id: "acme.keys", version: "1.0.0",
+        chosenKeys: ["toggle", "inbox", "later", "early"],
         binds: [{ shortcut: "toggle", key: "SUPER+CTRL+T" }, { shortcut: "inbox", key: null }],
         layerRules: [overlayRule],
         appearance: {},
@@ -941,7 +1114,7 @@ function verify(logic, configLogic, layer, shellText) {
         unknownKeys: ["early", "later"]
     }, "hyprlandSection takes the row's keys over the manifest's and names the unknown ones");
     same(logic.hyprlandSection({}, declared).binds, declared.hyprland.binds, "hyprlandSection keeps the manifest's keys without a row");
-    same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", binds: [], layerRules: [], appearance: {}, options: [], monitors: null, permissions: null, pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
+    same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", chosenKeys: ["toggle", "inbox", "later", "early"], binds: [], layerRules: [], appearance: {}, options: [], monitors: null, permissions: null, pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
     const gapsManifest = manifestOf(logic, { capabilities: ["theme"], settings: { noGaps: false }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } });
     same(logic.hyprlandSection({ plugins: [{ id: "acme.keys", noGaps: true }] }, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: true } }, "hyprlandSection resolves the gaps switch from the plugins row");
     same(logic.hyprlandSection({}, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: false } }, "the gaps switch defaults to the manifest's off");
@@ -2396,3 +2569,5 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-hyprland-layer: ok keys=${KEYS.length} manifests=${MANIFESTS.length} config=${CONFIG_KEYS.length} steps=${SEQUENCES.length} controls=${CONTROLS.length}`);
+testUserBindAdmission();
+verifyUserBindLifecycle();

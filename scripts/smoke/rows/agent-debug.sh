@@ -415,6 +415,7 @@ for ad_recovery_agent in claude codex; do
   expect_poll "one-off terminal diagnosis ends" idle key_idle vgs.agent-debug/diagnose
   expect "one-off recovery keeps the saved Jarvis choice" '"handoff:vgs.jarvis/compose"' ipc smoke readInstance service vgs.agent-debug agent
   expect "the one-off recovery window closes" ok ipc shell hide window vgs.agent-debug
+  expect_poll "the one-off recovery window is gone before another failure" 0 window_count "Agent Debug"
 done
 ad_jarvis_restore
 expect_poll "the pre-handoff terminal choice returns" '"claude"' ipc smoke readInstance service vgs.agent-debug agent

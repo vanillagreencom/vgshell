@@ -964,7 +964,7 @@ function appWindowLines(glass, top) {
 // One conflict judge for default-map binds, overlay capture and shortcut
 // key reads. Each declared shortcut has its first bound normalized key or
 // null.
-function resolveBinds(sections, identities, phase) {
+function resolveBinds(sections, identities, phase, foreign) {
     if (phase === undefined) phase = "admitted";
     if (phase !== "core" && phase !== "admitted")
         throw new Error("HyprlandLayer: unknown bind phase " + JSON.stringify(phase));
@@ -987,6 +987,12 @@ function resolveBinds(sections, identities, phase) {
                 return { kind: "skipped", bind: bind, global: global, heldBy: held[bind.key] };
             }
             held[bind.key] = section.id;
+            // Presence, not equality to a manifest value, records a Settings
+            // choice. Keep plugin ownership even when the user's bind takes
+            // that owner's default, so later plugins do not acquire its key.
+            if ((section.chosenKeys || []).indexOf(bind.shortcut) === -1
+                    && (foreign || []).some(function (key) { return sameKey(bind.key, key, identities); }))
+                return { kind: "taken", bind: bind, global: global };
             if (keys[section.id][bind.shortcut] === null)
                 keys[section.id][bind.shortcut] = bind.key;
             return { kind: "bound", bind: bind, global: global };
@@ -1859,6 +1865,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
             lines.push(ruleLine(section.id, rule));
         });
         row.binds.forEach(function (entry) {
+            if (entry.kind === "taken") return;
             if (entry.kind === "merged" || entry.kind === "withheld") return;
             if (entry.kind === "unbound") {
                 lines.push("-- unbound " + entry.global + ": no key is set");

@@ -332,5 +332,72 @@ Item {
             tryVerify(() => layer.machine.phase === "preparing");
             finishWrite();
         }
+
+        // expected-log: hyprland: refused: keymap=timeout -- the replacement fails operationally before the existing reload event retries it
+        function test_new_default_waits_for_missing_foreign_comparison() {
+            const section = (id, binds, chosenKeys) => ({ id: id, version: "1.0.0", binds: binds,
+                chosenKeys: chosenKeys, options: [], layerRules: [], appearance: {}, monitors: null,
+                padRefusals: [], unknownKeys: [] });
+            const prior = section("acme.prior", [{ shortcut: "talk", key: "SUPER+P" }], []);
+            const capture = section("vgs.capture", [{ shortcut: "screenshot-area", key: "SUPER+SHIFT+S" }], []);
+            // Enabling adds a section; resetting null adds a key to a section.
+            for (const reset of [false, true]) {
+                Capabilities.hyprland.foreignKeys = ["SUPER+SHIFT+code:39"];
+                Capabilities.hyprland.userBindRows = [];
+                Registry.hyprlandSections = reset
+                    ? [prior, section("vgs.capture", [{ shortcut: "screenshot-area", key: null }], ["screenshot-area"])]
+                    : [prior];
+                tryVerify(() => Capabilities.hyprland.pendingKeys !== null);
+                compare(JSON.stringify(Capabilities.hyprland.pendingKeys.keys), '["SUPER+P","SUPER+SHIFT+code:39"]');
+                Capabilities.hyprland.finishKeys({ ok: true, translation: [
+                    { modifiers: ["SUPER"], keycode: 33 },
+                    { modifiers: ["SUPER", "SHIFT"], keycode: 39 }
+                ] });
+                tryVerify(() => layer.machine.phase === "preparing" && layer.rendered.plan === layer.bindPlan);
+                finishWrite();
+                const admitted = layer.rendered;
+                const written = layerFile().written;
+                compare(admitted.plan.keys["acme.prior"].talk, "SUPER+P");
+                verify(admitted.plan.identities["SUPER+SHIFT+S"] === undefined);
+
+                Registry.hyprlandSections = [prior, capture];
+                tryVerify(() => Capabilities.hyprland.pendingKeys !== null);
+                compare(JSON.stringify(Capabilities.hyprland.pendingKeys.keys),
+                    '["SUPER+P","SUPER+SHIFT+S","SUPER+SHIFT+code:39"]');
+                compare(layer.bindPlan, null, "an unread default comparison grants no admission");
+                layer.renderLayer();
+                compare(layer.rendered, admitted, "pending replacement retains the prior valid plan");
+                compare(layer.machine.phase, "idle");
+                compare(layerFile().written, written);
+                compare(Registry.hyprlandBindPlan.keys["acme.prior"].talk, "SUPER+P");
+
+                Capabilities.hyprland.finishKeys({ ok: false, error: "refused: keymap=timeout" });
+                compare(layer.bindSnapshot.read.kind, "failed");
+                layer.renderLayer();
+                compare(layer.rendered, admitted, "failed replacement retains the prior valid plan");
+                compare(layer.machine.phase, "idle");
+                compare(layerFile().written, written);
+                compare(Capabilities.hyprland.pendingKeys, null);
+                compare(Registry.hyprlandBindPlan.keys["acme.prior"].talk, "SUPER+P");
+
+                Capabilities.hyprland.keymapRevision++;
+                tryVerify(() => Capabilities.hyprland.pendingKeys !== null);
+                Capabilities.hyprland.finishKeys({ ok: true, translation: [
+                    { modifiers: ["SUPER"], keycode: 33 },
+                    { modifiers: ["SUPER", "SHIFT"], keycode: 39 },
+                    { modifiers: ["SUPER", "SHIFT"], keycode: 39 }
+                ] });
+                tryVerify(() => layer.machine.phase === "preparing" && layer.rendered.plan === layer.bindPlan);
+                compare(Registry.hyprlandBindPlan.keys["vgs.capture"]["screenshot-area"], null);
+                compare(Registry.hyprlandBindPlan.sections.find(row => row.section.id === "vgs.capture").binds[0].kind, "taken");
+                compare(Registry.hyprlandBindPlan.keys["acme.prior"].talk, "SUPER+P");
+                finishWrite();
+                verify(!layerFile().written.includes('hl.bind("SUPER + SHIFT + S",'));
+                Registry.hyprlandSections = [];
+                Capabilities.hyprland.foreignKeys = [];
+                tryVerify(() => layer.machine.phase === "preparing");
+                finishWrite();
+            }
+        }
     }
 }

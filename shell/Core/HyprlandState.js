@@ -323,23 +323,31 @@ function boundKey(modmask, key, keycode) {
 // DESCRIPTIONS, the layer's `binds`, as boundKey writes it, sorted, each
 // once. A keycode bind, which binds -j prints with an empty key, is its
 // keycode. A bind boundKey cannot name is left out: a mouse bind or a
-// modifier outside SHIFT, CTRL, ALT and SUPER. { ok: true, keys } or
+// modifier outside SHIFT, CTRL, ALT and SUPER. `binds` names each admitted
+// foreign key with its description from that same reply, never its command.
+// { ok: true, keys, binds } or
 // { ok: false, error } with a keyed line.
 function foreignBinds(text, descriptions) {
     var read = parsed(text);
     if (!read.ok) return { ok: false, error: "refused: binds=unparsed " + read.error };
     if (!Array.isArray(read.value)) return { ok: false, error: "refused: binds=shape want=list" };
     var keys = [];
+    var rows = [];
     for (var i = 0; i < read.value.length; i++) {
         var bind = read.value[i];
         if (bind === null || typeof bind !== "object" || typeof bind.submap !== "string" || typeof bind.key !== "string"
             || typeof bind.description !== "string" || !Number.isInteger(bind.modmask) || !Number.isInteger(bind.keycode))
             return { ok: false, error: "refused: binds=shape bind=" + i };
-        if ((bind.submap !== "" && bind.submap !== "default") || descriptions.indexOf(bind.description) !== -1) continue;
+        // VGS-generated descriptions are plugin id + ":" + shortcut
+        // (HyprlandLayer.shortcutBindLines); the shipped namespace is vgs.
+        // Its old registrations can precede this shell's registry publication.
+        if ((bind.submap !== "" && bind.submap !== "default") || descriptions.indexOf(bind.description) !== -1
+                || bind.description.indexOf("vgs.") === 0 || bind.description.indexOf("vgs:") === 0) continue;
         var key = boundKey(bind.modmask, bind.key, bind.keycode);
         if (key !== null && keys.indexOf(key) === -1) keys.push(key);
+        if (key !== null) rows.push({ key: key, description: bind.description });
     }
-    return { ok: true, keys: keys.sort() };
+    return { ok: true, keys: keys.sort(), binds: rows };
 }
 
 // The one `hyprctl eval` argv that asks the layer where the user's

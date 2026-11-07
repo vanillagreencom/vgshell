@@ -188,7 +188,7 @@ function suite(lib, check) {
     ];
     for (const [name, binds, want] of foreign) {
         const got = lib.foreignBinds(typeof binds === "string" ? binds : JSON.stringify(binds, null, 4), layerBinds);
-        check("foreign binds: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+        check("foreign binds: " + name, got.ok ? { ok: true, keys: got.keys } : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
 
     // The layer's record of the user's binds, as `hyprctl eval` prints the
@@ -387,12 +387,12 @@ const CONTROLS = [
     ["a user value carries its plugin", "out.push({ id: rows[r].id, path: path, value: named[path].value });", "out.push({ path: path, value: named[path].value });"],
     ["only the default submap", '(bind.submap !== "" && bind.submap !== "default") || ', ""],
     ["the submap named default counts", ' && bind.submap !== "default")', ")"],
-    ["the layer's binds are not foreign", " || descriptions.indexOf(bind.description) !== -1) continue;", ") continue;"],
+    ["the layer's binds are not foreign", " || descriptions.indexOf(bind.description) !== -1", ""],
     ["an unnamed modifier is left out", "if ((modmask & ~NAMED_BITS) !== 0) return null;", ""],
     ["the modifiers are read from the mask", "return (modmask & row[1]) !== 0; })", "return false; })"],
     ["the key judge normalises", "return read.ok ? read.key : null;", "return mods.concat([name]).join(\"+\");"],
     ["each foreign key once", "if (key !== null && keys.indexOf(key) === -1) keys.push(key);", "if (key !== null) keys.push(key);"],
-    ["the keys are sorted", "return { ok: true, keys: keys.sort() };", "return { ok: true, keys: keys };"],
+    ["the keys are sorted", "keys: keys.sort()", "keys: keys"],
     ["a bind's shape is judged", '|| typeof bind.description !== "string" || !Number.isInteger(bind.modmask) || !Number.isInteger(bind.keycode))', ")"],
     ["a keycode bind names its keycode", 'var name = key !== "" ? key : keycode > 0 ? "code:" + keycode : "";', "var name = key;"],
     ["a session without the layer has no user bind", 'hl." + Layer.USER_BINDS.table + " == nil and \\"" + Layer.USER_BINDS.key + "=[]\\" or ', ""],
