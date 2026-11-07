@@ -221,6 +221,7 @@ function readyPlan() {
 // reply gate.
 const driver = { create() {
     let pending = null;
+    let suspended = false;
     // Only a waiting response holds the reply gate.
     const end = () => {
         if (pending === null) return Promise.resolve();
@@ -235,6 +236,7 @@ const driver = { create() {
         start() {},
         // As WireBrain does, the request releases its items' labels.
         send(request) {
+            if (suspended) throw new Error("scripted: brain-suspended");
             const labels = [...new Set(request.items.flatMap(item => item.labels))];
             const scriptedLong = gatesRoot !== null && fs.existsSync(path.join(gatesRoot, "long-request"));
             const steps = scriptedLong
@@ -261,6 +263,8 @@ const driver = { create() {
         },
         record() {},
         cancel: end,
+        suspend() { suspended = true; return end(); },
+        resume() { suspended = false; },
         close() { void end(); }
     };
 } };
@@ -313,6 +317,7 @@ function chainedEngine(file) {
 // row reads the user's words its turn took and ends the turn with Stop.
 const waitingDriver = { create() {
     let pending = null;
+    let suspended = false;
     const end = () => {
         const resolve = pending;
         pending = null;
@@ -322,6 +327,7 @@ const waitingDriver = { create() {
     return {
         start() {},
         send(request) {
+            if (suspended) throw new Error("scripted: brain-suspended");
             const labels = [...new Set(request.items.flatMap(item => item.labels))];
             const events = { [Symbol.asyncIterator]() { return {
                 next: () => new Promise(resolve => { pending = resolve; }),
@@ -331,6 +337,8 @@ const waitingDriver = { create() {
         },
         record() {},
         cancel: end,
+        suspend() { suspended = true; return end(); },
+        resume() { suspended = false; },
         close() { void end(); }
     };
 } };

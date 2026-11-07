@@ -90,7 +90,7 @@ jarvis_console_send_shown() {
 jarvis_console_speech_line() {
   ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
 import json,sys
-print("shown" if any(r.get("visible") and str(r.get("text")).endswith(" takes speech only. Tap or hold Super+J, then speak.") for r in json.load(sys.stdin)) else "missing")
+print("shown" if any(r.get("visible") and str(r.get("text")).endswith(" takes speech only. Press Super+J to open or close the conversation.") for r in json.load(sys.stdin)) else "missing")
 '
 }
 jarvis_console_engine_kind() {

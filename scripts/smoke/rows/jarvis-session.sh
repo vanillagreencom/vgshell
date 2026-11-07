@@ -35,9 +35,9 @@
 # the bar widget while Start Jarvis at boot is off. Resume asks for one
 # manual resume; a second Resume before the package answers is refused and
 # asks for none. Once the resume starts the offer ends, the row reads the
-# resumed session and the widget each step's outcome and the failed step's
+# resumed session and the Console each step's outcome and the failed step's
 # cause. A resume that
-# fails at its first step keeps that step's cause on the widget, reads
+# fails at its first step keeps that step's cause in the Console, reads
 # the steps it did not reach as not resumed and offers nothing again. A
 # resume that leaves the session failed before its first step offers
 # again, and a second Resume is taken. Do not resume asks the package for
@@ -64,8 +64,9 @@
 # No latency ceiling. Reads poll once per nested IPC round trip.
 # The home's Jarvis package is the copy VGS writes there; the row adds only
 # the stand-in command beside it.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py scripts/smoke/jarvis-console.sh shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
 set -euo pipefail
+source "$source_repo/scripts/smoke/jarvis-console.sh"
 expected_errors+=("${dictation_absent_errors[@]}")
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
@@ -144,12 +145,28 @@ value=json.load(sys.stdin)["status"].get("jarvisSession")
 print("pending" if value is None else json.dumps(value["offer"]))
 '
 }
-session_tip() { ipc smoke readDescendant "$(bar_key)" vgs.jarvis Tooltip text; }
-# The bar widget's tooltip lines that name a resume step.
-session_steps() {
-  ipc smoke readDescendant "$(bar_key)" vgs.jarvis Tooltip details | py_reply '
+session_tip() {
+  ipc smoke readInstance "$(bar_key)" vgs.jarvis view | py_reply '
 import json,sys
-print(json.dumps([line for line in json.load(sys.stdin) if line.startswith(("Resumed ", "Could not resume ", "Waiting to resume "))]))
+v=json.load(sys.stdin)
+print(json.dumps([v["state"], v["click"]]))
+'
+}
+session_console_open() {
+  expect "the session outcome consumer opens its Console" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the session outcome Console maps" 1 window_count Jarvis
+  jarvis_asks_tab Now || fail "the session outcome Console opens Now"
+}
+session_console_close() {
+  expect "the session outcome Console hides" ok ipc shell hide window vgs.jarvis
+  expect_poll "the session outcome Console unmaps" 0 window_count Jarvis
+}
+# Complete outcome strings at their actual visible Console consumer.
+session_steps() {
+  ipc smoke itemValues window vgs.jarvis Label objectName,text,visible | py_reply '
+import json,sys
+print(json.dumps([r["text"] for r in json.load(sys.stdin)
+    if r.get("objectName")=="sessionResumeLine" and r.get("visible")]))
 '
 }
 # VERB's calls as session_calls prints them, once two status reads follow
@@ -540,15 +557,17 @@ session_resume_words() { # ORIGIN...
 session_offer_answers
 session_shell_start "$repo" offer
 expect_poll "a record saved before the restart offers its resume on the row" '["Saved before the restart", "Resume Jarvis from before the restart"]' session_row
-expect_poll "the bar widget offers the resume" '"Resume Jarvis from before the restart"' session_tip
+expect_poll "the state-only bar widget keeps its Resume click" '["off", "resume"]' session_tip
 expect "the offer asks for no resume" '[]' session_calls resume
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
 expect "a second Resume before the package answers is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
 expect_poll "two Resumes ask the package for one manual resume, in the session's home" "$(session_resume_words manual)" session_calls_settled resume
 expect_poll "the offer ends once the resume starts" null session_offer
 expect_poll "the row reads the resumed session" Running session_text
-expect_poll "the widget shows each step's outcome and the failed step's cause" \
+session_console_open
+expect_poll "the Console shows each step's outcome and the failed step's cause" \
   '["Resumed the Jarvis session.", "Could not resume the agent fleet for project vgshell: settings-busy.", "Waiting to resume coding task VGS-1797."]' session_steps
+session_console_close
 expect "a Resume once the resume started is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
 expect "the refused Resume asks for no resume" "$(session_resume_words manual)" session_calls resume
 
@@ -560,8 +579,10 @@ session_answer resume "{\"exit\": 1, \"object\": {\"state\": \"failed\", \"reaso
 session_shell_start "$repo" resume-failed
 expect_poll "a shell before a resume that fails offers it" '{"unlock": null}' session_offer
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
+session_console_open
 expect_poll "a failed resume shows the failed step's cause and the steps it did not reach" \
   '["Could not resume the Jarvis session: launch-timeout.", "Could not resume the agent fleet for project vgshell.", "Could not resume coding task VGS-1797."]' session_steps
+session_console_close
 expect "the failed resume asks for one manual resume" "$(session_resume_words manual)" session_calls resume
 expect "a failed resume offers nothing again" null session_offer
 expect "the row reads the failed session" "Not started" session_text
@@ -685,7 +706,9 @@ session_shell_start "$repo" boot-new
 expect_poll "with Start a new session a shell start asks for one boot start" "$(session_start_words new boot)" session_calls start
 expect_poll "the new session runs beside the kept record" Running session_text
 expect "the boot start asks for no resume" '[]' session_calls resume
+session_console_open
 expect "a session beside the kept record shows no step" '[]' session_steps
+session_console_close
 session_set '{"startAtBoot": false, "bootSession": "new"}'
 
 session_answers "running existing" "running existing" "stopping stop-requested"

@@ -1296,9 +1296,15 @@ world(async () => {
         assert.equal(w.state.fault.kind, "none", "the native result allowance fits, with no fabricated transcript");
         const sink = w.sink;
         sink.write(Buffer.alloc(4800, 5));
-        sink.endInput();
-        w.clock.advance(100);
-        await until(() => w.state.fault.kind === "error", "unanswered native results cannot grow past their allowance");
+        assert.equal(sink.endInput(), true);
+        // Writable/socket continuations can queue the pump after this turn.
+        // Drive its injected clock until the overflow, as nativeEnd does
+        // for accepted boundaries, instead of advancing before it is queued.
+        await until(() => {
+            if (w.state.fault.kind === "error") return true;
+            w.clock.advance(100);
+            return false;
+        }, "unanswered native results cannot grow past their allowance");
         fault(w, "live=input-results-overflow");
         assert.deepEqual(w.inputResults, []);
         await until(() => conn.ended, "overflow releases the native transport");

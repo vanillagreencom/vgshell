@@ -29,6 +29,15 @@ jarvis_bubble_focus_output=false
 jarvis_bubble_client=""
 jarvis_bubble_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
 cp -p -- "$home/.config/vgshell/shell.json" "$jarvis_bubble_row_config"
+jarvis_bubble_probe_before="$(plugin_enabled acme.probe)"
+case "$jarvis_bubble_probe_before" in
+  True) jarvis_bubble_probe_before=true ;;
+  False) jarvis_bubble_probe_before=false ;;
+  *) fail "the bubble's compositor fixture enablement is unreadable: $jarvis_bubble_probe_before"; return 0 ;;
+esac
+jarvis_bubble_restore_probe() {
+  expect "the bubble row restores its compositor fixture" ok ipc shell setPluginEnabled acme.probe "$jarvis_bubble_probe_before"
+}
 jarvis_bubble_close_client() {
   [[ -n $jarvis_bubble_client ]] || return 0
   close_toplevel "$jarvis_bubble_client" "the client below Jarvis exits" || return 1
@@ -73,8 +82,11 @@ EOF
   if [[ -n $jarvis_bubble_row_focus ]]; then
     expect "the bubble row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$jarvis_bubble_row_focus\" })"
   fi
+  jarvis_bubble_restore_probe
 }
 smoke_row_abandon=(jarvis_bubble_abandon)
+expect "the bubble row enables its compositor dispatch fixture" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the bubble's compositor fixture answers before positioning" bubble probe echo bubble
 
 jarvis_bubble_required_box() { # TYPE PROPERTY VALUE
   local box
@@ -563,10 +575,21 @@ jarvis_bubble_click() { # LABEL
 jarvis_bubble_begin() {
   if [[ $(jarvis_key_state conversation) != ended ]]; then
     jarvis_key_talk_up
+    # Stop after a retry pauses automatic input. Its next Talk resumes;
+    # only a second fresh press closes that still-active conversation.
+    if [[ $(jarvis_key_state holdToTalk) == false && $(jarvis_key_state input) == stopped ]]; then
+      jarvis_key_tap
+      expect_poll "Talk resumes the stopped automatic input" listening jarvis_key_state phase
+      expect_poll "the resumed automatic input is a conversation" conversation jarvis_key_state input
+      jarvis_key_wait_past "$jarvis_key_tapped_at" 300
+    fi
     [[ $(jarvis_key_state holdToTalk) != true ]] || jarvis_key_gate silent-capture
     jarvis_key_tap
     expect_poll "the prior conversation closes through Talk" ended jarvis_key_state conversation
     rm -f -- "$jarvis_key_gates/silent-capture"
+    # Session collapses presses within 250 ms; this next physical down
+    # must be distinct from the closing tap, not a fabricated admission.
+    jarvis_key_wait_past "$jarvis_key_tapped_at" 300
   fi
   jarvis_key_talk_down
   expect_poll "capture waits for its selected indicator then listens" listening jarvis_key_state phase
@@ -1532,3 +1555,4 @@ jarvis_rescan
 jarvis_enable
 jarvis_key_hold true
 jarvis_bubble_close_client
+jarvis_bubble_restore_probe

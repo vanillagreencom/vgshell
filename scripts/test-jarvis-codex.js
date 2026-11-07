@@ -89,6 +89,9 @@ world(async () => {
             return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : []; };
         const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
+            // No audio in this world. A dispatched engine acknowledgement
+            // must complete its playback effect, not hit unavailable().
+            playback: { start: (e, done) => done(), flush: (e, done) => done() },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         let engine = null;
         const runnerClock = { now: () => at, set: () => ({}), clear() {} };

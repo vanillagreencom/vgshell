@@ -8,10 +8,11 @@
 # daemon fixture, and the one task record is a synthetic starting record.
 # No latency ceiling. Reads poll once per nested IPC round trip; the
 # fixture polls its gates every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
 set -euo pipefail
+source "$source_repo/scripts/smoke/jarvis-console.sh"
 expected_errors+=("${dictation_absent_errors[@]}")
-expected_errors+=('WARN qml: jarvis: stderr=jarvis: task-voice=notify-missing' 'WidgetView[.]js.*Error: jarvis widget: detail=' 'Widget[.]qml.*TypeError: (Value is undefined and could not be converted to an object|Cannot read property .(mute|voiceMute). of undefined)')
+expected_errors+=('WARN qml: jarvis: stderr=jarvis: task-voice=notify-missing')
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
 # The planted floating-notice control reaches the keyed refusal warning.
 expected_errors+=('WARN qml: jarvis: task-open=floating task=smoke-task-[0-9]+')
@@ -69,6 +70,34 @@ rows=json.load(sys.stdin)["status"].get("auditFailures", [])
 row=next((row for row in rows if row.get("tool")=="files.write" and row.get("decision")=="refuse"), None)
 print(json.dumps(row) if row else "missing")
 '
+}
+task_console_row() {
+  ipc smoke itemValues window vgs.jarvis MessageRow task.id,title,sender,stateText,visible | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+print("shown" if any(r.get("visible") and r.get("task.id")==sys.argv[1]
+    and r.get("title")=="Smoke fixture" and r.get("sender")=="fixture"
+    and r.get("stateText")=="Starting" for r in rows) else "missing")
+' "$task_id"
+}
+task_console_failure() {
+  ipc smoke itemValues window vgs.jarvis MessageRow title,bodyText,visible | py_reply '
+import json,sys
+print("shown" if any(r.get("visible") and r.get("title")=="Writing a file was refused."
+    and r.get("bodyText")=="Jarvis did not run this action and recorded no reason."
+    for r in json.load(sys.stdin)) else "missing")
+'
+}
+task_console_delivery() {
+  expect "the task consumer opens its real Console" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the task Console maps" 1 window_count Jarvis
+  jarvis_asks_tab History || fail "the task Console reaches History"
+  jarvis_history_filter Tasks || fail "the task Console selects Tasks"
+  expect_poll "the synthetic task reaches its visible Console row" shown task_console_row
+  jarvis_history_filter Problems || fail "the task Console selects Problems"
+  expect_poll "the audit failure reaches its visible Console row without args" shown task_console_failure
+  expect "the task Console hides before task actions" ok ipc shell hide window vgs.jarvis
+  expect_poll "the task Console unmaps before task actions" 0 window_count Jarvis
 }
 task_record() { # ID KIND JSON: one synthetic record through the shipped producer
   "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/task-event" --state "$task_state" "$1" "$2" <<<"$3" >/dev/null
@@ -158,6 +187,7 @@ task_scenario() {
     "{\"id\": \"$task_id\", \"goal\": \"Smoke fixture\", \"agent\": \"fixture\", \"state\": \"starting\", \"failure\": null}" task_list_row
   expect_poll "the fixture audit failure reaches status without args" \
     "{\"time\": \"$task_audit_time\", \"tool\": \"files.write\", \"effect\": \"persistent\", \"decision\": \"refuse\", \"outcome\": \"failed\", \"refusal\": null, \"cause\": null}" task_audit_failure
+  task_console_delivery
   expect "the open-task IPC handle answers" ok ipc vgs.jarvis invoke open-task "$task_id"
   expect_poll "the daemon receives the task-open intent" "\"$task_id\"" task_last task-opens.jsonl
   expect_poll "the core runs task-view with the id alone" \
@@ -228,8 +258,8 @@ task_relay_scenario
 jarvis_disable
 
 task_controls=(
-  'task-list|message.type === "task-list" ? "taskList" : "auditFailures"|message.type === "task-list" ? "detail" : "auditFailures"|the synthetic task row reaches status'
-  'audit-list|message.type === "task-list" ? "taskList" : "auditFailures"|message.type === "task-list" ? "taskList" : "detail"|the fixture audit failure reaches status without args'
+  'task-list|const reply = StatusPublication.write(shell.status, message.type === "task-list" ? "taskList" : "auditFailures", message.rows);|const reply = message.type === "task-list" ? "ok" : StatusPublication.write(shell.status, "auditFailures", message.rows);|the synthetic task reaches its visible Console row'
+  'audit-list|const reply = StatusPublication.write(shell.status, message.type === "task-list" ? "taskList" : "auditFailures", message.rows);|const reply = message.type === "audit-failures" ? "ok" : StatusPublication.write(shell.status, "taskList", message.rows);|the audit failure reaches its visible Console row without args'
   'task-view|shell.tui.run("task-view", [message.task], result => {|shell.tui.run("task-view", [], result => {|the core runs task-view with the id alone'
   'floating-notice|message.answer === "floating"|false && message.answer === "floating"|a floating task answer shows its notice'
   "forward|send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|if (!taskTuiRunning) send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|the service forwards the running task TUI"

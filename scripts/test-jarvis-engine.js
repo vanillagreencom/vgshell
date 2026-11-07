@@ -2502,7 +2502,7 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(user(body), ["one more"], "only the attempted next turn reaches the fresh brain");
         assert.equal(w.s().conversation.kind, "active");
         assert.equal(w.s().fault.kind, "none", "the bound leaves no fault");
-        assert.deepEqual(w.s().history, { kind: "reset", epoch: epoch + 1, reason: "turn-limit" });
+        assert.deepEqual({ ...w.s().history }, { kind: "reset", epoch: epoch + 1, reason: "turn-limit" });
         assert.equal(w.captions.filter(row => row[1] === "user" && row[2] === "final" && row[4] === "one more").length, 2,
             "the reset republishes the attempted user turn");
     });

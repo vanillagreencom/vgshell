@@ -331,6 +331,14 @@ expect_poll "ready acknowledges the startup" '{"kind":"ready"}' ipc smoke readIn
 jarvis_key_hold true
 jarvis_key_active_stop thinking
 jarvis_key_active_stop speaking
+# A restart can restore files and flags, not an in-memory conversation.
+# Close the held conversation before the nested row captures its baseline.
+jarvis_key_gate silent-capture
+jarvis_key_tap
+expect_poll "the bubble boundary has no retained active conversation" ended jarvis_key_state conversation
+expect_poll "the bubble boundary has released capture" closed jarvis_key_state capture
+expect_poll "the bubble boundary has no incoming orb layer" 0 layer_count vgs:layer
+rm -f -- "$jarvis_key_gates/silent-capture"
 # The bubble's requirement stand-ins span its row boundary: the scan closes
 # Jarvis's enable-time notice before the nested row captures its baseline.
 jarvis_setup_requirements
