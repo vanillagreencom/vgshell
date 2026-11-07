@@ -119,7 +119,7 @@ FocusScope {
                 readonly property alias addButton: add
                 width: layout.contentWidth
                 text: modelData.name
-                secondary: pluginOff ? "Enable in Settings to add this widget" : modelData.description
+                secondary: pluginOff ? `Enable in [Settings](page:${modelData.id}/Settings) to add this widget` : modelData.description
                 clickable: pluginOff
                 cursor: plate
                 highlighted: index === root.current && entry.activeFocus
@@ -155,12 +155,18 @@ FocusScope {
                             }
                             onActivated: root.openSettings(entry.modelData.id)
                         }
-                        Label {
+                        LinkText {
                             width: parent.width
                             role: "itemHint"
                             text: entry.secondary
                             color: entry.pluginOff ? Theme.color.textMuted : Theme.text.itemHint.color
                             wrapMode: Text.Wrap
+                            // keyboard-path: the selected row's Return opens the same Settings page
+                            activeFocusOnTab: false
+                            onActiveFocusChanged: if (activeFocus) root.current = entry.index
+                            onPageActivated: (page, tab) => {
+                                root.notice = Reply.line(root.shell.surfaces.openPage(page, tab));
+                            }
                         }
                     }
                     Row {

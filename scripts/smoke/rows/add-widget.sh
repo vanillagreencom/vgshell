@@ -12,7 +12,14 @@ set -euo pipefail
 aw_saved="$sandbox/add-widget-saved.json"
 cp -- "$home/.config/vgshell/shell.json" "$aw_saved"
 aw_fixture="$home/.config/vgshell/plugins/acme.add-widget"
-mkdir -p -- "$aw_fixture"
+mkdir -- "$aw_fixture"
+aw_cleanup() {
+  rm -rf -- "$aw_fixture"
+  cp -- "$aw_saved" "$home/.config/vgshell/shell.json"
+  expect "the original user configuration reloads" ok ipc shell reloadConfig
+  rescan "the private chooser fixture leaves the registry"
+}
+smoke_row_abandon=(aw_cleanup)
 cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$aw_fixture/"
 python3 - "$aw_fixture/manifest.json" <<'PY'
 import json, pathlib, sys
@@ -22,7 +29,7 @@ m.update(id="acme.add-widget", name="A widget to add", kinds=["bar-widget", "ser
 m["entryPoints"]["service"] = "Widget.qml"
 p.write_text(json.dumps(m))
 PY
-tree_rescan "the newly installed widget enters the existing registry"
+rescan "the newly installed widget enters the existing registry"
 expect "the new fixture is enabled" ok ipc shell setPluginEnabled acme.add-widget true
 expect "the multi-kind fixture starts unplaced but enabled" ok ipc shell setPluginPlaced acme.add-widget false
 aw_placed() { ipc shell listPlugins | py_reply 'import json,sys; rows=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.add-widget"]; print(rows[0]["placed"] if len(rows)==1 else "absent")'; }
@@ -50,7 +57,7 @@ aw_open() {
   key="$(bar_key)" || return 1
   read -r x y < <(aw_point "$1")
   [[ $x =~ ^-?[0-9]+$ && $y =~ ^-?[0-9]+$ ]] || { fail "Add widget: no empty $1 bar point"; return 1; }
-  hover "$((x+1))" "$y" && right_click "$x" "$y" || return 1
+  hover "$x" "$y" && right_click "$x" "$y" || return 1
   expect_poll "the empty $1 bar opens its menu" true ipc smoke readInstance "$key" vgs.bar spacerMenuOpen
   expect "the real menu includes Add widget before the spacer actions" '["Add widget","Add separator","Add gap"]' ipc smoke readInstance "$key" vgs.bar spacerMenuEntries
   type_keys -k Down -k Return
@@ -127,7 +134,5 @@ if edit_tree add-widget-inventory shell/plugins/vgs.bar/AddWidget.qml \
 fi
 expect "the chooser closes after the control" ok ipc shell hide window vgs.bar
 
-rm -rf -- "$aw_fixture"
-cp -- "$aw_saved" "$home/.config/vgshell/shell.json"
-expect "the original user configuration reloads" ok ipc shell reloadConfig
-tree_rescan "the private chooser fixture leaves the registry"
+aw_cleanup
+smoke_row_abandon=()

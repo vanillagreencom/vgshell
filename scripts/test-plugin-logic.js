@@ -3068,7 +3068,7 @@ const CONTROLS = [
     ["family members belong to their own bar", "var name = id.slice(0, prefix.length) === prefix ? id.slice(prefix.length) : \"\";", "var name = id.slice(id.indexOf(\"/\") + 1);"],
     ["family members are listed once", "if (builtinFamilyOf(name, families) !== \"\" && out.indexOf(name) === -1) out.push(name);", "if (builtinFamilyOf(name, families) !== \"\") out.push(name);"],
     ["the next member follows the highest", "return family + \"-\" + (highest + 1);", "return family + \"-\" + highest;"],
-    ["a new builtin lands at its index", "target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: id });", "target.push({ id: id });"],
+    ["a new builtin lands at its index", "target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: widgetId });", "target.push({ id: widgetId });"],
     ["builtin placement needs the active bar prefix", 'id.indexOf(prefix) === 0', 'true'],
     ["builtin placement needs an enabled owner", 'isEnabled(config, bar, defaultBarId)', 'true'],
     ["builtin registration appears once", 'if (seenBuiltins.indexOf(entry.id) !== -1) return false;', ''],
