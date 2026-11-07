@@ -4083,8 +4083,10 @@ function addChoiceRequest(manifest, id, enabled, key) {
 }
 
 // The Settings page's Open summons a plugin's working surface. A window
-// wins over a panel because it is the plugin's application surface.
+// wins over a panel, except on a bar: its panel works without a clicked
+// bar context, while its ancillary window may need that context.
 function openKind(manifest) {
+    if (manifest.kinds.indexOf("bar") !== -1 && manifest.kinds.indexOf("panel") !== -1) return "panel";
     if (manifest.kinds.indexOf("window") !== -1) return "window";
     if (manifest.kinds.indexOf("panel") !== -1) return "panel";
     return "";
@@ -5720,14 +5722,16 @@ function withMoved(user, manifest, from, section, index, effective, id) {
 // INDEX of SECTION, the target section's entry index, as barDropIndex
 // answers it with no source entry. The caller checks placedRefusal and
 // that no entry holds ID first.
-function withBuiltinAt(user, id, section, index, effective) {
+function withBuiltinAt(user, widgetId, section, index, effective) {
+    // Shared by plugin widgets and builtins. The caller owns eligibility
+    // and duplicate refusal; neither route writes placement before this.
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     seedUserBar(out, effective);
     if (!isPlainObject(out.bar.layout)) out.bar.layout = { left: [], center: [], right: [] };
     if (!Array.isArray(out.bar.layout[section])) out.bar.layout[section] = [];
     var target = out.bar.layout[section];
-    target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: id });
+    target.splice(Math.max(0, Math.min(index, target.length)), 0, { id: widgetId });
     return out;
 }
 

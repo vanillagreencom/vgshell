@@ -10,24 +10,30 @@
   "kinds": [
     "bar",
     "service",
-    "panel"
+    "panel",
+    "window"
   ],
   "entryPoints": {
     "bar": "Bar.qml",
     "service": "Service.qml",
-    "panel": "Calendar.qml"
+    "panel": "Calendar.qml",
+    "window": "AddWidget.qml"
   },
   "capabilities": [
     "builtins",
     "compositor",
     "configure",
     "ipc",
+    "manager",
     "run",
     "requirements",
     "shortcut",
     "status",
     "surfaces"
   ],
+  "capabilityKinds": {
+    "manager": ["window"]
+  },
   "requirements": [
     {"command": "gio", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "optional": false, "purpose": "Opens a calendar day in the default browser"},
     {"command": "chromium", "packages": {"pacman": "chromium", "apt": "chromium", "nix": "chromium"}, "optional": true, "purpose": "Opens a calendar day in a Chromium profile"},

@@ -666,6 +666,14 @@ Scope {
     // How often the manager listing every plugin shares has changed, which
     // statusWriteReach reads around one status write.
     property int managerListingChanges: 0
+    // Config commits user once per successful write. The chooser row arms
+    // this observer only around Add, so a place-then-move pair counts twice.
+    property bool chooserCounting: false
+    property int chooserCommits: 0
+    Connections {
+        target: root.chooserCounting ? Config : null
+        function onUserChanged() { root.chooserCommits += 1; }
+    }
     Connections {
         target: Registry
         function onManagerListingChanged() { root.managerListingChanges += 1; }
@@ -2919,6 +2927,36 @@ Scope {
             return -1;
         }
         function invokeInstance(hostKey: string, id: string, name: string, arg: string): string { return root.invoke(hostKey, id, name, arg); }
+        function chooserCount(begin: bool): string {
+            if (begin) root.chooserCommits = 0;
+            root.chooserCounting = begin;
+            return String(root.chooserCommits);
+        }
+        // The real chooser's row controls and window-local boxes, not a
+        // second projection of the plugin inventory.
+        function chooserRows(): string {
+            const item = root.instance("window", "vgs.bar");
+            if (item === null) return "absent";
+            return root.json(root.descendants(item).filter(child => child.nameLink !== undefined && child.addButton !== undefined).map(row => ({
+                id: row.modelData.id, enabled: row.modelData.enabled, placed: row.modelData.placed,
+                add: row.addButton.visible,
+                chips: root.descendants(row).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => badge.text),
+                row: JSON.parse(root.geometry(row)), name: JSON.parse(root.geometry(row.nameLink)),
+                button: JSON.parse(root.geometry(row.addButton))
+            })));
+        }
+        function chooserInsert(id: string, screen: string, x: real): string {
+            const item = root.instance("window", "vgs.bar");
+            return item === null ? "absent" : item.shell.manager.insertWidget(id, screen, x);
+        }
+        function chooserControl(file: string): string {
+            const item = root.instance("window", "vgs.bar");
+            if (item === null) return "absent";
+            const reply = popupLoad("chooser-inventory", file, "window", "vgs.bar", JSON.stringify({ visible: false, width: item.width, height: item.height }));
+            if (reply !== "ok") return reply;
+            root.popupCopies["chooser-inventory"].shell = item.shell;
+            return "ok";
+        }
         // Calls the instance's member NAME with the list ARGS_JSON's `args`
         // holds, spread, answering as invokeInstance does. The list sits in
         // an object, since qs ipc call strips the brackets of an argument

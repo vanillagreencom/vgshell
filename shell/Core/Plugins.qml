@@ -1098,9 +1098,29 @@ Singleton {
         const id = ctx.id + "/" + name;
         const refusal = Logic.placedRefusal(Config.effective, Registry.manifests[ctx.id], Registry.defaultBarId, barBuiltinNames(mount.row).concat([name]), id);
         if (refusal !== "") return refusal;
+        return insertAtBarPoint(ctx.hostKey, id, x);
+    }
+
+    // The chooser keeps the original bar's screen and window-local click,
+    // even if the user moves its window to another output before Add.
+    // Eligibility stays with placedRefusal; insertion never enables a plugin.
+    function insertWidget(id, screen, x) {
+        if (!Registry.has(id)) return "unknown: " + id;
+        const refusal = Logic.placedRefusal(Config.effective, Registry.manifests[id], Registry.defaultBarId, [], id);
+        if (refusal !== "") return refusal;
+        if (Logic.layoutPositionOf(Config.effective, id, null) !== null)
+            return "refused: placed=" + id + " reason=placed";
+        const hostKey = Object.keys(mounts).find(key => mounts[key].row.screen.name === screen);
+        if (hostKey === undefined) return "refused: bar-screen=" + JSON.stringify(screen) + " reason=unmounted";
+        if (typeof x !== "number" || !isFinite(x)) return "refused: x=" + JSON.stringify(x) + " want=number";
+        return insertAtBarPoint(hostKey, id, x);
+    }
+
+    function insertAtBarPoint(hostKey, id, x) {
+        const mount = mounts[hostKey];
         const sections = {};
         for (const section of ConfigLogic.SECTIONS)
-            sections[section] = barDragSectionGeometry(ctx.hostKey, section);
+            sections[section] = barDragSectionGeometry(hostKey, section);
         const target = Logic.barDropTarget(mount.row.instance.width, x, sections);
         const index = Logic.barDropIndex(Config.effective, target.section, target.before, null, id);
         return Config.writeUser(Logic.withBuiltinAt(Config.user, id, target.section, index, Config.effective));
