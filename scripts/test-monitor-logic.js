@@ -161,8 +161,23 @@ function suite(lib, check) {
     check("parseOutputs: the nested reply", nested, { ok: true, outputs: [{
         identifier: "WAYLAND-1", id: 0, name: "WAYLAND-1", description: "", make: "", model: "", serial: "", width: 1756, height: 933,
         refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0, vrr: false, disabled: false, mirrorOf: null, availableModes: [], currentFormat: "XRGB8888",
-        bitdepth: 8, colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1
+        bitdepth: 8, colorManagementPreset: "srgb", sdrBrightness: 1, sdrSaturation: 1, hdrCandidate: false
     }] });
+    for (const [label, hardwareDetails, disabled, want] of [
+        ["candidate", { hdr: true, bt2020: true }, false, true],
+        ["SDR", { hdr: false, bt2020: true }, false, false],
+        ["no wide colour", { hdr: true, bt2020: false }, false, false],
+        ["missing metadata", undefined, false, false],
+        ["missing HDR", { bt2020: true }, false, false],
+        ["missing BT2020", { hdr: true }, false, false],
+        ["malformed HDR", { hdr: 1, bt2020: true }, false, false],
+        ["malformed BT2020", { hdr: true, bt2020: "true" }, false, false],
+        ["malformed hardware", [], false, false],
+        ["inactive output", { hdr: true, bt2020: true }, true, false]
+    ]) {
+        const read = lib.parseOutputs(reply([monitor(0, "DP-1", { hardwareDetails, disabled })]));
+        check("HDR candidate: " + label, read.ok ? read.outputs[0].hdrCandidate : read, want);
+    }
     const desk = lib.parseOutputs(reply(DESK));
     const connected = desk.outputs.slice(0, 2);
     const names = connected.map(output => output.name);
@@ -527,6 +542,7 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the file and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
+    ["HDR candidate loses BT2020 admission", "hardware.hdr === true && hardware.bt2020 === true", "hardware.hdr === true", "HDR candidate: no wide colour"],
     ["the login ignores the saved primary", "if (preferred.length > 0) return preferred[0].name;", "", "login placement: saved connector"],
     ["the VRR capability is discarded", '["vrr", "\\t\\tvrr capable "]', '["", "\\t\\tvrr capable "]'],
     ["a serial keys by description", 'if (output.serial === "") return output.name;', "return output.name;"],

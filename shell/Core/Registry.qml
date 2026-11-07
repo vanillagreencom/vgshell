@@ -36,7 +36,7 @@ Singleton {
     readonly property var hyprlandSections: {
         const current = manifests;
         const config = Config.effective;
-        return Object.keys(current).filter(id => root.isEnabled(id)).map(id => Logic.hyprlandSection(config, current[id]));
+        return Object.keys(current).filter(id => root.isEnabled(id)).map(id => Logic.hyprlandSection(config, current[id], Capabilities.monitors.outputs));
     }
     // The publisher's whole core or admitted plan. Core keys are withheld;
     // readback never advertises a symbolic alternative it merged.

@@ -138,6 +138,10 @@ function inputProtectedClass(value) {
 // `hl.device` per touchpad Hyprland lists.
 var OPTIONS = {
     "misc.vrr": { type: "int", min: 0, max: 3 },
+    // A boolean setting selects native 0/1, not mode 2's EDID primaries.
+    // Both on modes use the same client-image HDR test (PQ, HLG, scRGB).
+    // https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/render/Renderer.cpp#L2573-L2648
+    "render.cm_auto_hdr": { type: "int", min: 0, max: 1, hdr: true },
     "input.kb_layout": { type: "string" },
     "input.kb_variant": { type: "string" },
     "input.kb_options": { type: "string" },

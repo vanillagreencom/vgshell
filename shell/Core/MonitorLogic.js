@@ -43,7 +43,7 @@ function identifier(output) {
 // outputs: [{ identifier, id, name, description, make, model, serial,
 // width, height, refreshRate, x, y, scale, transform, vrr, disabled,
 // mirrorOf, availableModes: [{ width, height, refresh }], currentFormat,
-// bitdepth, colorManagementPreset, sdrBrightness, sdrSaturation }] } in
+// bitdepth, colorManagementPreset, sdrBrightness, sdrSaturation, hdrCandidate }] } in
 // Hyprland's order, `mirrorOf` the name of the output mirrored or null,
 // `bitdepth` 10 while Hyprland scans out a 10-bit format, else 8, or
 // { ok: false, error } with a keyed line. Hyprland names the formats it
@@ -79,12 +79,18 @@ function parseOutputs(text) {
             if (parsed === null) return bad("availableModes");
             modes.push({ width: Number(parsed[1]), height: Number(parsed[2]), refresh: Number(parsed[3]) });
         }
+        // v0.57.0 JSON reports EDID HDR metadata and BT2020, but omits PQ.
+        // This is only a candidate; native supportsHDR still owns admission.
+        // https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/ipc/s1/Commands.cpp#L222-L323
+        // https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/output/Monitor.cpp#L2308-L2325
+        var hardware = m.hardwareDetails;
         out.push({
             identifier: "", id: m.id, name: m.name, description: m.description, make: m.make, model: m.model, serial: m.serial,
             width: m.width, height: m.height, refreshRate: m.refreshRate, x: m.x, y: m.y, scale: m.scale, transform: m.transform,
             vrr: m.vrr, disabled: m.disabled, mirrorOf: m.mirrorOf, availableModes: modes, currentFormat: m.currentFormat,
             bitdepth: /2101010$/.test(m.currentFormat) ? 10 : 8,
-            colorManagementPreset: m.colorManagementPreset, sdrBrightness: m.sdrBrightness, sdrSaturation: m.sdrSaturation
+            colorManagementPreset: m.colorManagementPreset, sdrBrightness: m.sdrBrightness, sdrSaturation: m.sdrSaturation,
+            hdrCandidate: !m.disabled && isPlainObject(hardware) && hardware.hdr === true && hardware.bt2020 === true
         });
     }
     // `mirrorOf` is the mirrored output's id, or `none`.

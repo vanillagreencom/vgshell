@@ -979,7 +979,41 @@ function verifyCorePhase(layer) {
     assert.throws(() => layer.resolveBinds(sections, null, "unknown"), /unknown bind phase/);
 }
 
+function verifyAutomaticHdr(logic, layer) {
+    const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.displays", "manifest.json"), "utf8"));
+    const judged = logic.validateManifest(raw, "/displays");
+    assert.equal(judged.ok, true, judged.error);
+    const manifest = judged.manifest;
+    assert.equal(manifest.settings.automaticHdr, false, "Automatic HDR defaults off");
+    assert.equal(manifest.hyprland.options.automaticHdr, "render.cm_auto_hdr");
+    const candidate = [{ hdrCandidate: true }];
+    for (const [label, row, outputs, want] of [
+        ["startup without a plugin row", undefined, candidate, 0],
+        ["startup with other saved display settings", { brightnessStep: 10 }, candidate, 0],
+        ["off", { automaticHdr: false }, candidate, 0],
+        ["on", { automaticHdr: true }, candidate, 1],
+        ["SDR output", { automaticHdr: true }, [{ hdrCandidate: false }], 0],
+        ["no connected output", { automaticHdr: true }, [], 0],
+        ["unread outputs", { automaticHdr: true }, null, 0],
+        ["mixed outputs", { automaticHdr: true }, [{ hdrCandidate: false }, ...candidate], 1]
+    ]) {
+        const config = { plugins: row === undefined ? [] : [Object.assign({ id: manifest.id }, row)] };
+        const section = logic.hyprlandSection(config, manifest, outputs);
+        const out = layer.render([section], theme, "hdr");
+        same(out.options, [{ id: manifest.id, setting: "automaticHdr", path: "render.cm_auto_hdr", value: want }], "Automatic HDR: " + label);
+        assert.ok(out.text.includes("        hl.config({ render = { cm_auto_hdr = " + want + " } })"), "Automatic HDR emits the native integer: " + label);
+        assert.ok(!out.text.includes("supports_hdr") && !out.text.includes("supports_wide_color"), "Automatic HDR preserves native admission");
+        assert.equal(logic.settingsFor(config, manifest).automaticHdr, !!row && row.automaticHdr === true, "Automatic HDR preserves the saved choice");
+    }
+    same(layer.render([], theme, "disabled").options, [], "a disabled plugin supplies no HDR option");
+    const bad = JSON.parse(JSON.stringify(raw));
+    bad.schema.automaticHdr = { type: "number", label: "HDR", min: 0, max: 1, step: 1 };
+    bad.settings.automaticHdr = 0;
+    assert.equal(logic.validateManifest(bad, "/displays").ok, false, "HDR maps a boolean setting, not an independent native mode picker");
+}
+
 function verify(logic, configLogic, layer, shellText) {
+    verifyAutomaticHdr(logic, layer);
     verifyCorePhase(layer);
     for (const [text, want] of KEYS) {
         const got = configLogic.hyprlandKey(text);
@@ -2185,6 +2219,9 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    [logicFile, "HDR no-capable veto", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true ? 1 : 0;'],
+    [logicFile, "HDR core off before first choice", 'if (!set && optionRow.hdr !== true) return;', 'if (!set) return;'],
+    [logicFile, "HDR on uses mode one", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 2 : 0;'],
     [layerFile, "core withholds section shortcut keys", 'if (phase === "core") return { kind: "withheld", bind: bind, global: global };', 'if (false) return { kind: "withheld", bind: bind, global: global };', verifyCorePhase],
     [layerFile, "same-action Mute alias merge", 'if (physical !== undefined) entry.kind = "merged";', 'if (false) entry.kind = "merged";', verifySameActionAliases],
     [layerFile, "different actions retain main ownership", 'other.global === entry.global', 'true', verifyDifferentActionAliases],
@@ -2424,9 +2461,9 @@ const CONTROLS = [
     [layerFile, "a render waits for the step", "return state.phase === \"idle\" ? begin(state, text) : { state: state, action: \"none\" };", "return begin(state, text);"],
     [layerFile, "a render request starts when idle", "return state.phase === \"idle\" ? begin(queued, text) : { state: queued, action: \"none\" };", "return { state: queued, action: \"none\" };"],
     [layerFile, "a result out of its phase is refused", "if (state.phase !== phase)", "if (false)"],
-    [logicFile, "only a set option is listed", "if (row === undefined || !hasOwn(row, setting)) return;", "if (row === undefined) return;"],
-    [logicFile, "an option value is judged by its schema entry", "var unfit = settingError(manifest.schema[setting], row[setting]);", "var unfit = \"\";"],
-    [logicFile, "an option value is judged by its Lua literal", "var literal = HyprlandLayer.optionLiteral(HyprlandLayer.OPTIONS[path], row[setting]);", "var literal = { ok: true, lua: JSON.stringify(row[setting]) };"],
+    [logicFile, "only a set option is listed", "if (!set && optionRow.hdr !== true) return;", "if (!set && row === undefined) return;"],
+    [logicFile, "an option value is judged by its schema entry", "var unfit = settingError(manifest.schema[setting], value);", "var unfit = \"\";"],
+    [logicFile, "an option value is judged by its Lua literal", "var literal = HyprlandLayer.optionLiteral(optionRow, value);", "var literal = { ok: true, lua: JSON.stringify(value) };"],
     [layerFile, "the options section is written", "if (section.options.length > 0) {", "if (false) {"],
     [layerFile, "the applied section is written", "].concat(appliedLines(applied, paths), lines);", "].concat(lines);"],
     [layerFile, "the values are applied after the configuration, not inline", "].concat(appliedLines(applied, paths), lines);", "].concat(applied, lines);"],
