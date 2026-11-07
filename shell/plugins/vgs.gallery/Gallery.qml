@@ -299,7 +299,6 @@ Item {
                     rowSpacing: Theme.stack.group
                     description: "Text fields, actions, errors and hints"
                 TextField { variant: "search"; width: parent.width; placeholderText: "Search plugins"; leadingIcon: "search" }
-                TextField { variant: "search"; width: parent.width; text: "Focused search"; leadingIcon: "search"; property bool focusPreview: true }
                 TextField { variant: "search"; width: parent.width; text: "Search error"; error: true }
                 TextField { variant: "search"; width: parent.width; text: "Read-only search"; readOnly: true }
                 Flow {
@@ -966,6 +965,7 @@ Item {
                         Flow {
                             width: parent.width
                             spacing: Theme.stack.inline
+                            TextField { variant: "search"; width: parent.width; text: "Focused search"; leadingIcon: "search"; property bool focusPreview: true }
                             Select {
                                 property string focusExample: "Select"
                                 property bool focusPreview: true
