@@ -14,6 +14,9 @@ FocusScope {
     // The screen shown: "choice", "draft", or "" before the first open.
     property string mode: ""
     readonly property Item initialFocus: shown.item === null ? null : shown.item.initialFocus
+    // Why the saved message target could not open, on the recovery choice;
+    // "" on the draft. The agent-debug smoke row reads it from the window.
+    readonly property string reason: mode === "choice" && shown.item !== null ? shown.item.reason : ""
     implicitWidth: Theme.size.panel.lg
     implicitHeight: shown.item === null ? 0 : shown.item.implicitHeight
 

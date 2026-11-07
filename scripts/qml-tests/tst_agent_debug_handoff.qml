@@ -97,7 +97,7 @@ Item {
             compare(window().mode, "draft");
             window().initialFocus.clicked();
             verify(window() !== null, "the window stays shown");
-            compare(window().mode, "choice");
+            compare([window().mode, window().reason], ["choice", "The receiver already holds your draft."]);
             verify(JSON.parse(root.handlers.recovery("")).waiting, "the recovery choice holds the diagnosis");
             compare(service.draft, null);
         }
