@@ -144,6 +144,7 @@ FocusScope {
         header: [
             TextField {
                 id: search
+                variant: "search"
                 width: layout.contentWidth
                 placeholderText: "Search sections"
                 leadingIcon: "search"

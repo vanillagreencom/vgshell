@@ -71,6 +71,73 @@ Item {
 
         function placeholder() { return plain.background.children[1]; }
 
+        function test_search_fills_its_box_without_changing_form_bounds_data() {
+            return [{tag: "parent", layout: false}, {tag: "layout", layout: true}];
+        }
+        function test_search_fills_its_box_without_changing_form_bounds(data) {
+            const searchBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
+                + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
+            const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; width: parent.width; leadingIcon: "search" }', searchBox);
+            for (const width of [900, 80]) {
+                searchBox.width = width;
+                // Process InputWidth's Qt.callLater allocation before reading:
+                // https://doc.qt.io/qt-6/qml-qttest-testcase.html#wait-method
+                wait(0);
+                compare(search.width, width);
+            }
+            compare(search.sidePadding, 0, "Plugins' icon starts at the content edge");
+            compare(search.leftPadding, Theme.icon.size.md + Theme.textField.gap);
+            compare(search.rightPadding, 0);
+            compare(search.topPadding, 0);
+            compare(search.bottomPadding, 0);
+
+            // Standalone search boxes have no form siblings imposing a minimum.
+            const formBox = createTemporaryQmlObject("import QtQuick; import QtQuick.Layouts; "
+                + (data.layout ? "ColumnLayout" : "Item") + " { width: 900; height: 200 }", root);
+            const inputs = [
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width }', formBox),
+                createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { width: parent.width; password: true }', formBox)
+            ];
+            for (const width of [900, 80, 600]) {
+                formBox.width = width;
+                // Without fillWidth, a layout keeps the preferred implicit width:
+                // https://doc.qt.io/qt-6/qtquicklayouts-overview.html#specifying-preferred-size
+                const formWidth = data.layout ? Theme.size.panel.sm / 2 : width;
+                for (const field of inputs)
+                    tryCompare(field, "width", Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, formWidth)));
+            }
+        }
+
+        function test_search_rule_and_unchanged_form_decoration_data() {
+            return [{tag: "dark", mode: "dark"}, {tag: "light", mode: "light"}];
+        }
+        function test_search_rule_and_unchanged_form_decoration(data) {
+            compare(UnitTheme.override({scheme: {mode: data.mode}}), "ok");
+            const holder = createTemporaryQmlObject("import QtQuick; Item { width: 360; height: 100 }", root);
+            const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; placeholderText: "Search"; leadingIcon: "search" }', holder);
+            const rule = search.background.children[2];
+            compare(search.background.color.a, 0);
+            compare(search.background.border.width, 0);
+            compare(search.background.radius, 0);
+            compare(rule.visible, true);
+            compare(rule.height, 1);
+            compare([rule.x, rule.y, rule.width], [0, search.height - 1, search.width]);
+            compare(String(rule.color), String(Qt.color(Theme.textField.borderColor)));
+            compare(search.background.children[3].opacity, 0, "keyboard focus draws only the rule");
+            compare(String(plain.background.color), String(Qt.color(Theme.textField.background)));
+            compare(plain.background.border.width, Theme.textField.border);
+            compare(plain.background.radius, Theme.textField.radius);
+            compare(plain.background.children[2].visible, false);
+            const password = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { password: true; y: 40 }', holder);
+            compare(password.echoMode, TextInput.Password);
+            compare(String(password.background.color), String(Qt.color(Theme.textField.background)));
+            compare(password.background.border.width, Theme.textField.border);
+            compare(password.background.children[2].visible, false);
+            compare(UnitTheme.override({textField: {searchPadding: 3}}), "ok");
+            compare([search.sidePadding, search.topPadding, search.bottomPadding], [3, 3, 3]);
+            compare([password.topPadding, password.bottomPadding], [0, 0], "search inset never changes a password");
+        }
+
         function test_retained_keyboard_border_clears_on_initial_focus_after_one_frame_data() {
             return [{tag: "neutral", hovered: false, error: false}, {tag: "hovered", hovered: true, error: false}, {tag: "error", hovered: true, error: true}];
         }

@@ -255,7 +255,7 @@ if len(search) != 1 or len(areas) != 1 or len(heading) != 1 or len(items) < 3:
     print(json.dumps(["search=%d areas=%d heading=%d items=%d" % (len(search), len(areas), len(heading), len(items))])); sys.exit()
 edge_l, edge_r = rows[page[0]]["box"][0] + inset, right(rows[areas[0]]) - inset
 check("content.rightInset", right(rows[page[0]]) - edge_r, inset)
-check("search.width", rows[search[0]]["box"][2], min(edge_r - edge_l, maximum))
+check("search.width", rows[search[0]]["box"][2], edge_r - edge_l)
 check("heading.x", rows[heading[0]]["box"][0], edge_l)
 placeholders = [j for j, r in enumerate(rows) if r["type"] == "Label" and r.get("text") == "Search plugins" and inside(j, search[0])]
 if len(placeholders) != 1: out.append("placeholder=%d" % len(placeholders))
@@ -284,7 +284,7 @@ for n, i in enumerate(items):
 print(json.dumps(out))
 PY
 }
-geometry expect_poll "the list's heading and rows share its edges, its search respects the token maximum, each row's lines on its icon" '[]' list_alignment
+geometry expect_poll "the list's heading and rows share its edges, its search fills the available width, each row's lines on its icon" '[]' list_alignment
 page_header_height() {
   local rows
   rows="$(settings_geometry)" || return

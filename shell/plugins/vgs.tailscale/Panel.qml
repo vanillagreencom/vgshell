@@ -160,6 +160,7 @@ Item {
 
                 TextField {
                     id: search
+                    variant: "search"
                     objectName: "tailscale-exit-search-field"
                     width: parent.width
                     visible: root.view === "exit-nodes"

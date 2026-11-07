@@ -651,6 +651,7 @@ var TOKENS = {
         // Matches the left inset to the item role capitals' top and
         // bottom inset inside a medium field.
         paddingX: step(2.5),
+        searchPadding: length(0),
         gap: length("{control.gap}"),
         background: color("{color.surfaceSunken}"),
         borderColor: color("{color.borderControl}"),

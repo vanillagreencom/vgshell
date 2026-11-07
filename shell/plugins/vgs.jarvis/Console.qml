@@ -517,21 +517,12 @@ FocusScope {
                     height: historySearch.implicitHeight
                     TextField {
                         id: historySearch
-                        x: -sidePadding
+                        variant: "search"
                         width: parent.width
                         placeholderText: "Search conversations, tasks and problems"
                         leadingIcon: "search"
-                        rightPadding: 0
-                        topPadding: 0
-                        bottomPadding: 0
                         onTextChanged: root.historyQuery = text
                         Keys.onPressed: event => root.handleBacktab(event)
-                        Component.onCompleted: { background.color = "transparent"; background.border.width = 0; }
-                    }
-                    Rectangle {
-                        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-                        height: Theme.border.thin
-                        color: Theme.textField.borderColor
                     }
                 }
                 ResultsFilter {

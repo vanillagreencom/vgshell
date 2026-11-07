@@ -135,6 +135,7 @@ FocusScope {
                 }
                 TextField {
                     id: search
+                    variant: "search"
                     width: parent.width
                     placeholderText: "Search shortcuts"
                     leadingIcon: "search"
