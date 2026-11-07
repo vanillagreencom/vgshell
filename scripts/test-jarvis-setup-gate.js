@@ -2282,18 +2282,62 @@ function verifyStopIntents(serviceSource) {
         assert.equal(sent.length, 0);
     }
 }
+// start() runs synchronously on shell assignment, before voiceProvider's
+// dependent binding must have updated. Run its real Setup gate and startup
+// continuation with that prior observation; retired writes must still stop it.
+function verifySetupStart(serviceSource) {
+    const methods = ["start", "publishSetup"].map(name => {
+        const found = serviceSource.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, name + ": the startup owner exists");
+        return "root." + name + " = (" + found[0] + ");";
+    }).join("\n");
+    for (const option of manifest.schema.voiceProvider.options) {
+        for (const observed of ["", option.value === "local" ? "realtime" : "local"]) {
+            for (const live of [true, false]) {
+                const label = option.value + "/" + (observed || "initial") + "/" + (live ? "live" : "retired-at-setup");
+                const values = {};
+                const root = {
+                    ...SERVICE_IMPORTS, Gate: load(file), Conversation: load(path.join(path.dirname(file), "Conversation.js")),
+                    childSerial: 0, lifetime: { kind: "new" }, child: { running: false, stdinEnabled: false },
+                    voiceProvider: observed, sessionState: null, setupAnswer: { kind: "checking" }, voiceStep: null,
+                    localTier: TIER_IDLE, homeRepair: { result: { kind: "unavailable" } },
+                    homePathRead: { kind: "empty" }, dictationState: null, sessionStart: { result: null },
+                    accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } },
+                    localRuntime: { setupCause: "", reading: null, republish: () => true },
+                    publishEchoCancel: () => true, publishHomes: () => true, publishInput: () => true,
+                    shellStatus: () => true, publish: () => true,
+                    shell: { manifest, shortcut: { keys: null }, requirements: { missing: [] },
+                        settings: { ...plain(manifest.settings), voiceProvider: option.value },
+                        status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
+                            if (!live && key === "setupVoice") return "refused: status=" + key + " reason=retired";
+                            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
+                            values[key] = plain(value);
+                            return "ok";
+                        } } }
+                };
+                vm.runInNewContext("(function() { with(root) { " + methods + " } })()", { root });
+                root.start();
+                assert.equal(root.child.running, live, label + ": only a current instance starts its child");
+                assert.equal(root.lifetime.kind, "starting", label + ": starting never fabricates daemon readiness");
+                assert.equal(values.setupVoice !== undefined, live, label + ": initial Setup publication is not lost to a prior binding");
+            }
+        }
+    }
+}
 // The core invokes these actual registrations. Supply only capabilities and
 // observation ports; the callbacks retain the displayed request identity.
 function verifyShortcutRegistration(serviceSource) {
     const handler = serviceSource.match(/^    onShellChanged: \{\n([\s\S]*?)^    \}/m);
     assert.ok(handler, "the service installs shortcut handlers");
-    const shortcuts = {}, ipc = {}, intents = [], sent = [], confirmed = [];
+    const shortcuts = {}, ipc = {}, intents = [], sent = [], confirmed = [], offers = [];
     const hold = { gen: 7, id: "request", digest: "digest" };
     const root = {
-        lifetime: { kind: "new" }, cause: "", child: { running: true }, shell: {
+        lifetime: { kind: "new" }, cause: "", child: { running: true },
+        releaseTextOffer: null, destroying: false, textOfferReason: "Fixture is starting", shell: {
             settings: { home: "/fixture" },
             shortcut: { register: (name, label, press, release) => { shortcuts[name] = { press, release }; } },
             ipc: { handle: (name, callback) => { ipc[name] = callback; } },
+            handoff: { offer: (name, accept, reason) => { offers.push([name, accept, reason]); return () => {}; } },
             status: { handlePreview: () => "ok", handleChoice: () => "ok" },
             layers: { show: () => {} }
         },
@@ -2303,8 +2347,12 @@ function verifyShortcutRegistration(serviceSource) {
         confirmApproval: (value, source) => confirmed.push([value, source])
     };
     const cancel = serviceSource.match(/^    function cancelApproval\(hold\) \{\n[\s\S]*?^    \}/m);
+    const refresh = serviceSource.match(/^    function refreshTextOffer\(\) \{\n[\s\S]*?^    \}/m);
     assert.ok(cancel, "the service owns cancellation identity");
-    vm.runInNewContext("(function() { with(root) { root.cancelApproval = (" + cancel[0] + "); " + handler[1] + " } })()", { root });
+    assert.ok(refresh, "the service refreshes its text offer on shell assignment");
+    vm.runInNewContext("(function() { with(root) { root.cancelApproval = (" + cancel[0]
+        + "); root.refreshTextOffer = (" + refresh[0] + "); " + handler[1] + " } })()", { root });
+    assert.deepEqual(offers, [["compose", null, root.textOfferReason]], "initial registration keeps the unavailable offer's reason");
     root.lifetime = { kind: "ready" };
     shortcuts.talk.press();
     assert.equal(typeof shortcuts.talk.release, "function", "Talk registers its release companion");
@@ -2321,6 +2369,14 @@ function verifyShortcutRegistration(serviceSource) {
     assert.equal(Object.hasOwn(ipc, "mute"), false);
 }
 const registeredSource = fs.readFileSync(serviceFile, "utf8");
+verifySetupStart(registeredSource);
+{
+    const provider = '        const provider = shell.settings.voiceProvider;\n        const setupCause = localRuntime.setupCause;';
+    assert.equal(registeredSource.split(provider).length, 2, "one Setup provider observation");
+    const changed = registeredSource.replace(provider,
+        '        if (voiceProvider === "") return false;\n        const provider = voiceProvider;\n        const setupCause = localRuntime.setupCause;');
+    assert.throws(() => verifySetupStart(changed), assert.AssertionError, "a prior binding must not block initial child startup");
+}
 verifyShortcutRegistration(registeredSource);
 for (const [label, needle, replacement] of [
     ["Talk release", '() => intent("talk-down"), () => intent("talk-up")', '() => intent("talk-down"), () => intent("talk-down")'],

@@ -33,7 +33,8 @@ Item {
         property string consoleKey: ""
         property string heldKey: ""
         property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
-        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: {} }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
+        property var values: ({})
+        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: service.values }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) { root.intents = root.intents.concat([name]); }
@@ -97,6 +98,7 @@ Item {
             root.intents = [];
             root.pages = [];
             service.sessionState = null;
+            service.values = {};
             service.microphoneMute = { kind: "ready", muted: false };
             away();
             const open = menu();
@@ -323,7 +325,8 @@ Item {
         function test_hidden_overlay_has_only_required_content_data() {
             return [
                 { tag: "listening", regions: { capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }, required: false },
-                { tag: "speaking", regions: { playback: { kind: "playing" }, voiceMute: { kind: "on" } }, required: false },
+                { tag: "speaking with muted voice", regions: { playback: { kind: "playing" } }, required: false },
+                { tag: "speaking with voice", regions: { playback: { kind: "playing" }, voiceMute: { kind: "off" } }, required: false },
                 { tag: "rest", regions: {}, required: false },
                 { tag: "fault", regions: { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, required: true },
                 { tag: "held", regions: { approval: { kind: "held", id: "fixture", gen: 1, digest: "fixture",
@@ -332,12 +335,24 @@ Item {
         }
         function test_hidden_overlay_has_only_required_content(data) {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            service.shell.status.values.transcript = { gen: 1, role: "assistant", text: "Hidden answer" };
-            put(root.session(Object.assign({ visibility: { kind: "hidden" },
+            const caption = { gen: 1, role: "assistant", text: "Hidden answer" };
+            // Replacing the var publishes its changed object; a nested write
+            // does not notify bindings: https://doc.qt.io/qt-6/qml-var.html
+            service.values = { transcript: caption };
+            put(root.session({ conversation: { kind: "active", purpose: "conversation" }, voiceMute: { kind: "on" } }));
+            compare(bubble.caption.text, caption.text, "the published caption reaches the overlay");
+            compare(bubble.words, caption.text, "the same caption is eligible while shown");
+            const words = all(bubble, []).filter(item => item instanceof Words);
+            compare(words.length, 1, "read the actual Words view");
+            tryCompare(words[0], "shown", caption.text);
+            verify(words[0].visible, "the shown muted reply draws before Hide");
+            put(root.session(Object.assign({ visibility: { kind: "hidden" }, voiceMute: { kind: "on" },
                 conversation: { kind: "active", purpose: "conversation" } }, data.regions)));
             compare(orb().visible, false);
             compare(orb().active, false);
             compare(bubble.words, "");
+            compare(words[0].text, "", "hidden assistant content never reaches Words");
+            compare(words[0].visible, false);
             compare(bubble.iconsShown, false);
             compare(bubble.capturePresented, false, "required text never claims to be the orb indicator");
             compare(bubble.fieldBoxes.length, data.required ? 1 : 0, "no orb field or halo remains");

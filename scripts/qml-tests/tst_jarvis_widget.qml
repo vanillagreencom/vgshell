@@ -20,6 +20,7 @@ Item {
     height: 60
 
     property var calls: []
+    property var handlers: ({})
     property var pages: []
     property string reply: "ok"
 
@@ -31,7 +32,10 @@ Item {
             status: { values: values },
             settings: { holdToTalk: false, voiceProvider: "local", home: "" },
             shortcut: { keys: { talk: "SUPER+code:44", "voice-mute": "SUPER+CTRL+M", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
-            ipc: { call: (name, arg) => { root.calls = root.calls.concat([[name, arg]]); return root.reply; } },
+            ipc: {
+                handle: (name, callback) => { root.handlers = Object.assign({}, root.handlers, { [name]: callback }); },
+                call: (name, arg) => { root.calls = root.calls.concat([[name, arg]]); return root.reply; }
+            },
             surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([[page, tab]]); return "ok"; } }
         };
     }
@@ -175,6 +179,7 @@ Item {
         }
 
         function test_a_click_calls_console_once() {
+            verify(typeof root.handlers["compose-draft"] === "function", "the real Console registers its draft receiver");
             mouseClick(button());
             compare(JSON.stringify(root.calls), '[["console",""]]');
         }

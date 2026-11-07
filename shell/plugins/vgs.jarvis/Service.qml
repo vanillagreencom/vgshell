@@ -334,7 +334,10 @@ Item {
     // (SetupGate.sessionSummary).
     function publishSetup(answer) {
         setupAnswer = answer;
-        if (voiceProvider === "") return false;
+        if (shell === null) return false;
+        // start() calls this from onShellChanged. Read that shell's settings,
+        // as hello() does, not the previous value of a dependent binding.
+        const provider = shell.settings.voiceProvider;
         const setupCause = localRuntime.setupCause;
         const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
@@ -344,7 +347,6 @@ Item {
         values.homePath = homePathRead.kind === "ready" ? homePathRead.path : "";
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
-        const provider = voiceProvider;
         const voice = Providers.cloudVoice(provider);
         const talk = Gate.talkHint(shell.settings.holdToTalk, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps).talk);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check, talk);
