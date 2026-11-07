@@ -43,6 +43,7 @@ Item {
         function replyOf() { return ""; }
         function headReplies() { return []; }
         function openPage(id, tab) { opened = [id, tab]; }
+        function openRow(id) { opened = [id, ""]; }
     }
     Component {
         id: pageComponent
@@ -124,6 +125,7 @@ Item {
             const badge = problemBadge(list);
             verify(badge !== undefined);
             compare(badge.tone, "warning");
+            compare(badge.activeFocusOnTab, true, "the explanation is reachable by Tab, not only forced focus");
             const words = Reply.line(root.shortcutError, manager.plugins);
             compare(badge.Accessible.name, PageReference.plain(words), "the badge reads its complete problem explanation");
             const tip = tooltipOf(badge);
@@ -135,11 +137,14 @@ Item {
             const link = popupLink(tip);
             verify(link !== undefined);
             if (data.keyboard) {
+                keyClick(Qt.Key_Return);
+                compare(manager.opened, [], "Enter on the help source does not open the list's unrelated current row");
                 keyClick(Qt.Key_Tab);
                 compare(badge.activeFocus, true, "the source keeps keyboard ownership");
                 compare(tip.currentLine, 0);
                 const ring = descendants(link).find(item => item instanceof FocusRing && item.visible);
                 verify(ring !== undefined, "the current link shows its focus ring");
+                compare(descendants(badge).find(item => item instanceof FocusRing).visible, false, "only the current link draws a ring");
                 keyClick(Qt.Key_Return);
             } else {
                 const popup = tip.tracker.popup;

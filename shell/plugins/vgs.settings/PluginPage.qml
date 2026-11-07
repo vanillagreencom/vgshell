@@ -541,7 +541,7 @@ FocusScope {
                 model: ["Settings", "Details"]
                 // The pinned strip's resting offset keeps its focus ring
                 // inside the viewport; content clears that same offset.
-                spacing: Theme.stack.section + layout.scrollArea.focusInset + layout.ringRoom
+                topInset: layout.scrollArea.focusInset + layout.ringRoom
                 header: [
                     Repeater {
                         model: page.row === null ? [] : page.row.errors

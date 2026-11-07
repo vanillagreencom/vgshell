@@ -65,12 +65,19 @@ T.Control {
     // Control supplies visualFocus for the shared Tooltip and FocusRing.
     // https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#visualFocus-prop
     focusPolicy: tooltip === "" ? Qt.NoFocus : Qt.TabFocus
-    Keys.onPressed: event => { event.accepted = tip.takeKey(event); }
+    Keys.onPressed: event => {
+        event.accepted = tip.takeKey(event);
+        // A help-only badge has no activation of its own. Do not pass
+        // these keys to a containing list's selected-row action.
+        if (!event.accepted && [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space].indexOf(event.key) !== -1)
+            event.accepted = true;
+    }
 
     Tooltip {
         id: tip
         text: root.tooltip
         details: root.tooltipDetails
+        side: "clear"
         pageLinks: true
         onPageActivated: (page, tab) => root.tooltipPageActivated(page, tab)
     }
@@ -105,7 +112,7 @@ T.Control {
     border.width: corner ? Theme.badge.unread.corner.border : 0
     border.color: Theme.badge.unread.corner.borderColor
     background: Rectangle { id: chip }
-    FocusRing { target: root; targetRadius: root.radius }
+    FocusRing { target: tip.currentLine === -1 ? root : null; targetRadius: root.radius }
 
     // The icon is built only for a chip that draws one, so a count or a
     // chip without one holds no hidden Icon for a reader of the item it

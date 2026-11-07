@@ -28,12 +28,14 @@ FocusScope {
     // Content shared by every tab, below the strip at the normal page gap.
     property alias header: common.data
     property real spacing: Theme.stack.section
+    // A pinned strip's resting offset, kept separate from the page gap.
+    property real topInset: 0
     readonly property int count: stack.children.length
     readonly property Item currentPage: currentIndex >= 0 && currentIndex < count ? stack.children[currentIndex] : null
     readonly property alias tabs: strip
 
     implicitWidth: Math.max(strip.implicitWidth, currentPage === null ? 0 : currentPage.implicitWidth)
-    implicitHeight: strip.height + (common.height > 0 ? spacing + common.height : 0)
+    implicitHeight: strip.height + topInset + (common.height > 0 ? spacing + common.height : 0)
         + (currentPage === null ? 0 : (common.height > 0 ? Theme.stack.page : spacing) + currentPage.height)
 
     function show() {
@@ -77,7 +79,7 @@ FocusScope {
 
     Column {
         id: common
-        y: strip.height + root.spacing
+        y: strip.height + root.topInset + root.spacing
         width: root.width
         spacing: Theme.stack.page
     }

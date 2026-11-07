@@ -430,7 +430,7 @@ Item {
             ignoreWarning(new RegExp("^settings: acme\\.optional/\\S+ " + installFailure + "$"));
             mouseClick(review);
             verify(field.error !== "", "the install's refusal reads under Review");
-            const head = descendants(pageOf(window)).filter(item => item instanceof Label && item.visible && item.text !== "" && Qt.colorEqual(item.color, Theme.color.danger) && !descendants(tabsOf(window)).includes(item));
+            const head = descendants(pageOf(window)).filter(item => item instanceof Label && item.visible && item.text !== "" && Qt.colorEqual(item.color, Theme.color.danger) && !descendants(tabsOf(window).currentPage).includes(item));
             compare(head.length, 1, "the page head draws one refusal line");
             compare(head[0].text.split("\n").filter(line => line !== "").length, 3, "the page head shows each of the three refusals once");
         }

@@ -143,7 +143,7 @@ Item {
     }
 
     // A window packed with text round a locked control: lines above and
-    // under it, a label before it, and a small Tab stop after it, so every
+    // under it, a label before it, and a small button after it, so every
     // place covers something, and the place that covers the least covers
     // the Tab stop.
     Item {
@@ -577,7 +577,13 @@ Item {
             return out;
         }
 
-        function test_with_no_free_place_a_reason_covers_the_least_and_no_tab_stop() {
+        function test_with_no_free_place_a_reason_covers_the_least_and_no_tab_stop_data() {
+            return [{ tag: "Tab stop", policy: Qt.TabFocus }, { tag: "pointer-only button", policy: Qt.NoFocus }];
+        }
+
+        function test_with_no_free_place_a_reason_covers_the_least_and_no_tab_stop(data) {
+            smallStop.focusPolicy = data.policy;
+            compare(smallStop.activeFocusOnTab, data.policy !== Qt.NoFocus, "the fixture includes a pointer-only native button");
             packed.visible = true;
             const tip = openReason(crowded);
             const place = placedBox(tip);
