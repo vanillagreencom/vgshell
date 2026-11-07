@@ -94,6 +94,7 @@ Recommends:     ydotool
 Recommends:     imv
 Recommends:     mpv
 Recommends:     nautilus
+Recommends:     inotify-tools
 # end runtime dependencies
 
 %description

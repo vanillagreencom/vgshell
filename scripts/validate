@@ -369,6 +369,8 @@ rows=(
   "cli|screensaver transcode helper|scripts/test-screensaver-transcode.sh|shell/plugins/vgs.screensaver/bin/transcode-ascii"
   "logic|clipboard history logic|node scripts/test-clipboard-history.js|shell/plugins/vgs.clipboard/ClipboardHistory.js bin/lib/qml-library.js"
   "logic|automations judge|node scripts/test-automations-logic.js|shell/plugins/vgs.automations/AutomationsLogic.js bin/lib/qml-library.js shell/Commons/Duration.js"
+  "logic|local sync judge|node scripts/test-local-sync-logic.js|shell/plugins/vgs.local-sync/SyncLogic.js bin/lib/qml-library.js"
+  "cli|local sync log TUI|scripts/test-local-sync-tui.sh|shell/plugins/vgs.local-sync/tui/log.sh bin/lib/tui.sh"
   "logic|Jarvis Session|node scripts/test-jarvis-session.js|shell/plugins/vgs.jarvis/Session.js bin/lib/qml-library.js"
   "logic|Jarvis Session effect owner|node scripts/test-jarvis-session-runner.js|shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/backend/session-runner.js bin/lib/qml-library.js"
   "logic|Jarvis bar widget view|node scripts/test-jarvis-widget.js|shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/SetupGate.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Commons/PageReference.js bin/lib/qml-library.js"

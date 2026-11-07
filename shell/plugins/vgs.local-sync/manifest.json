@@ -21,6 +21,7 @@
     {"command": "inotifywait", "packages": {"pacman": "inotify-tools", "apt": "inotify-tools", "dnf": "inotify-tools", "nix": "inotify-tools"}, "optional": true, "purpose": "Notices when a copy starts"}
   ],
   "settings": {},
+  "tui": {"log": {"script": "tui/log.sh", "title": "Sync job log", "size": "wide", "requires": ["journalctl"]}},
   "status": {
     "jobs": {"type": "data", "label": "Sync jobs"}
   }

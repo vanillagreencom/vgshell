@@ -1016,7 +1016,10 @@ nested_xwayland_check
 # rows/scratchpads.sh enables it and disables it again. The screensaver
 # row restores its incoming enablement after its checks. vgs.sudo starts disabled,
 # so no earlier row counts its widget in the bar or its hold of `sudo`;
-# rows/sudo.sh enables it and disables it again.
+# rows/sudo.sh enables it and disables it again. vgs.local-sync starts
+# disabled, since its service reads the user manager's units through
+# systemctl at start; rows/local-sync.sh enables it over its own fixture
+# unit and disables it again.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
 # vgs.network, vgs.vpn, vgs.displays, vgs.mouse and vgs.keyboard, start
 # disabled before any of them ships, so a section that lands enables its
@@ -1221,9 +1224,17 @@ PY
 # under the sandbox HOME and asks xdg-mime for the https default;
 # vgs.printers's lpstat and ipptool reach their stand-ins, which answer
 # from the sandbox's CUPS world, and its dbus-monitor listens on the
-# sandbox's system bus.
+# sandbox's system bus; vgs.local-sync lists the user manager's units
+# through the device stand-in systemctl, answered here with no unit, so it
+# reads no script, asks busctl about no unit and only follows the
+# journal.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
+  local sync_props
   expected_errors+=("${dictation_absent_errors[@]}")
+  sync_props="$(node -e 'const { load } = require(process.argv[1]); process.stdout.write(load(process.argv[2]).SHOW_PROPERTIES.join(","))' \
+    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.local-sync/SyncLogic.js")" || return
+  device_reply systemctl 0 "" --user list-unit-files --type=service --no-legend --plain
+  device_reply systemctl 0 "" --user show --timestamp=unix -p "$sync_props" "*.service"
   devtools_stand_ins
   updates_cache_fresh
   user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
@@ -1257,7 +1268,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     user_config_write cat <<'JSON'
-{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop"] }
+{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop", "vgs.local-sync"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;

@@ -6,6 +6,7 @@
 #
 #   diagnose.sh AGENT crash PROGRAM PID SIGNAL TIME BINARY
 #   diagnose.sh AGENT task PLUGIN ACTION MANAGER PACKAGES TIME RECORD
+#   diagnose.sh AGENT sync UNIT NAME ENGINE FROM TO ERROR TIME
 #
 # AGENT is claude, codex, copilot, pi or opencode. A fact the service could
 # not give is `-`. The prompt names the run record of a failed task, never
@@ -44,6 +45,7 @@ esac
 case "$kind" in
   crash) (( $# == 7 )) || refuse ;;
   task) (( $# == 8 )) || refuse ;;
+  sync) (( $# == 9 )) || refuse ;;
   *) refuse ;;
 esac
 # An agent removed since the last requirement scan, which the select still

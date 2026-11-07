@@ -673,6 +673,7 @@ f share/vgshell/shell/plugins/vgs.local-sync/Service.qml
 f share/vgshell/shell/plugins/vgs.local-sync/SyncLogic.js
 f share/vgshell/shell/plugins/vgs.local-sync/Widget.qml
 f share/vgshell/shell/plugins/vgs.local-sync/manifest.json
+f share/vgshell/shell/plugins/vgs.local-sync/tui/log.sh
 f share/vgshell/shell/plugins/vgs.lock/LockModel.js
 f share/vgshell/shell/plugins/vgs.lock/LockView.qml
 f share/vgshell/shell/plugins/vgs.lock/Service.qml
