@@ -270,9 +270,26 @@ function keyCaps(shortcut, resolved) {
     for (var i = 0; i < parts.length; i++) {
         var part = parts[i].trim();
         if (part === "") continue;
-        out.push(display(part, resolved));
+        var label = display(part, resolved);
+        // An unnamed chord is guidance, not a mixture of keys and an action.
+        if (label === UNNAMED_KEY) return [label];
+        out.push(label);
     }
     return out;
+}
+
+var UNNAMED_KEY = "Choose a key in [Settings](page:vgs.settings)";
+
+// Printable symbolic keys come from the capture judge's canonical names.
+// The QML reader and Node consumers seed the same input to the formatter.
+function symbolNames(captureNames) {
+    var names = {};
+    for (var code of Object.keys(captureNames)) {
+        var value = Number(code);
+        if (value > 32 && value < 127)
+            names[captureNames[code]] = { keysym: captureNames[code], codepoint: value };
+    }
+    return names;
 }
 
 // Native names are the existing xkb-keys helper's base-level keysym and
@@ -282,7 +299,7 @@ function display(key, resolved) {
     var physical = /^CODE:[0-9]+$/.test(upper);
     if (physical) upper = "CODE:" + String(Number(upper.slice(5)));
     var native = resolved === undefined || resolved === null ? null : resolved[upper];
-    if (physical && (native === undefined || native === null)) return "[Choose a key](page:vgs.settings)";
+    if (physical && (native === undefined || native === null)) return UNNAMED_KEY;
     if (native !== undefined && native !== null) {
         if (native.codepoint > 32 && native.codepoint !== 127)
             return String.fromCodePoint(native.codepoint).toUpperCase();

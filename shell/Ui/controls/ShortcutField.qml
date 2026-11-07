@@ -162,6 +162,7 @@ FocusScope {
     signal typed(string text, int index)
     signal cleared(int index)
     signal hintLinkActivated()
+    signal pageActivated(string page, string tab)
 
     implicitWidth: box.implicitWidth + line.spacing + tools.implicitWidth
     implicitHeight: column.implicitHeight
@@ -412,7 +413,7 @@ FocusScope {
                 hoverEnabled: true
                 opacity: enabled ? 1 : Theme.opacity.disabled
                 Accessible.role: Accessible.Button
-                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.join(" or ")
+                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.map(key => PageReference.plain(ShortcutLabels.keyCaps(key).join("+"))).join(" or ")
                 PointerCursor {}
                 // A key click lands mid-box, so only the pointer picks an
                 // alternative; a new one keeps being the one edited.
@@ -526,6 +527,7 @@ FocusScope {
                                             anchors.verticalCenter: parent.verticalCenter
                                             shortcut: group.modelData.combo
                                             value: true
+                                            onPageActivated: (page, tab) => root.pageActivated(page, tab)
                                             backgroundContext: ({ fill: Theme.textField.background, plate: selectionMark.visible ? Theme.color.selection : "transparent", sheen: "transparent" })
                                         }
                                         Label {
@@ -621,6 +623,7 @@ FocusScope {
                 link: fileLine
                 visible: text !== ""
                 onActivated: root.hintLinkActivated()
+                onPageActivated: (page, tab) => root.pageActivated(page, tab)
                 Tooltip {
                     text: hintText.linked ? hintText.citation : ""
                     side: "right"

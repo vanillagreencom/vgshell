@@ -7,9 +7,23 @@ import qs.Unit
 Item {
     id: root
     width: 480
-    height: 120
-    KeyCaps { id: caps; shortcut: "SUPER+code:30" }
+    height: 320
+    property var pages: []
+    KeyCaps { id: caps; shortcut: "SUPER+code:30"; onPageActivated: (page, tab) => root.pages.push([page, tab]) }
     Text { id: hint; y: caps.height; text: ShortcutLabels.keyCaps("SUPER+code:30").join("+") }
+    KeyHints {
+        id: hints
+        y: 60
+        hints: [{ key: "SUPER+code:30", text: "Talk" }]
+        onPageActivated: (page, tab) => root.pages.push([page, tab])
+    }
+    ShortcutField {
+        id: field
+        y: 120
+        width: parent.width
+        keys: ["SUPER+code:30"]
+        onPageActivated: (page, tab) => root.pages.push([page, tab])
+    }
 
     UnitCase {
         name: "shortcutlabels"
@@ -64,7 +78,7 @@ Item {
             request();
             Capabilities.hyprland.devices = { layout: "ru" };
             finish("u", 117);
-            compare(hint.text, "Super+[Choose a key](page:vgs.settings)");
+            compare(hint.text, "Choose a key in [Settings](page:vgs.settings)");
             request();
             finish("Cyrillic_ghe", 1075);
             tryCompare(hint, "text", "Super+Г");
@@ -74,11 +88,45 @@ Item {
             request();
             Capabilities.hyprland.finishKeys({ ok: false, error: "keycode-unresolved" });
             tryCompare(ShortcutLabels, "pending", false);
-            compare(hint.text, "Super+[Choose a key](page:vgs.settings)");
-            const labels = caps.children.filter(child => child.text !== undefined && child.value !== undefined);
-            compare(JSON.stringify(labels.map(child => child.text)), '["Super","Choose a key"]');
+            compare(hint.text, "Choose a key in [Settings](page:vgs.settings)");
+            verify(caps.linked);
+            compare(caps.children.filter(child => child.value !== undefined && child.text !== undefined).length, 0);
+            const guidance = caps.children.find(child => child.item !== undefined && child.item !== null).item;
+            compare(guidance.plain, "Choose a key in Settings");
+            compare(guidance.Accessible.name, "Choose a key in Settings");
+            root.pages = [];
+            guidance.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(root.pages), '[["vgs.settings",""]]');
+            mouseClick(guidance, guidance.linkBox.x + guidance.linkBox.width / 2, guidance.linkBox.y + guidance.linkBox.height / 2);
+            compare(JSON.stringify(root.pages), '[["vgs.settings",""],["vgs.settings",""]]');
             verify(renderedFrame(caps));
             compare(Capabilities.hyprland.pendingKeys, null);
+        }
+
+        function findLink(node) {
+            if (node.linked === true && node.linkBox !== undefined) return node;
+            for (const child of node.children) {
+                const found = findLink(child);
+                if (found !== null) return found;
+            }
+            return null;
+        }
+
+        function test_hint_and_field_forward_the_shared_fallback() {
+            request();
+            Capabilities.hyprland.finishKeys({ ok: false, error: "keycode-unresolved" });
+            for (const owner of [hints, field]) {
+                const link = findLink(owner);
+                verify(link !== null);
+                compare(link.Accessible.name, "Choose a key in Settings");
+                root.pages = [];
+                link.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Return);
+                compare(JSON.stringify(root.pages), '[["vgs.settings",""]]');
+                verify(renderedFrame(owner));
+            }
+            compare(field.keys[0], "SUPER+code:30");
         }
     }
 }

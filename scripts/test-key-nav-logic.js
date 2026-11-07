@@ -13,6 +13,7 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "Ui", "foundation", "KeyNavLogic.js");
+const captureNames = load(path.join(repo, "shell", "Core", "PluginLogic.js")).CAPTURE_KEY_NAMES;
 
 // Real libxkbcommon answers, not a duplicate physical-position table.
 const layouts = [["us", "U"], ["ru", "Г"]];
@@ -39,10 +40,12 @@ function verifyLabels(logic) {
         ["SUPER+SHIFT+CODE:0030", nativeRows[0].names, ["Super", "Shift", "U"]],
         ["code:0108", nativeRows[0].names, ["Right Alt"]],
         ["SUPER+code:105", nativeRows[0].names, ["Super", "Right Ctrl"]],
-        ["SUPER+code:109", {}, ["Super", "[Choose a key](page:vgs.settings)"]],
-        ["SUPER+code:30", null, ["Super", "[Choose a key](page:vgs.settings)"]],
-        ["SUPER+code:30", { "CODE:30": null }, ["Super", "[Choose a key](page:vgs.settings)"]],
+        ["SUPER+code:109", {}, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+code:30", null, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+code:30", { "CODE:30": null }, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+code:30+SHIFT", {}, ["Choose a key in [Settings](page:vgs.settings)"]],
         ["SUPER+SLASH", { SLASH: { keysym: "SLASH", codepoint: 47 } }, ["Super", "/"]],
+        ["SUPER+ALT+PERIOD", logic.symbolNames(captureNames), ["Super", "Alt", "."]],
         ["", {}, []],
         [null, {}, []]
     ];
@@ -165,7 +168,9 @@ const CONTROLS = [
     ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],
     ["layout-label old raw code", 'var physical = /^CODE:[0-9]+$/.test(upper);', 'var physical = /^CODE:[0-9]+$/.test(upper); if (physical) return "Code:" + Number(upper.slice(5));'],
     ["layout-label fixed US map", 'var physical = /^CODE:[0-9]+$/.test(upper);', 'var physical = /^CODE:[0-9]+$/.test(upper); if (upper === "CODE:30") return "U";'],
-    ["layout-label missing name", 'return "[Choose a key](page:vgs.settings)";', 'return key;'],
+    ["layout-label missing name", 'return UNNAMED_KEY;', 'return key;'],
+    ["layout-label fallback retains key parts", 'if (label === UNNAMED_KEY) return [label];', 'if (false) return [label];'],
+    ["layout-label symbol inputs", 'if (value > 32 && value < 127)', 'if (false)'],
     ["layout-label leading zeros", 'if (physical) upper = "CODE:" + String(Number(upper.slice(5)));', 'if (physical) upper = "CODE:" + upper.slice(5);']
 ];
 
@@ -191,4 +196,4 @@ try {
 } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
 }
-console.log(`test-key-nav-logic: ok controls=${labelsOnly ? 4 : CONTROLS.length}`);
+console.log(`test-key-nav-logic: ok controls=${labelsOnly ? CONTROLS.filter(row => row[0].startsWith("layout-label ")).length : CONTROLS.length}`);

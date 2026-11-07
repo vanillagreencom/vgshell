@@ -23,15 +23,7 @@ Singleton {
         }
         return Logic.physicalKeys(shortcuts);
     }
-    readonly property var symbolNames: {
-        const names = {};
-        for (const code of Object.keys(PluginLogic.CAPTURE_KEY_NAMES)) {
-            const value = Number(code);
-            if (value > 32 && value < 127)
-                names[PluginLogic.CAPTURE_KEY_NAMES[code]] = { keysym: PluginLogic.CAPTURE_KEY_NAMES[code], codepoint: value };
-        }
-        return names;
-    }
+    readonly property var symbolNames: Logic.symbolNames(PluginLogic.CAPTURE_KEY_NAMES)
     readonly property string inputs: JSON.stringify([physicalKeys, Capabilities.hyprland.devices, Capabilities.hyprland.keymapRevision])
     property var names: symbolNames
     property int generation: 0

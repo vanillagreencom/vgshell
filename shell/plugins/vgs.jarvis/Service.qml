@@ -135,6 +135,11 @@ Item {
     readonly property var requirementsRevision: shell === null ? -1 : shell.requirements.revision
     readonly property bool locked: lockObservation()
     readonly property var effectiveKeys: shell === null ? null : shell.shortcut.keys
+    readonly property var spelledTalk: View.spelledKeys(effectiveKeys, ShortcutLabels.keyCaps).talk
+    // Display names resolve independently of the daemon and raw bindings.
+    // Qt.callLater coalesces calls to the same function after bindings settle:
+    // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
+    onSpelledTalkChanged: Qt.callLater(root.publishShellSetup)
     // Whether the daemon plays its tones: the user's choice for the
     // manifest's `feedback` sound event, which the Sounds page sets.
     readonly property bool feedbackSounds: shell !== null && shell.sounds.choices.feedback !== ""
@@ -318,7 +323,7 @@ Item {
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
         const provider = voiceProvider;
         const voice = Providers.cloudVoice(provider);
-        const talk = Gate.talkHint(shell.settings.mode, View.spelledKeys(shell.shortcut.keys, ShortcutLabels.keyCaps).talk);
+        const talk = Gate.talkHint(shell.settings.mode, spelledTalk);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check, talk);
         values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice, shell.manifest), shell.requirements.missing, true);
         values.setupVoice = Gate.voiceStep(values.setupVoice, { provider: provider, voice: voice, causes: merged.kind === "answered" ? merged.causes : [], talk: talk,
@@ -340,6 +345,7 @@ Item {
         return true;
     }
     function publishShellSetup() {
+        if (shell === null) return false;
         return publishSetup(setupAnswer);
     }
     // The optional input step, its reader's VALUE unchanged: the Settings
