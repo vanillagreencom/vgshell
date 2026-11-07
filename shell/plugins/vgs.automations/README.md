@@ -12,7 +12,8 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 - Per automation: a shell command, a timeout, a working folder and catch-up of runs missed while the computer was off.
 - Run now, and the output of every run.
 - A notification when a run fails and another when it recovers.
-- Needs internet, on for a new automation, waits for internet access before a run. Turn it off for a local command.
+- A sync job form, opened by Add in Local Sync: choose the From and To folders and rsync or Unison, and Automations writes the command.
+- Needs internet, on for a new automation and off for a new sync job, waits for internet access before a run. Turn it off for a local command.
 - Runs continue when VGS closes.
 
 ## Setup

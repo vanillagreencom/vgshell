@@ -5,10 +5,10 @@ Local Sync shows the folder copy jobs on this computer: each rsync or unison job
 ## Features
 
 - Every rsync and unison job that systemd runs for you, including a job that runs rsync through its own script.
-- The bar icon moves only while a job copies files. A job that only watches for changes leaves it still. With motion turned off, the icon stays still and a dot shows the copy.
+- The bar icon moves only while a job copies files. A job that only watches for changes leaves it still, including a unison `-repeat` job and an rsync `--daemon` job. With motion turned off, the icon stays still and a dot shows the copy.
 - The icon turns red when a job's last copy failed.
 - Each job shows its From and To folders. Select a folder to open it.
-- A failed job shows what went wrong and what to do. View log opens the job's log. Send to agent asks the agent you chose in Agent Debug why it failed.
+- A failed job shows what went wrong and what to do. View log opens the job's log. Send to agent opens Agent Debug with the job's facts, and Run asks the agent you chose why it failed.
 - Details shows everything Local Sync read about a job.
 - Remove stops and turns off a job you made outside VGS. Its file stays.
 
