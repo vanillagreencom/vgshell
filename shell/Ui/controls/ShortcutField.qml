@@ -204,12 +204,14 @@ FocusScope {
         adding = false;
     }
 
-    // The alternative drawn at X in the box, else the one edited.
-    function groupAt(x) {
+    // Wrapped alternatives can occupy the same horizontal span. Hit-test
+    // the chips in both dimensions, in the button's coordinates.
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#mapToItem-method
+    function groupAt(x, y) {
         for (let i = 0; i < groupRepeater.count; i++) {
             const group = groupRepeater.itemAt(i).chips;
-            const left = group.mapToItem(box, 0, 0).x;
-            if (x >= left && x < left + group.width) return i;
+            const at = group.mapToItem(box, 0, 0);
+            if (x >= at.x && x < at.x + group.width && y >= at.y && y < at.y + group.height) return i;
         }
         return editing;
     }
@@ -417,7 +419,7 @@ FocusScope {
                 PointerCursor {}
                 // A key click lands mid-box, so only the pointer picks an
                 // alternative; a new one keeps being the one edited.
-                onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX))
+                onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX, box.pressY))
                 onActiveFocusChanged: if (!activeFocus) root.stop("focus")
                 // The navigator takes the arrows that move among the
                 // alternatives, Delete and Space; Page Up, Page Down, Home

@@ -66,6 +66,7 @@ Item {
     ShortcutField { id: pickyBound; visible: false; width: 480; keys: ["code:108", "code:105"]; capture: picky; pluginId: "vgs.voice"; shortcut: "tap" }
 
     property var events: []
+    property var pages: []
     // Escapes the fields leave to their surface, as a page's back step reads them.
     property int escapes: 0
 
@@ -93,6 +94,7 @@ Item {
             onCommitted: (key, index) => root.events = root.events.concat(["committed " + key + " " + index])
             onTyped: (text, index) => root.events = root.events.concat(["typed " + text + " " + index])
             onCleared: index => root.events = root.events.concat(["cleared " + index])
+            onPageActivated: (page, tab) => root.pages = root.pages.concat([[page, tab]])
         }
         Button { id: after; text: "After"; focusPolicy: Qt.StrongFocus }
     }
@@ -115,6 +117,7 @@ Item {
             capture.passthrough = false;
             capture.ended = { item: null, reason: "" };
             root.events = [];
+            root.pages = [];
             root.escapes = 0;
             field.notice = "";
             field.conflict = "";
@@ -788,13 +791,57 @@ Item {
             compare(JSON.stringify(root.events), JSON.stringify(["cleared 1", "committed SUPER+K 0"]));
         }
 
-        function test_a_click_edits_the_alternative_under_it() {
-            const second = descendants(box(pair)).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible)[1];
-            mouseClick(second);
+        function test_a_click_edits_the_alternative_under_it_data() {
+            const rows = [];
+            for (const wrapped of [false, true])
+                for (const index of [0, 1])
+                    for (const edge of ["first", "last"])
+                        rows.push({ tag: (wrapped ? "wrapped" : "single") + "-" + index + "-" + edge, wrapped: wrapped, index: index, edge: edge, incident: false });
+            for (const index of [0, 1])
+                rows.push({tag: "incident-" + index, wrapped: true, index: index, edge: "group", incident: true});
+            return rows;
+        }
+
+        function test_a_click_edits_the_alternative_under_it(data) {
+            pair.keys = data.incident ? ["code:108", "code:105"] : data.wrapped ? ["SUPER+CTRL+SHIFT+F1", "SUPER+CTRL+SHIFT+F2"] : ["SUPER+K", "CTRL+L"];
+            pair.width = data.wrapped && !data.incident ? Theme.size.panel.sm / 2 : column.width;
+            pair.current = 1 - data.index;
+            verify(waitForPolish(root.Window.window));
+            const groups = descendants(box(pair)).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible);
+            compare(groups[data.index].shortcut, pair.keys[data.index]);
+            const first = rect(groups[0], box(pair));
+            const second = rect(groups[1], box(pair));
+            if (!data.incident)
+                compare(second.top > first.bottom, data.wrapped, "the fixture draws the requested line arrangement");
+            const drawn = groups[data.index].children.filter(item => String(item).indexOf("Kbd") === 0 && item.visible);
+            verify(drawn.length > 0);
+            // Click an actual drawn key, not traversal order or blank space.
+            mouseClick(data.edge === "group" ? groups[data.index] : data.edge === "first" ? drawn[0] : drawn[drawn.length - 1]);
             compare(pair.capturing, true);
-            compare(pair.editing, 1);
-            keyClick(Qt.Key_K, Qt.MetaModifier);
-            compare(JSON.stringify(root.events), JSON.stringify(["committed SUPER+K 1"]));
+            compare(pair.editing, data.index);
+            keyClick(Qt.Key_Z, Qt.MetaModifier);
+            compare(JSON.stringify(root.events), JSON.stringify(["committed SUPER+Z " + data.index]));
+        }
+
+        function test_fallback_settings_activation_does_not_start_capture_data() {
+            return [{tag: "first", index: 0}, {tag: "second", index: 1}];
+        }
+
+        function test_fallback_settings_activation_does_not_start_capture(data) {
+            pair.keys = data.index === 0 ? ["SUPER+code:97", "CTRL+L"] : ["CTRL+L", "SUPER+code:97"];
+            verify(waitForPolish(root.Window.window));
+            const link = descendants(box(pair)).find(item => item.linked === true && item.linkBox !== undefined);
+            verify(link !== undefined);
+            compare(link.plain, "Choose a key in Settings");
+            mouseClick(link, link.linkBox.x + link.linkBox.width / 2, link.linkBox.y + link.linkBox.height / 2);
+            compare(JSON.stringify(root.pages), '[["vgs.settings",""]]');
+            compare(pair.capturing, false);
+            compare(capture.calls.length, 0);
+            link.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(root.pages), '[["vgs.settings",""],["vgs.settings",""]]');
+            compare(pair.capturing, false);
+            compare(capture.calls.length, 0);
         }
 
         function test_add_edits_a_new_alternative_after_the_last() {
