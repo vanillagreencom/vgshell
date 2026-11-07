@@ -319,6 +319,9 @@ expect "the handoff selects a private Home" ok ipc shell reloadConfig
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" "$ad_dir/gates" --mapped-indicator
 rescan "the offline Jarvis ports are scanned"
 expect "Jarvis enables for the handoff" ok ipc shell setPluginEnabled vgs.jarvis true
+expect "the handoff's offline daemon answers hello" ready jarvis_wait_ready
+printf 'agent-debug-jarvis-startup='
+jarvis_startup
 ad_target() {
   ipc smoke readInstance service vgs.agent-debug targets | py_reply 'import json,sys
 r=next((r for r in json.load(sys.stdin) if r["label"]=="Jarvis"),None)
@@ -343,6 +346,8 @@ ad_exact_draft() {
   expect "the actual Diagnose composer holds the exact facts-only prompt" "$(ad_json_text "$(ad_prompt "$1")")" ad_draft
 }
 expect_poll "Agent Debug discovers the live Jarvis offer" '["handoff:vgs.jarvis/compose", true]' ad_target
+printf 'agent-debug-handoff-offers='
+ipc smoke readInstance service vgs.agent-debug targets
 ad_set agent '"handoff:vgs.jarvis/compose"'
 expect_poll "Jarvis is the saved diagnosis choice" '"handoff:vgs.jarvis/compose"' ipc smoke readInstance service vgs.agent-debug agent
 ad_dispatch ad-jarvis

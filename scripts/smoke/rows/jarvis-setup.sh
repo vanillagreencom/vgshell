@@ -42,6 +42,44 @@
 # that drops that refresh retains its earlier optional reading.
 # inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js bin/lib/dbus_wire.py
 set -euo pipefail
+setup_entry="$(mktemp -d "$sandbox/jarvis-setup-start.XXXXXX")"
+setup_sources=(Service.qml LocalRuntime.qml LocalTier.qml CloneRuntime.qml tui/setup-local.sh tui/accounts.sh tui/sign-in.sh)
+mkdir -p -- "$setup_entry/sources/tui" "$setup_entry/shim"
+for setup_source in "${setup_sources[@]}"; do
+  cp -a -- "$repo/shell/plugins/vgs.jarvis/$setup_source" "$setup_entry/sources/$setup_source"
+done
+for setup_command in voxtype wtype pi; do
+  if [[ -e $shim/$setup_command || -L $shim/$setup_command ]]; then
+    cp -a -- "$shim/$setup_command" "$setup_entry/shim/$setup_command"
+  fi
+done
+if [[ -e $sandbox/voxtype-model-installed ]]; then cp -a -- "$sandbox/voxtype-model-installed" "$setup_entry/model-installed"; fi
+jarvis_requirement_standins=()
+# smoke_row invokes this after an early command failure as well as running
+# the row's usual boundary checks. Stop holders before restoring their tools.
+setup_restore() {
+  local result=0 source command
+  ipc shell hide window vgs.settings >/dev/null || result=1
+  ipc shell setPluginEnabled vgs.jarvis false >/dev/null || result=1
+  for source in "${setup_sources[@]}"; do
+    cp -a -- "$setup_entry/sources/$source" "$repo/shell/plugins/vgs.jarvis/$source" || result=1
+  done
+  for command in voxtype wtype pi; do
+    if [[ -e $setup_entry/shim/$command || -L $setup_entry/shim/$command ]]; then
+      cp -a --remove-destination -- "$setup_entry/shim/$command" "$shim/$command" || result=1
+    else
+      rm -f -- "$shim/$command" || result=1
+    fi
+  done
+  if [[ -e $setup_entry/model-installed ]]; then
+    cp -a -- "$setup_entry/model-installed" "$sandbox/voxtype-model-installed" || result=1
+  else
+    rm -f -- "$sandbox/voxtype-model-installed" || result=1
+  fi
+  jarvis_restore_requirements || result=1
+  return "$result"
+}
+smoke_row_abandon=(setup_restore)
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
 expected_errors+=("${dictation_absent_errors[@]}")
@@ -603,7 +641,16 @@ expect_poll "the restored Local voice reader reads the default answer" '["small"
 # setup takes the lock alone and ends ready, not busy, the px13 case. The
 # run's end starts the sidecar on the publication it left.
 setup_sidecar_starts() {
-  python3 -c 'import json,sys; print(sum(1 for line in open(sys.argv[1]) if "start" in json.loads(line)))' "$setup_data/local/log.jsonl"
+  py_reply '
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+if not p.exists():
+    print("unavailable:missing-log")
+else:
+    rows=[json.loads(line) for line in p.read_text().splitlines()]
+    print(sum("start" in row for row in rows))
+' "$setup_data/local/log.jsonl" <<<'{}'
 }
 setup_lock_state() {
   python3 -I -c '
@@ -625,6 +672,7 @@ setup_replace() { # SECONDS [unbounded]: the fixture's bound on the lock
 expect_poll "the ready local voice's sidecar runs before the replacement" "$setup_ready" setup_rows
 expect_poll "the sidecar holds the setup lock" held setup_lock_state
 setup_starts="$(setup_sidecar_starts)"
+if [[ $setup_starts =~ ^[0-9]+$ ]]; then
 # Unbounded: the run ends only once the daemon has closed the sidecar.
 setup_replace 30 unbounded
 expect "the shell released the local voice for the window" released setup_release_answer
@@ -657,6 +705,9 @@ expect "a service that releases nothing leaves the replacement busy" 1 local_con
 cp -- "$sandbox/setup-service-original" "$setup_service"
 jarvis_rescan
 expect_poll "the restored service reads ready after the release control" "$setup_ready" setup_rows
+else
+  fail "the sidecar replacement cases have no start record: $setup_starts"
+fi
 
 # A failed run's row: setup-local's status answers a busy record for Medium
 # (status.py failed-busy) while no tier is ready, and the Local voice model
@@ -1167,6 +1218,6 @@ settings_page_close vgs.jarvis
 jarvis_disable
 rm -f -- "${setup_marker:?}"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
-dictation_stand_ins off
 rm -f -- "${sandbox:?}/voxtype-daemon.log" "${sandbox:?}/voxtype-follow.log"
-jarvis_restore_requirements
+setup_restore
+smoke_row_abandon=()

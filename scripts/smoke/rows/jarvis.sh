@@ -89,9 +89,10 @@ PYTHON
 )" || return 1
   while IFS= read -r command; do
     [[ $(shell_resolves "$command") == none ]] || continue
-    printf '#!/bin/sh\nexit 99\n' >"$shim/$command"
-    chmod 755 "$shim/$command"
+    (set -o noclobber; : >"$shim/$command") || return 1
     jarvis_requirement_standins+=("$command")
+    printf '#!/bin/sh\nexit 99\n' >"$shim/$command" || return 1
+    chmod 755 "$shim/$command" || return 1
   done <<<"$commands"
 }
 # A published ready value can precede the reader's queued initialization
@@ -115,11 +116,12 @@ print("idle" if len(rows)==1 and rows[0]["pending"] is False and rows[0]["comple
 }
 
 jarvis_restore_requirements() {
-  local command
+  local command result=0
   for command in "${jarvis_requirement_standins[@]}"; do
-    rm -f -- "${shim:?}/$command"
+    rm -f -- "${shim:?}/$command" || result=1
   done
-  rescan "the setup requirement stand-ins are removed"
+  rescan "the setup requirement stand-ins are removed" || result=1
+  return "$result"
 }
 
 # jarvis_notice_close: the requirement notice enabling Jarvis raised while
@@ -134,9 +136,24 @@ jarvis_notice_close() {
   jarvis_restore_requirements
 }
 
+# Startup evidence excludes conversation text and separates a pre-launch
+# publication return from a running child awaiting hello.
+jarvis_startup() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+d=json.load(sys.stdin)
+status=d.get("status",{})
+detail=status.get("detail")
+print(json.dumps({**{k:d.get(k) for k in ("pid","lifetime","retries","cause","audioHealth")},
+    "gate":detail.get("state",{}).get("gate") if isinstance(detail,dict) else None,
+    "setup":status.get("setup")}))
+'
+}
 jarvis_enable() {
   expect "Jarvis enables" ok ipc shell setPluginEnabled vgs.jarvis true
   expect "the real Jarvis daemon answers hello" ready jarvis_wait_ready
+  printf 'jarvis-startup='
+  jarvis_startup
 }
 jarvis_revision() {
   ipc shell listPlugins | py_reply 'import json,sys; print(next(p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.jarvis"))'

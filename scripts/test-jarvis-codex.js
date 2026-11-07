@@ -110,7 +110,10 @@ world(async () => {
             gate.executor.start(call, done);
         } });
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
-        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime });
+        bridge = Bridge.create({ router, state: () => runner.state, audit,
+            release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) },
+            answered: (value, tool) => engine?.brain.bridged(value, tool),
+            sent: (value, labels) => engine?.brain.retained(value, labels), directory: runtime });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
@@ -454,7 +457,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime }, trace: { marker: "1", file: trace } });
                 owners.unshift(() => engine.close());
-                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready", cautions: [] });
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", model: "", effort: "", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready", cautions: [] });
                 const { gen, turn: { op } } = w.runner.state;
                 const callbacks = [];
                 const send = (id, text) => engine.brain.send({ gen, op: id, owner: 1, text, delegation: "del_" + id },
@@ -511,7 +514,7 @@ world(async () => {
                 owners.unshift(() => engine.close());
                 w.installEngine(engine);
                 w.runner.ports.brain = engine.brain;
-                assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready", cautions: [] });
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", model: "", effort: "" }), { kind: "ready", cautions: [] });
                 const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
                 engine.brain.send({ gen, op, owner, text: "first" }, () => {});
                 await until(() => fs.existsSync(trace) && fs.readFileSync(trace, "utf8").includes("unfinished"),
@@ -536,7 +539,7 @@ world(async () => {
         },
         async retainedAuthority(folder) {
             scenario({ turns: [
-                [{ mcp: { tool: "files_read", arguments: { path: path.join(fixtures.project, "existing") } } }, { complete: "completed" }],
+                [{ mcp: { tool: "files_read", arguments: { path: existing } } }, { complete: "completed" }],
                 [{ mcp: { tool: "files_write", arguments: { path: path.join(fixtures.project, "new"), text: "fixture" } } },
                     { mcp: { tool: "memory_propose", arguments: { id: "facts/resumed.md", text: "# Fixture\nRetained file fact.\n" } } },
                     { complete: "completed" }]
@@ -551,8 +554,9 @@ world(async () => {
             });
             assert.equal(memory.kind, "installed");
             owners.unshift(() => memory.close());
-            const writes = [];
+            const reads = [], writes = [];
             w.router.register("files", { commands: [], timeoutMs: 1000, cancellable: false, start(call, done) {
+                if (call.id === "files.read") reads.push(call.args.path);
                 if (call.id === "files.write") writes.push(call);
                 done({ outcome: "completed", content: call.id === "files.read" ? "untrusted fixture content" : "fixture written" });
             } });
@@ -567,17 +571,20 @@ world(async () => {
             w.installEngine(engine);
             w.runner.ports.brain = engine.brain;
             w.runner.ports.capture.collect = (_e, done) => done("final", "continue");
-            assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready", cautions: [] });
+            assert.deepEqual(engine.configure({ brain: "codex-fixture", model: "", effort: "" }), { kind: "ready", cautions: [] });
             const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
             const done = (type, values) => w.runner.dispatch({ type, ...values, gen, op });
             engine.brain.send({ gen, op, owner, text: "read file" }, done);
             await until(() => w.runner.state.approval.kind === "held", "file content requires release consent");
+            assert.equal(w.runner.state.approval.purpose, "release");
+            assert.deepEqual(reads, [existing], "the native bridge reads the current fixture file before release");
             w.show(); w.time(1000); w.confirm();
             await until(() => w.runner.state.turn.kind === "none", "first native turn completes");
             w.runner.dispatch({ type: "toggle" });
             w.runner.dispatch({ type: "toggle" });
             await until(() => w.runner.state.approval.kind === "held", "retained file context needs new release consent");
             assert.equal(w.runner.state.approval.purpose, "release");
+            assert.equal(received("turn/start").length, 1, "retained content is rejudged before native resume sends a turn");
             assert.deepEqual(writes, [], "old release or action grants do not cross generations");
             w.show(); w.time(2000); w.confirm();
             await until(() => w.runner.state.approval.kind === "held", "a resumed new-target write needs action confirmation");
@@ -641,7 +648,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: {bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime}});
                 owners.unshift(() => engine.close()); w.installEngine(engine);
-                assert.deepEqual(engine.configure({brain: "codex-fixture"}), {kind: "ready", cautions: []});
+                assert.deepEqual(engine.configure({brain: "codex-fixture", model: "", effort: ""}), {kind: "ready", cautions: []});
                 const {gen, turn: {op}} = w.runner.state;
                 let verdict;
                 engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => { if (kind === "brain-done") verdict = kind; });

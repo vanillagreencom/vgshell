@@ -2297,7 +2297,7 @@ async function cases(kit, server, only = null, mutation = false) {
         const third = await say(w, utterance("Read it in a new conversation."));
         server.replies.push(calls({id: "call_3", name: "clipboard_read", arguments: {}}), text(""));
         await w.observed(() => w.s().approval.kind === "held", "new conversation asks again");
-        assert.equal(server.requests.length, third + 1);
+        assert.equal(server.requests.length, third, "retained context is rejudged before any resumed request leaves");
         w.runner.dispatch({type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "key"});
         assert.equal(w.s().approval.kind, "held", "stale grant answer is refused");
     }, {fixture: {recipients: [{kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9"}]}});

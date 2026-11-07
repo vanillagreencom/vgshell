@@ -568,12 +568,12 @@ world(async () => {
                 captionLimit: 4096, dispatch: e => w.runner.dispatch(e),
                 harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
-            assert.doesNotThrow(() => assert.deepEqual(engine.configure({ brain: "copilot-fixture" }), { kind: "ready", cautions: [] }));
+            assert.doesNotThrow(() => assert.deepEqual(engine.configure({ brain: "copilot-fixture", model: "", effort: "" }), { kind: "ready", cautions: [] }));
             const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
             const callbacks = [];
             engine.brain.send({ gen, op, owner, text: "engine request" }, (kind, detail) => callbacks.push({ kind, detail }));
             await until(() => callbacks.some(value => value.kind === "brain-done" || value.kind === "brain-failed"), "the engine answers");
-            assert.equal(callbacks.some(value => value.kind === "brain-failed"), false);
+            assert.deepEqual(callbacks.filter(value => value.kind === "brain-failed"), []);
             assert.deepEqual(received("session/prompt").map(value => value.params.prompt.at(-1).text), ["engine request"]);
             validWrites();
         },

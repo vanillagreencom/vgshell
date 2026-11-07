@@ -1316,8 +1316,10 @@ async function inside() {
                 w.indicator(false, "listening");
                 await w.wait(m => m.state.capture.kind === "open");
                 assert.deepEqual(w.last().state.barIndicator, { kind: "listening", gen });
+                fs.writeFileSync(path.join(hiddenGates, "silent-capture"), "");
                 w.indicator(false, "gone", gen - 1);
                 await w.wait(m => m.state.capture.kind === "closed");
+                await w.wait(m => m.state.turn.kind === "none");
                 assert.equal(w.last().state.barIndicator.kind, "gone", "loss withdraws across generations");
                 w.send("show");
                 await w.wait(m => m.state.visibility.kind === "shown");

@@ -541,14 +541,6 @@ world(async () => {
     }
     // The newest delegation's words, as the engine's brain turn releases them.
     const say = (w, text) => w.engine.commentary(w.delegations.at(-1).delegation, w.kit.Policy.item(text, ["speech"]));
-    // A caption that reaches the wire proves every frame before it was read.
-    // A Gemini Live user word would open a turn and hold the voice, so that
-    // adapter's rows use the ping barrier.
-    async function mark(w, conn, text) {
-        if (conn.protocol === GEMINI) { await conn.sync(); return; }
-        part(conn, "item_" + text, text);
-        await until(() => w.state.fault.kind === "error" || w.transcripts.some(item => item.text === text), text + " is read");
-    }
     // Talk opens the socket; the provider has not spoken yet.
     async function connecting(kit, options) {
         const w = rig(kit, options);
@@ -1020,7 +1012,7 @@ world(async () => {
         assert.deepEqual([w.state.playback.kind, w.starts], ["playing", 1], "a response in flight keeps its reply open");
         assert.deepEqual(w.spoken, [true], "a reply is Jarvis's spoken words, which voice mute silences");
         conn.play("done-old");
-        await mark(w, conn, "done");
+        await conn.sync();
         w.clock.advance(499);
         await turn();
         assert.equal(w.state.playback.kind, "playing", "the reply stays open for more words");
@@ -1052,7 +1044,7 @@ world(async () => {
         await until(() => bytes(w, 0x11) === 1440, "the sentence reaches playback");
         assert.deepEqual(w.spoken, [false], "voice mute leaves a preview audible");
         conn.play("done-old");
-        await mark(w, conn, "done");
+        await conn.sync();
         w.clock.advance(500);
         await until(() => w.state.playback.kind === "idle", "the sentence plays out");
         assert.equal(w.state.conversation.kind, "active", "Session hears the sentence played before the voice reports idle");
@@ -1377,7 +1369,7 @@ world(async () => {
         await conn.event(SPEAK);
         conn.play("reply-old");
         conn.play("done-old");
-        await mark(w, conn, "done");
+        await conn.sync();
         assert.equal(w.state.playback.kind, "playing");
         w.clock.advance(500);
         const ended = w.dues.length;
@@ -1446,7 +1438,7 @@ world(async () => {
             P.begin(conn, id);
             P.chunk(conn, 1440, 0x11, id);
             if (ended) P.end(conn, id);
-            await mark(w, conn, id);
+            await conn.sync();
         };
         for (const sentence of ["It is noon.", "It was noon before.", "Nothing changed."]) assert.equal(say(w, sentence), true);
         await respond("resp_first", true);
@@ -1460,7 +1452,7 @@ world(async () => {
         assert.equal(playing.text({ source: w.state.speech.op + 1, heardFrames: 48000 }), "", "another playback's report credits nothing");
         assert.equal(w.engine.heard("item_other"), null, "another request has no account");
         P.end(conn, "resp_third");
-        await mark(w, conn, "third-done");
+        await conn.sync();
         w.clock.advance(500);
         await until(() => w.state.playback.kind === "idle", "the reply plays out");
         const whole = w.engine.heard(request);
@@ -1692,7 +1684,7 @@ world(async () => {
             act(conn, w);
             if (stage === connecting) conn.play("created");
             if (stage !== running && stage !== speaking) conn.play("updated");
-            await mark(w, conn, "probe");
+            await conn.sync();
             fault(w, reason);
             assert.equal(w.state.speech.kind, "closed", name + " releases the session");
             assert.equal(w.state.conversation.kind, "ended", name + " ends the conversation: no silent provider switch");
@@ -1847,7 +1839,7 @@ world(async () => {
         P.begin(conn);
         for (let index = 0; index < 2; index++) P.chunk(conn, 65536);
         conn.play("done-old");
-        await mark(w, conn, "full");
+        await conn.sync();
         await elapse(w, 1000);
         assert.equal(conn.count(SPEAK), 1, "the next words wait while the reply still holds its audio");
         w.dispatch("talk-up");
@@ -1869,7 +1861,7 @@ world(async () => {
         await conn.event(SPEAK);
         P.begin(conn);
         for (let index = 0; index < 19; index++) P.chunk(conn, 65536);
-        await mark(w, conn, "kept");
+        await conn.sync();
         assert.equal(w.state.fault.kind, "none", "a queue under the playback allowance is kept");
         for (let index = 0; index < 2; index++) P.chunk(conn, 65536);
         await until(() => w.state.fault.kind === "error", "past the allowance the reply faults");
@@ -1897,8 +1889,8 @@ world(async () => {
         const task = w.delegations[0];
         heard(conn, "item_blank", " ");
         const before = w.transcripts.length;
-        await mark(w, conn, "blank");
-        assert.deepEqual([w.delegations.length, w.transcripts.length], [1, before + 1], "a blank turn reaches no brain and no caption");
+        await conn.sync();
+        assert.deepEqual([w.delegations.length, w.transcripts.length], [1, before], "a blank turn reaches no brain and no caption");
         assert.equal(w.engine.commentary("stale", kit.Policy.item("Stale words.", ["speech"])), false);
         assert.equal(say(w, "It is noon."), true);
         assert.equal(say(w, "It was noon before."), true);
@@ -1908,10 +1900,10 @@ world(async () => {
         await until(() => w.delegations.length === 2, "a new turn uses new identity");
         assert.equal(w.delegations[1].delegation, "item_user_2");
         conn.play("done-old");
-        await mark(w, conn, "replaced");
+        await conn.sync();
         // The engine sends any further response while it reads done-old, before
-        // the mark. The fixture server reads that frame on a later poll, which a
-        // busy event loop runs after the mark's timer: count what the engine sent.
+        // the barrier. Count the released frame at the engine rather than waiting
+        // for the fixture server's separate read of it.
         const spoken = w.judged.filter(item => item.content.startsWith(JSON.stringify({ type: SPEAK }).slice(0, -1)));
         assert.equal(spoken.length, 1, "words waiting for a replaced request never leave");
         assert.equal(w.engine.commentary(task.delegation, kit.Policy.item("Old words.", ["speech"])), false, "a replaced request takes no more words");
@@ -2297,8 +2289,6 @@ world(async () => {
     // Partial words of the user's turn, and its end as the server marks it.
     const gpart = (conn, text) => conn.send({ serverContent: { inputTranscription: { text } } });
     const gfinished = conn => conn.send({ serverContent: { inputTranscription: { finished: true } } });
-    // The engine has read every message sent before.
-    const gmark = (w, conn) => conn.sync();
     // PCM samples as 16-bit little-endian bytes.
     const samples = values => Buffer.from(Int16Array.from(values).buffer);
     // The socket is open and setup has left; the server has not answered.
@@ -2377,7 +2367,7 @@ world(async () => {
         assert.deepEqual([w.state.playback.kind, w.starts], ["playing", 1], "a model turn in flight keeps its reply open");
         assert.deepEqual(w.spoken, [true], "a reply is Jarvis's spoken words, which voice mute silences");
         conn.play("done-old");
-        await gmark(w, conn, "done");
+        await conn.sync();
         w.clock.advance(499);
         await turn();
         assert.equal(w.state.playback.kind, "playing", "the reply stays open for more words");
@@ -2430,7 +2420,7 @@ world(async () => {
     async function gunbiddenTimeout(kit) {
         const { w, conn } = await gconversing(kit);
         conn.send(gscript("unbidden"));
-        await gmark(w, conn);
+        await conn.sync();
         assert.equal(say(w, "It is noon."), true);
         assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 0, "the words wait for that turn's end");
         await elapse(w, 29000);
@@ -2449,7 +2439,7 @@ world(async () => {
         conn.play("done-new");
         assert.equal(say(w, "Nothing changed."), true);
         assert.equal(GEMINI.words(await conn.event(GSPEAK)), "Nothing changed.", "the cut turn's end lets the next words leave");
-        await gmark(w, conn, "cut");
+        await conn.sync();
         assert.equal(bytes(w, 0x22), 0, "audio after the cut never plays");
         assert.equal(w.state.fault.kind, "none");
     }
@@ -2494,7 +2484,7 @@ world(async () => {
         const task = w.delegations[0];
         const before = w.transcripts.length;
         GEMINI.heard(conn, "blank", " ");
-        await gmark(w, conn);
+        await conn.sync();
         assert.deepEqual([w.delegations.length, w.transcripts.length], [1, before], "a blank turn reaches no brain and no caption");
         // Words after the finished transcription, before the voice's own turn
         // ends, finish the delegated turn's caption and make no request.
@@ -2503,7 +2493,7 @@ world(async () => {
         await until(() => w.delegations.length === 2, "the finished words reach the brain");
         gpart(conn, " words");
         conn.send({ serverContent: { turnComplete: true } });
-        await gmark(w, conn);
+        await conn.sync();
         assert.deepEqual(w.delegations.map(item => item.text), ["What is the time?", "Later"], "no words reach the brain twice, or on their own");
         assert.deepEqual(w.transcripts.at(-1), { role: "user", text: "Later words", stage: "final", rev: w.transcripts.at(-1).rev },
             "the late words close the turn's caption");
@@ -2520,7 +2510,7 @@ world(async () => {
         await until(() => w.delegations.length === 3, "a new turn replaces the request");
         conn.play("done-old");
         conn.send({ serverContent: { turnComplete: true } });
-        await gmark(w, conn);
+        await conn.sync();
         assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 1, "words waiting for a replaced request never leave");
         w.dispatch("stop");
         assert.equal(say(w, "Late words."), false, "stopped work speaks no late words");
@@ -2547,7 +2537,7 @@ world(async () => {
             gfinished(conn);
             await until(() => w.delegations.length === 1, name + ": the finished words reach the brain");
             for (const message of own.slice(0, -1)) conn.send(structuredClone(message));
-            await gmark(w, conn);
+            await conn.sync();
             assert.equal(asked(), 0, name + ": no words leave while the voice's own turn runs");
             conn.send(structuredClone(own.at(-1)));
             assert.equal(GEMINI.words(await conn.event(GSPEAK)), ACK, name + ": the acknowledgement leaves once that turn ends");
@@ -2572,7 +2562,7 @@ world(async () => {
     async function gthought(kit) {
         const { w, conn } = await gconversing(kit);
         conn.send({ serverContent: { modelTurn: { parts: [{ text: "Fixture thinking.", thought: true }] } } });
-        await gmark(w, conn);
+        await conn.sync();
         assert.equal(say(w, "It is noon."), true);
         assert.equal(w.judged.filter(item => item.content.startsWith('{"clientContent"')).length, 0, "no words leave while that turn runs");
         conn.send({ serverContent: { turnComplete: true } });
@@ -2635,7 +2625,7 @@ world(async () => {
             const delegations = w.delegations.length;
             act(conn, w);
             if (stage === gstarting) conn.play("setup-complete");
-            await gmark(w, conn, "probe");
+            await conn.sync();
             fault(w, reason);
             assert.equal(w.state.speech.kind, "closed", name + " releases the session");
             assert.equal(w.state.conversation.kind, "ended", name + " ends the conversation: no silent provider switch");
