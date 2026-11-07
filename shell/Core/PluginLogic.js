@@ -3216,30 +3216,6 @@ var WELCOME_STATES = ["reading", "unseen", "seen"];
 // on the way to an answer, and the four it shows in.
 var WELCOME_WAITS = ["pending", "unwired"];
 var WELCOME_SHOWS = ["asking", "wired", "settled", "declined"];
-// Each key name CAPTURE_KEY_NAMES gives a printable character, mapped to
-// that character: SLASH to `/`, A to `A`. Space prints nothing, so it keeps
-// its name.
-var KEY_GLYPHS = (function () {
-    var glyphs = {};
-    Object.keys(CAPTURE_KEY_NAMES).forEach(function (code) {
-        var value = Number(code);
-        if (value > 0x20 && value < 0x7f) glyphs[CAPTURE_KEY_NAMES[code]] = String.fromCharCode(value);
-    });
-    return glyphs;
-})();
-
-// KEY, a key as ConfigLogic.hyprlandKey writes it, as people read it: each modifier and
-// a named key with only its first letter upper case, a key that types a
-// character as that character, and a `code:` key as written, joined by
-// `+`. SUPER+SLASH reads Super+/.
-function keyLabel(key) {
-    return key.split("+").map(function (part) {
-        if (hasOwn(KEY_GLYPHS, part)) return KEY_GLYPHS[part];
-        if (part.indexOf("code:") === 0) return part;
-        return part.charAt(0) + part.slice(1).toLowerCase();
-    }).join("+");
-}
-
 // What the consent slot draws, or null for nothing. WELCOME_STATE is one of
 // WELCOME_STATES; CONSENT is HyprlandLayer.step's consent state. A seen
 // welcome leaves the slot to the Hyprland question alone. An unseen one
@@ -3272,7 +3248,7 @@ function consentSlotView(consent, welcomeState, shipped, sections, bindPlan) {
     var rows = isPlainObject(shipped) && isPlainObject(shipped.welcome) ? shipped.welcome.keys : [];
     var keyRows = rows.map(function (row) {
         var key = HyprlandLayer.shortcutKeys(sections, row.id, bindPlan)[row.shortcut];
-        return typeof key === "string" ? { shortcut: keyLabel(key), text: row.text } : null;
+        return typeof key === "string" ? { shortcut: key, text: row.text } : null;
     }).filter(function (line) { return line !== null; });
     var asking = question !== null;
     return {

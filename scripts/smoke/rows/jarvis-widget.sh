@@ -261,10 +261,10 @@ expect_poll "talk down opens capture" listening jarvis_key_state phase
 expect_poll "the widget reads listening while Jarvis listens" "$jarvis_widget_listening" jarvis_widget
 jarvis_key_talk_up
 expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase
-expect_poll "the widget reads working while Jarvis thinks" "[\"brain\", \"info\", \"Jarvis is thinking\\nPress Super+Alt+Period to stop.\\n${jarvis_widget_facts}\"]" jarvis_widget
+expect_poll "the widget reads working while Jarvis thinks" "[\"brain\", \"info\", \"Jarvis is thinking\\nPress Super+Alt+. to stop.\\n${jarvis_widget_facts}\"]" jarvis_widget
 jarvis_widget_gate brain
 expect_poll "the scripted brain speaks" speaking jarvis_key_state phase
-expect_poll "the widget reads speaking during playback" "[\"volume-2\", \"accent\", \"Jarvis is speaking\\nPress Super+Alt+Period to stop.\\n${jarvis_widget_facts}\"]" jarvis_widget
+expect_poll "the widget reads speaking during playback" "[\"volume-2\", \"accent\", \"Jarvis is speaking\\nPress Super+Alt+. to stop.\\n${jarvis_widget_facts}\"]" jarvis_widget
 jarvis_widget_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 expect_poll "the widget reads ready after the answer" "$jarvis_widget_ready" jarvis_widget

@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons
 import qs.Ui
 
 // One row of a plugin's Keys section, one per shortcut: the bind row of
@@ -49,7 +50,7 @@ BindField {
         : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
     // The manifest's keys as the field's caps spell them, such as
     // `Right Alt or Right Ctrl`.
-    readonly property string defaultLabel: defaultKeys.map(key => KeyNavLogic.keyCaps(key).join("+")).join(" or ")
+    readonly property string defaultLabel: defaultKeys.map(key => PageReference.plain(ShortcutLabels.keyCaps(key).join("+"))).join(" or ")
     readonly property bool userHolds: found !== null && found.user === true
     // The one user line that binds the key as a whole `hl.bind` call, which
     // Remove my line takes out; null when there is none or more than one.

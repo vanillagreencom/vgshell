@@ -105,6 +105,10 @@ Item {
 
         function init() {
             UnitTheme.reset();
+            ShortcutLabels.names = Object.assign({}, ShortcutLabels.symbolNames, {
+                "CODE:108": { keysym: "Alt_R", codepoint: 0 },
+                "CODE:105": { keysym: "Control_R", codepoint: 0 }
+            });
             capture.holder = null;
             capture.calls = [];
             capture.failed = false;

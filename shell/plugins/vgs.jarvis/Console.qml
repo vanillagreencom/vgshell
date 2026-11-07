@@ -203,7 +203,7 @@ FocusScope {
     // composer offers none: one line says how to talk instead.
     readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
     // The shortcut keys as people read them, the bar's own spelling.
-    readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps)
+    readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, ShortcutLabels.keyCaps)
     // How to talk now: the sentence the Voice step and the bar say it with.
     readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."
     // The Conversation tab's first control: the message box, or Stop where

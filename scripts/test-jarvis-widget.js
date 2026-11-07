@@ -305,9 +305,11 @@ function verify(view) {
 
     // The keys as the widget and the console hand them in: the manifest's
     // default binds spelled by the shell's own KeyNavLogic.
-    assert.deepEqual(copy(view.spelledKeys(MANIFEST_KEYS, KeyNavLogic.keyCaps)), KEYS, "the default keys spell as people read them");
+    const capNames = { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } };
+    const caps = key => KeyNavLogic.keyCaps(key, capNames);
+    assert.deepEqual(copy(view.spelledKeys(MANIFEST_KEYS, caps)), KEYS, "the default keys spell as people read them");
     assert.deepEqual(copy(view.spelledKeys(null, KeyNavLogic.keyCaps)), UNBOUND, "no shell reads as no key");
-    assert.deepEqual(view.spelledKeys({ ...MANIFEST_KEYS, stop: null }, KeyNavLogic.keyCaps).stop, null, "an unbound key stays unbound");
+    assert.deepEqual(view.spelledKeys({ ...MANIFEST_KEYS, stop: null }, caps).stop, null, "an unbound key stays unbound");
     assert.deepEqual(copy(view.spelledKeys({}, KeyNavLogic.keyCaps)), UNBOUND, "an absent key reads unbound, not spelled empty");
 
     assert.equal(view.approvalPrompt(null), null);

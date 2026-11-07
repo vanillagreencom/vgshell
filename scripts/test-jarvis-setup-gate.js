@@ -35,9 +35,11 @@ const detailActionRows = status => Array.from(settings.detailEntries(status)).ma
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
+const keyNav = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 // The libraries Service.qml imports beside SetupGate.js, for its functions
 // run under node.
-const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget, KeyNavLogic: load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js")),
+const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget,
+    ShortcutLabels: { keyCaps: key => keyNav.keyCaps(key, { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } }) },
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
 let manifestControlCount = 0;
 // LocalTier's reading with no local voice model wanted or ready, as the

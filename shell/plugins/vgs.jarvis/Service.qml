@@ -318,7 +318,7 @@ Item {
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
         const provider = voiceProvider;
         const voice = Providers.cloudVoice(provider);
-        const talk = Gate.talkHint(shell.settings.mode, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps).talk);
+        const talk = Gate.talkHint(shell.settings.mode, View.spelledKeys(shell.shortcut.keys, ShortcutLabels.keyCaps).talk);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check, talk);
         values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice, shell.manifest), shell.requirements.missing, true);
         values.setupVoice = Gate.voiceStep(values.setupVoice, { provider: provider, voice: voice, causes: merged.kind === "answered" ? merged.causes : [], talk: talk,

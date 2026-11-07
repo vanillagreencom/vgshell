@@ -69,6 +69,10 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
+  "shortcut labels accept a stale layout answer|foundation/ShortcutLabels.qml|if (askedGeneration === generation) {|if (true) {|tst_shortcutlabels.qml"
+  "shortcut labels keep names after a layout switch|foundation/ShortcutLabels.qml|        names = symbolNames;|        names = names;|tst_shortcutlabels.qml"
+  "key caps lose layout data|feedback/KeyCaps.qml|ShortcutLabels.keyCaps(shortcut)|KeyNavLogic.keyCaps(shortcut)|tst_shortcutlabels.qml"
+  "key caps draw page-reference markup|feedback/KeyCaps.qml|PageReference.plain(String(modelData))|String(modelData)|tst_shortcutlabels.qml"
   "restoring accepted bytes after refused conversion keeps stale settings|../Core/Config.qml|                root.userText = null;"$'\n'"                root.user = r.value;|                root.userText = root.userText;"$'\n'"                root.user = r.value;|tst_config_writes.qml"
   "a link label folds explicit breaks unlike its geometry twin|feedback/LinkText.qml|.replace(/\\n/g, \"<br>\")|.replace(/\\n/g, \"\\n\")|tst_linktext.qml"
   "a text handoff changes the message|../Core/HandoffRegistry.qml|return record.accept(text);|return record.accept(\"changed text\");|tst_handoff.qml"

@@ -495,14 +495,14 @@ function suite(ctx, check) {
     const welcome = (lineCount, keys, asking, failure, busy, link) => ({ welcome: true, title: "Welcome to VGS", message: "", lineCount, link: link === undefined ? LINK : link, keys, keysTitle: "Quick commands", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
     const question = { welcome: false, title: QUESTION, message: "", lineCount: 1, link: LINK, keys: [], keysTitle: "", actions: CONNECT, failure: "", busy: false };
     const keyLine = (shortcut, text) => ({ shortcut, text });
-    const keyHintsLine = keyLine("Super+/", "shows every key VGS adds.");
-    const themeLine = keyLine("Super+Shift+T", "picks a theme.");
+    const keyHintsLine = keyLine("SUPER+SLASH", "shows every key VGS adds.");
+    const themeLine = keyLine("SUPER+SHIFT+T", "picks a theme.");
     // [name, consent, welcome state, shipped, sections, want].
     const slotRows = [
         ["an unseen welcome asks with Connect and Not now", phase("asking"), "unseen", shipped, [keyhints, themes], welcome(3, [keyHintsLine, themeLine], true)],
         ["the key-hints row is absent while its shortcut is not bound", phase("asking"), "unseen", shipped, [themes], welcome(3, [themeLine], true)],
         ["the key-hints row is absent while the user unbinds it", phase("asking"), "unseen", shipped, [keyhintsUnbound, themes], welcome(3, [themeLine], true)],
-        ["a key row reads the key the user binds", phase("asking"), "unseen", shipped, [keyhintsMoved], welcome(3, [keyLine("Super+Shift+K", "shows every key VGS adds.")], true)],
+        ["a key row reads the key the user binds", phase("asking"), "unseen", shipped, [keyhintsMoved], welcome(3, [keyLine("SUPER+SHIFT+K", "shows every key VGS adds.")], true)],
         ["no enabled plugin binds a key row", phase("asking"), "unseen", shipped, [], welcome(3, [], true)],
         ["a shipped file without welcome keys draws the fixed lines", phase("asking"), "unseen", { version: 1 }, [keyhints, themes], welcome(3, [], true)],
         ["a failed Connect keeps the welcome with the failure", phase("asking", "", "wire=failed status=1"), "unseen", shipped, [themes], welcome(3, [themeLine], true, "wire=failed status=1")],
@@ -522,18 +522,6 @@ function suite(ctx, check) {
     const throws = (fn) => { try { fn(); return "returned"; } catch (e) { return e.message.split(":")[0]; } };
     check("consentSlotView: an unknown welcome state is refused", throws(() => ctx.consentSlotView(phase("asking"), "maybe", shipped, [])), "consentSlotView");
     check("consentSlotView: an unknown consent phase is refused", throws(() => ctx.consentSlotView(phase("later"), "unseen", shipped, [])), "consentSlotView");
-
-    // keyLabel: [key, want].
-    const labelRows = [
-        ["SUPER+SLASH", "Super+/"],
-        ["SUPER+T", "Super+T"],
-        ["SUPER+1", "Super+1"],
-        ["SUPER+CTRL+SPACE", "Super+Ctrl+Space"],
-        ["ALT+SHIFT+RETURN", "Alt+Shift+Return"],
-        ["SUPER+BRACKETLEFT", "Super+["],
-        ["SUPER+code:108", "Super+code:108"],
-    ];
-    for (const [key, want] of labelRows) check("keyLabel: " + key, ctx.keyLabel(key), want);
 
     // welcomeStep: [name, welcome state, event, want as [state, write]].
     const stepRows = [
@@ -760,11 +748,10 @@ const CONTROLS = [
     ["a seen welcome leaves the plain question", "    if (welcomeState === \"seen\")\n", "    if (false)\n"],
     ["the welcome waits for the marker's read", "    if (welcomeState === \"reading\") return null;\n", ""],
     ["the welcome waits for the consent answer", "    if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;\n", ""],
-    ["a key row needs its bind", "return typeof key === \"string\" ? { shortcut: keyLabel(key), text: row.text } : null;", "return { shortcut: keyLabel(typeof key === \"string\" ? key : \"SUPER+SLASH\"), text: row.text };"],
+    ["a key row needs its bind", "return typeof key === \"string\" ? { shortcut: key, text: row.text } : null;", "return { shortcut: typeof key === \"string\" ? key : \"SUPER+SLASH\", text: row.text };"],
     ["the question carries the welcome file link", "lines: [question.message], link: WELCOME.link, keys: []", "lines: [question.message], link: null, keys: []"],
     ["the welcome carries its file link except settled", "link: consent.phase === \"settled\" ? null : WELCOME.link,", "link: null,"],
     ["a settled consent offers Close alone", "actions: question === null ? [{ label: WELCOME.close, role: \"cancel\", answer: \"close\" }] : actions,", "actions: actions,"],
-    ["a key that types a character reads as it", "        if (hasOwn(KEY_GLYPHS, part)) return KEY_GLYPHS[part];\n", ""],
     ["a read records the marker", "return { welcome: event.seen ? \"seen\" : \"unseen\", write: false };", "return { welcome: \"unseen\", write: false };"],
     ["Not now waits for the decline", "        case \"connect\":\n        case \"decline\":\n            return keep;\n", "        case \"connect\":\n            return keep;\n        case \"decline\":\n            return seen;\n"],
     ["a Not now that declines closes the welcome", " || event.after.phase === \"declined\")", ")"],

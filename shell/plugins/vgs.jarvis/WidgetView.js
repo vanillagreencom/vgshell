@@ -169,7 +169,7 @@ function report(name, value, tones) {
 }
 
 // KEYS, shell.shortcut.keys or null, as people read each key a tooltip
-// names; CAPS is KeyNavLogic.keyCaps, which the callers' qs.Ui import holds.
+// names; CAPS is ShortcutLabels.keyCaps, which the callers' qs.Ui import holds.
 // A name absent from the map is no key in effect: the nested smoke
 // (jarvis-bubble row, 2026-10-10) read an empty map while the plugin is
 // enabled or disabled, before the registry holds its binds.

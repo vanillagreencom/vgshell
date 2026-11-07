@@ -573,7 +573,7 @@ FocusScope {
                 ToolSlot {
                     readonly property bool shown: root.key !== "" && !root.typing
                     iconName: "x"
-                    label: root.keys.length > 1 ? "Remove " + KeyNavLogic.keyCaps(root.key).join("+") : "Unbind"
+                    label: root.keys.length > 1 ? "Remove " + PageReference.plain(ShortcutLabels.keyCaps(root.key).join("+")) : "Unbind"
                     inUse: root.visible && (root.activeFocus || toolsHover.hovered)
                     visible: root.editable; enabled: root.editable && shown
                     opacity: shown ? 1 : 0

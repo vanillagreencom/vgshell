@@ -37,7 +37,7 @@ consent_readiness() {
 d=json.load(sys.stdin)
 print(json.dumps([d.get(k) for k in ("available", "admitted", "currentPlan", "writerPhase", "resolvingKeys")]))'
 }
-welcome_shape_asking='{"actions": ["Connect", "Not now"], "keys": [{"shortcut": "Super+Shift+T", "text": "picks a theme."}], "lineCount": 3, "link": {"path": "hypr/hyprland.lua", "text": "hyprland.lua"}, "state": "unseen"}'
+welcome_shape_asking='{"actions": ["Connect", "Not now"], "keys": [{"shortcut": "SUPER+SHIFT+T", "text": "picks a theme."}], "lineCount": 3, "link": {"path": "hypr/hyprland.lua", "text": "hyprland.lua"}, "state": "unseen"}'
 
 expect "the harness starts without the VGS loading line" 0 wire_count
 expect "the sandbox starts without the welcome-seen marker" absent welcome_marker
@@ -50,7 +50,7 @@ expect_poll "the core admits current keys after the question" '[true, true, true
 expect_poll "the welcome is recorded with its link, key row and Connect, Not now" "$welcome_shape_asking" welcome_shape
 expect_poll "the welcome maps" 1 layer_count vgs:notice
 expect_poll "the welcome holds the keyboard" true ipc smoke noticeFocused
-expect_poll "the welcome draws link text, key chips, Connect and Not now without Show command" '{"actions": ["Connect", "Not now"], "busy": false, "focused": "Connect", "hasLinkText": true, "keys": [{"shortcut": "Super+Shift+T", "text": "picks a theme."}], "keysTitle": "Quick commands", "rowCount": 3, "title": "Welcome to VGS"}' welcome_drawn_shape
+expect_poll "the welcome draws link text, key chips, Connect and Not now without Show command" '{"actions": ["Connect", "Not now"], "busy": false, "focused": "Connect", "hasLinkText": true, "keys": [{"shortcut": "SUPER+SHIFT+T", "text": "picks a theme."}], "keysTitle": "Quick commands", "rowCount": 3, "title": "Welcome to VGS"}' welcome_drawn_shape
 fit_monitor="$(first_name)" || fail "the first monitor's name is unreadable"
 fit_base_mode="$(first_mode)" || fail "the first monitor's mode is unreadable"
 hold_mode "the nested compositor holds $fit_monitor at 1440x900 for the welcome" "$fit_monitor" 1440x900
