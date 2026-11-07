@@ -3,6 +3,7 @@ import QtTest
 import qs.Core as Core
 import "../smoke/fixtures/plugins/acme.handoff" as Receiver
 import "../smoke/fixtures/plugins/acme.handoff-sender" as Sender
+import "../../shell/plugins/vgs.agent-debug/Debug.js" as Debug
 
 Item {
     id: root
@@ -82,6 +83,16 @@ Item {
             verify(!sender.targets[0].available);
             verify(!offered.open("old source").ok);
             compare(receiver.received, 0);
+        }
+        // A receiver its manifest marks `kind: "action"` opens a task, so
+        // Agent Debug's agent choices hold only the message target.
+        function test_action_receiver_is_no_agent() {
+            registry.manifests = { receiver: { __revision: "one", handoffs: {
+                compose: { label: "Fixture text receiver" }, task: { label: "Fixture action", kind: "action" } } } };
+            const targets = registry.targets();
+            compare(JSON.stringify(targets.map(t => [t.key, t.kind])), JSON.stringify([["handoff:receiver/compose", ""], ["handoff:receiver/task", "action"]]));
+            compare(JSON.stringify(Debug.choices(["claude", "codex", "copilot", "pi", "opencode"], targets, "").map(row => row.value)),
+                JSON.stringify(["handoff:receiver/compose"]));
         }
         // expected-log: handoff: receiver-failed key=handoff:receiver/compose -- A failed receiver returns an explicit recovery result without logging message bytes.
         function test_receiver_exception_returns_a_failure() {

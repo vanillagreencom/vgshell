@@ -3660,11 +3660,13 @@ for (const [label, handoffs, capabilities] of [
     ["undeclared capability", { compose: { label: "Receiver" } }, []],
     ["generic payload kind", { compose: { label: "Receiver", accepts: "json" } }, ["handoff"]],
     ["control in label", { compose: { label: "Receiver\nbad" } }, ["handoff"]],
-    ["path as name", { "../compose": { label: "Receiver" } }, ["handoff"]]
+    ["path as name", { "../compose": { label: "Receiver" } }, ["handoff"]],
+    ["another kind", { compose: { label: "Receiver", kind: "message" } }, ["handoff"]]
 ]) {
     const raw = { ...handoffRaw, handoffs, capabilities, capabilityKinds: {} };
     report("handoffs: refuses " + label, handoffLogic.validateManifest(raw, "/fixture").ok, false);
 }
+report("handoffs: an action receiver validates", handoffLogic.validateManifest({ ...handoffRaw, handoffs: { compose: { label: "Receiver", kind: "action" } } }, "/fixture").ok, true);
 const senderRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.handoff-sender/manifest.json"), "utf8"));
 report("handoffs: a discovering-only sender declares no target", handoffLogic.validateManifest(senderRaw, "/fixture").ok, true);
 if (failures > 0) { console.log("test-plugin-logic: " + failures + " failing"); process.exit(1); }

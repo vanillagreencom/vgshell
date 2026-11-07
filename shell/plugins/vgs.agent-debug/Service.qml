@@ -15,6 +15,18 @@ import "Diagnose.js" as Diagnose
 //   vgshell ipc call vgs.agent-debug invoke unmute PROGRAM
 //     `ok` or the keyed refusal; the vgs-diagnose skill and tui/unmute.sh
 //     call them on the user's yes
+//   vgshell ipc call vgs.agent-debug invoke draft ""
+//     the waiting Diagnose draft, JSON { facts, agent }, facts null for none
+//   vgshell ipc call vgs.agent-debug invoke draft-run ""
+//   vgshell ipc call vgs.agent-debug invoke draft-cancel ""
+//     the window's Run and Cancel: `ok`, or `refused: draft=none`,
+//     `refused: agent=none`
+//
+// Another plugin hands a failure to the `diagnose` receiver as text: a
+// failed sync job's facts (Debug.syncFacts). The receiver opens a draft in
+// the Agent Debug window and starts nothing: only the user's Run opens the
+// agent, as a notification's Diagnose does. A second failure while a draft
+// waits is refused, so the waiting draft stays.
 //
 // With no agent chosen it starts no process: the uid read and the follower
 // start only once one is. Every process here is a managed Quickshell
@@ -55,6 +67,9 @@ Item {
     // Only the scalar failure arguments survive while the recovery window
     // offers a one-off terminal choice. It never changes the saved agent.
     property var recoveryArgs: null
+    // The failure another plugin handed over, waiting for Run or Cancel in
+    // the window; null for none.
+    property var draft: null
     property string recoveryReason: ""
 
     onShellChanged: {
@@ -65,6 +80,16 @@ Item {
             shell.ipc.handle("unmute", name => root.unmute(name));
             shell.ipc.handle("recover", name => root.recover(name));
             shell.ipc.handle("recovery", () => JSON.stringify({ waiting: root.recoveryArgs !== null, reason: root.recoveryReason }));
+            // Another plugin's failure reaches Diagnose as text through the
+            // core's handoff, never a named call: Local Sync's Send to agent.
+            shell.handoff.offer("diagnose", text => root.handed(text), "");
+            shell.ipc.handle("draft", () => JSON.stringify({ facts: root.draft, agent: root.agent === "" ? "" : Debug.label(root.agent, root.targets) }));
+            shell.ipc.handle("draft-run", () => root.runDraft());
+            shell.ipc.handle("draft-cancel", () => {
+                if (root.draft === null) return "refused: draft=none";
+                root.draft = null;
+                return "ok";
+            });
         }
         publish();
     }
@@ -165,6 +190,32 @@ Item {
         if (reply !== "ok") console.warn("agent-debug: notice " + reply);
     }
 
+    // FACTS handed as TEXT by another plugin: a failed sync job's
+    // (Debug.syncFacts), held as the window's draft until the user runs or
+    // cancels it. The answer tells the sender why it could not.
+    function handed(text) {
+        const facts = Debug.syncFacts(text);
+        if (facts === null) return { ok: false, reason: "Agent Debug could not read this failure." };
+        if (draft !== null) return { ok: false, reason: "Agent Debug already holds a diagnosis. Run or cancel it first." };
+        draft = facts;
+        const reply = shell.surfaces.summon("window", JSON.stringify({ draft: true }));
+        if (reply === "ok") return { ok: true, reason: "" };
+        draft = null;
+        console.error("agent-debug: draft window " + reply);
+        return { ok: false, reason: "Agent Debug could not open its window. Try again." };
+    }
+
+    // The window's Run: Diagnose for the waiting draft, through the agent
+    // the user chose.
+    function runDraft() {
+        if (draft === null) return "refused: draft=none";
+        if (agent === "") return "refused: agent=none";
+        const facts = draft;
+        draft = null;
+        diagnose({ kind: "sync", entry: facts, read: Date.now() });
+        return "ok";
+    }
+
     // Choose at the press, never when the notification was built. Terminal
     // arguments and the text prompt share the same admitted scalar facts.
     function diagnose(facts) {
@@ -176,6 +227,9 @@ Item {
         if (facts.kind === "crash") {
             const at = facts.entry.time === null ? facts.read : facts.entry.time;
             args = Debug.crashArgs(agent, facts.entry, at, -new Date(at).getTimezoneOffset());
+        } else if (facts.kind === "sync") {
+            const at = facts.entry.at === 0 ? facts.read : facts.entry.at;
+            args = Debug.syncArgs(agent, facts.entry, at, -new Date(at).getTimezoneOffset());
         } else {
             const failure = Debug.pressedFailure(failures, facts.plugin, facts.key, facts.failure);
             args = Debug.taskArgs(agent, facts.plugin, failure, facts.read, -new Date(facts.read).getTimezoneOffset());

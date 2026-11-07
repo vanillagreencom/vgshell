@@ -13,7 +13,8 @@
       "left": [
         { "id": "vgs.launcher" },
         { "id": "vgs.bar/left-workspaces" },
-        { "id": "vgs.tray" }
+        { "id": "vgs.tray" },
+        { "id": "vgs.local-sync" }
       ],
       "center": [{ "id": "vgs.bar/center-clock" }],
       "right": [

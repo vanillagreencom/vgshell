@@ -643,6 +643,21 @@ function verify(logic) {
         same({ run: got.run, slot: got.slot === null ? null : iso(got.slot), reason: got.reason }, want, "guard in the repeated hour: " + label);
     }
     process.env.TZ = "UTC";
+
+    // The sync-job receiver's requests: [case, text, accepted action].
+    for (const [label, text, action] of [
+        ["a new sync job", JSON.stringify({ action: "new", available: ["rsync"] }), "new"],
+        ["no engine here", JSON.stringify({ action: "new", available: [] }), "new"],
+        ["a listed automation's Remove", JSON.stringify({ action: "remove", id: "backup" }), "remove"],
+        ["an unlisted automation", JSON.stringify({ action: "remove", id: "other" }), null],
+        ["an unknown engine", JSON.stringify({ action: "new", available: ["sh -c x"] }), null],
+        ["a key too many", JSON.stringify({ action: "new", available: ["rsync"], command: "rm -rf ~" }), null],
+        ["another action", JSON.stringify({ action: "run", id: "backup" }), null],
+        ["not JSON", "remove backup", null]
+    ]) {
+        const got = logic.syncJobRequest(text, ["backup"]);
+        same(got === null ? null : got.action, action, "sync job request: " + label);
+    }
 }
 
 function WEEKDAYS_FROM(start) {
@@ -798,6 +813,7 @@ const compared = analyze === null ? 0 : comparePreview(load(file, modules), anal
 // ---------------------------------------------------------------- controls
 
 const CONTROLS = [
+    ["a sync job's Remove names any id", "typeof doc.id === \"string\" && ids.indexOf(doc.id) !== -1", "typeof doc.id === \"string\""],
     ["a notification carries its plugin avatar", '"--hint=string:x-vgs-avatar:calendar-clock", ', ""],
     ["a UTC recurrence searches by its selected date", "if (schedule.zone !== \"utc\") return localDate(ms);", "return localDate(ms);"],
     ["the optional While logged out step reads info", 'case "no": linger = { tone: "info"', 'case "no": linger = { tone: "warning"'],

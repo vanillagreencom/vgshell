@@ -1585,3 +1585,27 @@ function changedKeys(reported, values) {
         if (!hasOwn(reported, keys[i]) || JSON.stringify(reported[keys[i]]) !== JSON.stringify(values[keys[i]])) out.push(keys[i]);
     return out;
 }
+
+// The `sync-job` handoff receiver's request in TEXT: { action: "new",
+// available } with the copy engines this computer has, or { action:
+// "remove", id } naming one of IDS, the listed automations; null for any
+// other text. Local Sync writes it (vgs.local-sync SyncLogic.addRequest and
+// removeRequest).
+var SYNC_JOB_ENGINES = ["rsync", "unison"];
+
+function syncJobRequest(text, ids) {
+    var doc;
+    try {
+        doc = JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc)) return null;
+    var keys = Object.keys(doc).sort().join(",");
+    if (doc.action === "new" && keys === "action,available" && Array.isArray(doc.available)
+            && doc.available.every(function (engine) { return SYNC_JOB_ENGINES.indexOf(engine) !== -1; }))
+        return { action: "new", available: doc.available.slice() };
+    if (doc.action === "remove" && keys === "action,id" && typeof doc.id === "string" && ids.indexOf(doc.id) !== -1)
+        return { action: "remove", id: doc.id };
+    return null;
+}

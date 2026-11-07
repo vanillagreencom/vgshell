@@ -1296,8 +1296,11 @@ function soundHeld(manifest, event) {
     return hasOwn(manifest.sounds, event) && manifest.sounds[event].held === true;
 }
 
-// Text targets declare only a local registration name and a label. Readiness
-// and the receiver belong to the live instance, never the manifest.
+// Text targets declare only a local registration name, a label and an
+// optional `kind`. Readiness and the receiver belong to the live instance,
+// never the manifest. `kind: "action"` marks a receiver that opens one
+// task of its plugin, such as a draft job, rather than a message to an
+// agent; a receiver without it is a message target (D127).
 function handoffsError(handoffs, capabilities) {
     if (!isPlainObject(handoffs) || Object.keys(handoffs).length === 0)
         return "handoffs must be a non-empty object";
@@ -1305,10 +1308,12 @@ function handoffsError(handoffs, capabilities) {
     for (var name of Object.keys(handoffs)) {
         if (!ConfigLogic.NAME_PATTERN.test(name)) return "handoffs has malformed name " + JSON.stringify(name);
         var target = handoffs[name];
-        if (!isPlainObject(target) || Object.keys(target).some(function (key) { return key !== "label"; }))
-            return "handoffs." + name + " takes only label";
+        if (!isPlainObject(target) || Object.keys(target).some(function (key) { return key !== "label" && key !== "kind"; }))
+            return "handoffs." + name + " takes only label and kind";
         if (!isPrintableLine(target.label, STATUS_LABEL_MAX))
             return "handoffs." + name + ".label must be a printable line";
+        if (hasOwn(target, "kind") && target.kind !== "action")
+            return "handoffs." + name + ".kind must be \"action\" when present";
     }
     return "";
 }

@@ -137,6 +137,9 @@ var TEXT = {
         color: color("reachMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, {kbd.wordMargin})")
     }),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),
+    // A folder path in a Local Sync chip: the code role's face, weight and
+    // ink at the key name's 11 px (owner, flyout v6, VGS-2190).
+    pathChip: role("mono", 0.7333333333, 500, 0, 1, false, "text"),
     bar: role("caps", 0.8, 500, 0.08, 1, true, "text")
 };
 
@@ -788,6 +791,15 @@ var TOKENS = {
         capMargin: number(5.1, 4.5, 21),
         valueMargin: number(4.65, 4.5, 21),
         actionGap: length("{space.lg}")
+    },
+
+    // A folder path as a chip: `padding` inside on every side, on
+    // `background`, `hoverBackground` under the pointer (owner, flyout v6,
+    // VGS-2190).
+    pathChip: {
+        padding: length(3),
+        background: color("alpha({palette.foreground}, 0.05)"),
+        hoverBackground: color("alpha({palette.foreground}, 0.075)")
     },
 
     // A command or path shown to copy: its text on a sunken fill, a Copy

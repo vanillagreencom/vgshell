@@ -1,7 +1,9 @@
 import QtQuick
 import "PluginLogic.js" as Logic
 
-// Text-only draft receivers. A null receiver withdraws the live offer and
+// Text-only draft receivers. A descriptor's `kind` is "action" for a
+// receiver whose manifest entry declares it, one that opens a task of its
+// plugin, and "" for a message target. A null receiver withdraws the live offer and
 // publishes its cause. Both registrations and unavailable reports belong
 // to the offering instance; a descriptor never dispatches to a replacement.
 Item {
@@ -51,7 +53,7 @@ Item {
                     : record.reason;
                 const available = current && record.accept !== null;
                 out.push(Object.freeze({
-                    key: key, label: label, available: available, reason: reason,
+                    key: key, label: label, kind: manifest.handoffs[name].kind === "action" ? "action" : "", available: available, reason: reason,
                     open: text => root.open(key, record, text)
                 }));
             }

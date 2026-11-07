@@ -50,9 +50,18 @@ FocusScope {
     readonly property var validationResult: View.validation(draft, Engine, Date.now())
     readonly property string previewFirst: previewRows.length > 0 ? String(previewRows[0]) : ""
     readonly property int listCurrent: automationList.current
-    readonly property var draftPending: {
-        const row = automations.find(item => item.id === draft.id);
-        return row === undefined ? null : row.pending;
+    // The stored automation the editor's draft edits, undefined for a new
+    // draft or one that left the store.
+    readonly property var draftRow: draft.saved ? automations.find(item => item.id === draft.id) : undefined
+    readonly property var draftPending: draftRow === undefined ? null : draftRow.pending
+    readonly property bool draftDirty: View.draftChanged(draft, draftRow, Engine)
+    // A save was accepted and the list that shows it stored has not come
+    // yet: the save bar reads Saved once the draft matches the store.
+    property bool savedUnseen: false
+    onDraftDirtyChanged: {
+        if (draftDirty || !savedUnseen) return;
+        savedUnseen = false;
+        editor.confirmSaved();
     }
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
@@ -62,8 +71,17 @@ FocusScope {
     function open(payloadJson) {
         const payload = payloadJson ? JSON.parse(payloadJson) : {};
         if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload must be an object");
+        // A sync job's draft or Remove that another plugin asked for keeps
+        // an unsaved edit: the summon is refused, and the sender says why.
+        if ((payload.sync !== undefined || payload.remove !== undefined) && editorOpen && draftDirty)
+            throw new Error("the editor holds an unsaved change");
         place = "automations";
         if (payload.new === true) newDraft();
+        else if (payload.sync !== undefined) newSyncDraft(payload.sync);
+        else if (payload.remove !== undefined) {
+            if (selectAutomation(payload.remove) !== "ok") throw new Error("payload.remove names no automation");
+            removeAutomation(payload.remove);
+        }
         else if (payload.id !== undefined) selectAutomation(payload.id);
         else {
             editorOpen = false;
@@ -163,6 +181,7 @@ FocusScope {
 
     function loadDraft(next) {
         draftKey += 1;
+        savedUnseen = false;
         replaceDraft(next);
     }
 
@@ -171,6 +190,8 @@ FocusScope {
         // Qt 6.12 wraps arrays and objects carried by a var signal. The
         // draft owns plain values, as validation and the engine expect.
         next[key] = value !== null && typeof value === "object" ? View.clone(value) : value;
+        // A sync job's form writes its command.
+        if (key === "sync") next.command = View.syncCommand(next.sync);
         if (key === "start" && next.yearlyEdited !== true) {
             const parts = View.startDateParts(value, Engine);
             if (parts !== null) {
@@ -191,6 +212,21 @@ FocusScope {
         testStartedAt = 0;
         setNotice("neutral", "", "");
         loadDraft(View.blankDraft(Date.now(), Engine));
+        Qt.callLater(() => editor.focusName());
+    }
+
+    // A new sync job, as Local Sync's Add asks for it: SYNC.available lists
+    // the copy engines this computer has.
+    function newSyncDraft(sync) {
+        if (sync === null || typeof sync !== "object" || !Array.isArray(sync.available) || !sync.available.every(engine => typeof engine === "string"))
+            throw new Error("payload.sync must be an object with an `available` list of engines");
+        place = "automations";
+        editorOpen = true;
+        testRun = null;
+        testTranscript = "";
+        testStartedAt = 0;
+        setNotice("neutral", "", "");
+        loadDraft(View.syncDraft(sync.available, Date.now(), Engine));
         Qt.callLater(() => editor.focusName());
     }
 
@@ -253,9 +289,23 @@ FocusScope {
             }
             draft = next;
             setNotice("success", "Saved " + draft.name + ".", "");
+            savedUnseen = true;
             refreshAll();
         });
         return "ok";
+    }
+
+    // Discard drops the editor's change: a saved draft reads its stored
+    // automation again, and a new draft goes, back to the list.
+    function discardDraft() {
+        if (draftRow !== undefined) {
+            loadDraft(View.draftFromAutomation(draftRow, Engine));
+            setNotice("neutral", "", "");
+            return;
+        }
+        loadDraft(View.blankDraft(Date.now(), Engine));
+        editorOpen = false;
+        automationList.focusList();
     }
 
     function runNow(id) {
@@ -519,6 +569,8 @@ FocusScope {
                 testRun: root.testRun
                 testTranscript: root.testTranscript
                 pending: root.draftPending
+                dirty: root.draftDirty
+                onDiscardRequested: root.discardDraft()
                 onBackRequested: { root.editorOpen = false; automationList.focusList(); }
                 onSaveRequested: root.saveDraft()
                 onTestRequested: root.runNow(root.draft.id)

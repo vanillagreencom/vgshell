@@ -10,6 +10,7 @@
   "kinds": ["service", "window"],
   "entryPoints": { "service": "Service.qml", "window": "Recovery.qml" },
   "capabilities": ["configure", "doctor", "handoff", "ipc", "notify", "requirements", "status", "surfaces", "tui"],
+  "handoffs": {"diagnose": {"label": "Agent Debug", "kind": "action"}},
   "capabilityKinds": {"configure": ["service"], "doctor": ["service"], "handoff": ["service"], "notify": ["service"], "status": ["service"], "tui": ["service"]},
   "requirements": [
     {"command": "id", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds the crashes of your own programs"},

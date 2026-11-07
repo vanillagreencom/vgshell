@@ -107,6 +107,7 @@ Singleton {
     readonly property var badge: published.badge
     readonly property var kbd: published.kbd
     readonly property var codeLine: published.codeLine
+    readonly property var pathChip: published.pathChip
     readonly property var avatarGroup: published.avatarGroup
     readonly property var qrMatrix: published.qrMatrix
     readonly property var tabs: published.tabs

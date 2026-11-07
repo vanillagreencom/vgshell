@@ -15,10 +15,15 @@ FocusScope {
     required property var testRun
     required property string testTranscript
     property var pending: null
+    // Whether the draft holds a change the store does not
+    // (AutomationsViewLogic.draftChanged); the shared save bar shows while
+    // it does.
+    property bool dirty: false
     property int timeoutUnitIndex: View.timeoutAmount(draft.timeoutSeconds).unit === "hours" ? 1 : 0
 
     signal backRequested()
     signal saveRequested()
+    signal discardRequested()
     signal testRequested()
     signal cancelRequested()
     signal copyRequested()
@@ -29,7 +34,15 @@ FocusScope {
     focus: true
     onDraftChanged: timeoutUnitIndex = View.timeoutAmount(draft.timeoutSeconds).unit === "hours" ? 1 : 0
 
-    function focusName() { nameField.forceActiveFocus(); }
+    function focusName() { (page.draft.sync !== undefined ? syncName : nameField).forceActiveFocus(); }
+    // One field of a sync job's form: the window writes the command from it.
+    function changeSync(key, value) {
+        const sync = View.clone(page.draft.sync);
+        sync[key] = value;
+        page.change("sync", sync);
+    }
+    // The window's save was accepted: the bar reads Saved for a moment.
+    function confirmSaved() { saveBar.confirm(); }
 
     Keys.onEscapePressed: backRequested()
 
@@ -42,31 +55,113 @@ FocusScope {
         titleContent: [
             PageHeader {
                 width: layout.contentWidth
-                text: page.draft.saved ? "Edit automation" : "New automation"
+                text: page.draft.saved ? "Edit automation" : page.draft.sync !== undefined ? "New sync job" : "New automation"
                 leading: [
                     IconButton { iconName: "chevron-left"; label: "Back to automations"; size: "sm"; anchors.verticalCenter: parent.verticalCenter; onClicked: page.backRequested() }
-                ]
-                trailing: [
-                    Row {
-                        spacing: Theme.space.xs
-                        anchors.verticalCenter: parent.verticalCenter
-                        Kbd { text: "Ctrl" }
-                        Kbd { text: "S" }
-                        Button { text: "Save"; iconName: "save"; size: "sm"; onClicked: page.saveRequested() }
-                    }
                 ]
             }
         ]
 
+        // The one save action of the page, in the shared sticky footer;
+        // Ctrl+S reaches the same save through the window's keys.
+        footer: SaveBar {
+            id: saveBar
+            width: parent === null ? 0 : parent.width
+            dirty: page.dirty
+            onShownChanged: if (!shown && activeFocus) page.focusName()
+            onSave: page.saveRequested()
+            onDiscard: page.discardRequested()
+        }
+
         Column {
             width: parent.width
             spacing: Theme.stack.group
+
+                // A sync job: the folders and the engine, and the command
+                // they make, which the job runs.
+                Section {
+                    title: "Sync job"
+                    description: "Creates an Automations job. Its schedule, history and failure notices stay in Automations."
+                    headerInset: 0
+                    width: parent.width
+                    visible: page.draft.sync !== undefined
+
+                    Field {
+                        label: "Name"
+                        width: parent.width
+                        error: page.validation.errors.name || ""
+                        TextField {
+                            id: syncName
+                            width: parent.width
+                            text: page.draft.name
+                            onTextEdited: page.change("name", text)
+                        }
+                    }
+                    Field {
+                        label: "From"
+                        width: parent.width
+                        error: page.validation.errors.from || ""
+                        PathField {
+                            width: parent.width
+                            placeholderText: "Folder to copy from"
+                            path: page.draft.sync === undefined ? "" : page.draft.sync.from
+                            error: page.validation.errors.from !== undefined
+                            onEdited: (path, valid) => page.changeSync("from", path)
+                            onPicked: path => page.changeSync("from", path)
+                        }
+                    }
+                    Field {
+                        label: "To"
+                        width: parent.width
+                        error: page.validation.errors.to || ""
+                        PathField {
+                            width: parent.width
+                            placeholderText: "Folder to copy to"
+                            path: page.draft.sync === undefined ? "" : page.draft.sync.to
+                            error: page.validation.errors.to !== undefined
+                            onEdited: (path, valid) => page.changeSync("to", path)
+                            onPicked: path => page.changeSync("to", path)
+                        }
+                    }
+                    Field {
+                        label: "Engine"
+                        width: parent.width
+                        error: page.validation.errors.engine || ""
+                        // One engine at a time; an engine this computer
+                        // lacks stays offered with why it cannot run.
+                        Row {
+                            spacing: Theme.stack.inline
+                            Repeater {
+                                model: View.SYNC_ENGINES
+                                ToggleButton {
+                                    required property string modelData
+                                    text: modelData === "unison" ? "Unison" : "rsync"
+                                    checked: page.draft.sync !== undefined && page.draft.sync.engine === modelData
+                                    disabledReason: page.draft.sync === undefined || page.draft.sync.available.indexOf(modelData) !== -1 ? ""
+                                        : modelData === "unison" ? "Install Unison to use two-way sync." : "Install rsync to copy folders."
+                                    onClicked: {
+                                        checked = Qt.binding(() => page.draft.sync !== undefined && page.draft.sync.engine === modelData);
+                                        page.changeSync("engine", modelData);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Command"
+                        width: parent.width
+                        visible: page.draft.command !== ""
+                        hint: "The job runs this command. It deletes nothing in the To folder."
+                        CodeLine { width: parent.width; text: page.draft.command; copyLabel: "Copy command" }
+                    }
+                }
 
                 Section {
                     title: "Basics"
                     description: "Name the job and the command it runs."
                     headerInset: 0
                     width: parent.width
+                    visible: page.draft.sync === undefined
 
                     Field {
                         label: "Name"

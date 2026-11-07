@@ -9,7 +9,9 @@
   "icon": "calendar-clock",
   "kinds": ["window", "service"],
   "entryPoints": { "window": "Window.qml", "service": "Service.qml" },
-  "capabilities": ["ipc", "screens", "status", "surfaces", "tui"],
+  "capabilities": ["handoff", "ipc", "screens", "status", "surfaces", "tui"],
+  "capabilityKinds": {"handoff": ["service"]},
+  "handoffs": {"sync-job": {"label": "Automations", "kind": "action"}},
   "settings": {
     "historyDays": 30
   },

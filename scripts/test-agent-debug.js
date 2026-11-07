@@ -142,6 +142,20 @@ function verify(d) {
         "/run/user/1000/vgshell/tui/core@requirements-install@k3q9x2.ended.json"]);
     same(d.taskArgs("pi", "acme.x", Object.assign({}, failure, { path: null, manager: "", packages: Array(60).fill("package") }), 0, 0).slice(4),
         ["-", "-", "1970-01-01T00:00:00+00:00", "-"]);
+    // A failed sync job handed as text: [case, text, accepted].
+    const SYNC = { kind: "sync", unit: "notes.service", name: "Notes", engine: "rsync", from: "/home/u/notes/", to: "/mnt/a/", error: "rsync error: error in file IO (code 11)", at: 1793742000123 };
+    for (const [label, text, accepted] of [
+        ["the shape Local Sync writes", JSON.stringify(SYNC), true],
+        ["not JSON", "rsync failed", false],
+        ["another kind", JSON.stringify(Object.assign({}, SYNC, { kind: "crash" })), false],
+        ["a key too many", JSON.stringify(Object.assign({}, SYNC, { command: "rm -rf ~" })), false],
+        ["a key missing", JSON.stringify(Object.assign({}, SYNC, { error: undefined })), false],
+        ["a fact that is not text", JSON.stringify(Object.assign({}, SYNC, { from: ["/a"] })), false],
+        ["no time", JSON.stringify(Object.assign({}, SYNC, { at: "now" })), false]
+    ])
+        assert.equal(d.syncFacts(text) !== null, accepted, "sync facts: " + label);
+    same(d.syncArgs("claude", Object.assign({}, SYNC, { error: "line\nnext" }), SYNC.at, -480),
+        ["claude", "sync", "notes.service", "Notes", "rsync", "/home/u/notes/", "/mnt/a/", "line?next", "2026-11-03T13:40:00-08:00"]);
     // Diagnose reads the failure the core holds at the press while it is
     // still the run the notification told, so a record path the core
     // listed after the first read reaches the prompt.
@@ -177,6 +191,8 @@ function verify(d) {
     same(d.chosen(target.key, ["claude", "codex"]), target.key);
     fits("agents", rows);
     same(d.choices([], [], target.key).slice(-1).map(row => row.value), [target.key], "a removed target remains selected");
+    const action = { key: "handoff:acme.jobs/new", label: "Fixture action", kind: "action", available: true };
+    same(d.choices(["claude", "codex", "copilot", "pi", "opencode"], [target, action], "").map(row => row.value), [target.key], "an action receiver is no agent");
     fits("muted", d.mutedRows(Array.from({ length: d.MUTED_MAX }, (_, i) => name(d.NAME_MAX - 2) + String(i).padStart(2, "0"))));
     fits("muted", d.mutedRows(["Web Content", ".kitty-wrapped"]));
 }
@@ -198,6 +214,8 @@ const CONTROLS = [
     ["a setup notice offers Mute", "urgency: \"normal\",\n        tone: \"warning\",\n        mute: false", "urgency: \"normal\",\n        tone: \"warning\",\n        mute: true"],
     ["no body bound", "sentence.length <= BODY_PACKAGES_MAX", "true"],
     ["the prompt's time is UTC", "new Date(ms + offset * 60000)", "new Date(ms)"],
+    ["a sync fact takes another key", "if (keys.length !== SYNC_KEYS.length || ", "if ("],
+    ["an action receiver is offered as an agent", "if (target.kind === \"action\") return;", ""],
     ["the offset's sign is lost", '(offset < 0 ? "-" : "+")', '"+"'],
     ["Diagnose reads the first record path", "failureKey(plugin, failures[plugin]) === key) return failures[plugin];", "failureKey(plugin, failures[plugin]) === key) return seen;"],
     ["the first read tells every failure", "if (seen !== null && seen.indexOf(key) === -1 && id !== self)", "if ((seen === null || seen.indexOf(key) === -1) && id !== self)"],
