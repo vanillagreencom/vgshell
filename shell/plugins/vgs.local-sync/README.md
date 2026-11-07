@@ -2,6 +2,8 @@
 
 Local Sync shows the folder copy jobs on this computer: each rsync or unison job that systemd runs for you. Its bar icon moves while a job copies, and its panel shows each job's folders, its last copy and its last error.
 
+![The Local Sync flyout with a job that watches and a job whose copy failed](../../../docs/images/plugins/vgs.local-sync-flyout.webp)
+
 ## Features
 
 - Every rsync and unison job that systemd runs for you, including a job that runs rsync through its own script.

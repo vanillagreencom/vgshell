@@ -122,6 +122,14 @@
 # failed setup task's toast and a crash toast, the Inbox, and its Diagnose
 # and Unmute terminals, over a stand-in journal, a stand-in agent and no
 # crash, journal read or install.
+# local-sync, taken only when named, is Agent Debug's window on its
+# recovery choice with no diagnosis waiting, then, where the tree ships
+# Local Sync, Local Sync's flyout from its bar item over two fixture jobs
+# in harness.sh's stand-in user manager (local_sync_stand_ins), one
+# watching and one whose copy failed, its job menu and the failed job's
+# Details, and the Diagnose draft its Send to agent opens in Agent Debug's
+# window with an agent chosen and with none. No job runs and no host
+# journal or user manager is read.
 # packages captures General > Packages in System Settings at its update
 # options, then at Agent review and the optional review command.
 # voice-keys is the Keys
@@ -601,7 +609,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|local-sync) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -772,6 +780,7 @@ scene_ships() {
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     package-review-terminal) [[ -f $tree/bin/lib/pkg-review-settings.sh ]] ;;
     agent-debug) [[ $manager_scene == settings ]] && ships_plugin vgs.agent-debug vgs.notifications ;;
+    local-sync) ships_plugin vgs.agent-debug ;;
     packages) ships_plugin vgs.system vgs.packages ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     page-links) [[ $manager_scene == settings ]] && tree_has shell/Ui/feedback/LinkText.qml '(page:' ;;
@@ -9745,6 +9754,7 @@ capture_plugin_states() { # MODE
   done
   capture_probe_release || return 1
   for id in "${enable_ids[@]}"; do
+    if [[ $id == vgs.local-sync ]]; then local_sync_stand_ins "$sandbox/local-sync-enabled" || fail "the Local Sync stand-ins for the run could not be written"; fi
     expect "enabling $id for the run is allowed" ok ipc shell setPluginEnabled "$id" true
     expect_poll "$id publishes on for the run" True plugin_enabled "$id"
     live="$(python3 -c 'import json,sys; kinds=json.load(open(sys.argv[1]))["kinds"]; print(any(k in kinds for k in ("service","bar","background")))' "$repo/shell/plugins/$id/manifest.json")" || { fail "the $id host kinds are unreadable"; return 1; }
@@ -9943,6 +9953,7 @@ PY
     tooltips)
       # Every first-party plugin with a bar widget, enabled and placed; the
       # requirement notices that raises close before any shot.
+      local_sync_stand_ins "$sandbox/local-sync-tooltips" || fail "the Local Sync stand-ins for the tooltips could not be written"
       for id in "${tooltip_widgets[@]}"; do
         expect "enabling $id for its tooltip is allowed" ok ipc shell setPluginEnabled "$id" true
         expect "$id is placed for its tooltip" ok ipc shell setPluginPlaced "$id" true
@@ -11050,6 +11061,137 @@ ADNEEDS
   expect_poll "Crash watch reads Off again" Off agent_debug_watch
   rm -f -- "${shim:?}/journalctl" "${shim:?}/claude" "${shim:?}/codex"
   tree_rescan "the Agent Debug stand-ins leave the scan"
+}
+
+# local_sync_shot_world WORLD: two fixture jobs in the stand-in user
+# manager over WORLD: a script job that watches, and a direct rsync job
+# whose last run wrote an rsync error line, each copying a folder of a
+# home the images name, never the sandbox's. Neither runs; the plugin
+# reads the first one's script as data.
+local_sync_shot_world() { # WORLD
+  local world="$1" props now watch_exec copy_exec blocks
+  local_sync_stand_ins "$world" || return
+  props="$(cat -- "$world/props")" || return
+  now="$(date +%s)"
+  mkdir -p -- "$world/scripts"
+  cat >"$world/scripts/photos-backup.sh" <<'EOF'
+#!/usr/bin/env bash
+SRC="/home/alex/Pictures"
+DST="/run/media/backup/Pictures"
+while inotifywait -r -e close_write "$SRC"; do
+  rsync --archive --delete "$SRC/" "$DST/"
+done
+EOF
+  watch_exec="{ path=$world/scripts/photos-backup.sh ; argv[]=$world/scripts/photos-backup.sh ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+  copy_exec="{ path=/usr/bin/rsync ; argv[]=/usr/bin/rsync --archive /home/alex/Documents/ /run/media/backup/Documents/ ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=23/n/a }"
+  blocks="$(printf '%s\n' "Id=photos-backup.service" "Description=Back up Pictures" "LoadState=loaded" "ActiveState=active" "SubState=running" \
+    "Result=success" "Type=simple" "ExecStart=$watch_exec" "TriggeredBy=" "FragmentPath=$home/.config/systemd/user/photos-backup.service" \
+    "UnitFileState=enabled" "ExecMainStatus=0" "ExecMainStartTimestamp=@$((now - 7200))" "ExecMainExitTimestamp=")"
+  blocks+=$'\n\n'"$(printf '%s\n' "Id=documents-backup.service" "Description=Back up Documents" "LoadState=loaded" "ActiveState=failed" "SubState=failed" \
+    "Result=exit-code" "Type=oneshot" "ExecStart=$copy_exec" "TriggeredBy=documents-backup.timer" "FragmentPath=$home/.config/systemd/user/documents-backup.service" \
+    "UnitFileState=enabled" "ExecMainStatus=23" "ExecMainStartTimestamp=@$((now - 1500))" "ExecMainExitTimestamp=@$((now - 1490))")"
+  device_reply systemctl 0 $'photos-backup.service enabled enabled\ndocuments-backup.service enabled enabled' --user list-unit-files --type=service --no-legend --plain
+  device_reply systemctl 0 "$blocks" --user show --timestamp=unix -p "$props" "*.service" photos-backup.service documents-backup.service
+  python3 - "$world/journal.jsonl" "$now" <<'PY'
+import json, sys
+path, now = sys.argv[1], int(sys.argv[2])
+lines = [("rsync", 3, now - 1491, 'rsync: [generator] failed to set times on "/run/media/backup/Documents/.": Read-only file system (30)'),
+         ("rsync", 3, now - 1490, "rsync error: some files/attrs were not transferred (see previous errors) (code 23) at main.c(1338) [sender=3.4.1]")]
+with open(path, "a") as out:
+    for comm, priority, at, message in lines:
+        out.write(json.dumps({"__REALTIME_TIMESTAMP": str(at * 1000000), "MESSAGE": message, "_COMM": comm,
+                              "_SYSTEMD_USER_UNIT": "documents-backup.service", "PRIORITY": str(priority)}) + "\n")
+PY
+}
+local_sync_shot_press() { # LABEL: a click on the flyout's icon button LABEL, found by its label
+  local box x y
+  box="$(ipc smoke labelledGeometry panel vgs.local-sync IconButton "$1")" || return 1
+  [[ $box == \[* ]] || return 1
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
+local_sync_shot_cards() { ipc smoke readInstance panel vgs.local-sync cards | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.dumps(sorted(c["state"] for c in json.loads(t))) if t.startswith("[") else t)'; }
+local_sync_shot_shown() { ipc smoke instanceGeometry "$1" "$2" | py_reply 'import sys; print("hidden" if sys.stdin.read().strip() == "absent" else "shown")'; } # HOST ID
+local_sync_shot_agent() { # AGENT, or "" for none
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
+import json, os, sys
+path, agent = sys.argv[1], sys.argv[2]
+data = json.load(open(path))
+rows = data.setdefault("plugins", [])
+row = next((r for r in rows if isinstance(r, dict) and r.get("id") == "vgs.agent-debug"), None)
+if row is None:
+    row = {"id": "vgs.agent-debug"}
+    rows.append(row)
+if agent:
+    row["agent"] = agent
+else:
+    row.pop("agent", None)
+json.dump(data, open(path + ".tmp", "w"), indent=2)
+os.replace(path + ".tmp", path)
+PY
+}
+local_sync_shot_draft() { ipc vgs.agent-debug invoke draft "" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["facts"] is not None and d["facts"]["unit"], d["agent"]]))'; }
+scene_local-sync() { # MODE
+  local mode="$1" world="$sandbox/local-sync-shots-$1" saved="$sandbox/local-sync-shots-$1.json" draft
+  cp -- "$home/.config/vgshell/shell.json" "$saved"
+  expect "Agent Debug is on for its window" ok ipc shell setPluginEnabled vgs.agent-debug true
+  expect_poll "Agent Debug is built for its window" True record_exists vgs.agent-debug
+  expect "Agent Debug's window opens on its recovery choice" ok ipc shell summon window vgs.agent-debug '{}'
+  expect_poll "Agent Debug's window maps" 1 window_count "Agent Debug"
+  take "local-sync-$mode-agent-debug-recovery"
+  expect "Agent Debug's window closes" ok ipc shell hide window vgs.agent-debug
+  expect_poll "Agent Debug's window is gone" 0 window_count "Agent Debug"
+  if ships_plugin vgs.local-sync; then
+    local_sync_shot_world "$world" || fail "the Local Sync fixture jobs could not be planted"
+    printf '#!/bin/sh\nexit 0\n' >"$shim/claude"
+    chmod 755 "$shim/claude"
+    local_sync_shot_agent claude || fail "choosing Claude Code for Agent Debug failed"
+    tree_rescan "Claude Code is found for the Diagnose draft"
+    expect "Local Sync is on for its flyout" ok ipc shell setPluginEnabled vgs.local-sync true
+    close_notices
+    expect "Local Sync places its bar item" ok ipc shell setPluginPlaced vgs.local-sync true
+    expect_poll "the bar builds the Local Sync item" '"vgs.local-sync"' ipc smoke readInstance "$(bar_key)" vgs.local-sync moduleName
+    click_centre "$(bar_key)" vgs.local-sync || fail "the click on the Local Sync bar item failed"
+    expect_poll "the Local Sync flyout opens" shown local_sync_shot_shown panel vgs.local-sync
+    expect_poll "the flyout draws the watching and the failed job" '["failed", "watching"]' local_sync_shot_cards
+    take "local-sync-$mode-flyout"
+    local_sync_shot_press "Job options" || fail "the click on Job options failed"
+    point_item popup:panel vgs.local-sync "" "" MenuItem Details >/dev/null || fail "the job menu's Details is not drawn"
+    take "local-sync-$mode-menu"
+    click_item popup:panel vgs.local-sync "" "" MenuItem Details || fail "the click on Details failed"
+    expect_poll "Details shows the failed job" '"documents-backup.service"' ipc smoke readInstance panel vgs.local-sync detailsUnit
+    take "local-sync-$mode-details"
+    local_sync_shot_press "Back to sync jobs" || fail "the click on Back failed"
+    expect_poll "Back returns to the cards" '""' ipc smoke readInstance panel vgs.local-sync detailsUnit
+    click_item panel vgs.local-sync RowAction "Send to agent" || fail "the click on Send to agent failed"
+    expect_poll "Send to agent opens Agent Debug's draft" 1 window_count "Agent Debug"
+    expect_poll "the draft holds the failed job for Claude Code" '["documents-backup.service", "Claude Code"]' local_sync_shot_draft
+    take "local-sync-$mode-agent-debug-draft"
+    expect "the draft is cancelled" ok ipc vgs.agent-debug invoke draft-cancel ""
+    expect "Agent Debug's window closes after the draft" ok ipc shell hide window vgs.agent-debug
+    expect_poll "Agent Debug's window is gone after the draft" 0 window_count "Agent Debug"
+    local_sync_shot_agent "" || fail "clearing Agent Debug's agent failed"
+    expect "the plugin settings are read again" ok ipc shell reloadConfig
+    click_centre "$(bar_key)" vgs.local-sync || fail "the second click on the Local Sync bar item failed"
+    expect_poll "the Local Sync flyout opens again" shown local_sync_shot_shown panel vgs.local-sync
+    click_item panel vgs.local-sync RowAction "Send to agent" || fail "the second click on Send to agent failed"
+    expect_poll "Send to agent with no agent opens the draft" 1 window_count "Agent Debug"
+    expect_poll "the draft holds the failed job with no agent" '["documents-backup.service", ""]' local_sync_shot_draft
+    take "local-sync-$mode-agent-debug-draft-no-agent"
+    expect "the agentless draft is cancelled" ok ipc vgs.agent-debug invoke draft-cancel ""
+    expect "Agent Debug's window closes after the agentless draft" ok ipc shell hide window vgs.agent-debug
+    expect_poll "Agent Debug's window is gone after the agentless draft" 0 window_count "Agent Debug"
+    expect "Local Sync leaves the bar" ok ipc shell setPluginPlaced vgs.local-sync false
+    expect "Local Sync turns off" ok ipc shell setPluginEnabled vgs.local-sync false
+    local_sync_stand_ins_restore "$world"
+    rm -f -- "${shim:?}/claude"
+  fi
+  expect "Agent Debug turns off" ok ipc shell setPluginEnabled vgs.agent-debug false
+  user_config_write cat -- "$saved"
+  expect "the configuration before the Local Sync images returns" ok ipc shell reloadConfig
+  tree_rescan "the Local Sync stand-ins leave the scan"
+  park_pointer
 }
 
 scene_packages() { # MODE
