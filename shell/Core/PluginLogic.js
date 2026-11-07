@@ -4083,8 +4083,10 @@ function addChoiceRequest(manifest, id, enabled, key) {
 }
 
 // The Settings page's Open summons a plugin's working surface. A window
-// wins over a panel because it is the plugin's application surface.
+// wins over a panel, except on a bar: its panel works without a clicked
+// bar context, while its ancillary window may need that context.
 function openKind(manifest) {
+    if (manifest.kinds.indexOf("bar") !== -1 && manifest.kinds.indexOf("panel") !== -1) return "panel";
     if (manifest.kinds.indexOf("window") !== -1) return "window";
     if (manifest.kinds.indexOf("panel") !== -1) return "panel";
     return "";

@@ -6,7 +6,10 @@
 # No latency budget: waits poll reported state at the harness interval.
 # The control removes the widget filter's result in a disposable tree;
 # the same inventory reader must then reject the missing fixture.
-# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/AddWidget.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/Registry.qml scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh
+# Generic Settings Open keeps the Calendar and an open chooser's click
+# context. Its control restores window preference in a disposable tree.
+# A place-then-move chooser control must fail the ordinary one-write judge.
+# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/AddWidget.qml shell/plugins/vgs.bar/Calendar.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/Registry.qml scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 aw_saved="$sandbox/add-widget-saved.json"
@@ -88,6 +91,29 @@ layout=before["bar"]["layout"]; entries=layout[section]
 entries.insert(len(entries) if section=="left" else 0,{"id":"acme.add-widget"})
 print(before==after)' "$sandbox/add-widget-before-add.json" "$home/.config/vgshell/shell.json" "$1"
 }
+aw_one_write() {
+  ipc smoke chooserCount false | py_reply 'import sys; n=sys.stdin.read().strip(); print("single" if n=="1" else "commits="+n)'
+}
+# The shipped Settings entry calls manager.open, not an explicit summon.
+aw_generic_open() {
+  aw_generic_payload="$(aw_read payload)" || return 1
+  settings_page_open vgs.bar
+  expect "the Bar page's generic Open answers ok" ok ipc smoke invokeInstance window vgs.settings openSurface vgs.bar
+}
+aw_generic_state() {
+  local calendar payload
+  calendar="$(ipc smoke windowDrawn panel vgs.bar)" || return 1
+  payload="$(aw_read payload)" || return 1
+  py_reply 'import json,sys; print(sys.argv[1]=="drawn" and json.load(sys.stdin)==json.loads(sys.argv[2]))' "$calendar" "$aw_generic_payload" <<<"$payload"
+}
+aw_open left
+aw_generic_open
+expect_poll "generic Bar Open draws Calendar and preserves the chooser's original click context" True aw_generic_state
+expect "Calendar closes after generic Open" ok ipc shell hide panel vgs.bar
+settings_page_close vgs.bar
+expect "the chooser closes after generic Open" ok ipc shell hide window vgs.bar
+expect_poll "the generic Open chooser is gone" 0 window_count Bar
+
 for aw_section in left center right; do
   aw_open "$aw_section"
   expect "an unplaced enabled widget offers Add" true aw_row acme.add-widget add
@@ -95,7 +121,7 @@ for aw_section in left center right; do
   expect "the Add commit observer starts empty" 0 ipc smoke chooserCount true
   aw_click acme.add-widget button
   expect_poll "Add inserts at the clicked $aw_section edge and preserves the saved file" True aw_persisted "$aw_section"
-  expect "Add commits exactly one configuration update" 1 ipc smoke chooserCount false
+  expect "Add commits exactly one configuration update" single aw_one_write
   expect_poll "a placed widget no longer offers Add" false aw_row acme.add-widget add
   expect "the placed widget shows On bar" '["On bar"]' aw_row acme.add-widget chips
   expect "the duplicate observer starts empty" 0 ipc smoke chooserCount true
@@ -105,6 +131,25 @@ for aw_section in left center right; do
   expect_poll "the chooser window is gone" 0 window_count Bar
   expect "the fixture is hidden for the next section" ok ipc shell setPluginPlaced acme.add-widget false
 done
+
+# The real manager places in the fixture's default center, then moves to
+# left. Both persisted changes reach the same observer the Add check uses.
+aw_open left
+mkdir -p -- "$sandbox/tree-add-widget-writes/shell/plugins/vgs.bar"
+cp -- "$repo/shell/plugins/vgs.bar/AddWidget.qml" "$sandbox/tree-add-widget-writes/shell/plugins/vgs.bar/AddWidget.qml"
+if edit_tree add-widget-writes shell/plugins/vgs.bar/AddWidget.qml \
+    'const reply = shell.manager.insertWidget(id, payload.screen, payload.x);' \
+    $'const reply = shell.manager.setPlaced(id, true);\n        if (Reply.isOk(reply)) return shell.manager.moveWidget(id, "left", 0);'; then
+  expect "control: the multi-write chooser uses the delivered manager" ok ipc smoke chooserControl "$sandbox/tree-add-widget-writes/shell/plugins/vgs.bar/AddWidget.qml"
+  expect "control: the multi-write observer starts empty" 0 ipc smoke chooserCount true
+  expect "control: Add runs the real placement and move" ok ipc smoke popupCallWith chooser-inventory addWidget acme.add-widget
+  expect "control: the ordinary one-write judge rejects the two real commits" commits=2 aw_one_write
+  expect "control: the multi-write chooser is released" ok ipc smoke popupDrop chooser-inventory
+  expect "control: the fixture returns to unplaced" ok ipc shell setPluginPlaced acme.add-widget false
+  expect_poll "control: the fixture is unplaced again" False aw_placed
+fi
+expect "the chooser closes after the multi-write control" ok ipc shell hide window vgs.bar
+expect_poll "the multi-write chooser is gone" 0 window_count Bar
 
 aw_open left
 aw_click acme.add-widget name
@@ -133,6 +178,24 @@ if edit_tree add-widget-inventory shell/plugins/vgs.bar/AddWidget.qml \
   expect "control: the disposable chooser is released" ok ipc smoke popupDrop chooser-inventory
 fi
 expect "the chooser closes after the control" ok ipc shell hide window vgs.bar
+
+# Load the real routing owner with only the former preference restored.
+# The same Settings entry and state reader must reject that preference.
+if copy_tree add-widget-open \
+  && edit_tree add-widget-open shell/Core/PluginLogic.js \
+    'manifest.kinds.indexOf("bar") !== -1 && manifest.kinds.indexOf("panel") !== -1' \
+    'false && manifest.kinds.indexOf("bar") !== -1 && manifest.kinds.indexOf("panel") !== -1'; then
+  stop_shell
+  start_shell "$sandbox/tree-add-widget-open" "$sandbox/add-widget-open-control.log" || { fail "the generic Open control shell starts"; return 1; }
+  aw_open left
+  aw_generic_open
+  expect_poll "control: generic Open replaces the chooser context" '{}' aw_read payload
+  expect "control: the ordinary generic Open judge rejects window preference" False aw_generic_state
+  settings_page_close vgs.bar
+  expect "control: the chooser closes after the generic Open control" ok ipc shell hide window vgs.bar
+  stop_shell
+  start_shell "$repo" "$sandbox/add-widget-open-restored.log" || { fail "the shell returns after the generic Open control"; return 1; }
+fi
 
 aw_cleanup
 smoke_row_abandon=()
