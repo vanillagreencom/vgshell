@@ -584,6 +584,11 @@ world(async () => {
             w.show(); w.time(1000); w.confirm();
             await until(() => w.runner.state.turn.kind === "none", "first native turn completes");
             w.runner.dispatch({ type: "toggle" });
+            await until(() => w.runner.state.conversation.kind === "ended"
+                && w.runner.state.capture.kind === "closed", "ordinary close releases the first generation");
+            // Session collapses presses inside 250 ms. A second physical
+            // press has a distinct injected time, after close acknowledged.
+            w.time(1500);
             w.runner.dispatch({ type: "toggle" });
             await until(() => w.runner.state.approval.kind === "held", "retained file context needs new release consent");
             assert.equal(w.runner.state.approval.purpose, "release");

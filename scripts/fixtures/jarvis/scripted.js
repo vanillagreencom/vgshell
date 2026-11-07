@@ -32,6 +32,7 @@ function ports(root, engine, state) {
     const waiting = new Map();
     let collect = null;
     let capture = null;
+    let feedback = null;
     record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
         JSON.stringify({ ...values, kind }) + "\n");
     const wait = (gate, done) => waiting.set(gate, done);
@@ -130,7 +131,7 @@ function ports(root, engine, state) {
             outcome: e => { record("tool-outcome", e); if (chained) engine.brain.outcome(e); }
         },
         playback: {
-            start: (e, done) => {
+            start: (e, done, failed) => {
                 // Key and bubble rows gate replies. Conversation cues complete
                 // independently so a close cannot retain the next capture.
                 if (state().playback.kind === "feedback" && ["start", "stop"].includes(state().playback.cue)) {
@@ -138,11 +139,34 @@ function ports(root, engine, state) {
                     done();
                     return;
                 }
+                // A line is not the gated model reply. Consume the real
+                // engine's process-free source and acknowledge its actual end.
+                if (state().playback.kind === "feedback" && state().playback.cue === "line") {
+                    const source = engine.playbackSource(e.source);
+                    if (source === null) { failed("scripted-feedback-source"); return; }
+                    record("feedback-line", e);
+                    const stream = feedback = source.readable;
+                    stream.once("end", () => {
+                        if (feedback !== stream) return;
+                        feedback = null;
+                        done();
+                    });
+                    stream.once("error", () => {
+                        if (feedback !== stream) return;
+                        feedback = null;
+                        failed("scripted-feedback-stream");
+                    });
+                    stream.resume();
+                    return;
+                }
                 record("playback-start", e);
                 wait("played", () => { record("playback-callback", e); done(); });
             },
             flush: (e, done) => {
                 record("playback-flush", e);
+                const stream = feedback;
+                feedback = null;
+                stream?.destroy();
                 const late = waiting.get("played");
                 waiting.delete("played");
                 if (late !== undefined) wait("late-played", late);

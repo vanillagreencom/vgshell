@@ -1720,6 +1720,21 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(user(body), ["Open the door.", INTERRUPTED + "\n\nNever mind."], "the brain is told it heard nothing");
     });
 
+    // Stop in the same runner drain precedes the native request's microtask.
+    // There is no native reply or history item to describe as unheard.
+    await run("cancel-queued", async w => {
+        const before = server.requests.length;
+        w.runner.dispatch({ type: "say", text: "Unsent request." });
+        w.runner.dispatch({ type: "stop" });
+        await until(() => quietTurn(w), "queued cancellation and local feedback acknowledge cleanup");
+        assert.equal(server.requests.length, before, "the cancelled queued request never leaves");
+        server.replies.push(text("Okay."));
+        w.runner.dispatch({ type: "say", text: "Current request." });
+        const body = await requested(w, before + 1, "the current request after queued cancellation",
+            () => w.s().fault.kind === "error");
+        assert.deepEqual(user(body), ["Current request."], "an unsent turn supplies no unlabelled heard-prefix item");
+    });
+
     // A tool call goes through the real router to a stand-in executor and
     // returns as one tool-results turn with the local class's restated rule.
     await run("tool-round", async w => {
@@ -3797,6 +3812,7 @@ async function groupPlants(root, server) {
         ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
             'heard(c, turn, "Hello there. The time is noon.");', "barge-in"],
         ["cancel-heard", '            if (c.live === null && turn.relay === null) heard(c, turn, "");\n', "", "cancel-thinking"],
+        ["queued-heard", ' || turn.labels.size === 0) return;', ') return;', "cancel-queued"],
         ["partial-to-brain", 'utterance.collection?.done("partial", event.text);', 'utterance.collection?.done("final", event.text);', "turn-loop"],
         ["tool-names-spoken", "const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });", "const text = Speakable.create(LANGUAGE, { tools: [] });", "brain-trace"],
         ["trace-not-written", "                    brainText?.write(turn, event.text);\n", "", "brain-trace"],
@@ -4195,7 +4211,10 @@ async function keyRefusedHold(root, handshake, engineEdits = []) {
         let settings = null;
         // Secrets.revision: a new one for each write of the stored list.
         let revision = 1;
-        const engine = Engine.create({ captionLimit: 1, state: () => ({ gen: 0 }),
+        // The stream failure rejudges and closes an acquired conversation,
+        // so its state port must supply the complete Session contract.
+        const sessionState = load(path.join(from, "Session.js")).initial();
+        const engine = Engine.create({ captionLimit: 1, state: () => sessionState,
             accounts: () => ({ secrets: { lookup: () => Buffer.from("test-key-must-stay-private"), revision: () => String(revision) }, choose: elevenAccounts.choose,
                 resolve: id => ["key 1", "key 2"].includes(id) ? keyOf(id) : null }),
             clock: { now: () => performance.now(), wallNow: Date.now,
@@ -4215,6 +4234,7 @@ async function keyRefusedHold(root, handshake, engineEdits = []) {
             await until(() => failures.length === before + 1, label + ": the refused handshake fails the stream");
             return failures.at(-1);
         };
+        let primary;
         try {
             assert.deepEqual(cause(judged("key 1")), ["ready", undefined, undefined], voice.setting + ": key 1 is ready");
             const published = answers.length;
@@ -4235,7 +4255,17 @@ async function keyRefusedHold(root, handshake, engineEdits = []) {
             const another = await talk(2, 500, voice.setting + " 500");
             assert.deepEqual([another, records.at(-1).cause], ["live=disconnected code=1006", "voice-stopped"], voice.setting + ": another refusal");
             assert.deepEqual(cause(judged("key 1")), ["ready", undefined, undefined], voice.setting + ": another refusal holds nothing");
-        } finally { engine.close(); }
+        } catch (error) {
+            primary = error;
+            throw error;
+        } finally {
+            try { await engine.close(); }
+            catch (cleanup) {
+                if (primary !== undefined)
+                    throw new AggregateError([primary, cleanup], "keyRefusedHold: primary and engine cleanup failed", { cause: primary });
+                throw cleanup;
+            }
+        }
     }
 }
 async function keyRefusedGroup(root) {

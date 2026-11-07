@@ -67,7 +67,7 @@
 # per-screen layers every 0.1 s for up to timeout_s; the end reading's
 # files, for the feed, every 50 ms for up to timeout_s. Notification owner
 # waits poll every 0.2 s at the harness's state-wait bound.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/tree.sh scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 expect "the seed starts Themes disabled" False plugin_enabled vgs.themes
 leak_plugin_setup vgs.themes true || { fail "leak-check: fixture precondition failed"; return 1; }
@@ -291,6 +291,55 @@ SH
 expect "control: a row that leaves a file in the stand-in directory fails once" 1 lc_planted leak-plant-shim
 expect "control: the failure names the shim class and the file" 1 lc_failed leak-plant-shim "leaves shim: \\+vgs-leak-plant [0-9a-f]{12}"
 rm -f -- "${shim:?}/vgs-leak-plant"
+
+# The real row boundary owns acquired fixture files on every exit, not
+# just the normal tail. This source is process-free; the live shim plant
+# below also proves that restoration keeps the row red but lets it finish.
+lc_fixture_source="$sandbox/leak-fixture-source"
+mkdir -p -- "$lc_fixture_source"
+lc_fixture_restore() { # CHECKPOINT ROW SCOPE
+  [[ $lc_fixture_mode != omitted ]] || return 0
+  tree_fixture_files restore "$1" "$lc_fixture_source" "$shim" || return 1
+  [[ $lc_fixture_mode != cleanup ]]
+}
+lc_fixture_read() {
+  local reading
+  reading="$(tree_fixture_files check "$lc_fixture_checkpoint" "$lc_fixture_source" "$shim")" || return 1
+  printf '%s\n' "$reading"
+}
+cat >"$lc_plants/leak-fixture-files.sh" <<'SH'
+lc_fixture_checkpoint="$sandbox/leak-fixture-$BASHPID-$leak_seq"
+tree_fixture_files capture "$lc_fixture_checkpoint" "$lc_fixture_source" "$shim"
+smoke_row_restore=(lc_fixture_restore "$lc_fixture_checkpoint")
+printf 'altered\n' >"$lc_fixture_source/owner.js"
+case "$lc_fixture_mode" in
+  assertion|cleanup) fail "leak-fixture-files: primary-assertion" ;;
+  setup) false ;;
+  shim)
+    printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-leak-fixture"
+    chmod 755 "$shim/vgs-leak-fixture" ;;
+esac
+SH
+for lc_fixture_mode in success assertion setup shim; do
+  printf 'stock\n' >"$lc_fixture_source/owner.js"
+  lc_boundary leak-fixture-files
+  expect "$lc_fixture_mode restores the acquired source and executable shims" clean lc_fixture_read
+  lc_fixture_want=1
+  [[ $lc_fixture_mode != success ]] || lc_fixture_want=0
+  expect "$lc_fixture_mode preserves its original row verdict" "$lc_fixture_want" printf '%s\n' "$lc_result"
+done
+lc_fixture_mode=omitted
+printf 'stock\n' >"$lc_fixture_source/owner.js"
+lc_boundary leak-fixture-files
+expect "control: omitted teardown fails the same acquired-input reading" changed lc_fixture_read
+tree_fixture_files restore "$lc_fixture_checkpoint" "$lc_fixture_source" "$shim"
+lc_fixture_mode=cleanup
+lc_fixture_cleanup_status=0
+(lc_boundary leak-fixture-files) || lc_fixture_cleanup_status=$?
+expect "a cleanup failure remains terminal" 1 printf '%s\n' "$lc_fixture_cleanup_status"
+expect "cleanup failure retains the primary assertion" 1 lc_failed leak-fixture-files primary-assertion
+expect "cleanup failure retains its own restoration cause" 1 lc_failed leak-fixture-files "restoration step=fixture-files cause=refused"
+unset lc_fixture_mode
 
 cat >"$lc_plants/leak-plant-unreadable.sh" <<'SH'
 hypr() { return 1; }

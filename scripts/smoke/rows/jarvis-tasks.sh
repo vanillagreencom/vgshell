@@ -10,6 +10,7 @@
 # fixture polls its gates every 10 ms.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
 set -euo pipefail
+jarvis_fixture_begin
 source "$source_repo/scripts/smoke/jarvis-console.sh"
 expected_errors+=("${dictation_absent_errors[@]}")
 expected_errors+=('WARN qml: jarvis: stderr=jarvis: task-voice=notify-missing')

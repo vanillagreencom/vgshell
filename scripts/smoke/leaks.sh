@@ -50,6 +50,8 @@ leak_classes=(clients focus submap layers options variables shell shim plugins b
 # leak_starts: the start reading of each row running, innermost last.
 leak_starts=()
 leak_seq=0
+# Direct boundary fixtures have no row-owned file acquisition.
+smoke_row_restore=()
 
 # leak_reading: a new reading directory in leak_last. BASHPID keeps the
 # readings a planted row takes in a subshell apart from the outer row's.
@@ -567,6 +569,7 @@ leak_restore_shell() { # NAME
 }
 leak_restore_start() { # NAME SCOPE ORIGINAL_STATUS
   local start="${leak_starts[-1]}" name relation owners current replace=false names=true
+  local leak_fixture_restart=false
   printf 'qml-smoke: restore=begin row=%s scope=%s original-status=%s start=%s end=%s\n' "$1" "$2" "$3" "$start" "$leak_end"
   # declare in a sourced file would create function locals. -g preserves
   # the entry scalar/array type, indices, exact bytes and unset state.
@@ -579,6 +582,14 @@ leak_restore_start() { # NAME SCOPE ORIGINAL_STATUS
   else
     leak_input_idle || leak_restore_step "$1" input-idle not-idle
   fi
+  # Fixture teardown shares the row boundary, not its success-only source
+  # tail or abandon handler. Preserve failures and continue the other phases.
+  if (( ${#smoke_row_restore[@]} )); then
+    "${smoke_row_restore[@]}" "$1" "$2" || {
+      leak_restore_step "$1" fixture-files refused
+      leak_fixture_failed=true
+    }
+  fi
   if mkdir -p -- "$start.restore"; then
     local inputs_status=0
     leak_inputs restore "$sandbox" "$start" "$start.restore" || inputs_status=$?
@@ -586,7 +597,7 @@ leak_restore_start() { # NAME SCOPE ORIGINAL_STATUS
   else
     leak_restore_step "$1" persisted-inputs receipt-directory
   fi
-  [[ $2 != full ]] || leak_restore_shell "$1"
+  [[ $2 != full && $leak_fixture_restart != true ]] || leak_restore_shell "$1"
   # Persist the target flags before a name-release replacement. Otherwise
   # its first frame could reacquire the process-lifetime server immediately.
   leak_restore_plugins "$start" || leak_restore_step "$1" plugins refused
@@ -656,17 +667,15 @@ PY
 # still differs or reads unreadable, and shim always, ends it with the
 # original status. Every other failure here fails the row.
 leak_row_restore() { # NAME DIR FAILED ORIGINAL_STATUS
-  local start="${leak_starts[-1]}" scope=managed status="$4" verdicts verdict class values restoration=applied shim_failed=false
+  local start="${leak_starts[-1]}" scope=managed status="$4" verdicts verdict class values restoration=applied leak_fixture_failed=false
   [[ $3 == false ]] || scope=full
-  while IFS=$'\t' read -r verdict class values; do
-    if [[ $class == shim && ( $verdict == leaves || $verdict == unreadable ) ]]; then shim_failed=true; fi
-  done <<<"${leak_verdicts:-}"
   # A row's IPC timeout latches the row's later calls (ipc_call_last). The
   # restoration and then the post reading each talk to the shell under a
   # latch of their own, so one stalled call cannot unread the other.
   local ipc_timeout_log="$sandbox/rows/$1.restore.ipc-timeout.log" timeout_line
   : >"$ipc_timeout_log"
   leak_restore_start "$1" "$scope" "$status"
+  [[ $leak_fixture_failed != true ]] || restoration=failed
   leak_input_idle || leak_restore_step "$1" post-idle not-idle
   while IFS= read -r timeout_line || [[ -n $timeout_line ]]; do
     leak_restore_step "$1" ipc "[$timeout_line]"
@@ -708,7 +717,7 @@ leak_row_restore() { # NAME DIR FAILED ORIGINAL_STATUS
   ipc_timeout_check "$1" || :
   display_record_call row-release "$start" >/dev/null || leak_restore_step "$1" release refused
   unset 'leak_starts[-1]'
-  if [[ $restoration == failed || $shim_failed == true ]]; then
+  if [[ $restoration == failed ]]; then
     [[ $status != 0 ]] || status=1
     printf 'qml-smoke: restoration=terminal row=%s original-status=%s\n' "$1" "$status"
     exit "$status"

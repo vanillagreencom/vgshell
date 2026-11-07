@@ -665,8 +665,12 @@ world(async () => {
         await nativeEnd(next);
         nativeResult(next, "automatic_renewal", "Automatic request");
         if (P === GEMINI) next.nativeSend({ serverContent: { turnComplete: true } });
-        await until(() => w.delegations.length === 1 && w.captures.at(-1) !== capture && w.state.capture.kind === "open",
+        // No spoken reply was queued. Session keeps this automatic recorder
+        // open across the native input boundary; renewal changes no capture.
+        await until(() => w.delegations.length === 1 && w.state.turn.kind === "none"
+                && w.state.capture.kind === "open" && w.phase === "listening",
             "the next automatic turn returns to listening on the replacement transport");
+        assert.equal(w.captures.at(-1), capture, "a native input end alone replaces no recorder");
         assert.deepEqual(w.delegations.map(event => event.text), ["Automatic request"]);
         capContinues(w, identity);
     }

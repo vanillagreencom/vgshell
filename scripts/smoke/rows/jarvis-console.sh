@@ -5,6 +5,7 @@
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
 # inputs: scripts/smoke/jarvis-console.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Ui/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js
 set -euo pipefail
+jarvis_fixture_begin
 source "$source_repo/scripts/smoke/jarvis-console.sh"
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
@@ -392,7 +393,8 @@ import sys
 p=Path(sys.argv[1]); s=p.read_text()
 changes={
     "tabs": ('model: ["Now", "Needs you", "History"]', 'model: ["Now", "Needs you"]'),
-    "stop": ('"open-task", row.id);', '"open-task", taskRows[0].id);'),
+    "stop": ('shell.ipc.call(action === "stop" ? "stop-task" : "open-task", row.id);',
+             'shell.ipc.call(action === "stop" ? "stop-task" : "open-task", taskRows[0].id);'),
     "audit": ('History.problems(auditRows, historyQuery)', 'History.problems([], historyQuery)'),
     "groups": ('GroupList {\n                    id: auditList', 'Column {\n                    id: auditList'),
 }

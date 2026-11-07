@@ -21,6 +21,7 @@
 # runs. Each read polls once per nested IPC round trip.
 # inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh
 set -euo pipefail
+jarvis_fixture_begin
 expected_errors+=("${dictation_absent_errors[@]}")
 expected_errors+=("${jarvis_provoked_errors[@]}")
 
@@ -700,7 +701,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state,\n                        brain: message.brain });'
+needle='const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state,\n                        brain: message.brain, conversationId: message.conversationId });'
 assert s.count(needle)==1
 changed=s.replace(needle, needle.replace("= StatusPublication.write", "= false ? StatusPublication.write").replace(" });", ' }) : "ok";'))
 assert changed != s
@@ -812,9 +813,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='return [{ label: "System default", value: systemDefault }].concat(devices);'
+needle='return [{ label: "System default", value: systemDefault }].concat(physical);'
 assert s.count(needle)==1
-changed=s.replace(needle, 'return devices;')
+changed=s.replace(needle, 'return physical;')
 assert changed != s
 p.write_text(changed)
 PY

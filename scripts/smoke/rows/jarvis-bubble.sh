@@ -23,6 +23,7 @@
 # must withdraw capture. These are state/order probes, not timing budgets.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/BarHost.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
+jarvis_fixture_begin
 jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
 jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
 jarvis_bubble_focus_output=false
@@ -87,6 +88,8 @@ EOF
 smoke_row_abandon=(jarvis_bubble_abandon)
 expect "the bubble row enables its compositor dispatch fixture" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the bubble's compositor fixture answers before positioning" bubble probe echo bubble
+leak_notifications_setup || { fail "the bubble's notification holder cannot be acquired"; return 1; }
+leak_name_wait org.freedesktop.Notifications shell || { fail "the bubble's notification name is not owned by this shell"; return 1; }
 
 jarvis_bubble_required_box() { # TYPE PROPERTY VALUE
   local box

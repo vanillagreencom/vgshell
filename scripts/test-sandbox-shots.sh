@@ -2297,6 +2297,61 @@ for spec in "${observer_controls[@]}"; do
   fi
 done
 
+# Acquired fixture inputs survive a nested row's edits, independently of
+# command records. The same file owner restores changed, deleted and added
+# source files and executable shims; a failed restore never says clean.
+fixture_files_case() { # TREE_HELPER
+  local helper="$1" root
+  root="$(mktemp -d "$tmp/fixture-files.XXXXXX")" || return 1
+  env -i PATH=/usr/bin:/bin HOME="$tmp" "$BASH" -c '
+    set -euo pipefail
+    source "$1"
+    root=$2
+    mkdir "$root/source" "$root/shim"
+    printf "stock\n" >"$root/source/owner.js"
+    printf "#!/bin/sh\nexit 0\n" >"$root/shim/tool"
+    chmod 755 "$root/shim/tool"
+    tree_fixture_files capture "$root/outer" "$root/source" "$root/shim"
+    printf "instrumented\n" >"$root/source/owner.js"
+    tree_fixture_files capture "$root/inner" "$root/source" "$root/shim"
+    for case in replace remove mode; do
+      case "$case" in
+        replace) printf "changed\n" >"$root/source/owner.js" ;;
+        remove) rm "$root/source/owner.js" ;;
+        mode) chmod 700 "$root/source/owner.js" ;;
+      esac
+      printf "#!/bin/sh\nexit 99\n" >"$root/shim/added"
+      chmod 755 "$root/shim/added"
+      printf "diagnostic\n" >>"$root/shim/calls"
+      [[ $(tree_fixture_files check "$root/inner" "$root/source" "$root/shim") == changed ]]
+      tree_fixture_files restore "$root/inner" "$root/source" "$root/shim"
+      [[ $(cat "$root/source/owner.js") == instrumented && ! -e $root/shim/added ]]
+      [[ -s $root/shim/calls ]]
+      [[ $(tree_fixture_files check "$root/inner" "$root/source" "$root/shim") == clean ]]
+    done
+    printf "fixture\n" >"$root/source/fixture.js"
+    tree_fixture_files restore "$root/outer" "$root/source" "$root/shim"
+    [[ $(cat "$root/source/owner.js") == stock && ! -e $root/source/fixture.js ]]
+    mv "$root/inner/files.json" "$root/inner/unavailable"
+    if tree_fixture_files restore "$root/inner" "$root/source" "$root/shim"; then exit 1; fi
+    [[ $(tree_fixture_files check "$root/outer" "$root/source" "$root/shim") == clean ]]
+  ' _ "$helper" "$root"
+}
+if fixture_files_case "$repo/scripts/smoke/tree.sh"; then
+  ok "fixture files restore nested inputs and executable shims without deleting diagnostics"
+else
+  fail "fixture files restore nested inputs and executable shims without deleting diagnostics"
+fi
+fixture_files_mutant="$tmp/fixture-files-mutant.sh"
+if ! mutate "$repo/scripts/smoke/tree.sh" 'item.write_bytes(bytes.fromhex(row[2]))' \
+  'pass' "$fixture_files_mutant"; then
+  fail "control: fixture file restoration could not be removed"
+elif fixture_files_case "$fixture_files_mutant" >/dev/null 2>&1; then
+  fail "control: omitted fixture file restoration stayed green"
+else
+  ok "control: omitted fixture file restoration fails the same nested-input case"
+fi
+
 # The harness names a missing ImageMagick among its prerequisites, since the
 # notifications row and the Slack scene draw converted emoji: with no tool
 # on PATH its not-measured line lists magick, and a copy without the check

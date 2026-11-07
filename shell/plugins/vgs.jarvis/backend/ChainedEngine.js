@@ -1631,7 +1631,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     // Only the brain's own reply has a heard prefix to report.
     function heard(c, turn, text) {
-        if (turn.fast !== undefined) return;
+        // Before respond releases the request, a queued or release-held turn
+        // has no contributing brain labels. Its local acknowledgement is not
+        // a native reply to account for, and must not invent a history label.
+        if (turn.fast !== undefined || turn.labels.size === 0) return;
         c.heard = { turn, labels: [...turn.labels], text };
     }
     // A duplex reply's heard account for an interruption, or null when the

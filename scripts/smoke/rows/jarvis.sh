@@ -1,6 +1,32 @@
 # Shared Jarvis smoke helpers and warning state for downstream rows.
-# inputs: shell/plugins/vgs.jarvis/* scripts/smoke/rows/plugins.sh
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/accounts-world.js scripts/smoke/rows/plugins.sh
 set -euo pipefail
+
+# Register only after the complete input is acquired. smoke_row owns this
+# callback on every exit; an inner bubble restores the key row's input,
+# then the key row restores stock for widget/desktop and all later readers.
+jarvis_fixture_begin() {
+  local checkpoint="$sandbox/rows/$smoke_row_name.fixture-$BASHPID-$leak_seq"
+  jarvis_fixture_files capture "$checkpoint" || return 1
+  smoke_row_restore=(jarvis_fixture_restore "$checkpoint")
+}
+jarvis_fixture_files() { # OPERATION CHECKPOINT
+  # The controls row also instruments the folder reader and its private
+  # account double. These are fixture inputs, never account records.
+  tree_fixture_files "$1" "$2" "$repo/shell/plugins/vgs.jarvis" \
+    "$repo/bin/lib/account-folders.js" "$repo/scripts/fixtures/jarvis/accounts-world.js" "$shim"
+}
+jarvis_fixture_restore() { # CHECKPOINT ROW SCOPE
+  local reading
+  reading="$(jarvis_fixture_files check "$1")" || return 1
+  [[ $reading != clean ]] || return 0
+  [[ $reading == changed ]] || return 1
+  if [[ $3 != full ]]; then
+    leak_restore_stop "$2" fixture-stop
+    leak_fixture_restart=true
+  fi
+  jarvis_fixture_files restore "$1"
+}
 # Every row that starts the Jarvis fixtures declares this set, as the
 # real daemon's fixtures provoke it: jarvis_provoked_errors is the one place.
 jarvis_provoked_errors=()

@@ -4,6 +4,7 @@
 # gates poll at 10 ms; hold barriers use the shell's native marker.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
+jarvis_fixture_begin
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
 expected_errors+=("${dictation_absent_errors[@]}")
@@ -459,7 +460,7 @@ jarvis_key_talk_up
 hold_barrier
 expect "dropping release delivery breaks the real phase assertion" 1 jarvis_key_commit_control
 jarvis_disable
-jarvis_rescan
+rescan "the release control is disabled without another source edit"
 expect_poll "disable unregisters every Jarvis key" 0 hold_native vgs.jarvis:
 hold_barrier
 hold_stop_keyboard

@@ -88,3 +88,92 @@ assert text.count(needle) == 1, "smoke background observer insertion must match 
 path.write_text(text.replace(needle, needle + '    onBrokenKeysChanged: console.info("smoke: backgroundFailures=" + Object.keys(brokenKeys).length)\n'))
 PY
 }
+
+# A row's acquired fixture files, not product configuration or state. The
+# caller owns SOURCE and SHIM in the disposable world and stops their users
+# before restore. Executable shims are kept; their diagnostic records are not
+# rolled back. Nested rows acquire the outer row's actual instrumented input.
+tree_fixture_files() { # capture|check|restore CHECKPOINT SOURCE... SHIM
+  python3 - "$@" <<'PY'
+import json, os, pathlib, stat, sys
+operation, checkpoint, *targets = sys.argv[1:]
+checkpoint = pathlib.Path(checkpoint)
+roots = list(map(pathlib.Path, targets))
+def inventory(root, commands):
+    if not commands and not root.exists() and not root.is_symlink():
+        return {}
+    if not commands and root.is_file() and not root.is_symlink():
+        return {"": ["file", stat.S_IMODE(root.stat().st_mode), root.read_bytes().hex()]}
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"fixture-root={root}")
+    rows = {}
+    def visit(directory):
+        for item in sorted(directory.iterdir()):
+            mode = item.lstat().st_mode
+            name = str(item.relative_to(root))
+            if stat.S_ISDIR(mode):
+                visit(item)
+                if not commands or any(key.startswith(name + "/") for key in rows):
+                    rows[name] = ["directory", stat.S_IMODE(mode)]
+            elif stat.S_ISREG(mode):
+                if not commands or mode & 0o111:
+                    rows[name] = ["file", stat.S_IMODE(mode), item.read_bytes().hex()]
+            elif stat.S_ISLNK(mode):
+                if not commands or os.access(item, os.X_OK):
+                    rows[name] = ["link", os.readlink(item)]
+            else:
+                raise ValueError(f"fixture-entry={item}")
+    visit(root)
+    return rows
+def read():
+    return [inventory(root, index == len(roots) - 1) for index, root in enumerate(roots)]
+try:
+    if operation == "capture":
+        checkpoint.mkdir()
+        if any(not root.exists() or root.is_symlink() for root in roots):
+            raise ValueError("fixture-acquisition=missing-or-linked")
+        rows = read()
+        # Publish only a complete acquisition. A partial capture has no reader.
+        (checkpoint / "files.json").write_text(json.dumps({"targets": targets, "rows": rows}))
+        print("captured")
+    else:
+        saved = json.loads((checkpoint / "files.json").read_text())
+        rows = saved["rows"]
+        if saved["targets"] != targets or not isinstance(rows, list) or len(rows) != len(roots):
+            raise ValueError("fixture-checkpoint=shape")
+        current = read()
+        if operation == "check":
+            print("clean" if current == rows else "changed")
+        elif operation == "restore":
+            for root, before, after in zip(roots, rows, current):
+                # Remove children before parents. Never follow a replaced link.
+                changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+                for name in sorted(changed & after.keys(), key=lambda name: (-name.count("/"), name)):
+                    item = root / name
+                    if after[name][0] == "directory":
+                        if name not in before or before[name][0] != "directory":
+                            item.rmdir()
+                    else:
+                        item.unlink()
+                for name in sorted(changed & before.keys(), key=lambda name: (name.count("/"), name)):
+                    item, row = root / name, before[name]
+                    if row[0] == "directory":
+                        item.mkdir(exist_ok=True)
+                        item.chmod(row[1])
+                    elif row[0] == "link":
+                        item.symlink_to(row[1])
+                    elif row[0] == "file":
+                        item.write_bytes(bytes.fromhex(row[2]))
+                        item.chmod(row[1])
+                    else:
+                        raise ValueError("fixture-checkpoint=entry")
+            if read() != rows:
+                raise ValueError("fixture-restoration=different")
+            print("restored")
+        else:
+            raise ValueError("fixture-operation=" + operation)
+except (OSError, ValueError, KeyError, TypeError) as error:
+    print("fixture-files: " + str(error), file=sys.stderr)
+    sys.exit(1)
+PY
+}
