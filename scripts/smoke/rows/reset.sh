@@ -218,7 +218,7 @@ reset_run_row() {
   for file in "$reset_user" "$reset_theme"; do
     if [[ -e $file ]]; then cp -p -- "$file" "$reset_saved/${file##*/}"; fi
   done
-  reset_shim_names=(mise docker podman pacman)
+  reset_shim_names=(mise docker podman pacman journalctl busctl)
   mkdir -p -- "$reset_saved/shim"
   for name in "${reset_shim_names[@]}"; do
     if [[ -e $shim/$name ]]; then cp -p -- "$shim/$name" "$reset_saved/shim/$name"; fi

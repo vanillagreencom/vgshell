@@ -1133,20 +1133,25 @@ automations_stand_ins_restore() { # STUB
 # read with the lines of WORLD/journal.jsonl whose _SYSTEMD_USER_UNIT the
 # read's -u words name, a pattern as journalctl matches it, and follows
 # WORLD/manager.jsonl from its end for the user manager's lines, writing
-# its pid to WORLD/follow.calls; any other read is refused. A busctl there
-# answers GetUnitProcesses on the user bus with the processes of the tree
-# whose root pid WORLD/pids/<unit> holds, only the root while
-# WORLD/hide-engines exists, and none for a unit with no such file; any
-# other call runs the host's busctl unchanged. Each logs its argv as one
-# JSON line in WORLD/<name>.calls. local_sync_stand_ins_restore WORLD puts
-# back the shim files and the systemctl replies they covered.
+# its pid to WORLD/follow.calls. A busctl there answers GetUnitProcesses on
+# the user bus with the processes of the tree whose root pid
+# WORLD/pids/<unit> holds, only the root while WORLD/hide-engines exists,
+# and none for a unit with no such file. Each logs the argv of a call it
+# answers as one JSON line in WORLD/<name>.calls, and runs any other call
+# as the host's program, unchanged, so another reader on the PATH, such as
+# a later row, gets the host's answer; a program the host lacks answers as
+# a missing command does, 127. A caller that plants the stand-ins removes
+# them in its own restoration, as start-order and reset do after
+# default_set_prepare. local_sync_stand_ins_restore WORLD puts back the
+# shim files and the systemctl replies they covered.
 local_sync_stand_in_names=(journalctl busctl)
 local_sync_stand_ins() { # WORLD
-  local world="$1" name props busctl_bin
+  local world="$1" name props journalctl_bin busctl_bin
   # A tree that ships no Local Sync, as an older one a capture runs, has
   # nothing to stand in for.
   [[ -f $repo/shell/plugins/vgs.local-sync/SyncLogic.js ]] || return 0
-  busctl_bin="$(command -v busctl)" || { fail "local_sync_stand_ins: busctl is not on PATH"; return 1; }
+  journalctl_bin="$(command -v journalctl)" || journalctl_bin=""
+  busctl_bin="$(command -v busctl)" || busctl_bin=""
   props="$(node -e 'const { load } = require(process.argv[1]); process.stdout.write(load(process.argv[2]).SHOW_PROPERTIES.join(","))' \
     "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.local-sync/SyncLogic.js")" || { fail "local_sync_stand_ins: the unit property list is unreadable"; return 1; }
   mkdir -p -- "$world/saved" "$world/pids"
@@ -1160,20 +1165,24 @@ local_sync_stand_ins() { # WORLD
   device_reply systemctl 0 "" --user show --timestamp=unix -p "$props" "*.service"
   cat >"$shim/journalctl" <<EOF
 #!/usr/bin/env bash
-python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$world/journalctl.calls"
 if [[ "\$*" == "--user --follow --lines=0 --output=json _SYSTEMD_USER_UNIT=init.scope" ]]; then
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$world/journalctl.calls"
   printf '%s\n' "\$\$" >>"$world/follow.calls"
   exec tail -n 0 -F -- "$world/manager.jsonl"
 fi
-exec python3 - "$world/journal.jsonl" "\$@" <<'PY'
-import fnmatch, json, sys
-path, argv = sys.argv[1], sys.argv[2:]
+exec python3 - "$world" $(printf '%q' "$journalctl_bin") "\$@" <<'PY'
+import fnmatch, json, os, sys
+world, host, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
 head = ["--user", "--no-pager", "-o", "json", "-n", "200"]
 units = argv[len(head):]
 if argv[:len(head)] != head or not units or len(units) % 2 or any(w != "-u" for w in units[0::2]):
-    sys.exit("stand-in journalctl: argv=" + json.dumps(argv))
+    if not host:
+        sys.exit(print("journalctl: command not found", file=sys.stderr) or 127)
+    os.execv(host, [host] + argv)
+with open(os.path.join(world, "journalctl.calls"), "a") as out:
+    out.write(json.dumps(argv) + "\n")
 patterns = units[1::2]
-lines = [l for l in open(path).read().splitlines() if l and any(fnmatch.fnmatchcase(json.loads(l).get("_SYSTEMD_USER_UNIT", ""), p) for p in patterns)]
+lines = [l for l in open(os.path.join(world, "journal.jsonl")).read().splitlines() if l and any(fnmatch.fnmatchcase(json.loads(l).get("_SYSTEMD_USER_UNIT", ""), p) for p in patterns)]
 print("\n".join(lines[-200:]))
 PY
 EOF
@@ -1211,6 +1220,7 @@ if "/" not in unit and os.path.exists(root_file):
 print(json.dumps({"type": "a(sus)", "data": [procs]}))
 PY
 fi
+[[ -n $(printf '%q' "$busctl_bin") ]] || { echo "busctl: command not found" >&2; exit 127; }
 exec $(printf '%q' "$busctl_bin") "\$@"
 EOF
   chmod 755 "$shim/journalctl" "$shim/busctl"
