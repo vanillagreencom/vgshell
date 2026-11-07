@@ -1990,7 +1990,7 @@ declare -A smoke_mutant_old=(
   [table-reach]=$'      smoke_scoped=true\n      smoke_table_reach\n'
   [full]=$'smoke_scoped=false\naffected=()'
   [own-file]='for glob in "$file" "${smoke_globs[@]}"; do'
-  [loads]='    smoke_load_reach "$2"'
+  [loads]='    smoke_load_reach "$2" "$1"'
   [qmldir-edge]='loads |= consulted'
   [chain]='queue+=("$loader")'
   [qmldir-every]='every=True)'
@@ -2284,6 +2284,49 @@ for function_case in harness library transitive-control top-level shared-line un
   esac
   row "function reach $function_case uses the real Gallery row, never launcher" "$d" 0 "" "$wanted"
 done
+
+# PluginLogic's real functions and Dispatch's real import alias, without a
+# nested runtime. The rows drive separate plugin entry points; loading the
+# library alone does not observe every exported function.
+core_observation_case() { # CASE
+  local variant="$1" d="$tmp/core-observation-$1" wanted="$smoke_none"
+  smoke_fixture "$d"
+  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/Dispatch.js" "$repo/shell/Core/HyprlandLayer.js" "$d/shell/Core/"
+  printf 'import "PluginLogic.js" as Logic\nQtObject { property var value: Logic.clone({}) }\n' >"$d/shell/Core/HyprlandLayer.qml"
+  printf 'import "../../Core/PluginLogic.js" as Logic\nQtObject { property bool value: Logic.isPlainObject({}) }\n' >"$d/shell/plugins/acme.launcher/Panel.qml"
+  printf 'import "../../Core/Dispatch.js" as Dispatch\nQtObject { property var value: Dispatch.QUEUE_LIMIT }\n' >"$d/shell/plugins/acme.other/Panel.qml"
+  case "$variant" in
+    callback)
+      printf 'import "../../Core/PluginLogic.js" as Logic\nQtObject { property var value: Logic.controlValue }\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    computed)
+      printf 'import "../../Core/PluginLogic.js" as Logic\nQtObject { property var value: Logic[method]({}) }\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    direct)
+      printf '# inputs: shell/plugins/acme.launcher/* shell/Core/PluginLogic.js\n' >"$d/scripts/smoke/rows/launcher.sh" ;;
+  esac
+  commit "$d" core-observation
+  case "$variant" in
+    alias)
+      plant "$d/shell/Core/HyprlandLayer.qml" 'Logic.clone({})' 'Logic.clone({ changed: true })' ;;
+    unobserved|direct|computed)
+      plant "$d/shell/Core/PluginLogic.js" 'function fieldRows(schema, status) {' $'function fieldRows(schema, status) {\n    schema = schema || {};' ;;
+    observed)
+      plant "$d/shell/Core/PluginLogic.js" 'return value !== null && typeof value === "object" && !Array.isArray(value);' 'return value !== null && !Array.isArray(value) && typeof value === "object";' ;;
+    callback)
+      plant "$d/shell/Core/PluginLogic.js" 'return value === undefined ? undefined : JSON.parse(JSON.stringify(value));' 'return value === undefined ? value : JSON.parse(JSON.stringify(value));' ;;
+    top-level)
+      plant "$d/shell/Core/PluginLogic.js" 'var DEFAULT_ICON = "package";' 'var DEFAULT_ICON = "box";' ;;
+    seam)
+      plant "$d/shell/Core/PluginLogic.js" $'function isPlainObject(value) {\n    return value' $'var outside = true;\nfunction isPlainObject(value) {\n    return value' ;;
+    removed)
+      plant "$d/shell/Core/PluginLogic.js" $'function isPlainObject(value) {\n    return value !== null && typeof value === "object" && !Array.isArray(value);\n}' ' ' ;;
+  esac
+  case "$variant" in
+    observed|callback|computed|direct|removed) wanted="$smoke_launcher" ;;
+    top-level|seam) wanted="$smoke_launcher" ;;
+  esac
+  row "core function observation $variant" "$d" 0 "" "$wanted"
+}
+parallel_cases core_observation_case core-observation alias unobserved observed callback computed direct top-level seam removed
 
 # These are actual incoming commits and a rebase, not an injected path list.
 # Gallery's own file stays unchanged across restack. Its unchanged helper is

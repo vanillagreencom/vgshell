@@ -1283,14 +1283,17 @@ PY
 # It reads the files on disk, so a removed file has no loaders here, and
 # smoke_path_reach does not trace one. A load chosen by a value computed at
 # run time, such as a Loader source built in code, is not read; the row's
-# input line names it. A file the
-# reading cannot read sets smoke_read_fault to `qml-loads-unreadable
+# input line names it. Optional BASE JS_PATH narrows only that file's explicit import edges to
+# namespaces that observe its changed functions or local callers, in
+# smoke_observed; an unknown hunk or namespace use retains whole-file reach.
+# The reading cannot read sets smoke_read_fault to `qml-loads-unreadable
 # path=<path>`, and a reading that fails sets it to `qml-loads-failed`.
-smoke_loads_read() {
+smoke_loads_read() { # [BASE JS_PATH]
   local out fact loader loaded
+  smoke_observed=whole
   # -B: the reading writes no bytecode into the tree it reads.
-  if ! out="$(python3 -I -B - <<'PY'
-import os, re, sys
+  if ! out="$(python3 -I -B - "$@" <<'PY'
+import os, re, subprocess, sys
 
 sys.path.insert(0, "scripts")
 from qml_controls import qmldir_exports
@@ -1300,14 +1303,113 @@ from qml_source import Unreadable, blank_comments, source_texts
 # starts with an uppercase letter, and `import qs[.<Dir>...]` names a
 # directory under the shell root, shell/: Implicit imports and Manual
 # imports, https://quickshell.org/docs/v0.3.1/guide/qml-language.
-IMPORT = re.compile(r'^[ \t]*\.?import[ \t]+(?:"([^"\n]*)"|(qs(?:\.\w+)*)\b)', re.M)
+IMPORT = re.compile(r'^[ \t]*\.?import[ \t]+(?:"([^"\n]*)"|(qs(?:\.\w+)*)\b)(?:[ \t]+[\d.]+)?(?:[ \t]+as[ \t]+(\w+))?', re.M)
 WORD = re.compile(r"[A-Za-z_]\w*")
+
+def changed_functions(base, path, new):
+    """Attribute only complete, line-isolated named JS function hunks.
+
+    This is word reach, not a JavaScript execution model. The existing
+    literal masker holds brace offsets; an unknown hunk keeps file reach.
+    Both sides include an insertion/deletion seam (git diff-format).
+    """
+    def partition(text):
+        shape = blank_comments(text, literals=False)
+        stack, ends = [], {}
+        for at, ch in enumerate(shape):
+            if ch == "{":
+                stack.append(at)
+            elif ch == "}":
+                if not stack:
+                    return None
+                ends[stack.pop()] = at + 1
+        if stack:
+            return None
+        spans = []
+        for match in re.finditer(r"^function[ \t]+(\w+)[ \t]*\([^{}\n]*\)[ \t]*\{", shape, re.M):
+            end = ends[match.end() - 1]
+            tail = shape[end:shape.find("\n", end)] if "\n" in shape[end:] else shape[end:]
+            if tail.strip():
+                continue
+            spans.append((match.group(1), match.start(), end))
+        return spans
+
+    old = blank_comments(subprocess.check_output(["git", "show", f"{base}:{path}"], text=True))
+    diff = subprocess.check_output(["git", "diff", "--no-ext-diff", "--no-color",
+                                   "--no-textconv", "-U0", base, "--", path], text=True)
+    sides = [(text, partition(text)) for text in (old, new)]
+    if any(spans is None for _, spans in sides):
+        return None
+    reached, hunks = set(), 0
+    for line in diff.splitlines():
+        if not line.startswith("@@"):
+            continue
+        match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+        if not match:
+            return None
+        hunks += 1
+        a, ac, b, bc = match.groups()
+        for (text, spans), start, count in zip(sides, (int(a), int(b)), (int(ac or 1), int(bc or 1))):
+            end = start + count - 1 if count else start + 1
+            names = {name for name, lo, hi in spans
+                     if text.count("\n", 0, lo) + 1 <= start and end <= text.count("\n", 0, hi) + 1}
+            if len(names) != 1:
+                return None
+            reached |= names
+    if not hunks:
+        return None
+    functions, top = {}, set()
+    for text, spans in sides:
+        remainder = list(text)
+        for name, lo, hi in spans:
+            functions.setdefault(name, set()).update(WORD.findall(text[lo:hi]))
+            remainder[lo:hi] = " " * (hi - lo)
+        top.update(WORD.findall("".join(remainder)))
+    while True:
+        callers = {name for name, words in functions.items() if words & reached}
+        if callers <= reached:
+            break
+        reached |= callers
+    return None if top & reached else reached
 
 try:
     code = {}
     for root in ("shell", "scripts/smoke"):
         for path, text in source_texts(root):
             code[os.path.normpath(path)] = blank_comments(text)
+    if len(sys.argv) == 3:
+        base, changed = sys.argv[1:]
+        try:
+            reached = changed_functions(base, changed, code[changed])
+        except (OSError, UnicodeError, subprocess.CalledProcessError, KeyError):
+            reached = None
+        if reached is not None:
+            print("local")
+            for path, text in code.items():
+                explicit = False
+                for relative, module, alias in IMPORT.findall(text):
+                    if module or os.path.normpath(os.path.join(os.path.dirname(path), relative)) != changed:
+                        continue
+                    explicit = True
+                    # A namespace handed off or indexed by data can observe
+                    # any member. Named references include callbacks and
+                    # strings used to generate QML, not only calls.
+                    uses = IMPORT.sub("", text)
+                    members, unknown = set(), not alias
+                    if alias:
+                        for use in re.finditer(r"\b" + re.escape(alias) + r"\b", uses):
+                            member = re.match(r"\s*\.\s*(\w+)", uses[use.end():])
+                            if member:
+                                members.add(member.group(1))
+                            else:
+                                unknown = True
+                    if unknown or members & reached:
+                        print("observe", path)
+                # A qmldir export or another non-namespace load has no
+                # member observation here, so it retains its file edge.
+                if not explicit:
+                    print("observe", path)
+        sys.exit()
     files = {}
     for path in code:
         folder, name = os.path.split(path)
@@ -1332,14 +1434,25 @@ try:
 
     for path, text in code.items():
         here = os.path.dirname(path)
-        seen, loads = [named(here)], set()
-        for relative, module in IMPORT.findall(text):
+        # Stateless/importing JS resources inherit no QML imports, so a
+        # diagnostic naming their QML sibling is no implicit type load:
+        # https://doc.qt.io/qt-6/qtqml-javascript-imports.html
+        # (Imports Within JavaScript Resources).
+        isolated_js = path.endswith(".js") and re.search(r"^\s*\.(?:pragma\s+library|import)\b", text, re.M)
+        seen, loads = ([] if isolated_js else [named(here)]), set()
+        aliases = set()
+        for relative, module, alias in IMPORT.findall(text):
             target = os.path.join("shell", *module.split(".")[1:]) if module else os.path.normpath(os.path.join(here, relative))
+            if alias:
+                aliases.add(alias)
             if os.path.isdir(target):
                 seen.append(named(target))
             elif not module:
                 loads.add(target)
-        words = set(WORD.findall(text))
+        # A JS namespace is not the same-named QML type in this directory.
+        # Import filenames and namespace declarations are not type uses:
+        # https://quickshell.org/docs/v0.3.1/guide/qml-language (Manual imports).
+        words = set(WORD.findall(IMPORT.sub("", text))) - aliases
         for table, consulted in seen:
             loads |= consulted
             for name in words.intersection(table):
@@ -1358,6 +1471,8 @@ PY
   while read -r fact loader loaded; do
     case "$fact" in
       '') ;;
+      local) smoke_observed="" ;;
+      observe) smoke_observed+=" $loader" ;;
       load) smoke_loaded_by[$loaded]+=" $loader" ;;
       unreadable) printf -v smoke_read_fault 'qml-loads-unreadable path=%q' "$loader${loaded:+ $loaded}"; return 0 ;;
       *) smoke_read_fault=qml-loads-failed; return 0 ;;
@@ -1485,7 +1600,7 @@ smoke_path_reach() { # BASE PATH
   if [[ $smoke_reach != harness && $smoke_reach != untraced* ]]; then
     index_match smoke_index "$2"
     smoke_reach+="$index_hits"
-    smoke_load_reach "$2"
+    smoke_load_reach "$2" "$1"
   fi
   smoke_path_hit[$key]="$smoke_reach"
 }
@@ -1494,15 +1609,20 @@ smoke_path_reach() { # BASE PATH
 # input glob matches a file that loads PATH, directly or through other
 # files, as smoke_loads_read last read them; smoke_load_hit caches each
 # loader's matching rows.
-smoke_load_reach() { # PATH
-  local at=0 loader row
+smoke_load_reach() { # PATH BASE
+  local at=0 loader row smoke_observed=whole
   local -a queue=("$1") loaders
   local -A seen=([$1]=1) added=()
+  # Explicit row inputs still observe the whole file. Only the import
+  # edges of an attributable JS hunk narrow; after an observing importer
+  # ordinary file reach remains conservative.
+  if [[ $1 == shell/*.js && -f $1 ]]; then smoke_loads_read "$2" "$1"; fi
   for row in $smoke_reach; do added[$row]=1; done
   while ((at < ${#queue[@]})); do
     read -r -a loaders <<<"${smoke_loaded_by[${queue[at]}]-}"
     at=$((at + 1))
     for loader in "${loaders[@]}"; do
+      if [[ ${queue[at-1]} == "$1" && $smoke_observed != whole && " $smoke_observed " != *" $loader "* ]]; then continue; fi
       [[ -z ${seen[$loader]-} ]] || continue
       seen[$loader]=1
       queue+=("$loader")
