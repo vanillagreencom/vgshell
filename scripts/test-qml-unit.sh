@@ -766,6 +766,7 @@ mutations=(
   "the Jarvis widget click mutes|../plugins/vgs.jarvis/Widget.qml|: root.openConsole()|: root.offer(\"voice-mute\")|tst_jarvis_widget.qml"
   "the Jarvis widget calls another handler|../plugins/vgs.jarvis/Widget.qml|shell.ipc.call(\"console\", \"\")|shell.ipc.call(\"stop\", \"\")|tst_jarvis_widget.qml"
   "a muted duplex console offers typing|../plugins/vgs.jarvis/Console.qml|state !== null && state.engine.kind === \"duplex\"|refusal === \"duplex\"|tst_jarvis_console.qml"
+  "the console drops a canonical resume outcome|../plugins/vgs.jarvis/Console.qml|model: root.sessionLines|model: root.sessionLines.slice(1)|tst_jarvis_console.qml"
   "the replaced composer keeps hidden focus|../plugins/vgs.jarvis/Console.qml|if (previous !== undefined) composerFocus.forceActiveFocus(previous.focusReason);|if (false) composerFocus.forceActiveFocus(previous.focusReason);|tst_jarvis_console.qml"
   "Tab enters the hidden message composer|../plugins/vgs.jarvis/Console.qml|root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch|root.tab === 0 ? entryField : root.tab === 1 ? asksBody : historySearch|tst_jarvis_console.qml"
   "a Diagnose draft replaces an active Reply or Later editor|../plugins/vgs.jarvis/Console.qml|        if (editingAsk !== null)"$'\n'"            return { ok: false, reason: \"Finish or cancel your open ask before retrying Diagnose.\" };|        if (false)"$'\n'"            return { ok: false, reason: \"Finish or cancel your open ask before retrying Diagnose.\" };|tst_jarvis_console.qml"

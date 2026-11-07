@@ -891,7 +891,7 @@ function sessionResumeLive(result) {
 // that lives beside the record is not its resume, whatever its steps read,
 // and a resume the package refused or that ended before its first step
 // leaves every step pending. The one answer the offer, the steps the
-// widget shows and the reads of a resume's steps take.
+// console shows and the reads of a resume's steps take.
 function sessionResumeStarted(result) {
     if (result === null || result.kind !== "answer" || result.restart === undefined) return false;
     if (sessionLive(result.state)) return sessionResumeLive(result);
@@ -919,7 +919,7 @@ function sessionRunning(result) {
         since: live && result.since !== undefined ? sessionClock(result.since) : null };
 }
 
-// The bar widget's reading of the session (status `jarvisSession`), null
+// The console and bar reading of the session (status `jarvisSession`), null
 // before the first answer: { model, since } as sessionRunning gives them,
 // `offer` null or { unlock } while sessionOffer holds, `steps`, the
 // record's steps while the live session is its resume (sessionResumeLive)
@@ -949,6 +949,26 @@ function sessionRecord(wanted, result, asked, checked) {
 function sessionStepsPending(result) {
     return sessionResumeLive(result)
         && result.restart.steps.some(function (step) { return step.outcome === "pending"; });
+}
+
+var SESSION_STEP_NAMES = {
+    "delegate": function () { return "the Jarvis session"; },
+    "overseer": function (name) { return "the agent fleet for project " + name; },
+    "lane": function (name) { return "coding task " + name; }
+};
+
+// sessionRecord owns which steps belong to the resume and whether a
+// pending step can still run. The console only words that judged reading.
+function sessionStepLine(step) {
+    var name = SESSION_STEP_NAMES[step.kind](step.name);
+    if (step.outcome === "pending") return "Waiting to resume " + name + ".";
+    if (step.outcome === "resumed") return "Resumed " + name + ".";
+    return "Could not resume " + name + (step.cause === null || step.cause === "" ? "." : ": " + sentence(step.cause));
+}
+
+function sessionCheckedLine(checkedAt) {
+    return "Jarvis stopped checking the resume at " + checkedAt
+        + ". Open [Settings > Jarvis](page:vgs.jarvis/Setup/sessionStart) to check it again.";
 }
 
 // The row for RESULT, backend/session-control.js's answer, null before the

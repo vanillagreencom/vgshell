@@ -47,7 +47,7 @@ Item {
     }
     Button { id: outside; text: "Outside Console" }
 
-    TestCase {
+    UnitCase {
         name: "jarvisConsole"
         when: windowShown
 
@@ -87,6 +87,71 @@ Item {
             jarvisConsole.closeAskEditor();
             jarvisConsole.visible = true;
             wait(0);
+        }
+
+        function test_resume_outcomes_reach_only_the_now_body_data() {
+            const reading = (steps, checkedAt) => ({ model: null, since: null, offer: null,
+                steps: steps, checkedAt: checkedAt === undefined ? null : checkedAt });
+            const step = (kind, name, outcome, cause) => ({ kind: kind, name: name, outcome: outcome, cause: cause });
+            const table = [
+                { tag: "unpublished", reading: undefined, lines: [] },
+                { tag: "no-answer", reading: null, lines: [] },
+                { tag: "record-not-resumed", reading: reading([]), lines: [] },
+                { tag: "resumed", reading: reading([step("delegate", "jarvis", "resumed", null)]),
+                    lines: ["Resumed the Jarvis session."] },
+                { tag: "pending", reading: reading([step("lane", "VGS-1797", "pending", null)]),
+                    lines: ["Waiting to resume coding task VGS-1797."] },
+                { tag: "failed", reading: reading([step("overseer", "vgshell", "failed", "settings-busy")]),
+                    lines: ["Could not resume the agent fleet for project vgshell: settings-busy."] },
+                { tag: "unreached", reading: reading([step("lane", "VGS-1797", "failed", null)]),
+                    lines: ["Could not resume coding task VGS-1797."] },
+                { tag: "polling-stopped", reading: reading([step("delegate", "jarvis", "resumed", null)], "11:12"),
+                    lines: ["Resumed the Jarvis session."], checked: true }
+            ];
+            // session-control.js restartOf admits 32 steps, 100-character
+            // names and 200-character causes. No Setup badge bound applies
+            // to the console's complete, wrapped data reading.
+            const name = "X".repeat(100), cause = "<b>literal</b>" + "c".repeat(186);
+            const maximum = Array.from({ length: 32 }, () => step("lane", name, "failed", cause));
+            table.push({ tag: "maximum", reading: reading(maximum),
+                lines: maximum.map(() => "Could not resume coding task " + name + ": " + cause + "."), wrapped: true });
+            return table;
+        }
+
+        function test_resume_outcomes_reach_only_the_now_body(data) {
+            const values = root.values({});
+            if (data.reading !== undefined) values.jarvisSession = data.reading;
+            const calls = [];
+            const shell = root.shellWith(values);
+            shell.surfaces.openPage = (page, tab) => calls.push([page, tab]);
+            jarvisConsole.shell = shell;
+            const section = collect(jarvisConsole, n => n.objectName === "sessionResume", [])[0];
+            const checked = collect(jarvisConsole, n => n.objectName === "sessionResumeChecked", [])[0];
+            tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === data.lines.length);
+            const labels = collect(section, n => n.objectName === "sessionResumeLine", []);
+            compare(labels.map(label => label.text), data.lines, "the complete ordered outcomes reach their drawn labels");
+            compare(section.visible, data.lines.length > 0 || data.checked === true);
+            compare(checked.visible, data.checked === true);
+            verify(renderedFrame(jarvisConsole), "the real Now view draws the changed reading");
+            for (const label of labels) {
+                verify(label.visible && label.width > 0 && label.height >= label.implicitHeight);
+                compare(label.textFormat, Text.PlainText, "a package cause remains literal text");
+                compare(label.wrapMode, Text.Wrap);
+                if (data.wrapped) verify(label.lineCount > 1, "a complete maximum-length outcome wraps");
+            }
+            if (data.checked) {
+                verify(checked.text.includes("11:12"));
+                checked.forceActiveFocus(Qt.TabFocusReason);
+                tryCompare(checked, "activeFocus", true);
+                keyClick(Qt.Key_Return);
+                compare(calls, [["vgs.jarvis", "Setup/sessionStart"]]);
+            }
+            jarvisConsole.tab = 2;
+            tryCompare(section, "visible", false, 1000, "resume outcomes do not leak into History");
+            verify(labels.every(label => !label.visible) && !checked.visible);
+            jarvisConsole.tab = 0;
+            tryCompare(section, "visible", data.lines.length > 0 || data.checked === true);
+            compare(labels.map(label => label.text), data.lines, "returning to Now retains the current complete reading");
         }
 
         function test_handoff_is_unsent_and_preserves_occupied_draft() {
