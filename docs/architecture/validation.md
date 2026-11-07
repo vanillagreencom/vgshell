@@ -81,6 +81,14 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Never return a secret, or data derived from one, from a sandbox reader; a reader returns state and geometry. Review holds it.
 - Never hold the shared sandbox slot gate above its load limit with a lane's own stress load. A proof under load runs once, with the smallest load that reproduces the failure, inside the lane's own slot run, and a Done-when never asks for repeated load runs. Review holds it.
 
+### Screenshot baselines
+
+- Do use `scripts/sandbox-shots.sh`'s baseline pair for the UI review's before and after captures. Use the same harness script for both runs; change only the product tree with `--rev`. The script hash binds both sides, so two revisions of the script are not a pair.
+- Do complete one measured before run against main with a fresh ledger. Only failed assertions over successful observations become omissions. The normal closing verdict seals the ledger's bytes and script hash, including an empty ledger. An interrupted, failed-operation or unmeasured run supplies no sealed baseline.
+- Do accept an after omission only when scene, mode, check label, got and want match the sealed before record exactly. A changed got or want is a new failure. Normalize only retained, acquired world and harness roots; preserve product values and identities whose ownership cannot be proved.
+- Never record or excuse planted scene controls, operation acknowledgements, failed commands, IPC timeouts, reader failures or safety checks. A poll whose successful final observation differs from its expectation is an assertion; a failed read or timeout is not.
+- Never use a changed, unsealed, unreadable or wrong-script ledger. `scripts/test-sandbox-shots.sh` holds the pair, empty ledger, integrity and failure exclusions through the production assertion boundary.
+
 ### Nested sandbox
 
 - Do start and stop the sandbox only through `scripts/smoke/harness.sh`. `scripts/test-smoke-teardown.sh` holds the teardown.

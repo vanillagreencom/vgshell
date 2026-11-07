@@ -8,6 +8,7 @@
 #                                 [--dotfiles DIR] [--pages LIST] [--enable LIST] [--disable LIST]
 #                                 [--info LIST] [--click PANE]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
+#                                 [--baseline-side before|after --baseline-ledger FILE]
 #                                 [--title-inventory]
 #       scripts/sandbox-shots.sh --check-desktop-pair BEFORE_DIR AFTER_DIR
 #
@@ -363,6 +364,8 @@
 # A scene with a missing tool names itself not measured and leaves the
 # other scenes running. Exit 0 when every shot was taken. Exit 77 when a
 # prerequisite is missing. Exit 1 when any step or shot failed.
+# The baseline pair uses this same script on both sides; --rev changes only
+# the product tree. See docs/architecture/validation.md#screenshot-baselines.
 set -euo pipefail
 
 desktop_pair_check() { # BEFORE_DIR AFTER_DIR
@@ -398,6 +401,156 @@ except (OSError, ValueError) as error:
 PYDESKTOP
 }
 
+# Ledger records are JSON tuples, not lines split on a check's punctuation.
+# The seal covers their exact bytes, including the valid empty record set.
+shots_baseline_io() { # key|load|seal LEDGER SCRIPT WORLD [SCENE MODE LABEL GOT WANT]
+  python3 - "${sandbox:-}" "${rt_dir:-}" "$@" <<'PYBASELINE'
+import hashlib, json, os, stat, sys
+sandbox, runtime, action, path, script, world, *fields = sys.argv[1:]
+def encode(row):
+    return json.dumps(row, ensure_ascii=True, separators=(",", ":"))
+try:
+    if action == "key":
+        # harness.sh acquires sandbox and rt_dir independently inside the
+        # world. Replace those roots before their enclosing world; retain
+        # paths with unproved ownership, even mktemp-looking ones.
+        roots = [(sandbox, "<sandbox>"), (runtime, "<runtime>"), (world, "<world>")]
+        if world and runtime:
+            roots.append((world + "/runtime/" + os.path.basename(runtime), "<runtime-backing>"))
+        row = fields.copy()
+        for root, marker in sorted(roots, key=lambda pair: len(pair[0]), reverse=True):
+            if root:
+                row[2:] = [marker if s == root else s.replace(root + "/", marker + "/") for s in row[2:]]
+        print(encode(row))
+    else:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("not-regular")
+            data = source.read()
+            if action == "seal":
+                held, named = os.fstat(3), os.fstat(source.fileno())
+                if (held.st_dev, held.st_ino) != (named.st_dev, named.st_ino):
+                    raise ValueError("owner-changed")
+        script_hash = hashlib.sha256(open(script, "rb").read()).hexdigest()
+        if action == "seal":
+            seal = encode({"script": script_hash, "sha256": hashlib.sha256(data).hexdigest()}) + "\n"
+            with os.fdopen(os.dup(3), "wb") as output:
+                output.write(seal.encode())
+        elif action == "load":
+            lines = data.splitlines(keepends=True)
+            if not lines:
+                raise ValueError("unsealed")
+            seal = json.loads(lines[-1])
+            body = b"".join(lines[:-1])
+            if seal != {"script": script_hash, "sha256": hashlib.sha256(body).hexdigest()}:
+                raise ValueError("seal-mismatch")
+            records = []
+            for line in lines[:-1]:
+                row = json.loads(line)
+                if not isinstance(row, list) or len(row) != 5 or not all(isinstance(s, str) for s in row):
+                    raise ValueError("invalid-record")
+                if row[2].startswith("control:"):
+                    raise ValueError("control-record")
+                records.append(encode(row))
+            # Publish nothing until every record has been read and verified.
+            for record in records:
+                print(record)
+        else:
+            raise ValueError("unknown-action")
+except (OSError, ValueError, TypeError) as error:
+    print("sandbox-shots: baseline=refused cause=%s" % error, file=sys.stderr)
+    sys.exit(1)
+PYBASELINE
+}
+
+shots_baseline_start() {
+  [[ -n $baseline_side ]] || return 0
+  local definition records key name
+  declare -gA shots_baseline_keys=()
+  # Keep verdict.sh as the tally owner, including failures from readers and
+  # operations. The private delegate is its actual function, not a twin.
+  : >"$sandbox/shots-verdict.sh"
+  for name in fail expect expect_poll; do
+    definition="$(declare -f "$name")" || return
+    [[ $definition == "$name ()"* ]] || return 1
+    printf '%s\n' "${definition/#$name /shots_normal_$name }" >>"$sandbox/shots-verdict.sh"
+  done
+  source "$sandbox/shots-verdict.sh"
+  if [[ $baseline_side == before ]]; then
+    # noclobber acquires the file before we retain its descriptor. It also
+    # refuses a pre-existing symlink, without deleting another run's file.
+    set -C
+    exec {shots_baseline_fd}>"$baseline_ledger" || { set +C; return 1; }
+    set +C
+  else
+    records="$(shots_baseline_io load "$baseline_ledger" "$self" "")" || return
+    while IFS= read -r key; do
+      [[ -z $key ]] || shots_baseline_keys["$key"]=1
+    done <<<"$records"
+  fi
+  fail() { shots_baseline_failure "$@"; }
+  expect() { shots_baseline_expect shots_normal_expect "$@"; }
+  expect_poll() { shots_baseline_expect shots_normal_expect_poll "$@"; }
+}
+
+shots_baseline_expect() { # SHARED_EXPECT LABEL WANT CMD...
+  local checker="$1" shots_baseline_assertions="${shots_baseline_assertions:-false}"
+  shift
+  # These commands produce operation acknowledgements, not observations.
+  # Classify the producer, never its returned product value.
+  case "$3" in
+    ipc)
+      case "${4:-}:${5:-}" in
+        shell:hide|shell:summon|shell:movePluginWidget|shell:openTui|shell:reloadConfig|shell:rescanPlugins|shell:setPluginEnabled|shell:setPluginPlaced|\
+        smoke:invokeInstance|smoke:invokeInstanceArgs|smoke:heldStatusSet|smoke:holdStatus|smoke:scrollMenu|smoke:sessionUnlock|smoke:polkitStandInDrop|smoke:polkitStandInFail|smoke:polkitStandInOpen|\
+        *:invoke)
+          shots_baseline_assertions=false ;;
+      esac ;;
+    jarvis_asks_request|jarvis_asks_refresh|jarvis_asks_page|power_display_wake_set|power_display_wake_end)
+      shots_baseline_assertions=false ;;
+    hypr|notes|settings_scroll_set|cups_world|cups_signal|cups_uninstalled_copy|power_add_battery|bluez|shot_reset_ask|network_shot_other_reveal|network_shot_cancel_reveal|network_shot_reveal|tailscale_shot_end|tailscale_shot_top|tailscale_flyout_scroll_end|tailscale_section_reveal|vpn_shot_top|vpn_shot_end)
+      shots_baseline_assertions=false ;;
+  esac
+  "$checker" "$@"
+}
+
+shots_baseline_failure() {
+  local key
+  # expect's and expect_poll's dynamically scoped fields are the shared
+  # assertion boundary. All other fail callers retain verdict.sh's result.
+  # A control's subshell is deeper than the harness's declared row scope.
+  if [[ ${shots_baseline_assertions:-false} == true &&
+        ( ${FUNCNAME[2]:-} == shots_normal_expect || ${FUNCNAME[2]:-} == shots_normal_expect_poll ) &&
+        ${status:-1} == 0 && ${got:-} != "${want:-}" &&
+        ${label:-} != control:* &&
+        $row_class != operation && $row_class != hold ]] &&
+      (( BASH_SUBSHELL <= ${smoke_poll_scope:-0} )) &&
+      [[ ! -s $ipc_timeout_log && ${got:-} != unreadable && ${got:-} != unreadable:* ]]; then
+    key="$(shots_baseline_io key "" "" "${VGSHELL_WORLD_ROOT:-}" "$scene" "$mode" "$label" "$got" "$want")" || return
+    if [[ $baseline_side == before ]]; then
+      printf '%s\n' "$key" >&"$shots_baseline_fd" || return
+    elif [[ -z ${shots_baseline_keys["$key"]+known} ]]; then
+      shots_normal_fail "$@"
+      return
+    fi
+    printf '  SKIP  baseline-%s: %s\n' "$baseline_side" "$label"
+    smoke_check_secs skip "$label"
+    return 0
+  fi
+  shots_normal_fail "$@"
+}
+
+shots_baseline_safety() {
+  local shots_baseline_assertions=false
+  "$@"
+}
+
+shots_scene_run() {
+  local shots_baseline_assertions=true
+  "$@"
+}
+
 if [[ ${1:-} == --check-desktop-pair ]]; then
   [[ $# -eq 3 ]] || { printf 'sandbox-shots: refused: desktop-pair-arguments\n' >&2; exit 2; }
   desktop_pair_check "$2" "$3"
@@ -423,6 +576,8 @@ enable_ids=()
 disable_ids=()
 scenes=()
 title_inventory=false
+baseline_side=""
+baseline_ledger=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
@@ -442,12 +597,18 @@ while [[ $# -gt 0 ]]; do
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
     --title-inventory) title_inventory=true; shift ;;
+    --baseline-side) baseline_side="${2:-}"; shift 2 ;;
+    --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
     link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
+if [[ -n $baseline_side || -n $baseline_ledger ]]; then
+  [[ ( $baseline_side == before || $baseline_side == after ) && -n $baseline_ledger ]] ||
+    { printf 'sandbox-shots: refused: baseline-arguments\n' >&2; exit 2; }
+fi
 [[ -n $modes ]] || { if [[ -n $rev ]]; then modes=dark; else modes=dark,light; fi; }
 IFS=, read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
@@ -490,6 +651,11 @@ source "$checkout/scripts/smoke/tree.sh"
 [[ -n $out ]] || out="$checkout/tmp/sandbox-shots/$(date -u +%Y%m%dT%H%M%SZ)${rev:+-$rev}$([[ $scale == 1 ]] || echo "-x$scale")"
 SHOT_DIR="$(shot_dir_under "$checkout" "$out")" || exit 2
 world_args=(--out "$SHOT_DIR" --out "$checkout/tmp/display-record" --out "$checkout/tmp/qml-smoke")
+if [[ -n $baseline_side ]]; then
+  baseline_parent="$(shot_dir_under "$checkout" "$(dirname -- "$baseline_ledger")")" || exit 2
+  baseline_ledger="$baseline_parent/$(basename -- "$baseline_ledger")"
+  world_args+=(--out "$baseline_parent")
+fi
 [[ $keep != true ]] || world_args+=(--keep)
 "$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" --out "$SHOT_DIR" "${argv[@]}"
 if [[ -e $SHOT_DIR/shots.tsv ]]; then printf 'sandbox-shots: refused: out-dir-used=%s\n' "$SHOT_DIR" >&2; exit 2; fi
@@ -731,6 +897,7 @@ if [[ " ${scenes[*]} " == *" launcher "* || " ${scenes[*]} " == *" narrow "* ]];
   harness_scene_only=true
 fi
 source "$checkout/scripts/smoke/harness.sh"
+shots_baseline_start || exit 1
 source "$checkout/scripts/smoke/jarvis-console.sh"
 if [[ $launcher_fixture == true ]]; then
   # DesktopEntries otherwise reads /usr/share/applications. Plant before
@@ -1231,18 +1398,19 @@ settings_drag_page_down() { # LABEL
 # answers what was read.
 settings_page_fit() {
   local area
-  area="$(settings_scroll)" && [[ $area == \{* ]] || { echo "area=${area:-unread}"; return; }
+  area="$(settings_scroll)" || return
+  [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 0; }
   python3 -c 'import json,sys
 a = json.loads(sys.argv[1])
 over = a["contentHeight"] - a["height"] >= 0.5
-print(("overflows" if over else "fits") if over == a["barVisible"] else "contentHeight=%s height=%s barVisible=%s" % (a["contentHeight"], a["height"], a["barVisible"]))' "$area" || echo "area=$area"
+print(("overflows" if over else "fits") if over == a["barVisible"] else "contentHeight=%s height=%s barVisible=%s" % (a["contentHeight"], a["height"], a["barVisible"]))' "$area"
 }
 # settings_page_settled: `settled` once settings_page_fit reads overflows or
 # fits, else that reading: a card still growing toward its page holds its
 # bar hidden over an overflow (Pane.cardGrowing).
 settings_page_settled() {
   local fit
-  fit="$(settings_page_fit)"
+  fit="$(settings_page_fit)" || return
   case $fit in overflows | fits) echo settled ;; *) echo "$fit" ;; esac
 }
 # settings_scrolled_shot MODE NAME LABEL: the shown page dragged down its
@@ -1446,7 +1614,11 @@ scene_setup_steps() { # MODE
 # an entry; the notifications' page scrolled to its
 # Slack token rows, over two shots when they are taller than the page; and
 # the list and a page on a monitor narrower than the window's width token.
-settings_empty() { [[ $(ipc smoke itemGeometry "$settings_kind" vgs.settings Label 'No plugin matches "zzqxv"') == \[* ]] && echo shown || echo hidden; }
+settings_empty() {
+  local box
+  box="$(ipc smoke itemGeometry "$settings_kind" vgs.settings Label 'No plugin matches "zzqxv"')" || return
+  [[ $box == \[* ]] && echo shown || echo hidden
+}
 scene_settings() { # MODE
   # A section shot keeps its heading margin px below the area's top edge.
   local area at bar title x y section start end height half margin=12
@@ -2280,7 +2452,8 @@ updates_action() {
   local box area
   box="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings Field Actions RowAction "Update everything")" || return 1
   [[ $box == \[* ]] || { echo absent; return 0; }
-  area="$(settings_scroll)" && [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 0; }
+  area="$(settings_scroll)" || return
+  [[ $area == \{* ]] || { echo "area=${area:-unread}"; return 0; }
   python3 -c 'import json,sys
 b, bar = json.loads(sys.argv[1]), json.loads(sys.argv[2])["bar"]
 print("shown" if b[1] >= bar[1] and b[1] + b[3] <= bar[1] + bar[3] else "hidden")' "$box" "$area"
@@ -2326,7 +2499,11 @@ scene_updates() { # MODE
 # saved a rule at scale 2 that a monitor line the user's hyprland.lua loads
 # after the layer replaces, holding the output at the mode it read, so the
 # pane says the Hyprland file sets the display, with its link.
-displays_layer_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$home/.local/state/vgshell/hypr/vgs.lua" && echo yes || echo no; }
+displays_layer_rule() {
+  local status=0
+  grep -q -E 'hl\.monitor[[:space:]]*\(' "$home/.local/state/vgshell/hypr/vgs.lua" || status=$?
+  case "$status" in 0) echo yes ;; 1) echo no ;; *) return "$status" ;; esac
+}
 displays_trial() { ipc smoke readInstance service vgs.displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1"; }
 scene_displays-override() { # MODE
   local id output held rules
@@ -2411,7 +2588,7 @@ preview_tmux() { "${shell_env[@]}" PATH="$shell_start_path" tmux "$@"; }
 # preview_drawn: whether Neovim has drawn Neo-tree and its status line.
 preview_drawn() {
   local pane
-  pane="$(preview_tmux capture-pane -p -t vgshell:1 2>/dev/null)" || { echo False; return; }
+  pane="$(preview_tmux capture-pane -p -t vgshell:1)" || return
   [[ $pane == *"~/Projects/vgshell"* && $pane == *NORMAL* ]] && echo True || echo False
 }
 preview_terminal_pid=""
@@ -3079,7 +3256,11 @@ scene_tooltips() { # MODE
 # a row. Nothing presses Refresh, so no check runs.
 warden_panel_texts() { ipc smoke itemTexts panel vgs.agent-warden Panel; }
 warden_panel_lines() { warden_panel_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin)[0])' "$shots_vsys_line"; }
-updates_window() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
+updates_window() {
+  local rows
+  rows="$(ipc smoke readInstance window vgs.updates rows)" || return
+  [[ $rows != absent ]] && echo open || echo closed
+}
 updates_pending() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("pending"))'; }
 updates_checking() { ipc vgs.updates invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin).get("checking"))'; }
 # updates_snapshot_plant: the updates snapshot fixture as the service's
@@ -3294,7 +3475,11 @@ PY
     held_before="$(capture_notice_held)"
     expect "the $sequence screenshot starts" ok ipc vgs.capture invoke screenshot ''
     expect_poll "the $sequence screenshot finishes" '"idle"' ipc smoke readInstance service vgs.capture phase
-    capture_notice_has_pair() { [[ $(capture_notice_pair) != null ]] && echo True || echo False; }
+    capture_notice_has_pair() {
+      local pair
+      pair="$(capture_notice_pair)" || return
+      [[ $pair != null ]] && echo True || echo False
+    }
     expect_poll "the $sequence screenshot has a real key and id" True capture_notice_has_pair
     pair="$(capture_notice_pair)"
     capture_notice_id="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$pair")"
@@ -3952,7 +4137,11 @@ EOF
 # and an older tree's has the tooltip delay to open in.
 voice_keys_first="Start or stop dictation"
 voice_keys_section() { settings_section Keys KeyField "Dictate while held"; }
-voice_key_shown() { [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings KeyField "$voice_keys_first") == \[* ]] && echo shown || echo absent; }
+voice_key_shown() {
+  local box
+  box="$(ipc smoke windowGeometry "$settings_kind" vgs.settings KeyField "$voice_keys_first")" || return
+  [[ $box == \[* ]] && echo shown || echo absent
+}
 scene_voice-keys() { # MODE
   local section start x y
   expect "enabling vgs.voice for its keys is allowed" ok ipc shell setPluginEnabled vgs.voice true
@@ -4036,7 +4225,11 @@ choices=[] if row is None else row.get("settingChoices", {}).get("brain", [])
 values=[c["value"] for c in choices if c.get("value") and "(unavailable)" not in c.get("label", "")]
 print("\n".join(values[:2]) if len(values) >= 2 else "waiting")'
 }
-jarvis_brain_choices_ready() { [[ $(jarvis_brain_choice_ids) != waiting ]] && echo True || echo False; }
+jarvis_brain_choices_ready() {
+  local choices
+  choices="$(jarvis_brain_choice_ids)" || return
+  [[ $choices != waiting ]] && echo True || echo False
+}
 jarvis_cause_status_rows() { # CAUSE PHASE
   "$node_bin" - "$repo" "$1" "$2" <<'JS'
 const fs = require("node:fs");
@@ -4630,7 +4823,7 @@ clone_window_log() { # MODE LABEL
 # has ended and present waits for its closing key.
 clone_script_state() {
   local pid
-  pid="$(clone_tui_client | py_reply 'import json,sys; t=sys.stdin.read(); print(json.loads(t)["pid"] if t.startswith("{") else "none")')"
+  pid="$(clone_tui_client | py_reply 'import json,sys; t=sys.stdin.read(); print(json.loads(t)["pid"] if t.startswith("{") else "none")')" || return
   [[ $pid =~ ^[0-9]+$ ]] || { echo no-window; return; }
   python3 - "$pid" <<'PY'
 import os, sys, time
@@ -4821,13 +5014,13 @@ clone_tui_close() { # LABEL
 # A step run of the clone setup, opened as the step's button opens it.
 clone_step_open() { # MODE LABEL
   rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
-  expect "the clone setup opens $2" ok settings_act vgs.jarvis clonedVoiceSetup
+  shots_baseline_safety expect "the clone setup opens $2" ok settings_act vgs.jarvis clonedVoiceSetup
   clone_consent_shown "$2"
   clone_window_log "$1" "$2"
 }
 clone_failure_open() { # MODE LABEL
   rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
-  expect "the clone setup opens $2" ok settings_act vgs.jarvis clonedVoiceSetup
+  shots_baseline_safety expect "the clone setup opens $2" ok settings_act vgs.jarvis clonedVoiceSetup
   expect_poll "the clone setup's floating terminal maps $2" 1 clone_tui_windows
   expect "the clone setup's terminal floats $2" true clone_tui_floating
   clone_window_log "$1" "$2"
@@ -4901,7 +5094,7 @@ clone_steps() { # MODE
   rm -f -- "${sandbox:?}/clone-voice-steps"
 }
 # Whether box A, [x, y, w, h], holds box B.
-clone_box_holds() { python3 -c 'import json,sys; a,b=(json.loads(v) for v in sys.argv[1:3]); print(str(a[0]<=b[0] and a[1]<=b[1] and a[0]+a[2]>=b[0]+b[2] and a[1]+a[3]>=b[1]+b[3]).lower())' "$1" "$2" 2>/dev/null || echo unread; }
+clone_box_holds() { python3 -c 'import json,sys; a,b=(json.loads(v) for v in sys.argv[1:3]); print(str(a[0]<=b[0] and a[1]<=b[1] and a[0]+a[2]>=b[0]+b[2] and a[1]+a[3]>=b[1]+b[3]).lower())' "$1" "$2"; }
 scene_clone-voice() { # MODE
   local mode="$1" state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
   local auto setup_label remove_label kitty_bin gum_bin command covered
@@ -4961,7 +5154,7 @@ print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"]
         clone_prepare_world "$mode" || return
         printf '%s\n' "$clone_world" >"$sandbox/clone-voice-steps"
         rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
-        expect "the clone setup opens over the Settings tab" ok settings_act vgs.jarvis clonedVoiceSetup
+        shots_baseline_safety expect "the clone setup opens over the Settings tab" ok settings_act vgs.jarvis clonedVoiceSetup
         clone_consent_shown "over the Settings tab"
         clone_arrange_consent "over the Settings tab"
         if [[ $(clone_asking) == asking && $(clone_tui_windows) == 1 ]]; then
@@ -5006,7 +5199,7 @@ print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"]
     # present, then the setting turned on.
     hold_runs
     forget_record
-    expect "a clone setup run opens over the stand-in terminal" ok settings_act vgs.jarvis clonedVoiceSetup
+    shots_baseline_safety expect "a clone setup run opens over the stand-in terminal" ok settings_act vgs.jarvis clonedVoiceSetup
     expect_poll "the stand-in clone setup run is live" busy key_idle vgs.jarvis/clone-voice
     printf 'RIFF' >"$state/voice-reference.wav" && chmod 600 -- "$state/voice-reference.wav" && printf '{}\n' >"$state/clone-ready.json" ||
       fail "the planted recording and clone marker are not written"
@@ -5180,7 +5373,11 @@ EOF_PKG
 # `back` once the notice's step reached the terminal, its run ended and
 # the notice shows again with no run in flight.
 outdated_notice_back() {
-  [[ $(recorded) != absent && $(key_idle core/requirements-update) == idle && $(layer_count vgs:notice) == 1 ]] || { echo waiting; return; }
+  local calls idle layers
+  calls="$(recorded)" || return
+  idle="$(key_idle core/requirements-update)" || return
+  layers="$(layer_count vgs:notice)" || return
+  [[ $calls != absent && $idle == idle && $layers == 1 ]] || { echo waiting; return 0; }
   ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"]["shown"]; print("back" if s is not None and not s["installing"] else "waiting")'
 }
 jarvis_backup_choice_accounts() { # plant|restore BACKUP
@@ -5451,7 +5648,7 @@ dictation_setup_capture() { # MODE PHASE KEY HOLDER
   cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$shim/wtype"
   chmod 755 "$shim/voxtype" "$shim/wtype"
   rescan "the dictation setup stand-ins are scanned"
-  expect "the setup scene resolves only its voxtype stand-in" "$shim/voxtype" shell_resolves voxtype
+  shots_baseline_safety expect "the setup scene resolves only its voxtype stand-in" "$shim/voxtype" shell_resolves voxtype
   if [[ $phase == after ]]; then
     mkdir -p -- "$home/.config/vgshell/plugins/acme.dictation"
     cp -R -- "$fixtures/acme.dictation/." "$home/.config/vgshell/plugins/acme.dictation/"
@@ -5523,7 +5720,7 @@ EOF
   expect "the setup Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the setup Settings window maps" 1 settings_count
   if [[ $phase == before ]]; then
-    expect "Voice's Set up opens" ok settings_open_tui vgs.voice setup
+    shots_baseline_safety expect "Voice's Set up opens" ok settings_open_tui vgs.voice setup
   else
     expect "the setup holder's page opens" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin acme.dictation
     settings_setup || { fail "dictation-setup: the Setup tab did not open"; return; }
@@ -5768,9 +5965,9 @@ voice_setup_press() { # LABEL
   expect "$1: the Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "$1: the Settings window maps" 1 settings_count
   if voice_dictates; then
-    expect "$1: the setup step is answered" ok settings_act vgs.voice setup
+    shots_baseline_safety expect "$1: the setup step is answered" ok settings_act vgs.voice setup
   else
-    expect "$1: Set up is answered" ok settings_open_tui vgs.voice setup
+    shots_baseline_safety expect "$1: Set up is answered" ok settings_open_tui vgs.voice setup
   fi
   settings_close
 }
@@ -5991,7 +6188,11 @@ themes_failed='{"state":"partial","shell":"unchanged","targets":[{"name":"kitty"
 themes_quiet='{"state":"ok","shell":"unchanged","targets":[],"theme":"vgs","reason":null}'
 declare -A themes_panel_reference=() themes_panel_first=()
 themes_panel_listed() { ipc smoke readInstance panel vgs.themes catalogEntries | py_reply 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 0)'; }
-themes_panel_shown() { [[ $(ipc smoke readInstance panel vgs.themes packages) != absent ]] && echo open || echo closed; }
+themes_panel_shown() {
+  local packages
+  packages="$(ipc smoke readInstance panel vgs.themes packages)" || return
+  [[ $packages != absent ]] && echo open || echo closed
+}
 themes_panel_last() { ipc smoke readInstance panel vgs.themes last | py_reply 'import json,sys; l=json.load(sys.stdin); print("applying" if l["applying"] else "result" if l["result"] else "none")'; }
 # The state of the last apply result the panel draws, or `applying` or
 # `none`.
@@ -6122,7 +6323,11 @@ scene_themes_panel() { # MODE
 
 # The Dev Tools window: its top, the pointer on an Install button, and one
 # shot per page down its list, at most four.
-devtools_shown() { [[ $(ipc smoke instanceGeometry window vgs.devtools) != absent ]] && echo shown || echo hidden; }
+devtools_shown() {
+  local box
+  box="$(ipc smoke instanceGeometry window vgs.devtools)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 devtools_sections() { ipc smoke itemTexts window vgs.devtools SectionHeader | py_reply 'import json,sys; print(len(json.load(sys.stdin)) > 1)'; }
 scene_devtools() { # MODE
   local page=1 y=0 at cy ch h hover=Install
@@ -6179,7 +6384,11 @@ scene_devtools() { # MODE
 # files go back as the take found them. Displays stays enabled through the
 # other Hardware shots, so the sidebar shows the group as a user with
 # several sections sees it.
-system_shown() { [[ $(ipc smoke instanceGeometry window vgs.system) != absent ]] && echo shown || echo hidden; }
+system_shown() {
+  local box
+  box="$(ipc smoke instanceGeometry window vgs.system)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 displays_output="VGS-PLANTED-VRR"
 # The rule of the Displays shot's second monitor: a 5120x2880 panel at
 # scale 2, turned to portrait, left of and above the shot's output.
@@ -6194,8 +6403,8 @@ displays_second_output() { ipc smoke readInstance service vgs.displays outputs |
 # scripts/smoke/mode-hold.sh applies it, so each poll applies the rule.
 displays_output_taken() {
   local reply
-  reply="$(hypr eval "$displays_output_rule")" || { echo eval-failed; return; }
-  [[ $reply == ok ]] || { echo eval-refused; return; }
+  reply="$(hypr eval "$displays_output_rule")" || return
+  [[ $reply == ok ]] || { printf 'eval-refused: %s\n' "$reply" >&2; return 1; }
   hypr -j monitors all | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d scale=%g transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["scale"], m[0]["transform"]) if m else "absent")' "$displays_output"
 }
 # Adding the scaled output changes HyprlandLayer's highestMonitorScale;
@@ -6205,15 +6414,15 @@ displays_output_taken() {
 # eval emits no monitor event, so a stale service needs another refresh.
 displays_outputs_applied() {
   local taken listed reply
-  listed="$(displays_second_output)" || { echo service-unread; return; }
-  taken="$(displays_output_taken)" || { echo hyprland-unread; return; }
+  listed="$(displays_second_output)" || return
+  taken="$(displays_output_taken)" || return
   if [[ $taken != '5120x2880@-1440,-620 scale=2 transform=1' ]]; then
     printf 'hyprland=[%s] service=[%s]\n' "$taken" "$listed"
   elif [[ $listed != "$taken" ]]; then
-    reply="$(hypr output create headless "$displays_output-READ")" || { echo refresh-create-failed; return; }
-    [[ $reply == ok ]] || { echo refresh-create-refused; return; }
-    reply="$(hypr output remove "$displays_output-READ")" || { echo refresh-remove-failed; return; }
-    [[ $reply == ok ]] || { echo refresh-remove-refused; return; }
+    reply="$(hypr output create headless "$displays_output-READ")" || return
+    [[ $reply == ok ]] || { printf 'refresh-create-refused: %s\n' "$reply" >&2; return 1; }
+    reply="$(hypr output remove "$displays_output-READ")" || return
+    [[ $reply == ok ]] || { printf 'refresh-remove-refused: %s\n' "$reply" >&2; return 1; }
     printf 'hyprland=[%s] service=[%s]\n' "$taken" "$listed"
   else
     printf '%s\n' "$taken"
@@ -6601,9 +6810,17 @@ scene_printers() { # MODE
   rescan "a scan drops the not-installed Printers copy"
   expect "the printers world is empty again" world=set cups_world '{"printers": [], "default": "", "devices": []}'
 }
-bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
+bluetooth_shot_panel() {
+  local box
+  box="$(ipc smoke instanceGeometry panel vgs.bluetooth)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 # The rows the section's Nearby list draws for the keyboard the setup adds.
-bluetooth_panel_row() { [[ $(ipc smoke itemGeometry panel vgs.bluetooth DeviceRow "$1") == \[* ]] && echo shown || echo absent; }
+bluetooth_panel_row() {
+  local box
+  box="$(ipc smoke itemGeometry panel vgs.bluetooth DeviceRow "$1")" || return
+  [[ $box == \[* ]] && echo shown || echo absent
+}
 bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply 'import json,sys; print(sum(t.count("Desk Keyboard") for t in json.load(sys.stdin) if t[:1] == ["Nearby"]))'; }
 
 scene_power() { # MODE
@@ -6879,8 +7096,16 @@ rows = [r for r in json.load(sys.stdin) if "](page:" in r["text"]]
 stages = json.loads(sys.argv[1])
 print("complete" if stages and len(rows) == len(stages) else "incomplete", sum(r["parent.parent.warning"] != "" for r in rows))' "$stages"
 }
-power_shot_install() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo shown || echo hidden; }
-power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
+power_shot_install() {
+  local box
+  box="$(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles")" || return
+  [[ $box == \[* ]] && echo shown || echo hidden
+}
+power_shot_panel() {
+  local box
+  box="$(ipc smoke instanceGeometry panel vgs.power)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }
 power_shot_stay_awake() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"].get("stayAwake", {}).get("active"))'; }
 power_shot_profiles() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["profile"]["available"])'; }
@@ -7656,7 +7881,7 @@ EOF
   device_reply tailscale 0 "$(id -un)" get operator
   device_reply systemctl 0 "" is-active --quiet tailscaled.service
   device_reply systemctl 0 loaded show --property=LoadState --value tailscaled.service
-  expect "the core's system steps resolve in the fakes' tree for the Tailscale flyout shots" prefixed devices_system_tree
+  shots_baseline_safety expect "the core's system steps resolve in the fakes' tree for the Tailscale flyout shots" prefixed devices_system_tree
   ln -sfn -- "$shim/tailscale" "$link"
   expect "Tailscale enables for its flyout shots" ok ipc shell setPluginEnabled vgs.tailscale true
   expect_poll "Tailscale's service is built for its flyout shots" True record_exists vgs.tailscale
@@ -7787,7 +8012,7 @@ TSSECTION
   device_reply tailscale 0 "$(id -un)" get operator
   device_reply systemctl 0 "" is-active --quiet tailscaled.service
   device_reply systemctl 0 loaded show --property=LoadState --value tailscaled.service
-  expect "the section shots resolve system steps in the fakes' tree" prefixed devices_system_tree
+  shots_baseline_safety expect "the section shots resolve system steps in the fakes' tree" prefixed devices_system_tree
   ln -sfn -- "$shim/tailscale" "$link"
   expect "Tailscale enables for its section shots" ok ipc shell setPluginEnabled vgs.tailscale true
   expect "System enables for the Tailscale section shots" ok ipc shell setPluginEnabled vgs.system true
@@ -8044,8 +8269,16 @@ vpn_shot_focus() { ipc smoke activeFocusItem window vgs.vpn | py_reply 'import j
 vpn_shot_deletes() { device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin) if c[:2] == ["connection", "delete"]]))'; }
 vpn_shot_top() { ipc smoke revealText window vgs.system SectionHeader "Profiles" | py_reply 'import json,sys; value=json.load(sys.stdin); print("shown" if type(value) in (int,float) else value)'; }
 vpn_shot_end() { ipc smoke revealText window vgs.system Field "Check every" | py_reply 'import json,sys; value=json.load(sys.stdin); print(("moved" if value > 0 else "fits") if type(value) in (int,float) else value)'; }
-vpn_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.vpn) != absent ]] && echo shown || echo hidden; }
-vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] && echo shown || echo hidden; }
+vpn_shot_panel() {
+  local box
+  box="$(ipc smoke instanceGeometry panel vgs.vpn)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
+vpn_shot_shown() {
+  local box
+  box="$(ipc smoke instanceGeometry window vgs.vpn)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 # The VPN flyout while Tailscale's access step is offered: no operator, so
 # the core's tailscale-operator step reads needed through the stand-in
 # linked into the fakes' system tree, as rows/vpn.sh links it. A tree whose
@@ -8066,7 +8299,7 @@ backend_locked_shots() { # MODE ID BODY DATA
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/suggest-none.txt")" exit-node suggest
   device_reply tailscale 0 "" get operator
   device_reply systemctl 0 "" is-active --quiet tailscaled.service
-  expect "the core's system steps resolve in the fakes' tree for the locked VPN shot" prefixed devices_system_tree
+  shots_baseline_safety expect "the core's system steps resolve in the fakes' tree for the locked VPN shot" prefixed devices_system_tree
   ln -sfn -- "$shim/tailscale" "$link"
   expect "VPN enables for its locked shot" ok ipc shell setPluginEnabled "$locked_id" true
   expect_poll "VPN's widget is built for its locked shot" True record_exists "$locked_id"
@@ -8119,7 +8352,11 @@ backend_locked_shots() { # MODE ID BODY DATA
 vpn_locked_setup() { ipc smoke statusValues "$locked_id" | py_reply 'import json,sys; v=json.load(sys.stdin).get("setup"); print("unpublished" if v is None else v.get("action", "none"))'; }
 vpn_locked_published() { ipc smoke statusValues "$locked_id" | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print("unpublished" if v is None else json.dumps(v["state"]))' "$locked_data"; }
 vpn_locked_state() { ipc smoke readDescendant panel "$locked_id" "$locked_body" "$locked_data" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["state"]))'; }
-vpn_locked_tip() { [[ $(shot_chrome_read) == *tooltip* ]] && echo open || echo closed; }
+vpn_locked_tip() {
+  local chrome
+  chrome="$(shot_chrome_read)" || return
+  [[ $chrome == *tooltip* ]] && echo open || echo closed
+}
 # vpn_locked_point TYPE NAME: `X Y`, where the pointer rests on the first
 # shown TYPE under the VPN flyout whose objectName is NAME, enabled or not:
 # itemGeometry finds enabled controls alone, and an older tree disables
@@ -8187,11 +8424,19 @@ vpn_locked_panel() {
   geometry="$(ipc smoke instanceGeometry panel "$locked_id")" || return $?
   [[ $geometry != absent ]] && echo shown || echo hidden
 }
-network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
+network_shot_shown() {
+  local box
+  box="$(ipc smoke instanceGeometry window vgs.network)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
-network_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.network) != absent ]] && echo shown || echo hidden; }
+network_shot_panel() {
+  local box
+  box="$(ipc smoke instanceGeometry panel vgs.network)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
 network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
@@ -8383,20 +8628,20 @@ scene_tooltip-link() { # MODE
   take_posed "tooltip-link-$1-pointer"
   park_pointer
   expect_poll "the tooltip closes after the pointer leaves it" false tooltip_opened acme.tiplink
-  expect "the bar window takes the keyboard for the ring" ok tooltip_link_call holdKeyboard true
+  shots_baseline_safety expect "the bar window takes the keyboard for the ring" ok tooltip_link_call holdKeyboard true
   for step in 2 3; do
     at="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+int(sys.argv[1])), int(y+h/2))' "$step")" || at=none
     read -r x y <<<"$at"
     [[ $x =~ ^[0-9]+$ ]] && hover "$x" "$y" || fail "moving the pointer onto the bar failed"
   done
-  expect_poll "the tooltip link item holds the focus a Tab gives" true tooltip_link_call focusItem
+  shots_baseline_safety expect_poll "the tooltip link item holds the focus a Tab gives" true tooltip_link_call focusItem
   expect_poll "keyboard focus opens the item's tooltip" true tooltip_opened acme.tiplink
   type_keys -k Tab || fail "sending Tab to the bar failed"
   expect_poll "Tab makes the tooltip's link current" 1 ipc smoke readInstance "$(bar_key)" acme.tiplink currentLine
   take_posed "tooltip-link-$1-ring"
   type_keys -k Escape || fail "sending Escape to the bar failed"
   expect_poll "Escape closes the tooltip" false tooltip_opened acme.tiplink
-  expect "the bar window gives the keyboard back" ok tooltip_link_call holdKeyboard false
+  shots_baseline_safety expect "the bar window gives the keyboard back" ok tooltip_link_call holdKeyboard false
   park_pointer
 }
 scene_plugin-messages() { # MODE
@@ -8486,6 +8731,7 @@ scene_plugin-messages() { # MODE
 # reads them (docs/decisions/D062-native-lock-and-polkit-plugins.md).
 polkit_flows() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["polkitFlows"])'; }
 scene_polkit() { # MODE
+  local shots_baseline_assertions=false
   local watch_log="$sandbox/shots-polkit-$1-auth.log"
   auth_watch_start "$watch_log"
   expect "vgs.polkit stays disabled for its prompt's shots" False plugin_enabled vgs.polkit
@@ -9014,7 +9260,7 @@ cs_code() {
 const [lib, logic, ...fields] = process.argv.slice(1);
 const text = require("fs").readFileSync(0, "utf8");
 let cloud;
-try { cloud = JSON.parse(text).cloud; } catch (e) { console.log("unreadable=" + text.trim().slice(0, 80)); process.exit(0); }
+try { cloud = JSON.parse(text).cloud; } catch (e) { console.log("unreadable=" + text.trim().slice(0, 80)); process.exit(1); }
 if (cloud === undefined || cloud === null) { console.log("unpublished"); process.exit(0); }
 const L = require(lib).load(logic), now = Date.now();
 const read = { cause: L.headline(cloud, now).cause, kind: cloud.lastError === null ? "none" : cloud.lastError.kind, hidden: L.widgetView(cloud, now).hidden, paused: cloud.paused };
@@ -9023,7 +9269,11 @@ console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-lib
 # cs_panel_shown: `shown` while the Google Drive popover is up, else
 # `hidden`. cs_notes_line: the line the popover's notes fold into, "" with
 # none.
-cs_panel_shown() { [[ $(ipc smoke instanceGeometry panel vgs.google-drive) != absent ]] && echo shown || echo hidden; }
+cs_panel_shown() {
+  local box
+  box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || return
+  [[ $box != absent ]] && echo shown || echo hidden
+}
 cs_notes_line() { ipc smoke readInstance panel vgs.google-drive review | python3 -c 'import json,sys; print(json.load(sys.stdin)["notesLine"])'; }
 # cs_gone_row MODE STATE: the last note's file taken away from this
 # computer and its name clicked, as a file deleted between syncs is, then
@@ -10047,7 +10297,7 @@ tui_edges_file() { if [[ -f $1 ]] && { [[ $# -lt 2 ]] || grep -qxF -- "$2" "$1";
 # btop draws the per-core percentages and temperatures.
 tui_edges_read() { # drawn BG | band | sides BG L R T B | meter RRGGBB | names BG FAINT START MID END | cpu BG CSTART CMID CEND TSTART TMID TEND
   local box address x y w h
-  box="$(tui_edges_box)" || { echo unreadable; return; }
+  box="$(tui_edges_box)" || return
   [[ $box != none ]] || { echo no-window; return; }
   read -r address x y w h <<<"$box"
   # A PPM is binary, which py_reply's text capture would cut at a NUL byte.
@@ -10056,11 +10306,11 @@ import sys
 data = sys.stdin.buffer.read()
 head = data.split(b"\n", 3)
 if len(head) != 4 or head[0] != b"P6":
-    print("unreadable"); sys.exit()
+    print("unreadable"); sys.exit(1)
 w, h = map(int, head[1].split())
 px = head[3]
 if len(px) < w * h * 3:
-    print("partial"); sys.exit()
+    print("partial"); sys.exit(1)
 at = lambda x, y: px[3 * (y * w + x):3 * (y * w + x) + 3]
 row = lambda y: {at(x, y) for x in range(w)}
 col = lambda x: {at(x, y) for y in range(h)}
@@ -10830,7 +11080,7 @@ for mode in "${mode_list[@]}"; do
     set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }
     scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
     capture_state_record "$scene" "$mode" || continue
-    "scene_$scene" "$mode"
+    shots_scene_run "scene_$scene" "$mode"
   done
 done
 
@@ -10842,4 +11092,8 @@ echo "sandbox-shots: dir=$SHOT_DIR shots=$(wc -l <"$SHOT_DIR/shots.tsv" 2>/dev/n
 if [[ $unmeasured -ne 0 || ${#not_measured_rows[@]} -gt 0 ]]; then
   printf 'sandbox-shots: status=not-measured scenes=%s rows=%s\n' "$unmeasured" "$(IFS=,; echo "${not_measured_rows[*]}")"
   exit 77
+fi
+if [[ $baseline_side == before ]]; then
+  shots_baseline_io seal "$baseline_ledger" "$self" "" 3>&"$shots_baseline_fd"
+  exec {shots_baseline_fd}>&-
 fi

@@ -1452,7 +1452,8 @@ end = text.index('\n# The setup each scene needs', start)
 tail = text.index('# The first shot is the bare desktop;')
 power, = re.findall(r'^scene_power\(\) \{.*?^\}', text, re.M | re.S)
 ready, = re.findall(r'^devices_ready\(\) \{.*?^\}', open(sys.argv[3]).read(), re.M | re.S)
-open(sys.argv[2], 'w').write('\n'.join((power, ready, text[start:end], text[tail:])))
+scene_run, = re.findall(r'^shots_scene_run\(\) \{.*?^\}', text, re.M | re.S)
+open(sys.argv[2], 'w').write('\n'.join((power, ready, scene_run, text[start:end], text[tail:])))
 PY
   : >"$dir/auth.log"
   env -i PATH="$dir/bin" "$BASH" -c '
@@ -1461,6 +1462,7 @@ PY
     auth_log="$1/auth.log"
     source "$2/scripts/smoke/verdict.sh"
     unmeasured=0
+    baseline_side=""
     mode_list=(dark)
     case $3 in
       clean) scenes=(capture) ;;
@@ -1562,7 +1564,7 @@ tailscale_stop_case() { # SCRIPT FAULT STATUS TEARDOWN
   python3 - "$script" "$dir/runner.sh" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-names = ('scene_tailscale-section', 'tailscale_section_shots', 'tailscale_section_take')
+names = ('scene_tailscale-section', 'tailscale_section_shots', 'tailscale_section_take', 'shots_scene_run', 'shots_baseline_safety')
 bodies = [re.findall(r'^' + re.escape(n) + r'\(\) \{.*?^\}', text, re.M | re.S) for n in names]
 assert all(len(b) == 1 for b in bodies), 'tailscale-stop-extraction'
 tail = text.index('\npark_pointer\ntake "00-desktop"\n')
@@ -1580,7 +1582,7 @@ PY
     set -euo pipefail
     case_dir="$1" fault="$2" repo="$3"
     theme_file="$case_dir/theme.json" SHOT_DIR="$case_dir/shots" auth_log="$case_dir/auth.log" sandbox="$case_dir/sandbox" shim="$case_dir/shim" devices_system_root="$case_dir/root"
-    failures=0 unmeasured=0 not_measured_rows=() mode_list=(dark) scenes=(tailscale-section capture) enable_ids=() disable_ids=()
+    failures=0 unmeasured=0 baseline_side="" not_measured_rows=() mode_list=(dark) scenes=(tailscale-section capture) enable_ids=() disable_ids=()
     ok() { :; }
     fail() { failures=$((failures + 1)); printf "FAIL %s\n" "$*"; }
     take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
@@ -1929,6 +1931,351 @@ for n in "${!scene_arity[@]}"; do
   at=$((at + 3 + ${scene_arity[n]}))
   if scene_case "$repo/scripts/sandbox-shots.sh" "$label" "$status" "$line" "${args[@]}"; then ok "$label"; else fail "$label"; fi
 done
+
+# Drive the production assertion boundary and closing verdict without
+# starting a compositor. Commands below are fixtures, never replacements
+# for expect, reader_stderr, verdict.sh or the baseline decision.
+if python3 - "$repo" "$tmp" "$BASH" <<'PYBASELINE_TEST'
+from pathlib import Path
+import json
+import os
+import subprocess
+import sys
+
+repo, scratch, bash = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+source = (repo / "scripts/sandbox-shots.sh").read_text()
+harness = (repo / "scripts/smoke/harness.sh").read_text()
+jarvis = (repo / "scripts/smoke/jarvis-console.sh").read_text()
+power = (repo / "scripts/smoke/power-fakes.sh").read_text()
+root = scratch / "baseline"
+root.mkdir()
+
+def function(name, text=harness):
+    start = text.index("\n" + name + "()") + 1
+    return text[start:text.index("\n}\n", start) + 3]
+
+assertions = root / "assertions.sh"
+assertions.write_text("\n".join(function(name) for name in ("reader_stderr", "expect", "expect_poll", "smoke_poll_tries", "py_reply")) + "\n" +
+                      "\n".join(next(line for line in harness.splitlines() if line.startswith(name + "() {"))
+                                for name in ("ok", "settings_act", "settings_open_tui")) + "\n")
+driver = root / "driver.sh"
+driver.write_text(r'''
+set -euo pipefail
+self=$1 baseline_side=$2 baseline_ledger=$3 kind=$4
+scene=$5 mode=$6 label=$7 got_fixture=$8 want_fixture=$9
+sandbox=${10} SHOT_DIR=${10} auth_log=${10}/auth ipc_timeout_log=${10}/timeout
+home="$sandbox/home" repo="$sandbox/repo" rt_dir="$VGSHELL_WORLD_ROOT/runtime/owned/vs.${sandbox##*.}"
+dependency=${17} settings_kind=window
+mkdir -p "$sandbox"
+jarvis_asks_home="$sandbox"
+shim="$sandbox/shim" power_display_wake_saved="$sandbox/power-display-wake"
+mkdir -p "$home/.config/hypr" "$shim" "$power_display_wake_saved"
+printf 'fixture\n' >"$power_display_wake_saved/hyprland.lua"
+printf 'fixture\n' >"$power_display_wake_saved/hyprctl"
+: >"$auth_log"
+: >"$SHOT_DIR/shots.tsv"
+source "${11}"
+source "${12}"
+source "${13}"
+source "${15}"
+source "${16}"
+unmeasured=0 smoke_poll_scope=0 smoke_poll_bound_ms=200
+shots_baseline_start
+reading() {
+  case "$kind" in
+    operation) printf '%s' "$got_fixture"; return 23 ;;
+    reader) printf 'Traceback (most recent call last):\n' >&2 ;;
+    *) printf '%s' "$got_fixture" ;;
+  esac
+}
+ipc() {
+  [[ $dependency != ipc && ( $dependency != scroll || $2 != scrollAreas ) ]] ||
+    { printf 'ipc-failed\n'; printf 'fixture-ipc-failed\n' >&2; return 23; }
+  if [[ $2 == scrollAreas ]]; then printf '[{"bar":[1,1,1,1]}]\n'; return 0; fi
+  if [[ $kind == wrapped-jarvis-* && $2 == jarvisProcess ]]; then
+    printf '{"status":{"ownerAsks":{"revision":"fixture","active":[{"id":"tracker-design","revision":"fixture"},{"id":"fleet-update","revision":"fixture"},{"id":"jarvis-briefing","revision":"fixture"}],"snoozed":[],"activeNextCursor":"fixture"}}}\n'
+    return 0
+  fi
+  if [[ $kind == displays ]]; then printf '[]\n'; else reading; fi
+}
+preview_tmux() {
+  [[ $dependency != tmux ]] || { printf 'fixture-tmux-failed\n' >&2; return 23; }
+  reading
+}
+recorded() {
+  [[ $dependency != recorded ]] || { printf 'fixture-record-failed\n' >&2; return 23; }
+  printf '[]\n'
+}
+key_idle() {
+  [[ $dependency != key-idle ]] || { printf 'fixture-key-read-failed\n' >&2; return 23; }
+  printf 'idle\n'
+}
+layer_count() {
+  [[ $dependency != layers ]] || { printf 'fixture-layer-read-failed\n' >&2; return 23; }
+  printf '1\n'
+}
+bar_key() { printf 'bar\n'; }
+hypr() {
+  local step
+  if [[ $kind == wrapped-wake-* ]]; then reading; return; fi
+  case "$1" in eval) step=eval ;; -j) step=monitors ;; *) step=$2 ;; esac
+  [[ $dependency != "$step" ]] || { printf 'fixture-hypr-%s-failed\n' "$step" >&2; return 23; }
+  [[ $dependency != "$step-refused" ]] || { printf 'refused\n'; return 0; }
+  if [[ $step == monitors ]]; then
+    if [[ $dependency == create* || $dependency == remove* ]]; then
+      printf '[{"name":"VGS-PLANTED-VRR","width":5120,"height":2880,"x":-1440,"y":-620,"scale":2,"transform":1}]\n'
+    else printf '[]\n'; fi
+  else printf 'ok\n'; fi
+}
+probe() {
+  case "$kind" in
+    timeout) : >"$ipc_timeout_log"; printf 'latched\n' >"$ipc_timeout_log"; expect_poll "$label" "$want_fixture" reading ;;
+    poll) expect_poll "$label" "$want_fixture" reading ;;
+    safety) shots_baseline_safety expect "$label" "$want_fixture" reading ;;
+    acknowledgement) expect "$label" "$want_fixture" ipc shell summon ;;
+    observation) expect "$label" "$want_fixture" ipc smoke "$label" ;;
+    wrapped-*) "operation_${kind#wrapped-}" dark fixture ;;
+    settings-empty) expect "$label" "$want_fixture" settings_empty ;;
+    updates-action) expect "$label" "$want_fixture" updates_action ;;
+    outdated-notice) expect "$label" "$want_fixture" outdated_notice_back ;;
+    preview-drawn) expect "$label" "$want_fixture" preview_drawn ;;
+    displays) expect "$label" "$want_fixture" displays_outputs_applied ;;
+    control-inner)
+      rejected="$(failures=0; expect "$label" "$want_fixture" reading >/dev/null; printf '%s' "$failures")"
+      expect 'control: planted assertion is detected' 1 printf '%s' "$rejected" ;;
+    *) expect "$label" "$want_fixture" reading ;;
+  esac
+  printf 'continued\n'
+}
+shots_scene_run probe
+source "${14}"
+''')
+tail = root / "closing.sh"
+tail.write_text(source[source.index("# No scene may authenticate against the host user:"):])
+
+def prepare(text, name):
+    script = root / (name + ".sh")
+    script.write_text(text)
+    boundary = root / (name + "-boundary.sh")
+    start = text.index("# Ledger records are JSON tuples")
+    boundary.write_text(text[start:text.index("if [[ ${1:-} == --check-desktop-pair", start)])
+    readers = root / (name + "-readers.sh")
+    names = ("settings_empty", "updates_action", "outdated_notice_back", "preview_drawn",
+             "displays_output_taken", "displays_outputs_applied")
+    blocks = []
+    for owner in names:
+        at = text.index("\n" + owner + "()") + 1
+        blocks.append(text[at:text.index("\n}\n", at) + 3])
+    blocks.append(next(line for line in text.splitlines() if line.startswith("displays_second_output()")))
+    blocks.append(next(line for line in text.splitlines() if line.startswith("settings_scroll()")))
+    blocks.append(next(line for line in text.splitlines() if line.startswith("tooltip_link_call()")))
+    blocks.extend(function(owner, jarvis) for owner in ("jarvis_asks_request", "jarvis_asks_page"))
+    blocks.append(next(line for line in jarvis.splitlines() if line.startswith("jarvis_asks_refresh()")))
+    blocks.extend(function(owner, power) for owner in
+                  ("power_display_wake_set", "power_display_wake_transport", "power_display_wake_end"))
+    blocks.extend(next(line for line in text.splitlines() if line.startswith(key + "="))
+                  for key in ("displays_output", "displays_output_rule"))
+    readers.write_text("\n".join(blocks) + "\n")
+    operations = root / (name + "-operations.sh")
+    # Execute existing scene assertion lines, not another classification
+    # model. The wrappers themselves also come from their real owners.
+    blocks = []
+    for key, call, producer in (
+        ("act", "settings_act", text), ("tui", "settings_open_tui", text),
+        ("keyboard", "tooltip_link_call holdKeyboard true", text),
+        ("focus", "tooltip_link_call focusItem", text),
+        ("jarvis-done", "jarvis_asks_request done", jarvis),
+        ("jarvis-later", "jarvis_asks_request later", jarvis),
+        ("jarvis-reply", "jarvis_asks_request reply", jarvis),
+        ("jarvis-refresh", "jarvis_asks_refresh", jarvis),
+        ("jarvis-page", "jarvis_asks_page", jarvis),
+        ("wake-set", "power_display_wake_set", text),
+        ("wake-end", "power_display_wake_end", text),
+    ):
+        line = next(line.strip() for line in producer.splitlines()
+                    if "expect " in line or "expect_poll " in line
+                    if " " + call in line)
+        blocks.append("operation_" + key + "() {\n  local until=2099-01-01T00:00:00Z key=true pointer=false state=fixture\n  " + line + "\n}\n")
+    operations.write_text("\n".join(blocks))
+    return script, boundary, readers, operations
+
+def run(pair, side, ledger, kind="assertion", scene="gallery", mode="dark",
+        label="fixture-value", got="old", want="expected", dependency="none"):
+    world = root / ("world-" + str(run.serial))
+    sandbox = world / "tmp" / ("vgshell-smoke.identity" + str(run.serial))
+    run.serial += 1
+    def paths(value):
+        return (value.replace("@SANDBOX@", str(sandbox)).replace("@HOME@", str(sandbox / "home"))
+                .replace("@REPO@", str(sandbox / "repo")).replace("@WORLD@", str(world))
+                .replace("@RUNTIME@", str(world / "runtime/owned" / ("vs." + sandbox.name.split(".")[-1]))))
+    return subprocess.run([bash, str(driver), str(pair[0]), side, str(ledger), kind,
+                           scene, mode, label, paths(got), paths(want), str(sandbox),
+                           str(repo / "scripts/smoke/verdict.sh"), str(assertions), str(pair[1]), str(tail),
+                           str(pair[2]), str(pair[3]), dependency],
+                          env={"PATH": os.environ["PATH"], "HOME": str(world), "LC_ALL": "C",
+                               "VGSHELL_WORLD_ROOT": str(world)},
+                          capture_output=True, text=True, timeout=10)
+run.serial = 0
+
+def suite(text, name):
+    pair = prepare(text, name)
+    ledger = root / (name + ".jsonl")
+    result = run(pair, "before", ledger)
+    assert result.returncode == 0 and "continued\n" in result.stdout, ("before-continue", result)
+    records = ledger.read_text().splitlines()
+    assert json.loads(records[0]) == ["gallery", "dark", "fixture-value", "old", "expected"], "recorded-tuple"
+    result = run(pair, "after", ledger)
+    assert result.returncode == 0, ("same-omission", result)
+    # Every field is part of the match, especially both product values.
+    for changed in ({"scene": "settings"}, {"mode": "light"}, {"label": "another"},
+                    {"got": "new"}, {"want": "another"}, {"got": "7312"}, {"got": "/tmp/product-123"}):
+        result = run(pair, "after", ledger, **changed)
+        assert result.returncode == 1, ("changed-key", changed, result)
+    for side in ("before", "after"):
+        for kind, label, got, want, status in (
+            ("assertion", "control: planted mismatch", "old", "expected", 1),
+            ("control-inner", "fixture-value", "old", "expected", 0),
+            ("operation", "fixture-value", "old", "expected", 1),
+            ("acknowledgement", "operation-ack", "refused", "ok", 1),
+            ("reader", "fixture-value", "old", "expected", 1),
+            ("assertion", "fixture-value", "unreadable", "expected", 1),
+            ("timeout", "fixture-value", "old", "expected", 124),
+            ("safety", "fixture-value", "old", "expected", 1),
+        ):
+            target = root / (name + "-" + side + "-" + kind + "-" + label.replace(":", "") + ".jsonl") if side == "before" else ledger
+            result = run(pair, side, target, kind=kind, label=label, got=got, want=want)
+            assert result.returncode == status, ("ordinary-failure", side, kind, result)
+            if side == "before":
+                content = target.read_text()
+                if status:
+                    assert content == "", ("not-recorded-or-sealed", kind, content)
+                else:
+                    assert len(content.splitlines()) == 1, ("control-not-recorded", content)
+    empty = root / (name + "-empty.jsonl")
+    assert run(pair, "before", empty, got="expected").returncode == 0, "empty-before"
+    assert run(pair, "after", empty, got="expected").returncode == 0, "empty-after"
+    assert run(pair, "after", empty).returncode == 1, "empty-new-failure"
+    assert run(pair, "before", ledger).returncode == 1, "exclusive-acquisition"
+    assert ledger.read_text().splitlines() == records, "existing-ledger-preserved"
+    for token in ("@HOME@/white.png", "@REPO@/themes/vgs/backgrounds/black.png",
+                  "@SANDBOX@/file", "@RUNTIME@/lock", "@WORLD@/scratch/file"):
+        target = root / (name + "-paths-" + token.split("@")[1] + ".jsonl")
+        assert run(pair, "before", target, got=token + " loading", want=token + " ready").returncode == 0
+        assert run(pair, "after", target, got=token + " loading", want=token + " ready").returncode == 0, "owned-path-matches"
+        assert run(pair, "after", target, got=token + " loading", want=token + " absent").returncode == 1, "product-state-preserved"
+    for first, second in (("/tmp/vgshell-smoke.ABC/home/white.png", "/tmp/vgshell-smoke.XYZ/home/white.png"),
+                          ("lock-pid=123", "lock-pid=456")):
+        target = root / (name + "-unowned-" + str(run.serial) + ".jsonl")
+        assert run(pair, "before", target, got=first).returncode == 0
+        assert run(pair, "after", target, got=second).returncode == 1, "unowned-identity-preserved"
+    # Current Probe.qml observations, including a normal absent-focus
+    # reply, remain assertions rather than operation acknowledgements.
+    for observation, got, want in (("noticeFocused", "false", "true"),
+                                   ("themeValue", "0", "1"),
+                                   ("galleryMissing", '["field"]', "[]")):
+        target = root / (name + "-" + observation + ".jsonl")
+        assert run(pair, "before", target, kind="observation", label=observation, got=got, want=want).returncode == 0, "observation-eligible"
+        assert run(pair, "after", target, kind="observation", label=observation, got=got, want=want).returncode == 0, "observation-matches"
+    # Each successful absence can seal, but the same reader with an
+    # unavailable required dependency cannot seal or match that omission.
+    for kind, got, want, faults in (
+        ("settings-empty", "absent", "shown", ("ipc",)),
+        ("updates-action", "[0,0,1,1]", "shown", ("ipc", "scroll")),
+        ("outdated-notice", '{"notices":{"shown":null}}', "back", ("ipc", "recorded", "key-idle", "layers")),
+        ("preview-drawn", "", "True", ("tmux",)),
+        ("displays", "[]", "5120x2880@-1440,-620 scale=2 transform=1",
+         ("ipc", "eval", "eval-refused", "monitors", "create", "create-refused", "remove", "remove-refused")),
+    ):
+        target = root / (name + "-reader-" + kind + ".jsonl")
+        assert run(pair, "before", target, kind=kind, got=got, want=want).returncode == 0, ("reader-absence", kind)
+        assert run(pair, "after", target, kind=kind, got=got, want=want).returncode == 0, ("reader-absence-match", kind)
+        for fault in faults:
+            for side in ("before", "after"):
+                failed = root / (name + "-" + kind + "-" + fault + ".jsonl") if side == "before" else target
+                result = run(pair, side, failed, kind=kind, got=got, want=want, dependency=fault)
+                assert result.returncode == 1, ("dependency-failure", kind, fault, side, result)
+                if side == "before":
+                    assert failed.read_text() == "", ("dependency-not-sealed", kind, fault)
+    for kind, got in (("wrapped-act", "not-offered"), ("wrapped-tui", "busy"),
+                      ("wrapped-keyboard", "absent"), ("wrapped-focus", "false"),
+                      ("wrapped-jarvis-done", "refused: owner-ask=unconfirmed"),
+                      ("wrapped-jarvis-done", "refused: owner-ask=locked"),
+                      ("wrapped-jarvis-done", "refused: owner-ask=pending"),
+                      ("wrapped-jarvis-later", "refused: owner-ask=unconfirmed"),
+                      ("wrapped-jarvis-reply", "refused: owner-ask=pending"),
+                      ("wrapped-jarvis-refresh", "refused: jarvis=not-ready"),
+                      ("wrapped-jarvis-page", "refused: jarvis=not-ready"),
+                      ("wrapped-wake-set", "refused"),
+                      ("wrapped-wake-end", "refused")):
+        target = root / (name + "-" + kind + "-" + str(run.serial) + ".jsonl")
+        result = run(pair, "before", target, kind=kind, got=got)
+        assert result.returncode == 1 and target.read_text() == "", ("wrapped-operation", kind, result)
+        # Supply a verified record for this tuple to prove the after side
+        # cannot treat an operation as an observation even if it is known.
+        acknowledgement = root / (target.stem + "-known.jsonl")
+        operation_record = result.stdout.split("FAIL  ", 1)[1].split(": got ", 1)[0]
+        assert run(pair, "before", acknowledgement, label=operation_record, got=got,
+                   want="true" if kind == "wrapped-focus" else "ok").returncode == 0
+        assert run(pair, "after", acknowledgement, kind=kind, got=got).returncode == 1, ("wrapped-operation-after", kind)
+        successful = root / (target.stem + "-success.jsonl")
+        assert run(pair, "before", successful, kind=kind,
+                   got="true" if kind == "wrapped-focus" else "ok").returncode == 0, ("wrapped-operation-success", kind)
+        assert len(successful.read_text().splitlines()) == 1, ("successful-operation-not-recorded", kind)
+    poll = root / (name + "-poll.jsonl")
+    assert run(pair, "before", poll, kind="poll").returncode == 0
+    assert run(pair, "after", poll, kind="poll").returncode == 0, "successful-poll-read-mismatch"
+    damaged = root / (name + "-damaged.jsonl")
+    damaged.write_text(ledger.read_text().replace('"old"', '"tampered"'))
+    # A matching observation must still refuse corrupt evidence; a new
+    # mismatch would redden the case even if the seal guard were missing.
+    assert run(pair, "after", damaged, got="expected").returncode == 1, "ledger-hash"
+    unsealed = root / (name + "-unsealed.jsonl")
+    unsealed.write_text(records[0] + "\n")
+    assert run(pair, "after", unsealed).returncode == 1, "unsealed"
+    wrong = prepare(text + "\n# different harness\n", name + "-wrong")
+    assert run(wrong, "after", ledger).returncode == 1, "script-hash"
+    absent = root / (name + "-absent.jsonl")
+    assert run(pair, "after", absent).returncode == 1, "unreadable-ledger"
+    fifo = root / (name + "-fifo.jsonl")
+    os.mkfifo(fifo)
+    assert run(pair, "after", fifo).returncode == 1, "special-ledger"
+
+suite(source, "production")
+print("baseline: recorded continuation, exact pair, empty seal, integrity and ordinary failures pass")
+controls = (
+    ("recording", '      printf \'%s\\n\' "$key" >&"$shots_baseline_fd" || return',
+     '      : # omitted record', "recorded-tuple"),
+    ("same-omission", 'elif [[ -z ${shots_baseline_keys["$key"]+known} ]]; then',
+     'elif true; then', "same-omission"),
+    ("exact-match", 'elif [[ -z ${shots_baseline_keys["$key"]+known} ]]; then',
+     'elif false; then', "changed-key"),
+    ("seal", 'if seal != {"script": script_hash, "sha256": hashlib.sha256(body).hexdigest()}:',
+     'if False:', "ledger-hash"),
+    ("planted-control", '${label:-} != control:*', 'true', "ordinary-failure"),
+    ("observation", "shell:hide|shell:summon|", "smoke:noticeFocused|shell:hide|shell:summon|", "observation-eligible"),
+    ("owned-root", 'roots = [(sandbox, "<sandbox>"), (runtime, "<runtime>"), (world, "<world>")]',
+     'roots = [(world, "<world>")]', "owned-path-matches"),
+    ("reader-status", 'box="$(ipc smoke itemGeometry "$settings_kind" vgs.settings Label \'No plugin matches "zzqxv"\')" || return',
+     'box="$(ipc smoke itemGeometry "$settings_kind" vgs.settings Label \'No plugin matches "zzqxv"\')" || :', "dependency-failure"),
+    ("wrapped-operation", '    jarvis_asks_request|jarvis_asks_refresh|jarvis_asks_page|power_display_wake_set|power_display_wake_end)',
+     '    jarvis_asks_refresh|jarvis_asks_page|power_display_wake_set|power_display_wake_end)', "wrapped-operation"),
+)
+for name, needle, replacement, expected in controls:
+    assert source.count(needle) == 1, ("control-needle", name)
+    try:
+        suite(source.replace(needle, replacement), "control-" + name)
+    except (AssertionError, IndexError) as error:
+        assert expected in str(error) or (name == "recording" and isinstance(error, IndexError)), (name, error)
+        print("baseline control: %s rejected by %s" % (name, expected))
+    else:
+        raise AssertionError("baseline control survived: " + name)
+PYBASELINE_TEST
+then
+  ok "sealed baseline assertions and their must-fail controls"
+else
+  fail "sealed baseline assertions or their must-fail controls"
+fi
+
 # Controls, four fields each: label, the refusal's text, which must match
 # once, its replacement, and the refused case. A copy with that refusal
 # planted away must send the case's arguments on to the harness, which
@@ -2428,7 +2775,7 @@ esac
 [[ $scenario == dictation-theme-name || -e $world/apply ]]
 [[ $scenario != dictation-wrapper-* || -e $world/wrapper-reached ]]
 '''
-        code = functions(devices, ('devices_write_stand_ins',)) + '\n' + registry + '\n' + functions(text, ('scene_dictation-setup', 'dictation_setup_capture'))
+        code = functions(devices, ('devices_write_stand_ins',)) + '\n' + registry + '\n' + functions(text, ('scene_dictation-setup', 'dictation_setup_capture', 'shots_baseline_safety'))
         expected = 0
     elif case == 'notifications-light':
         body = r'''
@@ -2587,7 +2934,7 @@ def mode_case(text, mode, want, mismatch=''):
     shutil.copytree(repo / 'themes/targets/gum', world / 'targets/gum')
     shutil.copytree(repo / 'scripts/smoke/fixtures/voxtype', world / 'repo/scripts/smoke/fixtures/voxtype')
     (world / 'repo/bin/vgshell-dictation').touch(mode=0o755)
-    code = functions(text, ('capture_mode_name', 'capture_theme_check', 'set_mode',
+    code = functions(text, ('shots_baseline_safety', 'capture_mode_name', 'capture_theme_check', 'set_mode',
                             'scene_dictation-setup', 'dictation_setup_capture',
                             'clone_terminal_on',
                             'capture_state_record', 'page_state_record'))
