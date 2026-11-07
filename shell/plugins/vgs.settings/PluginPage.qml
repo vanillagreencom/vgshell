@@ -548,7 +548,7 @@ FocusScope {
                         LinkText {
                             required property string modelData
                             role: "hint"
-                            text: Reply.line(modelData, page.panel.plugins)
+                            text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.keyCaps)
                             color: Theme.color[Steps.problemTone([modelData])]
                             width: body.width
                             wrapMode: Text.Wrap

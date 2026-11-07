@@ -69,6 +69,9 @@ Item {
             compare(UnitTheme.override({ tooltip: { delay: 10 }, motion: { scale: 0 } }), "ok");
             manager.plugins = [];
             manager.opened = [];
+            ShortcutLabels.names = Object.assign({}, ShortcutLabels.names, {
+                "CODE:44": { keysym: "Cyrillic_zhe", codepoint: 0x0436 }
+            });
             root.forceActiveFocus();
             mouseMove(root, root.width - 1, root.height - 1);
         }
@@ -114,10 +117,14 @@ Item {
             mouseMove(tip.tracker.popup.contentItem, -10, -10);
         }
         function test_badge_help_and_link_are_reachable_data() {
-            return [{ tag: "hover and pointer", keyboard: false }, { tag: "focus and keyboard", keyboard: true }];
+            return [
+                { tag: "hover and pointer", keyboard: false, shortcut: root.shortcutError, displayed: "Super+," },
+                { tag: "focus and keyboard", keyboard: true, shortcut: root.shortcutError, displayed: "Super+," },
+                { tag: "active layout key", keyboard: true, shortcut: "hyprland: SUPER+code:44 for acme.problem:toggle skipped: already bound by acme.holder", displayed: "Super+Ж" }
+            ];
         }
         function test_badge_help_and_link_are_reachable(data) {
-            const row = root.row([root.shortcutError]);
+            const row = root.row([data.shortcut]);
             manager.plugins = [row, Object.assign({}, root.row([]), { id: "acme.holder", name: "Holding app" })];
             const list = createTemporaryObject(listComponent, root);
             verify(list !== null);
@@ -126,7 +133,8 @@ Item {
             verify(badge !== undefined);
             compare(badge.tone, "warning");
             compare(badge.activeFocusOnTab, true, "the explanation is reachable by Tab, not only forced focus");
-            const words = Reply.line(root.shortcutError, manager.plugins);
+            const words = Reply.line(data.shortcut, manager.plugins, ShortcutLabels.keyCaps);
+            verify(words.indexOf(data.displayed) !== -1, "the actual badge uses the shared printable layout name");
             compare(badge.Accessible.name, PageReference.plain(words), "the badge reads its complete problem explanation");
             const tip = tooltipOf(badge);
             verify(tip !== undefined, "Badge composes the shared Tooltip");

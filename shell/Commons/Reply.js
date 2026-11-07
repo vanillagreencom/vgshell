@@ -1,5 +1,4 @@
 .pragma library
-.import "../Ui/foundation/KeyNavLogic.js" as Keys
 
 // The one judge of a manager or surface reply: `ok`, or `ok <detail>` such
 // as `ok hidden=<ids>`, is success; every other reply is a refusal to show.
@@ -65,21 +64,21 @@ var MESSAGES = [
 ];
 
 // HyprlandLayer's diagnostic carries ids, while the manager inventory
-// carries display names. KeyNavLogic owns the same key spelling the
-// shortcut field draws.
-function shortcutProblem(match, plugins) {
+// carries display names. QML callers supply ShortcutLabels' layout-aware
+// key caps, keeping this shared judge free of Qt objects.
+function shortcutProblem(match, plugins, keyCaps) {
     const holder = (plugins || []).find(function (plugin) { return plugin.id === match[3]; });
-    const key = Keys.keyCaps(match[1]).join("+");
+    const key = keyCaps(match[1]).join("+");
     const cause = holder === undefined ? "Another plugin uses this shortcut: " + key : holder.name + " already uses " + key;
     return cause + ". Change this shortcut in [Settings/Keys](page:" + match[2] + "/Settings/Keys).";
 }
 
-function line(reply, plugins) {
+function line(reply, plugins, keyCaps) {
     if (isOk(reply)) return "";
     const text = String(reply);
     for (const row of MESSAGES) {
         const match = row[0].exec(text);
-        if (match !== null) return typeof row[1] === "function" ? row[1](match, plugins) : row[1];
+        if (match !== null) return typeof row[1] === "function" ? row[1](match, plugins, keyCaps) : row[1];
     }
     return "VGS could not complete this action. Close Plugins and open it again to retry.";
 }
