@@ -593,7 +593,11 @@ FocusScope {
                     Label {
                         required property var modelData
                         objectName: "sessionResumeLine"
-                        width: parent.width
+                        // Repeater teardown can detach a delegate before
+                        // deleting it. Keep geometry on the owning layout.
+                        // qml-smoke run 20261107T024427Z, Console.qml:596;
+                        // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#count-prop
+                        width: layout.contentWidth
                         role: "body"
                         text: modelData
                         textFormat: Text.PlainText

@@ -128,7 +128,7 @@ Item {
             const section = collect(jarvisConsole, n => n.objectName === "sessionResume", [])[0];
             const checked = collect(jarvisConsole, n => n.objectName === "sessionResumeChecked", [])[0];
             tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === data.lines.length);
-            const labels = collect(section, n => n.objectName === "sessionResumeLine", []);
+            let labels = collect(section, n => n.objectName === "sessionResumeLine", []);
             compare(labels.map(label => label.text), data.lines, "the complete ordered outcomes reach their drawn labels");
             compare(section.visible, data.lines.length > 0 || data.checked === true);
             compare(checked.visible, data.checked === true);
@@ -152,6 +152,28 @@ Item {
             jarvisConsole.tab = 0;
             tryCompare(section, "visible", data.lines.length > 0 || data.checked === true);
             compare(labels.map(label => label.text), data.lines, "returning to Now retains the current complete reading");
+            if (data.lines.length > 0) {
+                // Removing the Repeater from the visual hierarchy destroys
+                // its delegates without changing its model. Let it own the
+                // removal; never detach or destroy a delegate ourselves.
+                // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#count-prop
+                const repeater = collect(section, n => n instanceof Repeater, [])[0];
+                verify(repeater !== undefined);
+                const owner = repeater.parent;
+                labels = [];
+                try {
+                    repeater.parent = null;
+                    compare(repeater.count, data.lines.length);
+                    tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === 0);
+                } finally {
+                    repeater.parent = owner;
+                }
+                tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === data.lines.length);
+                const restored = collect(section, n => n.objectName === "sessionResumeLine", []);
+                compare(restored.map(label => label.text), data.lines, "the complete reading survives delegate replacement");
+                verify(renderedFrame(jarvisConsole));
+                for (const label of restored) compare(label.width, section.width);
+            }
         }
 
         function test_handoff_is_unsent_and_preserves_occupied_draft() {
