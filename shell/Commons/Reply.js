@@ -1,4 +1,5 @@
 .pragma library
+.import "../Ui/foundation/KeyNavLogic.js" as Keys
 
 // The one judge of a manager or surface reply: `ok`, or `ok <detail>` such
 // as `ok hidden=<ids>`, is success; every other reply is a refusal to show.
@@ -51,7 +52,7 @@ var MESSAGES = [
     [/^refused: preview=\S+ reason=none$/, "This plugin cannot play a preview now. Turn it on and try again."],
     [/^refused: add-choice=\S+ reason=undeclared$/, "This list no longer offers that entry. Close Plugins and open it again."],
     [/^build failed: [^:]+: /, "This plugin could not start. Check for an update."],
-    [/^hyprland: .+ for \S+:\S+ skipped: already bound by .+$/, "Another plugin uses this shortcut. Give this shortcut other keys."],
+    [/^hyprland: (.+) for (\S+):\S+ skipped: already bound by ([^:\s]+)(?::\S+)?$/, shortcutProblem],
     [/^hyprland: appearance declaration ignored for \S+: already owned by .+$/, "Another plugin controls the window appearance. Turn off that plugin to use this one."],
     [/^hyprland: .+ for \S+:\S+ skipped: already set by .+$/, "Another plugin controls this setting. Turn off that plugin to use this one."],
     [/^hyprland: \S+ for \S+:\S+ skipped: want=(?:number|string|boolean|whole-number|one-of-presets|one-of:.+|at-(?:least|most):-?\d+(?:\.\d+)?(?:e[+-]?\d+)?|characters:.+|datetime-format reason=(?:empty|multiline|too-long|unclosed-quote|no-field))$/, "A saved setting is invalid. Choose another value."],
@@ -63,12 +64,22 @@ var MESSAGES = [
     [/^menu: \S+ for \S+ skipped: already listed by \S+$/, "Another plugin adds this launcher row. Turn off that plugin to use this one."]
 ];
 
-function line(reply) {
+// HyprlandLayer's diagnostic carries ids, while the manager inventory
+// carries display names. KeyNavLogic owns the same key spelling the
+// shortcut field draws.
+function shortcutProblem(match, plugins) {
+    const holder = (plugins || []).find(function (plugin) { return plugin.id === match[3]; });
+    const key = Keys.keyCaps(match[1]).join("+");
+    const cause = holder === undefined ? "Another plugin uses this shortcut: " + key : holder.name + " already uses " + key;
+    return cause + ". Change this shortcut in [Settings/Keys](page:" + match[2] + "/Settings/Keys).";
+}
+
+function line(reply, plugins) {
     if (isOk(reply)) return "";
     const text = String(reply);
     for (const row of MESSAGES) {
         const match = row[0].exec(text);
-        if (match !== null) return typeof row[1] === "function" ? row[1](match) : row[1];
+        if (match !== null) return typeof row[1] === "function" ? row[1](match, plugins) : row[1];
     }
     return "VGS could not complete this action. Close Plugins and open it again to retry.";
 }

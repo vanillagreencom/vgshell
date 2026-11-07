@@ -162,6 +162,18 @@ function verify(logic) {
         assert.doesNotMatch(text, /(?:hyprland:|refused:|\b[a-z][a-z-]*=)/, raw);
     }
     assert.match(logic.line(UNKNOWN.at(-1)), /plugin could not start/, "embedded unrelated codes must not change the failure cause");
+    // The problem explanation is the product result: key spelling, display
+    // name and actionable page reference, not the raw diagnostic ids.
+    const pages = load(path.join(core, "..", "Commons", "PageReference.js"));
+    for (const holder of ["acme.other", "acme.other:toggle"]) {
+        const text = logic.line("hyprland: SUPER+COMMA for acme.example:toggle skipped: already bound by " + holder,
+            [{ id: "acme.other", name: "Other app" }]);
+        assert.match(text, /Super\+Comma/);
+        assert.match(text, /Other app/);
+        assert.doesNotMatch(pages.plain(text), /acme\./);
+        const reference = pages.parse(text);
+        same([reference.page, reference.tab], ["acme.example", "Settings/Keys"]);
+    }
 }
 
 // Like the Dev Tools handler test, execute the QML source under Node with
@@ -265,7 +277,7 @@ function verifyCallers(logic, source, page) {
     const bindings = [...page.matchAll(/required property string modelData\n\s+role: "hint"\n\s+text: ([^\n]+)/g)];
     assert.equal(bindings.length, 1, "extractor: the Registry error delegate has one display binding");
     for (const [modelData] of CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:"))) {
-        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData });
+        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData, page: { panel: { plugins: [] } } });
         assert.equal(drawn, logic.line(modelData), "the actual delegate maps its current error");
     }
 }
@@ -427,6 +439,8 @@ verifyPageRoutes(logic, windowSource);
 verifyWriter(writerSource);
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
+fs.mkdirSync(path.join(temp, "Commons"));
+fs.symlinkSync(path.join(core, "..", "Ui"), path.join(temp, "Ui"));
 let controls = 0;
 try {
     const paneRoute = '        if (row !== null && row.kinds.indexOf("pane") !== -1) return openPane(id);\n';
@@ -437,7 +451,7 @@ try {
     assert.ok(patterns.length >= 30, "extractor: mapper pattern table incomplete");
     for (const row of patterns) {
         assert.equal(source.split(row).length, 2, "control: each mapping row is unique");
-        const mutant = path.join(temp, "Reply.js");
+        const mutant = path.join(temp, "Commons", "Reply.js");
         const removed = row.replace(/\[\/.*?\//, "[/never-produced/");
         assert.notEqual(row, removed);
         fs.writeFileSync(mutant, source.replace(row, () => removed));
@@ -448,7 +462,7 @@ try {
     assert.ok(broad, "extractor: one value refusal mapping");
     assert.equal(source.split(broad[0]).length, 2);
     const oldRule = '    [/^hyprland: .+ for \\S+:\\S+ skipped: /, "A saved setting is invalid. Choose another value."],';
-    const mutant = path.join(temp, "Reply.js");
+    const mutant = path.join(temp, "Commons", "Reply.js");
     fs.writeFileSync(mutant, source.replace(broad[0], () => oldRule));
     assert.throws(() => verify(load(mutant)), /Hyprland lists no touchpad/, "the broad wrong-cause rule must fail");
     controls++;
@@ -457,8 +471,8 @@ try {
     assert.throws(() => verifyKeys(shotsSource.replace(reader, "settings_section Keys KeyField toggle"), keySource), /Keys selection must find actual KeyField/, "the old screenshot reader must fail on absent geometry");
     controls++;
     for (const [needle, replacement, check] of [
-        ['if (isOk(reply)) return "";', '', mutated => { const f = path.join(temp, "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
-        ['reply.indexOf("ok ") === 0', 'false', mutated => { const f = path.join(temp, "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }]
+        ['if (isOk(reply)) return "";', '', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
+        ['reply.indexOf("ok ") === 0', 'false', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }]
     ]) {
         assert.equal(source.split(needle).length, 2);
         assert.throws(() => check(source.replace(needle, replacement)));
@@ -486,7 +500,7 @@ try {
         assert.throws(() => verifyWriter(writerSource.replace(needle, () => replacement)), cause);
         controls++;
     }
-    const needle = "text: Reply.line(modelData)";
+    const needle = "text: Reply.line(modelData, page.panel.plugins)";
     assert.equal(pageSource.split(needle).length, 2);
     assert.throws(() => verifyCallers(logic, windowSource, pageSource.replace(needle, "text: modelData")));
     controls++;

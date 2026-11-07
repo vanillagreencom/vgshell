@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 
@@ -24,8 +25,11 @@ import qs.Ui
 // (BarItem's `count`): a `badge.unread.corner` circle with its ring in the
 // bar's background, figures in the bar role at `bar.stacked.size`, and
 // above 9 it reads 9+ in a pill that holds `space.xxs` inside its ring
-// either side.
-Rectangle {
+// either side. `tooltip` and `tooltipDetails` open the shared Tooltip on
+// hover and keyboard focus; page links emit `tooltipPageActivated`. The
+// accessible name includes the same explanation. Without help the badge
+// takes no keyboard focus.
+T.Control {
     id: root
 
     property string text: ""
@@ -34,6 +38,12 @@ Rectangle {
     property string size: "sm"
     property string tone: "neutral"
     property bool verbatim: false
+    property string tooltip: ""
+    property var tooltipDetails: []
+    signal tooltipPageActivated(string page, string tab)
+    property alias radius: chip.radius
+    property alias color: chip.color
+    property alias border: chip.border
     // The unread count's level: "normal", "warning" or "danger".
     property string level: "normal"
     readonly property bool unread: variant === "unread"
@@ -51,7 +61,19 @@ Rectangle {
         : Theme.controlPadding(sizeTokens.paddingX, Theme.badge.radius, sizeTokens.height, Math.max(icon.visible ? icon.height : 0, label.lineBox))
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: text
+    Accessible.name: tooltip === "" ? text : PageReference.plain([tooltip].concat(tooltipDetails).join("\n"))
+    // Control supplies visualFocus for the shared Tooltip and FocusRing.
+    // https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#visualFocus-prop
+    focusPolicy: tooltip === "" ? Qt.NoFocus : Qt.TabFocus
+    Keys.onPressed: event => { event.accepted = tip.takeKey(event); }
+
+    Tooltip {
+        id: tip
+        text: root.tooltip
+        details: root.tooltipDetails
+        pageLinks: true
+        onPageActivated: (page, tab) => root.tooltipPageActivated(page, tab)
+    }
 
     function toneOf(name) {
         const found = Theme.badge.tone[name];
@@ -82,6 +104,8 @@ Rectangle {
     // ring takes from its fill, not its size.
     border.width: corner ? Theme.badge.unread.corner.border : 0
     border.color: Theme.badge.unread.corner.borderColor
+    background: Rectangle { id: chip }
+    FocusRing { target: root; targetRadius: root.radius }
 
     // The icon is built only for a chip that draws one, so a count or a
     // chip without one holds no hidden Icon for a reader of the item it
