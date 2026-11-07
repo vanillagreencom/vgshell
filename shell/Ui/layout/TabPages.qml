@@ -4,10 +4,12 @@ import qs.Ui
 
 // Pages under one tab strip. `model` lists the tab texts, one per page;
 // the items declared inside are the pages, in that order; `currentIndex`
-// is the page shown. Each page takes the component's width and only the
+// is the page shown. `header` is content shared by every tab below the
+// strip. Each page takes the component's width and only the
 // shown one is visible, so Tab from the strip enters that page alone and
-// Shift+Tab returns. The height is the strip, `spacing` and the shown
-// page; `spacing` is `stack.section`, as a strip opens a page's blocks.
+// Shift+Tab returns. The height includes the strip, `spacing`, the common
+// header and the shown page, with `stack.page` between a header and page;
+// `spacing` is `stack.section`, as a strip opens a page's blocks.
 // Left and Right on the strip change the page, and Ctrl+Tab,
 // Ctrl+Shift+Tab, Ctrl+PageDown and Ctrl+PageUp step it, round the ends,
 // from the strip and from a control of the shown page that leaves the
@@ -23,13 +25,18 @@ FocusScope {
     property alias warningTabs: strip.warningTabs
     property alias currentIndex: strip.currentIndex
     default property alias pages: stack.data
+    // Content shared by every tab, below the strip at the normal page gap.
+    property alias header: common.data
     property real spacing: Theme.stack.section
+    // A pinned strip's resting offset, kept separate from the page gap.
+    property real topInset: 0
     readonly property int count: stack.children.length
     readonly property Item currentPage: currentIndex >= 0 && currentIndex < count ? stack.children[currentIndex] : null
     readonly property alias tabs: strip
 
     implicitWidth: Math.max(strip.implicitWidth, currentPage === null ? 0 : currentPage.implicitWidth)
-    implicitHeight: strip.height + (currentPage === null ? 0 : spacing + currentPage.height)
+    implicitHeight: strip.height + topInset + (common.height > 0 ? spacing + common.height : 0)
+        + (currentPage === null ? 0 : (common.height > 0 ? Theme.stack.page : spacing) + currentPage.height)
 
     function show() {
         for (let i = 0; i < stack.children.length; i++) stack.children[i].visible = i === currentIndex;
@@ -70,9 +77,16 @@ FocusScope {
         width: root.width
     }
 
+    Column {
+        id: common
+        y: strip.height + root.topInset + root.spacing
+        width: root.width
+        spacing: Theme.stack.page
+    }
+
     Item {
         id: stack
-        y: strip.height + root.spacing
+        y: common.y + common.height + (common.height > 0 ? Theme.stack.page : 0)
         width: root.width
         height: root.currentPage === null ? 0 : root.currentPage.height
         onChildrenChanged: {

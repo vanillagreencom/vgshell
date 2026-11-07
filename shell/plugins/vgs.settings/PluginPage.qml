@@ -535,31 +535,35 @@ FocusScope {
             spacing: Theme.stack.page
             visible: page.row !== null
 
-            Repeater {
-                model: page.row === null ? [] : page.row.errors
-                Label {
-                    required property string modelData
-                    role: "hint"
-                    text: Reply.line(modelData)
-                    color: Theme.color.danger
-                    width: body.width
-                    wrapMode: Text.Wrap
-                }
-            }
-
-            Label {
-                role: "hint"
-                text: page.row === null ? "" : page.panel.headReplies(page.row.id).join("\n")
-                visible: text !== ""
-                color: Theme.color.danger
-                width: parent.width
-                wrapMode: Text.Wrap
-            }
-
             TabPages {
                 id: tabs
                 width: parent.width
                 model: ["Settings", "Details"]
+                // The pinned strip's resting offset keeps its focus ring
+                // inside the viewport; content clears that same offset.
+                topInset: layout.scrollArea.focusInset + layout.ringRoom
+                header: [
+                    Repeater {
+                        model: page.row === null ? [] : page.row.errors
+                        LinkText {
+                            required property string modelData
+                            role: "hint"
+                            text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.shortcutLabel)
+                            color: Theme.color[Steps.problemTone([modelData])]
+                            width: body.width
+                            wrapMode: Text.Wrap
+                            onPageActivated: (id, tab) => page.panel.openPage(id, tab)
+                        }
+                    },
+                    Label {
+                        role: "hint"
+                        text: page.row === null ? "" : page.panel.headReplies(page.row.id).join("\n")
+                        visible: text !== ""
+                        color: Theme.color.danger
+                        width: body.width
+                        wrapMode: Text.Wrap
+                    }
+                ]
                 warningTabs: page.setupNeeded ? ["Setup"] : []
                 tabs.z: 2
                 tabs.objectName: "stickyTabs"

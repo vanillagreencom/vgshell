@@ -62,7 +62,6 @@ const CASES = [
     ["refused: preview=voice reason=none", /cannot play a preview now/],
     ["refused: add-choice=voiceAccount reason=undeclared", /no longer offers that entry/],
     ["build failed: service: file:///fixture/Service.qml:12: No such type", /plugin could not start/],
-    ["hyprland: SUPER+SPACE for acme.example:toggle skipped: already bound by acme.other:toggle", /Another plugin uses this shortcut/],
     ["hyprland: appearance declaration ignored for acme.example: already owned by acme.other", /Another plugin controls the window appearance/],
     ["hyprland: input:scroll_factor for acme.example:speed skipped: already set by acme.other:speed", /Another plugin controls this setting/],
     ["hyprland: input:scroll_factor for acme.example:speed skipped: want=at-most:2", /saved setting is invalid/],
@@ -76,6 +75,11 @@ const CASES = [
 // Already parsed device facts only. No device or compositor command runs.
 const core = path.join(__dirname, "..", "shell", "Core");
 const producer = load(path.join(core, "PluginLogic.js"));
+const keyLogic = load(path.join(core, "..", "Ui", "foundation", "KeyNavLogic.js"));
+const keyNames = Object.assign(keyLogic.symbolNames(producer.CAPTURE_KEY_NAMES), {
+    "CODE:44": { keysym: "Cyrillic_zhe", codepoint: 0x0436 }
+});
+const shortcutLabel = shortcut => keyLogic.shortcutLabel(shortcut, keyNames);
 const layer = load(path.join(core, "HyprlandLayer.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke", "fixtures", "plugins", "acme.hyprland", "manifest.json"), "utf8"));
 const problemsSource = fs.readFileSync(path.join(core, "HyprlandLayer.qml"), "utf8");
@@ -162,6 +166,19 @@ function verify(logic) {
         assert.doesNotMatch(text, /(?:hyprland:|refused:|\b[a-z][a-z-]*=)/, raw);
     }
     assert.match(logic.line(UNKNOWN.at(-1)), /plugin could not start/, "embedded unrelated codes must not change the failure cause");
+    // The problem explanation is the product result: key spelling, display
+    // name and actionable page reference, not the raw diagnostic ids.
+    const pages = load(path.join(core, "..", "Commons", "PageReference.js"));
+    for (const [shortcut, displayed] of [["SUPER+COMMA", "Super+,"], ["SUPER+code:44", "Super+Ж"]])
+    for (const holder of ["acme.other", "acme.other:toggle"]) {
+        const text = logic.line("hyprland: " + shortcut + " for acme.example:toggle skipped: already bound by " + holder,
+            [{ id: "acme.other", name: "Other app" }], shortcutLabel);
+        assert.ok(text.includes(displayed), "the shared formatter supplies printable symbols and the active layout name");
+        assert.match(text, /Other app/);
+        assert.doesNotMatch(pages.plain(text), /acme\./);
+        const reference = pages.parse(text);
+        same([reference.page, reference.tab], ["acme.example", "Settings/Keys"]);
+    }
 }
 
 // Like the Dev Tools handler test, execute the QML source under Node with
@@ -264,9 +281,12 @@ function verifyCallers(logic, source, page) {
 
     const bindings = [...page.matchAll(/required property string modelData\n\s+role: "hint"\n\s+text: ([^\n]+)/g)];
     assert.equal(bindings.length, 1, "extractor: the Registry error delegate has one display binding");
-    for (const [modelData] of CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:"))) {
-        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData });
-        assert.equal(drawn, logic.line(modelData), "the actual delegate maps its current error");
+    for (const [modelData] of [
+        ...CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:")),
+        ["hyprland: SUPER+code:44 for acme.example:toggle skipped: already bound by acme.other"]
+    ]) {
+        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData, page: { panel: { plugins: [] } }, ShortcutLabels: { shortcutLabel } });
+        assert.equal(drawn, logic.line(modelData, [], shortcutLabel), "the actual delegate maps its current error with the shared formatter");
     }
 }
 
@@ -427,9 +447,10 @@ verifyPageRoutes(logic, windowSource);
 verifyWriter(writerSource);
 const source = fs.readFileSync(file, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "settings-reply-control-"));
+fs.mkdirSync(path.join(temp, "Commons"));
 let controls = 0;
 try {
-    const paneRoute = '        if (row !== null && row.kinds.indexOf("pane") !== -1) return openPane(id);\n';
+    const paneRoute = '        if (row !== null && row.kinds.indexOf("pane") !== -1 && tab !== "Settings/Keys") return openPane(id);\n';
     assert.equal(windowSource.split(paneRoute).length, 2);
     assert.throws(() => verifyPageRoutes(logic, windowSource.replace(paneRoute, "")));
     controls++;
@@ -437,7 +458,7 @@ try {
     assert.ok(patterns.length >= 30, "extractor: mapper pattern table incomplete");
     for (const row of patterns) {
         assert.equal(source.split(row).length, 2, "control: each mapping row is unique");
-        const mutant = path.join(temp, "Reply.js");
+        const mutant = path.join(temp, "Commons", "Reply.js");
         const removed = row.replace(/\[\/.*?\//, "[/never-produced/");
         assert.notEqual(row, removed);
         fs.writeFileSync(mutant, source.replace(row, () => removed));
@@ -448,7 +469,7 @@ try {
     assert.ok(broad, "extractor: one value refusal mapping");
     assert.equal(source.split(broad[0]).length, 2);
     const oldRule = '    [/^hyprland: .+ for \\S+:\\S+ skipped: /, "A saved setting is invalid. Choose another value."],';
-    const mutant = path.join(temp, "Reply.js");
+    const mutant = path.join(temp, "Commons", "Reply.js");
     fs.writeFileSync(mutant, source.replace(broad[0], () => oldRule));
     assert.throws(() => verify(load(mutant)), /Hyprland lists no touchpad/, "the broad wrong-cause rule must fail");
     controls++;
@@ -457,8 +478,9 @@ try {
     assert.throws(() => verifyKeys(shotsSource.replace(reader, "settings_section Keys KeyField toggle"), keySource), /Keys selection must find actual KeyField/, "the old screenshot reader must fail on absent geometry");
     controls++;
     for (const [needle, replacement, check] of [
-        ['if (isOk(reply)) return "";', '', mutated => { const f = path.join(temp, "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
-        ['reply.indexOf("ok ") === 0', 'false', mutated => { const f = path.join(temp, "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }]
+        ['const key = label.kind === "resolved" ? label.caps.join("+") : "";', 'const key = match[1];', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
+        ['if (isOk(reply)) return "";', '', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
+        ['reply.indexOf("ok ") === 0', 'false', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }]
     ]) {
         assert.equal(source.split(needle).length, 2);
         assert.throws(() => check(source.replace(needle, replacement)));
@@ -486,7 +508,7 @@ try {
         assert.throws(() => verifyWriter(writerSource.replace(needle, () => replacement)), cause);
         controls++;
     }
-    const needle = "text: Reply.line(modelData)";
+    const needle = "text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.shortcutLabel)";
     assert.equal(pageSource.split(needle).length, 2);
     assert.throws(() => verifyCallers(logic, windowSource, pageSource.replace(needle, "text: modelData")));
     controls++;

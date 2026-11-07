@@ -262,20 +262,26 @@ function opener(control) {
     return control.visualFocus === true ? "key" : "pointer";
 }
 
-// Split a shortcut string into user-facing key cap labels.
-function keyCaps(shortcut, resolved) {
-    if (shortcut === undefined || shortcut === null || String(shortcut).trim() === "") return [];
+// A contextual explanation needs key data, not the key editor's guidance.
+// Keep resolution and spelling together so neither consumer parses copy.
+function shortcutLabel(shortcut, resolved) {
+    if (shortcut === undefined || shortcut === null || String(shortcut).trim() === "") return { kind: "resolved", caps: [] };
     var parts = String(shortcut).split("+");
     var out = [];
     for (var i = 0; i < parts.length; i++) {
         var part = parts[i].trim();
         if (part === "") continue;
         var label = display(part, resolved);
-        // An unnamed chord is guidance, not a mixture of keys and an action.
-        if (label === UNNAMED_KEY) return [label];
+        if (label === null) return { kind: "unresolved" };
         out.push(label);
     }
-    return out;
+    return { kind: "resolved", caps: out };
+}
+
+// An unnamed chord is guidance, not a mixture of keys and an action.
+function keyCaps(shortcut, resolved) {
+    var label = shortcutLabel(shortcut, resolved);
+    return label.kind === "unresolved" ? [UNNAMED_KEY] : label.caps;
 }
 
 var UNNAMED_KEY = "Choose a key in [Settings](page:vgs.settings)";
@@ -299,7 +305,7 @@ function display(key, resolved) {
     var physical = /^CODE:[0-9]+$/.test(upper);
     if (physical) upper = "CODE:" + String(Number(upper.slice(5)));
     var native = resolved === undefined || resolved === null ? null : resolved[upper];
-    if (physical && (native === undefined || native === null)) return UNNAMED_KEY;
+    if (physical && (native === undefined || native === null)) return null;
     if (native !== undefined && native !== null) {
         if (native.codepoint > 32 && native.codepoint !== 127)
             return String.fromCodePoint(native.codepoint).toUpperCase();

@@ -547,6 +547,13 @@ function verify(logic, producer) {
     same([failedHome.text, failedHome.tone, failedHome.lines.length, failedHome.output], [logic.STEP_CHIPS.failed.text, "danger", 1, failure.lines], "a failed step reads Failed in the danger tone, what failed as its one line, and the last lines apart");
     same(failure.packages.every(name => failedHome.lines[0].includes(name)) && !/pkg run|pacman/.test(failedHome.lines[0]), true, "what failed names its packages and no command");
     same([logic.failedView(failedHome, failure, false).lines.length, logic.failedView(failedHome, failure, false).output], [1, []], "a later failed step names what failed alone");
+    for (const [errors, tone] of [
+        [[], "warning"],
+        [["hyprland: SUPER+COMMA for acme.example:toggle skipped: already bound by acme.other"], "warning"],
+        [[buildLine], "danger"],
+        [[refusalLine], "danger"],
+        [["hyprland: SUPER+COMMA for acme.example:toggle skipped: already bound by acme.other", buildLine], "danger"]
+    ]) same(logic.problemTone(errors), tone, "problem tone follows start failure");
 }
 
 // Mask comments and strings before counting braces, so explanatory text
@@ -568,6 +575,7 @@ function verifyPage(source) { assert.doesNotMatch(setupBody(source), /\bButton\s
 verify(load(file), load(producerFile));
 verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
+    ["a failed start reads as a warning", 'return startFailed(errors) ? "danger" : "warning";', 'return "warning";', "problem tone follows start failure"],
     ["a failed install keeps Review", "item.button = retryButton();", "", "a failed install: a required tool's install fails its steps alone"],
     ["every failed step draws the lines", "first = false;", "", "a failed install: a required tool's install fails its steps alone"],
     ["every step that offers Review reads failed", "            if (!failedBy(rows, failure)) return;\n", "", "a failed install: a required tool's install fails its steps alone"],

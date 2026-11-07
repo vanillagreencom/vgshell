@@ -508,7 +508,8 @@ FocusScope {
     // reference's path (PageReference.file) through the core edit route,
     // `shell.tui.edit`, else plugin `id`'s page on `tab`, Settings for "",
     // as openPlugin does; answers its reply. A pane plugin opens in the
-    // panes holder over this window. A reference to a plugin that is not
+    // panes holder unless the reference names its Settings/Keys editor.
+    // A reference to a plugin that is not
     // listed opens nothing.
     function openPage(id, tab) {
         const file = PageReference.file(id);
@@ -518,7 +519,7 @@ FocusScope {
             return answer;
         }
         const row = rowOf(id);
-        if (row !== null && row.kinds.indexOf("pane") !== -1) return openPane(id);
+        if (row !== null && row.kinds.indexOf("pane") !== -1 && tab !== "Settings/Keys") return openPane(id);
         const reply = openPlugin(id, Qt.OtherFocusReason, tab === "" ? undefined : tab);
         if (reply.startsWith("unknown: ")) console.warn("settings: page link " + reply);
         return reply;

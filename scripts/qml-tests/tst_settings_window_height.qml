@@ -116,8 +116,10 @@ Item {
         property var installFailures: ({})
         // The page the window reported shown, each report in order.
         property var viewed: []
+        property var panes: []
         function rescan() { return "ok"; }
         function viewPage(id) { viewed = viewed.concat([id]); }
+        function openPane(id) { panes = panes.concat([id]); return "ok"; }
     }
 
     QtObject {
@@ -197,6 +199,7 @@ Item {
         function init() {
             fakeManager.plugins = root.fewRows;
             fakeManager.viewed = [];
+            fakeManager.panes = [];
             fakeCompositor.reads = [];
             fakeCompositor.calls = [];
             fakeCompositor.sync = null;
@@ -236,6 +239,36 @@ Item {
         // Room below the shown tab's content, and none past it.
         function fits(scroll) {
             return scroll.height >= scroll.contentHeight && scroll.height - scroll.contentHeight < 1;
+        }
+
+        function test_pane_reference_preserves_explicit_keys_target_data() {
+            // Shipped pane plugins with shortcuts can all emit Settings/Keys
+            // conflict repairs. Bare references still open their native pane.
+            return ["vgs.sound", "vgs.displays", "vgs.power", "vgs.remote-desktop", "vgs.windows"]
+                .map(id => ({ tag: id, id: id }));
+        }
+        function test_pane_reference_preserves_explicit_keys_target(data) {
+            const row = root.pluginRow({
+                id: data.id, kinds: ["pane"], schema: root.longRow.schema, settings: root.longRow.settings,
+                binds: [{ shortcut: "volume-up", key: "SUPER+PERIOD", default: "XF86AudioRaiseVolume", description: "Volume up" }]
+            });
+            fakeManager.plugins = [row];
+            const window = opened(JSON.stringify({ plugin: data.id, tab: "Details" }));
+            const p = parts(window);
+            compare(window.openPage(data.id, ""), "ok");
+            compare(fakeManager.panes, [data.id], "a bare reference keeps the native-pane route");
+            compare(p.page.tab, "Details");
+            compare(window.openPage(data.id, "Settings/Keys"), "ok");
+            rendered(window);
+            compare(fakeManager.panes, [data.id], "the explicit repair never opens the native pane");
+            compare(window.page, data.id);
+            compare(p.page.tab, "Settings");
+            tryVerify(() => p.page.revealedRow !== null);
+            compare(p.page.revealedRow.fieldKey, "Keys", "the actual Window route reveals the Keys section");
+            const keys = p.page.revealedRow;
+            const top = keys.mapToItem(p.page.scrollArea, 0, 0).y;
+            verify(top >= p.page.stickyTabs.height && top < p.page.scrollArea.height,
+                "the requested Keys section is drawn below the pinned tabs in the viewport");
         }
 
         // The core tells a plugin while its page is shown: the window
@@ -295,8 +328,10 @@ Item {
             compare(track.mapToItem(p.page, 0, 0).x, firstRow.mapToItem(p.page, 0, 0).x,
                 "the tab rule and content rows share their left edge");
             compare(track.width, firstRow.width, "the tab rule and content rows span the same width");
-            const restGap = firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height;
-            compare(restGap, Theme.stack.section, "the first row follows the tab strip by the section spacing token");
+            function contentGap() {
+                return firstRow.mapToItem(scroll, 0, 0).y + scroll.contentY - strip.mapToItem(scroll, 0, strip.height).y;
+            }
+            compare(contentGap(), Theme.stack.section, "the first row follows the tab strip by the section spacing token");
 
             compare(surface.color, Qt.color(Theme.surface.level.raised.background), "the cover matches the application window's raised background");
             compare(surface.mapToItem(scroll, 0, 0).y, scroll.focusInset + scroll.clipPadding,
@@ -438,7 +473,7 @@ Item {
                     }
                 }
                 solidPixels(atEnd, surface, Qt.rect(0, 0, surface.width, strip.mapToItem(surface, 0, 0).y), Theme.surface.level.raised.background);
-                compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.section,
+                compare(contentGap(), Theme.stack.section,
                     "the first row keeps its section spacing while content scrolls");
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
                 verify(button !== undefined, "the pinned " + names[i] + " tab can be found");

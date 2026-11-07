@@ -168,8 +168,8 @@ const CONTROLS = [
     ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],
     ["layout-label old raw code", 'var physical = /^CODE:[0-9]+$/.test(upper);', 'var physical = /^CODE:[0-9]+$/.test(upper); if (physical) return "Code:" + Number(upper.slice(5));'],
     ["layout-label fixed US map", 'var physical = /^CODE:[0-9]+$/.test(upper);', 'var physical = /^CODE:[0-9]+$/.test(upper); if (upper === "CODE:30") return "U";'],
-    ["layout-label missing name", 'return UNNAMED_KEY;', 'return key;'],
-    ["layout-label fallback retains key parts", 'if (label === UNNAMED_KEY) return [label];', 'if (false) return [label];'],
+    ["layout-label missing name", 'if (physical && (native === undefined || native === null)) return null;', 'if (physical && (native === undefined || native === null)) return key;'],
+    ["layout-label fallback retains key parts", 'if (label === null) return { kind: "unresolved" };', 'if (false) return { kind: "unresolved" };'],
     ["layout-label symbol inputs", 'if (value > 32 && value < 127)', 'if (false)'],
     ["layout-label leading zeros", 'if (physical) upper = "CODE:" + String(Number(upper.slice(5)));', 'if (physical) upper = "CODE:" + upper.slice(5);']
 ];

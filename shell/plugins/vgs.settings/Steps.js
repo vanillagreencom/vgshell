@@ -46,6 +46,9 @@ function startError(errors) {
 // Whether a plugin of ERRORS could not start, the `failed` stepReading
 // takes.
 function startFailed(errors) { return startError(errors) !== ""; }
+// Ignored declarations leave the plugin running; only a failed start is
+// danger. The list badge and existing page problem lines share this tone.
+function problemTone(errors) { return startFailed(errors) ? "danger" : "warning"; }
 // The chip of each reading, its word and its tone. The words are declared
 // here alone (docs/architecture/design-system.md § Settings pages).
 var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" },

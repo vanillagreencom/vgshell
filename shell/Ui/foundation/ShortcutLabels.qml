@@ -45,6 +45,10 @@ Singleton {
         return Logic.keyCaps(shortcut, root.names);
     }
 
+    function shortcutLabel(shortcut) {
+        return Logic.shortcutLabel(shortcut, root.names);
+    }
+
     function readNext() {
         if (pending || Capabilities.hyprland.resolvingKeys || Capabilities.hyprland.devices === null) return;
         const key = physicalKeys.find(key => !Object.prototype.hasOwnProperty.call(names, key.toUpperCase()));

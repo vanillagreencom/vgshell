@@ -177,6 +177,7 @@ FocusScope {
                 // Judged once per row the manager publishes; the search
                 // filter and the cursor leave a kept row's data as it was.
                 readonly property var needs: Steps.setupNeeds(modelData.status, modelData.requirements, modelData.enabled, Steps.startFailed(modelData.errors))
+                readonly property var problemLines: modelData.errors.map(line => Reply.line(line, page.panel.plugins, ShortcutLabels.shortcutLabel))
                 width: layout.contentWidth
                 text: modelData.name
                 secondary: modelData.version + "  " + (modelData.source === "bundled" ? "Included" : "Installed")
@@ -186,9 +187,12 @@ FocusScope {
                 onClicked: page.panel.openRow(modelData.id, Qt.MouseFocusReason)
                 trailing: [
                     Badge {
-                        tone: "danger"
+                        tone: Steps.problemTone(entry.modelData.errors)
                         iconName: "circle-alert"
                         text: String(entry.modelData.errors.length)
+                        tooltip: entry.problemLines[0] || ""
+                        tooltipDetails: entry.problemLines.slice(1)
+                        onTooltipPageActivated: (id, tab) => page.panel.openPage(id, tab)
                         visible: entry.modelData.errors.length > 0
                         anchors.verticalCenter: parent.verticalCenter
                     },

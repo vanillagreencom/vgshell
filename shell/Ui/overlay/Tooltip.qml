@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Templates as T
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -236,10 +237,12 @@ Item {
     // it declares repeatsReason), an Image or an
     // Icon of this module an "image"; anything else, another Shape such as
     // a card's background too, draws no obstacle of its own. A Qt Quick
-    // Controls control sets activeFocusOnTab from its focusPolicy
-    // (tst_reasontip.qml).
+    // Controls control sets activeFocusOnTab from its focusPolicy.
+    // A pointer-only button still needs its full box kept clear, as a
+    // list Switch with Qt.NoFocus does (tst_reasontip.qml).
+    // https://doc.qt.io/qt-6/qml-qtquick-controls-abstractbutton.html
     function obstacleKind(item) {
-        if (item.activeFocusOnTab === true) return "control";
+        if (item.activeFocusOnTab === true || item instanceof T.AbstractButton) return "control";
         if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return item.repeatsReason === true ? "repeat" : "text";
         if (item.sourceSize !== undefined) return "image";
         if (Array.isArray(item.painted) && item.stroke !== undefined) return "image";
