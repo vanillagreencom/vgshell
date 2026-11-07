@@ -619,7 +619,7 @@ cases=(
   "notifications-sound-rule|shell/plugins/vgs.notifications/SoundRule.qml|logic|node scripts/test-notifications-logic.js"
   "notifications-service-status|shell/plugins/vgs.notifications/Service.qml|logic|node scripts/test-plugin-status.js"$'\nnode scripts/test-notifications-logic.js'
   "notifications-card-exit|shell/plugins/vgs.notifications/CardSlot.qml|logic|node scripts/test-notifications-logic.js"
-  "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
+  "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-hyprland-layer.js\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
   "power-overlay-logic|shell/plugins/vgs.power/Overlay.qml|logic|node scripts/test-power-logic.js"
   "sysmon-logic|shell/plugins/vgs.sysmon/SysmonLogic.js|logic|node scripts/test-sysmon-logic.js"
