@@ -204,9 +204,9 @@ Item {
             if (!ok || completion.code !== 0) return failed(step, completion, stderr);
             pending.records = Logic.parseShow(text);
             pending.files = Logic.scriptFiles(pending.records, Paths.home);
-            pending.step = "scripts";
+            pending.step = "script";
             nextScript();
-        } else if (step === "scripts") {
+        } else if (step === "script") {
             // A file that could not be read, gone or not the user's, holds
             // no lines: the job it names is not listed.
             if (ok && completion.code === 0) pending.scripts[pending.file] = Logic.scriptLines(text);
