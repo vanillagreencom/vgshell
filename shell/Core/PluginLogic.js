@@ -2446,9 +2446,8 @@ function hyprlandOptionsError(options, schema) {
 // `choices` an enum whose options are among them; any other string a string
 // or an enum.
 function optionSchemaError(row, entry) {
-    if (row.hdr === true)
-        return entry.type === "boolean" ? "" : "needs a boolean schema entry, got " + entry.type;
-    switch (row.type) {
+    var type = row.hdr === true ? "bool" : row.type;
+    switch (type) {
     case "bool":
         return entry.type === "boolean" ? "" : "needs a boolean schema entry, got " + entry.type;
     case "int":
