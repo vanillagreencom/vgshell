@@ -352,7 +352,10 @@ Item {
                         }
                         Repeater {
                             model: ui.facts.stops ? [] : ui.facts.keys
-                            KeyCaps { shortcut: modelData }
+                            KeyCaps {
+                                shortcut: modelData
+                                onPageActivated: (page, tab) => root.frame.openPage(page, tab)
+                            }
                         }
                     }
                 }

@@ -10,6 +10,7 @@ Scrim 1.0 foundation/Scrim.qml
 PointerCursor 1.0 foundation/PointerCursor.qml
 KeyNav 1.0 foundation/KeyNav.qml
 KeyNavLogic 1.0 foundation/KeyNavLogic.js
+singleton ShortcutLabels 1.0 foundation/ShortcutLabels.qml
 LineBreak 1.0 foundation/LineBreak.js
 ImageText 1.0 foundation/ImageText.qml
 TextUnderline 1.0 foundation/TextUnderline.qml

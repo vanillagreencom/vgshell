@@ -23,8 +23,8 @@ BarWidget {
     // Core/Plugins.qml createWidget hands this widget the plugin's shell,
     // whose settings hold the talk mode and the voice from the first frame;
     // the Session's own settings arrive only after the daemon's hello.
-    readonly property var view: shell === null ? View.view({}, View.spelledKeys(null, KeyNavLogic.keyCaps), "hold", null)
-        : View.view(shell.status.values, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps), shell.settings.mode,
+    readonly property var view: shell === null ? View.view({}, View.spelledKeys(null, ShortcutLabels.keyCaps), "hold", null)
+        : View.view(shell.status.values, View.spelledKeys(shell.shortcut.keys, ShortcutLabels.keyCaps), shell.settings.mode,
             Providers.cloudVoice(shell.settings.voiceProvider))
 
     readonly property var ownerAsks: shell === null || shell.status.values.ownerAsks === undefined ? null : shell.status.values.ownerAsks

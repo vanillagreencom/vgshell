@@ -16,6 +16,7 @@ Item {
     property string actionText: ""
 
     signal activated()
+    signal pageActivated(string page, string tab)
 
     implicitHeight: 3 * Theme.listItem.twoLineHeight
 
@@ -31,13 +32,14 @@ Item {
             size: Theme.icon.size.xl
             color: Theme.color.textFaint
         }
-        Label {
+        LinkText {
             role: "hint"
             text: root.text
             color: Theme.color.textMuted
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
+            onPageActivated: (page, tab) => root.pageActivated(page, tab)
         }
         Button {
             anchors.horizontalCenter: parent.horizontalCenter

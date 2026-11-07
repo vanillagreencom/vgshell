@@ -35,9 +35,12 @@ const detailActionRows = status => Array.from(settings.detailEntries(status)).ma
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
+const keyNav = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 // The libraries Service.qml imports beside SetupGate.js, for its functions
 // run under node.
-const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget, KeyNavLogic: load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js")),
+const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget,
+    spelledTalk: null,
+    ShortcutLabels: { keyCaps: key => keyNav.keyCaps(key, Object.assign(keyNav.symbolNames(judge.CAPTURE_KEY_NAMES), { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } })) },
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
 let manifestControlCount = 0;
 // LocalTier's reading with no local voice model wanted or ready, as the
@@ -966,12 +969,12 @@ function verifyConsoleTalk(gate, consoleSource) {
         "the console's talk line is the talk sentence of the Talk mode");
     assert.ok(consoleSource.includes("readonly property var spelledKeys: WidgetView.spelledKeys("), "the console spells the keys as the bar does");
     for (const mode of ["hold", "toggle"])
-        for (const key of ["Super+J", null]) {
+        for (const key of ["Super+J", null, "Choose a key in [Settings](page:vgs.settings)"]) {
             const talk = gate.talkHint(mode, key) + ".";
             const line = scope.speechOnlyLine({ tone: "info", text: "Gemini Live" }, talk);
             assert.ok(line.startsWith("Gemini Live ") && line.endsWith(" " + talk), mode + " " + key + ": the speech-only line ends with the talk sentence");
             const empty = scope.emptyText(true, talk);
-            assert.ok(empty.endsWith(" " + pageReference.plain(talk)), mode + " " + key + ": the empty state says how to talk");
+            assert.ok(empty.endsWith(" " + talk), mode + " " + key + ": the empty state retains the talk action");
             assert.equal(scope.emptyText(false, talk).includes(pageReference.plain(talk)), false, mode + " " + key + ": the typed console's empty state asks for a message");
         }
 }
@@ -2599,7 +2602,7 @@ try {
     console.log("test-jarvis-setup-gate: case=home-switch passed=true");
     const consoleText = fs.readFileSync(path.join(path.dirname(file), "Console.qml"), "utf8");
     for (const [label, needle, replacement] of [
-        ["console-empty-asks-to-type", 'return "No conversation yet. " + (speech ? PageReference.plain(talk) : "Type a message to start.");', 'return "No conversation yet. Type a message to start.";'],
+        ["console-empty-asks-to-type", 'return "No conversation yet. " + (speech ? talk : "Type a message to start.");', 'return "No conversation yet. Type a message to start.";'],
         ["console-talk-line-fixed", 'readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."',
             'readonly property string talkLine: "Tap or hold " + spelledKeys.talk + ", then speak."'],
         ["console-speech-line-drops-talk", 'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;',
@@ -2632,7 +2635,11 @@ try {
         ["voice-step-unstored", "            voiceStep = values.setupVoice;\n"],
         ["session-summary-unjudged", "        values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));\n"],
         ["session-answer-unpublished", "; onResultChanged: root.publishShellSetup()"],
-        ["tier-reading-unpublished", "; onReadingChanged: root.publishShellSetup()"]]) {
+        ["tier-reading-unpublished", "; onReadingChanged: root.publishShellSetup()"],
+        ["talk-name-unpublished", "onSpelledTalkChanged: Qt.callLater(root.publishShellSetup)", "onSpelledTalkChanged: Qt.callLater(() => {})"],
+        ["talk-name-snapshot", "View.spelledKeys(effectiveKeys, ShortcutLabels.keyCaps).talk", "null"],
+        ["talk-publisher-ignores-name", "Gate.talkHint(shell.settings.mode, spelledTalk)", 'Gate.talkHint(shell.settings.mode, "Super+J")'],
+        ["talk-queued-after-release", "if (shell === null) return false;", "if (false) return false;"]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to remove must occur once");
         assert.throws(() => verifyVoiceStepRepublish(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
@@ -3146,7 +3153,7 @@ function verifyOneReadiness(gate) {
         ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting", "speech=elevenlabs-voices-reading"];
     assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
-    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+.", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
     for (const causes of sets) {
         const status = plain(readiness(gate, { kind: "answered", causes }));
         const configured = causes.every(cause => cause === shellCause || cause === "speech=local-loading");
@@ -3164,7 +3171,7 @@ function verifyOneReadiness(gate) {
 // failed start (the bar tooltip, the desktop notices and the Setup values)
 // words its state; the service log keeps the keyed cause.
 function verifyWordedText(gate) {
-    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+.", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
     const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
     const up = { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
         detail: { phase: session.phaseOf(state), seq: 1, state } };
@@ -3326,4 +3333,38 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     publish({ kind: "answered", causes: ["speech=local-not-set-up"] });
     assert.ok(values.setupVoice.hint.includes("685 MB"), "the Voice step names the tier reading's download size");
     assert.match(serviceSource, /^ {4}Jarvis\.LocalTier \{[^\n]*onReadingChanged: root\.publishShellSetup\(\)/m, "each tier reading publishes the Voice step again");
+    // Execute the service's binding, handler and publisher on resolver inputs.
+    // Node proves publication and release guarding, not Qt notification timing.
+    const binding = serviceSource.match(/^    readonly property var spelledTalk: (.*)$/m);
+    const handler = serviceSource.match(/^    onSpelledTalkChanged: (.*)$/m);
+    const refresh = serviceSource.match(/^    function publishShellSetup\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(binding && handler && refresh, "the reactive Talk publication boundary");
+    const queue = [];
+    let names = keyNav.symbolNames(judge.CAPTURE_KEY_NAMES);
+    context.ShortcutLabels = { keyCaps: key => keyNav.keyCaps(key, names) };
+    context.effectiveKeys = { talk: "SUPER+code:44" };
+    context.Qt = { callLater: fn => queue.push(fn) };
+    context.root = context;
+    context.publishSetup = publish;
+    context.publishShellSetup = vm.runInNewContext("(" + refresh[0] + ")", context);
+    context.setupAnswer = { kind: "answered", causes: [] };
+    for (const [label, native, expected] of [
+        ["unresolved", null, "Choose a key in Settings"],
+        ["resolved", { keysym: "j", codepoint: 106 }, "Tap or hold Super+J, then speak"],
+        ["layout changed", { keysym: "Cyrillic_o", codepoint: 1086 }, "Tap or hold Super+О, then speak"],
+        ["layout lost", null, "Choose a key in Settings"]
+    ]) {
+        names = Object.assign(keyNav.symbolNames(judge.CAPTURE_KEY_NAMES), { "CODE:44": native });
+        context.spelledTalk = vm.runInNewContext(binding[1], context);
+        vm.runInNewContext(handler[1], context);
+        assert.equal(queue.length, 1, label + ": the name change queues publication");
+        queue.shift()();
+        assert.equal(pageReference.plain(values.setupVoice.hint), expected, label + ": the stored Voice step follows the layout");
+    }
+    const retainedShell = context.shell;
+    context.shell = null;
+    let released;
+    assert.doesNotThrow(() => { released = context.publishShellSetup(); }, "a queued publication after release writes nothing");
+    assert.equal(released, false);
+    context.shell = retainedShell;
 }

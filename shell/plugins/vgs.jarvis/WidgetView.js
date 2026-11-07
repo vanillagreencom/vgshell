@@ -169,7 +169,7 @@ function report(name, value, tones) {
 }
 
 // KEYS, shell.shortcut.keys or null, as people read each key a tooltip
-// names; CAPS is KeyNavLogic.keyCaps, which the callers' qs.Ui import holds.
+// names; CAPS is ShortcutLabels.keyCaps, which the callers' qs.Ui import holds.
 // A name absent from the map is no key in effect: the nested smoke
 // (jarvis-bubble row, 2026-10-10) read an empty map while the plugin is
 // enabled or disabled, before the registry holds its binds.
@@ -346,25 +346,25 @@ function keySetting(name) {
 
 
 function stopAction(keys) {
-    return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";
+    return keys.stop === null ? keySetting("Stop") : Commons.PageReference.parse(keys.stop).page !== "" ? keys.stop + "." : "Press " + keys.stop + " to stop.";
 }
 
 function confirmAction(keys) {
     return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys)."
-        : "Confirm on screen, or press " + keys.confirm + ".";
+        : Commons.PageReference.parse(keys.confirm).page !== "" ? "Confirm on screen. " + keys.confirm + "." : "Confirm on screen, or press " + keys.confirm + ".";
 }
 
 // The last tooltip line names what a click does, whatever state the icon
 // shows: it opens the console.
 function clickLine(keys) {
     return keys.console === null ? "Click to open the console."
-        : "Click or press " + keys.console + " to open the console.";
+        : Commons.PageReference.parse(keys.console).page !== "" ? "Click to open the console. " + keys.console + "." : "Click or press " + keys.console + " to open the console.";
 }
 
 // The muted state's line: the Mute key unmutes, as the right-click menu's
 // Turn on microphone does (menuEntries).
 function unmuteLine(keys) {
-    return keys.mute === null ? "Turn on the microphone from its right-click menu." : "Press " + keys.mute + " to unmute.";
+    return keys.mute === null ? "Turn on the microphone from its right-click menu." : Commons.PageReference.parse(keys.mute).page !== "" ? keys.mute + "." : "Press " + keys.mute + " to unmute.";
 }
 
 // The Jarvis menu, which the overlay's right-click menu and the bar
@@ -456,7 +456,7 @@ function checkedLine(checkedAt) {
 function keyLine(muteOn, keys) {
     var action = muteOn ? "unmute" : "mute";
     return keys.mute === null ? "Set [Mute key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys) to " + action + "."
-        : "Press " + keys.mute + " to " + action + ".";
+        : Commons.PageReference.parse(keys.mute).page !== "" ? keys.mute + "." : "Press " + keys.mute + " to " + action + ".";
 }
 
 // LINES with their first reference alone kept as a link: every later
@@ -547,7 +547,7 @@ function stateView(values, keys, mode, voice) {
     if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture)) return withBrain(look("listening",
         armed ? "Jarvis is listening for Hey Jarvis" : followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening",
         [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed."
-            : tapped && effectiveKeys.talk !== null ? "Speak now. Tap " + effectiveKeys.talk + " again to stop." : "Speak now."], muteOn, effectiveKeys));
+            : tapped && effectiveKeys.talk !== null && Commons.PageReference.parse(effectiveKeys.talk).page === "" ? "Speak now. Tap " + effectiveKeys.talk + " again to stop." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.hint !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind, voice), muteOn, effectiveKeys));

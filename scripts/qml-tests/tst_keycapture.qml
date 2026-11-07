@@ -300,7 +300,7 @@ Item {
             source.foreignKeys = [];
             compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"hint":"Also used by acme.keys (open)."}');
             const before = Registry.manifests;
-            Registry.manifests = { "acme.keys": { name: "Keys" } };
+            Registry.manifests = { "acme.keys": { id: "acme.keys", name: "Keys", settings: {} } };
             try {
                 compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"hint":"Also used by Keys (open)."}');
             } finally {

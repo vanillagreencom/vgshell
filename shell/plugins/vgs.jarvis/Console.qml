@@ -203,7 +203,7 @@ FocusScope {
     // composer offers none: one line says how to talk instead.
     readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
     // The shortcut keys as people read them, the bar's own spelling.
-    readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps)
+    readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, ShortcutLabels.keyCaps)
     // How to talk now: the sentence the Voice step and the bar say it with.
     readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."
     // The Conversation tab's first control: the message box, or Stop where
@@ -328,7 +328,7 @@ FocusScope {
     // The empty conversation's line: how to start one, by typing or, under a
     // voice that takes speech only (SPEECH), by talking (TALK).
     function emptyText(speech, talk) {
-        return "No conversation yet. " + (speech ? PageReference.plain(talk) : "Type a message to start.");
+        return "No conversation yet. " + (speech ? talk : "Type a message to start.");
     }
 
     // The Now line for REACH, the daemon's reading of the main Jarvis
@@ -562,6 +562,7 @@ FocusScope {
                 visible: root.transcriptRows.length === 0 && root.memoryInbox.length === 0
                 iconName: "message-circle"
                 text: root.emptyText(root.speechOnly, root.talkLine)
+                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
 
             Repeater {
@@ -958,6 +959,7 @@ FocusScope {
                         }
                     }
                     KeyHints {
+                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                         afterActions: true
                         hints: root.speechOnly ? [] : [
                             { key: "Enter", text: "Send" },

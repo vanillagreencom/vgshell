@@ -11,6 +11,7 @@ Row {
     id: root
 
     property var hints: []
+    signal pageActivated(string page, string tab)
     // What lies under this hint that its surface does not draw, such as a
     // list's plate, with `fill` where the hint stands on a fill of its own;
     // typography and styling stay shared. The surface publishes the rest.
@@ -49,7 +50,11 @@ Row {
                 visible: pair.keys.length > 0 && !(pair.keys.length === 1 && pair.keys[0] === "")
                 Repeater {
                     model: pair.keys
-                    KeyCaps { shortcut: String(modelData); backgroundContext: root.ground }
+                    KeyCaps {
+                        shortcut: String(modelData)
+                        backgroundContext: root.ground
+                        onPageActivated: (page, tab) => root.pageActivated(page, tab)
+                    }
                 }
             }
 

@@ -329,6 +329,7 @@ function voiceCheck(value, check, talk) {
 // the one sentence the Voice step, the bar and the console say it with.
 function talkHint(mode, talk) {
     if (talk === null) return (mode === "always" ? "Say Hey Jarvis, or set" : "Set") + " the [Talk key](page:vgs.jarvis/Settings) in the Keys section";
+    if (Commons.PageReference.parse(talk).page !== "") return talk;
     if (mode === "hold") return "Tap or hold " + talk + ", then speak";
     if (mode === "toggle") return "Press " + talk + ", then speak";
     return "Say Hey Jarvis, or press " + talk;

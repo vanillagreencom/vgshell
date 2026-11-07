@@ -310,6 +310,7 @@ f share/vgshell/shell/Ui/foundation/LineBreak.js
 f share/vgshell/shell/Ui/foundation/PointerCursor.qml
 f share/vgshell/shell/Ui/foundation/QrMatrix.qml
 f share/vgshell/shell/Ui/foundation/Scrim.qml
+f share/vgshell/shell/Ui/foundation/ShortcutLabels.qml
 f share/vgshell/shell/Ui/foundation/Surface.qml
 f share/vgshell/shell/Ui/foundation/TextShadow.qml
 f share/vgshell/shell/Ui/foundation/TextUnderline.qml

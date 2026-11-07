@@ -150,7 +150,7 @@ Scope {
 
                 function tabStops() {
                     const links = consentLines.visible ? consentLines.visibleChildren.filter(item => item.linked === true) : [];
-                    return links;
+                    return links.concat(KeyNavLogic.focusables(consentKeys));
                 }
 
                 Column {
@@ -173,6 +173,7 @@ Scope {
                     }
                 }
                 Column {
+                    id: consentKeys
                     width: parent.width
                     spacing: Theme.stack.row
                     visible: win.consentMode && win.consent.keys !== undefined && win.consent.keys.length > 0
@@ -187,12 +188,15 @@ Scope {
                             spacing: Theme.stack.inline
                             width: parent.width
                             KeyCaps {
+                                id: shortcutCaps
                                 shortcut: modelData.shortcut
                                 anchors.verticalCenter: parent.verticalCenter
+                                onPageActivated: (page, tab) => host.openReference(page, tab)
                             }
                             Label {
                                 role: Theme.dialog.bodyRole
                                 text: modelData.text
+                                visible: !shortcutCaps.linked
                                 width: parent.width - x
                                 wrapMode: Text.Wrap
                                 anchors.verticalCenter: parent.verticalCenter

@@ -35,9 +35,12 @@ const READER_SOURCES = Object.fromEntries(["Accounts", "Keys", "LocalTier", "Ser
     [name, fs.readFileSync(path.join(JARVIS, name + ".qml"), "utf8")]));
 const WORDS = require(path.join(JARVIS, "AccountStatus.js"));
 const PROVIDERS = require(path.join(JARVIS, "AccountProviders.js"));
+const KEY_NAV = load(path.join(path.dirname(LOGIC), "..", "Ui", "foundation", "KeyNavLogic.js"));
+const KEY_NAMES = KEY_NAV.symbolNames(load(LOGIC).CAPTURE_KEY_NAMES);
 // The libraries Service.qml imports beside SetupGate.js.
 const SERVICE_IMPORTS = { StatusPublication: load(path.join(JARVIS, "StatusPublication.js")), Providers: PROVIDERS, View: load(path.join(JARVIS, "WidgetView.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } }),
-    KeyNavLogic: load(path.join(path.dirname(LOGIC), "..", "Ui", "foundation", "KeyNavLogic.js")) };
+    spelledTalk: null,
+    ShortcutLabels: { keyCaps: key => KEY_NAV.keyCaps(key, Object.assign({}, KEY_NAMES, { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } })) } };
 
 let failures = 0;
 function report(name, got, want) {

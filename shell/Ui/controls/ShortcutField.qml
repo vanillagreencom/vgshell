@@ -162,6 +162,7 @@ FocusScope {
     signal typed(string text, int index)
     signal cleared(int index)
     signal hintLinkActivated()
+    signal pageActivated(string page, string tab)
 
     implicitWidth: box.implicitWidth + line.spacing + tools.implicitWidth
     implicitHeight: column.implicitHeight
@@ -203,12 +204,14 @@ FocusScope {
         adding = false;
     }
 
-    // The alternative drawn at X in the box, else the one edited.
-    function groupAt(x) {
+    // Wrapped alternatives can occupy the same horizontal span. Hit-test
+    // the chips in both dimensions, in the button's coordinates.
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#mapToItem-method
+    function groupAt(x, y) {
         for (let i = 0; i < groupRepeater.count; i++) {
             const group = groupRepeater.itemAt(i).chips;
-            const left = group.mapToItem(box, 0, 0).x;
-            if (x >= left && x < left + group.width) return i;
+            const at = group.mapToItem(box, 0, 0);
+            if (x >= at.x && x < at.x + group.width && y >= at.y && y < at.y + group.height) return i;
         }
         return editing;
     }
@@ -412,11 +415,11 @@ FocusScope {
                 hoverEnabled: true
                 opacity: enabled ? 1 : Theme.opacity.disabled
                 Accessible.role: Accessible.Button
-                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.join(" or ")
+                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.map(key => PageReference.plain(ShortcutLabels.keyCaps(key).join("+"))).join(" or ")
                 PointerCursor {}
                 // A key click lands mid-box, so only the pointer picks an
                 // alternative; a new one keeps being the one edited.
-                onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX))
+                onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX, box.pressY))
                 onActiveFocusChanged: if (!activeFocus) root.stop("focus")
                 // The navigator takes the arrows that move among the
                 // alternatives, Delete and Space; Page Up, Page Down, Home
@@ -526,6 +529,7 @@ FocusScope {
                                             anchors.verticalCenter: parent.verticalCenter
                                             shortcut: group.modelData.combo
                                             value: true
+                                            onPageActivated: (page, tab) => root.pageActivated(page, tab)
                                             backgroundContext: ({ fill: Theme.textField.background, plate: selectionMark.visible ? Theme.color.selection : "transparent", sheen: "transparent" })
                                         }
                                         Label {
@@ -573,7 +577,7 @@ FocusScope {
                 ToolSlot {
                     readonly property bool shown: root.key !== "" && !root.typing
                     iconName: "x"
-                    label: root.keys.length > 1 ? "Remove " + KeyNavLogic.keyCaps(root.key).join("+") : "Unbind"
+                    label: root.keys.length > 1 ? "Remove " + PageReference.plain(ShortcutLabels.keyCaps(root.key).join("+")) : "Unbind"
                     inUse: root.visible && (root.activeFocus || toolsHover.hovered)
                     visible: root.editable; enabled: root.editable && shown
                     opacity: shown ? 1 : 0
@@ -621,6 +625,7 @@ FocusScope {
                 link: fileLine
                 visible: text !== ""
                 onActivated: root.hintLinkActivated()
+                onPageActivated: (page, tab) => root.pageActivated(page, tab)
                 Tooltip {
                     text: hintText.linked ? hintText.citation : ""
                     side: "right"

@@ -8,12 +8,61 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "Ui", "foundation", "KeyNavLogic.js");
+const captureNames = load(path.join(repo, "shell", "Core", "PluginLogic.js")).CAPTURE_KEY_NAMES;
+
+// Real libxkbcommon answers, not a duplicate physical-position table.
+const layouts = [["us", "U"], ["ru", "Г"]];
+const nativeRows = layouts.map(([layout, want]) => {
+    const run = spawnSync("python3", ["-I", path.join(repo, "bin/lib/xkb-keys.py")], {
+        input: JSON.stringify({ keyboard: { layout, variant: "", options: "", activeLayoutIndex: 0 }, keys: ["SUPER+code:30", "code:105", "code:108"] }),
+        encoding: "utf8", timeout: 10000, env: { PATH: process.env.PATH, LANG: "C.UTF-8" }
+    });
+    assert.ifError(run.error);
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    const answer = JSON.parse(run.stdout);
+    assert.equal(answer.ok, true);
+    return { layout, want, names: Object.fromEntries(answer.keys.map(row => ["CODE:" + row.keycode, row])) };
+});
+const labelsOnly = process.argv.length === 3 && process.argv[2] === "--labels-only";
+assert.ok(process.argv.length === 2 || labelsOnly, "only --labels-only is supported");
+
+function verifyLabels(logic) {
+    const rows = [
+        ["SUPER+SHIFT+T", undefined, ["Super", "Shift", "T"]],
+        ["Ctrl+PageDown", undefined, ["Ctrl", "PageDown"]],
+        ["SUPER+code:30", nativeRows[0].names, ["Super", "U"]],
+        ["SUPER+code:30", nativeRows[1].names, ["Super", "Г"]],
+        ["SUPER+SHIFT+CODE:0030", nativeRows[0].names, ["Super", "Shift", "U"]],
+        ["code:0108", nativeRows[0].names, ["Right Alt"]],
+        ["SUPER+code:105", nativeRows[0].names, ["Super", "Right Ctrl"]],
+        ["SUPER+code:109", {}, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+code:30", null, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+code:30", { "CODE:30": null }, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+code:30+SHIFT", {}, ["Choose a key in [Settings](page:vgs.settings)"]],
+        ["SUPER+SLASH", { SLASH: { keysym: "SLASH", codepoint: 47 } }, ["Super", "/"]],
+        ["SUPER+ALT+PERIOD", logic.symbolNames(captureNames), ["Super", "Alt", "."]],
+        ["", {}, []],
+        [null, {}, []]
+    ];
+    for (const [shortcut, names, caps] of rows) {
+        const stored = shortcut;
+        assert.deepEqual(Array.from(logic.keyCaps(shortcut, names)), caps, "shortcut display contract: " + shortcut);
+        assert.equal(shortcut, stored, "display does not rewrite the stored binding");
+    }
+    assert.deepEqual(Array.from(logic.physicalKeys(["SUPER+code:0030", "code:30", "SHIFT+T", null, "CODE:105"])),
+        ["code:105", "code:30"], "current keys discover and normalize physical parts");
+    for (const { layout, want, names } of nativeRows)
+        console.log("layout-label: layout=" + layout + " key=SUPER+code:30 label=" + logic.keyCaps("SUPER+code:30", names).join("+") + " want=Super+" + want);
+}
 
 function verify(logic) {
+    verifyLabels(logic);
+    if (labelsOnly) return;
     const K = logic.KEY;
     const M = logic.MOD;
     assert.equal(logic.intent(K.Down, 0, "vertical", false), "next", "Down moves a vertical composite");
@@ -93,23 +142,6 @@ function verify(logic) {
     assert.equal(logic.opener({ visualFocus: true }), "key", "a click on a control showing keyboard focus came from a key");
     assert.equal(logic.opener({ visualFocus: false }), "pointer", "a click on a control without keyboard focus came from the pointer");
 
-    assert.deepEqual(Array.from(logic.keyCaps("SUPER+SHIFT+T")), ["Super", "Shift", "T"], "keycaps normalize common modifiers");
-    assert.deepEqual(Array.from(logic.keyCaps("Ctrl+PageDown")), ["Ctrl", "PageDown"], "keycaps normalize page keys");
-    // Keycode caps: [shortcut, caps]. Known physical positions get a key
-    // label; any other code keeps its written form.
-    const codeRows = [
-        ["SUPER+code:30", ["Super", "U"]],
-        ["SUPER+code:44", ["Super", "J"]],
-        ["SUPER+SHIFT+CODE:0030", ["Super", "Shift", "U"]],
-        ["code:108", ["Right Alt"]],
-        ["CODE:108", ["Right Alt"]],
-        ["code:0108", ["Right Alt"]],
-        ["code:105", ["Right Ctrl"]],
-        ["SUPER+code:105", ["Super", "Right Ctrl"]],
-        ["SUPER+code:109", ["Super", "Code:109"]]
-    ];
-    for (const [shortcut, caps] of codeRows)
-        assert.deepEqual(Array.from(logic.keyCaps(shortcut)), caps, "keycaps spell " + shortcut);
 }
 
 verify(load(file));
@@ -134,10 +166,12 @@ const CONTROLS = [
     ["key opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"pointer\";"],
     ["pointer opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"key\";"],
     ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],
-    ["physical letter key name", '"CODE:30": "U"', '"CODE:30": "Code:30"'],
-    ["physical J key name", '"CODE:44": "J"', '"CODE:44": "Code:44"'],
-    ["keycode key names", "\"CODE:108\": \"Right Alt\"", "\"CODE:108\": \"Code:108\""],
-    ["keycode leading zeros", "if (/^CODE:[0-9]+$/.test(upper)) upper = \"CODE:\" + String(Number(upper.slice(5)));", ""]
+    ["layout-label old raw code", 'var physical = /^CODE:[0-9]+$/.test(upper);', 'var physical = /^CODE:[0-9]+$/.test(upper); if (physical) return "Code:" + Number(upper.slice(5));'],
+    ["layout-label fixed US map", 'var physical = /^CODE:[0-9]+$/.test(upper);', 'var physical = /^CODE:[0-9]+$/.test(upper); if (upper === "CODE:30") return "U";'],
+    ["layout-label missing name", 'return UNNAMED_KEY;', 'return key;'],
+    ["layout-label fallback retains key parts", 'if (label === UNNAMED_KEY) return [label];', 'if (false) return [label];'],
+    ["layout-label symbol inputs", 'if (value > 32 && value < 127)', 'if (false)'],
+    ["layout-label leading zeros", 'if (physical) upper = "CODE:" + String(Number(upper.slice(5)));', 'if (physical) upper = "CODE:" + upper.slice(5);']
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -146,6 +180,7 @@ fs.mkdirSync(scratchRoot, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(scratchRoot, "test-key-nav-logic-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
+        if (labelsOnly && !label.startsWith("layout-label ")) continue;
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const mutant = path.join(scratch, "KeyNavLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
@@ -156,8 +191,9 @@ try {
             failed = true;
         }
         assert.ok(failed, `control "${label}": the suite passed on a copy without that rule`);
+        if (label.startsWith("layout-label ")) console.log("control: killed " + label);
     }
 } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
 }
-console.log(`test-key-nav-logic: ok controls=${CONTROLS.length}`);
+console.log(`test-key-nav-logic: ok controls=${labelsOnly ? CONTROLS.filter(row => row[0].startsWith("layout-label ")).length : CONTROLS.length}`);

@@ -69,6 +69,11 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
+  "shortcut labels accept a stale layout answer|foundation/ShortcutLabels.qml|if (askedGeneration === generation) {|if (true) {|tst_shortcutlabels.qml"
+  "shortcut labels keep names after a layout switch|foundation/ShortcutLabels.qml|        names = symbolNames;|        names = names;|tst_shortcutlabels.qml"
+  "key caps lose layout data|feedback/KeyCaps.qml|ShortcutLabels.keyCaps(shortcut)|KeyNavLogic.keyCaps(shortcut)|tst_shortcutlabels.qml"
+  "unnamed key guidance becomes inert caps|feedback/KeyCaps.qml|model: root.linked ? [] : root.caps|model: root.caps|tst_shortcutlabels.qml"
+  "unnamed key guidance loses its page route|feedback/KeyCaps.qml|onPageActivated: (page, tab) => root.pageActivated(page, tab)|onPageActivated: (page, tab) => {}|tst_shortcutlabels.qml"
   "restoring accepted bytes after refused conversion keeps stale settings|../Core/Config.qml|                root.userText = null;"$'\n'"                root.user = r.value;|                root.userText = root.userText;"$'\n'"                root.user = r.value;|tst_config_writes.qml"
   "a link label folds explicit breaks unlike its geometry twin|feedback/LinkText.qml|.replace(/\\n/g, \"<br>\")|.replace(/\\n/g, \"\\n\")|tst_linktext.qml"
   "a text handoff changes the message|../Core/HandoffRegistry.qml|return record.accept(text);|return record.accept(\"changed text\");|tst_handoff.qml"
@@ -391,7 +396,7 @@ mutations=(
   "the shortcut field ignores Return|controls/ShortcutField.qml|Keys.onReturnPressed: event => root.enterPressed(event)|Keys.onReturnPressed: {}|tst_shortcutfield.qml"
   "the shortcut field never begins capture|controls/ShortcutField.qml|capture.begin(root);|{}|tst_shortcutfield.qml"
   "the shortcut field ignores keypad Enter|controls/ShortcutField.qml|Keys.onEnterPressed: event => root.enterPressed(event)|Keys.onEnterPressed: {}|tst_shortcutfield.qml"
-  "a click on the shortcut field begins nothing|controls/ShortcutField.qml|onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX))|onClicked: {}|tst_shortcutfield.qml"
+  "a click on the shortcut field begins nothing|controls/ShortcutField.qml|onClicked: root.edit(root.adding ? root.editing : root.groupAt(box.pressX, box.pressY))|onClicked: {}|tst_shortcutfield.qml"
   "a bind's shortcut field draws no capture hint|controls/ShortcutField.qml|property string conflict: found === null ? \"\" : found.hint|property string conflict: \"\"|tst_shortcutfield.qml"
   "a shortcut field asks about another bind|controls/ShortcutField.qml|capture.conflicts(String(each), pluginId, shortcut)|capture.conflicts(String(each), shortcut, pluginId)|tst_shortcutfield.qml"
   "an unbound bind field asks about the empty key|controls/ShortcutField.qml|for (const each of keys) {|for (const each of keys.length === 0 ? [\"\"] : keys) {|tst_shortcutfield.qml"
@@ -1983,7 +1988,8 @@ mutations=(
   "the box keeps one line for many alternatives|controls/ShortcutField.qml|implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * root.inset)|implicitHeight: Theme.textField.height|tst_shortcutfield.qml"
   "the arrows pick no other alternative|controls/ShortcutField.qml|root.current = index;|{}|tst_shortcutfield.qml"
   "Delete removes no alternative|controls/ShortcutField.qml|onRemoved: index => { if (root.editable) root.cleared(index); }|onRemoved: index => {}|tst_shortcutfield.qml"
-  "a click edits the alternative edited before|controls/ShortcutField.qml|root.groupAt(box.pressX)|root.editing|tst_shortcutfield.qml"
+  "a click edits the alternative edited before|controls/ShortcutField.qml|root.groupAt(box.pressX, box.pressY)|root.editing|tst_shortcutfield.qml"
+  "a wrapped click ignores its line|controls/ShortcutField.qml| && y >= at.y && y < at.y + group.height||tst_shortcutfield.qml"
   "add edits the last alternative|controls/ShortcutField.qml|adding = index >= keys.length;|adding = false;|tst_shortcutfield.qml"
   "a cancelled new alternative stays the one edited|controls/ShortcutField.qml|            cancel();|            stop(\"cancel\");|tst_shortcutfield.qml"
   "the hint asks about the first alternative alone|controls/ShortcutField.qml|if (answer.hint !== \"\") return answer;|if (false) return answer;|tst_shortcutfield.qml"

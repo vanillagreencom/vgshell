@@ -28,12 +28,13 @@ const SetupGate = load(path.join(dir, "SetupGate.js"));
 const { cloudVoice } = require(path.join(dir, "AccountProviders.js"));
 const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
 const KeyNavLogic = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
+const PluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"))
     .hyprland.binds.map(bind => [bind.shortcut, bind.key]));
 const copy = value => JSON.parse(JSON.stringify(value));
 // Audio's device loss names what was missing and what its read held.
 const LOST = 'device-lost target="fixture.mic" from=default microphones=0[]';
-const KEYS = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+const KEYS = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+.", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
 const UNBOUND = { talk: null, mute: null, stop: null, confirm: null, console: null };
 // The Voice widget's icon, which no Jarvis look takes.
 const VOICE_ICON = /iconName: "([a-z0-9-]+)"/.exec(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.voice", "Widget.qml"), "utf8"))[1];
@@ -87,7 +88,7 @@ const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, de
 const CLICK = "Click or press Super+Alt+C to open the console.";
 const UNMUTE = "Press Super+Shift+J to unmute.";
 const HOLD = "Tap or hold Super+J, then speak.";
-const STOP = "Press Super+Alt+Period to stop.";
+const STOP = "Press Super+Alt+. to stop.";
 const CONFIRM = "Confirm on screen, or press Super+Alt+Y.";
 const fault = kind => v => v.FAULT_TEXT[kind];
 const retrying = v => v.RETRYING;
@@ -305,10 +306,23 @@ function verify(view) {
 
     // The keys as the widget and the console hand them in: the manifest's
     // default binds spelled by the shell's own KeyNavLogic.
-    assert.deepEqual(copy(view.spelledKeys(MANIFEST_KEYS, KeyNavLogic.keyCaps)), KEYS, "the default keys spell as people read them");
+    const capNames = Object.assign(KeyNavLogic.symbolNames(PluginLogic.CAPTURE_KEY_NAMES), { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } });
+    const caps = key => KeyNavLogic.keyCaps(key, capNames);
+    assert.deepEqual(copy(view.spelledKeys(MANIFEST_KEYS, caps)), KEYS, "the default keys spell as people read them");
     assert.deepEqual(copy(view.spelledKeys(null, KeyNavLogic.keyCaps)), UNBOUND, "no shell reads as no key");
-    assert.deepEqual(view.spelledKeys({ ...MANIFEST_KEYS, stop: null }, KeyNavLogic.keyCaps).stop, null, "an unbound key stays unbound");
+    assert.deepEqual(view.spelledKeys({ ...MANIFEST_KEYS, stop: null }, caps).stop, null, "an unbound key stays unbound");
     assert.deepEqual(copy(view.spelledKeys({}, KeyNavLogic.keyCaps)), UNBOUND, "an absent key reads unbound, not spelled empty");
+    const unnamed = "Choose a key in [Settings](page:vgs.settings)";
+    const unnamedKeys = Object.fromEntries(Object.keys(KEYS).map(key => [key, unnamed]));
+    for (const [name, input, expected] of [
+        ["talk", up({}), unnamed + "."],
+        ["stop", up(THINKING), unnamed + "."],
+        ["mute", up(MUTED), unnamed + "."]
+    ]) {
+        const line = callView(view, input, unnamedKeys).tooltipDetails[0];
+        assert.equal(line, expected, name + ": the unnamed shortcut is guidance, not a key to press");
+        assert.equal(pageReference.references(line).links[0].page, "vgs.settings");
+    }
 
     assert.equal(view.approvalPrompt(null), null);
     for (const tool of ["files.delete", "apps.open", "harness.files", "filesOther", "fixture"]) {
@@ -592,7 +606,7 @@ const CONTROLS = [
     ["an absent key spells empty", 'key === null || key === undefined ? null : caps(key).join("+");', 'key === null ? null : caps(key).join("+");'],
     ["shared icons are accepted", '"working": { icon: "brain", tone: "info" }', '"working": { icon: "loader", tone: "info" }'],
     ["ready words its own talk line", '[Gate.talkHint(effectiveMode, effectiveKeys.talk) + "."]', '[effectiveKeys.talk === null ? keySetting("Talk") : "Press " + effectiveKeys.talk + " to start talking."]'],
-    ["unbound stop key names no setting", 'return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";', 'return keys.stop === null ? "Press Stop to stop." : "Press " + keys.stop + " to stop.";'],
+    ["unbound stop key names no setting", 'return keys.stop === null ? keySetting("Stop")', 'return keys.stop === null ? "Press Stop to stop."'],
     ["unbound confirm key names no setting", 'return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys)."', 'return keys.confirm === null ? "Confirm on screen, or press Confirm."'],
     ["a hint becomes a tooltip line with no full stop", "var lines = details.map(line);", "var lines = details.slice();"],
     ["unbound mute key names no menu", 'return keys.mute === null ? "Turn on the microphone from its right-click menu."', 'return keys.mute === null ? "Press Mute to unmute."'],

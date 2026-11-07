@@ -79,5 +79,6 @@ Field {
         onTyped: (text, index) => root.edit(index, text === "" ? null : text)
         onCleared: index => root.remove(index)
         onHintLinkActivated: root.hintLinkActivated()
+        onPageActivated: (page, tab) => root.hintPageActivated(page, tab)
     }
 }
