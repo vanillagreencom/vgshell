@@ -5,10 +5,10 @@
 # Usage: scripts/arch-packages.sh
 #
 # Nothing runs against the host's pacman, /etc or the live session. The
-# script writes under this repository's tmp/ only: the scratch inputs in
-# tmp/arch-packages.<pid>/, removed on exit, and the container's pacman
-# package cache in tmp/arch-packages-cache/, kept so a rerun downloads no
-# package it already has. podman keeps the image in its own store.
+# scratch inputs in tmp/arch-packages.<pid>/ are removed on exit. Every
+# worktree shares the pacman package cache under the Git common directory's
+# arch-packages/, kept so a rerun downloads no package it already has.
+# podman keeps the image in its own store.
 #
 # What is built is the working tree as `git add -A` would commit it: HEAD
 # when the tree is clean, else a commit object over HEAD that no ref names.
@@ -78,7 +78,9 @@ command -v podman >/dev/null 2>&1 || not_measured podman-missing "install podman
 
 version="$(<"$repo/VERSION")"
 scratch="$repo/tmp/arch-packages.$$"
-cache="$repo/tmp/arch-packages-cache"
+common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)" ||
+  refuse 1 "git=common-dir path=$repo"
+cache="$common/arch-packages"
 cleanup() { rm -rf -- "$scratch"; }
 trap cleanup EXIT
 rm -rf -- "$scratch"
@@ -139,8 +141,7 @@ version="$1" commit="$2"
 refuse() { printf 'arch-packages: refused: %s\n' "$1"; shift; [[ $# -eq 0 ]] || printf '%s\n' "$@"; exit 1; }
 not_measured() { printf 'arch-packages: status=not-measured reason=%s\n' "$1"; shift; [[ $# -eq 0 ]] || printf '%s\n' "$@"; exit 77; }
 
-# The cache is the host's tmp/arch-packages-cache. Downloads run as root,
-# which is the host user, so no file there is owned by a uid the host
+# Downloads run as root, which is the host user, so no file is owned by a uid the host
 # cannot remove; a download directory left behind is removed on exit.
 sed -i 's/^DownloadUser/#DownloadUser/' /etc/pacman.conf || refuse "pacman-conf=unedited"
 if grep -q '^DownloadUser' /etc/pacman.conf; then refuse "pacman-conf=download-user"; fi
@@ -461,7 +462,13 @@ if ! podman image exists "$image"; then
 fi
 
 status=0
-podman run --rm \
+# podman-run(1)'s --preserve-fds=1 passes descriptor 3 into the container.
+# Keep the lock through its EXIT download cleanup and through container
+# termination even if this host script or the Podman client is killed.
+# Closing the last inherited descriptor releases it; never unlock early.
+exec 3>>"$cache/.lock"
+flock -x 3 || refuse 1 "cache=lock-failed path=$cache"
+podman run --rm --preserve-fds=1 \
   -v "$scratch/in:/in:ro" \
   -v "$cache:/var/cache/pacman/pkg" \
   "$image" /in/run.sh "$version" "$commit" || status=$?

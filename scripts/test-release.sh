@@ -259,6 +259,141 @@ arch_bare_row() { # SCRIPT
   return "$result"
 }
 
+# Exercise the host runner across linked worktrees at its Podman boundary.
+# The stand-in applies podman-run(1)'s descriptor contract, then keeps a
+# cache writer alive after host death. Real package runs prove OCI wiring.
+arch_cache_row() { # SCRIPT
+  parity_row "$builder" arch "$1" || return 1
+  "${base_env[@]}" python3 - "$r" "$tmp/arch-cache-$fixtures" "$BASH" "$base_path" <<'PY'
+import fcntl, os, pathlib, select, shutil, signal, subprocess, sys, time
+
+root, area, bash = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+area.mkdir()
+tools = {name: shutil.which(name, path=sys.argv[4]) for name in ("flock", "git")}
+assert all(tools.values()), tools
+env = dict(os.environ, PATH=str(area) + ":" + sys.argv[4], CACHE_PROBE=str(area))
+def git(*args):
+    return subprocess.check_output([tools["git"], "-C", str(root), *args], env=env, text=True).strip()
+
+lane = area / "lane"
+git("worktree", "add", "--detach", str(lane), "HEAD")
+(lane / "scripts/lib").mkdir(exist_ok=True)
+shutil.copyfile(root / "scripts/lib/release-tarball.sh", lane / "scripts/lib/release-tarball.sh")
+(lane / "scripts/lib/release-tarball.sh").chmod(0o755)
+(area / "flock").write_text("#!" + bash + '\n: >"$CACHE_PROBE/$CACHE_CASE-$CACHE_LANE.arrived"\nexec ' +
+                           tools["flock"] + ' "$@"\n')
+(area / "flock").chmod(0o755)
+(area / "podman").write_text("""#!/usr/bin/python3
+import os, pathlib, shutil, sys, time
+if sys.argv[1] != "run":
+    sys.exit(0)
+area = pathlib.Path(os.environ["CACHE_PROBE"])
+key = os.environ["CACHE_CASE"] + "-" + os.environ["CACHE_LANE"]
+cache = next(pathlib.Path(v.split(":")[0]) for v in sys.argv if v.endswith(":/var/cache/pacman/pkg"))
+# A non-preserved descriptor must not survive the container boundary.
+if "--preserve-fds=1" not in sys.argv:
+    try:
+        os.close(3)
+    except OSError:
+        pass
+(area / (key + ".cache")).write_text(str(cache))
+pending = cache / ("download-" + key)
+pending.mkdir()
+(pending / "partial").write_bytes(b"pending")
+(area / (key + ".entered")).write_text(str(os.getpid()))
+deadline = time.monotonic() + 15
+while not (area / (key + ".release")).exists():
+    if time.monotonic() >= deadline:
+        sys.exit(91)
+    time.sleep(.01)
+# The production EXIT cleanup runs while the inherited lock is still held.
+for path in cache.glob("download-*"):
+    shutil.rmtree(path)
+(cache / (key + ".pkg.tar.zst")).write_bytes(b"complete")
+(area / (key + ".ended")).touch()
+""")
+(area / "podman").chmod(0o755)
+cache = pathlib.Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "arch-packages"
+def await_file(path, child=None):
+    deadline = time.monotonic() + 10
+    while not path.exists():
+        if child is not None and child.poll() is not None:
+            raise AssertionError(("early-exit", path.name, child.returncode))
+        if time.monotonic() >= deadline:
+            raise AssertionError(("barrier-timeout", path.name))
+        time.sleep(.01)
+def held():
+    with (cache / ".lock").open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        return False
+
+children = []
+writers = []
+try:
+    # One host-lifetime contract: normal exit, TERM and untrappable KILL.
+    for label, sig in (("normal", None), ("term", signal.SIGTERM), ("kill", signal.SIGKILL)):
+        current = []
+        for which, tree in (("first", root), ("second", lane)):
+            log = (area / (label + "-" + which + ".log")).open("w")
+            child = subprocess.Popen([bash, str(tree / "scripts/arch-packages.sh")], env=dict(
+                env, CACHE_CASE=label, CACHE_LANE=which), stdin=subprocess.DEVNULL,
+                stdout=log, stderr=log, start_new_session=True)
+            log.close()
+            children.append(child)
+            current.append(child)
+            key = label + "-" + which
+            if which == "first":
+                await_file(area / (key + ".entered"), child)
+                writers.append(os.pidfd_open(int((area / (key + ".entered")).read_text())))
+                assert pathlib.Path((area / (key + ".cache")).read_text()) == cache, "cache-not-common"
+                assert held(), "cache-not-locked"
+                if sig is not None:
+                    child.send_signal(sig)
+                    assert child.wait(timeout=10) == -sig
+                    assert held(), "cache-unlocked-before-container-exit"
+            else:
+                await_file(area / (key + ".arrived"), child)
+                assert held(), "cache-unlocked-before-cleanup"
+                assert not (area / (key + ".entered")).exists(), "second-entered-before-cleanup"
+                assert (cache / ("download-" + label + "-first") / "partial").read_bytes() == b"pending"
+                (area / (label + "-first.release")).touch()
+                await_file(area / (label + "-first.ended"))
+                await_file(area / (key + ".entered"), child)
+                writers.append(os.pidfd_open(int((area / (key + ".entered")).read_text())))
+                assert pathlib.Path((area / (key + ".cache")).read_text()) == cache, "cache-not-common"
+                assert (cache / (label + "-first.pkg.tar.zst")).read_bytes() == b"complete"
+                assert not (cache / ("download-" + label + "-first")).exists()
+                (area / (key + ".release")).touch()
+                assert child.wait(timeout=10) == 0
+        if sig is None:
+            assert current[0].wait(timeout=10) == 0
+        assert not held(), "cache-lock-leaked"
+        assert not list(cache.glob("download-*")), "pending-downloads-kept"
+        assert (cache / (label + "-second.pkg.tar.zst")).read_bytes() == b"complete"
+        print("arch-cache=ok case=" + label)
+finally:
+    if sys.exc_info()[0] is not None:
+        for path in sorted(area.glob("*.log")):
+            print(path.name + ":\n" + path.read_text(), file=sys.stderr)
+    # pidfds retain each writer's identity after its host has been reaped.
+    for fd in writers:
+        try:
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        assert select.select([fd], [], [], 10)[0], "writer-stop-timeout"
+        os.close(fd)
+    for child in children:
+        if child.poll() is None:
+            child.kill()
+        child.wait(timeout=10)
+    git("worktree", "remove", "--force", str(lane))
+PY
+}
+
 # Refusals before anything is written: name | the fixture change | the
 # arguments | exit status | the first stderr line, %r the repository and
 # %h its HEAD. Each leaves no dist/ and calls no gh.
@@ -426,6 +561,7 @@ for name in $(printf '%s\n' "${!channels[@]}" | LC_ALL=C sort); do
   check "parity: the $name build hands its container the release asset of its commit" parity_row "$builder" "$name"
 done
 check "Arch host preparation and makepkg VCS sources accept explicit bare repositories" arch_bare_row "$repo/scripts/arch-packages.sh"
+check "Arch worktrees share cache ownership through container cleanup after host death" arch_cache_row "$repo/scripts/arch-packages.sh"
 check "Arch setup reads the chromium state independently of other target rows" arch_setup_row "$repo/scripts/arch-packages.sh"
 check "Arch doctor accepts only an installed package-owned system bus provider" arch_doctor_row "$repo/scripts/arch-packages.sh"
 for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
@@ -466,6 +602,15 @@ PY
 check "the dry run on this working tree builds an archive that installs" real_tree_row
 
 echo "controls"
+copy_with arch-cache "$repo/scripts/arch-packages.sh" 'podman run --rm --preserve-fds=1' 'podman run --rm --preserve-fds=0'
+if arch_cache_row "$copy" >"$tmp/arch-cache-control" 2>&1; then
+  fail "control: a host-only cache lock passed the Arch cache row"
+elif grep -q 'cache-unlocked-before-container-exit' "$tmp/arch-cache-control"; then
+  ok "control: the Arch cache row rejects release before container exit"
+else
+  cat -- "$tmp/arch-cache-control"
+  fail "control: the Arch cache row failed outside inherited ownership"
+fi
 copy_with arch-doctor "$repo/scripts/arch-packages.sh" \
   'for path in (name, executable)' 'for path in ()'
 doctor_control=0

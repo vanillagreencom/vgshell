@@ -268,7 +268,7 @@ try:
     # A writer root in prose names no artifact; a path below it does.
     output_roots = {record.split("/")[0], "main-run", "qml-smoke", "display-record", "sandbox-shots",
                     "readme-shots", "theme-previews", "shader-cost", "selftest-records",
-                    "arch-packages-cache", "readme-install-cache"}
+                    "readme-install-cache"}
     patterns = [p.split("/") for p in patterns if p and not p.startswith("../") and p not in output_roots]
     groups = {identifier.lower().replace("-", "") for identifier in opened}
 except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
