@@ -322,6 +322,28 @@ function keyHintInk(values, context, part) {
     return candidates[0];
 }
 
+// One publication's shared hint inks. Delegates hand equivalent grounds
+// in separate objects, so identity cannot key the solve. Keep every RGBA
+// component at its supplied precision: byte rounding before composition
+// can change the solver's answer. The FIFO bound prevents animated or
+// caller-supplied grounds from retaining a session's history.
+var KEY_HINT_CACHE_LIMIT = 32;
+
+function keyHintResolver(values) {
+    var entries = [];
+    return function (context, part) {
+        var channels = function (color) { return [color.r, color.g, color.b, color.a]; };
+        var key = JSON.stringify([part, context === null ? null :
+            [channels(context.fill), channels(context.plate), channels(context.sheen)]]);
+        for (var i = 0; i < entries.length; i++)
+            if (entries[i].key === key) return entries[i].ink;
+        var ink = Object.freeze(keyHintInk(values, context, part));
+        if (entries.length === KEY_HINT_CACHE_LIMIT) entries.shift();
+        entries.push({ key: key, ink: ink });
+        return ink;
+    };
+}
+
 // Text drawn at rest must meet WCAG 2.2 SC 1.4.3 AA for normal-size text
 // on each resting surface. Inactive controls and hover surfaces are exempt.
 // `color.accent` draws text roles such as eyebrow, checked buttons and badges.

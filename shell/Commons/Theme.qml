@@ -175,12 +175,16 @@ Singleton {
     // the composed ground CONTEXT hands, or its default ink for null
     // (ThemeLogic.keyHintInk).
     function keyHintInk(context, part) {
-        if (context === null && keyHintDefaults[part] !== undefined) return keyHintDefaults[part];
         const colors = context === null ? null : {
             fill: Qt.color(context.fill), plate: Qt.color(context.plate), sheen: Qt.color(context.sheen)
         };
-        return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, part)));
+        return toColor(ThemeLogic.formatColor(keyHintResolver(colors, part)));
     }
+    // ThemeSource replaces values for both theme and Appearance edits.
+    // A readonly binding stays reactive (Quickshell 0.3.1 QML language:
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language), so each
+    // resolved value tree owns a fresh resolver and releases the old cache.
+    readonly property var keyHintResolver: ThemeLogic.keyHintResolver(source.values)
     // The ground a shared hint's ink is solved on: GIVEN when it names its
     // fill, else GIVEN's plate and sheen, or none, over the fill GROUND
     // answers, the one the surface holding the hint publishes (qs.Ui
@@ -204,15 +208,6 @@ Singleton {
             sheen: given === null || given.sheen === undefined ? "transparent" : given.sheen
         };
     }
-    // Each part's ink on a resting surface, resolved once per theme, so a
-    // hint without a context reads it instead of solving it per cap.
-    readonly property var keyHintDefaults: {
-        const out = {};
-        for (const part of Object.keys(ThemeLogic.KEY_HINT_PARTS))
-            out[part] = toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, null, part)));
-        return Object.freeze(out);
-    }
-
     // The room a row takes under its sub-text, a hint, error or warning
     // line, so the next row of `column` starts `stack.group` below that
     // line: the group space less the column's spacing. A row without

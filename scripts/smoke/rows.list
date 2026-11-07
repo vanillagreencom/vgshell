@@ -223,6 +223,9 @@ tray
 # Its control restarts the shell, so it runs with the tail rows that do
 # the same.
 remote-desktop
+# The latency row owns disposable copies and restores its fixture inputs
+# before it leaves an ordinary harness shell for the closing judges.
+launcher-latency
 # After every row that opens a TUI: the stand-in terminal ran no plugin
 # script but a fixture's.
 tui-guard
