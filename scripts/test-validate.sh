@@ -1995,8 +1995,8 @@ declare -A smoke_mutant_old=(
   [chain]='queue+=("$loader")'
   [qmldir-every]='every=True)'
   [absent]=$'    printf -v smoke_reach \'untraced reason=qml-load-target-absent path=%q\' "$2"'
-  [failed-load]=$'    smoke_read_fault=qml-loads-failed; return 0\n  fi'
-  [unreadable-load]=$'unreadable) printf -v smoke_read_fault \'qml-loads-unreadable path=%q\' "$loader${loaded:+ $loaded}"; return 0 ;;'
+  [failed-load]=$'    printf -v smoke_read_fault \'qml-loads-failed operation=python status=%s cause=%q\' "$status" "$out"; return 0'
+  [unreadable-load]='unreadable|failed) smoke_read_fault="qml-loads-$fact $loader${loaded:+ $loaded}"; return 0 ;;'
 )
 declare -A smoke_mutant_new=(
   [missing]=$'missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
@@ -2022,8 +2022,8 @@ declare -A smoke_mutant_new=(
   [chain]=':'
   [qmldir-every]='every=False)'
   [absent]='    :'
-  [failed-load]=$'    return 0\n  fi'
-  [unreadable-load]='unreadable) return 0 ;;'
+  [failed-load]='    return 0'
+  [unreadable-load]='unreadable|failed) return 0 ;;'
 )
 for spec in "${smoke_cases[@]}"; do
   IFS='|' read -r name files scope wanted mutant variant <<<"$spec"
@@ -2068,12 +2068,12 @@ row "a reached row with a long median stays selected" "$d" 0 "" \
 # every row and says why in one line; the table above holds the controls.
 d="$tmp/smoke-rows-unreadable-load-line"; smoke_fixture "$d" unreadable-load
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
-row "a shell file the load reading cannot read runs every row and names itself" "$d" 0 "" \
-  "scripts/qml-smoke.sh" "validate: smoke-rows=all reason=qml-loads-unreadable path=shell/Core/Unreadable.qml" '!validate: smoke-rows=some'
+row_re "a shell file the load reading cannot read runs every row and names itself" "$d" 0 "" \
+  "scripts/qml-smoke.sh" "~validate: smoke-rows=all reason=qml-loads-unreadable path=shell/Core/Unreadable.qml" '!validate: smoke-rows=some'
 d="$tmp/smoke-rows-failed-load-line"; smoke_fixture "$d" failed-load
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
-row "a load reading that fails runs every row and says so" "$d" 0 "" \
-  "scripts/qml-smoke.sh" "validate: smoke-rows=all reason=qml-loads-failed" '!validate: smoke-rows=some'
+row_re "a load reading that fails runs every row and says so" "$d" 0 "" \
+  "scripts/qml-smoke.sh" "~validate: smoke-rows=all reason=qml-loads-failed operation=python status=1" '!validate: smoke-rows=some'
 # A fix round after a rebase: the lane validated its launcher change at
 # $lane, main then changed acme.notify, the lane rebased onto it and edits
 # launcher again. --changed $lane selects the lane's own paths only; a base
@@ -2289,7 +2289,8 @@ done
 # nested runtime. The rows drive separate plugin entry points; loading the
 # library alone does not observe every exported function.
 core_observation_case() { # CASE
-  local variant="$1" d="$tmp/core-observation-$1" wanted="$smoke_none"
+  local variant="$1" d="$tmp/core-observation-$1" wanted="$smoke_none" extra="" git_bin
+  local -a reasons=()
   smoke_fixture "$d"
   cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/Dispatch.js" "$repo/shell/Core/HyprlandLayer.js" "$d/shell/Core/"
   printf 'import "PluginLogic.js" as Logic\nQtObject { property var value: Logic.clone({}) }\n' >"$d/shell/Core/HyprlandLayer.qml"
@@ -2300,6 +2301,8 @@ core_observation_case() { # CASE
       printf 'import "../../Core/PluginLogic.js" as Logic\nQtObject { property var value: Logic.controlValue }\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
     computed)
       printf 'import "../../Core/PluginLogic.js" as Logic\nQtObject { property var value: Logic[method]({}) }\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    removed)
+      printf 'import "../../Core/PluginLogic.js" as Logic\nQtObject { property var value: Logic.clone({}) }\n' >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
     direct)
       printf '# inputs: shell/plugins/acme.launcher/* shell/Core/PluginLogic.js\n' >"$d/scripts/smoke/rows/launcher.sh" ;;
   esac
@@ -2307,7 +2310,7 @@ core_observation_case() { # CASE
   case "$variant" in
     alias)
       plant "$d/shell/Core/HyprlandLayer.qml" 'Logic.clone({})' 'Logic.clone({ changed: true })' ;;
-    unobserved|direct|computed)
+    unobserved|direct|computed|refinement-failed)
       plant "$d/shell/Core/PluginLogic.js" 'function fieldRows(schema, status) {' $'function fieldRows(schema, status) {\n    schema = schema || {};' ;;
     observed)
       plant "$d/shell/Core/PluginLogic.js" 'return value !== null && typeof value === "object" && !Array.isArray(value);' 'return value !== null && !Array.isArray(value) && typeof value === "object";' ;;
@@ -2323,10 +2326,23 @@ core_observation_case() { # CASE
   case "$variant" in
     observed|callback|computed|direct|removed) wanted="$smoke_launcher" ;;
     top-level|seam) wanted="$smoke_launcher" ;;
+    refinement-failed)
+      # Git can fail only during the later refinement after a readable
+      # inventory. An unrelated row must still run, not just file loaders.
+      git_bin="$(command -v git)"
+      mkdir -p "$d/.git/fault-bin"
+      printf '%s\n' '#!/usr/bin/env bash' \
+        'for arg in "$@"; do' \
+        '  if [[ $arg == --no-textconv ]]; then printf "%s\n" refinement-denied >&2; exit 73; fi' \
+        'done' "exec $git_bin \"\$@\"" >"$d/.git/fault-bin/git"
+      chmod +x "$d/.git/fault-bin/git"
+      extra="PATH=$d/.git/fault-bin:${base_env[2]#PATH=}"
+      wanted=scripts/qml-smoke.sh
+      reasons=('validate: smoke-rows=all reason=qml-loads-failed operation=git-diff path=shell/Core/PluginLogic.js status=73 cause=refinement-denied' '!validate: smoke-rows=some') ;;
   esac
-  row "core function observation $variant" "$d" 0 "" "$wanted"
+  row "core function observation $variant" "$d" 0 "$extra" "$wanted" "${reasons[@]}"
 }
-parallel_cases core_observation_case core-observation alias unobserved observed callback computed direct top-level seam removed
+parallel_cases core_observation_case core-observation alias unobserved observed callback computed direct top-level seam removed refinement-failed
 
 # These are actual incoming commits and a rebase, not an injected path list.
 # Gallery's own file stays unchanged across restack. Its unchanged helper is

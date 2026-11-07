@@ -1287,13 +1287,14 @@ PY
 # namespaces that observe its changed functions or local callers, in
 # smoke_observed; an unknown hunk or namespace use retains whole-file reach.
 # The reading cannot read sets smoke_read_fault to `qml-loads-unreadable
-# path=<path>`, and a reading that fails sets it to `qml-loads-failed`.
+# path=<path>`, and a reading that fails sets it to `qml-loads-failed`,
+# with the failed operation and its cause.
 smoke_loads_read() { # [BASE JS_PATH]
-  local out fact loader loaded
+  local out fact loader loaded status
   smoke_observed=whole
   # -B: the reading writes no bytecode into the tree it reads.
-  if ! out="$(python3 -I -B - "$@" <<'PY'
-import os, re, subprocess, sys
+  if out="$(python3 -I -B - "$@" 2>&1 <<'PY'
+import os, re, shlex, subprocess, sys
 
 sys.path.insert(0, "scripts")
 from qml_controls import qmldir_exports
@@ -1334,9 +1335,26 @@ def changed_functions(base, path, new):
             spans.append((match.group(1), match.start(), end))
         return spans
 
-    old = blank_comments(subprocess.check_output(["git", "show", f"{base}:{path}"], text=True))
-    diff = subprocess.check_output(["git", "diff", "--no-ext-diff", "--no-color",
-                                   "--no-textconv", "-U0", base, "--", path], text=True)
+    try:
+        # An added application file has no old functions. Only a successful
+        # tree reading proves that absence; a failed Git read proves nothing.
+        operation = "git-ls-tree"
+        if not subprocess.check_output(["git", "ls-tree", "--name-only", base, "--", path],
+                                       text=True, stderr=subprocess.PIPE):
+            return None
+        operation = "git-show"
+        old = blank_comments(subprocess.check_output(["git", "show", f"{base}:{path}"],
+                                                     text=True, stderr=subprocess.PIPE))
+        operation = "git-diff"
+        diff = subprocess.check_output(["git", "diff", "--no-ext-diff", "--no-color",
+                                       "--no-textconv", "-U0", base, "--", path],
+                                       text=True, stderr=subprocess.PIPE)
+    except (OSError, UnicodeError, subprocess.CalledProcessError) as exc:
+        cause = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+        status = f"status={exc.returncode}" if isinstance(exc, subprocess.CalledProcessError) else f"kind={type(exc).__name__}"
+        print("failed", f"operation={operation}", f"path={shlex.quote(path)}", status,
+              f"cause={shlex.quote(cause)}")
+        return None
     sides = [(text, partition(text)) for text in (old, new)]
     if any(spans is None for _, spans in sides):
         return None
@@ -1379,10 +1397,7 @@ try:
             code[os.path.normpath(path)] = blank_comments(text)
     if len(sys.argv) == 3:
         base, changed = sys.argv[1:]
-        try:
-            reached = changed_functions(base, changed, code[changed])
-        except (OSError, UnicodeError, subprocess.CalledProcessError, KeyError):
-            reached = None
+        reached = changed_functions(base, changed, code[changed])
         if reached is not None:
             print("local")
             for path, text in code.items():
@@ -1461,12 +1476,16 @@ try:
         for target in sorted(loads):
             print("load", path, target)
 except Unreadable as exc:
-    print("unreadable", exc.path)
+    print("unreadable", f"path={shlex.quote(exc.path)}", f"cause={shlex.quote(exc.strerror)}")
 except OSError as exc:
-    print("unreadable", exc.filename)
+    print("unreadable", f"path={shlex.quote(str(exc.filename))}", f"cause={shlex.quote(str(exc))}")
+except KeyError as exc:
+    print("failed operation=source-read", f"path={shlex.quote(changed)}", f"cause={shlex.quote(str(exc))}")
 PY
-)"; then
-    smoke_read_fault=qml-loads-failed; return 0
+)"; then :
+  else
+    status=$?
+    printf -v smoke_read_fault 'qml-loads-failed operation=python status=%s cause=%q' "$status" "$out"; return 0
   fi
   while read -r fact loader loaded; do
     case "$fact" in
@@ -1474,8 +1493,8 @@ PY
       local) smoke_observed="" ;;
       observe) smoke_observed+=" $loader" ;;
       load) smoke_loaded_by[$loaded]+=" $loader" ;;
-      unreadable) printf -v smoke_read_fault 'qml-loads-unreadable path=%q' "$loader${loaded:+ $loaded}"; return 0 ;;
-      *) smoke_read_fault=qml-loads-failed; return 0 ;;
+      unreadable|failed) smoke_read_fault="qml-loads-$fact $loader${loaded:+ $loaded}"; return 0 ;;
+      *) printf -v smoke_read_fault 'qml-loads-failed operation=read-facts cause=%q' "$fact $loader $loaded"; return 0 ;;
     esac
   done <<<"$out"
 }
@@ -1557,6 +1576,7 @@ smoke_rows_read() {
 smoke_path_reach() { # BASE PATH
   local key="$1 $2" glob diff line sign hunk=false row needed
   local -a unlisted=()
+  if [[ $smoke_read_fault == qml-load* ]]; then smoke_reach="untraced reason=$smoke_read_fault"; return 0; fi
   if [[ -n ${smoke_path_hit[$key]+set} ]]; then smoke_reach="${smoke_path_hit[$key]}"; return 0; fi
   smoke_reach=""
   for glob in "${smoke_harness_inputs[@]}"; do
@@ -1602,6 +1622,9 @@ smoke_path_reach() { # BASE PATH
     smoke_reach+="$index_hits"
     smoke_load_reach "$2" "$1"
   fi
+  # Refinement reads after the initial index. Failed evidence cannot publish
+  # scoped reach, or let a later consumer reuse an earlier cached answer.
+  if [[ $smoke_read_fault == qml-load* ]]; then smoke_reach="untraced reason=$smoke_read_fault"; return 0; fi
   smoke_path_hit[$key]="$smoke_reach"
 }
 
