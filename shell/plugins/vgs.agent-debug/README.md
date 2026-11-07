@@ -8,6 +8,7 @@ Agent Debug tells you when a program crashes or a VGS setup task fails, and offe
 
 - A notification when one of your programs crashes, with Diagnose and Mute.
 - A notification when a VGS setup task, the install or update of a plugin's tools, fails, with Diagnose.
+- Diagnose for a failed sync job: Send to agent in Local Sync opens the draft, and Run starts the agent.
 - Diagnose opens Claude Code, Codex, Copilot, Pi or OpenCode in a floating terminal. The agent asks you before it runs a command.
 - With Jarvis, Diagnose opens an editable message in its console. Send or Enter sends it; Shift+Enter adds a line.
 - At most one notification for each program or task in a minute.

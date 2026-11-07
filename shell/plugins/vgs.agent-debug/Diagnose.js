@@ -25,6 +25,17 @@ function prompt(args, skill) {
             "- Time: " + args[5],
             "- Run record: " + args[6]
         ];
+    } else if (args[0] === "sync" && args.length === 8) {
+        lines = [
+            "A sync job on this computer failed and I want to know why.",
+            "- System job: " + args[1] + " (a systemd user unit)",
+            "- Name: " + args[2],
+            "- Engine: " + args[3],
+            "- From: " + args[4],
+            "- To: " + args[5],
+            "- Last error line: " + args[6],
+            "- Time: " + args[7]
+        ];
     } else {
         throw new Error("diagnose: facts=shape");
     }

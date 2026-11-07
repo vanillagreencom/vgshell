@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.local-sync",
+  "name": "Local Sync",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Shows the rsync and unison jobs on this computer, and moves in the bar while one copies.",
+  "license": "MIT",
+  "icon": "folder-sync",
+  "kinds": ["service", "bar-widget", "panel"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
+  "capabilities": ["handoff", "ipc", "requirements", "status", "surfaces", "tui"],
+  "capabilityKinds": {"handoff": ["panel"], "requirements": ["service"], "tui": ["panel"]},
+  "defaultSection": "left",
+  "requirements": [
+    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Lists the sync jobs and stops one you remove"},
+    {"command": "journalctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Reads when each job last copied and why it failed"},
+    {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Finds which job a running copy belongs to"},
+    {"command": "head", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Reads which folders a job's script copies"},
+    {"command": "realpath", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds the copy programs to watch"},
+    {"command": "inotifywait", "packages": {"pacman": "inotify-tools", "apt": "inotify-tools", "dnf": "inotify-tools", "nix": "inotify-tools"}, "optional": true, "purpose": "Notices when a copy starts"},
+    {"command": "rsync", "packages": {"pacman": "rsync", "apt": "rsync", "dnf": "rsync", "nix": "rsync"}, "optional": true, "purpose": "Runs the sync jobs that copy with rsync"},
+    {"command": "unison", "packages": {"pacman": "unison", "apt": "unison", "dnf": "unison", "nix": "unison"}, "optional": true, "purpose": "Runs the two-way sync jobs that use Unison"}
+  ],
+  "settings": {},
+  "tui": {"log": {"script": "tui/log.sh", "title": "Sync job log", "size": "wide", "requires": ["journalctl"]}},
+  "status": {
+    "jobs": {"type": "data", "label": "Sync jobs"}
+  }
+}

@@ -45,14 +45,27 @@ FocusScope {
     // A save of the shown draft is in flight: a second Save waits for its
     // reply, so a new draft is added once and edited after.
     property bool saving: false
+    // A request of open() that names an automation, { id, remove }, held
+    // until a list that holds it arrives: a window the host builds anew
+    // starts with no automations, and its first list comes later.
+    property var heldOpen: null
 
     readonly property var templates: View.TEMPLATES
     readonly property var validationResult: View.validation(draft, Engine, Date.now())
     readonly property string previewFirst: previewRows.length > 0 ? String(previewRows[0]) : ""
     readonly property int listCurrent: automationList.current
-    readonly property var draftPending: {
-        const row = automations.find(item => item.id === draft.id);
-        return row === undefined ? null : row.pending;
+    // The stored automation the editor's draft edits, undefined for a new
+    // draft or one that left the store.
+    readonly property var draftRow: draft.saved ? automations.find(item => item.id === draft.id) : undefined
+    readonly property var draftPending: draftRow === undefined ? null : draftRow.pending
+    readonly property bool draftDirty: View.draftChanged(draft, draftRow, Engine)
+    // A save was accepted and the list that shows it stored has not come
+    // yet: the save bar reads Saved once the draft matches the store.
+    property bool savedUnseen: false
+    onDraftDirtyChanged: {
+        if (draftDirty || !savedUnseen) return;
+        savedUnseen = false;
+        editor.confirmSaved();
     }
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
@@ -62,14 +75,47 @@ FocusScope {
     function open(payloadJson) {
         const payload = payloadJson ? JSON.parse(payloadJson) : {};
         if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload must be an object");
+        // A sync job's draft or Remove that another plugin asked for keeps
+        // an unsaved edit: the summon is refused, and the sender says why.
+        if ((payload.sync !== undefined || payload.remove !== undefined) && editorOpen && draftDirty)
+            throw new Error("the editor holds an unsaved change");
+        // Only the unsaved change refuses such a request here, so the
+        // service (Service.qml syncJob) tells the user that cause.
         place = "automations";
+        heldOpen = null;
         if (payload.new === true) newDraft();
-        else if (payload.id !== undefined) selectAutomation(payload.id);
-        else {
+        else if (payload.sync !== undefined) {
+            const sync = payload.sync;
+            if (sync === null || typeof sync !== "object" || !Array.isArray(sync.available) || !sync.available.every(engine => typeof engine === "string"))
+                throw new Error("payload.sync must be an object with an `available` list of engines");
+            newDraft(View.syncDraft(sync.available, Date.now(), Engine));
+        } else if (payload.remove !== undefined || payload.id !== undefined) {
+            const id = payload.remove !== undefined ? payload.remove : payload.id;
+            if (typeof id !== "string") throw new Error("payload.id and payload.remove must name an automation");
+            heldOpen = { id: id, remove: payload.remove !== undefined };
+            openHeld(false);
+        } else {
             editorOpen = false;
             Qt.callLater(() => automationList.focusList());
         }
         refreshAll();
+    }
+
+    // Open the held request's automation once the list holds it, with the
+    // Remove question for a Remove. FINAL marks a list that arrived after
+    // the request: an automation it does not hold is gone, and the window
+    // says so.
+    function openHeld(final) {
+        if (heldOpen === null) return;
+        const held = heldOpen;
+        if (automations.some(row => row.id === held.id)) {
+            heldOpen = null;
+            selectAutomation(held.id);
+            if (held.remove) removeAutomation(held.id);
+        } else if (final) {
+            heldOpen = null;
+            setNotice("danger", "This automation is no longer listed.", "");
+        }
     }
 
     function close() {}
@@ -119,23 +165,28 @@ FocusScope {
 
     function refreshList() {
         runJson(["list", "--json"], (ok, doc) => {
-            if (!ok) return;
-            automations = doc.automations;
-            listStoreFile = doc.storeFile || "";
-            listRunsDir = doc.runsDir || "";
-            if (draftPending !== null) testRun = null;
-            if (automations.some(row => row.pending !== null)) historyFollow.restart();
-            // The shown automation left the store, through this window's
-            // Remove or any other caller: its draft goes, and the editor
-            // returns to the list rather than opening a blank draft.
-            if (draft.saved && !automations.some(row => row.id === draft.id)) {
-                loadDraft(View.blankDraft(Date.now(), Engine));
-                if (editorOpen) {
-                    editorOpen = false;
-                    Qt.callLater(() => automationList.focusList());
-                }
-            }
+            if (ok) listArrived(doc);
         });
+    }
+
+    // DOC, a `list --json` answer, is the window's list now.
+    function listArrived(doc) {
+        automations = doc.automations;
+        listStoreFile = doc.storeFile || "";
+        listRunsDir = doc.runsDir || "";
+        if (draftPending !== null) testRun = null;
+        if (automations.some(row => row.pending !== null)) historyFollow.restart();
+        // The shown automation left the store, through this window's
+        // Remove or any other caller: its draft goes, and the editor
+        // returns to the list rather than opening a blank draft.
+        if (draft.saved && !automations.some(row => row.id === draft.id)) {
+            loadDraft(View.blankDraft(Date.now(), Engine));
+            if (editorOpen) {
+                editorOpen = false;
+                Qt.callLater(() => automationList.focusList());
+            }
+        }
+        openHeld(true);
     }
 
     function refreshHistory() {
@@ -163,6 +214,7 @@ FocusScope {
 
     function loadDraft(next) {
         draftKey += 1;
+        savedUnseen = false;
         replaceDraft(next);
     }
 
@@ -171,6 +223,8 @@ FocusScope {
         // Qt 6.12 wraps arrays and objects carried by a var signal. The
         // draft owns plain values, as validation and the engine expect.
         next[key] = value !== null && typeof value === "object" ? View.clone(value) : value;
+        // A sync job's form writes its command.
+        if (key === "sync") next.command = View.syncCommand(next.sync);
         if (key === "start" && next.yearlyEdited !== true) {
             const parts = View.startDateParts(value, Engine);
             if (parts !== null) {
@@ -183,14 +237,16 @@ FocusScope {
         replaceDraft(next);
     }
 
-    function newDraft() {
+    // Open the editor on a new DRAFT, a blank one when none is given, such
+    // as the sync job's draft Local Sync's Add asks for.
+    function newDraft(draft) {
         place = "automations";
         editorOpen = true;
         testRun = null;
         testTranscript = "";
         testStartedAt = 0;
         setNotice("neutral", "", "");
-        loadDraft(View.blankDraft(Date.now(), Engine));
+        loadDraft(draft === undefined ? View.blankDraft(Date.now(), Engine) : draft);
         Qt.callLater(() => editor.focusName());
     }
 
@@ -253,9 +309,23 @@ FocusScope {
             }
             draft = next;
             setNotice("success", "Saved " + draft.name + ".", "");
+            savedUnseen = true;
             refreshAll();
         });
         return "ok";
+    }
+
+    // Discard drops the editor's change: a saved draft reads its stored
+    // automation again, and a new draft goes, back to the list.
+    function discardDraft() {
+        if (draftRow !== undefined) {
+            loadDraft(View.draftFromAutomation(draftRow, Engine));
+            setNotice("neutral", "", "");
+            return;
+        }
+        loadDraft(View.blankDraft(Date.now(), Engine));
+        editorOpen = false;
+        automationList.focusList();
     }
 
     function runNow(id) {
@@ -519,6 +589,8 @@ FocusScope {
                 testRun: root.testRun
                 testTranscript: root.testTranscript
                 pending: root.draftPending
+                dirty: root.draftDirty
+                onDiscardRequested: root.discardDraft()
                 onBackRequested: { root.editorOpen = false; automationList.focusList(); }
                 onSaveRequested: root.saveDraft()
                 onTestRequested: root.runNow(root.draft.id)

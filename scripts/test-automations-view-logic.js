@@ -192,6 +192,36 @@ function run(view, logic) {
     assert.equal(kept.id, "made", "an edit while the add is in flight keeps the id the engine gave the draft");
     assert.equal(kept.saved, true);
     assert.equal(kept.name, "Edited while saving", "the edit stays for the next save");
+
+    // A sync job: its command quotes each folder as one word, and the form
+    // holds what the command needs. [case, sync, command].
+    for (const [name, sync, command] of [
+        ["rsync copies the contents of From", { engine: "rsync", from: "/home/u/Pictures", to: "/mnt/photos" }, "rsync -a -- '/home/u/Pictures/' '/mnt/photos'"],
+        ["a From that ends in a slash keeps one", { engine: "rsync", from: "/a//", to: "/b/" }, "rsync -a -- '/a/' '/b/'"],
+        ["a quote in a path stays text", { engine: "rsync", from: "/it's $(x)", to: "/b" }, "rsync -a -- '/it'\\''s $(x)/' '/b'"],
+        ["unison syncs two roots", { engine: "unison", from: "/a", to: "/b" }, "unison -batch '/a' '/b'"],
+        ["no command until both folders", { engine: "rsync", from: "/a", to: "" }, ""]
+    ])
+        assert.equal(view.syncCommand(sync), command, "sync command: " + name);
+    const syncDraft = view.syncDraft(["rsync"], now, logic);
+    same([syncDraft.sync.engine, syncDraft.sync.available, syncDraft.requiresNetwork, syncDraft.command], ["rsync", ["rsync"], false, ""]);
+    same(Object.keys(view.validation(syncDraft, logic, now).errors).sort(), ["from", "to"], "a new sync job asks for both folders, not a command");
+    const unisonDraft = Object.assign(view.clone(syncDraft), { sync: { engine: "unison", from: "/a", to: "/b", available: ["rsync"] } });
+    same(Object.keys(view.validation(unisonDraft, logic, now).errors), ["engine"], "an engine this computer lacks is refused");
+
+    // The editor's save bar: [case, draft, stored row, changed].
+    const stored = Object.assign({}, row, { schedule: logic.presetSchedule("weekdays", "2026-01-05", "09:00") });
+    const reread = view.draftFromAutomation(stored, logic);
+    const renamed = Object.assign(view.clone(reread), { name: "Renamed" });
+    const retimed = Object.assign(view.clone(reread), { times: ["10:00"] });
+    for (const [name, draftValue, storedRow, changed] of [
+        ["a new draft", view.blankDraft(now, logic), undefined, true],
+        ["a saved draft as stored", reread, stored, false],
+        ["a renamed draft", renamed, stored, true],
+        ["a new time", retimed, stored, true],
+        ["a saved draft whose row left the store", reread, undefined, true]
+    ])
+        assert.equal(view.draftChanged(draftValue, storedRow, logic), changed, "draft changed: " + name);
 }
 
 const view = load(viewFile, modules);
@@ -220,6 +250,10 @@ try {
         ["a frequency choice keeps a step the rule cannot take", "if (steps.indexOf(Number(draft.interval)) === -1) out.push([\"interval\", steps[0]]);", ""],
         ["a skipped run says why", "var text = run.outcome === \"skipped\" ? logic.skipText(run.reason) : \"\";", "var text = \"\";"],
         ["only a skip says why", "var text = run.outcome === \"skipped\" ? logic.skipText(run.reason) : \"\";", "var text = logic.skipText(run.reason);"],
+        ["a quote in a path ends the word", "return \"'\" + String(text).replace(/'/g, \"'\\\\''\") + \"'\";", "return \"'\" + String(text) + \"'\";"],
+        ["rsync copies the From folder itself", "String(sync.from).replace(/\\/*$/, \"/\")", "String(sync.from)"],
+        ["a sync job needs a command typed", "    } else if (String(draft.command || \"\").trim() === \"\") errors.command", "    }\n    if (String(draft.command || \"\").trim() === \"\") errors.command"],
+        ["a saved draft never reads as changed", "!== JSON.stringify(canonical(definitionFromDraft(draftFromAutomation(row, logic), logic)));", "!== JSON.stringify(canonical(definitionFromDraft(draft, logic)));"],
         ["duplicates do not advance copy names", "for (var n = 2; takenNames.indexOf(name) !== -1; n++) name = base + \" \" + n;", "for (var n = 2; false; n++) name = base + \" \" + n;"]
     ];
     for (const [name, from, to] of controls) {

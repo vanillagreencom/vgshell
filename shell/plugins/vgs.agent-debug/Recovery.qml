@@ -1,50 +1,53 @@
 import QtQuick
 import qs.Commons
-import qs.Ui
 
+// The Agent Debug window, on one of two screens its payload names. `{}`:
+// the recovery choice (RecoveryChoice.qml), a diagnosis whose saved
+// message target could not open. `{"draft": true}`: a failure another
+// plugin handed over (DiagnoseDraft.qml). The service holds both; each
+// screen asks it through the plugin's IPC. The window shows one screen at
+// a time, so a summon that turns it to the other screen, and its close,
+// discard what the screen it leaves holds in the service.
 FocusScope {
     id: root
     property var shell: null
-    property string reason: ""
-    property string problem: ""
-    property bool waiting: false
-    property Item initialFocus: cancel
+    // The screen shown: "choice", "draft", or "" before the first open.
+    property string mode: ""
+    readonly property Item initialFocus: shown.item === null ? null : shown.item.initialFocus
+    // Why the saved message target could not open, on the recovery choice;
+    // "" on the draft. The agent-debug smoke row reads it from the window.
+    readonly property string reason: mode === "choice" && shown.item !== null ? shown.item.reason : ""
     implicitWidth: Theme.size.panel.lg
-    implicitHeight: layout.implicitHeight
+    implicitHeight: shown.item === null ? 0 : shown.item.implicitHeight
+
     function open(payload) {
-        const reply = shell.ipc.call("recovery", "");
-        const current = reply.indexOf("{") === 0 ? JSON.parse(reply) : { waiting: false };
-        waiting = current.waiting === true;
-        reason = waiting ? current.reason : "No diagnosis is waiting. Press Diagnose on a failure notification.";
-        problem = "";
+        const wanted = payload ? JSON.parse(payload) : {};
+        const next = wanted.draft === true ? "draft" : "choice";
+        if (mode !== "" && mode !== next) shown.item.discard();
+        mode = next;
+        shown.item.open();
     }
-    function close() { if (shell !== null) shell.ipc.call("recover", "cancel"); }
-    function choose(agent) {
-        const reply = shell.ipc.call("recover", agent);
-        if (reply === "ok") shell.surfaces.hide("window");
-        else problem = "This agent could not open. Check its installation, then retry Diagnose.";
+    function close() {
+        if (shell === null || shown.item === null) return;
+        shown.item.discard();
     }
-    function missing(agent) {
-        if (!waiting) return "Press Diagnose on a failure notification first.";
-        return shell === null || shell.requirements.missing.indexOf(agent) !== -1
-            ? "Install this agent, then retry Diagnose." : "";
-    }
-    Pane {
-        id: layout
+
+    // A Loader builds its item when the component is set, before open()
+    // reads it, and lets the item it replaces go on a later turn of the
+    // event loop (QQuickLoaderPrivate::clear calls deleteLater), so a
+    // screen whose call turned the window keeps running to its end.
+    Loader {
+        id: shown
         anchors.fill: parent
-        container: "window"
-        title: "Cannot open the diagnosis"
-        header: Label { width: layout.contentWidth; text: root.reason; color: Theme.color.warning; wrapMode: Text.Wrap }
-        Column {
-            width: parent.width
-            spacing: Theme.stack.page
-            Label { width: parent.width; text: "Open this failure with Claude Code or Codex instead. Your saved agent stays selected."; wrapMode: Text.Wrap }
-            Label { width: parent.width; visible: root.problem !== ""; text: root.problem; color: Theme.color.danger; wrapMode: Text.Wrap }
-        }
-        footer: RowActions {
-            Button { text: "Claude Code"; disabledReason: root.missing("claude"); onClicked: root.choose("claude") }
-            Button { text: "Codex"; disabledReason: root.missing("codex"); onClicked: root.choose("codex") }
-            Button { id: cancel; text: "Cancel"; variant: "secondary"; onClicked: root.shell.surfaces.hide("window") }
-        }
+        focus: true
+        sourceComponent: root.mode === "draft" ? draftPage : root.mode === "choice" ? choicePage : null
+    }
+    Component {
+        id: choicePage
+        RecoveryChoice { shell: root.shell }
+    }
+    Component {
+        id: draftPage
+        DiagnoseDraft { shell: root.shell }
     }
 }

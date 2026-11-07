@@ -84,9 +84,11 @@ Section {
         width: parent.width
         visible: !root.customSteps
         error: root.validation.errors.times || ""
+        // Controls side by side in one group stand the shared inline gap
+        // apart, so Add time never touches the Time zone select.
         Row {
             width: parent.width
-            spacing: Theme.space.xs
+            spacing: Theme.stack.inline
 
             TimeChipList {
                 width: parent.width - zoneControl.width - parent.spacing

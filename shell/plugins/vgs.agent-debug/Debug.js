@@ -74,9 +74,13 @@ function offers(missing) {
         .map(function (a) { return { label: a.label, value: a.value }; });
 }
 
+// Only message targets are agents: a receiver of kind "action", such as
+// Agent Debug's own Diagnose or Automations' sync job, opens a task, not
+// an agent (HandoffRegistry).
 function choices(missing, targets, saved) {
     var rows = offers(missing);
     (targets || []).forEach(function (target) {
+        if (target.kind === "action") return;
         rows.push({ value: target.key, label: target.label + (target.available ? "" : " (unavailable)") });
     });
     if (isHandoff(saved) && !rows.some(function (row) { return row.value === saved; }))
@@ -267,6 +271,35 @@ function timeText(ms, offset) {
 // its time in ms, OFFSET minutes east of UTC.
 function crashArgs(agent, entry, at, offset) {
     return [agent, "crash", fact(entry.program), entry.pid, fact(entry.signal), timeText(at, offset), fact(entry.binary)];
+}
+
+// The facts of a failed sync job another plugin hands to Diagnose as text,
+// a JSON object of SYNC_KEYS: `kind` "sync", the job's `unit`, `name`,
+// `engine`, `from` and `to` folders and its newest `error` line as
+// strings, and `at`, the error's time in ms. Local Sync writes it
+// (vgs.local-sync SyncLogic.agentFacts). Anything else is null.
+var SYNC_KEYS = ["kind", "unit", "name", "engine", "from", "to", "error", "at"];
+
+function syncFacts(text) {
+    var doc;
+    try {
+        doc = JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
+    if (doc === null || typeof doc !== "object" || Array.isArray(doc) || doc.kind !== "sync") return null;
+    var keys = Object.keys(doc);
+    if (keys.length !== SYNC_KEYS.length || !SYNC_KEYS.every(function (key) { return hasOwn(doc, key); })) return null;
+    for (var i = 1; i < SYNC_KEYS.length - 1; i++)
+        if (typeof doc[SYNC_KEYS[i]] !== "string") return null;
+    if (typeof doc.at !== "number" || !isFinite(doc.at) || doc.at < 0) return null;
+    return doc;
+}
+
+// tui/diagnose.sh's arguments for FACTS, syncFacts', opened in AGENT, at
+// AT, the error's time in ms, OFFSET minutes east of UTC.
+function syncArgs(agent, facts, at, offset) {
+    return [agent, "sync", fact(facts.unit), fact(facts.name), fact(facts.engine), fact(facts.from), fact(facts.to), fact(facts.error), timeText(at, offset)];
 }
 
 // tui/diagnose.sh's arguments for FAILURE, a doctor.installFailures entry

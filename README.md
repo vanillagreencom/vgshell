@@ -105,6 +105,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Keyboard](shell/plugins/vgs.keyboard/README.md) | Choose input sources and key repeat. |
 | [Key Hints](shell/plugins/vgs.keyhints/README.md) | See and change every shortcut VGS adds. |
 | [Launcher](shell/plugins/vgs.launcher/README.md) | Find and open apps, files and system actions. |
+| [Local Sync](shell/plugins/vgs.local-sync/README.md) | Shows the rsync and unison jobs on this computer, and moves in the bar while one copies. |
 | [Lock](shell/plugins/vgs.lock/README.md) | Lock your screen. |
 | [Motion](shell/plugins/vgs.motion/README.md) | Set how the shell and your windows move. |
 | [Mouse](shell/plugins/vgs.mouse/README.md) | Set pointer and touchpad behavior. |

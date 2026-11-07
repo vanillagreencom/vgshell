@@ -3,7 +3,8 @@
 # diagnose.sh and unmute.sh, under a scratch HOME and a PATH of stand-ins.
 # diagnose.sh: each agent starts in its default mode with the whole prompt as
 # one argument, in its own folder under the runtime dir, the prompt holds
-# every fact and never the run record's lines, the vgs-diagnose skill is
+# every fact and never the run record's lines, a sync run short of a fact
+# starts no agent, the vgs-diagnose skill is
 # copied into the agent's own skills folder where no file or only VGS's own
 # copy stands, a foreign file, a link and a linked folder are left as they
 # are with the prompt naming the shipped shared copy. unmute.sh: a yes asks the
@@ -84,6 +85,7 @@ printf '{"code":1,"package":{"kind":"package-failed","lines":["token=agent-debug
 work="$runtime/vgshell/agent-debug"
 crash_facts=(crash "ad 'x;\$(id)" 4242 SIGSEGV "2026-11-03T13:40:00-08:00" "/tmp/ad bin")
 task_facts=(task vgs.printers install pacman "cups, gum" "2026-11-03T13:40:00-08:00" "$record")
+sync_facts=(sync scribd-brain-backup.service "Scribd brain" rsync "/home/u/brain \$(id)" /mnt/backup/brain "rsync error: some files could not be transferred (code 23)" "2026-11-03T13:40:00-08:00")
 crash_prompt() { # SKILL
   printf '%s\n' "A program crashed on this computer and I want to know why." "What systemd-coredump recorded:" \
     "- Program: ad 'x;\$(id)" "- Process ID: 4242" "- Binary: /tmp/ad bin" "- Signal: SIGSEGV" "- Time: 2026-11-03T13:40:00-08:00" \
@@ -92,6 +94,12 @@ crash_prompt() { # SKILL
 task_prompt() { # SKILL
   printf '%s\n' "A VGS setup task failed on this computer and I want to know why." "- Task: install the tools of the VGS plugin vgs.printers" \
     "- Package manager: pacman" "- Packages: cups, gum" "- Time: 2026-11-03T13:40:00-08:00" "- Run record: $record" \
+    "Use the vgs-diagnose skill. If you cannot load skills, read $1 and follow it." "Diagnose only: change nothing on this computer." | python3 -c 'import sys; sys.stdout.write(sys.stdin.read()[:-1])'
+}
+sync_prompt() { # SKILL
+  printf '%s\n' "A sync job on this computer failed and I want to know why." "- System job: scribd-brain-backup.service (a systemd user unit)" \
+    "- Name: Scribd brain" "- Engine: rsync" "- From: /home/u/brain \$(id)" "- To: /mnt/backup/brain" \
+    "- Last error line: rsync error: some files could not be transferred (code 23)" "- Time: 2026-11-03T13:40:00-08:00" \
     "Use the vgs-diagnose skill. If you cannot load skills, read $1 and follow it." "Diagnose only: change nothing on this computer." | python3 -c 'import sys; sys.stdout.write(sys.stdin.read()[:-1])'
 }
 
@@ -122,6 +130,17 @@ case_the_task_prompt_names_the_record_never_its_lines() {
   fresh_home
   run "$1" claude "${task_facts[@]}"
   [[ $status == 0 && $calls == "$(words claude --permission-mode default "$(task_prompt "$home/.claude/skills/vgs-diagnose/SKILL.md")")" ]]
+}
+case_the_sync_prompt_holds_every_fact() {
+  fresh_home
+  run "$1" claude "${sync_facts[@]}"
+  [[ $status == 0 && $calls == "$(words claude --permission-mode default "$(sync_prompt "$home/.claude/skills/vgs-diagnose/SKILL.md")")" ]]
+}
+# A sync run missing its time starts no agent.
+case_a_short_sync_run_is_refused() {
+  fresh_home
+  run "$1" claude "${sync_facts[@]:0:7}"
+  [[ $status == 2 && -z $calls ]]
 }
 case_an_older_vgs_copy_is_replaced() {
   fresh_home
@@ -170,10 +189,11 @@ case_unmute_refused_fails_plainly() {
   run "$1" firefox
   [[ $status == 1 && $(cat "$TMP_ROOT/err") != *"user-config"* ]]
 }
-CASES=(case_each_agent_starts_with_the_prompt_and_its_skill case_the_task_prompt_names_the_record_never_its_lines case_an_older_vgs_copy_is_replaced
+CASES=(case_each_agent_starts_with_the_prompt_and_its_skill case_the_task_prompt_names_the_record_never_its_lines
+  case_the_sync_prompt_holds_every_fact case_a_short_sync_run_is_refused case_an_older_vgs_copy_is_replaced
   case_a_foreign_skill_is_left_and_the_prompt_names_the_shipped_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
   case_unmute_yes_asks_the_service case_unmute_of_an_unmuted_program_is_done case_unmute_refused_fails_plainly)
-SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
+SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
 for i in "${!CASES[@]}"; do
   case="${CASES[i]}"
   detail="" status="" calls=""
@@ -184,8 +204,9 @@ done
 # without the rule.
 CONTROL_CASES=(case_each_agent_starts_with_the_prompt_and_its_skill case_each_agent_starts_with_the_prompt_and_its_skill case_each_agent_starts_with_the_prompt_and_its_skill
   case_a_foreign_skill_is_left_and_the_prompt_names_the_shipped_copy case_a_linked_skill_is_left case_a_linked_folder_is_left
+  case_the_sync_prompt_holds_every_fact case_a_short_sync_run_is_refused
   case_unmute_yes_asks_the_service case_unmute_of_an_unmuted_program_is_done case_unmute_refused_fails_plainly)
-CONTROL_SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
+CONTROL_SCRIPTS=(diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh diagnose.sh unmute.sh unmute.sh unmute.sh)
 CONTROL_LINES=(
   '  codex) exec codex --sandbox read-only --ask-for-approval on-request "$prompt" ;;'
   'if install_skill 2>/dev/null; then skill="$copy"; else skill="$shipped"; fi'
@@ -193,6 +214,8 @@ CONTROL_LINES=(
   '    ours "$copy" || return 1'
   '  [[ -f $1 && ! -L $1 ]] || return 1'
   '  [[ ! -L $folder ]] || return 1'
+  '  sync) (( $# == 9 )) || refuse ;;'
+  '  sync) (( $# == 9 )) || refuse ;;'
   'answer="$(vgshell ipc call vgs.agent-debug invoke unmute "$program")" || answer=""'
   '  ok | "refused: program=unmuted") ;;'
   '  "refused: user-config="*) vgs_tui_error "VGS could not save its settings file, so $program stays muted."; exit 1 ;;'
@@ -204,6 +227,8 @@ CONTROL_REPLACEMENTS=(
   '    true'
   '  [[ -f $1 ]] || return 1'
   '  true'
+  '  sync) refuse ;;'
+  '  sync) (( $# >= 8 )) || refuse ;;'
   'answer="$(vgshell ipc call vgs.agent-debug invoke unmute "x")" || answer=""'
   '  ok) ;;'
   '  "refused: user-config="*) vgs_tui_error "$answer"; exit 1 ;;'

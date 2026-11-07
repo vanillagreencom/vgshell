@@ -70,6 +70,9 @@ notifications
 # After notifications, whose readers and helpers it uses.
 notifications-keys
 automations
+# After automations, which leaves the device stand-in systemctl in place;
+# it enables its plugin itself and disables it again.
+local-sync
 # After automations, whose systemctl and notify-send stand-ins it uses
 # and whose unit directory it reads empty before this row writes there.
 googledrive

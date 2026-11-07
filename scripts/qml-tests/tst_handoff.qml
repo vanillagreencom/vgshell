@@ -83,6 +83,14 @@ Item {
             verify(!offered.open("old source").ok);
             compare(receiver.received, 0);
         }
+        // A receiver its manifest marks `kind: "action"` opens a task: the
+        // registry carries that kind into its targets.
+        function test_targets_carry_the_receiver_kind() {
+            registry.manifests = { receiver: { __revision: "one", handoffs: {
+                compose: { label: "Fixture text receiver" }, task: { label: "Fixture action", kind: "action" } } } };
+            const targets = registry.targets();
+            compare(JSON.stringify(targets.map(t => [t.key, t.kind])), JSON.stringify([["handoff:receiver/compose", ""], ["handoff:receiver/task", "action"]]));
+        }
         // expected-log: handoff: receiver-failed key=handoff:receiver/compose -- A failed receiver returns an explicit recovery result without logging message bytes.
         function test_receiver_exception_returns_a_failure() {
             receiver.release();

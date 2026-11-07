@@ -377,7 +377,7 @@ var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
 function readabilityWeights(values) {
     var tileWeight = "text." + valueAt(values, "tileGroup.captionRole") + ".weight";
     return {
-        "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "avatarGroup.weight"],
+        "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "avatarGroup.weight", "text.pathChip.weight"],
         "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
         "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.calendarWeekday.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
         "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],

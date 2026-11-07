@@ -118,6 +118,8 @@ const DEFAULTS = [
     ["text.label.size", 12],
     ["text.kbd.size", 12],
     ["text.keyName.size", 11],
+    // Local Sync's path chip: 11 px at the owner's request (Slack 1793993418).
+    ["text.pathChip.size", 11],
     ["text.keyHint.size", 12],
     ["text.button.size", 12],
     ["text.eyebrow.size", 12],
@@ -2365,6 +2367,7 @@ const GRID_EXCEPTIONS = [
     [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
     [/^carousel\.namePadding$/, "the owner's 5 px wallpaper name padding"],
+    [/^pathChip\.padding$/, "the owner's 3 px path chip padding (Slack 1793993418)"],
     [/^bar\.spacer\.(gap|inset)$/, "the owner's bar gap and separator room"],
     [/^motion\./, "motion distances"],
     [/\.blur$/, "blur radii"]

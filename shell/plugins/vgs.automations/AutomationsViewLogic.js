@@ -108,6 +108,37 @@ function blankDraft(nowMs, logic) {
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
+// A new sync job's draft, the editor's sync form: a draft whose `sync`
+// holds the engine, the From and To folders and AVAILABLE, the engines
+// this computer has, and whose command the form writes (syncCommand). A
+// sync job copies local folders, so it needs no internet.
+function syncDraft(available, nowMs, logic) {
+    var draft = blankDraft(nowMs, logic);
+    draft.name = "New sync job";
+    draft.requiresNetwork = false;
+    var engines = logic.SYNC_JOB_ENGINES.filter(function (engine) { return (available || []).indexOf(engine) !== -1; });
+    draft.sync = { engine: engines.length > 0 ? engines[0] : logic.SYNC_JOB_ENGINES[0], from: "", to: "", available: engines };
+    draft.command = "";
+    return draft;
+}
+
+// TEXT as one word of a POSIX shell command: single-quoted, each quote in
+// it closed, escaped and reopened, so no character of a path runs.
+function shellWord(text) {
+    return "'" + String(text).replace(/'/g, "'\\''") + "'";
+}
+
+// The command a sync draft's SYNC runs, "" until both folders are set.
+// rsync copies the contents of From into To, so From ends in a slash
+// (rsync(1), USAGE: "a trailing slash on the source"); it deletes nothing
+// in To. unison syncs its two roots with no question (`-batch`, unison
+// manual, Preferences).
+function syncCommand(sync) {
+    if (String(sync.from || "") === "" || String(sync.to || "") === "") return "";
+    if (sync.engine === "unison") return "unison -batch " + shellWord(sync.from) + " " + shellWord(sync.to);
+    return "rsync -a -- " + shellWord(String(sync.from).replace(/\/*$/, "/")) + " " + shellWord(sync.to);
+}
+
 function ordinal(n, logic) {
     return logic && logic.ORDINALS ? logic.ORDINALS[String(n)] : n === -1 ? "last" : n === 1 ? "first" : n === 2 ? "second" : n === 3 ? "third" : n === 4 ? "fourth" : "fifth";
 }
@@ -286,7 +317,11 @@ function definitionFromDraft(draft, logic) {
 function validation(draft, logic, nowMs) {
     var errors = {};
     if (String(draft.name || "").trim() === "") errors.name = "Name the automation.";
-    if (String(draft.command || "").trim() === "") errors.command = "Add the command this automation runs.";
+    if (draft.sync !== undefined) {
+        if (String(draft.sync.from || "").charAt(0) !== "/") errors.from = "Choose the folder to copy from.";
+        if (String(draft.sync.to || "").charAt(0) !== "/") errors.to = "Choose the folder to copy to.";
+        if ((draft.sync.available || []).indexOf(draft.sync.engine) === -1) errors.engine = "Install " + logic.syncEngineLabel(draft.sync.engine) + " to use this job.";
+    } else if (String(draft.command || "").trim() === "") errors.command = "Add the command this automation runs.";
     if (logic.parseDate(draft.start) === null) errors.start = "Use a real start date.";
     if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times) || draft.times.length === 0)) errors.times = "Add at least one time.";
     if (draft.endType === "date") {
@@ -448,6 +483,20 @@ function saveCompletionDraft(currentDraft, requestDraft, requestKey, currentKey,
     next.id = id;
     next.saved = true;
     return next;
+}
+
+// Whether DRAFT holds a change the store does not: a new draft always does,
+// and a saved one does while its definition differs from ROW's, the stored
+// automation it edits, read back through the same draft. The editor's
+// shared save bar shows while this holds. A draft whose schedule cannot be
+// built is a change, since the stored one always can.
+function draftChanged(draft, row, logic) {
+    if (!draft.saved || row === undefined || row === null) return true;
+    try {
+        return JSON.stringify(canonical(definitionFromDraft(draft, logic))) !== JSON.stringify(canonical(definitionFromDraft(draftFromAutomation(row, logic), logic)));
+    } catch (e) {
+        return true;
+    }
 }
 
 function startDateParts(date, logic) {

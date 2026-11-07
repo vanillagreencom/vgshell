@@ -1016,7 +1016,10 @@ nested_xwayland_check
 # rows/scratchpads.sh enables it and disables it again. The screensaver
 # row restores its incoming enablement after its checks. vgs.sudo starts disabled,
 # so no earlier row counts its widget in the bar or its hold of `sudo`;
-# rows/sudo.sh enables it and disables it again.
+# rows/sudo.sh enables it and disables it again. vgs.local-sync starts
+# disabled, since its service reads the user manager's units through
+# systemctl at start; rows/local-sync.sh enables it over its own fixture
+# unit and disables it again.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
 # vgs.network, vgs.vpn, vgs.displays, vgs.mouse and vgs.keyboard, start
 # disabled before any of them ships, so a section that lands enables its
@@ -1121,6 +1124,116 @@ automations_stand_ins_restore() { # STUB
   done
 }
 
+# local_sync_stand_ins WORLD: vgs.local-sync's reads of the user manager
+# and its journal over the fixture world in WORLD, so no shell that runs
+# Local Sync reads the host's journal or its user manager. The device
+# stand-in systemctl answers the unit list and the unit properties with no
+# unit, which a caller plants over with device_reply for its own units. A
+# journalctl in the shell's own PATH directory answers a job's journal
+# read with the lines of WORLD/journal.jsonl whose _SYSTEMD_USER_UNIT the
+# read's -u words name, a pattern as journalctl matches it, and follows
+# WORLD/manager.jsonl from its end for the user manager's lines, writing
+# its pid to WORLD/follow.calls. A busctl there answers GetUnitProcesses on
+# the user bus with the processes of the tree whose root pid
+# WORLD/pids/<unit> holds, only the root while WORLD/hide-engines exists,
+# and none for a unit with no such file. Each logs the argv of a call it
+# answers as one JSON line in WORLD/<name>.calls, and runs any other call
+# as the host's program, unchanged, so another reader on the PATH, such as
+# a later row, gets the host's answer; a program the host lacks answers as
+# a missing command does, 127. A caller that plants the stand-ins removes
+# them in its own restoration, as start-order and reset do after
+# default_set_prepare. local_sync_stand_ins_restore WORLD puts back the
+# shim files and the systemctl replies they covered.
+local_sync_stand_in_names=(journalctl busctl)
+local_sync_stand_ins() { # WORLD
+  local world="$1" name props journalctl_bin busctl_bin
+  # A tree that ships no Local Sync, as an older one a capture runs, has
+  # nothing to stand in for.
+  [[ -f $repo/shell/plugins/vgs.local-sync/SyncLogic.js ]] || return 0
+  journalctl_bin="$(command -v journalctl)" || journalctl_bin=""
+  busctl_bin="$(command -v busctl)" || busctl_bin=""
+  props="$(node -e 'const { load } = require(process.argv[1]); process.stdout.write(load(process.argv[2]).SHOW_PROPERTIES.join(","))' \
+    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.local-sync/SyncLogic.js")" || { fail "local_sync_stand_ins: the unit property list is unreadable"; return 1; }
+  mkdir -p -- "$world/saved" "$world/pids"
+  touch -- "$world/journal.jsonl" "$world/manager.jsonl"
+  for name in "${local_sync_stand_in_names[@]}"; do
+    if [[ -e $shim/$name && ! -e $world/saved/$name ]]; then mv -- "$shim/$name" "$world/saved/$name"; fi
+  done
+  if [[ -e $devices_dir/replies/systemctl.json && ! -e $world/saved/systemctl.json ]]; then cp -- "$devices_dir/replies/systemctl.json" "$world/saved/systemctl.json"; fi
+  printf '%s\n' "$props" >"$world/props"
+  device_reply systemctl 0 "" --user list-unit-files --type=service --no-legend --plain
+  device_reply systemctl 0 "" --user show --timestamp=unix -p "$props" "*.service"
+  cat >"$shim/journalctl" <<EOF
+#!/usr/bin/env bash
+if [[ "\$*" == "--user --follow --lines=0 --output=json _SYSTEMD_USER_UNIT=init.scope" ]]; then
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$world/journalctl.calls"
+  printf '%s\n' "\$\$" >>"$world/follow.calls"
+  exec tail -n 0 -F -- "$world/manager.jsonl"
+fi
+exec python3 - "$world" $(printf '%q' "$journalctl_bin") "\$@" <<'PY'
+import fnmatch, json, os, sys
+world, host, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+head = ["--user", "--no-pager", "-o", "json", "-n", "200"]
+units = argv[len(head):]
+if argv[:len(head)] != head or not units or len(units) % 2 or any(w != "-u" for w in units[0::2]):
+    if not host:
+        sys.exit(print("journalctl: command not found", file=sys.stderr) or 127)
+    os.execv(host, [host] + argv)
+with open(os.path.join(world, "journalctl.calls"), "a") as out:
+    out.write(json.dumps(argv) + "\n")
+patterns = units[1::2]
+lines = [l for l in open(os.path.join(world, "journal.jsonl")).read().splitlines() if l and any(fnmatch.fnmatchcase(json.loads(l).get("_SYSTEMD_USER_UNIT", ""), p) for p in patterns)]
+print("\n".join(lines[-200:]))
+PY
+EOF
+  cat >"$shim/busctl" <<EOF
+#!/usr/bin/env bash
+if [[ \$# == 9 && "\${*:1:8}" == "--user --json=short call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager GetUnitProcesses s" ]]; then
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$world/busctl.calls"
+  exec python3 - "$world" "\$9" <<'PY'
+import json, os, sys
+world, unit = sys.argv[1], sys.argv[2]
+procs = []
+root_file = os.path.join(world, "pids", unit)
+if "/" not in unit and os.path.exists(root_file):
+    root = int(open(root_file).read())
+    parents = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                parents[int(entry)] = int(open(f"/proc/{entry}/stat").read().rsplit(")", 1)[1].split()[1])
+            except (OSError, IndexError, ValueError):
+                pass
+    tree, queue = [root], [root]
+    while queue and not os.path.exists(os.path.join(world, "hide-engines")):
+        pid = queue.pop()
+        for child, parent in parents.items():
+            if parent == pid:
+                tree.append(child)
+                queue.append(child)
+    for pid in tree:
+        try:
+            line = open(f"/proc/{pid}/cmdline").read().rstrip("\0").replace("\0", " ")
+        except OSError:
+            continue
+        procs.append(["/user.slice/user-1000.slice/user@1000.service/app.slice/" + unit, pid, line])
+print(json.dumps({"type": "a(sus)", "data": [procs]}))
+PY
+fi
+[[ -n $(printf '%q' "$busctl_bin") ]] || { echo "busctl: command not found" >&2; exit 127; }
+exec $(printf '%q' "$busctl_bin") "\$@"
+EOF
+  chmod 755 "$shim/journalctl" "$shim/busctl"
+}
+local_sync_stand_ins_restore() { # WORLD
+  local name
+  [[ -f $1/props ]] || return 0
+  for name in "${local_sync_stand_in_names[@]}"; do
+    if [[ -e $1/saved/$name ]]; then mv -f -- "$1/saved/$name" "$shim/$name"; else rm -f -- "${shim:?}/$name"; fi
+  done
+  if [[ -e $1/saved/systemctl.json ]]; then mv -f -- "$1/saved/systemctl.json" "$devices_dir/replies/systemctl.json"; else rm -f -- "${devices_dir:?}/replies/systemctl.json"; fi
+}
+
 # The libsecret stand-in vgs.notifications reads its Slack tokens
 # through, in the directory the harness hands the shell as
 # VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR. $shim/secret-tool.states
@@ -1221,9 +1334,11 @@ PY
 # under the sandbox HOME and asks xdg-mime for the https default;
 # vgs.printers's lpstat and ipptool reach their stand-ins, which answer
 # from the sandbox's CUPS world, and its dbus-monitor listens on the
-# sandbox's system bus.
+# sandbox's system bus; vgs.local-sync reads no unit and follows an
+# empty manager journal through local_sync_stand_ins.
 default_set_prepare() { # PLUGINS_JSON [DISABLED_JSON]
   expected_errors+=("${dictation_absent_errors[@]}")
+  local_sync_stand_ins "$sandbox/local-sync-default" || return
   devtools_stand_ins
   updates_cache_fresh
   user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" "${2:-[]}" <<'PY'
@@ -1257,7 +1372,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     user_config_write cat <<'JSON'
-{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop"] }
+{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop", "vgs.local-sync"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;

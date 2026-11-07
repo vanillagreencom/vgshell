@@ -70,6 +70,61 @@ Item {
             tryVerify(() => !descendants(window).some(item => item instanceof Automations.AutomationRow));
         }
 
+        // Local Sync's Add opens a sync job's draft: its folders write the
+        // command, the save bar offers the one save, and a further request
+        // while the editor holds an unsaved change is refused, keeping it.
+        function test_sync_draft_and_its_save_bar() {
+            const window = createTemporaryObject(windowComponent, root);
+            verify(window !== null);
+            window.open(JSON.stringify({ sync: { available: ["rsync"] } }));
+            renderedFrame(window);
+            compare([window.editorOpen, window.draft.sync.engine, window.draft.command], [true, "rsync", ""]);
+            const page = descendants(window).find(item => item instanceof Automations.AutomationEditorPage);
+            page.changeSync("from", "/home/u/Pictures");
+            page.changeSync("to", "/mnt/photos");
+            compare(window.draft.command, "rsync -a -- '/home/u/Pictures/' '/mnt/photos'");
+            const bar = descendants(window).find(item => item instanceof SaveBar);
+            verify(bar !== undefined, "the editor's footer holds the shared save bar");
+            compare([bar.dirty, bar.shown], [true, true]);
+            let refused = false;
+            try { window.open(JSON.stringify({ sync: { available: ["rsync"] } })); } catch (error) { refused = true; }
+            verify(refused, "a new request keeps the unsaved draft");
+            compare(window.draft.sync.from, "/home/u/Pictures");
+        }
+
+        // Local Sync's Remove of a job Automations runs opens that
+        // automation with Automations' own Remove question, and removes
+        // nothing by itself.
+        function test_remove_payload_asks_first() {
+            const window = opened();
+            const definition = View.definitionFromDraft(window.draft, Engine);
+            definition.id = "photos";
+            window.automations = [Object.assign({}, definition, { pending: null, nextRun: null, lastRun: null, summary: "" })];
+            window.editorOpen = false;
+            window.open(JSON.stringify({ remove: "photos" }));
+            compare([window.confirmAction, window.confirmTarget], ["remove", "photos"]);
+        }
+
+        // A window the host builds anew holds no automations until its
+        // first list arrives: a Remove asked of it waits for that list, and
+        // one naming an automation the list lacks says so.
+        function test_remove_payload_waits_for_the_first_list() {
+            const window = createTemporaryObject(windowComponent, root);
+            verify(window !== null);
+            const definition = View.definitionFromDraft(View.blankDraft(Date.now(), Engine), Engine);
+            definition.id = "photos";
+            definition.name = "Photos";
+            definition.command = "true";
+            window.open(JSON.stringify({ remove: "photos" }));
+            compare(window.confirmAction, "", "nothing is asked before the list arrives");
+            window.listArrived({ automations: [Object.assign({}, definition, { pending: null, nextRun: null, lastRun: null, summary: "" })] });
+            compare([window.confirmAction, window.confirmTarget], ["remove", "photos"]);
+            window.open(JSON.stringify({ remove: "gone" }));
+            compare([window.notice.tone, window.heldOpen.id], ["neutral", "gone"], "a Remove the list lacks waits for the next list");
+            window.listArrived({ automations: [] });
+            compare([window.notice.tone, window.heldOpen], ["danger", null], "a Remove of an automation the list lacks is refused in the window");
+        }
+
         function test_weekday_edit_reaches_the_draft_and_engine_definition() {
             const window = opened();
             const weekdays = descendants(window).find(item => item instanceof WeekdayChipGroup && !item.exclusive);

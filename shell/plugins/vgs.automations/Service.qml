@@ -21,6 +21,12 @@ import "AutomationsLogic.js" as Logic
 //               lists again, as every run of it does.
 //     open      opens the Automations window; shell.surfaces.summon's reply
 //     new       opens the Automations window on a new draft; shell.surfaces.summon's reply
+//
+// The `sync-job` handoff receiver takes another plugin's request as JSON
+// text: `{"action":"new","available":[<engines>]}` opens the window on a
+// new sync job's draft, `{"action":"remove","id":<id>}` on that automation
+// with its Remove question. It saves and removes nothing: the user's Save
+// or Remove does. Local Sync's Add and Remove send them.
 Item {
     id: root
 
@@ -61,9 +67,27 @@ Item {
         shell.ipc.handle("linger", () => shell.tui.run("linger", []));
         shell.ipc.handle("open", arg => shell.surfaces.summon("window", arg || "{}"));
         shell.ipc.handle("new", () => shell.surfaces.summon("window", "{\"new\":true}"));
+        shell.handoff.offer("sync-job", text => root.syncJob(text), "");
         request(["sync"]);
         request(["prune", "--days", String(historyDays)]);
         request(["list", "--json"]);
+    }
+
+    // The `sync-job` receiver: TEXT as a request for the window, answered
+    // as the handoff expects.
+    function syncJob(text) {
+        const request = Logic.syncJobRequest(text, listed === null ? [] : listed.automations.map(row => row.id));
+        if (request === null) return { ok: false, reason: "Automations could not read this request." };
+        const payload = request.action === "new" ? { sync: { available: request.available } } : { remove: request.id };
+        const reply = shell.surfaces.summon("window", JSON.stringify(payload));
+        if (reply === "ok") return { ok: true, reason: "" };
+        console.warn("automations: sync-job " + reply);
+        // The window refuses this payload, which this function built, only
+        // while its editor holds an unsaved change (Window.qml open); the
+        // host's other refusals name no such cause.
+        if (reply.indexOf("refused: open-failed=") === 0)
+            return { ok: false, reason: "Automations holds an unsaved change. Save or discard it, then try again." };
+        return { ok: false, reason: "Automations could not open its window. Try again." };
     }
 
     function request(args) {

@@ -301,7 +301,7 @@ fi
 
 # Declaration and effective placement use one independent expected contract.
 # Runtime reads permit first-presence additions outside the requested group.
-fresh_want='{"left":["vgs.launcher","vgs.bar/left-workspaces","vgs.tray"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
+fresh_want='{"left":["vgs.launcher","vgs.bar/left-workspaces","vgs.tray","vgs.local-sync"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
 fresh_bar_declared() {
   py_reply 'import json,sys
 config=json.load(sys.stdin); want=json.loads(sys.argv[1])
@@ -451,7 +451,7 @@ if [[ $bar_devices_ready == true ]]; then
   fresh_tray_pid="$spawn_pid"
   start_shell "$repo" "$sandbox/qs-bar-fresh.log" || fail "the fresh profile shell starts"
   expect_poll "the fresh bar preserves requested order and automatic widgets" placed fresh_bar_placement
-  geometry expect_poll "the fresh bar draws Launcher, workspaces, tray and clock in order" drawn fresh_bar_rendered
+  geometry expect_poll "the fresh bar draws Launcher, workspaces, tray, Local Sync and clock in order" drawn fresh_bar_rendered
   expect "Mouse stays enabled off the fresh bar" True plugin_enabled vgs.mouse
   fresh_settled="$sandbox/bar-fresh-settled.json"
   cp -- "$home/.config/vgshell/shell.json" "$fresh_settled"
