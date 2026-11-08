@@ -2405,7 +2405,22 @@ function runVerb(words) {
 
 function statusVerb(words) {
     if (words.length > 1 || (words.length === 1 && words[0] !== "--quiet")) bad("argument=" + words[0]);
-    const status = withStateLock(writeStatus);
+    const status = withStateLock(() => {
+        // systemd.exec(5), $EXIT_CODE/$EXIT_STATUS: stop-post receives
+        // killed/TERM for a TERM stop, including for this oneshot service.
+        // spawnSync blocks Node's event loop (node:child_process docs), so
+        // stop-post owns this write after the runner and its child end.
+        if (words.length === 1 && process.env.EXIT_CODE === "killed" && process.env.EXIT_STATUS === "TERM") {
+            for (const pair of readPairs().pairs) {
+                const stored = readPairState(pair.id);
+                if (stored.state !== "running" || lockHeld(pairLock(pair.id))) continue;
+                writePairState(pair.id, Object.assign(stored, {
+                    state: stored.lastError === null ? "idle" : failureState(stored.lastError.kind), startedAt: null
+                }));
+            }
+        }
+        return writeStatus();
+    });
     if (words.length === 0) process.stdout.write(JSON.stringify(status) + "\n");
 }
 

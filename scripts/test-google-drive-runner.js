@@ -7,7 +7,8 @@
 // both versions and reads `both-changed`; a Drive deletion keeps the file and
 // reads `removed-on-drive`; a rename reads `renamed` where the backend has
 // object ids; a run during another is `busy` and starts no second copy; a
-// run killed mid-copy reads as interrupted; pause persists across processes
+// TERM stop-post settles an unfinished run without a new failure and the
+// next run resumes; a SIGKILL interruption still fails; pause persists across processes
 // and a paused run copies nothing; an edit saved as a copy ends is kept as
 // `both-changed` by the next run; offline and authorization failures keep
 // the last success; a download that ran to its end past a file Drive could
@@ -506,8 +507,8 @@ exit $status
     return w;
 }
 
-function cli(w, args, runner) {
-    const out = childProcess.spawnSync(process.execPath, [runner || RUNNER].concat(args), { env: w.env, encoding: "utf8", timeout: 120000 });
+function cli(w, args, runner, env = w.env) {
+    const out = childProcess.spawnSync(process.execPath, [runner || RUNNER].concat(args), { env: env, encoding: "utf8", timeout: 120000 });
     assert.notEqual(out.status, null, "runner " + args.join(" ") + " did not end: " + out.error);
     SEEN.push(out.stdout, out.stderr);
     return out;
@@ -594,8 +595,8 @@ function release(w) {
 }
 
 // The runner on ARGS in W, started and not waited for.
-function spawnRunner(w, args, runner) {
-    const child = childProcess.spawn(process.execPath, [runner || RUNNER].concat(args), { env: w.env, stdio: ["ignore", "pipe", "pipe"] });
+function spawnRunner(w, args, runner, isolated = false) {
+    const child = childProcess.spawn(process.execPath, [runner || RUNNER].concat(args), { env: w.env, stdio: ["ignore", "pipe", "pipe"], detached: isolated });
     const exited = new Promise(resolve => child.on("exit", resolve));
     const done = new Promise(resolve => {
         let stdout = "";
@@ -610,12 +611,12 @@ function spawnRunner(w, args, runner) {
     return { child, exited, done };
 }
 
-function startBlocked(w, runner) {
+function startBlocked(w, runner, isolated = false) {
     write(path.join(w.stub, "block"), "");
     fs.rmSync(path.join(w.stub, "exited"), { force: true });
     const made = childProcess.spawnSync(HOST.mkfifo, [path.join(w.stub, "release")], { env: w.env });
     assert.equal(made.status, 0, String(made.stderr));
-    return spawnRunner(w, ["run"], runner);
+    return spawnRunner(w, ["run"], runner, isolated);
 }
 
 // ------------------------------------------------------------- the cases
@@ -680,6 +681,11 @@ function caseBothChangedKept(runner) {
     assert.ok(c.storedPath.startsWith(path.join(w.state, "pairs", "docs", "conflicts") + "/"));
     assert.equal(read(c.storedPath), "edited here, longer than before\n");
     assert.deepEqual(s.attention.reasons, ["conflicts"]);
+    assert.equal(cli(w, ["status", "--quiet"], runner, Object.assign({}, w.env, {
+        EXIT_CODE: "killed", EXIT_STATUS: "TERM"
+    })).status, 0);
+    assert.deepEqual(status(w, runner).conflicts, s.conflicts);
+    assert.deepEqual(status(w, runner).attention, s.attention);
     // The record holds on the next run, and leaves once the kept copy is
     // removed.
     runOk(w, runner);
@@ -750,6 +756,10 @@ async function caseBusy(runner) {
         await waitFor(path.join(w.stub, "blocked"), "the first copy");
         const before = rcloneCalls(w).length;
         assert.equal(status(w, runner).state, "running");
+        assert.equal(cli(w, ["status", "--quiet"], runner, Object.assign({}, w.env, {
+            EXIT_CODE: "killed", EXIT_STATUS: "TERM"
+        })).status, 0);
+        assert.equal(status(w, runner).state, "running", "stop-post does not settle a held pair");
         const second = cli(w, ["run"], runner);
         assert.equal(second.status, 75, second.stderr);
         assert.equal(second.stdout, "pair=docs result=busy\n");
@@ -762,23 +772,80 @@ async function caseBusy(runner) {
     assert.deepEqual(mirrorFiles(w), ["a.txt"]);
 }
 
-// A runner killed mid-copy leaves its rclone holding the pair's lock: the
-// pair reads `running` and a second run is busy while that copy goes on.
-// Once it ends, the pair reads as interrupted, not done.
-async function caseInterrupted(runner) {
-    for (const route of ["copy", "two-way"]) {
+// SIGKILL of the runner leaves its copy owning the lock until it ends.
+// TERM of the isolated fixture group models systemd's control-group stop;
+// only its killed/TERM stop-post settles the abandoned running state.
+async function caseInterrupted(runner, only = null) {
+    const rows = [
+        { route: "copy", signal: "SIGKILL" },
+        { route: "two-way", signal: "SIGKILL" },
+        { route: "copy", signal: "SIGTERM" },
+        { route: "two-way", signal: "SIGTERM" },
+        { route: "copy", signal: "SIGTERM", priorFailure: true }
+    ];
+    for (const row of rows.filter(r => only === null || r.signal === only)) {
+    const route = row.route;
     const w = route === "copy" ? world() : twoWayWorld(runner);
     if (route === "copy") {
         addPair(w, runner);
         drive(w, "a.txt", "one\n", 1700000000);
-    } else initialize(w, runner);
+    } else {
+        initialize(w, runner);
+        drive(w, "a.txt", "one\n", 1700000000);
+    }
+    if (row.priorFailure) {
+        write(path.join(w.stub, "mode"), "auth");
+        assert.equal(cli(w, ["run"], runner).status, 1);
+        fs.unlinkSync(path.join(w.stub, "mode"));
+    }
+    const previousFile = path.join(w.state, "pairs", "docs", "state.json");
+    const previous = fs.existsSync(previousFile) ? JSON.parse(read(previousFile)) : { lastError: null, baseline: null };
     const previousSuccess = status(w, runner).lastSuccess;
-    const first = startBlocked(w, runner);
+    const term = row.signal === "SIGTERM";
+    const first = startBlocked(w, runner, term);
     let released = false;
     try {
         await waitFor(path.join(w.stub, "blocked"), "the copy");
-        first.child.kill("SIGKILL");
+        if (term) process.kill(-first.child.pid, row.signal);
+        else first.child.kill(row.signal);
         await first.exited;
+        if (term) {
+            const ended = await first.done;
+            assert.equal(ended.signal, "SIGTERM");
+            const stateFile = path.join(w.state, "pairs", "docs", "state.json");
+            const abandoned = read(stateFile);
+            const resultRows = [
+                { env: {}, settled: false },
+                { env: { EXIT_CODE: "exited", EXIT_STATUS: "1" }, settled: false },
+                { env: { EXIT_CODE: "killed", EXIT_STATUS: "KILL" }, settled: false },
+                { env: { EXIT_CODE: "dumped", EXIT_STATUS: "ABRT" }, settled: false },
+                { env: { SERVICE_RESULT: "signal", EXIT_CODE: "killed", EXIT_STATUS: "TERM" }, settled: true }
+            ];
+            for (const result of resultRows) {
+                write(stateFile, abandoned);
+                const stopped = cli(w, ["status", "--quiet"], runner, Object.assign({}, w.env, result.env));
+                assert.equal(stopped.status, 0, stopped.stderr);
+                assert.equal(stopped.stdout, "");
+                const s = status(w, runner);
+                assert.equal(s.pairs[0].state, result.settled ? row.priorFailure ? "authorization-required" : "idle" : "error");
+                assert.deepEqual(s.pairs[0].lastError, result.settled ? previous.lastError : {
+                    kind: "interrupted", at: JSON.parse(abandoned).startedAt, operation: route, mayHaveChanged: true
+                });
+                assert.equal(s.lastSuccess, previousSuccess);
+                assert.deepEqual(JSON.parse(read(stateFile)).baseline, previous.baseline);
+                if (result.settled) {
+                    assert.equal(JSON.parse(read(stateFile)).startedAt, null);
+                    assert.deepEqual(s.attention === null ? [] : s.attention.reasons, row.priorFailure ? ["authorization-required"] : []);
+                }
+            }
+            // No pause or replacement baseline is needed: the same run path
+            // and rclone's resilient/recover flags consume the saved history.
+            const resumed = runOk(w, runner);
+            assert.equal(resumed.status, 0, resumed.stderr);
+            assert.equal(status(w, runner).lastError, null);
+            assert.ok(fs.existsSync(path.join(w.mirror, "a.txt")));
+            continue;
+        }
         assert.equal(status(w, runner).pairs[0].state, "running", "the orphaned copy holds the lock");
         const before = rcloneCalls(w).length;
         const second = cli(w, ["run"], runner);
@@ -855,6 +922,12 @@ function caseFailures(runner) {
         assert.equal(rcloneCalls(w).length > calls, row.rclone, row.name);
         assert.deepEqual(mirrorFiles(w), ["a.txt"], row.name);
         const s = status(w, runner);
+        assert.equal(cli(w, ["status", "--quiet"], runner, Object.assign({}, w.env, {
+            EXIT_CODE: "killed", EXIT_STATUS: "TERM"
+        })).status, 0);
+        const stopped = status(w, runner);
+        assert.deepEqual(stopped.pairs, s.pairs, row.name + ": stop-post preserves a recorded failure");
+        assert.deepEqual(stopped.attention, s.attention, row.name);
         assert.equal(s.state, row.state, row.name);
         assert.equal(s.pairs[0].lastSuccess, success, row.name);
         assert.equal(s.lastSuccess, success, row.name);
@@ -3111,6 +3184,8 @@ async function controls() {
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
     await mustFail("attention key", mutant("attention key", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "needing.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
     await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
+    await mustFail("TERM stop-post settles the run", mutant("TERM stop-post settles the run", 'process.env.EXIT_STATUS === "TERM"', 'process.env.EXIT_STATUS === "INT"'), r => caseInterrupted(r, "SIGTERM"));
+    await mustFail("stop-post distinguishes forced kill", mutant("stop-post distinguishes forced kill", 'process.env.EXIT_STATUS === "TERM"', 'process.env.EXIT_STATUS !== "INT"'), r => caseInterrupted(r, "SIGTERM"));
     await mustFail("both-changed", mutant("both-changed", "const unedited = base !== undefined", "const unedited = true || base !== undefined"), caseBothChangedKept);
     await mustFail("lock", mutant("lock", "if (out.status === 0) return fd;", "if (out.status === 0 || true) return fd;"), caseBusy);
     await mustFail("pause", mutant("pause", "if (isPaused(control, pair.id)) return \"paused\";", "", 2), casePause);
