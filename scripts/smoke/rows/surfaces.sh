@@ -298,15 +298,20 @@ assert text.count(old) == 1, "the SummonPopup card mask must occur once"
 target.write_text(text.replace(old, "    mask: Region { item: sized }\n"))
 PYEDIT
 # The held copies stop a real close half way, so frame and input checks
-# keep the card closing until they finish, regardless of host speed.
+# keep the card closing until they finish, regardless of host speed. The
+# fade-held copy also stops its started opening half way from where it
+# began until finishOpen, so the opening read does not race the motion
+# either, and an opening that starts at rest still reads at rest.
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_fade_copy" "$summon_fade_control" "$summon_input_copy" <<'PYEDIT'
 import pathlib, sys
 source, held, control, input_control = (pathlib.Path(arg) for arg in sys.argv[1:5])
 text = source.read_text()
 marker = "    function finishDismiss() {\n"
 assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
-text = text.replace(marker, "    function holdHalfway() { requestDismiss(); flyoutMotion.stop(); motionProgress = 0.5; }\n\n" + marker, 1)
-held.write_text(text)
+text = text.replace(marker, "    function holdHalfway() { requestDismiss(); flyoutMotion.stop(); motionProgress = 0.5; }\n\n    function finishOpen() { setMotion(1, false); }\n\n" + marker, 1)
+old = "    Component.onCompleted: Qt.callLater(() => setMotion(1, false))\n"
+assert text.count(old) == 1, "the SummonPopup opening motion must occur once"
+held.write_text(text.replace(old, "    Component.onCompleted: Qt.callLater(() => { const start = motionProgress; setMotion(1, false); if (flyoutMotion.running) { flyoutMotion.stop(); motionProgress = (start + 1) / 2; } })\n"))
 old = "        layer.enabled: popup.motionProgress < 1\n"
 assert text.count(old) == 1, "the SummonPopup card layer must occur once"
 control.write_text(text.replace(old, ""))
@@ -1242,6 +1247,7 @@ expect "the probe builds the SummonPopup copy for motion" ok ipc smoke popupLoad
 expect "the motion copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the motion copy is shown before its motion is read" true ipc smoke popupRead summon-motion visible
 expect "the motion copy opens with a fade and slide in progress" moving popup_fade_slide_state summon-motion
+expect "the motion copy finishes its held opening" ok ipc smoke popupCall summon-motion finishOpen
 expect_poll "the motion copy reaches rest after opening" rest popup_motion_state summon-motion
 expect_poll "the open motion copy's plugin holds the keyboard focus" held plugin_focus
 expect "the motion copy marker starts untouched" 0 smoke_marks
@@ -1298,6 +1304,7 @@ for fade in "summon-fade:$summon_fade_copy:one:popup_swatch_fade" "summon-fade-c
   IFS=: read -r fade_name fade_file fade_want fade_read <<<"$fade"
   expect "the probe builds the $fade_name copy" ok ipc smoke popupLoad "$fade_name" "$fade_file" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
   expect "the $fade_name copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+  expect "the $fade_name copy finishes its opening" ok ipc smoke popupCall "$fade_name" finishOpen
   expect_poll "the $fade_name copy reaches rest" rest popup_motion_state "$fade_name"
   render expect_poll "the $fade_name copy's swatch reads white at rest" rest popup_swatch_fade
   expect "the $fade_name copy stops its close half way" ok ipc smoke popupCall "$fade_name" holdHalfway
