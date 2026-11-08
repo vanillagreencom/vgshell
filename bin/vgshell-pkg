@@ -511,9 +511,30 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
         const dir = receipt === undefined && ["install", "update"].includes(action) && pkgRetry().reporting() ? pkgRetry().evidenceDir("run-") : null;
         let ended;
         try {
-            const status = await runSteps(command, r.plan.steps, dir === null ? {} : { evidence: dir });
+            const completion = receipt !== undefined && r.plan.binary === "paru" && r.plan.steps.at(-1).includes("--gendb")
+                ? r.plan.steps.at(-1) : null;
+            let status = await runSteps(command, completion === null ? r.plan.steps : r.plan.steps.slice(0, -1), dir === null ? {} : { evidence: dir });
+            let interval = null;
+            if (status === 0 && completion !== null) {
+                // The install guard ends before this unprivileged native
+                // lookup. Keep its stderr distinct from build diagnostics.
+                let stderr = "";
+                status = await runSteps(command, [completion], { stderr: text => { stderr += text; }, env: { ...process.env, LC_ALL: "C" } });
+                interval = { complete: true, text: stderr };
+                // paru 70f66dc9 src/devel.rs:529-553 prints failed lookups
+                // through lib.rs::print_error but --gendb still exits zero.
+                if (status === 0 && require("./lib/pkg-review.js").judge.transcriptLines(stderr).some(line => line.startsWith("error:"))) status = 1;
+                if (status === 0) {
+                    const error = trackingError(admitted.trackingBases);
+                    if (error !== null) {
+                        process.stderr.write("vgshell: " + error + "\n");
+                        interval = { complete: true, text: error };
+                        status = 1;
+                    }
+                }
+            }
             ended = { status, outcome: status === 0 ? installed(manager, r.plan.binary)
-                : pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status, dir === null ? null : pkgRetry().stepInterval(dir, status).interval) };
+                : pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status, interval || (dir === null ? null : pkgRetry().stepInterval(dir, status).interval)) };
         } finally {
             if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
         }
@@ -536,6 +557,28 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
     return settle(action, ended.status, ended.outcome);
 }
 
+// paru(8)'s --gendb emits progress, and --show has no tracked-set query.
+// -Qua cannot distinguish an untracked package from a current tracked one.
+// Read only its native state: paru 70f66dc9 src/config.rs::new fixes this
+// XDG path; src/devel.rs::DevelInfo defines the repos/url/commit structure.
+// --gendb is global: unrelated installed untracked AUR bases are also
+// registered at their latest refs, so they must already be up to date.
+function trackingError(bases) {
+    const stateHome = process.env.XDG_STATE_HOME;
+    const file = path.join(stateHome && path.isAbsolute(stateHome) ? stateHome : path.join(process.env.HOME || os.homedir(), ".local/state"), "paru/devel.toml");
+    const read = childProcess.spawnSync(commandFile("python3"), ["-c",
+        "import json,sys,tomllib\nwith open(sys.argv[1], 'rb') as f: print(json.dumps(tomllib.load(f)))", file],
+    { encoding: "utf8", timeout: QUERY_TIMEOUT * 1000, maxBuffer: LIST_BUFFER, stdio: ["ignore", "pipe", "pipe"], cwd: queryCwd() });
+    if (read.error || read.status !== 0) return "tracking=unreadable file=" + file + " cause=" + (read.error?.code || read.signal || read.status) + "\n" + read.stderr;
+    let state;
+    try { state = JSON.parse(read.stdout); }
+    catch (error) { if (!(error instanceof SyntaxError)) throw error; return "tracking=unparseable file=" + file; }
+    if (!Array.isArray(bases)) return "tracking=required-bases-unavailable";
+    const missing = bases.filter(base => !Array.isArray(state[base]?.repos) || state[base].repos.length === 0
+        || state[base].repos.some(ref => typeof ref.url !== "string" || ref.url.length === 0 || typeof ref.commit !== "string" || ref.commit.length === 0));
+    return missing.length ? "tracking=missing bases=" + missing.join(",") : null;
+}
+
 function installed(manager, binary) {
     return { kind: "package-installed", manager, helper: manager === "aur" ? binary : null };
 }
@@ -556,10 +599,10 @@ function finish(action, status, outcome) {
 // Runs STEPS through bin/lib/pkg-run.sh behind ELEVATOR, `build` for the
 // AUR, from CWD or $HOME, with EVIDENCE its --evidence directory; answers
 // the runner's status.
-function runSteps(elevator, steps, { evidence, cwd } = {}) {
+function runSteps(elevator, steps, { evidence, cwd, stderr, env } = {}) {
     const argv = [RUNNER, ...(evidence === undefined ? [] : ["--evidence", evidence]), elevator];
     for (const step of steps) argv.push(String(step.length), ...step);
-    return terminalChild(argv, cwd);
+    return terminalChild(argv, cwd, { stderr, env });
 }
 
 // The child a terminal run waits on. The terminal sends Ctrl-C and a hangup
@@ -570,7 +613,7 @@ function runSteps(elevator, steps, { evidence, cwd } = {}) {
 // process as TERM would.
 let terminalCurrent = null;
 let terminalSignals = false;
-function terminalChild(argv, cwd) {
+function terminalChild(argv, cwd, { stderr, env } = {}) {
     if (!terminalSignals) {
         terminalSignals = true;
         process.on("SIGINT", () => {});
@@ -578,8 +621,9 @@ function terminalChild(argv, cwd) {
         process.on("SIGTERM", () => { if (terminalCurrent === null) process.exit(143); else terminalCurrent.kill("SIGTERM"); });
     }
     return new Promise((resolve, reject) => {
-        const child = childProcess.spawn(commandFile("bash"), argv, { stdio: "inherit", cwd: cwd || process.env.HOME || "/" });
+        const child = childProcess.spawn(commandFile("bash"), argv, { stdio: ["inherit", "inherit", stderr === undefined ? "inherit" : "pipe"], cwd: cwd || process.env.HOME || "/", env });
         terminalCurrent = child;
+        if (child.stderr) child.stderr.on("data", data => { process.stderr.write(data); stderr(data.toString()); });
         child.on("error", e => { terminalCurrent = null; reject(new Refusal("runner=failed error=" + e.code)); });
         child.on("close", (status, signal) => {
             terminalCurrent = null;

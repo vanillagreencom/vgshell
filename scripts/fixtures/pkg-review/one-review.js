@@ -4,7 +4,11 @@
 "use strict";
 const assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),cp=require("node:child_process");
 const [root,owner,scenario,writer=owner]=process.argv.slice(2);
-function run(args,entry=owner){const r=cp.spawnSync(process.execPath,[entry,...args],{env,stdio:"inherit"});if(r.status!==0)throw Object.assign(new Error("package step failed"),{status:r.status||1});}
+function run(args,entry=owner){
+ const r=cp.spawnSync(process.execPath,[entry,...args],{env,stdio:"inherit"});
+ if(scenario==="devel"&&args[0]==="run")fs.appendFileSync(path.join(root,"devel-results.jsonl"),JSON.stringify({action:args[1],manager:args[3],status:r.status})+"\n");
+ if(r.status!==0)throw Object.assign(new Error("package step failed"),{status:r.status||1});
+}
 const created=cp.spawnSync(process.execPath,[owner,"review-transaction"],{encoding:"utf8"});
 if(created.status!==0)throw Error(created.stderr);
 const env={...process.env,VGS_PACKAGE_TRANSACTION:created.stdout.trim()};

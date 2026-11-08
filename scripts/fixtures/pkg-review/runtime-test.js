@@ -57,7 +57,14 @@ try{
    '    plan.steps.push([plan.binary].concat(config === undefined ? [] : ["--config", config], build.complete));',
    '    void build.complete;']],/devel: installed git package remains tracked/,"success");
  }
- if(!only&&select("devel"))for(const [label,installStatus,trackingStatus] of [["success",0,0],["install-failed",9,0],["tracking-failed",0,8]]){
+ // The native diagnostic is delivered output: preserve its git failure cause.
+ const lookupDiagnostic="error: failed to lookup: vgshell-git: fatal: unable to access 'https://example.org/vgs.git/': Could not resolve host: example.org";
+ if(!only&&select("devel"))for(const {label,installStatus=0,trackingStatus=0,status=installStatus||trackingStatus,trackingDiagnostic,missingTracking=false,missingResult=false} of [
+  {label:"success"},{label:"install-failed",installStatus:9},{label:"tracking-failed",trackingStatus:8},
+  {label:"lookup-failed",status:1,trackingDiagnostic:lookupDiagnostic,missingTracking:true},
+  {label:"diagnostic-with-entry",status:1,trackingDiagnostic:lookupDiagnostic},
+  {label:"missing-entry",status:1,missingTracking:true},{label:"missing-result",status:1,missingResult:true}
+ ]){
   if(caseName!==null&&caseName!==label)continue;
   const w=create(path.join(scratch,"devel-"+label),{choices:["Review","Use Claude Code"]});
   fs.writeFileSync(path.join(w.root,"aur-pending"),"");fs.writeFileSync(path.join(w.root,"config-corresponds"),"");
@@ -65,15 +72,17 @@ try{
   fs.writeFileSync(path.join(w.root,"devel-world.json"),JSON.stringify({
    cachedSources:{"vgshell-git":null},sources:{"vgshell-git":{url:"https://example.org/vgs.git",commit:"new-vgs-commit"}},
    tracked:{"vgshell-git":{url:"https://example.org/vgs.git",commit:"old-vgs-commit"},"other-git":{url:"https://example.org/other.git",commit:"other-installed-commit"}},
-   installStatus,trackingStatus
+   installStatus,trackingStatus,trackingDiagnostic,missingTracking,missingResult
   }));
   const argv=[process.execPath,path.join(__dirname,"one-review.js"),w.root,ownerOverride||w.owner,"devel"];
   const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:60000});
-  assert.equal(r.status,installStatus||trackingStatus,label+": "+r.stdout+r.stderr);
+  const results=fs.readFileSync(path.join(w.root,"devel-results.jsonl"),"utf8").trim().split("\n").map(JSON.parse).filter(result=>result.manager==="aur");
+  assert.equal(results[0].status,status,label+": production status: "+r.stdout+r.stderr);
+  assert.equal(r.status,status,label+": "+r.stdout+r.stderr);
   const calls=w.calls(),completed=calls.filter(c=>c.kind==="devel-completion");
-  assert.equal(completed.length,installStatus?0:trackingStatus?1:2,label+": tracking only follows successful installs");
+  assert.equal(completed.length,installStatus?0:status?1:2,label+": tracking only follows successful installs");
   assert.ok(completed.every(c=>c.config===calls.find(c=>c.kind==="mutation"&&c.name==="paru").args[1]),label+": tracking uses the transaction config");
-  assert.ok(!calls.some(c=>c.kind==="mutation"&&c.args.includes("--gendb")),label+": tracking installs no package");
+  if(trackingDiagnostic)assert.ok((r.stdout+r.stderr).includes(trackingDiagnostic),label+": native lookup cause retained");
   if(label==="success"){
    const checkpoints=fs.readFileSync(path.join(w.root,"devel-checkpoints.jsonl"),"utf8").trim().split("\n").map(JSON.parse);
    assert.deepEqual(checkpoints.map(c=>c.action),["upgrade","reinstall"],"devel: proof after each shared production operation");

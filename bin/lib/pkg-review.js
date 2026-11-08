@@ -769,6 +769,33 @@ function bindingChange(step, current, contentOnly = false) {
     }
     return null;
 }
+// paru v2.1.0 (70f66dc9) devel.rs::parse_url tracks unpinned git
+// sources from the base SRCINFO, not package-name suffixes.
+function trackingBases(step, state) {
+    const targets = new Set(step.action === "upgrade" ? step.binding.pending.map(p => p.name).filter(name => !step.ignored.includes(name))
+        : step.names.concat(step.installs).map(name => name.split("/").pop()));
+    const wanted = new Set(state.packages.filter(pkg => pkg.aur && targets.has(pkg.name)).map(pkg => pkg.name));
+    const bases = new Set();
+    const read = fields => {
+        const base = fields.find(field => field.key === "pkgbase")?.value;
+        const names = fields.filter(field => field.key === "pkgname").map(field => field.value);
+        const baseFields = fields.slice(0, fields.findIndex(field => field.key === "pkgname"));
+        if (names.some(name => wanted.has(name)) && baseFields.some(field => /^source(?:_|$)/.test(field.key)
+            && /^git[^:]*:\/\/[^#]+(?:#(?!commit=|tag=).*)?$/.test(field.value.split("::").pop()))) {
+            if (!base) refuse("review=tracking-srcinfo-unreadable");
+            bases.add(base);
+        }
+    };
+    if (state.packages.some(pkg => pkg.published && wanted.has(pkg.name))) {
+        const published = publishedPackages();
+        if (published.fields === null) refuse("review=tracking-srcinfo-unreadable cause=" + published.cause);
+        for (const recipe of new Set(published.fields.map(field => field.recipe)))
+            read(published.fields.filter(field => field.recipe === recipe));
+    }
+    for (const file of state.recipes.filter(file => path.basename(file.path) === ".SRCINFO"))
+        read(judge.srcinfoFields(fs.readFileSync(file.path, "utf8")));
+    return [...bases];
+}
 async function prepare(requestPath, resultPath) {
     const dir = path.dirname(requestPath);
     if (!path.isAbsolute(requestPath) || path.dirname(resultPath) !== dir || requestPath === resultPath) refuse("review=paths");
@@ -841,7 +868,10 @@ function consume(receipt, request, customArgv) {
         if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
         record.consumed.push(index);
         fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
-        return { ...step, coverage: record.coverage, dependenciesCovered: helperReviewCovered(step, record.state) };
+        const dependenciesCovered = helperReviewCovered(step, record.state);
+        return { ...step, coverage: record.coverage, dependenciesCovered,
+            ...(group.manager === "aur" && path.basename(step.binary) === "paru" && dependenciesCovered
+                ? { trackingBases: trackingBases(step, record.state) } : {}) };
     } catch (e) {
         if (e instanceof files.Refusal) throw e;
         refuse("review=authority-unreadable");
