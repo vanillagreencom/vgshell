@@ -25,10 +25,10 @@ function verifyVrrChoices(candidate) {
   assert.equal(judged.ok, true, JSON.stringify(judged));
   for (const [index, value] of [0, 1, 2, 3].entries()) {
     const choice = candidate.schema.vrr.presets[index];
-    same(pluginLogic.hyprlandSection({ plugins: [{ id: "vgs.displays", vrr: choice.value }] }, judged.manifest).options,
+    same(pluginLogic.hyprlandSection({ plugins: [{ id: "vgs.displays", vrr: choice.value }] }, judged.manifest).options.filter(option => option.setting === "vrr"),
       [{ kind: "set", setting: "vrr", path: "misc.vrr", value, lua: String(value) }], "VRR choice " + index + " writes misc:vrr");
   }
-  same(pluginLogic.hyprlandSection({}, judged.manifest).options, [], "an untouched VRR setting writes no global default");
+  same(pluginLogic.hyprlandSection({}, judged.manifest).options.filter(option => option.setting === "vrr"), [], "an untouched VRR setting writes no global default");
 }
 verifyVrrChoices(manifest);
 for (const edit of [m => { [m.schema.vrr.presets[1], m.schema.vrr.presets[2]] = [m.schema.vrr.presets[2], m.schema.vrr.presets[1]]; }, m => { m.hyprland.options.vrr = "input.repeat_rate"; }]) {

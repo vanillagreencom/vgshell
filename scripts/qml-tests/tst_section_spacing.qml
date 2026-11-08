@@ -339,7 +339,8 @@ Item {
                 id: id, name: m.name, version: m.version, description: m.description, author: m.author,
                 license: "", icon: m.icon, source: "bundled", enabled: true, alwaysOn: false, placed: true,
                 builtins: [], kinds: m.kinds, capabilities: m.capabilities, schema: m.schema, settings: settings,
-                settingChoices: ({}), status: [], secretLabel: "", tuis: [], opens: "", paneHolder: "",
+                settingChoices: ({}), status: [], withheldFields: PluginLogic.withheldFields(m, {}, settings),
+                secretLabel: "", tuis: [], opens: "", paneHolder: "",
                 binds: [], requirements: [], errors: [], fieldRows: PluginLogic.validateManifest(m, "").manifest.fieldRows
             };
         }

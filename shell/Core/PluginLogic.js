@@ -2453,7 +2453,8 @@ function hyprlandOptionsError(options, schema) {
 // `choices` an enum whose options are among them; any other string a string
 // or an enum.
 function optionSchemaError(row, entry) {
-    switch (row.type) {
+    var type = row.hdr === true ? "bool" : row.type;
+    switch (type) {
     case "bool":
         return entry.type === "boolean" ? "" : "needs a boolean schema entry, got " + entry.type;
     case "int":
@@ -5300,7 +5301,7 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 // declares. A manifest without `hyprland` asks nothing: empty lists, no
 // appearance, and its row's names all unknown. CONFIG passed ConfigLogic.configError, so
 // every key it gives is well formed.
-function hyprlandSection(config, manifest) {
+function hyprlandSection(config, manifest, outputs) {
     var row = pluginRow(config, manifest.id);
     var keys = row !== undefined && isPlainObject(row.keys) ? row.keys : {};
     var declared = manifest.hyprland === undefined ? { binds: [], layerRules: [], appearance: {}, options: {} } : manifest.hyprland;
@@ -5331,15 +5332,25 @@ function hyprlandSection(config, manifest) {
     var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, ConfigLogic.hyprlandKey, settingError);
     var options = [];
     Object.keys(declared.options).forEach(function (setting) {
-        if (row === undefined || !hasOwn(row, setting)) return;
         var path = declared.options[setting];
-        var unfit = settingError(manifest.schema[setting], row[setting]);
+        var optionRow = HyprlandLayer.OPTIONS[path];
+        var set = row !== undefined && hasOwn(row, setting);
+        if (!set && optionRow.hdr !== true) return;
+        // Automatic HDR's core safety default is off, not a manifest
+        // default. VGS-2095 explicitly owns it even before the first choice;
+        // other unset options keep the user's Hyprland configuration.
+        var value = set ? row[setting] : false;
+        var unfit = settingError(manifest.schema[setting], value);
         if (unfit !== "") {
             options.push({ kind: "unfit", setting: setting, path: path, error: unfit });
             return;
         }
-        var literal = HyprlandLayer.optionLiteral(HyprlandLayer.OPTIONS[path], row[setting]);
-        options.push(literal.ok ? { kind: "set", setting: setting, path: path, value: clone(row[setting]), lua: literal.lua } : { kind: "unfit", setting: setting, path: path, error: literal.error });
+        // With saved opt-in, unread or candidate-free outputs veto automation without changing
+        // the saved choice or forcing Hyprland's native capability flags.
+        if (optionRow.hdr === true)
+            value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;
+        var literal = HyprlandLayer.optionLiteral(optionRow, value);
+        options.push(literal.ok ? { kind: "set", setting: setting, path: path, value: clone(value), lua: literal.lua } : { kind: "unfit", setting: setting, path: path, error: literal.error });
     });
     var monitors = null;
     if (declared.monitors !== undefined) {

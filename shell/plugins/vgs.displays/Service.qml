@@ -106,6 +106,7 @@ Item {
     property var layoutCopied: null
     readonly property var layoutValues: ({
         primaryOutputs: primaryChoices,
+        hdrDisplay: outputs !== null && outputs.some(output => output.hdrCandidate) ? "present" : "absent",
         greeterLayout: Logic.greeterLayoutState(greeterReady, layoutActive !== "" || layoutPending !== "", layoutCopied)
     })
 

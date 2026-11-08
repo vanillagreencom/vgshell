@@ -79,7 +79,7 @@ function suite(lib, check) {
     // Hyprland's reply to the request: VALUES by path, Hyprland's default
     // for the rest, each part as getoption prints it, an empty string as
     // `[[EMPTY]]`.
-    const FIELD = { "general.border_size": "int", "decoration.rounding": "int", "decoration.active_opacity": "float", "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int",
+    const FIELD = { "general.border_size": "int", "decoration.rounding": "int", "decoration.active_opacity": "float", "input.sensitivity": "float", "input.scroll_factor": "float", "input.touchpad.scroll_factor": "float", "input.repeat_rate": "int", "input.repeat_delay": "int", "misc.vrr": "int", "render.cm_auto_hdr": "int",
         "input.kb_layout": "str", "input.kb_variant": "str", "input.kb_options": "str", "input.accel_profile": "str" };
     const replies = values => asked.map(part => part.slice("j/getoption ".length)).map(path => {
         const field = FIELD[path] || "bool";
