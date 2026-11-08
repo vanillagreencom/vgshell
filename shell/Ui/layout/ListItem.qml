@@ -60,6 +60,9 @@ T.ItemDelegate {
     property string secondary: ""
     property string secondaryTone: ""
     property alias trailing: trailingRow.data
+    // Visual children in data belong to the icon, including overlays:
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#data-prop
+    property alias iconOverlay: icon.data
     property ListCursor cursor: null
     property bool active: false
     property bool clickable: true

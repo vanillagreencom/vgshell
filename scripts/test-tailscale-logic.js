@@ -549,7 +549,8 @@ function suite(logic, service = serviceSource) {
     assert.throws(() => logic.inboundView({ state: "later", rows: [], count: 0 }, clock), /inbound state "later"/);
     assert.deepEqual(plain(logic.inboundBadge(recorded)), { count: "2", label: "Tailscale, 2 devices connected to this one", detail: "2 devices connected to this one" });
     assert.deepEqual(plain(logic.inboundBadge(tagged)), { count: "1", label: "Tailscale, 1 device connected to this one", detail: "1 device connected to this one" });
-    for (const value of [undefined, idle, plain(logic.inboundHeld("unread", later)), kept])
+    assert.equal(logic.inboundBadge(logic.inboundHeld("unread", tagged)).count, "1", "an unread socket/status read cannot hide the held count");
+    for (const value of [undefined, idle, plain(logic.inboundHeld("unread", idle)), kept])
         assert.deepEqual(plain(logic.inboundBadge(value)), { count: "", label: "Tailscale", detail: "" }, "no badge: " + JSON.stringify(value));
     assert.equal(logic.kindsLine(["ssh", "tailscale", 8080]), "SSH, Tailscale, port 8080");
     }
@@ -770,7 +771,7 @@ try {
         ["the index covers IPv6 addresses", "if (typeof address === \"string\" && address !== \"\") addresses[address.toLowerCase()] = entry;", "if (typeof address === \"string\" && address.indexOf(\":\") === -1) addresses[address.toLowerCase()] = entry;"],
         ["a tagged peer has no user", "user: isTagged(peer) ? \"\" : userName(", "user: false ? \"\" : userName("],
         ["the inbound value keeps its budget", "while (bytes(inboundOut) > INBOUND_BYTES", "while (bytes(inboundOut) > 2 * INBOUND_BYTES"],
-        ["an unread draws no badge", 'var count = isPlain(value) && value.state === "read" ? value.count : 0;', "var count = isPlain(value) ? value.count : 0;"],
+        ["an unread read hides the held count", '(value.state === "read" || value.state === "unread")', 'value.state === "read"'],
         ["the online count covers every device", 'online: all.filter(function (row) { return row.online; }).length', 'online: all.slice(0, PEER_MAX).filter(function (row) { return row.online; }).length']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

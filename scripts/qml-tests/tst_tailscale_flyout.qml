@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import qs.Unit
@@ -129,15 +130,67 @@ Item {
         readonly property var status: ({ values: root.values(), act: key => "ok",
             rows: root.allowOffered ? [{ key: "setup", hint: root.setupLine.hint, action: { offered: true, label: "Allow" } }] : [] })
         readonly property var ipc: ({ call: (name, arg) => root.call(name, arg) })
-        readonly property var surfaces: ({ summon: () => "ok", hide: () => "ok" })
+        readonly property var surfaces: ({ summon: () => "ok", hide: () => "ok", toggle: () => root.call("toggle", "") })
         readonly property var requirements: ({ missing: root.sshMissing ? ["ssh"] : [], offer: commands => { root.offers = root.offers.concat([commands]); return "ok"; } })
         readonly property var tui: ({ ssh: (name, host, done) => { root.sshCalls = root.sshCalls.concat([[name, host]]); root.sshDone = done; return root.sshAnswer; } })
     }
 
     Tailscale.Panel { id: panel; width: implicitWidth; height: 900 }
+    Tailscale.Widget { id: widget; x: 550; shell: stub; width: implicitWidth; height: implicitHeight }
     Component {
         id: freshPanel
         Tailscale.Panel { width: implicitWidth; height: 900; z: 1; shell: stub }
+    }
+    // Only the surface host and core capabilities are stand-ins here.
+    // Widget clicks enter the real panel/body lease and production service;
+    // Process.finish supplies the engine's exited-before-runningChanged order.
+    Component {
+        id: pollingFlyout
+        Item {
+            id: world
+            width: 600
+            height: 1000
+            z: 2
+            property alias service: pollingService
+            property alias panel: pollingPanel
+            property alias widget: pollingWidget
+            property var handlers: ({})
+            property var writes: ({})
+            property var setupDone: []
+            property bool opened: false
+            property string toggleReply: "ok"
+            readonly property string statusText: JSON.stringify({ BackendState: "Running", TUN: true,
+                Self: { ID: "self", HostName: "desk", TailscaleIPs: ["100.64.0.1"] } })
+            QtObject {
+                id: pollingShell
+                readonly property var settings: ({ pollSeconds: 30, hideConnectTags: "" })
+                readonly property var requirements: ({ missing: [], outdated: [], revision: 0 })
+                readonly property var system: ({
+                    state: { "service-tailscaled": { state: "ready" }, "tailscale-operator": { state: "ready" } },
+                    refresh: done => { world.setupDone = world.setupDone.concat([done]); return "ok"; }
+                })
+                readonly property var status: ({ values: world.writes, rows: [], isOk: reply => reply === "ok",
+                    set: (key, value) => { world.writes = Object.assign({}, world.writes, { [key]: value }); return "ok"; } })
+                readonly property var ipc: ({
+                    handle: (name, handler) => { world.handlers = Object.assign({}, world.handlers, { [name]: handler }); return "ok"; },
+                    call: (name, arg) => world.handlers[name](arg)
+                })
+                readonly property var surfaces: ({
+                    toggle: (kind, payload, anchor) => {
+                        if (world.toggleReply !== "ok") return world.toggleReply;
+                        if (world.opened) pollingPanel.close();
+                        else pollingPanel.open(payload);
+                        world.opened = !world.opened;
+                        pollingPanel.visible = world.opened;
+                        return "ok";
+                    }
+                })
+            }
+            Tailscale.Panel { id: pollingPanel; width: implicitWidth; height: 900; shell: pollingShell; visible: false }
+            Tailscale.Widget { id: pollingWidget; x: 550; shell: pollingShell; width: implicitWidth; height: implicitHeight }
+            Tailscale.Service { id: pollingService; shell: pollingShell }
+            Component.onDestruction: pollingPanel.close()
+        }
     }
     // The System pane's body, made by the cases that read it, over the
     // flyout, which they hide.
@@ -230,6 +283,90 @@ Item {
         function test_opens_on_the_switch_with_no_poll_setting() {
             compare(panel.initialFocus.Accessible.name, "Tailscale", "the header switch takes the keys");
             compare(find(panel, item => item.objectName === "tailscale-poll"), null, "the flyout draws no Check every");
+        }
+        function reading(verb) {
+            const found = ProcessRegistry.processes.filter(row => row.running &&
+                (verb === "ss" ? row.command[0] === "ss" : row.command[1] === verb));
+            compare(found.length, 1, "one " + verb + " read");
+            return found[0];
+        }
+        function finishCycle(world) {
+            reading("status").finish(0, 0, world.statusText, "");
+            reading("ss").finish(0, 0, "", "");
+            reading("switch").finish(0, 0, "[]", "");
+            world.setupDone[world.setupDone.length - 1]();
+        }
+        function freshPollingFlyout() {
+            panel.visible = false;
+            const made = createTemporaryObject(pollingFlyout, root);
+            verify(made !== null);
+            finishCycle(made);
+            reading("exit-node").finish(0, 0, "{}", "");
+            compare(made.service.checkingSetup, false);
+            renderedFrame(made.widget);
+            return made;
+        }
+        function clickPollingWidget(world) {
+            const button = find(world.widget, item => item.countLevel !== undefined);
+            verify(button !== null);
+            mouseClick(button);
+        }
+        function test_widget_open_close_each_completes_one_fresh_cycle() {
+            const made = freshPollingFlyout();
+            const before = made.service.pollsStarted;
+            for (const open of [true, false]) {
+                clickPollingWidget(made);
+                compare(made.opened, open);
+                compare(made.service.leaseCount, open ? 1 : 0);
+                compare(made.service.pollInterval, open ? 3000 : 30000);
+                compare(made.service.poll.again, false, "one gesture requests one cycle");
+                verify(made.service.checkingSetup);
+                if (open) verify(find(made.panel, item => item.lockReason !== undefined).lockReason !== "");
+                finishCycle(made);
+                compare(made.service.checkingSetup, false, "one fresh completion unlocks Checking");
+                compare(made.service.poll.flight, false, "no redundant status/socket round");
+                compare(ProcessRegistry.runningWithVerb("switch").length, 0, "no redundant accounts round");
+                if (open) compare(find(made.panel, item => item.lockReason !== undefined).lockReason, "");
+            }
+            compare(made.service.pollsStarted, before + 2);
+        }
+        function test_later_widget_gestures_coalesce_one_fresh_cycle_data() {
+            return [{ tag: "status held", sockets: false }, { tag: "socket held", sockets: true }];
+        }
+        function test_later_widget_gestures_coalesce_one_fresh_cycle(data) {
+            const made = freshPollingFlyout();
+            const before = made.service.pollsStarted;
+            clickPollingWidget(made);
+            if (data.sockets) reading("status").finish(0, 0, made.statusText, "");
+            clickPollingWidget(made);
+            clickPollingWidget(made);
+            compare(made.service.leaseCount, 1);
+            compare(made.service.pollsStarted, before + 1, "busy gestures start no parallel poll");
+            compare(made.service.poll.again, true);
+            if (!data.sockets) reading("status").finish(0, 0, made.statusText, "");
+            reading("ss").finish(0, 0, "", "");
+            reading("switch").finish(0, 0, "[]", "");
+            made.setupDone[made.setupDone.length - 1]();
+            verify(made.service.checkingSetup, "the pre-gesture completion cannot unlock Checking");
+            compare(made.service.pollsStarted, before + 2, "later gestures share one subsequent poll");
+            finishCycle(made);
+            compare(made.service.checkingSetup, false);
+            compare(made.service.poll.flight, false);
+            compare(ProcessRegistry.runningWithVerb("switch").length, 0);
+            made.panel.close();
+        }
+        // expected-log: tailscale widget: panel refused: restart=owed -- Plugins.route refuses an uncompiled panel after core changes
+        function test_refused_widget_toggle_still_completes_one_fresh_cycle() {
+            const made = freshPollingFlyout();
+            made.toggleReply = "refused: restart=owed";
+            const before = made.service.pollsStarted;
+            clickPollingWidget(made);
+            compare(made.opened, false);
+            compare(made.service.leaseCount, 0);
+            compare(made.service.pollsStarted, before + 1);
+            finishCycle(made);
+            compare(made.service.checkingSetup, false);
+            compare(made.service.poll.flight, false);
         }
 
         function test_accounts_card_has_header_actions_and_a_keyboard_list_data() {
@@ -512,17 +649,27 @@ Item {
         }
         function test_who_is_connected_reads_each_state_data() {
             return [
-                { tag: "read", value: () => inboundRead(), secondary: "2 devices · SSH, port 8080", rows: 2, info: false, offer: false },
-                { tag: "no one", value: () => Logic.inbound(0, "", root.snapshot.inboundIndex, Logic.inboundIdle(), sinceMs), secondary: "No one right now", rows: 0, info: false, offer: false },
-                { tag: "unread", value: () => Logic.inboundHeld("unread", inboundRead()), secondary: "Could not check connections.", rows: 0, info: false, offer: false },
-                { tag: "userspace", value: () => Logic.inboundHeld("userspace", inboundRead()), secondary: Logic.USERSPACE_TEXT, rows: 0, info: true, offer: false },
-                { tag: "no-ss", value: () => Logic.inboundHeld("no-ss", inboundRead()), secondary: "Needs a tool to check connections.", rows: 0, info: false, offer: true }
+                { tag: "read", value: () => inboundRead(), secondary: "2 devices · SSH, port 8080", rows: 2, count: "2", info: false, offer: false },
+                { tag: "no one", value: () => Logic.inbound(0, "", root.snapshot.inboundIndex, Logic.inboundIdle(), sinceMs), secondary: "No one right now", rows: 0, count: "", info: false, offer: false },
+                { tag: "unread", value: () => Logic.inboundHeld("unread", inboundRead()), secondary: "Could not check connections.", rows: 0, count: "2", info: false, offer: false },
+                { tag: "unread zero", value: () => Logic.inboundHeld("unread", Logic.inboundIdle()), secondary: "Could not check connections.", rows: 0, count: "", info: false, offer: false },
+                { tag: "userspace", value: () => Logic.inboundHeld("userspace", inboundRead()), secondary: Logic.USERSPACE_TEXT, rows: 0, count: "", info: true, offer: false },
+                { tag: "no-ss", value: () => Logic.inboundHeld("no-ss", inboundRead()), secondary: "Needs a tool to check connections.", rows: 0, count: "", info: false, offer: true }
             ];
         }
         function test_who_is_connected_reads_each_state(data) {
             root.inbound = data.value();
             renderedFrame(panel);
             const row = named("tailscale-inbound");
+            const badge = find(row, item => item.variant === "unread");
+            const barBadge = find(widget, item => item.variant === "unread");
+            compare([badge === null, barBadge === null], [data.count === "", data.count === ""]);
+            if (badge !== null) {
+                compare([badge.text, barBadge.text], [data.count, data.count]);
+                compare(badge.color, barBadge.color);
+                const icon = badge.parent.parent;
+                compare(badge.mapToItem(icon, badge.width / 2, badge.height / 2), Qt.point(icon.width, 0));
+            }
             compare([row.text, row.secondary, row.expandable], ["Connected to this device", data.secondary, data.rows > 0]);
             const device = named("tailscale-this-device"), network = named("tailscale-network-devices");
             verify(device.mapToItem(panel, 0, 0).y < row.mapToItem(panel, 0, 0).y && row.mapToItem(panel, 0, 0).y < network.mapToItem(panel, 0, 0).y,

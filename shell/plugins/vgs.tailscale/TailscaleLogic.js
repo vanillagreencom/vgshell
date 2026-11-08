@@ -584,12 +584,13 @@ function inboundView(value, clock) {
     throw new Error("tailscale: inbound state " + JSON.stringify(shown.state) + " is not one of read, unread, off, userspace, no-ss");
 }
 
-// The bar widget's corner count for VALUE, the published `inbound`:
-// { count, label, detail }, `count` "" with no one connected or no read,
+// The views' corner count for VALUE, the published `inbound`:
+// { count, label, detail }, `count` "" with no one connected or no reading,
 // `detail` the line that names it, "2 devices connected to this one", ""
 // with none, and `label` the widget's name with that line after it.
 function inboundBadge(value) {
-    var count = isPlain(value) && value.state === "read" ? value.count : 0;
+    // An unread poll retains the last count; only a read can prove departure.
+    var count = isPlain(value) && (value.state === "read" || value.state === "unread") ? value.count : 0;
     if (count === 0) return { count: "", label: "Tailscale", detail: "" };
     var detail = (count === 1 ? "1 device" : count + " devices") + " connected to this one";
     return { count: String(count), label: "Tailscale, " + detail, detail: detail };

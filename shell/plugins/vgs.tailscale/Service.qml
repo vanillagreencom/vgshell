@@ -185,7 +185,7 @@ Item {
         if (request.open) next[request.id] = true;
         else delete next[request.id];
         leases = next;
-        if (request.open) refresh();
+        refresh();
         return "ok";
     }
 

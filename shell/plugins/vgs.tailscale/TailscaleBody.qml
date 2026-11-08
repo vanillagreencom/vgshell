@@ -68,6 +68,7 @@ FocusScope {
     readonly property var exitNodes: values.exitNodes ? values.exitNodes : Logic.emptySnapshot("checking").exitNodes
     // Since times read as the bar clock does.
     readonly property var inbound: Logic.inboundView(values.inbound, ms => Qt.formatTime(new Date(ms), "HH:mm"))
+    readonly property var inboundBadge: Logic.inboundBadge(values.inbound)
     readonly property bool busy: tailscale.action !== ""
     readonly property bool switchable: ["running", "starting", "stopped"].indexOf(tailscale.state) !== -1
     readonly property bool reached: switchable || tailscale.state === "signed-out" || tailscale.state === "needs-approval"
@@ -540,6 +541,7 @@ FocusScope {
                     expandable: root.inbound.rows.length > 0
                     cursor: rowCursor
                     iconName: "users"
+                    iconCount: root.inboundBadge.count
                     text: "Connected to this device"
                     secondary: root.inbound.secondary
                     trailing: [InboundActions { info: root.inbound.info; offer: root.inbound.offer; onInstall: root.offerSockets() }]
