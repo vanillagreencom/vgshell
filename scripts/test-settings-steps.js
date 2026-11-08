@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Exercises the production page judge with PluginLogic manager rows.
 // Required work, an optional step or an optional tool creates Setup,
-// whose chips are Done, To do, Not available and Optional. Unknown and
-// blocked required work stays open; a step the user cannot act on, by its
+// whose chips are Done, To do, Not available and Optional, or an optional
+// state's published warning or danger. Unknown and
+// blocked required work stays open; a required step the user cannot act on, by its
 // value or because its plugin could not start, reads neutral and raises no
 // Setup needed; a step a missing tool blocks, required or optional, offers
 // the one install action on its own row. Required To do steps come first, then
@@ -270,7 +271,9 @@ function verify(logic, producer) {
     // done, To do and Not available, and before the Done ones, offers its
     // own action, and raises neither Setup needed nor the tab's mark, which
     // read setupNeeds; the required step beside it still raises them. Done,
-    // it reads Done; one the user cannot act on reads Not available and
+    // it reads Done; an optional warning/danger keeps its problem text and
+    // tone without changing readiness or rank. One the user cannot act on
+    // keeps its unavailable reading and
     // still follows a required step that reads Not available, as Power's
     // Disk sleep follows Wake sources; a hidden value takes it off Setup.
     // [name, values, its reading, its chip, Setup needed, the step order].
@@ -285,11 +288,13 @@ function verify(logic, producer) {
     for (const [name, values, reading, chip, needed, order] of [
         ["open beside a done required step", { extra: extraOpen, need: ready }, "optional", ["Optional", "neutral"], false, ["extra", "need"]],
         ["open beside a required step To do", { extra: extraOpen, need: needOpen }, "optional", ["Optional", "neutral"], true, ["need", "extra"]],
+        ["warning beside a done required step", { extra: blocked, need: ready }, "optional", [blocked.text, "warning"], false, ["extra", "need"]],
+        ["danger beside a required step To do", { extra: { tone: "danger", text: "Feature failed" }, need: needOpen }, "optional", ["Feature failed", "danger"], true, ["need", "extra"]],
         ["unreported", { need: ready }, "optional", ["Optional", "neutral"], false, ["extra", "need"]],
         ["done", { extra: ready, need: ready }, "done", ["Done", "success"], false, ["extra", "need"]],
-        ["not available", { extra: unavailable, need: ready }, "unavailable", ["Not available", "neutral"], false, ["extra", "need"]],
+        ["not available", { extra: unavailable, need: ready }, "unavailable", [unavailable.text, "warning"], false, ["extra", "need"]],
         ["open beside a required step Not available", { extra: extraOpen, need: unavailable }, "optional", ["Optional", "neutral"], false, ["need", "extra"]],
-        ["not available beside a required step Not available", { extra: unavailable, need: unavailable }, "unavailable", ["Not available", "neutral"], false, ["need", "extra"]]
+        ["not available beside a required step Not available", { extra: unavailable, need: unavailable }, "unavailable", [unavailable.text, "warning"], false, ["need", "extra"]]
     ]) {
         const current = optionalRows(values), extra = current.find(entry => entry.key === "extra"), view = logic.stepView(extra, String, on);
         same([logic.stepReading(extra, on), view.text, view.tone], [reading].concat(chip), "optional step " + name + ": the chip");
@@ -587,6 +592,8 @@ const controls = [
     ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],
     ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
     ["Optional reads in a warning tone", 'optional: { text: "Optional", tone: "neutral" }', 'optional: { text: "Optional", tone: "warning" }', "tools steps an optional tool missing"],
+    ["an optional problem reads as Optional", 'var chip = entry.setup === "optional" && entry.report === "reported" && entry.type === "state"\n        && (view.tone === "warning" || view.tone === "danger") ? view : STEP_CHIPS[reading];',
+        'var chip = STEP_CHIPS[reading];', "optional step warning beside a done required step: the chip"],
     ["an optional step sorts with To do", 'optional: 2, done: 3 };', 'optional: 0, done: 3 };', "optional step open beside a required step To do: the order"],
     ["an optional step sorts after Done", 'optional: 2, done: 3 };', 'optional: 4, done: 3 };', "optional step open beside a done required step: the order"],
     ["an optional step Not available sorts with the required ones", 'return reading !== "done" && entry.setup === "optional" ?', 'return reading === "optional" ?', "optional step not available beside a required step Not available: the order"],

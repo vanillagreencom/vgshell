@@ -66,7 +66,8 @@ var CHECKING_LINE = "Checking…";
 function stepView(entry, timeText, plugin) {
     var view = statusView(entry, timeText);
     var reading = stepReading(entry, plugin);
-    var chip = STEP_CHIPS[reading];
+    var chip = entry.setup === "optional" && entry.report === "reported" && entry.type === "state"
+        && (view.tone === "warning" || view.tone === "danger") ? view : STEP_CHIPS[reading];
     view.text = chip.text;
     view.tone = chip.tone;
     // The published state explains the work beneath the chip.

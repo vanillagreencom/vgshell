@@ -38,6 +38,9 @@ Item {
     property string unapplied: ""
     // The helper's last answer, null before the first.
     property var result: null
+    // Status rechecks home placement, but cannot reconstruct Start's
+    // account check or refusal. A stopped read keeps that failed attempt.
+    property var startFailure: null
     // The running call's verb and the home setting it is for.
     property var current: null
     // The calls that wait for the running one, oldest first.
@@ -67,7 +70,10 @@ Item {
         && Gate.sessionOffer(shell.settings.startAtBoot, result, resumed || dismissing)
     readonly property string program: String(Qt.resolvedUrl("backend/session-control.js")).replace(/^file:\/\//, "")
     readonly property bool wanted: shell !== null && shell.settings.startAtBoot
-    onWantedChanged: publish()
+    onWantedChanged: {
+        if (!wanted) startFailure = null;
+        publish();
+    }
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     onPageViewedChanged: if (pageViewed && judged !== "") call("status", sessionHome, [sessionHome])
     // The row's Repair restores the home's package: its end reads the
@@ -179,6 +185,13 @@ Item {
                 || (answer.kind === "answer" && answer.state === "failed"))
             console.warn("jarvis-session: " + current.verb + "=" + (block !== null ? "blocked block=" + block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
                 + (errors === "" ? "" : " cause=" + errors.split("\n")[0].slice(0, 180)));
+        if (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped")) startFailure = null;
+        // Status re-probes placement faults; an app's Off is intentional.
+        if (wanted && (current.verb === "build" || current.verb === "start")
+                && (answer.kind === "failed" || (answer.kind === "blocked" && (answer.block === "no-account" || answer.block === "not-app"))
+                    || (answer.kind === "answer" && (answer.state === "failed" || (answer.state === "blocked" && answer.reason !== "app-off")))))
+            startFailure = answer;
+        if (current.verb === "status" && wanted && startFailure !== null && answer.kind === "answer" && answer.state === "stopped") answer = startFailure;
         let again = false;
         if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;
         else if (answer.kind !== "failed" && current.verb === "status" && unapplied !== "") {
