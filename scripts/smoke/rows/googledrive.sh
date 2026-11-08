@@ -59,9 +59,26 @@ expected_errors+=('settings: vgs[.]google-drive/schedule refused: action=schedul
 cs_dir="$sandbox/googledrive"
 cs_stub="$cs_dir/stub"
 cs_runner="$repo/shell/plugins/vgs.google-drive/bin/google-drive"
-cs_err="$cs_dir/runner.err"
+cs_err="$smoke_log_dir/googledrive-runner.err"
+cs_systemd_owned=false
+cs_rclone_owned=false
+cs_secret_owned=false
 mkdir -p -- "$cs_stub/secrets" "$cs_dir/controls"
 : >"$cs_err"
+
+cs_restore_stand_ins() {
+  local result=0
+  if [[ $cs_secret_owned == true ]]; then
+    if sentinel_restore "$shim/secret-tool"; then cs_secret_owned=false; else result=1; fi
+  fi
+  if [[ $cs_rclone_owned == true ]]; then
+    if rm -f -- "$shim/rclone"; then cs_rclone_owned=false; else result=1; fi
+  fi
+  if [[ $cs_systemd_owned == true ]]; then
+    if automations_stand_ins_restore "$cs_stub/systemd"; then cs_systemd_owned=false; else result=1; fi
+  fi
+  return "$result"
+}
 
 # The world a runner call runs in: HOME, the runtime directory and the
 # runner file. The fixture Drive is googledrive-drive beside HOME, which the
@@ -73,10 +90,11 @@ cs_use() { # HOME RUNTIME RUNNER
   cs_mirror="$1/googledrive/docs"
   cs_state="$1/.local/state/vgshell/google-drive"
   mkdir -p -- "$cs_drive"
+  cs set-two-way false >/dev/null
 }
 cs() {
   env -i HOME="$cs_home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$cs_rt" XDG_CONFIG_HOME="$cs_home/.config" \
-    XDG_STATE_HOME="$cs_home/.local/state" XDG_DATA_HOME="$cs_home/.local/share" node "$cs_file" "$@" 2>>"$cs_err"
+    XDG_STATE_HOME="$cs_home/.local/state" XDG_DATA_HOME="$cs_home/.local/share" VGS_TUI_LIB="${cs_tui_lib:-$repo/bin/lib/tui.sh}" node "$cs_file" "$@" 2>>"$cs_err"
 }
 # The runner's answer to ARGS and its exit status on one line.
 cs_answer() { local out status=0; out="$(cs "$@")" || status=$?; printf '%s exit=%s\n' "${out//$'\n'/ }" "$status"; }
@@ -101,6 +119,14 @@ for part in sys.argv[1].split("."):
         print("unset"); sys.exit()
     v = v[part]
 print(json.dumps(v))' "$1"; }
+cs_mode() { cs status | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["twoWaySync"]))'; }
+cs_select_mode() {
+  settings_page_open vgs.google-drive
+  expect "Settings writes the Google Drive mode" ok ipc smoke invokeInstanceArgs window vgs.settings writeSetting "{\"args\":[\"vgs.google-drive\",\"twoWaySync\",$1]}"
+  expect_poll "the service receives the authoritative Settings mode" "$1" ipc smoke readInstance service vgs.google-drive twoWaySync
+  expect_poll "the serialized runner mirrors the Settings mode" "$1" cs_mode
+  settings_page_close vgs.google-drive
+}
 cs_last_sync() { cs_value lastSync | py_reply 'import sys; t=sys.stdin.read().strip(); print("set" if t.isdigit() else t)'; }
 # The state value KEY's tone and text, and with `action` the action it
 # offers.
@@ -409,24 +435,17 @@ PY
 }
 
 googledrive_row() {
-  local host_rclone shell_path
+  local host_rclone shell_path reply_reader
   host_rclone="$(command -v rclone)"
+  reply_reader="$(declare -f py_reply)" || return
+  [[ ! -e $shim/rclone && ! -L $shim/rclone ]] || { fail "googledrive: rclone path already occupied"; return 1; }
   automations_stand_ins "$cs_stub/systemd"
+  cs_systemd_owned=true
+  smoke_row_abandon=(cs_restore_stand_ins)
   terminal_stand_in
-  cat >"$cs_stub/export-size.py" <<'PY'
-import json
-import sys
-
-exports = set(open(sys.argv[1]).read().split())
-with open(sys.argv[2]) as listing:
-    items = json.load(listing)
-for item in items:
-    if item.get("Path") in exports:
-        item["Size"] = -1
-print(json.dumps(items))
-PY
   cat >"$shim/rclone" <<SH
 #!/usr/bin/env bash
+$reply_reader
 python3 -c 'import json,os,sys; print(json.dumps({"argv": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if k.startswith("RCLONE_")}}))' "\$@" >>"$cs_stub/rclone.calls"
 scope="\${RCLONE_CONFIG_VGSDRIVE_SCOPE:-}"
 if [[ \$scope != drive && \$3 == copy && \${6:-} == vgsdrive:Shared ]]; then
@@ -442,16 +461,24 @@ if [[ -f "$cs_stub/block" && ! -e "$cs_stub/blocked" && \$3 == copy ]]; then
   : >"$cs_stub/blocked"
   read -r _ <"$cs_stub/release"
 fi
-if [[ -f "$cs_stub/exports" && \$3 == lsjson && \$* == *vgsdrive:* ]]; then
-  listing="$cs_stub/listing.\$\$"
-  "$host_rclone" "\$@" >"\$listing" || { status=\$?; rm -f -- "\$listing"; exit "\$status"; }
-  python3 "$cs_stub/export-size.py" "$cs_stub/exports" "\$listing"
-  status=\$?
-  rm -f -- "\$listing"
-  exit "\$status"
+# Only Drive listings need fixture metadata. Native exports and object IDs
+# enrich the same listing; local admission hashes stay rclone's own.
+if [[ \$3 == lsjson && \$* == *vgsdrive:* ]]; then
+  remote=
+  for arg in "\$@"; do [[ \$arg != vgsdrive:* ]] || remote="\${arg#vgsdrive:}"; done
+  listing="\$("$host_rclone" "\$@")" || exit
+  printf '%s' "\$listing" | py_reply 'import json,os,sys
+items=json.load(sys.stdin)
+exports=set(open(sys.argv[2]).read().split()) if os.path.isfile(sys.argv[2]) else set()
+for item in items:
+    item["ID"]=str(os.stat(os.path.join(sys.argv[1],item["Path"])).st_ino)
+    if item["Path"] in exports: item["Size"]=-1
+print(json.dumps(items))' "\$(dirname -- "\$HOME")/googledrive-drive/\$remote" "$cs_stub/exports"
+  exit
 fi
 exec "$host_rclone" "\$@"
 SH
+  cs_rclone_owned=true
   chmod 755 "$shim/rclone"
   sentinel_stand_over "$shim/secret-tool" <<SH
 #!/usr/bin/env bash
@@ -470,6 +497,7 @@ esac
 printf '%s\\n' "secret-tool \$*" >>"$auth_log"
 exit 1
 SH
+  cs_secret_owned=true
   expect "the rclone command resolves to the row's stand-in on the shell's PATH" "$shim/rclone" shell_resolves rclone
   cs_use "$home" "$rt_dir" "$cs_runner"
 
@@ -477,7 +505,8 @@ SH
   expect "Google Drive starts disabled" '[null, false]' cs_lent
   expect "enabling Google Drive is allowed" ok ipc shell setPluginEnabled vgs.google-drive true
   expect "placing Google Drive's widget is allowed" ok ipc shell setPluginPlaced vgs.google-drive true
-  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "cloudKeys", "connection", "firstPair", "keys", "pairList", "pairs", "schedule", "sync"], true]' cs_lent
+  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "cloudKeys", "connection", "firstPair", "initialization", "keys", "pairList", "pairs", "schedule", "sync"], true]' cs_lent
+  cs_select_mode false
   expect_poll "with no pair and no unit the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
   expect_poll "with no pair and no unit the hourly sync asks for no setup" '["info", "Off", null]' cs_schedule
   expect_poll "with no folder pair the Settings list holds no row" '[]' cs_pairs
@@ -559,7 +588,7 @@ SH
   expect_poll "Needs you draws the file's name as a link" drawn cs_panel_drawn LinkText a.txt
   expect "a folded note is not drawn" absent cs_panel_drawn LinkText n1.txt
   expect "the popover offers Sync now with a folder pair" '[true, true]' cs_panel_footer
-  expect "the notes line is clicked" ok cs_panel_press ListItem "8 files need no action · nothing was lost"
+  expect "the notes line is clicked" ok cs_panel_press ListItem "8 files need no action"
   expect_poll "the notes line unfolds the notes" true cs_notes_open
   expect_poll "an unfolded note draws its name as a link" drawn cs_panel_drawn LinkText n1.txt
 
@@ -591,7 +620,7 @@ SH
   # a PDF note opens in its default application, through `gio open`, and
   # starts no editor, and closes the popover as the editor's file does.
   cs_open_popover "the popover for a gone file"
-  expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 files need no action · nothing was lost"
+  expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 files need no action"
   expect_poll "the notes line unfolds for the gone file" true cs_notes_open
   # The last notes sit below the popover's fold, so the body scrolls to
   # them before a click lands on one.
@@ -690,7 +719,7 @@ SH
   # pause section's restart below reads it still out.
   local dismissed_key folded
   cs_open_popover "the popover for Dismiss"
-  expect "the fold line is clicked for Dismiss" ok cs_panel_press ListItem "8 files need no action · nothing was lost"
+  expect "the fold line is clicked for Dismiss" ok cs_panel_press ListItem "8 files need no action"
   expect_poll "the fold line unfolds for Dismiss" true cs_notes_open
   expect_poll "the first Dismiss holds its box" stable cs_item_settled RowAction Dismiss
   dismissed_key="$(cs_first_folded_key)" || dismissed_key=none
@@ -711,6 +740,8 @@ SH
   expect "the paused run left the add on Drive" absent cs_read d.txt
   stop_shell || fail "googledrive: the shell stops before the restart"
   start_shell "$repo" "$sandbox/qs-googledrive.log" || return 0
+  expect_poll "after restart Settings still selects Off" false ipc smoke readInstance service vgs.google-drive twoWaySync
+  expect_poll "after restart the runner still mirrors Off" false cs_mode
   expect_poll "after a restart the service publishes the pause" true cs_value cloud.paused
   expect_poll "after a restart the sync still names the file that needs the user" '["warning", "1 file needs you"]' cs_sync
   expect_poll "after a restart the pair reads paused" '["Documents: Paused"]' cs_value sync.lines
@@ -759,6 +790,53 @@ SH
   rescan "the shipped plugin is scanned again"
   expect_poll "the shipped service publishes the record again" false cs_value cloud.paused
 
+  # A separate equal-set pair reaches actual initialization and ordinary
+  # bisync through the production runner, with local backend roots only.
+  local tw_local="$home/googledrive/two-way" tw_remote="$(dirname -- "$home")/googledrive-drive/TwoWay" tw_root n
+  cs_select_mode true
+  mkdir -p -- "$tw_local" "$tw_remote"
+  for tw_root in "$tw_local" "$tw_remote"; do
+    printf 'access\n' >"$tw_root/RCLONE_TEST"
+    printf 'recover these exact bytes\n' >"$tw_root/subject.txt"
+    for n in {1..8}; do printf 'neutral %s\n' "$n" >"$tw_root/neutral-$n.txt"; done
+    touch -d '2023-11-14T22:13:20Z' -- "$tw_root"/*
+  done
+  expect "the equal-set pair is added" added=two-way cs_added pair-add --definition "{\"id\":\"two-way\",\"label\":\"Two-way fixture\",\"remote\":\"TwoWay\",\"local\":\"$tw_local\"}"
+  expect "ordinary On holds without initialization" "pair=two-way result=initialization-required exit=1" cs_answer run --pair two-way
+  expect "the service reads initialization required" ok ipc vgs.google-drive invoke refresh ""
+  expect_poll "Setup offers initialization for the required pair" true cs_value initialization.action
+  settings_page_open vgs.google-drive
+  forget_record
+  expect "Settings routes the listed Initialize action" ok settings_row_act vgs.google-drive pairs two-way initialize
+  expect_poll "Initialize hands the terminal only the listed pair" "$(words vgs.google-drive/initialize tui/initialize.sh two-way)" recorded_tail
+  expect_run_end "the fixture initialization terminal ends" vgs.google-drive/initialize
+  settings_page_close vgs.google-drive
+  local confirmation="$cs_dir/confirmation"
+  mkdir -p -- "$confirmation"
+  [[ ! -e $confirmation/gum && ! -L $confirmation/gum ]] || { fail "googledrive: fake gum path already occupied"; return 1; }
+  cat >"$confirmation/gum" <<'SH'
+#!/usr/bin/env bash
+[[ $1 == confirm && $2 == --default=false ]] || exit 2
+exit 0
+SH
+  chmod 755 "$confirmation/gum"
+  printf '%s\n' 'vgs_tui_confirm() { gum confirm "$2" -- "$1"; }' >"$cs_dir/confirmation-fixture.sh"
+  # Only the runner's declared confirmation phase sees this scratch gum.
+  # The shell's device stand-in and the caller's environment stay unchanged,
+  # including when initialization fails or the subshell is interrupted.
+  (
+    shell_start_path="$confirmation:$shell_start_path"
+    cs_tui_lib="$cs_dir/confirmation-fixture.sh"
+    cs initialize --pair two-way
+  ) >"$smoke_log_dir/googledrive-initialize.log" || fail "googledrive: scratch initialization failed"
+  rm -- "$tw_remote/subject.txt"
+  expect "ordinary initialized On completes" "pair=two-way result=idle exit=0" cs_answer run --pair two-way
+  expect "the removed remote file stays absent locally" absent cs_path_state "$tw_local/subject.txt" present absent
+  expect "the service publishes actual two-way recovery" ok ipc vgs.google-drive invoke refresh ""
+  expect_poll "the removed file has exact retained bytes and a completed two-way operation" '["two-way", "completed", "local-recovery", "recover these exact bytes\n"]' cs_values_recovery
+  expect "the focused pair is removed" removed=two-way cs pair-remove two-way
+  cs_select_mode false
+
   # The world as the row found it.
   expect "the pair is removed" removed=docs cs pair-remove docs
   printf '{"pairs": [' >"$cs_home/.config/vgshell/google-drive/pairs.json"
@@ -797,9 +875,14 @@ SH
   expect "unplacing Google Drive's widget is allowed" ok ipc shell setPluginPlaced vgs.google-drive false
   expect "disabling Google Drive is allowed" ok ipc shell setPluginEnabled vgs.google-drive false
   expect_poll "the disabled plugin holds no status record or IPC target" '[null, false]' cs_lent
-  sentinel_restore "$shim/secret-tool"
-  rm -f -- "$shim/rclone"
-  automations_stand_ins_restore "$cs_stub/systemd"
+  cs_restore_stand_ins
+}
+
+cs_values_recovery() {
+  cs_values | py_reply 'import json,sys
+rows=json.load(sys.stdin).get("cloud",{}).get("conflicts",[])
+c=next((r for r in rows if r.get("pairLabel")=="Two-way fixture" and r["path"]=="subject.txt"),None)
+print(json.dumps([c["operation"],c["outcome"],c["recovery"],open(c["storedPath"]).read()] if c else None))'
 }
 
 # edit_file_once FILE OLD NEW: FILE with its one OLD replaced by NEW.

@@ -43,8 +43,10 @@ const ADDRESS = "a.person@example.com";
 // synced an hour ago, an account pair whose connection Google refused, and one
 // conflict of each kind.
 const HOME = "/home/me";
-const DOCS = { id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "idle", lastSuccess: iso(NOW - HOUR), staleAfter: iso(NOW + HOUR), lastError: null, changes: { added: 1, updated: 0 } };
-const INBOX = { id: "inbox", label: "Agent uploads", remote: "Inbox", local: "/home/me/outbox", state: "authorization-required", lastSuccess: iso(NOW - 2 * HOUR), staleAfter: iso(NOW), lastError: { kind: "authorization-refused", at: iso(NOW - 60000), exit: 1 }, changes: null };
+const PAIR_MODE = { route: "copy", operation: "copy", initialization: { state: "required", reason: "baseline-missing" },
+    recoveryPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts", exportsPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/exports" };
+const DOCS = Object.assign({}, PAIR_MODE, { id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "idle", lastSuccess: iso(NOW - HOUR), staleAfter: iso(NOW + HOUR), lastError: null, changes: { added: 1, updated: 0 } });
+const INBOX = Object.assign({}, PAIR_MODE, { id: "inbox", label: "Agent uploads", remote: "Inbox", local: "/home/me/outbox", state: "authorization-required", lastSuccess: iso(NOW - 2 * HOUR), staleAfter: iso(NOW), lastError: { kind: "authorization-refused", at: iso(NOW - 60000), exit: 1 }, changes: null });
 // A new name longer than a window row, with no space to break at.
 const RENAMED_TO = "Quarterly-planning-notes-for-the-agent-uploads-review-with-every-attachment-from-the-October-meeting.txt";
 // Each carries `needs` as bin/google-drive needsOf decides it.
@@ -85,6 +87,7 @@ function recordOf(over) {
     return Object.assign({
         state: "authorization-required",
         paused: false,
+        twoWaySync: false,
         units: "installed",
         lastSuccess: iso(NOW - HOUR),
         staleAfter: iso(NOW + HOUR),
@@ -173,7 +176,151 @@ const STATES = [
     ["sign-in needed with files to review", record(), "Sign-in needed", "danger", "cloud-alert", SYNC, LINKED]
 ];
 
+// The backend status contract is exercised at its frontend boundary.
+// These are producer-shaped inputs, not simulated reconciliation.
+function verifyTwoWay(L) {
+    const ready = Object.assign({}, DOCS, { route: "two-way", operation: "two-way", initialization: { state: "ready", reason: null } });
+    const tw = over => well(Object.assign({ twoWaySync: true, pairs: [ready] }, over || {}));
+    const signedIn = L.parseProbe(JSON.stringify(probe())).presence;
+    const required = Object.assign({}, ready, { state: "initialization-required", operation: null, initialization: { state: "required", reason: "baseline-missing" } });
+    const invalidFields = [
+        ["missing mode", { twoWaySync: undefined }, "status=twoWaySync"],
+        ["text mode", { twoWaySync: "true" }, "status=twoWaySync"],
+        ["missing route", { pairs: [Object.assign({}, ready, { route: undefined })] }, "status=pairs"],
+        ["unknown route", { pairs: [Object.assign({}, ready, { route: "automatic" })] }, "status=pairs"],
+        ["unknown operation", { pairs: [Object.assign({}, ready, { operation: "resync" })] }, "status=pairs"],
+        ["missing readiness", { pairs: [Object.assign({}, ready, { initialization: undefined })] }, "status=pairs"],
+        ["unknown readiness", { pairs: [Object.assign({}, ready, { initialization: { state: "maybe", reason: null } })] }, "status=pairs"],
+        ["required without cause", { pairs: [Object.assign({}, required, { initialization: { state: "required", reason: null } })] }, "status=pairs"],
+        ["ready with cause", { pairs: [Object.assign({}, ready, { initialization: { state: "ready", reason: "baseline-missing" } })] }, "status=pairs"],
+        ["relative recovery", { pairs: [Object.assign({}, ready, { recoveryPath: "conflicts" })] }, "status=pairs"],
+        ["missing exports", { pairs: [Object.assign({}, ready, { exportsPath: undefined })] }, "status=pairs"],
+        ["text mutation evidence", { lastError: { kind: "rclone-failed", operation: "two-way", mayHaveChanged: "false" } }, "status=lastError"]
+    ];
+    for (const [label, over, error] of invalidFields)
+        same(L.parseStatus(JSON.stringify(tw(over))), { ok: false, error }, label);
+
+    // Initialization is a visible actionable Setup state, also while the
+    // pair is paused. Copy selection and a running operation do not offer it.
+    for (const [label, mode, pair, tone, action, available, actions, cause] of [
+        ["required", true, required, "warning", true, true, ["initialize", "remove"], "initialization-required"],
+        ["paused required", true, Object.assign({}, required, { state: "paused" }), "warning", true, true, ["initialize", "remove"], "paused"],
+        ["ready", true, ready, "ok", false, true, ["remove"], "idle"],
+        ["copy selected", false, Object.assign({}, required, { state: "idle", route: "copy" }), "info", false, false, ["remove"], "idle"],
+        ["initializing", true, Object.assign({}, required, { state: "running", operation: "initialize" }), "info", false, false, ["remove"], "running"]
+    ]) {
+        const rec = tw({ twoWaySync: mode, state: pair.state, pairs: [pair] });
+        const judged = L.parseStatus(JSON.stringify(rec));
+        assert.equal(judged.ok, true, label);
+        const values = L.statusValues(judged.record, signedIn, "", "", NOW, HOME);
+        same([values.initialization.tone, values.initialization.action === true, values.initialization.available !== false, values.pairs[0].actions],
+            [tone, action, available, actions], label + ": Setup admission");
+        if (action) {
+            const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+            same(Core.statusActionRequest(manifest, "vgs.google-drive", true, values, "pairs", "docs", "initialize"),
+                { ok: true, kind: "tui", name: "initialize", args: ["docs"] }, label + ": listed-pair initialization argv");
+            same(Core.statusActionRequest(manifest, "vgs.google-drive", true, values, "initialization"),
+                { ok: true, kind: "tui", name: "initialize" }, label + ": Setup chooser route");
+        }
+        assert.equal(L.headline(values.cloud, NOW).cause, cause, label + ": visible state");
+        if (cause === "initialization-required") assert.equal(L.footerView(values.cloud).shown, false, label + ": ordinary Sync now cannot initialize");
+    }
+    const attention = L.notification(tw({ state: "initialization-required", pairs: [required],
+        attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } }));
+    assert.equal(attention.tone, "warning");
+    const noSignIn = L.statusValues(tw({ pairs: [required] }), null, "", "", NOW, HOME).initialization;
+    same([noSignIn.available, noSignIn.action], [false, undefined], "initialization waits for a readable sign-in probe");
+
+    // Route is pinned while running; operation and lastSuccess remain
+    // historical when the next-run switch changes.
+    for (const route of ["copy", "two-way"]) {
+        const pair = Object.assign({}, ready, { state: "running", route, operation: route });
+        const on = L.cloudValue(tw({ state: "running", pairs: [pair] }), "");
+        const off = L.cloudValue(tw({ twoWaySync: false, state: "running", pairs: [pair] }), "");
+        same([on.pairs[0].route, off.pairs[0].route, on.pairs[0].operation, off.pairs[0].operation, on.lastSuccess, off.lastSuccess],
+            [route, route, route, route, NOW - HOUR, NOW - HOUR], "running " + route);
+        assert.equal(L.panelHeader(on, NOW, Timestamp.text).mode, L.panelHeader(off, NOW, Timestamp.text).mode, "running mode ignores next-run selection");
+    }
+    const idleOn = L.cloudValue(tw(), "");
+    const idleOff = L.cloudValue(tw({ twoWaySync: false, pairs: [Object.assign({}, ready, { route: "copy" })] }), "");
+    assert.notEqual(L.panelHeader(idleOn, NOW, Timestamp.text).mode, L.panelHeader(idleOff, NOW, Timestamp.text).mode, "idle mode names the next route");
+    same([idleOff.pairs[0].operation, idleOff.pairs[0].recoveryPath, idleOff.pairs[0].exportsPath], ["two-way", PAIR_MODE.recoveryPath, PAIR_MODE.exportsPath]);
+    assert.notEqual(L.footerView(Object.assign({}, idleOn, { modePending: true })).sync.reason, "", "Sync now waits for the service's mirror");
+
+    // Each row keeps operation, outcome and actual recovery separate.
+    // Completed removals open no retired path; within-pair renames open
+    // the destination. Partial recovery makes no completed removal claim.
+    const stored = PAIR_MODE.recoveryPath + "/generation/old.txt";
+    const base = { pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(NOW - HOUR), needs: "nothing" };
+    const rows = [
+        [{ kind: "removed-locally", operation: "two-way", outcome: "completed", recovery: "drive-trash" }, "two-way-removed-locally", null, null],
+        [{ kind: "removed-on-drive", operation: "two-way", outcome: "completed", recovery: "local-recovery", storedPath: stored }, "two-way-removed-on-drive", stored, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "removed-on-drive", operation: "two-way", outcome: "completed", recovery: "local-recovery" }, "two-way-removed-on-drive-expired", null, null],
+        [{ kind: "renamed", operation: "two-way", outcome: "completed", to: "new/place.txt" }, "two-way-renamed", "/home/me/gdrive/new/place.txt", null],
+        [{ kind: "both-changed", operation: "two-way", outcome: "completed", recovery: "drive-trash", needs: "you" }, "two-way-both-changed-drive-trash", base.localPath, null],
+        [{ kind: "both-changed", operation: "two-way", outcome: "completed", recovery: "drive-revisions", needs: "you" }, "two-way-both-changed-drive-revisions", base.localPath, null],
+        [{ kind: "both-changed", operation: "two-way", outcome: "completed", recovery: "local-recovery", storedPath: stored, needs: "you" }, "two-way-both-changed-local-recovery", base.localPath, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "local-recovery", operation: "two-way", outcome: "completed", recovery: "local-recovery", storedPath: stored }, "local-recovery-completed", stored, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "local-recovery", operation: "two-way", outcome: "partial", recovery: "local-recovery", storedPath: stored }, "local-recovery-partial", stored, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "local-recovery", operation: "initialize", outcome: "partial", recovery: "local-recovery", storedPath: stored }, "initialize-recovery-partial", stored, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "local-recovery", operation: "exports", outcome: "completed", recovery: "local-recovery", storedPath: stored, localPath: PAIR_MODE.exportsPath + "/old.txt" }, "exports-recovery-completed", stored, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "local-recovery", operation: "exports", outcome: "partial", recovery: "local-recovery", storedPath: stored }, "exports-recovery-partial", stored, PAIR_MODE.recoveryPath + "/generation"],
+        [{ kind: "conflict-unresolved", operation: "two-way", outcome: "completed", recovery: "active-conflicts", path: "old.txt.conflict1", localPath: "/home/me/gdrive/old.txt.conflict1", needs: "you" }, "conflict-unresolved", "/home/me/gdrive/old.txt.conflict1", "/home/me/gdrive"]
+    ];
+    for (const [fields, variant, file, folder] of rows) {
+        const rec = tw({ conflicts: [Object.assign({}, base, fields)] });
+        const judged = L.parseStatus(JSON.stringify(rec));
+        assert.equal(judged.ok, true, variant + ": " + judged.error);
+        const published = L.cloudValue(judged.record, "").conflicts[0];
+        const row = L.conflictRow(published);
+        same([row.variant, row.file, row.operation, row.outcome, row.recovery, row.needs],
+            [variant, file, fields.operation, fields.outcome, fields.recovery, fields.needs || "nothing"], variant);
+        const recoveryAction = row.needs === "you" ? row.action : row.recoveryAction;
+        same(recoveryAction === null ? null : [recoveryAction.kind, recoveryAction.folder], folder === null ? null : ["folder", folder], variant + ": actual recovery action");
+        if (row.needs === "nothing") assert.equal(row.action && row.action.kind, "dismiss", variant + ": still dismissible");
+        if (row.needs === "you") assert.notEqual(row.action && row.action.kind, "dismiss", variant + ": unresolved variants stay visible");
+    }
+    for (const fields of [
+        { kind: "removed-locally", operation: "two-way", outcome: "partial", recovery: "drive-trash" },
+        { kind: "renamed", operation: "two-way", outcome: "partial", to: "new.txt" },
+        { kind: "removed-locally", operation: "two-way", outcome: "completed", recovery: "local-recovery" },
+        { kind: "local-recovery", operation: "copy", outcome: "completed", recovery: "local-recovery" },
+        { kind: "conflict-unresolved", operation: "two-way", outcome: "partial", recovery: "active-conflicts" },
+        { kind: "local-recovery", operation: "two-way", outcome: "partial", recovery: "local-recovery", storedPath: "relative" },
+        { kind: "removed-locally", operation: "unknown" }
+    ]) same(L.parseStatus(JSON.stringify(tw({ conflicts: [Object.assign({}, base, fields)] }))), { ok: false, error: "status=conflicts" }, "invalid outcome: " + JSON.stringify(fields));
+
+    // Untagged old records and tagged copy records are never reworded by
+    // the current switch. Their original keys and paths still work.
+    for (const kind of ["removed-locally", "removed-on-drive", "renamed"])
+        for (const operation of [undefined, "copy"]) {
+            const c = keyed(Object.assign({}, base, { kind, to: "new.txt" }, operation === undefined ? {} : { operation }));
+            const shown = [false, true].map(twoWaySync => {
+                const published = L.cloudValue(tw({ twoWaySync, conflicts: [c] }), "").conflicts[0];
+                assert.equal(published.key, c.key, "history key unchanged");
+                return L.conflictRow(published);
+            });
+            same(shown[0], shown[1], "switch preserves " + operation + " " + kind);
+            same([shown[0].variant, shown[0].file], [kind, base.localPath], "copy history is not a completed two-way removal");
+        }
+    for (const [kind, operation, mayHaveChanged] of [
+        ["rclone-failed", "two-way", true], ["deletion-limit", "two-way", false],
+        ["bisync-recovery-required", "two-way", true], ["comparison-changed", "initialize", false], ["credential-absent", "initialize", false],
+        ["rclone-failed", "exports", true]
+    ]) {
+        const lastError = { kind, operation, mayHaveChanged, reason: "roots-changed" };
+        const values = L.statusValues(tw({ state: "error", pairs: [Object.assign({}, ready, { state: "error", lastError })], lastError }), signedIn, "", "", NOW, HOME);
+        same(values.cloud.lastError, lastError, "failure distinctions reach the panel");
+        assert.equal(values.lastSync, NOW - HOUR, "failure never advances success");
+        assert.equal(L.problemCallout(values.cloud, NOW).tone, "danger");
+        assert.ok(values.sync.hint.length <= Core.STATUS_HINT_MAX, "typed failure still fits the status contract");
+    }
+    const unavailable = L.statusValues(null, signedIn, "Unreadable status", "", NOW, HOME);
+    same([unavailable.sync.tone, unavailable.cloud, unavailable.pairs, unavailable.lastSync], ["danger", undefined, undefined, undefined], "unreadable status publishes no successful snapshot");
+}
+
 function verify(L) {
+    verifyTwoWay(L);
     // The record judge: the runner's record passes; each malformed field
     // is named.
     const good = L.parseStatus(JSON.stringify(record()));
@@ -316,7 +463,7 @@ function verify(L) {
     // The published values of the record and the probe.
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
     const values = L.statusValues(good.record, presence, "", "", NOW, HOME);
-    same(Object.keys(values).sort(), ["account", "cloud", "cloudKeys", "connection", "firstPair", "keys", "lastSync", "pairList", "pairs", "schedule", "sync"]);
+    same(Object.keys(values).sort(), ["account", "cloud", "cloudKeys", "connection", "firstPair", "initialization", "keys", "lastSync", "pairList", "pairs", "schedule", "sync"]);
     same(values.sync.lines, ["Documents: 1 file needs you", "Agent uploads: Sign-in needed"], "a line per pair, each by its own state and the files that need the user");
     const lines = rec => L.statusValues(rec, null, "", "", NOW, HOME).sync.lines;
     same(lines(well({ conflicts: CONFLICTS.slice(1, 2) })), ["Documents: Up to date"], "a note leaves its pair up to date");
@@ -467,8 +614,13 @@ function verify(L) {
     const manifest = Core.validateManifest(JSON.parse(fs.readFileSync(MANIFEST, "utf8")), path.dirname(MANIFEST));
     assert.equal(manifest.ok, true, manifest.error);
     const longLabel = Object.assign({}, DOCS, { label: "L".repeat(64), remote: "R/".repeat(90) + "R", local: "/srv/" + "x".repeat(300) });
+    const twoWayRequired = Object.assign({}, DOCS, { state: "initialization-required", route: "two-way", operation: null });
+    const exportError = { kind: "rclone-failed", operation: "exports", mayHaveChanged: true };
     const worlds = [good.record, well(), invalid(), well({ state: "not-set-up", units: "absent", pairs: [] }), well({ state: "not-set-up", units: "absent" }), well({ units: "stale" }),
-        well({ pairs: [longLabel] }), well({ conflicts: CONFLICTS.concat(DRIVE_CONFLICTS) })];
+        well({ pairs: [longLabel] }), well({ conflicts: CONFLICTS.concat(DRIVE_CONFLICTS) }),
+        well({ twoWaySync: true, state: "initialization-required", pairs: [twoWayRequired] }),
+        well({ twoWaySync: true, state: "paused", paused: true, pairs: [Object.assign({}, twoWayRequired, { state: "paused" })] }),
+        well({ twoWaySync: true, state: "error", lastError: exportError, pairs: [Object.assign({}, twoWayRequired, { state: "error", lastError: exportError })] })];
     for (const rec of worlds) for (const [, p] of SIGN_INS.map(r => [r[0], r[1]]).concat([["long address", withUser(long)]])) {
         const v = L.statusValues(rec, p, "", "", NOW, HOME);
         for (const key of Object.keys(v)) {
@@ -832,7 +984,7 @@ const controls = [
     ["the missing-key text links to Setup", "then [sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).", "then sign in on the Google Drive Setup tab."],
     ["the judge refuses an unknown state", "if (STATES.indexOf(doc.state) === -1) return", "if (false) return"],
     ["the judge needs attention.notified", "\n        && typeof doc.attention.notified === \"boolean\")", ")"],
-    ["a both-changed stored path is absolute", "&& (c.kind !== \"both-changed\" || !hasOwn(c, \"storedPath\") || (isText(c.storedPath) && c.storedPath.charAt(0) === \"/\"))", ""],
+    ["a stored recovery path is absolute", 'if (hasOwn(c, "storedPath") && !absolutePath(c.storedPath)) return false;', ""],
     ["an address holds one @", " && value.split(\"@\").length === 2", ""],
     ["only a token's row carries a user", '(c.account !== "token" || !isAddress(c.user))', "!isAddress(c.user)"],
     ["idle data reads by its age", "return now < staleAfter ? CURRENT : OUT_OF_DATE;", "return CURRENT;"],
@@ -840,8 +992,8 @@ const controls = [
     ["a connection needed or a failure wins over files to review", "if (danger.length > 0) return", "if (false) return"],
     ["another pair's failure wins over a running sync", "return cloud.state === state || cloud.pairs.some(function (p) { return p.state === state; });", "return cloud.state === state;"],
     ["a missing token reads as a connection", "if (error.kind === \"credential-absent\" && error.account === \"token\")", "if (false)"],
-    ["the published error keeps its account", "return isText(error.account) ? { kind: error.kind, account: error.account } : { kind: error.kind };", "return { kind: error.kind };"],
-    ["the published pair-list error keeps its detail", "if (error.kind === \"pairs-invalid\" && isText(error.detail)) return { kind: error.kind, detail: error.detail };\n    ", ""],
+    ["the published error keeps its account", '["account", "detail", "operation", "mayHaveChanged", "reason"]', '["detail", "operation", "mayHaveChanged", "reason"]'],
+    ["the published pair-list error keeps its detail", '["account", "detail", "operation", "mayHaveChanged", "reason"]', '["account", "operation", "mayHaveChanged", "reason"]'],
     ["an unreadable pair list offers its repair", "hint: pairListResetHint(cloud.lastError), action: true };", "hint: pairListResetHint(cloud.lastError) };"],
     ["an unreadable pair list shows its repair", 'if (pairListValid(cloud)) return { tone: "ok", text: "Readable" };', 'return { tone: "ok", text: "Readable" };'],
     ["an unreadable pair list says so on Settings", "if (!pairListValid(cloud)) return [UNREADABLE_ROW];", ""],
@@ -864,11 +1016,10 @@ const controls = [
     ["the popover says a pause", 'if (cloud.paused) return { kind: "text", text: (head.cause', 'if (false) return { kind: "text", text: (head.cause'],
     ["a gone file reads as a failure to open", "return / reason=missing$/.test(reply) ? \"gone\" : \"failed\";", "return \"failed\";"],
     ["a note keeps its review instead of the pair list", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
-    ["no surface calls a row that needs no action to review", "need no action\") + \" · nothing was lost\"", "need no action\") + \" to review\""],
     ["the fold line counts the record's notes", "var noteCount = cloud.conflictCount - cloud.needsYou;", "var noteCount = notes.length;"],
     ["the notes the list leaves out are counted", "notesRest = noteCount - notes.length;", "notesRest = 0;"],
     ["Needs you holds only the rows that need the user", "var needs = rows.filter(function (r) { return r.needs === \"you\"; });", "var needs = rows;"],
-    ["a row's name opens its file here", "file: conflict.localPath !== undefined ? conflict.localPath : null,", "file: null,"],
+    ["a row's name opens its file here", "var file = conflict.localPath !== undefined ? conflict.localPath : null;", "var file = null;"],
     ["a row with no file here opens none", "conflict.localPath !== undefined ? conflict.localPath : null", "conflict.localPath !== undefined ? conflict.localPath : conflict.path"],
     ["the file here is published", "if (c.localPath !== undefined) out.localPath = c.localPath;", ""],
     ["Show older copy only on a row that needs the user", "var action = !needs ? { kind: \"dismiss\"", "var action = !needs && conflict.copyFolder === undefined ? { kind: \"dismiss\""],
@@ -905,7 +1056,7 @@ const controls = [
     ["a paused pair reads its pause", "if (pair.state === \"idle\" && pair.needsYou > 0) return {", "if (pair.needsYou > 0) return {"],
     ["a pair counts its own files", "return c.pair === p.id;", "return true;"],
     ["the pair lines read the pair's view", "return p.label + \": \" + pairView(p, now).text;", "return p.label + \": \" + stateView(p.state, p.staleAfter, now).text;"],
-    ["a change on both sides names the kept copy's folder", "if (conflict.kind === \"both-changed\" && conflict.storedPath !== undefined) return dirname(conflict.storedPath);", ""],
+    ["a recovered copy names its actual folder", "if (conflict.storedPath !== undefined) return dirname(conflict.storedPath);", ""],
     ["a row needs its needs mark", "\n        && NEEDS.indexOf(c.needs) !== -1", ""],
     ["only a doubled name carries mine", "(duplicate ? typeof c.mine === \"boolean\" : !hasOwn(c, \"mine\"))", "true"],
     ["an owner is a not-mine doubled name's address", "(!hasOwn(c, \"owner\") || (duplicate && c.mine === false && isAddress(c.owner)))", "true"],
@@ -924,7 +1075,7 @@ const controls = [
     ["a row carries the record's needs", "needs: c.needs, localAction:", "needs: \"you\", localAction:"],
     ["a fix in Google Drive has no local action", "return LOCAL_ACTION_KINDS.indexOf(conflict.kind) !== -1 && conflict.localPath !== undefined;", "return conflict.localPath !== undefined;"],
     ["the local-action flag is published", "localAction: hasLocalAction(c) };", "localAction: true };"],
-    ["the popover row carries the needs mark", "needs: conflict.needs, action: action };", "needs: \"you\", action: action };"],
+    ["the popover row carries the needs mark", "needs: conflict.needs, action: action,", "needs: \"you\", action: action,"],
     ["a doubled name the user owns says what they do", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1 || conflict.mine) return conflict.kind;", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1) return conflict.kind;"],
     ["a shared doubled name names who can fix it", "conflict.kind + (conflict.owner !== undefined ? \"-shared\" : \"-unowned\")", "conflict.kind + \"-unowned\""],
     ["a change on both sides says which copy is here", "return conflict.copyFolder !== undefined ? \"both-changed-kept\" : \"both-changed\";", "return \"both-changed-kept\";"],
@@ -935,7 +1086,13 @@ const controls = [
     ["the bar counts only the files that need the user", "cloud.needsYou > 0 ? String(cloud.needsYou) : \"\"", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\""],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],
     ["the account key list is published", "values.keys = keyItems(presence);", "values.keys = [];"],
-    ["in-sync content lists pairs instead of text", 'return { kind: "pairs", pairs: cloud.pairs };', 'return { kind: "text", text: "" };']
+    ["in-sync content lists pairs instead of text", 'return { kind: "pairs", pairs: cloud.pairs };', 'return { kind: "text", text: "" };'],
+    ["mode input fails closed", 'if (typeof doc.twoWaySync !== "boolean") return', 'if (false) return'],
+    ["partial recovery cannot report a completed removal", 'if (twoWay && c.outcome !== "completed" && c.kind !== "local-recovery") return false;', ""],
+    ["historical copy removal is not reattributed", 'if (conflict.operation === "two-way") {\n        if (conflict.kind === "removed-on-drive"', 'if (conflict.operation === "two-way" || conflict.kind === "removed-locally") {\n        if (conflict.kind === "removed-on-drive"'],
+    ["operation outcome and recovery reach their consumer", 'if (hasOwn(c, key)) out[key] = c[key];', ""],
+    ["Setup offers the declared initialization step", 'text: "Initialization needed", action: true, hint:', 'text: "Initialization needed", hint:'],
+    ["initialization-needed pairs cannot run ordinary sync", 'if (pair.state === "initialization-required") return false;\n    if (pair.route === "two-way" && pair.initialization.state === "required") return false;', ""]
 ];
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-google-drive-logic-"));

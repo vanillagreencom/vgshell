@@ -22,6 +22,8 @@
 #
 # The controls at the end edit a copy of a script, one rule at a time, and
 # require its case to fail on the copy.
+# Initialization's selector hands only a listed pair id to the runner;
+# the runner test owns comparison and consent, not this stand-in.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -88,6 +90,7 @@ case "\$1" in
     [[ \$mode != install-failed ]] || echo "install=failed systemctl=missing" ;;
   pair-remove) echo "removed=\$2" ;;
   sign-out) echo "signed-out=\$2" ;;
+  initialize) echo "initialized=\$3" ;;
 esac
 SH
 chmod 755 "$tools/gum" "$plugin/bin/google-drive"
@@ -211,6 +214,14 @@ case_sign_out_reads_this_runs_refusal() {
   tui "$1" "fail" yes
   [[ $status == 1 ]] && shows "VGS could not sign out of Google Drive." && ! shows "keyring is locked"
 }
+case_initialize_routes_the_selected_pair() {
+  tui "$1" "" "" docs
+  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["initialize", "--pair", "docs"]]' ]] || return 1
+  tui "$1" "" "Agent uploads (inbox)"
+  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["initialize", "--pair", "inbox"]]' ]] || return 1
+  tui "$1" "" "" nope
+  [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]]
+}
 case_refuses_an_argument() {
   local script
   for script in setup add-pair connect sign-out; do
@@ -221,12 +232,15 @@ case_refuses_an_argument() {
   [[ $status == 2 && $calls == '[]' ]] || return 1
   tui "$plugin/tui/remove-pair.sh" "" "" docs extra
   [[ $status == 2 && $calls == '[]' ]] || return 1
+  tui "$plugin/tui/initialize.sh" "" "" docs extra
+  [[ $status == 2 && $calls == '[]' ]] || return 1
   true
 }
 CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_connect_runs_its_direction:connect case_connect_reads_this_runs_refusal:connect
   case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_add_pair_pairs_invalid_refusal_reads_plainly:add-pair case_add_pair_install_failure_reads_plainly:add-pair
   case_remove_pair_removes_the_named_after_yes:remove-pair case_remove_pair_refuses_a_bad_id:remove-pair case_reset_pairs_runs_after_yes:reset-pairs case_reset_pairs_reads_this_runs_refusal:reset-pairs
   case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
+  case_initialize_routes_the_selected_pair:initialize
   case_refuses_an_argument:setup)
 copy_scripts
 for entry in "${CASES[@]}"; do
@@ -242,6 +256,10 @@ CONTROL_SCRIPTS=(setup connect add-pair add-pair add-pair add-pair remove-pair r
 CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' '*pairs=invalid*)' "*\$'\\n'install=failed*"
   'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?' '[[ $listed != "$id" ]] || label="$name"' '${#1} -le 256' '$1 != *[[:cntrl:]]*' '"$runner" pairs-reset' 'tail -c "+$((logged + 1))" -- "$log"' 'vgs_tui_confirm "Sign out of Google Drive?" || status=$?' '*credential=locked*)')
 CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' '*pairs=no-such*)' '*no-such*' 'true' 'label="$name"' '${#1} -le 999' 'true' 'true' 'cat -- "$log"' 'true' '*credential=no-such*)')
+CONTROL_CASES+=(case_initialize_routes_the_selected_pair)
+CONTROL_SCRIPTS+=(initialize)
+CONTROL_NEEDLES+=('"$runner" initialize --pair "$selected"')
+CONTROL_REPLACEMENTS+=('"$runner" status --pair "$selected"')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"

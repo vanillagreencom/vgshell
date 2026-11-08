@@ -482,6 +482,8 @@ f share/vgshell/shell/plugins/vgs.google-drive/manifest.json
 f share/vgshell/shell/plugins/vgs.google-drive/migrate
 f share/vgshell/shell/plugins/vgs.google-drive/tui/add-pair.sh
 f share/vgshell/shell/plugins/vgs.google-drive/tui/connect.sh
+f share/vgshell/shell/plugins/vgs.google-drive/tui/initialize-confirm.sh
+f share/vgshell/shell/plugins/vgs.google-drive/tui/initialize.sh
 f share/vgshell/shell/plugins/vgs.google-drive/tui/remove-pair.sh
 f share/vgshell/shell/plugins/vgs.google-drive/tui/reset-pairs.sh
 f share/vgshell/shell/plugins/vgs.google-drive/tui/setup.sh

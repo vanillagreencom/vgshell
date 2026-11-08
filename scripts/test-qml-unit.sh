@@ -62,7 +62,8 @@ elif [[ ! $jobs_max =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 # Rows: label | file under shell/Ui | text to replace | replacement | the
-# test file that must go red. A file under ../Commons or ../Core is a copy
+# test file that must go red | optional intended failed test function.
+# A file under ../Commons or ../Core is a copy
 # of that module handed to the runner; one under ../plugins is a copy of
 # that plugin beside a copy of the tests, which import it and read the
 # shipped themes by a relative path. The replacement keeps the text around the
@@ -1788,6 +1789,10 @@ mutations=(
   "System Monitor leaves Fahrenheit as Celsius|../plugins/vgs.sysmon/Widget.qml|Logic.degrees(value, setting(\"temperatureUnit\"))|Logic.degrees(value, \"Celsius\")|tst_sysmon_widget.qml"
   "System Monitor leaves popup temperatures as Celsius|../plugins/vgs.sysmon/Panel.qml|Logic.degrees(value, setting(\"temperatureUnit\", \"Celsius\"))|Logic.degrees(value, \"Celsius\")|tst_sysmon_widget.qml"
   "a held Google Drive status is never asked again|../plugins/vgs.google-drive/Service.qml|root.retryIfHeld(code);|;|tst_googledrive_service.qml"
+  "Drive queued sync skips latest mode admission|../plugins/vgs.google-drive/Service.qml|                root.mirrorMode();"$'\n'"                return false;|                root.mirrorMode();"$'\n'"                return true;|tst_googledrive_service.qml|test_latest_setting_is_mirrored_before_queued_sync"
+  "Drive unsuccessful mode write confirms sync|../plugins/vgs.google-drive/Service.qml|            if (!ok) {"$'\n'"                root.modeConfirmed = null;|            if (false) {"$'\n'"                root.modeConfirmed = null;|tst_googledrive_service.qml|test_failed_mirror_blocks_sync_until_success"
+  "Drive unreadable status keeps success|../plugins/vgs.google-drive/Service.qml|statusRead = { kind: \"unreadable\", line: line };|statusRead = statusRead;|tst_googledrive_service.qml|test_unreadable_status_withdraws_success"
+  "Drive crashed mirror confirms success|../plugins/vgs.google-drive/RunnerClient.qml|done.status === 0 &&||tst_googledrive_service.qml|test_failed_mirror_blocks_sync_until_success"
   "the Drive fold line takes no Tab|../plugins/vgs.google-drive/Panel.qml|focusPolicy: Qt.StrongFocus|focusPolicy: Qt.NoFocus|tst_googledrive_panel.qml"
   "the Drive fold line's plate stops at the text grid|../plugins/vgs.google-drive/Panel.qml|x: -notesFold.ringRoom|x: 0|tst_googledrive_panel.qml"
   "Return leaves the Drive notes folded|../plugins/vgs.google-drive/Panel.qml|Keys.onReturnPressed: notesFold.expanded = !notesFold.expanded|Keys.onReturnPressed: {}|tst_googledrive_panel.qml"
@@ -2252,7 +2257,7 @@ mutation_plan=()
 ran_mutations=0
 skipped_mutations=0
 for index in "${!mutations[@]}"; do
-  IFS='|' read -r -d '' label file _needle _replacement test < <(printf '%s\0' "${mutations[index]}")
+  IFS='|' read -r -d '' label file _needle _replacement test _intended_test < <(printf '%s\0' "${mutations[index]}")
   if mutation_selected "$index" "$file" "$test"; then
     mutation_plan+=("run $label")
     ran_mutations=$((ran_mutations + 1))
@@ -2302,9 +2307,9 @@ fresh "$copy"
 
 # One mutation row, in a directory of its own, removed after the run.
 mutation_case() { # INDEX
-  local index="$1" label file needle replacement test dir target count baseline_status mutant_status baseline_out out tests_dir
+  local index="$1" label file needle replacement test intended_test dir target count baseline_status mutant_status baseline_out out tests_dir
   local -a commons_args=() core_args=()
-  IFS='|' read -r -d '' label file needle replacement test < <(printf '%s\0' "${mutations[index]}")
+  IFS='|' read -r -d '' label file needle replacement test intended_test < <(printf '%s\0' "${mutations[index]}")
   # A `|` inside a field shifts the rest, and a runner handed a test that is
   # not there fails, which would read as a red mutation.
   if [[ ! -f $repo/scripts/qml-tests/$test ]]; then fail "$label: the row's test is not a file: $test"; return 0; fi
@@ -2376,7 +2381,12 @@ PY
   printf '%s\n' "$out" | sed 's/^/  CONTROL  /'
   case "$mutant_status" in
     0) fail "$label: $test passed on the mutated copy" ;;
-    1) ok "$label" ;;
+    1)
+      if [[ -z $intended_test ]] || grep -Eq "^FAIL! *: .*::$intended_test\\(" <<<"$out"; then
+        ok "$label"
+      else
+        fail "$label: no intended failed test $intended_test"
+      fi ;;
     *) fail "$label: the runner exited $mutant_status, so no test judged the mutated copy"; printf '%s\n' "$out" | tail -n 5 ;;
   esac
   rm -rf -- "$dir"

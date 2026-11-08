@@ -44,6 +44,7 @@ Item {
     // again when the plugin's settings change.
     property var shell: null
     readonly property var cloud: shell === null ? undefined : shell.status.values.cloud
+    readonly property var syncStatus: shell === null ? undefined : shell.status.values.sync
     readonly property bool known: cloud !== undefined && cloud !== null
     readonly property double now: Time.now.getTime()
     // The header's parts test `header` itself, not `known`: both follow
@@ -63,7 +64,9 @@ Item {
     // The files this popover found no longer on this computer, whose rows
     // say so.
     property var goneFiles: []
-    readonly property string problemLine: problem !== "" ? problem : known ? cloud.problem : ""
+    readonly property string problemLine: problem !== "" ? problem : known ? cloud.problem
+        : syncStatus !== undefined && syncStatus !== null && syncStatus.hint !== undefined ? syncStatus.hint : ""
+    ListCursor { id: foldersCursor }
 
     function open(payloadJson) {
         problem = "";
@@ -223,15 +226,23 @@ Item {
             // visualFocus holds only while Tab, Backtab or a shortcut gave
             // the action its focus (Qt Quick Templates, Control.visualFocus),
             // so only a Dismiss pressed from the keyboard moves the focus.
-            RowAction {
-                id: rowAction
-                visible: reviewRow.modelData.action !== null
-                text: reviewRow.modelData.action === null ? "" : reviewRow.modelData.action.label
-                onClicked: {
-                    const action = reviewRow.modelData.action;
-                    if (action.kind === "folder") reviewRow.showFolder(action.folder);
-                    else if (action.kind === "dismiss") reviewRow.dismiss(action.key, rowAction.visualFocus ? rowAction : null);
-                    else throw new Error("google-drive panel: row action " + JSON.stringify(action.kind) + " is not one conflictRow makes");
+            RowActions {
+                width: parent.width
+                RowAction {
+                    visible: reviewRow.modelData.recoveryAction !== null
+                    text: visible ? reviewRow.modelData.recoveryAction.label : ""
+                    onClicked: reviewRow.showFolder(reviewRow.modelData.recoveryAction.folder)
+                }
+                RowAction {
+                    id: rowAction
+                    visible: reviewRow.modelData.action !== null
+                    text: reviewRow.modelData.action === null ? "" : reviewRow.modelData.action.label
+                    onClicked: {
+                        const action = reviewRow.modelData.action;
+                        if (action.kind === "folder") reviewRow.showFolder(action.folder);
+                        else if (action.kind === "dismiss") reviewRow.dismiss(action.key, rowAction.visualFocus ? rowAction : null);
+                        else throw new Error("google-drive panel: row action " + JSON.stringify(action.kind) + " is not one conflictRow makes");
+                    }
                 }
             }
         }
@@ -284,7 +295,8 @@ Item {
                 Label {
                     width: parent.width
                     role: "bodyStrong"
-                    text: root.header !== null ? root.header.headline : "Reading the sync status"
+                    text: root.header !== null ? root.header.headline
+                        : root.syncStatus !== undefined && root.syncStatus !== null ? root.syncStatus.text : "Reading the sync status"
                     color: root.header !== null ? root.toneColor(root.header.tone) : Theme.color.textMuted
                     wrapMode: Text.Wrap
                 }
@@ -294,6 +306,25 @@ Item {
                     role: "hint"
                     text: root.header !== null ? root.header.meta : ""
                     wrapMode: Text.Wrap
+                }
+                Row {
+                    width: parent.width
+                    visible: root.header !== null
+                    spacing: Theme.space.xs
+                    Label {
+                        id: modeLabel
+                        width: parent.width - (modeInfo.visible ? modeInfo.width + parent.spacing : 0)
+                        role: "hint"
+                        text: root.header !== null ? root.header.mode : ""
+                        wrapMode: Text.Wrap
+                    }
+                    InfoButton {
+                        id: modeInfo
+                        y: modeLabel.topForLeadingIcon(height)
+                        title: "Sync mode"
+                        info: root.shell === null || root.shell.manifest === undefined ? "" : root.shell.manifest.schema.twoWaySync.info
+                        visible: info !== ""
+                    }
                 }
             }
         ]
@@ -439,6 +470,7 @@ Item {
                         width: notesList.width
                         gone: root.goneFiles.indexOf(modelData.file) !== -1
                         onOpenFile: file => root.openFile(file)
+                        onShowFolder: folder => root.showFolder(folder)
                         // The fold line stays while another row does; the
                         // last row takes it along, so the focus moves on to
                         // the stop after the action (Item.nextItemInFocusChain,
@@ -456,6 +488,50 @@ Item {
                 visible: notesFold.expanded && text !== ""
                 role: "hint"
                 text: root.review.moreNotes
+            }
+        }
+
+        Disclosure {
+            width: layout.contentWidth
+            visible: root.known && root.cloud.twoWaySync && root.cloud.pairs.length > 0
+            text: "Recovery and native-document copies"
+            iconName: "folder"
+            cursor: foldersCursor
+            Label {
+                width: parent.width
+                role: "hint"
+                text: "Native documents stay on Drive. Their separate copies are download-only. A move between folder pairs is an addition and a removal, not one physical rename."
+                wrapMode: Text.Wrap
+            }
+            GroupList {
+                id: recoveryFolders
+                width: parent.width
+                Repeater {
+                    model: root.known && root.cloud.twoWaySync ? root.cloud.pairs : []
+                    Column {
+                        required property var modelData
+                        width: recoveryFolders.width
+                        spacing: Theme.row.lineGap
+                        Label {
+                            width: parent.width
+                            role: "item"
+                            text: parent.modelData.label
+                            textFormat: Text.PlainText
+                            wrapMode: Text.Wrap
+                        }
+                        RowActions {
+                            width: parent.width
+                            RowAction {
+                                text: "Open local recovery"
+                                onClicked: root.showFolder(parent.parent.modelData.recoveryPath)
+                            }
+                            RowAction {
+                                text: "Open native-document copies"
+                                onClicked: root.showFolder(parent.parent.modelData.exportsPath)
+                            }
+                        }
+                    }
+                }
             }
         }
 

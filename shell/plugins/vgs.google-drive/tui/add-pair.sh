@@ -29,8 +29,8 @@ pair_id() {
   printf '%s' "${s:-pair}"
 }
 
-vgs_tui_header "Add a folder pair" "VGS copies a Google Drive folder and a folder on this computer both ways." \
-  "Newer files win. It never deletes a file."
+vgs_tui_header "Add a folder pair" "VGS keeps a Google Drive folder and a folder on this computer in step." \
+  "Two-way sync follows moves, renames and removals. Settle earlier files, then initialize the pair from Setup."
 label="$(vgs_tui_input --header "A name for this folder pair. The bar shows it." --placeholder "for example Documents")" || exit 130
 [[ -n $label ]] || exit 130
 remote="$(vgs_tui_input --header "The Google Drive folder, from the top of your Drive." --placeholder "for example Documents/Taxes")" || exit 130
@@ -51,7 +51,7 @@ if answer="$(vgs_tui_logged "$log" "$runner" pair-add --definition "$definition"
     vgs_tui_failed "$log" "VGS could not set up the hourly sync. Select Set up again beside Hourly sync on the Google Drive page in Settings."
     exit 1
   fi
-  vgs_tui_success "VGS added $label. It syncs both ways at the next hourly run, or when you select Sync now."
+  vgs_tui_success "VGS added $label. Two-way sync waits for Initialize two-way sync on Setup. Off copies files at the next run."
   exit 0
 fi
 # The refusal this run logged, not an earlier run's.

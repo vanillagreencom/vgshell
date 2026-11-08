@@ -44,7 +44,8 @@ Item {
     property bool registered: false
     // The runner's last accepted status record and probe answer, null
     // before the first.
-    property var record: null
+    property var statusRead: ({ kind: "pending" })
+    readonly property var record: statusRead.kind === "loaded" ? statusRead.record : null
     property var presence: null
     // The operation of the last request that failed, and its log line.
     property string problem: ""
@@ -60,18 +61,37 @@ Item {
     // The first `status` answered: the record exists, so its directory
     // does, which the watch needs.
     property bool statusReady: false
+    // Settings owns the choice. The runner's control is only its mirror.
+    readonly property var twoWaySync: selectedMode()
+    property var modeConfirmed: null
+    property bool modeInFlight: false
+    property bool syncPending: false
     readonly property string statusFile: Paths.stateDir + "/google-drive/status.json"
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
     // the popover or the launcher.
-    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "reset-pairs", "connect", "sign-out"]
+    readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "reset-pairs", "connect", "sign-out", "initialize"]
         .map(name => shell.tui.state[name] ? shell.tui.state[name].endedAt : null))
 
-    onShellChanged: start()
+    onShellChanged: {
+        start();
+        if (registered) mirrorMode();
+    }
+    onTwoWaySyncChanged: if (registered) mirrorMode()
     onSecretRevisionChanged: if (registered) probe()
     onTuiEndsChanged: if (registered) {
+        mirrorMode();
         refresh();
         probe();
+    }
+
+    // Binding evaluation order is unspecified, so shellChanged can run
+    // before twoWaySync updates. Imperative admission reads Settings
+    // directly; the binding above only supplies change notifications.
+    // https://doc.qt.io/qt-6/qtqml-syntax-propertybinding.html
+    function selectedMode() {
+        return shell === null ? undefined
+            : shell.settings.twoWaySync === undefined ? shell.manifest.settings.twoWaySync : shell.settings.twoWaySync;
     }
 
     function start() {
@@ -87,6 +107,7 @@ Item {
             root.probe();
             return "ok";
         });
+        mirrorMode();
         refresh();
         probe();
     }
@@ -110,11 +131,10 @@ Item {
         client.request(["status", "--quiet"], (ok, out, line, code) => {
             if (root.heldAnswer(code, line)) return;
             if (!ok) {
-                root.failed("status", line);
+                root.unreadable(line);
                 return;
             }
             root.statusReady = true;
-            root.succeeded("status");
         });
     }
 
@@ -156,6 +176,11 @@ Item {
     // arguments; the runner's record write shows its effect.
     function act(args) {
         const operation = args[0];
+        if (operation === "start") {
+            syncPending = true;
+            mirrorMode();
+            return "ok";
+        }
         client.request(args, (ok, out, line, code) => {
             if (root.heldAnswer(code, line)) return;
             if (ok) root.succeeded(operation);
@@ -164,13 +189,77 @@ Item {
         return "ok";
     }
 
+    function mirrorMode() {
+        if (shell === null || modeInFlight) return;
+        const selected = selectedMode();
+        if (modeConfirmed === selected) {
+            flushSync();
+            return;
+        }
+        modeInFlight = true;
+        publish();
+        // RunnerClient's Process command is an argv list, never a shell
+        // string (Quickshell 0.3.1):
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+        // Coalesce changes while this serialized write runs. Only its
+        // successful answer permits a Sync now request.
+        client.request(["set-two-way", selected ? "true" : "false"], (ok, out, line, code) => {
+            root.modeInFlight = false;
+            if (root.heldAnswer(code, line)) {
+                root.modeConfirmed = null;
+                return;
+            }
+            if (!ok) {
+                root.modeConfirmed = null;
+                root.syncPending = false;
+                root.failed("set-two-way", line);
+                return;
+            }
+            root.modeConfirmed = selected;
+            root.succeeded("set-two-way");
+            root.publish();
+            root.refresh();
+            root.mirrorMode();
+        });
+    }
+
+    function flushSync() {
+        if (!syncPending || modeInFlight || modeConfirmed !== selectedMode()) return;
+        syncPending = false;
+        if (statusRead.kind === "unreadable") return;
+        client.request(["start"], (ok, out, line, code) => {
+            if (root.heldAnswer(code, line)) return;
+            if (ok) root.succeeded("start");
+            else root.failed("start", line);
+        }, () => {
+            if (root.modeInFlight || root.modeConfirmed !== root.selectedMode()) {
+                root.syncPending = true;
+                root.mirrorMode();
+                return false;
+            }
+            return root.statusRead.kind !== "unreadable";
+        });
+    }
+
+    function unreadable(line) {
+        statusRead = { kind: "unreadable", line: line };
+        syncPending = false;
+        stale.stop();
+        failed("status", line);
+    }
+
     function accept(content) {
         const judged = Logic.parseStatus(content);
         if (!judged.ok) {
-            console.warn("google-drive: status record refused: " + judged.error);
+            unreadable("status record refused: " + judged.error);
             return;
         }
-        record = judged.record;
+        statusRead = { kind: "loaded", record: judged.record };
+        succeeded("status");
+        if (record.twoWaySync !== selectedMode()) {
+            modeConfirmed = null;
+            mirrorMode();
+        }
         const now = record.pairs.map(p => p.id).sort().join(",");
         if (now !== pairKeys) {
             pairKeys = now;
@@ -183,7 +272,12 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const values = Logic.statusValues(record, presence, Logic.problemText(problem, problemLine), heldReason, Date.now(), Paths.home);
+        // A later control failure or success cannot erase an unreadable
+        // status result. Only the watch's next accepted read replaces it.
+        const failure = statusRead.kind === "unreadable" ? Logic.problemText("status", statusRead.line) : Logic.problemText(problem, problemLine);
+        const values = Logic.statusValues(record, presence, failure, heldReason, Date.now(), Paths.home);
+        const selected = selectedMode();
+        if (values.cloud !== undefined) values.cloud.modePending = modeInFlight || modeConfirmed !== selected || record.twoWaySync !== selected;
         const next = Object.assign({}, reported);
         for (const key of Logic.changedKeys(reported, values)) {
             const value = values[key] === undefined ? null : values[key];
@@ -239,7 +333,7 @@ Item {
             path: root.statusFile
             onChanged: read()
             onLoaded: content => root.accept(content)
-            onLoadFailed: error => console.warn("google-drive: status record unreadable: " + FileViewError.toString(error))
+            onLoadFailed: error => root.unreadable("status record unreadable: " + FileViewError.toString(error))
         }
     }
 
@@ -250,6 +344,7 @@ Item {
         interval: Logic.HELD_RETRY_MS
         repeat: false
         onTriggered: {
+            root.mirrorMode();
             root.refresh();
             root.probe();
         }

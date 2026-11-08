@@ -99,7 +99,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Displays](shell/plugins/vgs.displays/README.md) | Set each display's mode, scale, orientation and brightness. |
 | [Fonts](shell/plugins/vgs.fonts/README.md) | Set the font of the shell and of your terminals. |
 | [VGS Components](shell/plugins/vgs.gallery/README.md) | Preview VGS controls in the current theme. |
-| [Google Drive](shell/plugins/vgs.google-drive/README.md) | Keep folders on this computer in step with Google Drive. VGS copies both ways every hour and never deletes a file. |
+| [Google Drive](shell/plugins/vgs.google-drive/README.md) | Keep folders on this computer in step with Google Drive. Moves, renames and removals follow changes on either side. |
 | [Login screen](shell/plugins/vgs.greeter/README.md) | Log in on a screen in your VGS theme. |
 | [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. Turning Jarvis off ends the session and prevents automatic starts. |
 | [Keyboard](shell/plugins/vgs.keyboard/README.md) | Choose input sources and key repeat. |

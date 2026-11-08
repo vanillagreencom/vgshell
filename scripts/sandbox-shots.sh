@@ -9721,7 +9721,8 @@ cs_shots() {
 # classifyBeforeCopy), so the stand-in's listing gives each file its inode
 # as its ID: a rename keeps it, as a rename on Drive keeps the object's ID.
 scene_googledrive() { # MODE
-  local m="$1" cs="$sandbox/googledrive-$1" host_rclone host_node drive runner pairs_file
+  local m="$1" cs="$sandbox/googledrive-$1" host_rclone host_node drive runner pairs_file cs_two_way=false
+  if tree_has shell/plugins/vgs.google-drive/manifest.json '"twoWaySync"'; then cs_two_way=true; fi
   # The node binary itself: a version manager's shim on PATH may not run
   # under the runner's environment, which the stand-in inherits.
   host_node="$(node -e 'process.stdout.write(process.execPath)')" || { fail "googledrive scene: node missing"; return; }
@@ -9770,7 +9771,9 @@ for a in "\$@"; do
     vgsdrive:*) remote="\${a#vgsdrive:}" ;;
   esac
 done
-[[ -n \$list ]] || exec "$host_rclone" "\$@"
+# Local admission listings already describe their own root. Only Drive
+# listings need the fixture's object IDs.
+[[ -n \$list && \$* == *vgsdrive:* ]] || exec "$host_rclone" "\$@"
 # A folder's read-only listing with Drive's owner metadata answers the
 # stand-in copies of its doubled names: a local folder holds one file a
 # name, and the local backend names no owner.
@@ -9826,7 +9829,18 @@ fi
 case "\${1:-}" in search) exit 0 ;; lookup) exit 1 ;; esac
 exit 1
 SH
-  csr() { env -i HOME="$home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$rt_dir" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" XDG_DATA_HOME="$home/.local/share" node "$tree/shell/plugins/vgs.google-drive/bin/google-drive" "$@" >/dev/null 2>>"$cs/runner.err"; }
+  csr() { env -i HOME="$home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$rt_dir" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" XDG_DATA_HOME="$home/.local/share" VGS_TUI_LIB="$cs/confirmation-fixture.sh" node "$tree/shell/plugins/vgs.google-drive/bin/google-drive" "$@" >>"$SHOT_DIR/googledrive-$m-runner.log" 2>>"$SHOT_DIR/googledrive-$m-runner.err"; }
+  cs_route() { env -i HOME="$home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$rt_dir" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" XDG_DATA_HOME="$home/.local/share" node "$tree/shell/plugins/vgs.google-drive/bin/google-drive" status | "$host_node" -e 'const s=JSON.parse(require("fs").readFileSync(0,"utf8")); console.log(String(s.twoWaySync));'; }
+  cs_setting() {
+    expect "Google Drive Settings opens for its mode" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+    expect_poll "Google Drive Settings maps for its mode" 1 settings_count
+    expect "Google Drive opens its actual Settings page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.google-drive
+    expect "Google Drive Settings writes the selected mode" ok ipc smoke invokeInstanceArgs window vgs.settings writeSetting "{\"args\":[\"vgs.google-drive\",\"twoWaySync\",$1]}"
+    expect_poll "Google Drive service receives its Settings mode" "$1" ipc smoke readInstance service vgs.google-drive twoWaySync
+    expect_poll "Google Drive runner mirrors its Settings mode" "$1" cs_route
+    printf 'Settings/Google Drive twoWaySync=%s runner-mirror=%s\n' "$1" "$(cs_route)" >>"$SHOT_DIR/googledrive-$m-fixture.log"
+    settings_close
+  }
   # How many paths of the old layout remain, and whether the units under
   # the plugin's own name are installed.
   cs_old_layout() {
@@ -9855,6 +9869,7 @@ SH
   printf 'report\n' >"$home/googledrive-$m/inbox/agent-uploads/report.md"
   expect "Google Drive is enabled for its images" ok ipc shell setPluginEnabled vgs.google-drive true
   expect "Google Drive's widget is placed for its images" ok ipc shell setPluginPlaced vgs.google-drive true
+  if [[ $cs_two_way == true ]]; then cs_setting true; fi
   csr status || fail "googledrive scene: first status"
 
   # Nothing installed, no folder pair, no key. A tree whose first folder
@@ -9878,6 +9893,12 @@ SH
   cs_shots "$m" 3-no-pair no-pairs
   # Both pairs synced, nothing to review.
   cs_pairs
+  if [[ $cs_two_way == true ]]; then
+    expect_poll "the new product starts with default On" true cs_route
+    csr run && fail "googledrive scene: uninitialized default On ran successfully"
+    cs_shots "$m" 12-default-on initialization-required
+    cs_setting false
+  fi
   csr run || fail "googledrive scene: first run"
   cs_shots "$m" 4-empty-review idle none
   csr pause || fail "googledrive scene: pause"
@@ -9910,6 +9931,48 @@ SH
   mv -- "$drive/VGS/Uploads/report.md" "$drive/VGS/Uploads/October-planning-meeting-report-with-every-agent-task-its-owner-and-its-due-date.md"
   csr run || fail "googledrive scene: review run"
   cs_shots "$m" 8-review needs-you
+  if [[ $cs_two_way == true ]]; then
+    # The retained Off copy history stays copy history when Settings
+    # selects On. Only the explicit equal-set action establishes bisync.
+    cs_setting true
+    csr run && fail "googledrive scene: On reused a copy baseline"
+    cs_shots "$m" 13-on-copy-history initialization-required
+    local root remote local_root n pair
+    for pair in documents uploads; do
+      if [[ $pair == documents ]]; then remote="$drive/Documents"; local_root="$home/googledrive-$m/Drive/Documents"
+      else remote="$drive/VGS/Uploads"; local_root="$home/googledrive-$m/inbox/agent-uploads"; fi
+      for root in "$remote" "$local_root"; do
+        printf 'access\n' >"$root/RCLONE_TEST"
+        for n in {1..8}; do printf 'neutral %s\n' "$n" >"$root/neutral-$n.txt"; done
+      done
+    done
+    local confirmation="$cs/confirmation"
+    mkdir -p -- "$confirmation"
+    [[ ! -e $confirmation/gum && ! -L $confirmation/gum ]] || { fail "googledrive scene: fake gum path already occupied"; return; }
+    printf '%s\n' 'vgs_tui_confirm() { gum confirm "$2" -- "$1"; }' >"$cs/confirmation-fixture.sh"
+    cat >"$confirmation/gum" <<'SH'
+#!/usr/bin/env bash
+[[ $1 == confirm && $2 == --default=false ]] || exit 2
+exit 0
+SH
+    chmod 755 "$confirmation/gum"
+    # The existing device gum stays on the shell's PATH. Only these declared
+    # confirmation phases see the scratch answer, scoped to their subshell.
+    (
+      shell_start_path="$confirmation:$shell_start_path"
+      csr initialize --pair documents
+    ) || fail "googledrive scene: documents initialization"
+    (
+      shell_start_path="$confirmation:$shell_start_path"
+      csr initialize --pair uploads
+    ) || fail "googledrive scene: uploads initialization"
+    rm -- "$home/googledrive-$m/Drive/Documents/Taxes/2025 return.pdf"
+    rm -- "$drive/Documents/budget.xlsx"
+    mv -- "$drive/Documents/notes.md" "$drive/Documents/renamed-notes.md"
+    csr run || fail "googledrive scene: initialized ordinary On"
+    cs_shots "$m" 14-two-way-recovery needs-you
+    cs_setting false
+  fi
   # A legal folder as the owner met it (VGS-1727): two dangling shortcuts
   # the download cannot open, and names Drive holds twice, two in copies
   # the user owns that are the same, one in copies the user owns that

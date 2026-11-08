@@ -11,21 +11,23 @@
 
 // The runner's overall states and a pair's states (bin/google-drive,
 // renderStatus).
-var STATES = ["idle", "running", "paused", "offline", "authorization-required", "error", "not-set-up"];
-var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "error"];
+var STATES = ["idle", "running", "paused", "offline", "authorization-required", "initialization-required", "error", "not-set-up"];
+var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "initialization-required", "error"];
+var ROUTES = ["copy", "two-way"];
+var OPERATIONS = ["copy", "two-way", "initialize", "exports"];
+var OUTCOMES = ["completed", "partial"];
+var RECOVERIES = ["local-recovery", "drive-trash", "drive-revisions", "active-conflicts"];
 var UNITS = ["installed", "absent", "stale"];
-var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "duplicate-identical", "duplicate-different"];
+var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "local-recovery", "conflict-unresolved", "duplicate-identical", "duplicate-different"];
 var DUPLICATE_KINDS = ["duplicate-identical", "duplicate-different"];
 // Whether a review record needs the user or only says what the sync did
 // (bin/google-drive needsOf decides it; this file only reads it).
 var NEEDS = ["you", "nothing"];
 // A review row's key, bin/google-drive conflictKey: a dismissal names it.
 var CONFLICT_KEY = /^[0-9a-f]{16}$/;
-// The kinds whose row has an action on this computer: each leaves the file
-// here, where the user checks it or deletes it. A name Drive holds twice
-// and a file the download could not copy are fixed in Google Drive, so
-// their rows have none.
-var LOCAL_ACTION_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed"];
+// Local-file and recovery kinds can offer a folder action. Drive-only
+// duplicate and unreadable-file records have no such action.
+var LOCAL_ACTION_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "local-recovery", "conflict-unresolved"];
 var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // The credential accounts of the manifest's `secrets`, in the order the
 // Setup section lists them (bin/google-drive probe prints the same set).
@@ -53,6 +55,7 @@ var STATE_VIEW = {
     paused: { text: "Paused", tone: "info", icon: "cloud-off" },
     offline: { text: "Offline", tone: "warning", icon: "cloud-off" },
     "authorization-required": { text: "Sign-in needed", tone: "danger", icon: "cloud-alert" },
+    "initialization-required": { text: "Initialization needed", tone: "warning", icon: "cloud-alert" },
     error: { text: "Sync failed", tone: "danger", icon: "cloud-alert" },
     "not-set-up": { text: "Not set up", tone: "warning", icon: "cloud" }
 };
@@ -76,9 +79,23 @@ var ERROR_TEXT = {
     "secret-tool-failed": "VGS cannot read your keyring.",
     "secret-tool-timeout": "VGS cannot read your keyring.",
     interrupted: "The last sync stopped before it finished.",
+    "initialization-required": "Settle earlier removals and native-document copies with Jarvis, then initialize the matching folders on Setup.",
+    "baseline-evidence-unreadable": "VGS cannot read the earlier sync records. Keep the folders paused and review them before initialization.",
+    "deletion-limit": "The sync would remove more than half of a folder, so it stopped. Review the removals or large rename with Jarvis before a one-run allowance.",
+    "bisync-recovery-required": "The two-way sync history cannot be recovered. Review the folders with Jarvis, then initialize them again on Setup.",
     "pairs-invalid": "The folder pair list is not valid, so VGS copies nothing."
 };
 var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next sync.";
+var INITIALIZATION_REASONS = {
+    "baseline-missing": "No two-way baseline exists",
+    "roots-changed": "The paired folders changed",
+    "policy-changed": "The sync policy changed",
+    "filters-changed": "The file filters changed",
+    "history-missing": "The two-way history is missing",
+    "history-unreadable": "The two-way history cannot be read",
+    "identity-changed": "The account or a folder changed",
+    "native-export-in-sync-root": "A native-document copy is inside a sync folder"
+};
 // A missing sign-in, the token's credential-absent.
 var SIGNED_OUT_TEXT = "Google Drive is not signed in. [Sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).";
 // Each review row's one line: what the sync did, then what the user does,
@@ -91,9 +108,24 @@ var SIGNED_OUT_TEXT = "Google Drive is not signed in. [Sign in on the Google Dri
 var CONFLICT_TEXT = {
     "both-changed-kept": "Changed here and on Google Drive. The Google Drive version is here now. Compare it with the copy that was here, which VGS keeps for 30 days.",
     "both-changed": "Changed here and on Google Drive. The copy here was newer, so VGS copied it to Google Drive. If you need the other version, open the file's version history in Google Drive.",
-    "removed-locally": "Removed here. VGS put it back from Google Drive, so nothing is lost. If you do not want it, delete it here and in Google Drive.",
-    "removed-on-drive": "Removed from Google Drive. VGS put it back from this computer, so nothing is lost. If you do not want it, delete it here and in Google Drive.",
-    renamed: "Renamed to {to} on Google Drive. VGS deletes no file, so both names are now here and on Google Drive. If you do not want this name, delete it here and in Google Drive.",
+    "removed-locally": "Earlier copy-only sync: removed here, then put back from Google Drive. Review unwanted restored files with Jarvis before initialization.",
+    "removed-on-drive": "Earlier copy-only sync: removed from Google Drive, then put back from this computer. Review unwanted restored files with Jarvis before initialization.",
+    renamed: "Earlier copy-only sync: renamed to {to} on Google Drive, then kept both names. Review the intended destination with Jarvis before initialization.",
+    "two-way-removed-locally": "Removed here and sent to Drive Trash. This sync did not put the file back.",
+    "two-way-removed-on-drive": "Removed from Google Drive and from this folder. The local copy is in recovery for 30 days.",
+    "two-way-removed-on-drive-expired": "Removed from Google Drive and from this folder. The local recovery copy is no longer available.",
+    "two-way-renamed": "Renamed within this folder pair to {to}. The old path is no longer active.",
+    "two-way-both-changed-local-recovery": "Changed on both sides. The newer Drive version is here. Compare it with the local version in recovery for 30 days.",
+    "two-way-both-changed-drive-trash": "Changed on both sides. The newer local version is on Drive. The other Drive version went to Trash.",
+    "two-way-both-changed-drive-revisions": "Changed on both sides. The newer local version is on Drive. Check Drive's version history for the other version.",
+    "local-recovery-completed": "VGS kept local bytes in recovery for 30 days. This note does not decide whether the change was a removal or a conflict.",
+    "local-recovery-partial": "The operation did not finish. VGS kept these local bytes in recovery for 30 days. Some files can already have changed.",
+    "local-recovery-expired": "This recovery copy is no longer available. The note does not decide whether the change was a removal or a conflict.",
+    "exports-recovery-completed": "VGS refreshed a download-only native-document copy and kept the earlier local bytes in recovery for 30 days. The native document stays on Drive.",
+    "exports-recovery-partial": "The native-document download did not finish. VGS kept these local bytes in recovery for 30 days. Check the separate copies folder.",
+    "initialize-recovery-completed": "Initialization kept these local bytes in recovery for 30 days. This note does not decide whether the change was a removal or a conflict.",
+    "initialize-recovery-partial": "Initialization did not finish. VGS kept these local bytes in recovery for 30 days. Some files can already have changed. Compare the folders again before new consent.",
+    "conflict-unresolved": "Neither changed version was newer, so both conflict files stay in the active folders. Choose the version to keep. VGS does not expire these files.",
     "duplicate-identical": "Google Drive has identical copies of this file, so nothing is lost. To remove it from this list, keep one copy in Google Drive and delete the others.",
     "duplicate-identical-shared": "Google Drive has identical copies of this file, so nothing is lost. Only {owner}, who shared them with you, can remove a copy.",
     "duplicate-identical-unowned": "Google Drive has identical copies of this file, so nothing is lost. Only their owner can remove a copy.",
@@ -105,8 +137,19 @@ var CONFLICT_TEXT = {
 // that states a limit has an info that says why
 // (docs/architecture/design-system.md § Copy).
 var CONFLICT_INFO = {
-    "both-changed-kept": "VGS deletes a kept copy after 30 days, so old copies do not fill your disk. To keep the copy for longer, move it out of its folder."
+    "both-changed-kept": "VGS deletes a kept copy after 30 days, so old copies do not fill your disk. To keep the copy for longer, move it out of its folder.",
+    "two-way-removed-locally": "Google controls Trash retention. Emptying Trash can remove this recovery before its normal expiry.",
+    "two-way-removed-on-drive": "Move a recovery copy out of this folder to keep it longer than 30 days.",
+    "two-way-both-changed-local-recovery": "Move a recovery copy out of this folder to keep it longer than 30 days.",
+    "two-way-both-changed-drive-trash": "Google controls Trash retention. Emptying Trash can remove this recovery.",
+    "two-way-both-changed-drive-revisions": "Google controls revision retention. VGS does not keep a local copy of the remote version.",
+    "local-recovery-completed": "Move a recovery copy out of this folder to keep it longer than 30 days.",
+    "local-recovery-partial": "A failed operation is not rolled back. Keep these bytes until you have reviewed the active folders. Move them out of recovery to keep them longer than 30 days.",
+    "exports-recovery-completed": "Native documents are edited, renamed and moved on Drive. Their separate copies are download-only and do not enter two-way sync. Move recovery bytes out to keep them longer than 30 days.",
+    "exports-recovery-partial": "A failed download can already have replaced copies. The separate copies folder never uploads to Drive. Move recovery bytes out to keep them longer than 30 days."
 };
+CONFLICT_INFO["initialize-recovery-completed"] = CONFLICT_INFO["local-recovery-completed"];
+CONFLICT_INFO["initialize-recovery-partial"] = CONFLICT_INFO["local-recovery-partial"];
 // A review row's mark: a file that needs the user, else a file that
 // needs no action by its kind, a doubled name, a file not copied, or a
 // file the sync kept.
@@ -186,6 +229,7 @@ var PROBLEM_TEXT = {
     resume: "VGS could not resume the Google Drive sync.",
     status: "VGS could not read the Google Drive status.",
     probe: "VGS could not check the Google Drive keys.",
+    "set-two-way": "VGS could not save the sync mode for the hourly runner. Sync now is held until this succeeds.",
     dismiss: "VGS could not remove the file from the list."
 };
 
@@ -228,12 +272,23 @@ function dirname(file) {
 }
 
 function errorOk(value) {
-    return value === null || (isObject(value) && isText(value.kind));
+    return value === null || (isObject(value) && isText(value.kind)
+        && (!hasOwn(value, "operation") || OPERATIONS.indexOf(value.operation) !== -1)
+        && (!hasOwn(value, "mayHaveChanged") || typeof value.mayHaveChanged === "boolean")
+        && (!hasOwn(value, "reason") || isText(value.reason)));
+}
+
+function absolutePath(value) {
+    return isText(value) && value.charAt(0) === "/" && !NOT_PRINTABLE.test(value);
 }
 
 function pairOk(p) {
     return isObject(p) && !hasOwn(p, "direction") && isText(p.id) && isText(p.label) && isText(p.remote) && isText(p.local) && p.local.charAt(0) === "/"
-        && PAIR_STATES.indexOf(p.state) !== -1 && isTime(p.lastSuccess) && isTime(p.staleAfter) && errorOk(p.lastError);
+        && PAIR_STATES.indexOf(p.state) !== -1 && isTime(p.lastSuccess) && isTime(p.staleAfter) && errorOk(p.lastError)
+        && ROUTES.indexOf(p.route) !== -1 && (p.operation === null || ["copy", "two-way", "initialize"].indexOf(p.operation) !== -1)
+        && isObject(p.initialization) && ["required", "ready"].indexOf(p.initialization.state) !== -1
+        && (p.initialization.state === "ready" ? p.initialization.reason === null : isText(p.initialization.reason) && p.initialization.reason !== "")
+        && absolutePath(p.recoveryPath) && absolutePath(p.exportsPath);
 }
 
 // A doubled name carries `mine` and, only when it is not the user's,
@@ -241,9 +296,22 @@ function pairOk(p) {
 function conflictOk(c) {
     if (!isObject(c)) return false;
     var duplicate = DUPLICATE_KINDS.indexOf(c.kind) !== -1;
+    // The runner retains untagged copy history. Only an explicitly tagged
+    // completed two-way record can report a removal or rename.
+    var twoWay = c.operation === "two-way";
+    if (hasOwn(c, "operation") && OPERATIONS.indexOf(c.operation) === -1) return false;
+    if (hasOwn(c, "outcome") && OUTCOMES.indexOf(c.outcome) === -1) return false;
+    if (hasOwn(c, "recovery") && RECOVERIES.indexOf(c.recovery) === -1) return false;
+    if (hasOwn(c, "storedPath") && !absolutePath(c.storedPath)) return false;
+    if (twoWay && c.outcome !== "completed" && c.kind !== "local-recovery") return false;
+    if (twoWay && c.kind === "removed-locally" && c.recovery !== "drive-trash") return false;
+    if (twoWay && c.kind === "removed-on-drive" && c.recovery !== "local-recovery") return false;
+    if (twoWay && c.kind === "both-changed" && ["local-recovery", "drive-trash", "drive-revisions"].indexOf(c.recovery) === -1) return false;
+    if (c.kind === "local-recovery" && (["two-way", "initialize", "exports"].indexOf(c.operation) === -1
+        || OUTCOMES.indexOf(c.outcome) === -1 || c.recovery !== "local-recovery")) return false;
+    if (c.kind === "conflict-unresolved" && (!twoWay || c.outcome !== "completed" || c.recovery !== "active-conflicts")) return false;
     return CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pair) && isText(c.pairLabel) && isText(c.path)
         && ((c.kind === "unreadable-on-drive" && !hasOwn(c, "localPath")) || (isText(c.localPath) && c.localPath.charAt(0) === "/"))
-        && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
         && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since)
         && NEEDS.indexOf(c.needs) !== -1 && isText(c.key) && CONFLICT_KEY.test(c.key)
         && (duplicate ? typeof c.mine === "boolean" : !hasOwn(c, "mine"))
@@ -263,6 +331,7 @@ function parseStatus(text) {
     if (!isObject(doc)) return { ok: false, error: "status=shape" };
     if (STATES.indexOf(doc.state) === -1) return { ok: false, error: "status=state" };
     if (typeof doc.paused !== "boolean") return { ok: false, error: "status=paused" };
+    if (typeof doc.twoWaySync !== "boolean") return { ok: false, error: "status=twoWaySync" };
     if (UNITS.indexOf(doc.units) === -1) return { ok: false, error: "status=units" };
     if (!isTime(doc.lastSuccess) || !isTime(doc.staleAfter)) return { ok: false, error: "status=time" };
     if (!errorOk(doc.lastError)) return { ok: false, error: "status=lastError" };
@@ -329,7 +398,12 @@ function badgeTone(tone) {
 function errorText(error) {
     if (error === null) return "";
     if (error.kind === "credential-absent" && error.account === "token") return SIGNED_OUT_TEXT;
-    return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
+    var text = hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
+    if (error.operation === "exports") return "The native-document download did not finish. Check the separate copies and recovery folders; the ordinary-file sync may have finished.";
+    if (error.operation === "initialize") text = "Initialization did not finish. Compare the folders again and review the preview before new consent. " + (hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : "");
+    if (error.mayHaveChanged === true) text += " Some files can already have changed. Review the active folders and recovery before retrying.";
+    else if (error.mayHaveChanged === false) text += " This attempt changed no active sync file.";
+    return text;
 }
 
 // The pair list reader's detail as one sentence a user reads. The keyed
@@ -363,9 +437,8 @@ function problemText(operation, firstLine) {
 }
 
 
-// Whether CONFLICT has an action on this computer: a kind whose file
-// stays here (LOCAL_ACTION_KINDS) and that the runner names a local path
-// for. A kind whose fix is in Google Drive has none.
+// The runner names the local path for local-file and recovery records.
+// A kind whose fix is in Google Drive has no local action.
 function hasLocalAction(conflict) {
     return LOCAL_ACTION_KINDS.indexOf(conflict.kind) !== -1 && conflict.localPath !== undefined;
 }
@@ -374,8 +447,10 @@ function hasLocalAction(conflict) {
 // it names, which errorText reads.
 function publishedError(error) {
     if (error === null) return null;
-    if (error.kind === "pairs-invalid" && isText(error.detail)) return { kind: error.kind, detail: error.detail };
-    return isText(error.account) ? { kind: error.kind, account: error.account } : { kind: error.kind };
+    var out = { kind: error.kind };
+    for (var key of ["account", "detail", "operation", "mayHaveChanged", "reason"])
+        if (hasOwn(error, key)) out[key] = error[key];
+    return out;
 }
 
 // Whether the runner could read the pair list; while it cannot, it
@@ -384,10 +459,10 @@ function pairListValid(cloud) {
     return cloud.lastError === null || cloud.lastError.kind !== "pairs-invalid";
 }
 
-// The folder of the copy a download displaced, kept beside the pair's
-// records, or undefined: Show older copy opens it.
+// Open only a recovery folder the runner actually names, never one
+// inferred from a queued removal or from the current mode.
 function copyFolder(conflict) {
-    if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) return dirname(conflict.storedPath);
+    if (conflict.storedPath !== undefined) return dirname(conflict.storedPath);
     return undefined;
 }
 
@@ -417,6 +492,9 @@ function cloudValue(record, problem) {
         var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), needs: c.needs, localAction: hasLocalAction(c) };
         out.key = c.key;
         if (c.localPath !== undefined) out.localPath = c.localPath;
+        if (c.storedPath !== undefined) out.storedPath = c.storedPath;
+        for (var key of ["operation", "outcome", "recovery"])
+            if (hasOwn(c, key)) out[key] = c[key];
         var copy = copyFolder(c);
         if (copy !== undefined) out.copyFolder = copy;
         if (c.kind === "renamed") out.to = c.to;
@@ -429,6 +507,7 @@ function cloudValue(record, problem) {
     });
     var value = {
         state: record.state,
+        twoWaySync: record.twoWaySync,
         paused: record.paused,
         units: record.units,
         lastSuccess: msOf(record.lastSuccess),
@@ -436,7 +515,9 @@ function cloudValue(record, problem) {
         lastError: publishedError(record.lastError),
         pairs: record.pairs.map(function (p) {
             var own = record.conflicts.filter(function (c) { return c.pair === p.id; });
-            return { id: p.id, label: p.label, remote: p.remote, local: p.local, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError),
+            return { id: p.id, label: p.label, remote: p.remote, local: p.local, state: p.state,
+                route: p.route, operation: p.operation, initialization: p.initialization, recoveryPath: p.recoveryPath, exportsPath: p.exportsPath,
+                lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError),
                 needsYou: own.filter(function (c) { return c.needs === "you"; }).length };
         }),
         conflicts: conflicts,
@@ -471,6 +552,8 @@ function headline(cloud, now) {
         return cloud.state === state || cloud.pairs.some(function (p) { return p.state === state; });
     });
     if (danger.length > 0) return withCause(STATE_VIEW[danger[0]], danger[0]);
+    if (cloud.state === "initialization-required" || cloud.pairs.some(function (p) { return p.state === "initialization-required"; }))
+        return withCause(STATE_VIEW["initialization-required"], "initialization-required");
     if (cloud.needsYou > 0) return { text: needsLine(cloud.needsYou), tone: "warning", icon: "cloud-alert", cause: "needs-you" };
     return withCause(stateView(cloud.state, cloud.staleAfter, now), cloud.state);
 }
@@ -488,6 +571,7 @@ function withCause(view, cause) {
 function headlineHint(cloud, head) {
     if (head.cause === "needs-you") return NEEDS_HINT;
     if (head.cause === "not-set-up") return SCHEDULE_HINTS.failed;
+    if (head.cause === "initialization-required") return ERROR_TEXT["initialization-required"];
     if (head.tone === "danger" || head.cause === "offline") return errorText(cloud.lastError);
     return "";
 }
@@ -496,6 +580,8 @@ function headlineHint(cloud, head) {
 // sync lines: its state, and an idle pair by its own files that need the
 // user before the data's age, in the headline's tone for them.
 function pairView(pair, now) {
+    if (pair.state === "running" && pair.operation === "initialize") return { text: "Initializing two-way sync", tone: "info", icon: "cloud-sync" };
+    if (pair.state === "running" && pair.route === "copy") return { text: "Copying newer files", tone: "info", icon: "cloud-sync" };
     if (pair.state === "idle" && pair.needsYou > 0) return { text: needsLine(pair.needsYou), tone: "warning", icon: "cloud-alert" };
     return stateView(pair.state, pair.staleAfter, now);
 }
@@ -514,7 +600,9 @@ function syncValue(cloud, now) {
     var value = { tone: head.tone, text: head.text };
     if (cloud.pairs.length > 0) value.lines = pairLines(cloud.pairs, now).slice(0, LINES_MAX);
     var hint = headlineHint(cloud, head);
-    if (hint !== "") value.hint = hint;
+    // Details hints have a byte/length limit. Keep the full cause in the
+    // popover rather than cutting a Setup page reference in half.
+    if (hint !== "") value.hint = hint.length > HINT_MAX ? "The operation did not finish. " + NEEDS_HINT : hint;
     return value;
 }
 
@@ -560,6 +648,7 @@ function pairFolders(pair, home) {
 // What a pair's Settings row says of it: its files that need the user as
 // a warning, which the page draws as a chip, else its state.
 function pairState(pair, now) {
+    if (pair.state === "initialization-required") return { tone: "warning", text: STATE_VIEW["initialization-required"].text };
     if (pair.needsYou > 0) return { tone: "warning", text: needsLine(pair.needsYou) };
     var view = stateView(pair.state, pair.staleAfter, now);
     return { tone: view.tone, text: view.text };
@@ -571,14 +660,16 @@ var UNREADABLE_ROW = { id: "unreadable", label: "The folder pair list cannot be 
     state: { tone: "danger", text: "Not readable" }, actions: [] };
 
 // The `pairs` rows value of CLOUD (PluginLogic, a `rows` entry): one row
-// per pair, its label, its folders and its state, each with Remove, whose
-// TUI takes the pair's id. While the runner cannot read the pair list it
+// per pair, its label, its folders and its state, with Initialize while
+// required and Remove. Both TUIs take the published pair id.
+// While the runner cannot read the pair list it
 // holds no pair and refuses every change but the repair, so the list holds
 // UNREADABLE_ROW alone, with no Remove. HOME is the user's home folder.
 function pairsValue(cloud, now, home) {
     if (!pairListValid(cloud)) return [UNREADABLE_ROW];
     return cloud.pairs.slice(0, LINES_MAX).map(function (p) {
-        return { id: p.id, label: cut(p.label, ROW_LABEL_MAX), secondary: cut(pairFolders(p, home), ROW_TEXT_MAX), state: pairState(p, now), actions: ["remove"] };
+        return { id: p.id, label: cut(p.label, ROW_LABEL_MAX), secondary: cut(pairFolders(p, home), ROW_TEXT_MAX), state: pairState(p, now),
+            actions: cloud.twoWaySync && p.state !== "running" && p.initialization.state === "required" ? ["initialize", "remove"] : ["remove"] };
     });
 }
 
@@ -682,6 +773,24 @@ function accountValue(presence, record) {
     return { tone: "ok", text: user !== undefined && user.length <= ROW_TEXT_MAX ? user : "Signed in" };
 }
 
+function initializationValue(cloud, presence) {
+    if (!cloud.twoWaySync) return { tone: "info", text: "Copy-only selected", available: false, hint: "Turn on Two-way sync on Settings before initialization" };
+    if (!pairListValid(cloud)) return { tone: "warning", text: "Folder list needed", available: false, hint: "Start the folder pair list again on Setup first" };
+    if (cloud.pairs.length === 0) return { tone: "info", text: "Folder pair needed", available: false, hint: "Add a folder pair on Settings first" };
+    if (cloud.pairs.some(function (p) { return p.state === "running"; }))
+        return { tone: "info", text: "Operation running", available: false, hint: "Wait for the current operation to finish" };
+    if (presence === null || presences(presence).some(function (p) { return p !== "present"; }))
+        return { tone: "info", text: "Sign-in needed", available: false, hint: "Add the keys and sign in on Setup first" };
+    var required = cloud.pairs.filter(function (p) { return p.initialization.state === "required"; });
+    if (required.length > 0)
+        return { tone: "warning", text: "Initialization needed", action: true, hint: ERROR_TEXT["initialization-required"],
+            lines: required.slice(0, LINES_MAX).map(function (p) {
+                var reason = p.initialization.reason;
+                return p.label + ": " + (hasOwn(INITIALIZATION_REASONS, reason) ? INITIALIZATION_REASONS[reason] : "Review the folders before initialization");
+            }) };
+    return { tone: "ok", text: "Initialized", hint: "Each run checks the account and folders again before two-way sync" };
+}
+
 // The values the service publishes (the manifest's `status`): from the
 // record, `sync`, the headline; `schedule`, the hourly units; `pairs`,
 // the Settings rows; `pairList`, the repair of a list the runner cannot
@@ -702,6 +811,7 @@ function statusValues(record, presence, problem, held, now, home) {
         values.pairs = pairsValue(cloud, now, home);
         values.pairList = pairListValue(cloud);
         values.firstPair = firstPairValue(cloud, presence);
+        values.initialization = initializationValue(cloud, presence);
         values.cloud = cloud;
         values.lastSync = cloud.lastSuccess;
     }
@@ -711,6 +821,7 @@ function statusValues(record, presence, problem, held, now, home) {
         values.connection = connectionValue(presence, record);
         values.account = accountValue(presence, record);
     }
+    if (record === null && problem !== "") values.sync = { tone: "danger", text: "Status unavailable", hint: problem };
     if (held !== "") {
         if (!hasOwn(HELD_VIEW, held)) throw new Error("google-drive: held reason " + JSON.stringify(held) + " is not one of " + Object.keys(HELD_VIEW).join(", "));
         values.sync = Object.assign({}, HELD_VIEW[held]);
@@ -776,7 +887,12 @@ function panelHeader(cloud, now, timeText) {
     var stopped = head.tone === "danger";
     var meta = cloud.lastSuccess === null ? "No complete sync yet" : (stopped ? "Last synced " : "Synced ") + timeText(cloud.lastSuccess, now);
     if (!stopped && cloud.pairs.length > 0) meta += " · " + (cloud.pairs.length === 1 ? "1 folder pair" : cloud.pairs.length + " folder pairs");
-    return { icon: head.icon, tone: badgeTone(head.tone), headline: head.text, meta: meta };
+    var running = cloud.pairs.filter(function (p) { return p.state === "running"; });
+    var mode = running.length === 0 ? (cloud.modePending ? "Saving the selected sync mode" : cloud.twoWaySync ? "Next sync: two-way" : "Next sync: copy newer files only")
+        : running.some(function (p) { return p.operation === "initialize"; }) ? "Two-way initialization is running"
+        : running.every(function (p) { return p.route === "copy"; }) ? "Copy-only sync is running"
+        : running.every(function (p) { return p.route === "two-way"; }) ? "Two-way sync is running" : "Copy-only and two-way operations are running";
+    return { icon: head.icon, tone: badgeTone(head.tone), headline: head.text, meta: meta, mode: mode };
 }
 
 // What a problem reads as in the popover: a callout that says what
@@ -797,7 +913,10 @@ var PAIRS_STOPPED = "VGS copies nothing until you start the list again.";
 // A failed sync's fix by its error kind, where one place holds it.
 var FAILED_ACTIONS = {
     "source-missing": { label: "Check the folder pairs", tab: "Settings" },
-    "rclone-missing": { label: "Review the tools", tab: "Setup" }
+    "rclone-missing": { label: "Review the tools", tab: "Setup" },
+    "deletion-limit": { label: "Review the folder pairs", tab: "Settings" },
+    "bisync-recovery-required": { label: "Open Setup", tab: "Setup" },
+    "baseline-evidence-unreadable": { label: "Open Setup", tab: "Setup" }
 };
 // The error kinds a sign-in or a key answers.
 var SIGN_IN_KINDS = ["authorization-refused", "credential-absent", "credential-locked"];
@@ -837,8 +956,10 @@ function problemCallout(cloud, now) {
         if (head.cause === "authorization-required" || SIGN_IN_KINDS.indexOf(kind) !== -1) return signInCallout(error);
         if (kind === "pairs-invalid")
             return { tone: "danger", title: "The folder pair list cannot be read", text: pairListProblem(error) + " " + PAIRS_STOPPED, action: { label: "Start the list again", tui: "reset-pairs" } };
-        return { tone: "danger", title: "Google Drive could not sync", text: hasOwn(ERROR_TEXT, kind) ? ERROR_TEXT[kind] : ERROR_DEFAULT, action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };
+        return { tone: "danger", title: error !== null && error.operation === "exports" ? "Native-document copies did not finish" : "Google Drive could not sync", text: errorText(error), action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };
     }
+    if (head.cause === "initialization-required") return { tone: "warning", title: "Two-way sync needs initialization",
+        text: ERROR_TEXT["initialization-required"], action: { label: "Open Setup", tab: "Setup" } };
     if (head.cause === "not-set-up") return CALLOUTS["not-set-up"];
     if (cloud.state === "offline") return CALLOUTS.offline;
     if (cloud.units === "stale") return CALLOUTS.stale;
@@ -867,6 +988,15 @@ function panelContent(cloud, now) {
 // here, a doubled name by whether the user owns a copy and else whether
 // the record names the owner.
 function conflictVariant(conflict) {
+    if (conflict.kind === "local-recovery") {
+        if (conflict.copyFolder === undefined) return "local-recovery-expired";
+        return (conflict.operation === "exports" ? "exports-recovery-" : conflict.operation === "initialize" ? "initialize-recovery-" : "local-recovery-") + conflict.outcome;
+    }
+    if (conflict.operation === "two-way") {
+        if (conflict.kind === "removed-on-drive" && conflict.copyFolder === undefined) return "two-way-removed-on-drive-expired";
+        if (conflict.kind === "both-changed") return "two-way-both-changed-" + conflict.recovery;
+        if (["removed-locally", "removed-on-drive", "renamed"].indexOf(conflict.kind) !== -1) return "two-way-" + conflict.kind;
+    }
     if (conflict.kind === "both-changed") return conflict.copyFolder !== undefined ? "both-changed-kept" : "both-changed";
     if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1 || conflict.mine) return conflict.kind;
     return conflict.kind + (conflict.owner !== undefined ? "-shared" : "-unowned");
@@ -896,10 +1026,24 @@ function conflictRow(conflict) {
         .replace("{to}", function () { return conflict.to; })
         .replace("{owner}", function () { return conflict.owner; });
     var needs = conflict.needs === "you";
+    var folder = conflict.kind === "conflict-unresolved" && conflict.localPath !== undefined ? dirname(conflict.localPath) : conflict.copyFolder;
+    var folderAction = folder === undefined ? null : { kind: "folder", label: conflict.kind === "conflict-unresolved" ? "Open conflict folder"
+        : conflict.operation === undefined || conflict.operation === "copy" ? "Show older copy" : "Open local recovery", folder: folder };
     var action = !needs ? { kind: "dismiss", label: "Dismiss", key: conflict.key }
-        : conflict.localAction && conflict.copyFolder !== undefined ? { kind: "folder", label: "Show older copy", folder: conflict.copyFolder } : null;
-    return { name: conflict.path.slice(conflict.path.lastIndexOf("/") + 1), file: conflict.localPath !== undefined ? conflict.localPath : null, place: placeOf(conflict), detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "",
-        icon: needs ? NEEDS_ICON : hasOwn(NOTE_ICONS, conflict.kind) ? NOTE_ICONS[conflict.kind] : NOTE_ICON, needs: conflict.needs, action: action };
+        : conflict.localAction ? folderAction : null;
+    // Completed removals have no active file, and a rename opens its
+    // destination, never the retired source. Copy history keeps its path.
+    var file = conflict.localPath !== undefined ? conflict.localPath : null;
+    if (conflict.operation === "two-way") {
+        if (conflict.kind === "removed-locally") file = null;
+        if (conflict.kind === "removed-on-drive") file = conflict.storedPath === undefined ? null : conflict.storedPath;
+        if (conflict.kind === "renamed" && file !== null) file = file.slice(0, file.length - conflict.path.length) + conflict.to;
+    }
+    if (conflict.kind === "local-recovery") file = conflict.storedPath === undefined ? null : conflict.storedPath;
+    return { name: conflict.path.slice(conflict.path.lastIndexOf("/") + 1), file: file, place: placeOf(conflict), detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "",
+        icon: needs ? NEEDS_ICON : hasOwn(NOTE_ICONS, conflict.kind) ? NOTE_ICONS[conflict.kind] : NOTE_ICON, needs: conflict.needs, action: action,
+        variant: variant, operation: conflict.operation, outcome: conflict.outcome, recovery: conflict.recovery,
+        recoveryAction: !needs && conflict.operation !== undefined && conflict.operation !== "copy" ? folderAction : null };
 }
 
 // The popover's review: { needs, notes, notesLine, moreNeeds, moreNotes },
@@ -917,7 +1061,7 @@ function reviewView(cloud) {
     return {
         needs: needs,
         notes: notes,
-        notesLine: noteCount === 0 ? "" : (noteCount === 1 ? "1 file needs no action" : noteCount + " files need no action") + " · nothing was lost",
+        notesLine: noteCount === 0 ? "" : (noteCount === 1 ? "1 file needs no action" : noteCount + " files need no action"),
         moreNeeds: needsRest <= 0 ? "" : needsRest === 1 ? "1 more file needs you" : needsRest + " more files need you",
         moreNotes: notesRest <= 0 ? "" : notesRest === 1 ? "1 more file needs no action" : notesRest + " more files need no action"
     };
@@ -929,13 +1073,16 @@ function reviewView(cloud) {
 // unlock.
 function pairCanSync(pair) {
     if (pair.state === "paused") return false;
+    if (pair.state === "initialization-required") return false;
+    if (pair.route === "two-way" && pair.initialization.state === "required") return false;
     return pair.state !== "authorization-required" || (pair.lastError !== null && pair.lastError.kind === "credential-locked");
 }
 
 // Why Sync now cannot start while the footer shows.
 var SYNC_REASONS = {
     paused: "Select Resume first, because the sync is paused",
-    running: "Wait until the sync that runs now ends"
+    running: "Wait until the sync that runs now ends",
+    mode: "Wait until VGS saves the selected sync mode for the hourly runner"
 };
 
 // The popover's footer for CLOUD, undefined before the first value:
@@ -950,7 +1097,7 @@ function footerView(cloud) {
     return {
         shown: true,
         pause: cloud.paused ? { text: "Resume", icon: "play", action: "resume" } : { text: "Pause", icon: "pause", action: "pause" },
-        sync: { text: "Sync now", icon: "refresh-cw", action: "sync", reason: cloud.paused ? SYNC_REASONS.paused : cloud.state === "running" ? SYNC_REASONS.running : "" }
+        sync: { text: "Sync now", icon: "refresh-cw", action: "sync", reason: cloud.paused ? SYNC_REASONS.paused : cloud.state === "running" ? SYNC_REASONS.running : cloud.modePending ? SYNC_REASONS.mode : "" }
     };
 }
 
@@ -963,6 +1110,8 @@ function notification(record) {
         return { title: "Google Drive needs a sign-in", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
     if (reasons.indexOf("error") !== -1)
         return { title: "Google Drive sync failed", message: errorText(record.lastError), tone: "danger" };
+    if (reasons.indexOf("initialization-required") !== -1)
+        return { title: "Google Drive needs initialization", message: ERROR_TEXT["initialization-required"], tone: "warning" };
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". " + NEEDS_HINT, tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)

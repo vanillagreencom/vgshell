@@ -30,6 +30,227 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# Execute the Google Drive scene's confirmation fixture with the device
+# gum already present. Only confirmation sees the private answer; failure
+# and interruption leave the caller's PATH and command bytes unchanged.
+if python3 - "$repo" "$tmp" "$BASH" <<'PYCONFIRM'
+from pathlib import Path
+import os
+import subprocess
+import sys
+
+repo, scratch, bash = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+text = (repo / "scripts/sandbox-shots.sh").read_text()
+start = text.index('    local confirmation="$cs/confirmation"\n')
+end = text.index('    rm -- "$home/googledrive-', start)
+block = text[start:end]
+scope = '      shell_start_path="$confirmation:$shell_start_path"\n'
+assert block.count(scope) == 2
+script = r'''set -euo pipefail
+cs=$1 shim=$2 mode=$3
+shell_start_path="$shim:/usr/bin:/bin"
+before_path=$shell_start_path
+failures=0
+fail() { failures=$((failures + 1)); }
+csr() {
+  [[ $# == 3 && $1 == initialize && $2 == --pair ]] || return 91
+  printf '%s\n' "$3" >>"$cs/calls"
+  case $mode in
+    failed) return 23 ;;
+    interrupted) kill -TERM "$BASHPID"; return 92 ;;
+  esac
+  env -i PATH="$shell_start_path" VGS_TEST_RUN=1 "$BASH" -c \
+    'source "$1"; vgs_tui_confirm fixture --default=false' _ "$cs/confirmation-fixture.sh"
+}
+exercise() {
+''' + block + r'''}
+status=0
+exercise || status=$?
+[[ $shell_start_path == "$before_path" ]] || exit 93
+printf 'status=%s failures=%s\n' "$status" "$failures"
+'''
+
+def run(name, mode, source=script, occupied=False):
+    root = scratch / ("confirmation-" + name)
+    cs, shim = root / "scene", root / "shim"
+    cs.mkdir(parents=True)
+    shim.mkdir()
+    gum = shim / "gum"
+    original = b"#!/bin/sh\nexit 99\n"
+    gum.write_bytes(original)
+    gum.chmod(0o751)
+    if occupied:
+        (cs / "confirmation").mkdir()
+        (cs / "confirmation/gum").write_bytes(b"owned elsewhere\n")
+    result = subprocess.run([bash, "-c", source, "_", str(cs), str(shim), mode],
+                            env={"PATH": os.environ["PATH"], "VGS_TEST_RUN": "1"},
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, (name, result.returncode, result.stderr)
+    assert gum.read_bytes() == original and gum.stat().st_mode & 0o777 == 0o751, name
+    if occupied:
+        assert (cs / "confirmation/gum").read_bytes() == b"owned elsewhere\n", name
+    calls = (cs / "calls").read_text().splitlines() if (cs / "calls").exists() else []
+    return result.stdout.strip(), calls
+
+for mode, want in (("confirmed", "status=0 failures=0"),
+                   ("failed", "status=0 failures=2"),
+                   ("interrupted", "status=0 failures=2")):
+    got, calls = run(mode, mode)
+    assert got == want and calls == ["documents", "uploads"], (mode, got, calls)
+got, calls = run("occupied", "confirmed", occupied=True)
+assert got == "status=0 failures=1" and calls == [], (got, calls)
+got, calls = run("shared-path-control", "confirmed", script.replace(scope, '      shell_start_path="$shell_start_path"\n'))
+assert got == "status=0 failures=2" and calls == ["documents", "uploads"], (got, calls)
+print("confirmation-fixture: inherited-gum=unchanged exits=confirmed,failed,interrupted private-occupied=refused control=shared-path-failed")
+PYCONFIRM
+then
+  ok "Google Drive confirmation is private and preserves an inherited gum on every exit"
+else
+  fail "Google Drive confirmation fixture ownership"
+fi
+
+# Run each scene/row's actual rclone fixture through the production
+# initializer. A preceding native-export fixture must not erase directory
+# identity, and a local listing must never be enriched from the Drive root.
+# These are admission checks, not a capture or an alternate sync model.
+if python3 - "$repo" "$tmp" "$BASH" "$node_bin" <<'PYINITIALIZE'
+from pathlib import Path
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+repo, scratch, bash, node = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+host_rclone = shutil.which("rclone")
+assert host_rclone is not None, "rclone=missing"
+row = (repo / "scripts/smoke/rows/googledrive.sh").read_text()
+scene = (repo / "scripts/sandbox-shots.sh").read_text()
+harness = (repo / "scripts/smoke/harness.sh").read_text()
+start = harness.index("py_reply() {")
+reader = harness[start:harness.index("\n}\n", start) + 3]
+start = row.index("cs_values_recovery() {")
+recovery = row[start:row.index("\n}\n", start) + 3]
+pair_match = 'r.get("pairLabel")=="Two-way fixture"'
+assert recovery.count(pair_match) == 1
+
+def heredoc(text, opening):
+    assert text.count(opening) == 1, opening
+    start = text.index(opening)
+    return text[start:text.index("\nSH\n", start) + 4]
+
+fixtures = [
+    ("smoke", heredoc(row, '  cat >"$shim/rclone" <<SH\n')),
+    ("capture", heredoc(scene, '  cat >"$shim/rclone" <<SH\n')),
+]
+secret = heredoc(row, '  sentinel_stand_over "$shim/secret-tool" <<SH\n').replace(
+    'sentinel_stand_over "$shim/secret-tool"', 'cat >"$shim/secret-tool"', 1)
+bootstrap = r'''set -euo pipefail
+shim=$1 cs_stub=$2 cs=$2 drive=$3 host_rclone=$4 host_node=$5
+auth_log="$cs/auth.calls"
+reply_reader="$(declare -f py_reply)"
+'''
+local_scope = r'[[ -n \$list && \$* == *vgsdrive:* ]]'
+export_read = 'exports=set(open(sys.argv[2]).read().split()) if os.path.isfile(sys.argv[2]) else set()'
+assert fixtures[0][1].count(export_read) == 1
+assert fixtures[1][1].count(local_scope) == 1
+controls = [
+    # The old export branch returned Size-adjusted lsjson before ID
+    # enrichment. Its directory listing had no exports to adjust.
+    ("smoke-export-bypass", fixtures[0][1].replace(export_read,
+        'if os.path.isfile(sys.argv[2]): print(json.dumps(items)); sys.exit()\n' + export_read), "identity-unknown"),
+    ("capture-local-root", fixtures[1][1].replace(local_scope, r'[[ -n \$list ]]'), "rclone-failed"),
+]
+
+for name, fixture, cause in [(name, fixture, None) for name, fixture in fixtures] + controls:
+    root = scratch / ("initialization-" + name)
+    home, shim, stub = root / "home", root / "shim", root / "stub"
+    drive, local = root / "googledrive-drive", home / "googledrive/two-way"
+    remote, runtime = drive / "TwoWay", root / "runtime"
+    for directory in (shim, stub / "secrets", local, remote, runtime):
+        directory.mkdir(parents=True)
+    for directory in (local, remote):
+        for rel, content in [("RCLONE_TEST", "access\n"), ("subject.txt", "recover these exact bytes\n")] + [
+                ("neutral-%s.txt" % n, "neutral %s\n" % n) for n in range(1, 9)]:
+            file = directory / rel
+            file.write_text(content)
+            os.utime(file, (1700000000, 1700000000))
+    # The native document belongs to the preceding copy fixture, not this
+    # pair. Its marker is still present when initialization reads identity.
+    (stub / "exports").write_text("native.docx\n")
+    for key, value in (("client-id", "fixture-id"), ("client-secret", "fixture-secret"),
+                       ("token", '{"access_token":"fixture-token","token_type":"Bearer"}'),
+                       ("token.user", "someone@example.com")):
+        (stub / "secrets" / key).write_text(value)
+    setup = subprocess.run([bash, "-c", reader + bootstrap + fixture + secret +
+                            '\nchmod 755 "$shim/rclone" "$shim/secret-tool"\n',
+                            "_", str(shim), str(stub), str(drive), host_rclone, node],
+                           env={"PATH": os.environ["PATH"], "VGS_TEST_RUN": "1"},
+                           capture_output=True, text=True, timeout=10)
+    assert setup.returncode == 0, (name, setup.stderr)
+    pairs = home / ".config/vgshell/google-drive/pairs.json"
+    pairs.parent.mkdir(parents=True)
+    pairs.write_text(json.dumps({"pairs": [
+        {"id": "two-way", "label": "Two-way fixture", "remote": "TwoWay", "local": str(local)}]}))
+    lib = stub / "confirmation-fixture.sh"
+    lib.write_text('vgs_tui_confirm() { gum confirm "$2" -- "$1"; }\n')
+    gum = shim / "gum"
+    gum.write_text('#!/usr/bin/env bash\n[[ $1 == confirm && $2 == --default=false ]] || exit 2\nexit 0\n')
+    gum.chmod(0o755)
+    env = {"PATH": str(shim) + ":" + os.environ["PATH"], "HOME": str(home),
+           "XDG_CONFIG_HOME": str(home / ".config"), "XDG_STATE_HOME": str(home / ".local/state"),
+           "XDG_DATA_HOME": str(home / ".local/share"), "XDG_RUNTIME_DIR": str(runtime),
+           "TMPDIR": str(root), "VGS_TUI_LIB": str(lib), "VGS_TEST_RUN": "1", "LANG": "C.UTF-8"}
+    result = subprocess.run([node, str(repo / "shell/plugins/vgs.google-drive/bin/google-drive"),
+                             "initialize", "--pair", "two-way"], env=env,
+                            capture_output=True, text=True, timeout=120)
+    state = json.loads((home / ".local/state/vgshell/google-drive/pairs/two-way/state.json").read_text())
+    if cause is None:
+        assert result.returncode == 0 and result.stdout.endswith("initialized=two-way\n"), (
+            name, result.returncode, result.stdout, result.stderr)
+        assert state["baseline"] is not None, name
+        (remote / "subject.txt").unlink()
+        command = [node, str(repo / "shell/plugins/vgs.google-drive/bin/google-drive")]
+        synced = subprocess.run(command + ["run", "--pair", "two-way"], env=env,
+                                capture_output=True, text=True, timeout=120)
+        assert synced.returncode == 0 and synced.stdout == "pair=two-way result=idle\n", (
+            name, synced.returncode, synced.stdout, synced.stderr)
+        assert not (local / "subject.txt").exists(), name
+        record = subprocess.run(command + ["status"], env=env,
+                                capture_output=True, text=True, timeout=10)
+        assert record.returncode == 0, (name, record.stderr)
+        conflicts = json.loads(record.stdout)["conflicts"]
+        # cloudValue publishes pairLabel, not the runner record's pair.
+        # This exercises the row's reader on real recovery bytes with that
+        # published field contract; native smoke owns actual publication.
+        for conflict in conflicts:
+            conflict.pop("pair")
+        published = json.dumps({"cloud": {"conflicts": conflicts}})
+        for label, function, want in [
+                ("published", recovery, ["two-way", "completed", "local-recovery", "recover these exact bytes\n"]),
+                ("raw-pair-control", recovery.replace(pair_match, 'r.get("pair")=="two-way"'), None)]:
+            readback = subprocess.run([bash, "-c", reader + '\nreply=$1\n' +
+                'cs_values() { printf "%s\\n" "$reply"; }\n' + function + "\ncs_values_recovery\n",
+                "_", published], env={"PATH": env["PATH"], "VGS_TEST_RUN": "1"},
+                capture_output=True, text=True, timeout=10)
+            assert readback.returncode == 0 and json.loads(readback.stdout) == want, (
+                name, label, readback.returncode, readback.stdout, readback.stderr)
+        print("recovery-reader: case=%s exact-bytes=retained published-pairLabel=read raw-pair-control=null" % name)
+    else:
+        print("initialization-fixture-control: case=%s exit=%s stderr=%s" % (
+            name, result.returncode, json.dumps(result.stderr)), flush=True)
+        assert result.returncode == 1 and "initialize=" + cause in result.stderr, (
+            name, result.returncode, result.stdout, result.stderr)
+        assert state["baseline"] is None, name
+        assert (local / "subject.txt").read_bytes() == (remote / "subject.txt").read_bytes() == b"recover these exact bytes\n", name
+    print("initialization-fixture: case=%s result=%s" % (name, "initialized" if cause is None else cause))
+PYINITIALIZE
+then
+  ok "Google Drive fixtures preserve remote identity and local listing admission"
+else
+  fail "Google Drive initialization fixture boundary"
+fi
+
 # Execute the harness's PATH builder with planted host files. Lookup alone
 # must find each registry stand-in, then none after it is moved away. The
 # builder's account home is a scratch directory, so the cases hold wherever

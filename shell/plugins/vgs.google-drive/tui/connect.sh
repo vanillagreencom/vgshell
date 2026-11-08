@@ -11,7 +11,7 @@ log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/google-drive/setup.log"
 runner="$VGS_PLUGIN_DIR/bin/google-drive"
 mkdir -p -- "${log%/*}"
 [[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "google-drive: refused: arguments=none" "Select Sign in to Google on the Google Drive page in Settings." || exit
-vgs_tui_header "Sign in to Google" "VGS copies your folder pairs both ways and never deletes a file." \
+vgs_tui_header "Sign in to Google" "VGS syncs your folder pairs. With two-way sync, local removals go to Drive Trash." \
   "Signing in lets VGS read and change files in your Google Drive." \
   "The sign-in stays in your desktop keyring. VGS does not show it."
 vgs_tui_step "Google opens in your browser. Come back here when the browser says that you can close it."

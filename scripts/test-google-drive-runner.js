@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // The Google Drive runner, shell/plugins/vgs.google-drive/bin/google-drive, end to
-// end against rclone's `local` backend: a Drive-side add and change reach
+// end against rclone's `local` backend. Existing copy cases explicitly select
+// Off; the two-way table runs real bisync after the production initializer.
+// No fixture fabricates rclone history. A Drive-side add and change reach
 // the mirror after one run; a local edit since the last download keeps
 // both versions and reads `both-changed`; a Drive deletion keeps the file and
 // reads `removed-on-drive`; a rename reads `renamed` where the backend has
@@ -128,7 +130,7 @@ function read(file) {
 let worlds = 0;
 // A fresh home, runtime directory, stand-ins and fixture Drive.
 function world(options) {
-    const opts = Object.assign({ secrets: Object.keys(SECRETS), ids: false, user: null }, options || {});
+    const opts = Object.assign({ secrets: Object.keys(SECRETS), ids: false, user: null, twoWaySync: false }, options || {});
     const root = path.join(scratch, "w" + (worlds += 1));
     const w = {
         root,
@@ -150,10 +152,34 @@ function world(options) {
         XDG_STATE_HOME: path.join(w.home, ".local", "state"),
         XDG_DATA_HOME: path.join(w.home, ".local", "share"),
         XDG_RUNTIME_DIR: w.run,
+        TMPDIR: path.join(root, "temp"),
+        VGS_TUI_LIB: path.join(w.stub, "tui-lib.sh"),
+        VGS_TEST_RUN: "1",
         // The runner must not hand these to rclone.
         RCLONE_CONFIG: path.join(root, "leaked-config"),
         RCLONE_CONFIG_VGSDRIVE_TYPE: "s3"
     };
+    fs.mkdirSync(w.env.TMPDIR, { recursive: true });
+    // Existing copy protections exercise the explicit Off route. Omit the
+    // field in On worlds to exercise the shipped default without a test API.
+    if (!opts.twoWaySync) write(path.join(w.state, "control.json"), JSON.stringify({
+        paused: false, pausedPairs: [], notifiedKey: null, dismissed: [], twoWaySync: false
+    }));
+    write(path.join(w.stub, "tui-lib.sh"), `vgs_tui_confirm() { gum confirm "$2" -- "$1"; }\n`);
+    write(path.join(w.bin, "gum"), `#!${process.execPath}
+const fs = require("fs");
+const path = require("path");
+const stub = ${JSON.stringify(w.stub)};
+fs.appendFileSync(stub + "/confirm.calls", JSON.stringify(process.argv.slice(2)) + "\\n");
+if (fs.existsSync(stub + "/edit-at-confirm")) fs.writeFileSync(${JSON.stringify(path.join(w.mirror, "edit.txt"))}, "changed after comparison\\n");
+if (fs.existsSync(stub + "/pause-at-confirm")) {
+  const file = ${JSON.stringify(path.join(w.state, "control.json"))};
+  const c = JSON.parse(fs.readFileSync(file, "utf8"));
+  c.pausedPairs = ["docs"];
+  fs.writeFileSync(file, JSON.stringify(c));
+}
+process.exit(fs.existsSync(stub + "/decline") ? 1 : 0);
+`, 0o755);
     fs.symlinkSync(HOST.flock, path.join(w.bin, "flock"));
     fs.symlinkSync(process.execPath, path.join(w.bin, "node"));
     // USER names the token item's account, as authorize stores it.
@@ -314,13 +340,23 @@ fs.appendFileSync(${JSON.stringify(path.join(w.stub, "rclone.calls"))}, JSON.str
 const path = require("path");
 const stub = process.argv[2];
 const drive = process.argv[3];
-const root = process.argv.slice(4).find(a => a.startsWith("vgsdrive:")).slice("vgsdrive:".length);
+const args = process.argv.slice(4);
+const remote = args.find(a => a.startsWith("vgsdrive:"));
+const root = remote === undefined ? args.find(a => a.startsWith("/") && fs.existsSync(a) && fs.statSync(a).isDirectory()) : path.join(drive, remote.slice("vgsdrive:".length));
 const items = JSON.parse(fs.readFileSync(0, "utf8"));
 const exportsFile = path.join(stub, "exports");
 const exported = fs.existsSync(exportsFile) ? fs.readFileSync(exportsFile, "utf8").split("\\n").filter(Boolean) : [];
 for (const item of items) {
-    if (fs.existsSync(path.join(stub, "ids"))) item.ID = String(fs.statSync(path.join(drive, root, item.Path)).ino);
+    if (fs.existsSync(path.join(stub, "ids"))) item.ID = String(fs.statSync(path.join(root, item.Path)).ino);
     if (exported.includes(item.Path)) item.Size = -1;
+}
+// Drive permits duplicate names; the local backend cannot represent that
+// documented lsjson answer, so each fixture duplicates a real item.
+if (fs.existsSync(stub + "/duplicate-directory-listing") && args.includes("--dirs-only") && items.length > 0)
+    items.push(items[0]);
+if (fs.existsSync(stub + "/duplicate-file-listing") && !args.includes("--dirs-only")) {
+    const file = items.find(item => !item.IsDir);
+    if (file) items.push(file);
 }
 process.stdout.write(JSON.stringify(items));
 `);
@@ -376,9 +412,15 @@ fi
 export RCLONE_CONFIG_VGSDRIVE_TYPE=local
 unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLONE_CONFIG_VGSDRIVE_TOKEN RCLONE_CONFIG_VGSDRIVE_SCOPE
 cd ${JSON.stringify(w.drive)} || exit 9
-if [[ -f $stub/block && ! -e $stub/blocked && $3 == copy ]]; then
+if [[ -f $stub/block && ! -e $stub/blocked && ( $3 == copy || $3 == bisync ) ]]; then
   : >"$stub/blocked"
   read -r _ <"$stub/release"
+fi
+# The local backend has no native documents. Honor the production skip flag
+# against the named native fixture, without implementing bisync itself.
+native_excludes=()
+if [[ " $* " == *" --drive-skip-gdocs "* && -f $stub/exports ]]; then
+  while IFS= read -r rel || [[ -n $rel ]]; do native_excludes+=(--exclude "/$rel"); done <"$stub/exports"
 fi
 # The legs by their words: the download copies from vgsdrive: into a
 # folder, the upload from a folder to vgsdrive:.
@@ -440,11 +482,15 @@ if [[ $3 == lsjson && " $* " == *" --metadata "* && -f $stub/folder-listings ]];
 fi
 if [[ $3 == lsjson && ( -f $stub/ids || -f $stub/exports ) ]]; then
   set -o pipefail
-  ${JSON.stringify(HOST.rclone)} "$@" | ${JSON.stringify(process.execPath)} "$stub/listing.js" "$stub" ${JSON.stringify(w.drive)} "$@"
+  ${JSON.stringify(HOST.rclone)} "$@" "\${native_excludes[@]}" | ${JSON.stringify(process.execPath)} "$stub/listing.js" "$stub" ${JSON.stringify(w.drive)} "$@"
   exit
 fi
-${JSON.stringify(HOST.rclone)} "$@"
+${JSON.stringify(HOST.rclone)} "$@" "\${native_excludes[@]}"
 status=$?
+if [[ $status == 0 && $3 == bisync && " $* " != *" --dry-run "* && -f $stub/fail-after-bisync ]]; then
+  printf '2026/11/07 22:40:59 ERROR : Bisync aborted. Please try again.\\n' >&2
+  status=1
+fi
 # A user's save landing as a leg ends: once, the file the trigger names,
 # after the download leg (edit-after-copy) or the upload leg
 # (edit-after-upload).
@@ -566,7 +612,8 @@ function spawnRunner(w, args, runner) {
 
 function startBlocked(w, runner) {
     write(path.join(w.stub, "block"), "");
-    const made = childProcess.spawnSync(HOST.mkfifo, [path.join(w.stub, "release")]);
+    fs.rmSync(path.join(w.stub, "exited"), { force: true });
+    const made = childProcess.spawnSync(HOST.mkfifo, [path.join(w.stub, "release")], { env: w.env });
     assert.equal(made.status, 0, String(made.stderr));
     return spawnRunner(w, ["run"], runner);
 }
@@ -719,9 +766,13 @@ async function caseBusy(runner) {
 // pair reads `running` and a second run is busy while that copy goes on.
 // Once it ends, the pair reads as interrupted, not done.
 async function caseInterrupted(runner) {
-    const w = world();
-    addPair(w, runner);
-    drive(w, "a.txt", "one\n", 1700000000);
+    for (const route of ["copy", "two-way"]) {
+    const w = route === "copy" ? world() : twoWayWorld(runner);
+    if (route === "copy") {
+        addPair(w, runner);
+        drive(w, "a.txt", "one\n", 1700000000);
+    } else initialize(w, runner);
+    const previousSuccess = status(w, runner).lastSuccess;
     const first = startBlocked(w, runner);
     let released = false;
     try {
@@ -747,9 +798,10 @@ async function caseInterrupted(runner) {
         }
         assert.equal(s.pairs[0].state, "error");
         assert.equal(s.pairs[0].lastError.kind, "interrupted");
-        assert.equal(s.pairs[0].lastSuccess, null);
+        assert.equal(s.pairs[0].lastSuccess, previousSuccess);
     } finally {
         if (!released && release(w)) await waitFor(path.join(w.stub, "exited"), "the orphaned copy");
+    }
     }
 }
 
@@ -1764,7 +1816,7 @@ const NEEDS_ROWS = [
 
 function writeRecords(w, records) {
     const file = path.join(w.state, "pairs", "docs", "state.json");
-    const state = JSON.parse(read(file));
+    const state = fs.existsSync(file) ? JSON.parse(read(file)) : {};
     state.records = records.map(r => Object.assign({ since: "2026-10-13T00:00:00.000Z" }, r));
     write(file, JSON.stringify(state));
 }
@@ -1903,7 +1955,7 @@ function caseDuplicateMigration(runner, only) {
         delete earlier.needsYou;
         earlier.attention = { reasons: ["conflicts"], key: "0123456789abcdef", notified: row.notified };
         write(path.join(w.state, "status.json"), JSON.stringify(earlier));
-        write(path.join(w.state, "control.json"), JSON.stringify({ paused: false, pausedPairs: [], notifiedKey: row.notified ? "0123456789abcdef" : null }));
+        write(path.join(w.state, "control.json"), JSON.stringify({ paused: false, pausedPairs: [], twoWaySync: false, notifiedKey: row.notified ? "0123456789abcdef" : null }));
         const out = cli(w, ["pairs"], runner);
         assert.equal(out.status, 0, row.name + ": " + out.stderr);
         assert.deepEqual(JSON.parse(read(stateFile)).records.map(r => r.kind), ["both-changed"], row.name);
@@ -2084,9 +2136,10 @@ function oldPlaces(w) {
 }
 
 function plantOldLayout(w, keyring) {
+    fs.rmSync(path.join(w.state, "control.json"), { force: true });
     const old = oldPlaces(w);
     write(path.join(old.config, "pairs.json"), JSON.stringify({ pairs: [{ id: "docs", label: "Documents", remote: "Docs", local: w.mirror }] }, null, 2) + "\n");
-    write(path.join(old.state, "control.json"), JSON.stringify({ paused: false, pausedPairs: ["docs"], notifiedKey: null }, null, 2) + "\n");
+    write(path.join(old.state, "control.json"), JSON.stringify({ paused: false, pausedPairs: ["docs"], twoWaySync: false, notifiedKey: null }, null, 2) + "\n");
     write(path.join(old.state, "pairs", "docs", "state.json"), JSON.stringify({
         state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null,
         records: [{ kind: "both-changed", path: "a.txt", stored: OLD_KEPT, since: new Date().toISOString() }]
@@ -2432,35 +2485,48 @@ async function caseRenameConcurrent(runner) {
 }
 
 function casePruneConflictStorage(runner) {
-    const w = world();
-    addPair(w, runner);
+    for (const twoWaySync of [false, true]) {
+    const w = twoWaySync ? twoWayWorld(runner) : world();
+    if (twoWaySync) initialize(w, runner);
+    else addPair(w, runner);
     const old = path.join(w.state, "pairs", "docs", "conflicts", "20000101T000000Z-1", "old.txt");
     const young = path.join(w.state, "pairs", "docs", "conflicts", "29990101T000000Z-1", "young.txt");
     write(old, "old");
     write(young, "young");
-    write(path.join(w.state, "pairs", "docs", "state.json"), JSON.stringify({
+    const stateFile = path.join(w.state, "pairs", "docs", "state.json");
+    write(stateFile, JSON.stringify(Object.assign(fs.existsSync(stateFile) ? JSON.parse(read(stateFile)) : {}, {
         records: [{ kind: "both-changed", path: "old-record.txt", since: "2000-01-01T00:00:00.000Z" }]
-    }));
+    })));
     drive(w, "a.txt", "one\n", 1700000000);
     runOk(w, runner);
     assert.equal(fs.existsSync(old), false);
     assert.equal(fs.existsSync(young), true);
     assert.ok(!status(w, runner).conflicts.some(c => c.path === "old-record.txt"));
+    }
 }
 
-// No rclone call of W can delete or move a file: no deleting verb or flag,
-// and --backup-dir only on the download leg, into the pair's own records.
+// Deletion is available only through the admitted bisync route, never a
+// standalone destructive command. Copy backup is download-only.
 function assertNoDeletingArgv(w) {
     for (const call of rcloneCalls(w)) {
         const words = call.argv;
         const shown = JSON.stringify(words);
+        assert.ok(!/^(sync|move|moveto|delete|deletefile|purge|rmdir|rmdirs|cleanup|dedupe)$/.test(words[2]), shown);
         for (const word of words) {
-            assert.ok(!/^(sync|bisync|move|moveto|delete|deletefile|purge|rmdir|rmdirs|cleanup|dedupe)$/.test(word), shown);
             assert.ok(!word.startsWith("--delete") && !word.startsWith("--remove-") && word !== "--drive-use-trash=false", shown);
+            assert.ok(!["--force", "--ignore-errors", "--inplace", "--backup-dir2", "--ignore-listing-checksum", "--no-slow-hash", "--slow-hash-sync-only"].includes(word), shown);
+        }
+        if (words[2] === "bisync") {
+            assert.equal(words[words.indexOf("--max-delete") + 1], "50", shown);
+            assert.equal(words[words.indexOf("--max-lock") + 1], "2m", shown);
+            assert.ok(words.includes("--recover") && words.includes("--resilient"), shown);
         }
         const at = words.indexOf("--backup-dir");
         if (at === -1) continue;
-        assert.ok(words[3] === "--update" && words[4].startsWith(REMOTE_PREFIX), "backup only on the download leg: " + shown);
+        const copyDownload = words[3] === "--update" && words[4].startsWith(REMOTE_PREFIX);
+        const exportDownload = words[2] === "copy" && words[3].startsWith(REMOTE_PREFIX)
+            && words[4].startsWith(path.join(w.state, "pairs") + "/") && words[4].endsWith("/exports");
+        assert.ok(copyDownload || exportDownload, "backup only on the download leg: " + shown);
         assert.ok(words[at + 1].startsWith(path.join(w.state, "pairs") + "/"), "backup inside the pair records: " + shown);
     }
 }
@@ -2575,6 +2641,380 @@ function caseMissingRemoteWithBaseline(runner) {
     assert.equal(fs.existsSync(path.join(w.drive, "Docs")), false);
 }
 
+// ---------------------------------------------------- initialized two-way
+
+function twoWayWorld(runner) {
+    const w = world({ ids: true, user: ACCOUNT, twoWaySync: true });
+    addPair(w, runner);
+    seedEqual(w, "Docs", w.mirror);
+    return w;
+}
+
+function seedEqual(w, remote, local) {
+    for (let i = 0; i < 24; i++) {
+        const rel = "neutral-" + i + ".txt";
+        for (const root of [path.join(w.drive, remote), local]) {
+            write(path.join(root, rel), "unchanged neutral " + i + "\n");
+            fs.utimesSync(path.join(root, rel), 1700000000, 1700000000);
+        }
+    }
+    for (const root of [path.join(w.drive, remote), local]) {
+        write(path.join(root, "RCLONE_TEST"), "access sentinel\n");
+        fs.utimesSync(path.join(root, "RCLONE_TEST"), 1700000000, 1700000000);
+    }
+}
+
+function equalFile(w, rel, bytes) {
+    drive(w, rel, bytes, 1700000000);
+    write(path.join(w.mirror, rel), bytes);
+    fs.utimesSync(path.join(w.mirror, rel), 1700000000, 1700000000);
+}
+
+function initialize(w, runner, id = "docs") {
+    const out = cli(w, ["initialize", "--pair", id], runner);
+    assert.equal(out.status, 0, "initialization admitted: " + out.stderr);
+    assert.ok(out.stdout.endsWith("initialized=" + id + "\n"), "initialization receipt");
+    assert.deepEqual(jsonLines(path.join(w.stub, "confirm.calls")).at(-1).slice(0, 2), ["confirm", "--default=false"]);
+    const state = JSON.parse(read(path.join(w.state, "pairs", id, "state.json")));
+    assert.equal(state.baseline.account, ACCOUNT);
+    assert.equal(state.route, "two-way");
+    assert.equal(state.operation, "initialize", "explicit initialization keeps its own operation");
+    return state;
+}
+
+// Admission reaches the production runner and real read-only rclone checks.
+// The confirmation fixture supplies consent only, never baseline files.
+function caseInitializationAdmission(runner) {
+    const rows = [
+        { name: "unknown one-sided file", plant: w => drive(w, "unknown.txt", "unknown\n", 1700000000), kind: "folders-differ" },
+        { name: "different bytes", plant: w => {
+            equalFile(w, "different.txt", "before\n");
+            write(path.join(w.mirror, "different.txt"), "after!\n");
+        }, kind: "folders-differ" },
+        { name: "bad existing evidence", plant: w => write(path.join(w.state, "pairs", "docs", "inventory.json"), "{"), kind: "baseline-evidence-unreadable" },
+        { name: "bad state evidence", plant: w => write(path.join(w.state, "pairs", "docs", "state.json"), "{"), kind: "baseline-evidence-unreadable" },
+        { name: "missing access files", plant: w => {
+            fs.unlinkSync(path.join(w.mirror, "RCLONE_TEST"));
+            fs.unlinkSync(path.join(w.drive, "Docs", "RCLONE_TEST"));
+        }, kind: "access-file-missing" },
+        { name: "ambiguous file path", plant: w => write(path.join(w.stub, "duplicate-file-listing"), ""), kind: "listing-ambiguous" },
+        { name: "ambiguous Drive folder", plant: w => write(path.join(w.stub, "duplicate-directory-listing"), ""), kind: "identity-unknown" },
+        { name: "changed after confirmation", plant: w => write(path.join(w.stub, "edit-at-confirm"), ""), kind: "folders-differ" },
+        { name: "pause changed after confirmation", plant: w => {
+            assert.equal(cli(w, ["set-two-way", "true"], runner).status, 0);
+            write(path.join(w.stub, "pause-at-confirm"), "");
+        }, kind: "control-changed" },
+        { name: "unknown account", plant: w => {
+            fs.renameSync(path.join(w.stub, "secrets", "token.user." + ACCOUNT), path.join(w.stub, "secrets", "token"));
+        }, kind: "identity-unknown" },
+        { name: "orphan old export", plant: w => {
+            equalFile(w, "Report.docx", "old exported document\n");
+            write(path.join(w.state, "pairs", "docs", "inventory.json"), JSON.stringify({ entries: {
+                "Report.docx": { export: true, size: -1, mtimeMs: 1700000000000, hash: null, id: "native-doc-id" }
+            } }));
+        }, kind: "native-export-in-sync-root" }
+    ];
+    for (const row of rows) {
+        const w = twoWayWorld(runner);
+        row.plant(w);
+        const before = snapshot([w.mirror, w.drive]);
+        const out = cli(w, ["initialize", "--pair", "docs"], runner);
+        assert.equal(out.status, 1, row.name);
+        assert.match(out.stderr, new RegExp("initialize=" + row.kind), row.name);
+        assert.ok(!rcloneCalls(w).some(c => c.argv[2] === "bisync" && !c.argv.includes("--dry-run")), row.name);
+        if (row.name !== "changed after confirmation") assert.deepEqual(snapshot([w.mirror, w.drive]), before, row.name);
+        if (row.name === "bad existing evidence" || row.name === "bad state evidence") {
+            const file = path.join(w.state, "pairs", "docs", row.name === "bad state evidence" ? "state.json" : "inventory.json");
+            const failed = cli(w, ["run"], runner);
+            assert.equal(failed.status, 1, "normal On refuses unreadable evidence");
+            assert.equal(read(file), "{", "normal On cannot erase unreadable evidence");
+        }
+    }
+    const w = twoWayWorld(runner);
+    equalFile(w, "restored.txt", "owner explicitly keeps this equal file\n");
+    writeRecords(w, [{ kind: "removed-locally", path: "restored.txt" }]);
+    const first = cli(w, ["run"], runner);
+    assert.equal(first.status, 1);
+    assert.equal(first.stdout, "pair=docs result=initialization-required\n");
+    assert.deepEqual(rcloneCalls(w), [], "default On never copies or auto-initializes");
+    write(path.join(w.stub, "decline"), "");
+    const canceled = cli(w, ["initialize", "--pair", "docs"], runner);
+    assert.equal(canceled.status, 0);
+    assert.ok(!rcloneCalls(w).some(c => c.argv[2] === "bisync" && !c.argv.includes("--dry-run")));
+    fs.unlinkSync(path.join(w.stub, "decline"));
+    const retired = "owner-retired.txt";
+    equalFile(w, retired, "owner manually retires these bytes\n");
+    fs.unlinkSync(path.join(w.mirror, retired));
+    fs.unlinkSync(path.join(w.drive, "Docs", retired));
+    const out = cli(w, ["initialize", "--pair", "docs"], runner);
+    assert.equal(out.status, 0, out.stderr);
+    assert.ok(out.stdout.includes('"kind": "removed-locally"'), "historical evidence reaches confirmation");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, "restored.txt")), "owner explicitly keeps this equal file\n");
+    assert.equal(fs.existsSync(path.join(w.mirror, retired)), false);
+    assert.equal(fs.existsSync(path.join(w.drive, "Docs", retired)), false);
+    assert.ok(!status(w, runner).conflicts.some(c => c.kind === "removed-locally"));
+}
+
+function caseTwoWayConvergence(runner, only) {
+    const rows = [
+        { name: "local-delete", side: "local", action: "delete" },
+        { name: "remote-delete", side: "remote", action: "delete" },
+        { name: "local-rename", side: "local", action: "rename" },
+        { name: "remote-rename", side: "remote", action: "rename" },
+        { name: "remote-within-pair-move", side: "remote", action: "rename", to: "destination/renamed.txt" }
+    ];
+    for (const row of rows.filter(r => only === undefined || only === r.name)) {
+        const w = twoWayWorld(runner);
+        equalFile(w, "subject.txt", "unique exact subject bytes\n");
+        initialize(w, runner);
+        const origin = row.side === "local" ? w.mirror : path.join(w.drive, "Docs");
+        const destination = row.side === "local" ? path.join(w.drive, "Docs") : w.mirror;
+        const inode = fs.statSync(path.join(destination, "subject.txt")).ino;
+        const to = row.to || "renamed.txt";
+        if (row.action === "delete") fs.unlinkSync(path.join(origin, "subject.txt"));
+        else {
+            fs.mkdirSync(path.dirname(path.join(origin, to)), { recursive: true });
+            fs.renameSync(path.join(origin, "subject.txt"), path.join(origin, to));
+        }
+        const out = runOk(w, runner);
+        assert.equal(out.status, 0, out.stderr);
+        for (const root of [origin, destination]) {
+            assert.equal(fs.existsSync(path.join(root, "subject.txt")), false, row.name + ": old path absent");
+            if (row.action === "rename") assert.equal(read(path.join(root, to)), "unique exact subject bytes\n", row.name);
+        }
+        const notes = status(w, runner).conflicts;
+        if (row.action === "rename") {
+            assert.equal(fs.statSync(path.join(destination, to)).ino, inode, row.name + ": physical rename");
+            assert.ok(notes.some(c => c.kind === "renamed" && c.operation === "two-way" && c.to === to), row.name + ": truthful rename");
+        } else if (row.side === "remote") {
+            const kept = notes.find(c => c.kind === "removed-on-drive" && c.path === "subject.txt");
+            assert.ok(kept && kept.storedPath, "remote-delete: recovery exists");
+            assert.equal(read(kept.storedPath), "unique exact subject bytes\n", "remote-delete: exact recovery");
+            assert.equal(kept.operation, "two-way");
+            assert.equal(kept.recovery, "local-recovery");
+        } else assert.ok(notes.some(c => c.kind === "removed-locally" && c.recovery === "drive-trash"), "local-delete: outcome");
+        const outcome = notes.find(c => c.path === "subject.txt" && c.kind === (row.action === "rename"
+            ? "renamed" : row.side === "remote" ? "removed-on-drive" : "removed-locally"));
+        assert.ok(outcome && outcome.operation === "two-way" && outcome.outcome === "completed",
+            row.name + ": ordinary completed outcome");
+        runOk(w, runner);
+        assert.equal(fs.existsSync(path.join(destination, "subject.txt")), false, row.name + ": stays absent");
+        const calls = rcloneCalls(w).filter(c => c.argv[2] === "bisync" && !c.argv.includes("--resync"));
+        assert.equal(calls.length, 2, row.name + ": two normal bisync operations");
+        for (const c of calls) {
+            assert.ok(!c.argv.includes("--drive-use-trash=false"), "trash-default: no opt-out");
+            assert.ok(!c.argv.includes("--backup-dir2"), "trash-default: no interception");
+            assert.equal(c.env.RCLONE_CONFIG_VGSDRIVE_TYPE, "drive");
+            assert.ok(c.argv.includes("--track-renames") && c.argv.includes("--drive-skip-gdocs"));
+        }
+    }
+}
+
+function caseCrossPairConvergence(runner) {
+    const w = twoWayWorld(runner);
+    const second = path.join(w.home, "mirror", "identity");
+    seedEqual(w, "Identity", second);
+    addPair(w, runner, { id: "identity", label: "Identity", remote: "Identity", local: second });
+    equalFile(w, "moved.txt", "cross-pair bytes\n");
+    initialize(w, runner);
+    initialize(w, runner, "identity");
+    fs.renameSync(path.join(w.drive, "Docs", "moved.txt"), path.join(w.drive, "Identity", "moved.txt"));
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(fs.existsSync(path.join(w.mirror, "moved.txt")), false);
+    assert.equal(fs.existsSync(path.join(w.drive, "Docs", "moved.txt")), false);
+    assert.equal(read(path.join(second, "moved.txt")), "cross-pair bytes\n");
+    assert.equal(read(path.join(w.drive, "Identity", "moved.txt")), "cross-pair bytes\n");
+}
+
+function caseTwoWayModeAndSafety(runner) {
+    const w = twoWayWorld(runner);
+    const manifest = JSON.parse(read(path.join(path.dirname(RUNNER), "..", "manifest.json")));
+    assert.equal(manifest.settings.twoWaySync, true);
+    assert.equal(manifest.schema.twoWaySync.type, "boolean");
+    assert.equal(status(w, runner).twoWaySync, true);
+    initialize(w, runner);
+    const baseline = read(path.join(w.state, "pairs", "docs", "state.json"));
+    const roots = snapshot([w.mirror, w.drive]);
+    const calls = rcloneCalls(w).length;
+    assert.equal(cli(w, ["pause", "--pair", "docs"], runner).status, 0);
+    for (const value of ["false", "true"]) assert.equal(cli(w, ["set-two-way", value], runner).status, 0);
+    assert.equal(read(path.join(w.state, "pairs", "docs", "state.json")), baseline, "switch retains baseline");
+    assert.deepEqual(snapshot([w.mirror, w.drive]), roots, "switch changes no data");
+    assert.equal(rcloneCalls(w).length, calls, "switch starts no rclone");
+    assert.deepEqual(JSON.parse(read(path.join(w.state, "control.json"))).pausedPairs, ["docs"]);
+    assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=paused\n");
+    assert.equal(cli(w, ["resume", "--pair", "docs"], runner).status, 0);
+    runOk(w, runner);
+    assert.ok(rcloneCalls(w).at(-1).argv.includes("bisync"), "unused toggle reuses initialized history");
+    fs.unlinkSync(path.join(w.mirror, "neutral-0.txt"));
+    assert.equal(cli(w, ["set-two-way", "false"], runner).status, 0);
+    assert.equal(fs.existsSync(path.join(w.mirror, "neutral-0.txt")), false, "Off write does not restore");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, "neutral-0.txt")), "unchanged neutral 0\n");
+    assert.equal(JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).baseline, null, "copy attempt invalidates");
+    assert.equal(cli(w, ["set-two-way", "true"], runner).status, 0);
+    assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=initialization-required\n");
+    initialize(w, runner);
+    for (const operation of ["delete", "rename"]) {
+        const v = operation === "delete" ? w : twoWayWorld(runner);
+        if (operation === "rename") initialize(v, runner);
+        const lastSuccess = status(v, runner).lastSuccess;
+        for (let i = 0; i < 20; i++) {
+            const file = path.join(v.mirror, "neutral-" + i + ".txt");
+            if (operation === "delete") fs.unlinkSync(file);
+            else fs.renameSync(file, file + ".renamed");
+        }
+        const before = snapshot([v.mirror, v.drive]);
+        const refused = cli(v, ["run"], runner);
+        assert.equal(refused.status, 1);
+        const s = status(v, runner);
+        assert.equal(s.pairs[0].lastError.kind, "deletion-limit");
+        assert.equal(s.pairs[0].lastError.mayHaveChanged, false);
+        assert.equal(s.lastSuccess, lastSuccess);
+        assert.deepEqual(snapshot([v.mirror, v.drive]), before, "safety abort changes neither root");
+    }
+}
+
+function caseTwoWayConflictsAndNative(runner) {
+    const w = twoWayWorld(runner);
+    for (const rel of ["remote-wins.txt", "local-wins.txt", "undecidable.txt", "delete-edit.txt", "genuine.xlsx"])
+        equalFile(w, rel, "original " + rel + "\n");
+    initialize(w, runner);
+    for (const row of [
+        { rel: "remote-wins.txt", localTime: 1700000100, remoteTime: 1700000200 },
+        { rel: "local-wins.txt", localTime: 1700000200, remoteTime: 1700000100 },
+        { rel: "undecidable.txt", localTime: 1700000200, remoteTime: 1700000200 }
+    ]) {
+        write(path.join(w.mirror, row.rel), "local " + row.rel + "\n");
+        fs.utimesSync(path.join(w.mirror, row.rel), row.localTime, row.localTime);
+        drive(w, row.rel, "remote " + row.rel + "\n", row.remoteTime);
+    }
+    fs.unlinkSync(path.join(w.mirror, "delete-edit.txt"));
+    drive(w, "delete-edit.txt", "simultaneous remote edit\n", 1700000200);
+    drive(w, "Native.docx", "download-only export\n", 1700000200);
+    write(path.join(w.stub, "exports"), "Native.docx\n");
+    const filters = read(path.join(w.state, "pairs", "docs", "bisync-filters.txt"));
+    runOk(w, runner);
+    assert.equal(read(path.join(w.mirror, "remote-wins.txt")), "remote remote-wins.txt\n");
+    assert.equal(read(path.join(w.drive, "Docs", "local-wins.txt")), "local local-wins.txt\n");
+    assert.equal(read(path.join(w.mirror, "delete-edit.txt")), "simultaneous remote edit\n");
+    const notes = status(w, runner).conflicts;
+    const loser = notes.find(c => c.path === "remote-wins.txt" && c.storedPath);
+    assert.ok(loser, "newer conflict retains local loser");
+    assert.equal(read(loser.storedPath), "local remote-wins.txt\n");
+    const variants = mirrorFiles(w).filter(rel => rel.startsWith("undecidable.txt.conflict"));
+    assert.equal(variants.length, 2, "equal-time conflicts preserve both");
+    assert.deepEqual(variants.map(rel => read(path.join(w.mirror, rel))).sort(), ["local undecidable.txt\n", "remote undecidable.txt\n"]);
+    assert.equal(notes.filter(c => c.kind === "conflict-unresolved").length, 2);
+    assert.equal(fs.existsSync(path.join(w.mirror, "Native.docx")), false, "native exports stay outside roots");
+    const exportFile = path.join(w.state, "pairs", "docs", "exports", "Native.docx");
+    assert.equal(read(exportFile), "download-only export\n");
+    write(exportFile, "local export must never upload\n");
+    runOk(w, runner);
+    assert.equal(read(path.join(w.drive, "Docs", "Native.docx")), "download-only export\n");
+    assert.equal(read(path.join(w.mirror, "genuine.xlsx")), "original genuine.xlsx\n");
+    assert.equal(read(path.join(w.state, "pairs", "docs", "bisync-filters.txt")), filters, "native refresh keeps stable filters");
+    for (const rel of EXCLUDED.filter(rel => !rel.includes(".git/"))) {
+        drive(w, rel, "excluded remote bytes\n", 1700000000);
+        write(path.join(w.mirror, rel), "excluded local bytes\n");
+    }
+    runOk(w, runner);
+    for (const rel of EXCLUDED.filter(rel => !rel.includes(".git/"))) {
+        assert.equal(read(path.join(w.mirror, rel)), "excluded local bytes\n", rel);
+        assert.equal(read(path.join(w.drive, "Docs", rel)), "excluded remote bytes\n", rel);
+    }
+}
+
+async function caseCopyAttemptInvalidation(runner) {
+    const w = twoWayWorld(runner);
+    initialize(w, runner);
+    assert.equal(cli(w, ["set-two-way", "false"], runner).status, 0);
+    const first = startBlocked(w, runner);
+    try {
+        await waitFor(path.join(w.stub, "blocked"), "first Off copy");
+        assert.equal(JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).baseline, null, "copy invalidates before child progress");
+        assert.equal(cli(w, ["set-two-way", "true"], runner).status, 0);
+        assert.equal(status(w, runner).pairs[0].route, "copy", "active operation keeps pinned route");
+    } finally {
+        release(w);
+        const out = await first.done;
+        assert.equal(out.code, 0, out.stderr);
+    }
+    assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=initialization-required\n");
+}
+
+function caseTwoWayPartialFailure(runner) {
+    const w = twoWayWorld(runner);
+    equalFile(w, "removed.txt", "unchanged exact recovery bytes\n");
+    initialize(w, runner);
+    const lastSuccess = status(w, runner).lastSuccess;
+    fs.unlinkSync(path.join(w.drive, "Docs", "removed.txt"));
+    write(path.join(w.stub, "fail-after-bisync"), "");
+    const before = rcloneCalls(w).length;
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.status, 1);
+    const s = status(w, runner);
+    assert.equal(s.pairs[0].lastError.kind, "rclone-failed");
+    assert.equal(s.pairs[0].lastError.mayHaveChanged, true);
+    assert.equal(s.lastSuccess, lastSuccess, "nonzero bisync cannot become copy partial success");
+    const kept = s.conflicts.find(c => c.kind === "local-recovery");
+    assert.ok(kept && kept.outcome === "partial");
+    assert.equal(read(kept.storedPath), "unchanged exact recovery bytes\n");
+    assert.ok(!s.conflicts.some(c => c.kind === "removed-on-drive"), "failure does not promote queued removal");
+    assert.ok(!rcloneCalls(w).slice(before).some(c => c.argv[2] === "copy" || c.argv.includes("--resync")), "failure has no fallback");
+}
+
+function caseTwoWayBinding(runner) {
+    const rows = [
+        { name: "filters changed", change: w => write(path.join(w.state, "pairs", "docs", "bisync-filters.txt"), "- *.txt\n") },
+        { name: "history missing", change: w => fs.rmSync(path.join(w.state, "pairs", "docs", "bisync"), { recursive: true }) },
+        { name: "local root replaced", change: w => {
+            fs.renameSync(w.mirror, w.mirror + "-before");
+            seedEqual(w, "Docs", w.mirror);
+        } },
+        { name: "remote root replaced", change: w => {
+            fs.renameSync(path.join(w.drive, "Docs"), path.join(w.drive, "OldDocs"));
+            seedEqual(w, "Docs", w.mirror);
+        } },
+        { name: "account replaced", change: w => fs.renameSync(path.join(w.stub, "secrets", "token.user." + ACCOUNT),
+            path.join(w.stub, "secrets", "token.user.other@example.com")) },
+        { name: "native colliding upload", change: w => {
+            drive(w, "Sheet.xlsx", "native export\n", 1700000000);
+            write(path.join(w.stub, "exports"), "Sheet.xlsx\n");
+            write(path.join(w.mirror, "Sheet.xlsx"), "local upload would target the Sheet\n");
+        } }
+    ];
+    for (const row of rows) {
+        const w = twoWayWorld(runner);
+        initialize(w, runner);
+        const success = status(w, runner).lastSuccess;
+        const beforeCalls = rcloneCalls(w).length;
+        row.change(w);
+        const before = snapshot([w.mirror, w.drive]);
+        const out = cli(w, ["run"], runner);
+        assert.equal(out.status, 1, row.name);
+        assert.equal(out.stdout, "pair=docs result=initialization-required\n", row.name);
+        assert.equal(status(w, runner).lastSuccess, success, row.name);
+        assert.deepEqual(snapshot([w.mirror, w.drive]), before, row.name);
+        assert.ok(!rcloneCalls(w).slice(beforeCalls).some(c => ["bisync", "copy"].includes(c.argv[2])), row.name);
+    }
+    const w = twoWayWorld(runner);
+    initialize(w, runner);
+    runOk(w, runner);
+    const workdir = path.join(w.state, "pairs", "docs", "bisync");
+    // Remove only rclone-produced history, never write a fabricated listing.
+    for (const name of fs.readdirSync(workdir)) fs.unlinkSync(path.join(workdir, name));
+    const success = status(w, runner).lastSuccess;
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.status, 1, out.stderr);
+    assert.equal(status(w, runner).pairs[0].lastError.kind, "bisync-recovery-required");
+    assert.equal(status(w, runner).lastSuccess, success);
+    assert.ok(!rcloneCalls(w).at(-1).argv.includes("--resync"), "unsupported recovery never resyncs");
+    assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=initialization-required\n");
+}
+
 // ----------------------------------------------------------- the controls
 
 // A copy of the runner with FROM replaced by TO, COUNT times.
@@ -2585,6 +3025,8 @@ function mutant(name, from, to, count) {
     const dir = fs.mkdtempSync(path.join(scratch, "control-"));
     const file = path.join(dir, "google-drive");
     fs.writeFileSync(file, text.split(from).join(to), { mode: 0o755 });
+    fs.mkdirSync(path.join(dir, "..", "tui"), { recursive: true });
+    fs.copyFileSync(path.join(path.dirname(RUNNER), "..", "tui", "initialize-confirm.sh"), path.join(dir, "..", "tui", "initialize-confirm.sh"));
     assert.notEqual(read(file), text);
     return file;
 }
@@ -2599,7 +3041,35 @@ async function mustFail(name, runner, fn) {
     assert.ok(failedWith !== null, "control " + name + ": the case passed against the broken runner");
 }
 
+async function twoWayControl(name, from, to, fn, assertion) {
+    const runner = mutant(name, from, to);
+    let rejected = null;
+    try { await fn(runner); } catch (error) { rejected = error; }
+    assert.ok(rejected && rejected.code === "ERR_ASSERTION", name + ": not a guarantee assertion failure");
+    assert.ok(rejected.message.includes(assertion), name + ": failed a neighboring gate: " + rejected.message);
+}
+
 async function controls() {
+    await twoWayControl("ordinary operation attribution",
+        "    bisyncRecords(pair, state, result, backup);",
+        "    bisyncRecords(pair, state, result, backup, \"initialize\");",
+        r => caseTwoWayConvergence(r, "remote-delete"), "remote-delete: recovery exists");
+    await twoWayControl("normal resync restores removals",
+        "const result = rclone(bisyncArgs(pair, backup), env, secrets, lock);",
+        "const result = rclone(bisyncArgs(pair, backup).concat([\"--resync\", \"--resync-mode\", \"newer\"]), env, secrets, lock);",
+        r => caseTwoWayConvergence(r, "local-delete"), "local-delete: old path absent");
+    await twoWayControl("local recovery",
+        '"--conflict-resolve", "newer", "--conflict-loser", "delete", "--backup-dir1", backup,',
+        '"--conflict-resolve", "newer", "--conflict-loser", "delete",',
+        r => caseTwoWayConvergence(r, "remote-delete"), "remote-delete: recovery exists");
+    await twoWayControl("native rename ownership",
+        '"--compare", "size,modtime,checksum", "--track-renames", "--track-renames-strategy", "hash",',
+        '"--compare", "size,modtime,checksum",',
+        r => caseTwoWayConvergence(r, "remote-rename"), "remote-rename: physical rename");
+    await twoWayControl("Drive Trash default",
+        '"--resilient", "--recover", "--max-lock", "2m", "--disable", "ListR", "--verbose"];',
+        '"--resilient", "--recover", "--max-lock", "2m", "--disable", "ListR", "--verbose", "--drive-use-trash=false"];',
+        r => caseTwoWayConvergence(r, "local-delete"), "trash-default: no opt-out");
     await mustFail("copy", mutant("copy", "[\"copy\", \"--update\", remotePath(pair), pair.local,", "[\"copy\", \"--dry-run\", remotePath(pair), pair.local,"), caseCopy);
     await mustFail("upload copy", mutant("upload copy", "[\"copy\", \"--update\", pair.local, remotePath(pair)]", "[\"copy\", \"--dry-run\", pair.local, remotePath(pair)]"), caseLocalAdd);
     await mustFail("removed-locally", mutant("removed-locally", "addRecord(records, { kind: \"removed-locally\", path: rel });", ""), caseRemovedLocally);
@@ -2614,11 +3084,10 @@ async function controls() {
     await mustFail("missing remote keeps the error", mutant("missing remote keeps the error", "(listed.kind !== \"source-missing\" || hasBaseline)", "listed.kind !== \"source-missing\""), caseMissingRemoteWithBaseline);
     await mustFail("missing remote creates", mutant("missing remote creates", "const emptyRemote = !listed.ok && listed.kind === \"source-missing\";", "const emptyRemote = false;"), caseMissingRemoteFirstSync);
     await mustFail("edit during the legs", mutant("edit during the legs", "const baseline = { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined };", "const baseline = item.Size === st.size && modTime === Math.floor(st.mtimeMs) || exportItem ? { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined } : old;\n        if (baseline === undefined) continue;"), caseEditDuringCopy);
-    await mustFail("export exclusion", mutant("export exclusion", "if (excludes !== null) uploadArgs.push(\"--exclude-from\", excludes);", ""), caseExportNoUpload);
     await mustFail("export filter escape", mutant("export filter escape", "return \"/\" + rel.replace(/[\\\\*?\\[\\]{}]/g, \"\\\\$&\");", "return \"/\" + rel;"), caseExportNoUpload);
     await mustFail("export kept after rename", mutant("export kept after rename", "        entries[rel] = before[rel];\n", ""), caseExportRenamedOnDrive);
     await mustFail("baseline after download", mutant("baseline after download", "writeJson(path.join(pairDir(pair.id), \"inventory.json\"), { entries: nextInventory(pair, listing, inventory, held).entries });", ""), caseFailedUploadKeepsBaseline);
-    await mustFail("record per stored copy", mutant("record per stored copy", "return record.kind + \"\\n\" + record.path + \"\\n\" + (record.stored || \"\");", "return record.kind + \"\\n\" + record.path;"), caseRepeatedConflict);
+    await mustFail("record per stored copy", mutant("record per stored copy", "(record.stored || \"\") + \"\\n\" + (record.operation || \"copy\")", "\"\" + \"\\n\" + (record.operation || \"copy\")"), caseRepeatedConflict);
     await mustFail("same path no baseline", mutant("same path no baseline", "if (differs) addRecord(records, { kind: \"both-changed\", path: item.Path });", ""), caseSamePathNoBaseline);
     await mustFail("pair list migration never refuses", mutant("pair list migration never refuses", "        writeJson(pairsFile, { pairs: pairs });\n        log(\"migration=pairs", "        if (pairsError(pairs) !== null) refuse(pairsError(pairs));\n        writeJson(pairsFile, { pairs: pairs });\n        log(\"migration=pairs"), casePairListMigrationRefused);
     await mustFail("migrated copies kept", mutant("migrated copies kept", "const renamed = slash === -1 ? edit.stored : migratedStamp + edit.stored.slice(slash);", "const renamed = edit.stored;"), caseStateMigrationKeepsCopies);
@@ -2637,21 +3106,21 @@ async function controls() {
     await mustFail("disabled rename suppresses installed stop-post", mutant("disabled rename suppresses installed stop-post", 'const DISABLED_STOP_POST = "[Service]\\nExecStopPost=\\n";', 'const DISABLED_STOP_POST = "[Service]\\n# ExecStopPost=\\n";'), r => caseDisabledMigration(r, "partial new install"));
     await mustFail("disabled failed stop clears overrides", mutant("disabled failed stop clears overrides", '    } finally {\n        clearDisabledStopPost("disabled");\n    }', '    } finally {\n        if (failures.length === 0) clearDisabledStopPost("disabled");\n    }'), r => caseDisabledMigration(r, "stop-fail"));
     await mustFail("rename resumes a held keyring", mutant("rename resumes a held keyring", "writeJson(RENAME_PENDING, { held: keyring.held });", "fs.rmSync(RENAME_PENDING, { force: true });"), r => caseRenameMigration(r, "keyring locked"));
-    await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
+    await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\" && verb !== \"set-two-way\" && verb !== \"initialize\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
     await mustFail("attention key", mutant("attention key", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "needing.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
     await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
     await mustFail("both-changed", mutant("both-changed", "const unedited = base !== undefined", "const unedited = true || base !== undefined"), caseBothChangedKept);
     await mustFail("lock", mutant("lock", "if (out.status === 0) return fd;", "if (out.status === 0 || true) return fd;"), caseBusy);
-    await mustFail("pause", mutant("pause", "if (isPaused(control, pair.id)) return \"paused\";", ""), casePause);
+    await mustFail("pause", mutant("pause", "if (isPaused(control, pair.id)) return \"paused\";", "", 2), casePause);
     await mustFail("exclusions", mutant("exclusions", "return [].concat(...EXCLUDES.map(pattern => [\"--exclude\", pattern]));", "return [];"), caseExclusions);
     await mustFail("renamed", mutant("renamed", "if (item.ID) pathOfId[item.ID] = item.Path;", ""), caseRemovedAndRenamed);
     await mustFail("file errors alone end synced", mutant("file errors alone end synced", "if (review === null) return rcloneFailed(state, downloaded);", "if (!downloaded.ok) return rcloneFailed(state, downloaded);"), caseUnreadableOnDrive);
     await mustFail("one record per file", mutant("one record per file", "if (error !== null) reasons.set(error[1], error[2]);", "if (error !== null) reasons.set(error[1] + reasons.size, error[2]);"), caseUnreadableOnDrive);
     await mustFail("the last attempt counts", mutant("the last attempt counts", "ends.length > 1 ? ends[ends.length - 2] + 1 : 0, last)", "0, last)"), caseUnreadableOnDrive);
     await mustFail("drive records cleared", mutant("drive records cleared", "const kept = records.filter(r => DRIVE_KINDS.indexOf(r.kind) === -1);", "const kept = records.slice();"), caseUnreadableClears);
-    await mustFail("a standing record keeps its time", mutant("a standing record keeps its time", "old === undefined ? record : Object.assign({}, record, { since: old.since })", "record"), caseUnreadableClears);
+    await mustFail("a standing record keeps its time", mutant("a standing record keeps its time", "{ since: old.since, operation: old.operation }", "{ since: now(), operation: old.operation }"), caseUnreadableClears);
     await mustFail("a network cause stays a failure", mutant("a network cause stays a failure", "if (result.kind !== \"rclone-failed\" || result.exit === 7) return null;", "if (result.exit === 7) return null;"), r => caseDownloadFailures(r, "network cause"));
     await mustFail("every counted error names a file", mutant("every counted error names a file", "if (reasons.size !== Number(ATTEMPT_END.exec(lines[last])[1])) return null;", "if (false) return null;"), r => caseDownloadFailures(r, "error naming no file"));
     await mustFail("a fatal exit stays a failure", mutant("a fatal exit stays a failure", "if (result.kind !== \"rclone-failed\" || result.exit === 7) return null;", "if (result.kind !== \"rclone-failed\") return null;"), r => caseDownloadFailures(r, "fatal exit"));
@@ -2667,7 +3136,7 @@ async function controls() {
     await mustFail("dismiss refuses a row that needs the user", mutant("dismiss refuses a row that needs the user", "if (row.needs === \"you\") refuse(", "if (false) refuse("), caseDismiss);
     await mustFail("a stale key is dropped", mutant("a stale key is dropped", "if (control.dismissed.length !== status.dismissed.length) writeJson(", "if (false) writeJson("), caseDismiss);
     await mustFail("an unreadable pair list drops nothing", mutant("an unreadable pair list drops nothing", "const dismissed = read.error !== null ? control.dismissed : ", "const dismissed = false ? control.dismissed : "), caseDismiss);
-    await mustFail("a pause keeps the dismissals", mutant("a pause keeps the dismissals", "writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed }));", "writeJson(controlFile, next);"), caseDismiss);
+    await mustFail("a pause keeps the dismissals", mutant("a pause keeps the dismissals", "writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync }));", "writeJson(controlFile, Object.assign(next, { twoWaySync: control.twoWaySync }));"), caseDismiss);
     await mustFail("the key follows the copies", mutant("the key follows the copies", "mine: mine, version: version };", "mine: mine };"), caseDismiss);
     await mustFail("a dismissal carries to the versioned record", mutant("a dismissal carries to the versioned record", "if (carried.length > 0) writeJson(", "if (false) writeJson("), caseDismiss);
     await mustFail("only needs-you rows ask for attention", mutant("only needs-you rows ask for attention", "if (needing.length > 0) reasons.push(\"conflicts\");", "if (conflicts.length > 0) reasons.push(\"conflicts\");"), caseNeedsAttention);
@@ -2676,7 +3145,7 @@ async function controls() {
     await mustFail("a notified record stays notified", mutant("a notified record stays notified", "&& after.reasons.every(r => earlier.reasons.indexOf(r) !== -1))", "&& false)"), r => caseDuplicateMigration(r, "notified"));
     await mustFail("a failed download keeps the baseline", mutant("a failed download keeps the baseline", "if (held.has(item.Path)) {", "if (false) {"), caseUnreadableKeepsBaseline);
     await mustFail("no download clears the drive records", mutant("no download clears the drive records", "state.records = withDriveRecords(state.records, []);", "void 0;"), caseUnreadableDriveFolderGone);
-    await mustFail("drive records outlive the age cut", mutant("drive records outlive the age cut", "if (DRIVE_KINDS.indexOf(r.kind) === -1 && Date.parse(r.since) < cutoff) return false;", "if (Date.parse(r.since) < cutoff) return false;"), caseUnreadableClears);
+    await mustFail("drive records outlive the age cut", mutant("drive records outlive the age cut", "if (DRIVE_KINDS.indexOf(r.kind) === -1 && Date.parse(r.since) < cutoff && typeof r.stored !== \"string\") return false;", "if (Date.parse(r.since) < cutoff) return false;"), caseUnreadableClears);
     await mustFail("no copy here names no folder", mutant("no copy here names no folder", "if (r.kind !== \"unreadable-on-drive\" || fs.existsSync(localPath)) out.localPath = localPath;", "out.localPath = localPath;"), caseUnreadableOnDrive);
     await mustFail("failure table", mutant("failure table", "const row = FAILURES.find(r => r.pattern.test(stderr));", "const row = undefined;"), caseFailures);
     await mustFail("authorize store", mutant("authorize store", "{ input: value, encoding", "{ input: value + \"\\n\", encoding"), caseAuthorize);
@@ -2723,6 +3192,14 @@ async function controls() {
 }
 
 async function main() {
+    caseInitializationAdmission();
+    caseTwoWayConvergence();
+    caseCrossPairConvergence();
+    caseTwoWayModeAndSafety();
+    caseTwoWayBinding();
+    caseTwoWayConflictsAndNative();
+    await caseCopyAttemptInvalidation();
+    caseTwoWayPartialFailure();
     caseCopy();
     caseLocalAdd();
     caseRemovedLocally();

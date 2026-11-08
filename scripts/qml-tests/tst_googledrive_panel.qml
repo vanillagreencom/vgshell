@@ -61,16 +61,19 @@ Item {
         // the same shapes): the both-changed row whose older copy VGS kept
         // needs the user; a removal on each side is a note. DISMISSED is
         // the record's dismissed keys, none when not given.
-        function cloud(dismissed) {
+        function cloud(dismissed, over) {
             const now = Time.now.getTime(), hour = 3600 * 1000;
             const iso = ms => new Date(ms).toISOString();
-            const pair = { id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "idle", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, changes: { added: 1, updated: 0 } };
+            const pair = { id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "idle",
+                route: "copy", operation: "copy", initialization: { state: "required", reason: "baseline-missing" },
+                recoveryPath: "/home/me/state/pairs/docs/conflicts", exportsPath: "/home/me/state/pairs/docs/exports",
+                lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, changes: { added: 1, updated: 0 } };
             const conflicts = [
                 { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(now - hour), needs: "you", key: "00000000000000a1" },
                 { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(now - hour), needs: "nothing", key: "00000000000000a2" },
                 { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(now - hour), needs: "nothing", key: "00000000000000a3" }
             ];
-            const record = { state: "idle", paused: false, units: "stale", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, pairs: [pair], conflicts: conflicts, needsYou: 1, dismissed: dismissed || [], attention: { reasons: ["conflicts", "units-stale"], key: "0123456789abcdef", notified: false }, writtenAt: iso(now) };
+            const record = Object.assign({ state: "idle", paused: false, twoWaySync: false, units: "stale", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, pairs: [pair], conflicts: conflicts, needsYou: 1, dismissed: dismissed || [], attention: { reasons: ["conflicts", "units-stale"], key: "0123456789abcdef", notified: false }, writtenAt: iso(now) }, typeof over === "function" ? over(pair) : over || {});
             const parsed = Logic.parseStatus(JSON.stringify(record));
             verify(parsed.ok, "the stub record is one the runner writes: " + JSON.stringify(parsed));
             return Logic.cloudValue(parsed.record, "");
@@ -344,10 +347,105 @@ Item {
         function folderButtons(item) {
             let buttons = [];
             for (const child of item.children) {
-                if ("focusPolicy" in child && child.iconName === "folder") buttons.push(child);
+                if (child instanceof IconButton && child.visible && child.iconName === "folder") buttons.push(child);
                 buttons = buttons.concat(folderButtons(child));
             }
             return buttons;
+        }
+
+        function twoWayCloud(conflicts, state) {
+            return cloud([], pair => ({ twoWaySync: true, units: "installed", attention: null, state: state || "idle",
+                pairs: [Object.assign({}, pair, { route: "two-way", operation: "two-way", state: state || "idle",
+                    initialization: state === "initialization-required" ? { state: "required", reason: "baseline-missing" } : { state: "ready", reason: null } })],
+                conflicts, needsYou: conflicts.filter(c => c.needs === "you").length }));
+        }
+
+        function useCloud(value) {
+            panel.shell = Object.assign(shell(), { status: { values: { cloud: value } } });
+            renderedFrame(panel);
+        }
+
+        function test_actual_recovery_actions_by_keyboard_data() {
+            return [
+                { tag: "remote-removal", kind: "removed-on-drive", operation: "two-way", outcome: "completed", recovery: "local-recovery", needs: "nothing" },
+                { tag: "partial-bytes", kind: "local-recovery", operation: "two-way", outcome: "partial", recovery: "local-recovery", needs: "nothing" },
+                { tag: "native-copy", kind: "local-recovery", operation: "exports", outcome: "partial", recovery: "local-recovery", needs: "nothing" },
+                { tag: "unresolved-active", kind: "conflict-unresolved", operation: "two-way", outcome: "completed", recovery: "active-conflicts", needs: "you" }
+            ];
+        }
+
+        function test_actual_recovery_actions_by_keyboard(data) {
+            const active = data.kind === "conflict-unresolved";
+            const c = { kind: data.kind, operation: data.operation, outcome: data.outcome, recovery: data.recovery, needs: data.needs,
+                pair: "docs", pairLabel: "Documents", path: active ? "a.txt.conflict1" : "a.txt",
+                localPath: active ? "/home/me/gdrive/a.txt.conflict1" : data.operation === "exports" ? "/home/me/state/pairs/docs/exports/a.txt" : "/home/me/gdrive/a.txt",
+                since: new Date(Time.now.getTime()).toISOString(), key: "0000000000000011" };
+            if (!active) c.storedPath = "/home/me/state/pairs/docs/conflicts/generation/a.txt";
+            useCloud(twoWayCloud([c]));
+            const row = active ? panel.review.needs[0] : panel.review.notes[0];
+            if (!active) {
+                tabTo(control(panel.review.notesLine));
+                keyClick(Qt.Key_Return);
+                renderedFrame(panel);
+            }
+            const action = active ? row.action : row.recoveryAction;
+            const button = control(action.label);
+            tabTo(button);
+            verify(rings(button, button).some(r => r.visible), "the existing RowAction focus ring is visible");
+            root.calls = [];
+            keyClick(Qt.Key_Return);
+            compare(root.calls, [["edit", active ? "/home/me/gdrive/" : "/home/me/state/pairs/docs/conflicts/generation/"]]);
+            if (!active) compare(row.action.kind, "dismiss", "recovery does not remove the historical note");
+        }
+
+        function test_recovery_and_exports_folders_use_existing_route() {
+            useCloud(twoWayCloud([]));
+            const disclosure = find(panel, c => "focusItem" in c && "expanded" in c && c.iconName === "folder");
+            verify(disclosure !== null);
+            tabTo(disclosure.focusItem);
+            keyClick(Qt.Key_Return);
+            renderedFrame(panel);
+            compare(disclosure.expanded, true);
+            const buttons = [];
+            function collect(item) {
+                for (const child of item.children) {
+                    if (child instanceof RowAction && child.visible) buttons.push(child);
+                    collect(child);
+                }
+            }
+            collect(disclosure);
+            compare(buttons.length, 2, "the actual pair has one recovery and one native-copy action");
+            for (const [button, folder] of [[buttons[0], "/home/me/state/pairs/docs/conflicts/"], [buttons[1], "/home/me/state/pairs/docs/exports/"]]) {
+                tabTo(button);
+                root.calls = [];
+                keyClick(Qt.Key_Enter);
+                compare(root.calls, [["edit", folder]]);
+            }
+        }
+
+        function test_initialization_callout_opens_setup_not_sync() {
+            useCloud(twoWayCloud([], "initialization-required"));
+            compare(panel.footer.shown, false);
+            const fix = control(panel.callout.action.label);
+            tabTo(fix);
+            root.calls = [];
+            keyClick(Qt.Key_Return);
+            compare(root.calls, [["openPage", "vgs.google-drive", "Setup"], ["hide", "panel"]]);
+        }
+
+        function test_completed_rename_opens_destination() {
+            const c = { kind: "renamed", operation: "two-way", outcome: "completed", pair: "docs", pairLabel: "Documents", path: "old.txt", to: "new/place.txt",
+                localPath: "/home/me/gdrive/old.txt", since: new Date(Time.now.getTime()).toISOString(), needs: "nothing", key: "0000000000000022" };
+            useCloud(twoWayCloud([c]));
+            tabTo(control(panel.review.notesLine));
+            keyClick(Qt.Key_Return);
+            renderedFrame(panel);
+            const link = find(panel, c => "linkBox" in c && c.text === panel.review.notes[0].name);
+            verify(link !== null);
+            tabTo(link);
+            root.calls = [];
+            keyClick(Qt.Key_Return);
+            compare(root.calls, [["edit", "/home/me/gdrive/new/place.txt"], ["hide", "panel"]]);
         }
 
         function test_in_sync_pairs_scroll_and_open_by_keyboard_data() {

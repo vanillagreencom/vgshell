@@ -8,7 +8,7 @@
 //   google-drive run [--pair <id>]
 //       the service's ExecStart: each pair, or the one named, under its own
 //       lock. Prints `pair=<id> result=<r>` per pair, r one of idle, paused,
-//       busy, offline, authorization-required, error.
+//       busy, initialization-required, offline, authorization-required, error.
 //   google-drive status [--quiet]
 //       renders the status record, writes it and prints it as one JSON line
 //       (nothing with --quiet: the service's ExecStopPost).
@@ -50,6 +50,13 @@
 //       `systemctl --user start --no-block` of the service: Sync now.
 //   google-drive pause|resume [--pair <id>]
 //       prints `paused=<id|all>` or `resumed=<id|all>`.
+//   google-drive set-two-way true|false
+//       mirrors the manifest setting into control.json for the hourly service;
+//       changes no data, baseline or pause; prints `two-way=<value>`.
+//   google-drive initialize --pair <id>
+//       the declared initialization TUI's explicit equal-set comparison,
+//       preview and confirmation. Never clears a pause. Prints
+//       `initialized=<id>` only after supported rclone resync succeeds.
 //   google-drive pairs [--lines]
 //       one JSON line, { pairs, error }; with --lines, one `<id>\t<label>`
 //       line per pair, for the Remove a folder pair TUI's list.
@@ -66,7 +73,8 @@
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-google-drive.service and
 // .timer; status.json, control.json (pause, the notified attention key and
 // the dismissed conflict keys) and pairs/<id>/ (state.json, inventory.json,
-// conflicts/) are under $XDG_STATE_HOME/vgshell/google-drive/; the locks
+// conflicts/, exports/, bisync/ and bisync-filters.txt) are under
+// $XDG_STATE_HOME/vgshell/google-drive/; the locks
 // are under $XDG_RUNTIME_DIR/vgshell/google-drive/; the copy the units run
 // is $XDG_DATA_HOME/vgshell/google-drive/engine/<hash>/google-drive, since
 // the shell runs this file from a snapshot a restart removes. Every file is
@@ -103,7 +111,7 @@ const TIMER = "vgs-google-drive.timer";
 const SECRET_SERVICE = "vgs-google-drive";
 const SECRET_LABEL = "VGS Google Drive";
 // One credential reads and writes the folder pairs with Google Drive's full
-// drive scope. The runner still never asks rclone to delete.
+// drive scope. Drive's default deletion policy sends files to Trash.
 const DRIVE_SCOPE = "drive";
 const CREDENTIAL_PARTS = ["client-id", "client-secret", "token"];
 const OLD_DIRECTIONS = ["pull", "upload"];
@@ -128,6 +136,10 @@ const EXCLUDES = [
     "*.pem", "*.key", "*.p12", "*.pfx", "*.kdbx", "credentials*", "token*.json", "client_secret*.json",
     ".env", ".env.*", ".netrc", "rclone.conf", "id_rsa*", "id_ecdsa*", "id_ed25519*"
 ];
+const BISYNC_FILTERS = EXCLUDES.map(pattern => "- " + pattern).join("\n") + "\n";
+// The binding includes every fixed view/semantic option: changing policy
+// requires owner reconciliation, not reinterpreting rclone's old listings.
+const BISYNC_POLICY = crypto.createHash("sha256").update(BISYNC_FILTERS + "\nsize,modtime,checksum;hash;newer;delete;skip-gdocs;empty-dirs;check-access;max-delete=50").digest("hex");
 // rclone's failure text, first match wins. Lines rclone v1.75.1 printed:
 // `couldn't fetch token: Post "https://oauth2.googleapis.com/token": dial tcp
 // [...]:443: connect: cannot assign requested address` (no network),
@@ -136,16 +148,19 @@ const EXCLUDES = [
 // unauthorized_client are Google's OAuth error codes, which rclone repeats.
 const FAILURES = [
     { kind: "authorization-refused", pattern: /invalid_grant|invalid_client|unauthorized_client|failed to create oauth client|empty token found|there's no refresh token|Token has been expired or revoked|insufficient authentication scopes/i },
-    { kind: "offline", pattern: /dial tcp|no such host|network is unreachable|connection refused|i\/o timeout|TLS handshake timeout|connection reset by peer|cannot assign requested address|temporary failure in name resolution/i }
+    { kind: "offline", pattern: /dial tcp|no such host|network is unreachable|connection refused|i\/o timeout|TLS handshake timeout|connection reset by peer|cannot assign requested address|temporary failure in name resolution/i },
+    { kind: "deletion-limit", pattern: /too many deletes/i },
+    { kind: "bisync-recovery-required", pattern: /cannot find prior Path1 or Path2 listings|Must run --resync to recover|path1 and path2 are out of sync/i }
 ];
 // The pair state a lastError kind makes; every other kind is `error`.
 const FAILURE_STATES = {
     "credential-absent": "authorization-required",
     "credential-locked": "authorization-required",
     "authorization-refused": "authorization-required",
+    "initialization-required": "initialization-required",
     offline: "offline"
 };
-const USAGE = "usage: google-drive run [--pair <id>] | status [--quiet] | attention-seen <key> | dismiss <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: google-drive run [--pair <id>] | initialize --pair <id> | set-two-way true|false | status [--quiet] | attention-seen <key> | dismiss <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("google-drive: refused: " + first + "\n" + USAGE + "\n");
@@ -482,15 +497,18 @@ function readPairs() {
 function readControl() {
     const read = readJson(controlFile);
     if (read.kind === "ok" && plain(read.value) && typeof read.value.paused === "boolean" && Array.isArray(read.value.pausedPairs)) {
+        if (hasOwn(read.value, "twoWaySync") && typeof read.value.twoWaySync !== "boolean")
+            return { paused: true, pausedPairs: [], notifiedKey: null, dismissed: [], twoWaySync: true, error: "two-way-shape" };
         const dismissed = read.value.dismissed;
         return { paused: read.value.paused, pausedPairs: read.value.pausedPairs, notifiedKey: typeof read.value.notifiedKey === "string" ? read.value.notifiedKey : null,
-            dismissed: Array.isArray(dismissed) && dismissed.every(k => typeof k === "string" && CONFLICT_KEY.test(k)) ? dismissed : [] };
+            dismissed: Array.isArray(dismissed) && dismissed.every(k => typeof k === "string" && CONFLICT_KEY.test(k)) ? dismissed : [],
+            twoWaySync: read.value.twoWaySync === undefined ? true : read.value.twoWaySync };
     }
-    if (read.kind === "absent") return { paused: false, pausedPairs: [], notifiedKey: null, dismissed: [] };
+    if (read.kind === "absent") return { paused: false, pausedPairs: [], notifiedKey: null, dismissed: [], twoWaySync: true };
     // A pause record that cannot be read holds every run back, so a pause
     // the user set is never lost to a damaged file.
     log("control=" + (read.kind === "bad" ? read.reason : "shape") + " paused=assumed");
-    return { paused: true, pausedPairs: [], notifiedKey: null, dismissed: [] };
+    return { paused: true, pausedPairs: [], notifiedKey: null, dismissed: [], twoWaySync: true, error: read.kind === "bad" ? read.reason : "shape" };
 }
 
 function isPaused(control, id) {
@@ -501,8 +519,10 @@ function isPaused(control, id) {
 
 function readPairState(id) {
     const read = readJson(path.join(pairDir(id), "state.json"));
-    const empty = { state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null, records: [] };
-    return read.kind === "ok" && plain(read.value) ? Object.assign(empty, read.value) : empty;
+    const empty = { state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null, records: [], baseline: null };
+    if (read.kind === "absent") return empty;
+    if (read.kind === "ok" && plain(read.value) && validRecords(read.value.records)) return Object.assign(empty, read.value);
+    return Object.assign(empty, { state: "error", lastError: { kind: "baseline-evidence-unreadable", at: null, mayHaveChanged: false } });
 }
 
 function writePairState(id, state) {
@@ -821,7 +841,7 @@ function rclone(args, env, secrets, lock) {
 // ------------------------------------------------------- conflict records
 
 function recordKey(record) {
-    return record.kind + "\n" + record.path + "\n" + (record.stored || "");
+    return record.kind + "\n" + record.path + "\n" + (record.stored || "") + "\n" + (record.operation || "copy");
 }
 
 function addRecord(records, record) {
@@ -833,6 +853,8 @@ function addRecord(records, record) {
     if (typeof record.mine === "boolean") kept.mine = record.mine;
     if (typeof record.owner === "string") kept.owner = record.owner;
     if (typeof record.version === "string") kept.version = record.version;
+    for (const key of ["operation", "outcome", "recovery"])
+        if (typeof record[key] === "string") kept[key] = record[key];
     records.push(kept);
 }
 
@@ -842,6 +864,8 @@ function addRecord(records, record) {
 const CONFLICT_KEY = /^[0-9a-f]{16}$/;
 function conflictKey(pairId, record) {
     const facts = [pairId, record.kind, record.path, record.since, record.stored, record.to, record.reason, record.mine, record.owner, record.version];
+    // Preserve historical keys byte for byte; newly tagged events carry their route.
+    if (record.operation !== undefined) facts.push(record.operation, record.outcome, record.recovery);
     return crypto.createHash("sha256").update(JSON.stringify(facts.map(f => f === undefined ? null : f))).digest("hex").slice(0, 16);
 }
 
@@ -866,6 +890,8 @@ const DRIVE_KINDS = ["unreadable-on-drive", "duplicate-identical", "duplicate-di
 function needsOf(record) {
     switch (record.kind) {
     case "both-changed": return "you";
+    case "conflict-unresolved": return "you";
+    case "local-recovery": return "nothing";
     case "removed-locally":
     case "removed-on-drive":
     case "renamed":
@@ -874,6 +900,13 @@ function needsOf(record) {
     case "duplicate-different": return record.mine === true ? "you" : "nothing";
     }
     throw new Error("google-drive: review record kind " + JSON.stringify(record.kind) + " is not one this runner writes");
+}
+
+function validRecords(records) {
+    if (!Array.isArray(records) || records.some(r => !plain(r) || !relativePath(r.path)
+        || !Number.isFinite(Date.parse(r.since)) || r.stored !== undefined && !relativePath(r.stored))) return false;
+    try { records.forEach(needsOf); } catch (_e) { return false; }
+    return true;
 }
 
 // The md5 a listed Drive item carries, or null; rclone's drive backend
@@ -983,19 +1016,19 @@ function withDriveRecords(records, review) {
     const kept = records.filter(r => DRIVE_KINDS.indexOf(r.kind) === -1);
     for (const record of review) {
         const old = records.find(r => recordKey(r) === recordKey(record));
-        addRecord(kept, old === undefined ? record : Object.assign({}, record, { since: old.since }));
+        addRecord(kept, old === undefined ? record : Object.assign({}, record, { since: old.since, operation: old.operation }));
     }
     return kept;
 }
 
 function stampMs(name) {
-    const match = /^(\d{8}T\d{6}Z)-\d+$/.exec(name);
+    const match = /^(\d{8}T\d{6}Z)-\d+(?:-[A-Za-z0-9]+)?$/.exec(name);
     if (match === null) return null;
     const s = match[1];
     return Date.parse(s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) + "T" + s.slice(9, 11) + ":" + s.slice(11, 13) + ":" + s.slice(13, 15) + "Z");
 }
 
-function pruneConflictStorage(id, records) {
+function pruneConflictStorage(id, records, local) {
     const root = path.join(pairDir(id), "conflicts");
     const cutoff = Date.now() - KEEP_MS;
     if (fs.existsSync(root)) for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
@@ -1010,7 +1043,8 @@ function pruneConflictStorage(id, records) {
     // A download decides its own kinds afresh (withDriveRecords), so their
     // age removes none: a file that stays unreadable keeps its first time.
     return records.filter(r => {
-        if (DRIVE_KINDS.indexOf(r.kind) === -1 && Date.parse(r.since) < cutoff) return false;
+        if (r.kind === "conflict-unresolved") return fs.existsSync(path.join(local, r.path));
+        if (DRIVE_KINDS.indexOf(r.kind) === -1 && Date.parse(r.since) < cutoff && typeof r.stored !== "string") return false;
         return typeof r.stored !== "string" || fs.existsSync(path.join(root, r.stored));
     });
 }
@@ -1211,14 +1245,14 @@ function failed(state, kind, extra) {
     });
 }
 
-function rcloneFailed(state, result) {
-    return failed(state, result.kind, result.exit === null ? {} : { exit: result.exit });
+function rcloneFailed(state, result, mayHaveChanged = true) {
+    return failed(state, result.kind, Object.assign({ mayHaveChanged: mayHaveChanged }, result.exit === null ? {} : { exit: result.exit }));
 }
 
 // ADDRESS is the signed-in account's address, or null (duplicateRecord).
-function runPairSync(pair, state, env, secrets, lock, address) {
+function runPairCopy(pair, state, env, secrets, lock, address) {
     const inventory = readInventory(pair.id);
-    state.records = pruneConflictStorage(pair.id, state.records || []);
+    state.records = pruneConflictStorage(pair.id, state.records || [], pair.local);
     const stamp = now().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z") + "-" + process.pid;
     const backup = path.join(pairDir(pair.id), "conflicts", stamp);
     const common = filterArgs().concat(["--drive-export-formats", EXPORT_FORMATS]);
@@ -1233,6 +1267,11 @@ function runPairSync(pair, state, env, secrets, lock, address) {
         return failed(state, "listing-unreadable");
     }
     state.records = classifyBeforeCopy(pair, listing, inventory, state.records);
+    if (isPaused(readControl(), pair.id)) return Object.assign(state, { state: "paused" });
+    // Even a failed or killed first copy can change the interpretation of
+    // old bisync history. Persist invalidation before handing rclone data.
+    state.baseline = null;
+    withStateLock(() => writePairState(pair.id, state));
     // rclone's own atomic download, a `.partial` name renamed when whole,
     // keeps a cut-off run from leaving a half file in the mirror;
     // --backup-dir moves every local file the copy replaces into conflict
@@ -1265,6 +1304,7 @@ function runPairSync(pair, state, env, secrets, lock, address) {
     const excludes = writeExportExcludeFile(pair, exportPaths(listing, inventory));
     const uploadArgs = ["copy", "--update", pair.local, remotePath(pair)].concat(filterArgs());
     if (excludes !== null) uploadArgs.push("--exclude-from", excludes);
+    if (isPaused(readControl(), pair.id)) return Object.assign(state, { state: "paused" });
     const uploaded = rclone(uploadArgs, env, secrets, lock);
     if (excludes !== null) fs.rmSync(excludes, { force: true });
     if (!uploaded.ok) return rcloneFailed(state, uploaded);
@@ -1281,28 +1321,404 @@ function runPairSync(pair, state, env, secrets, lock, address) {
     return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, records: state.records, changes: next.changes });
 }
 
+// --------------------------------------------------------------- two-way
+
+function bisyncFilters(pair) {
+    return path.join(pairDir(pair.id), "bisync-filters.txt");
+}
+
+function ordinaryArgs(pair) {
+    return ["--filter-from", bisyncFilters(pair), "--drive-skip-gdocs", "--disable", "ListR"];
+}
+
+function bisyncArgs(pair, backup) {
+    return ["bisync", pair.local, remotePath(pair),
+        "--workdir", path.join(pairDir(pair.id), "bisync"),
+        "--compare", "size,modtime,checksum", "--track-renames", "--track-renames-strategy", "hash",
+        "--conflict-resolve", "newer", "--conflict-loser", "delete", "--backup-dir1", backup,
+        "--filters-file", bisyncFilters(pair), "--drive-skip-gdocs",
+        "--check-access", "--create-empty-src-dirs", "--max-delete", "50",
+        "--resilient", "--recover", "--max-lock", "2m", "--disable", "ListR", "--verbose"];
+}
+
+function initializationRequired(state, reason) {
+    return failed(state, "initialization-required", { reason: reason, mayHaveChanged: false });
+}
+
+function bindingReason(pair, state) {
+    const b = state.baseline;
+    if (!plain(b)) return "baseline-missing";
+    if (b.local !== pair.local || b.remote !== pair.remote) return "roots-changed";
+    if (b.policy !== BISYNC_POLICY) return "policy-changed";
+    try {
+        if (fs.readFileSync(bisyncFilters(pair), "utf8") !== BISYNC_FILTERS) return "filters-changed";
+        if (!fs.statSync(path.join(pairDir(pair.id), "bisync")).isDirectory()) return "history-missing";
+    } catch (e) {
+        return e.code === "ENOENT" ? "history-missing" : "history-unreadable";
+    }
+    return null;
+}
+
+// Rclone lsjson lists a directory's ID (rclone.org/commands/rclone_lsjson).
+// Read its parent to refuse duplicated Drive folder names, not whichever
+// object a path lookup happens to choose. Local identity pins replacement
+// roots even when their spelling stays the same.
+function pairIdentity(pair, env, secrets, lock, address) {
+    if (!validAddress(address)) return { ok: false, kind: "identity-unknown" };
+    let st;
+    try {
+        st = fs.statSync(pair.local);
+        if (!st.isDirectory()) return { ok: false, kind: "local-root-missing" };
+    } catch (_e) {
+        return { ok: false, kind: "local-root-missing" };
+    }
+    let parent = "";
+    let remoteIdentity;
+    // Refuse ambiguous ancestors as well as the pair's final folder.
+    for (const name of pair.remote.split("/")) {
+        const listed = rclone(["lsjson", REMOTE + ":" + parent, "--dirs-only", "--disable", "ListR"], env, secrets, lock);
+        if (!listed.ok) return listed;
+        let items;
+        try { items = JSON.parse(listed.stdout); } catch (_e) { return { ok: false, kind: "identity-unreadable" }; }
+        if (!Array.isArray(items) || items.some(item => !plain(item) || typeof item.Path !== "string"))
+            return { ok: false, kind: "identity-unreadable" };
+        const matches = items.filter(item => item.Path === name);
+        if (matches.length !== 1 || matches[0].IsDir !== true || typeof matches[0].ID !== "string" || matches[0].ID === "")
+            return { ok: false, kind: "identity-unknown" };
+        remoteIdentity = matches[0].ID;
+        parent = parent === "" ? name : parent + "/" + name;
+    }
+    return { ok: true, binding: {
+        account: address.toLowerCase(), local: pair.local, localIdentity: [real(pair.local), st.dev, st.ino],
+        remote: pair.remote, remoteIdentity: remoteIdentity, policy: BISYNC_POLICY
+    } };
+}
+
+function sameBinding(a, b) {
+    return ["account", "local", "localIdentity", "remote", "remoteIdentity", "policy"]
+        .every(key => JSON.stringify(a[key]) === JSON.stringify(b[key]));
+}
+
+function relativePath(value) {
+    return typeof value === "string" && value !== "" && !value.startsWith("/") && !CONTROL.test(value)
+        && !value.split("/").some(p => p === "" || p === "." || p === "..");
+}
+
+// Complete listings are admission evidence, never a second sync inventory.
+// Drive can emit duplicate names and unknown hashes; neither proves equality.
+function readListing(root, args, env, secrets, lock) {
+    const listed = rclone(["lsjson", root, "-R", "--hash", "--hash-type", "md5"].concat(args), env, secrets, lock);
+    if (!listed.ok) return listed;
+    let items;
+    try { items = JSON.parse(listed.stdout); } catch (_e) { return { ok: false, kind: "listing-unreadable" }; }
+    const names = new Set();
+    if (!Array.isArray(items)) return { ok: false, kind: "listing-unreadable" };
+    for (const item of items) {
+        if (!plain(item) || !relativePath(item.Path)
+            || names.has(item.Path) || typeof item.IsDir !== "boolean" || !Number.isFinite(item.Size))
+            return { ok: false, kind: "listing-ambiguous" };
+        names.add(item.Path);
+    }
+    return { ok: true, items: items };
+}
+
+function nativeListing(pair, env, secrets, lock) {
+    return readListing(remotePath(pair), filterArgs().concat(["--drive-export-formats", EXPORT_FORMATS, "--disable", "ListR"]), env, secrets, lock);
+}
+
+function nativeCollision(pair, listing, oldExports) {
+    // Drive imports an ordinary .xlsx onto a same-named Google Sheet even
+    // with skip-gdocs. See rclone.org/bisync/#google-docs-and-other-files-of-unknown-size.
+    for (const rel of new Set(listing.filter(i => !i.IsDir && i.Size === -1).map(i => i.Path).concat(oldExports || [])))
+        if (fs.existsSync(path.join(pair.local, rel))) return rel;
+    return null;
+}
+
+function baselineEvidence(pair) {
+    const state = readJson(path.join(pairDir(pair.id), "state.json"));
+    const inventory = readJson(path.join(pairDir(pair.id), "inventory.json"));
+    if (state.kind === "bad" || state.kind === "ok" && (!plain(state.value) || !validRecords(state.value.records)))
+        return { ok: false, kind: "baseline-evidence-unreadable" };
+    if (inventory.kind === "bad" || inventory.kind === "ok" && (!plain(inventory.value) || !plain(inventory.value.entries)
+        || Object.entries(inventory.value.entries).some(([rel, e]) => !relativePath(rel) || !plain(e)
+            || !Number.isFinite(e.size) || !Number.isFinite(e.mtimeMs)
+            || e.hash !== null && !/^[0-9a-f]{32}$/.test(e.hash || "")
+            || e.id !== null && typeof e.id !== "string"
+            || e.export !== undefined && typeof e.export !== "boolean")))
+        return { ok: false, kind: "baseline-evidence-unreadable" };
+    const records = state.kind === "absent" ? [] : state.value.records;
+    const entries = inventory.kind === "absent" ? {} : inventory.value.entries;
+    return { ok: true, records: records, exports: Object.keys(entries).filter(rel => entries[rel].export === true),
+        fingerprint: JSON.stringify([state.kind === "absent" ? null : state.value, entries]) };
+}
+
+function equalSet(pair, env, secrets, lock, address, evidence) {
+    const identity = pairIdentity(pair, env, secrets, lock, address);
+    if (!identity.ok) return identity;
+    const native = nativeListing(pair, env, secrets, lock);
+    if (!native.ok) return native;
+    const collision = nativeCollision(pair, native.items, evidence.exports);
+    if (collision !== null) return { ok: false, kind: "native-export-in-sync-root", path: collision };
+    const listings = [];
+    for (const root of [pair.local, remotePath(pair)]) {
+        const listing = readListing(root, ordinaryArgs(pair), env, secrets, lock);
+        if (!listing.ok) return listing;
+        if (listing.items.some(i => !i.IsDir && (i.Size < 0 || !/^[0-9a-f]{32}$/.test(listedMd5(i) || ""))))
+            return { ok: false, kind: "comparison-incomplete" };
+        listings.push(listing.items.sort((a, b) => a.Path.localeCompare(b.Path)));
+    }
+    const view = items => items.map(i => [i.Path, i.IsDir, i.IsDir ? null : i.Size, i.IsDir ? null : listedMd5(i)]);
+    if (JSON.stringify(view(listings[0])) !== JSON.stringify(view(listings[1]))) return { ok: false, kind: "folders-differ" };
+    if (!listings[0].some(i => !i.IsDir && path.posix.basename(i.Path) === "RCLONE_TEST"))
+        return { ok: false, kind: "access-file-missing" };
+    // check's combined report is a documented machine interface. Its exit
+    // plus all '=' rows prove two-direction equality; --one-way is not used.
+    const checked = rclone(["check", pair.local, remotePath(pair), "--combined", "-"].concat(ordinaryArgs(pair)), env, secrets, lock);
+    if (!checked.ok) return checked;
+    const matched = checked.stdout.trimEnd().split("\n");
+    const paths = listings[0].filter(i => !i.IsDir).map(i => i.Path).sort();
+    if (matched.some(line => !line.startsWith("= ")) || JSON.stringify(matched.map(line => line.slice(2)).sort()) !== JSON.stringify(paths))
+        return { ok: false, kind: "comparison-incomplete" };
+    return { ok: true, binding: identity.binding,
+        fingerprint: JSON.stringify([identity.binding, listings, native.items.sort((a, b) => a.Path.localeCompare(b.Path)), evidence.fingerprint]) };
+}
+
+function recoveryDirectory(pair) {
+    const root = path.join(pairDir(pair.id), "conflicts");
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    // Exclusive run identity, not a path guessed from a PID.
+    return fs.mkdtempSync(path.join(root, stampOf(Date.now()) + "-"));
+}
+
+// Only upstream reports determine outcomes. This table consumes rclone
+// v1.75.2 output retained in VGS-2355's local-design-proof logs and
+// cmd/bisync/operations.go. It never matches hashes or executes a move.
+function bisyncRecords(pair, state, result, backup, operation = "two-way") {
+    const text = result.stderr.replace(/\x1b\[[0-9;]*m/g, "");
+    const queued = new Map();
+    const renamed = new Map();
+    const winners = new Map();
+    const copied = new Set();
+    const lines = text.split("\n");
+    for (const line of lines) {
+        const deletion = /: - (Path[12])\s+Queue delete\s+- (.+)$/.exec(line);
+        if (deletion !== null) {
+            // Queue messages use the corresponding fs root, which rclone
+            // reports at the start. This also serves the local test backend.
+            const roots = /Synching Path1 "(.+?)\/?" with Path2 "(.+?)\/?"/.exec(text);
+            if (roots !== null) {
+                const root = roots[deletion[1] === "Path1" ? 1 : 2].replace(/\/$/, "");
+                if (deletion[2].startsWith(root + "/")) queued.set(deletion[2].slice(root.length + 1), deletion[1]);
+            }
+        }
+        const rename = / INFO\s+: (.+?): Renamed from "(.+)"$/.exec(line);
+        if (rename !== null) renamed.set(rename[2], rename[1]);
+        const winner = / INFO\s+: (.+?): The winner is: (Path[12])$/.exec(line);
+        if (winner !== null) winners.set(winner[1], winner[2]);
+        const copy = / INFO\s+: (.+?): Copied \(/.exec(line);
+        if (copy !== null) copied.add(copy[1]);
+    }
+    const add = record => addRecord(state.records, Object.assign({ operation: operation, outcome: result.ok ? "completed" : "partial" }, record));
+    const storedRoot = path.relative(path.join(pairDir(pair.id), "conflicts"), backup);
+    for (const rel of filesUnder(backup)) {
+        const side = queued.get(rel);
+        add({ kind: operation === "initialize" ? "local-recovery"
+            : result.ok && side === "Path1" && !renamed.has(rel) ? "removed-on-drive"
+            : result.ok && winners.get(rel) === "Path2" ? "both-changed" : "local-recovery",
+        path: rel, stored: storedRoot + "/" + rel, recovery: "local-recovery" });
+    }
+    // A failed operation can already have changed files. Do not promote
+    // queued intentions to completed removal/rename notes on that path.
+    if (!result.ok || operation === "initialize") return;
+    for (const [rel, side] of queued)
+        if (side === "Path2" && !renamed.has(rel)) add({ kind: "removed-locally", path: rel, recovery: "drive-trash" });
+    for (const [rel, to] of renamed) add({ kind: "renamed", path: rel, to: to });
+    for (const [rel, side] of winners)
+        if (side === "Path1") add({ kind: "both-changed", path: rel, recovery: "drive-trash" });
+    for (const rel of copied)
+        if (/\.conflict\d+(?:\.[^/]*)?$/.test(rel)) add({ kind: "conflict-unresolved", path: rel, recovery: "active-conflicts" });
+}
+
+function refreshNativeExports(pair, state, listing, env, secrets, lock) {
+    const paths = listing.filter(i => !i.IsDir && i.Size === -1).map(i => i.Path);
+    if (paths.length === 0) return state;
+    const allow = path.join(pairDir(pair.id), "export-includes.txt");
+    const backup = recoveryDirectory(pair);
+    const exports = path.join(pairDir(pair.id), "exports");
+    // Include literals through the existing escaping owner, not broad
+    // Office-extension rules. This allow-list never enters bisync.
+    writeAtomic(allow, paths.map(rel => "+ " + rcloneFilterLiteral(rel)).join("\n") + "\n- **\n");
+    let result;
+    try {
+        result = rclone(["copy", remotePath(pair), exports, "--backup-dir", backup,
+            "--drive-export-formats", EXPORT_FORMATS, "--filter-from", allow, "--disable", "ListR"], env, secrets, lock);
+    } finally {
+        fs.rmSync(allow, { force: true });
+    }
+    const generation = path.basename(backup);
+    for (const rel of filesUnder(backup)) addRecord(state.records, {
+        kind: "local-recovery", operation: "exports", outcome: result.ok ? "completed" : "partial",
+        path: rel, stored: generation + "/" + rel, recovery: "local-recovery"
+    });
+    return result.ok ? state : rcloneFailed(state, result);
+}
+
+function runPairTwoWay(pair, state, env, secrets, lock, address) {
+    const reason = bindingReason(pair, state);
+    if (reason !== null) return initializationRequired(state, reason);
+    const identity = pairIdentity(pair, env, secrets, lock, address);
+    if (!identity.ok) return failed(state, identity.kind, { mayHaveChanged: false });
+    if (!sameBinding(state.baseline, identity.binding)) return initializationRequired(state, "identity-changed");
+    const listing = nativeListing(pair, env, secrets, lock);
+    if (!listing.ok) return rcloneFailed(state, listing, false);
+    const collision = nativeCollision(pair, listing.items);
+    if (collision !== null) return initializationRequired(state, "native-export-in-sync-root");
+    if (isPaused(readControl(), pair.id)) return Object.assign(state, { state: "paused" });
+    state.records = pruneConflictStorage(pair.id, state.records || [], pair.local);
+    const backup = recoveryDirectory(pair);
+    const result = rclone(bisyncArgs(pair, backup), env, secrets, lock);
+    bisyncRecords(pair, state, result, backup);
+    if (!result.ok) {
+        if (result.kind === "bisync-recovery-required") state.baseline = null;
+        return failed(state, result.kind, { exit: result.exit, mayHaveChanged: result.kind !== "deletion-limit" });
+    }
+    if (isPaused(readControl(), pair.id)) return Object.assign(state, { state: "paused" });
+    state.lastError = null;
+    state = refreshNativeExports(pair, state, listing.items, env, secrets, lock);
+    if (state.lastError !== null && state.state !== "running") {
+        state.lastError.operation = "exports";
+        state.lastError.mayHaveChanged = true;
+        return state;
+    }
+    return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, changes: null });
+}
+
+function initializeVerb(words) {
+    const id = pairOption(words);
+    if (id === null) bad("pair=missing");
+    const read = readPairs();
+    if (read.error !== null) refuse(read.error);
+    const pair = read.pairs.find(p => p.id === id);
+    if (pair === undefined) refuse("pair=unknown");
+    const fd = lockFd(pairLock(id), ["-n"]);
+    if (fd === null) { process.stdout.write("pair=" + id + " result=busy\n"); process.exit(EXIT_BUSY); }
+    try {
+        const control = readControl();
+        if (control.error) refuse("initialize=control-unreadable");
+        if (!control.twoWaySync) refuse("initialize=copy-selected");
+        const evidence = baselineEvidence(pair);
+        if (!evidence.ok) refuse("initialize=" + evidence.kind);
+        const credential = readCredential();
+        if (credential.kind !== "found") refuse("initialize=credential-" + credential.kind);
+        const env = rcloneEnv(credential.values);
+        const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
+        // A failed explicit attempt requires a fresh comparison and consent.
+        // Keep rclone history in place for investigation, never erase it.
+        withStateLock(() => { writePairState(id, Object.assign(readPairState(id), { baseline: null })); writeStatus(); });
+        const reviewedEvidence = baselineEvidence(pair);
+        if (!reviewedEvidence.ok) refuse("initialize=" + reviewedEvidence.kind);
+        process.stdout.write("Local folder: " + pair.local + "\nGoogle Drive folder: " + pair.remote
+            + "\nEarlier records (evidence, not removal instructions):\n" + JSON.stringify(reviewedEvidence.records, null, 2) + "\n");
+        writeAtomic(bisyncFilters(pair), BISYNC_FILTERS);
+        const before = equalSet(pair, env, secrets, fd, credential.address, reviewedEvidence);
+        if (!before.ok) refuse("initialize=" + before.kind);
+        const backup = recoveryDirectory(pair);
+        const preview = rclone(bisyncArgs(pair, backup).concat(["--resync", "--resync-mode", "newer", "--dry-run"]), env, secrets, fd);
+        if (!preview.ok) refuse("initialize=preview-failed");
+        // The declaration's TUI owns this visible terminal. No unattended
+        // mode, argv --yes, or setting write supplies initialization consent.
+        const promptEnv = { VGS_TUI_LIB: process.env.VGS_TUI_LIB || "" };
+        for (const key of Object.keys(process.env))
+            if (key.startsWith("GUM_")) promptEnv[key] = process.env[key];
+        const confirmed = run("/usr/bin/bash", [path.join(__dirname, "..", "tui", "initialize-confirm.sh")],
+            { stdio: ["inherit", "inherit", "inherit"], env: childEnv(promptEnv) });
+        if (confirmed.status === 1) return;
+        if (confirmed.status !== 0) refuse("initialize=confirmation-failed");
+        const currentControl = readControl();
+        if (currentControl.error || !currentControl.twoWaySync || isPaused(currentControl, id) !== isPaused(control, id))
+            refuse("initialize=control-changed");
+        if (readText(bisyncFilters(pair)) !== BISYNC_FILTERS) refuse("initialize=filters-changed");
+        const currentPair = readPairs().pairs.find(p => p.id === id);
+        if (JSON.stringify(currentPair) !== JSON.stringify(pair)) refuse("initialize=roots-changed");
+        const currentCredential = readCredential();
+        if (currentCredential.kind !== "found" || currentCredential.address !== credential.address
+            || CREDENTIAL_PARTS.some(part => currentCredential.values[part] !== credential.values[part]))
+            refuse("initialize=account-changed");
+        const afterEvidence = baselineEvidence(pair);
+        if (!afterEvidence.ok) refuse("initialize=" + afterEvidence.kind);
+        const after = equalSet(pair, env, secrets, fd, credential.address, afterEvidence);
+        if (!after.ok || before.fingerprint !== after.fingerprint) refuse("initialize=" + (after.ok ? "comparison-changed" : after.kind));
+        let state = readPairState(id);
+        state.baseline = null;
+        state.route = "two-way";
+        state.operation = "initialize";
+        state.state = "running";
+        state.startedAt = now();
+        state.lastAttempt = now();
+        withStateLock(() => { writePairState(id, state); writeStatus(); });
+        // Rename tracking is ignored during resync (installed v1.75.2 proof).
+        // Admission, not conflict flags, makes this equal-set action safe.
+        let result = rclone(bisyncArgs(pair, backup).concat(["--resync", "--resync-mode", "newer"]), env, secrets, fd);
+        bisyncRecords(pair, state, result, backup, "initialize");
+        if (result.ok) {
+            const final = equalSet(pair, env, secrets, fd, credential.address, afterEvidence);
+            if (!final.ok || !sameBinding(final.binding, after.binding))
+                result = { ok: false, kind: final.ok ? "identity-changed" : final.kind, exit: null };
+        }
+        if (result.ok) {
+            state = Object.assign(state, { baseline: Object.assign(after.binding, { initializedAt: now() }),
+                state: "idle", lastSuccess: now(), lastError: null, changes: null });
+            // Settled restoration notes are retired, never converted into
+            // deletion instructions. Kept bytes and unrelated review remain.
+            state.records = state.records.filter(r => !["removed-locally", "removed-on-drive", "renamed"].includes(r.kind)
+                || r.operation === "two-way" || r.stored !== undefined);
+        } else state = failed(state, result.kind, { operation: "initialize", exit: result.exit, mayHaveChanged: true });
+        state.startedAt = null;
+        withStateLock(() => { writePairState(id, state); writeStatus(); });
+        if (!result.ok) refuse("initialize=" + result.kind);
+        process.stdout.write("initialized=" + id + "\n");
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
 // One pair under its lock: `busy` when another run holds it.
 function runPair(pair, control) {
     if (isPaused(control, pair.id)) return "paused";
     const fd = lockFd(pairLock(pair.id), ["-n"]);
     if (fd === null) return "busy";
     try {
+        control = readControl();
+        if (isPaused(control, pair.id)) return "paused";
+        // A normal On hold must not rewrite unreadable historical evidence
+        // into an empty, apparently valid first-baseline record.
+        if (control.twoWaySync && !plain(readPairState(pair.id).baseline) && !baselineEvidence(pair).ok) {
+            log("pair=" + pair.id + " error=baseline-evidence-unreadable");
+            return "error";
+        }
         let state = withStateLock(() => {
-            const begun = Object.assign(readPairState(pair.id), { state: "running", startedAt: now(), lastAttempt: now() });
+            const route = control.twoWaySync ? "two-way" : "copy";
+            const begun = Object.assign(readPairState(pair.id), { state: "running", route: route, operation: route, startedAt: now(), lastAttempt: now() });
             writePairState(pair.id, begun);
             writeStatus();
             return begun;
         });
+        const historical = new Set((state.records || []).map(recordKey));
         const credential = readCredential();
         if (credential.kind === "found") {
             const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
             const env = rcloneEnv(credential.values);
-            state = runPairSync(pair, state, env, secrets, fd, credential.address);
+            state = state.route === "two-way"
+                ? runPairTwoWay(pair, state, env, secrets, fd, credential.address)
+                : runPairCopy(pair, state, env, secrets, fd, credential.address);
         } else {
             const kind = credential.kind === "unavailable" ? credential.reason : "credential-" + credential.kind;
-            state = failed(state, kind, { account: credential.account });
+            state = failed(state, kind, { account: credential.account, mayHaveChanged: false });
         }
         state.startedAt = null;
+        state.records = (state.records || []).map(r => r.operation === undefined && !historical.has(recordKey(r))
+            ? Object.assign(r, { operation: state.route }) : r);
+        if (state.lastError !== null && state.lastError.operation === undefined) state.lastError.operation = state.route;
         withStateLock(() => {
             carryDismissals(pair.id, readPairState(pair.id).records || [], state.records || []);
             writePairState(pair.id, state);
@@ -1493,7 +1909,7 @@ function installVerb(words) {
 
 // ----------------------------------------------------------------- status
 
-const PAIR_PRECEDENCE = ["authorization-required", "error", "offline", "paused", "idle"];
+const PAIR_PRECEDENCE = ["authorization-required", "error", "initialization-required", "offline", "paused", "idle"];
 
 function staleAfter(iso) {
     return iso === null ? null : new Date(Date.parse(iso) + FRESH_MS).toISOString();
@@ -1509,7 +1925,7 @@ function conflictsOf(pair, stored) {
     const found = [];
     const root = path.join(pairDir(pair.id), "conflicts");
     for (const r of stored.records || []) {
-        const localPath = path.join(pair.local, r.path);
+        const localPath = path.join(r.operation === "exports" ? path.join(pairDir(pair.id), "exports") : pair.local, r.path);
         const out = { kind: r.kind, pair: pair.id, pairLabel: pair.label, path: r.path, since: r.since };
         // A file the download could not copy has a folder here only while
         // an older copy of it is here.
@@ -1519,6 +1935,9 @@ function conflictsOf(pair, stored) {
         if (typeof r.reason === "string") out.reason = r.reason;
         if (typeof r.mine === "boolean") out.mine = r.mine;
         if (typeof r.owner === "string") out.owner = r.owner;
+        for (const key of ["operation", "outcome", "recovery"])
+            if (typeof r[key] === "string") out[key] = r[key];
+        if (r.kind === "conflict-unresolved" && !fs.existsSync(localPath)) continue;
         out.needs = needsOf(r);
         out.key = conflictKey(pair.id, r);
         if (r.kind !== "both-changed" || out.storedPath !== undefined || r.stored === undefined) found.push(out);
@@ -1539,13 +1958,24 @@ function renderStatus() {
         const stored = readPairState(pair.id);
         let state = stored.state;
         let lastError = stored.lastError;
+        const initializationReason = bindingReason(pair, stored)
+            || (lastError !== null && lastError.kind === "initialization-required" ? lastError.reason : null);
+        if (control.twoWaySync && !plain(stored.baseline) && !baselineEvidence(pair).ok) {
+            state = "error";
+            lastError = { kind: "baseline-evidence-unreadable", at: null, operation: "two-way", mayHaveChanged: false };
+        }
+        if (control.twoWaySync && state === "idle" && initializationReason !== null) state = "initialization-required";
         if (state === "running" && !lockHeld(pairLock(pair.id))) {
             state = "error";
-            lastError = { kind: "interrupted", at: stored.startedAt };
+            lastError = { kind: "interrupted", at: stored.startedAt, operation: stored.operation || stored.route, mayHaveChanged: true };
         }
         if (state !== "running" && isPaused(control, pair.id)) state = "paused";
         pairs.push({
             id: pair.id, label: pair.label, remote: pair.remote, local: pair.local, state: state,
+            route: state === "running" ? stored.route : control.twoWaySync ? "two-way" : "copy",
+            operation: stored.operation || stored.route || null,
+            initialization: { state: initializationReason === null ? "ready" : "required", reason: initializationReason },
+            recoveryPath: path.join(pairDir(pair.id), "conflicts"), exportsPath: path.join(pairDir(pair.id), "exports"),
             lastSuccess: stored.lastSuccess, staleAfter: staleAfter(stored.lastSuccess), lastError: lastError, changes: stored.changes
         });
         conflicts = conflicts.concat(conflictsOf(pair, stored));
@@ -1569,6 +1999,7 @@ function renderStatus() {
     const needing = conflicts.filter(c => c.needs === "you");
     const reasons = [];
     if (standing.some(s => s.state === "authorization-required")) reasons.push("authorization-required");
+    if (standing.some(s => s.state === "initialization-required")) reasons.push("initialization-required");
     if (read.error !== null || standing.some(s => s.state === "error")) reasons.push("error");
     if (needing.length > 0) reasons.push("conflicts");
     if (units === "stale") reasons.push("units-stale");
@@ -1586,6 +2017,7 @@ function renderStatus() {
     const dismissed = read.error !== null ? control.dismissed : control.dismissed.filter(k => conflicts.some(c => c.key === k));
     return {
         state: state,
+        twoWaySync: control.twoWaySync,
         paused: control.paused,
         units: units,
         lastSuccess: lastSuccess,
@@ -2170,10 +2602,22 @@ function pauseVerb(words, paused) {
         const next = only === null
             ? { paused: paused, pausedPairs: paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }
             : { paused: control.paused, pausedPairs: control.pausedPairs.filter(id => id !== only).concat(paused ? [only] : []), notifiedKey: control.notifiedKey };
-        writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed }));
+        if (control.error) refuse("control=" + control.error);
+        writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync }));
         writeStatus();
     });
     process.stdout.write((paused ? "paused=" : "resumed=") + (only === null ? "all" : only) + "\n");
+}
+
+function setTwoWayVerb(words) {
+    if (words.length !== 1 || !["true", "false"].includes(words[0])) bad("two-way=boolean");
+    withStateLock(() => {
+        const control = readControl();
+        if (control.error) refuse("control=" + control.error);
+        writeJson(controlFile, Object.assign(control, { twoWaySync: words[0] === "true" }));
+        writeStatus();
+    });
+    process.stdout.write("two-way=" + words[0] + "\n");
 }
 
 // A label holds no control character (pairError), so a tab parts the
@@ -2268,9 +2712,11 @@ const renamed = migrateRenameIfNeeded();
 migratePairListIfNeeded();
 const converted = migratePairStatesIfNeeded();
 migrateStatusIfNeeded(renamed || converted);
-if (verb !== "install") refreshStaleInstallIfNeeded();
+if (verb !== "install" && verb !== "set-two-way" && verb !== "initialize") refreshStaleInstallIfNeeded();
 switch (verb) {
 case "run": runVerb(rest); break;
+case "initialize": initializeVerb(rest); break;
+case "set-two-way": setTwoWayVerb(rest); break;
 case "status": statusVerb(rest); break;
 case "attention-seen": attentionSeenVerb(rest); break;
 case "dismiss": dismissVerb(rest); break;
