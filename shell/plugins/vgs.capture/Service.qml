@@ -11,7 +11,7 @@ import qs.Commons
 Item {
     id: root
     property var shell: null
-    ShareSession { id: shareSession; shell: root.shell }
+    ShareSession { id: shareSession; shell: root.shell; handOff: output => root.handOff(output) }
     property bool registered: false
     property string phase: "idle"
     property string action: ""
@@ -268,9 +268,25 @@ Item {
         return "ok";
     }
 
+    // A Picker recording whose recorder has not started takes a screen the
+    // user picks for it, and records that output with gpu-screen-recorder's
+    // own capture, as Display mode does: the portal tags a 90 or 270 degree
+    // output's upright frame as turned (VGS-2242). Only a known output name
+    // reaches the worker's line-framed stdin.
+    function handOff(output) {
+        const job = activeJob;
+        if (job === null || job.actionName !== "record-portal" || phase !== "capturing") return false;
+        if (outputs === null || !outputs.some(item => item.name === output && !item.disabled)) return false;
+        job.write("picked-output " + output + "\n");
+        return true;
+    }
+
     function finishAction(job) {
         thaw(job);
         if (activeJob !== job) return;
+        // A share handed to this job belongs to it alone, so every end of
+        // the job, before or without portal-released, cancels it.
+        shareSession.cancelHandOff();
         activeJob = null;
         clearCountdown();
         phase = "idle";
@@ -361,6 +377,9 @@ Item {
             break;
         case "thaw":
             thaw(job);
+            break;
+        case "portal-released":
+            if (activeJob === job) shareSession.cancelHandOff();
             break;
         case "countdown":
             clearCountdown();
