@@ -35,7 +35,8 @@ import "TailscaleLogic.js" as Logic
 // publishes `connection` and `setup`, the lines the Settings page draws,
 // `tailscale`, the connection, account and this device the views draw,
 // and `devices`, `exitNodes` and `inbound`, each within its byte budget
-// (TailscaleLogic.statusWrites).
+// (TailscaleLogic.statusWrites); `devices` lists the starred devices, the
+// `starred` setting, first.
 Item {
     id: root
 
@@ -110,7 +111,9 @@ Item {
         { accounts: accounts, accountsRead: accountsFault === "", outdated: outdated, action: action, login: login, problem: problem,
             suggestion: Logic.suggestion(suggestedName, snapshot),
             backendPresent: stepState("service-tailscaled") !== "absent" })
-    readonly property var connectFilter: Logic.connectFilter(snapshot.devices, shell === null ? "" : shell.settings.hideConnectTags)
+    // A star reorders the last read's devices at once, with no new read.
+    readonly property var connectFilter: Logic.connectFilter(Logic.devices(snapshot.peerRows, Logic.starredList(shell === null ? [] : shell.settings.starred)),
+        shell === null ? "" : shell.settings.hideConnectTags)
 
     // Read from the source, since a change handler can run before the
     // bindings that read it.

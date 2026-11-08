@@ -19,7 +19,9 @@ import "TailscaleLogic.js" as Logic
 // through the same CopyText as the lists. This device and each network
 // device copy their address through a copy icon, and a network device that
 // runs an ssh server (TailscaleLogic.sshCapable) has Connect in terminal
-// before it, which opens the user's terminal on ssh to its DNS name through
+// before it, and every network device leads with a star that keeps it
+// at the top of the list, written to the `starred` setting. Connect
+// opens the user's terminal on ssh to its DNS name through
 // `shell.tui.ssh`; the core builds the command, and this view hands it the
 // device's name and DNS name alone. While ssh is missing, Connect raises
 // its requirement notice instead. The pane expands exit countries in place
@@ -64,7 +66,8 @@ FocusScope {
 
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var tailscale: values.tailscale ? values.tailscale : Logic.unread()
-    readonly property var devices: values.devices ? values.devices : Logic.emptySnapshot("checking").devices
+    readonly property var devices: values.devices ? values.devices : Logic.devices([], [])
+    readonly property var starred: Logic.starredList(shell === null ? [] : shell.settings.starred)
     readonly property var exitNodes: values.exitNodes ? values.exitNodes : Logic.emptySnapshot("checking").exitNodes
     // Since times read as the bar clock does.
     readonly property var inbound: Logic.inboundView(values.inbound, ms => Qt.formatTime(new Date(ms), "HH:mm"))
@@ -159,11 +162,18 @@ FocusScope {
     // Whether row KEY's copy reads Copied now.
     function copied(key) { return copier.confirming && copiedKey === key; }
     // A network device ROW's icon actions, as DeviceList.iconActionsOf
-    // takes them: Connect in terminal first, then copy, so copy keeps the
-    // row's last place on every row.
+    // takes them: the star first, then Connect in terminal, then copy, so
+    // the star keeps the first place and copy the last on every row.
     function deviceIcons(row) {
-        const icons = row.connects ? [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }] : [];
+        const icons = [{ key: "star", iconName: row.starred ? "vgs-star-filled" : "star", label: row.starred ? "Unstar" : "Star", checked: row.starred }]
+            .concat(row.connects ? [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }] : []);
         return row.address === "" ? icons : icons.concat([{ key: "copy", iconName: copied(row.key) ? "check" : "copy", label: copied(row.key) ? "Copied" : "Copy" }]);
+    }
+    // Stars network device KEY, or clears its star.
+    function star(key) {
+        const reply = shell.configure.set("starred", Logic.starToggled(starred, key));
+        localProblem = reply === "ok" ? "" : "VGS could not save this setting.";
+        if (reply !== "ok") console.warn("tailscale: star " + reply);
     }
     // Opens the user's terminal on ssh to network device KEY. A refusal,
     // and a launcher that found no terminal, leave the problem line.
@@ -288,13 +298,14 @@ FocusScope {
                 id: deviceList
                 objectName: "tailscale-devices"
                 width: parent.width
-                rows: Logic.deviceRows(root.devices)
+                rows: Logic.deviceRows(root.devices, root.starred)
                 iconActionsOf: row => root.deviceIcons(row)
                 menuOf: row => root.expanded && row.dnsName !== "" ? [{ key: "copy-dns", text: "Copy DNS name", iconName: "copy" }] : []
                 onChose: (key, entry) => {
                     const row = deviceList.rows.find(item => item.key === key);
                     if (row === undefined) return;
-                    if (entry === "connect") root.connect(key);
+                    if (entry === "star") root.star(key);
+                    else if (entry === "connect") root.connect(key);
                     else if (entry === "copy" && row.address !== "") root.copy(key, row.address);
                     else if (entry === "copy-dns" && row.dnsName !== "") root.copy(key, row.dnsName);
                 }

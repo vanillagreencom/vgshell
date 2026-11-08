@@ -181,6 +181,8 @@ mutations=(
   "a Tailscale accounts read keeps an access that changed under it|../plugins/vgs.tailscale/Service.qml|if (accountsReader.running) accountsReader.access = \"\";|if (false) accountsReader.access = \"\";|tst_tailscale_service.qml"
   "a Tailscale accounts fault under a new access keeps the earlier cause in the log|../plugins/vgs.tailscale/Service.qml|access !== loggedAccess)|false)|tst_tailscale_service.qml"
   "Tailscale's connect opens a terminal while ssh is missing|../plugins/vgs.tailscale/TailscaleBody.qml|if (shell.requirements.missing.indexOf(\"ssh\") !== -1) {|if (false) {|tst_tailscale_flyout.qml"
+  "a Tailscale star leaves the device order|../plugins/vgs.tailscale/Service.qml|Logic.devices(snapshot.peerRows, Logic.starredList(shell === null ? [] : shell.settings.starred))|Logic.devices(snapshot.peerRows, [])|tst_tailscale_flyout.qml"
+  "a checked icon action draws unchecked|layout/DeviceList.qml|checked: iconAction.checked === true|checked: false|tst_tailscale_flyout.qml"
   "Tailscale's copy icon copies the DNS name|../plugins/vgs.tailscale/TailscaleBody.qml|entry === \"copy\" && row.address !== \"\") root.copy(key, row.address)|entry === \"copy\" && row.address !== \"\") root.copy(key, row.dnsName)|tst_tailscale_flyout.qml"
   "Tailscale's connect leaves no launcher-missing line|../plugins/vgs.tailscale/TailscaleBody.qml|        if (end.reason === null) return;|        return;|tst_tailscale_flyout.qml"
   "a failed Tailscale accounts read offers no first sign-in|../plugins/vgs.tailscale/TailscaleBody.qml|root.signedOut && root.tailscale.accountsRead && root.tailscale.accounts.length === 0|root.signedOut && root.tailscale.accounts.length === 0|tst_tailscale_flyout.qml"

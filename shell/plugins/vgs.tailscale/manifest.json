@@ -36,7 +36,8 @@
   },
   "settings": {
     "pollSeconds": 30,
-    "hideConnectTags": ""
+    "hideConnectTags": "",
+    "starred": []
   },
   "schema": {
     "hideConnectTags": {

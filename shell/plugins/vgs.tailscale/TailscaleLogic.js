@@ -20,9 +20,12 @@ var ACTION_MS = 30000;
 var LOGIN_MS = 300000;
 // The most the service keeps of what a sign-in run prints, in characters.
 var LOGIN_SAID_MAX = 4096;
-// List ceilings bound retained rows: the network devices and your own exit
-// nodes each, the Mullvad cities, the accounts. statusWrites also bounds
-// each value's JSON bytes under the core's per-plugin ceiling (D037).
+// List ceilings bound retained rows: the network devices drawn and your
+// own exit nodes each, the Mullvad cities, the accounts. statusWrites also
+// bounds each value's JSON bytes under the core's per-plugin ceiling
+// (D037). The snapshot keeps every network device's row of the last read,
+// as it keeps every exit node's target, so a star orders them without a
+// read.
 var PEER_MAX = 64;
 var CITY_MAX = 160;
 var ACCOUNT_MAX = 16;
@@ -291,18 +294,41 @@ function sshCapable(peer) {
     return SSH_SYSTEMS.indexOf(osOf(peer)) !== -1 && dnsLine(peer) !== "";
 }
 
-// The network devices PEERS hold, Mullvad nodes left out: { rows, count,
-// online }, `rows` online first then by name, at most PEER_MAX: { id, name,
-// os, icon, address, dnsName, online, connects, tags }, `connects` as sshCapable
-// reads the peer. `count` and `online` count every device, kept or not.
-function devices(peers) {
-    var all = peers.filter(function (peer) { return !isMullvad(peer) && validId(peer.ID); }).map(function (peer) {
+// Every network device PEERS hold, Mullvad nodes left out, in no order:
+// { id, name, os, icon, address, dnsName, online, connects, tags },
+// `connects` as sshCapable reads the peer.
+function peerRows(peers) {
+    return peers.filter(function (peer) { return !isMullvad(peer) && validId(peer.ID); }).map(function (peer) {
         return { id: peer.ID, name: peerName(peer), os: line(peer.OS), icon: peerIcon(peer), address: firstIPv4(peer.TailscaleIPs),
             dnsName: dnsLine(peer), online: peer.Online === true, connects: sshCapable(peer),
             tags: Array.isArray(peer.Tags) ? peer.Tags : [] };
     });
-    all.sort(onlineFirst);
+}
+
+// The network devices the views draw, from ROWS (peerRows) and the STARRED
+// node IDs (starredList): { rows, count, online }, `rows` the starred
+// devices first, then the rest, each part online first then by name, at
+// most PEER_MAX, so the cut keeps a starred device before any other.
+// `count` and `online` count every device, kept or not.
+function devices(rows, starred) {
+    var lifted = {};
+    starred.forEach(function (id) { lifted[id] = true; });
+    var all = rows.slice().sort(function (a, b) {
+        return Number(has(lifted, b.id)) - Number(has(lifted, a.id)) || onlineFirst(a, b);
+    });
     return { rows: all.slice(0, PEER_MAX), count: all.length, online: all.filter(function (row) { return row.online; }).length };
+}
+
+// The `starred` setting as the plugin keeps it: the node IDs validId
+// admits. The user's file reaches this unchecked, since the core judges
+// only a value `configure` writes (PluginLogic.settingRefusal).
+function starredList(value) {
+    return Array.isArray(value) ? value.filter(validId) : [];
+}
+
+// STARRED with node ID toggled: added after the others, or removed.
+function starToggled(starred, id) {
+    return starred.indexOf(id) === -1 ? starred.concat([id]) : starred.filter(function (kept) { return kept !== id; });
 }
 
 // Custom Settings strings reach this owner unchanged. Refuse the whole
@@ -327,7 +353,7 @@ var BACKEND_STATES = {
 
 function emptySnapshot(state) {
     return { state: state, device: { name: "", address: "", dnsName: "" }, tailnet: "", account: "", exit: null,
-        devices: { rows: [], count: 0, online: 0 }, exitNodes: { own: [], countries: [], cityCount: 0 }, targets: {},
+        peerRows: [], exitNodes: { own: [], countries: [], cityCount: 0 }, targets: {},
         tun: false, inboundIndex: { addresses: {}, ports: [] } };
 }
 
@@ -357,7 +383,7 @@ function snapshot(code, stdout, stderr) {
     out.exit = exits.exit;
     out.exitNodes = { own: exits.own, countries: exits.countries, cityCount: exits.cityCount };
     out.targets = exits.targets;
-    out.devices = devices(peers);
+    out.peerRows = peerRows(peers);
     out.tun = doc.TUN === true;
     out.inboundIndex = inboundIndex(peers, users, self);
     return out;
@@ -892,12 +918,13 @@ function accountRows(tailscale) {
 }
 
 // The network devices' DeviceList rows: each device's name, its address
-// and whether it is offline, its icon, and the address, DNS name and
-// `connects` its icon actions read.
-function deviceRows(value) {
+// and whether it is offline, its icon, and the address, DNS name,
+// `connects` and `starred` its icon actions read, `starred` whether the
+// STARRED node IDs (starredList) hold it.
+function deviceRows(value, starred) {
     return value.rows.map(function (row) {
         return { key: row.id, text: row.name, secondary: row.online ? row.address : [row.address, "Offline"].filter(function (part) { return part !== ""; }).join(" · "),
-            iconName: row.icon, address: row.address, dnsName: row.dnsName, connects: row.connects === true };
+            iconName: row.icon, address: row.address, dnsName: row.dnsName, connects: row.connects === true, starred: starred.indexOf(row.id) !== -1 };
     });
 }
 

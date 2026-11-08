@@ -54,15 +54,15 @@
 # flyout then reads signed out with Sign in offered; this device's copy
 # icon, and Return on its row, read Copied while CopyText confirms and
 # leave the IPv4 address on the sandbox clipboard; this device draws copy
-# alone, each network device that runs an ssh server Connect in terminal
-# then copy, and a phone copy alone, none of them a Tab stop; a network
-# device's menu holds its icons, and its copy leaves its address on the
-# clipboard; Connect hands the stand-in terminal `vgshell-tui ssh-session
-# --name <name> --host <dns name>`, which it does not run, so no tmux or
-# ssh runs; with no terminal launcher, Connect leaves the launcher-missing
-# line; Open admin console hands the admin address to the
-# xdg-open stand-in, and with xdg-open missing raises its requirement
-# notice; the Exit nodes view with Recommended, None, your exit nodes and
+# alone, each network device a star, then Connect in terminal where it
+# runs an ssh server, then copy, none of them a Tab stop; a network
+# device's menu holds its icons, Star first, and its copy leaves its
+# address on the clipboard; Connect hands the stand-in terminal
+# `vgshell-tui ssh-session --name <name> --host <dns name>`, which it does
+# not run, so no tmux or ssh runs; with no terminal launcher, Connect
+# leaves the launcher-missing line; Open admin console hands the admin
+# address to the xdg-open stand-in, and with xdg-open missing raises its
+# requirement notice; the Exit nodes view with Recommended, None, your exit nodes and
 # Mullvad by country, a search, no match, a country's view, Back and
 # Escape back to the Exit node row, a search past 20 matches drawing 20
 # rows and its count (fixture sheet-cities.json), an offline node of your
@@ -1165,7 +1165,7 @@ done
 expect "Tab reaches the network devices after the chooser" reached tailscale_tab_until '["DeviceRow","attic-nas"]' window tailscale-devices
 # Rows: name | address | the row's icon actions, which lead its menu, as
 # JSON list items.
-for tailscale_peer in 'attic-nas|100.64.0.3|"Connect in terminal", "Copy"' 'gateway|100.64.0.2|"Connect in terminal", "Copy"' 'pixel|100.64.0.4|"Copy"' 'ipad|100.64.0.7|"Copy"' 'old-laptop|100.64.0.9|"Connect in terminal", "Copy"'; do
+for tailscale_peer in 'attic-nas|100.64.0.3|"Star", "Connect in terminal", "Copy"' 'gateway|100.64.0.2|"Star", "Connect in terminal", "Copy"' 'pixel|100.64.0.4|"Star", "Copy"' 'ipad|100.64.0.7|"Star", "Copy"' 'old-laptop|100.64.0.9|"Star", "Connect in terminal", "Copy"'; do
   IFS='|' read -r tailscale_peer_name tailscale_peer_address tailscale_peer_icons <<<"$tailscale_peer"
   expect_poll "the network list reaches $tailscale_peer_name" "[\"DeviceRow\",\"$tailscale_peer_name\"]" tailscale_focus window
   tailscale_key Return
@@ -1257,14 +1257,14 @@ tailscale_key space
 expect_poll "the network devices list each peer with its address, online first" \
   "$(words "Network devices" "3 of 5 online" attic-nas 100.64.0.3 gateway 100.64.0.2 pixel 100.64.0.4 ipad "100.64.0.7 · Offline" old-laptop "100.64.0.9 · Offline")" \
   tailscale_drawn panel Disclosure tailscale-network-devices
-expect "the device rows draw copy on each, and Connect in terminal first where ssh runs" \
-  '[["tailscale-self-copy", "Copy"], ["nSHEET0003CNTRL/connect", "Connect in terminal"], ["nSHEET0003CNTRL/copy", "Copy"], ["nSHEET0002CNTRL/connect", "Connect in terminal"], ["nSHEET0002CNTRL/copy", "Copy"], ["nSHEET0004CNTRL/copy", "Copy"], ["nSHEET0007CNTRL/copy", "Copy"], ["nSHEET0009CNTRL/connect", "Connect in terminal"], ["nSHEET0009CNTRL/copy", "Copy"]]' \
+expect "the device rows draw a star and copy on each, and Connect in terminal between them where ssh runs" \
+  '[["tailscale-self-copy", "Copy"], ["nSHEET0003CNTRL/star", "Star"], ["nSHEET0003CNTRL/connect", "Connect in terminal"], ["nSHEET0003CNTRL/copy", "Copy"], ["nSHEET0002CNTRL/star", "Star"], ["nSHEET0002CNTRL/connect", "Connect in terminal"], ["nSHEET0002CNTRL/copy", "Copy"], ["nSHEET0004CNTRL/star", "Star"], ["nSHEET0004CNTRL/copy", "Copy"], ["nSHEET0007CNTRL/star", "Star"], ["nSHEET0007CNTRL/copy", "Copy"], ["nSHEET0009CNTRL/star", "Star"], ["nSHEET0009CNTRL/connect", "Connect in terminal"], ["nSHEET0009CNTRL/copy", "Copy"]]' \
   tailscale_row_icons
 tailscale_tab "Tab reaches the network devices' list" '["DeviceRow","attic-nas"]'
 # The icons take no Tab, and the row's menu holds them: its copy leaves
 # the device's address on the clipboard.
-tailscale_device_menu "attic-nas's menu holds its icons, Connect in terminal first" '["Connect in terminal", "Copy"]' "Connect in terminal"
-tailscale_key Down
+tailscale_device_menu "attic-nas's menu holds its icons, Star first" '["Star", "Connect in terminal", "Copy"]' "Star"
+tailscale_key End
 tailscale_key Return
 expect_poll "the menu's copy leaves attic-nas's address on the clipboard" match tailscale_clipboard_matches 100.64.0.3
 expect_poll "attic-nas's copy icon reads Copied" '"Copied"' ipc smoke readMatchingDescendant panel vgs.tailscale IconButton objectName nSHEET0003CNTRL/copy label
@@ -1274,7 +1274,8 @@ expect_poll "the menu returns the keys to attic-nas" '["DeviceRow","attic-nas"]'
 # runs no command but a presenter's, so no tmux or ssh runs.
 [[ $(shell_resolves ssh) != none ]] || fail "tailscale: the sandbox shell finds no ssh, so Connect would offer it instead"
 forget_record
-tailscale_device_menu "attic-nas's menu opens on Connect in terminal" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_device_menu "attic-nas's menu opens on Star" '["Star", "Connect in terminal", "Copy"]' "Star"
+tailscale_key Down
 tailscale_key Return
 expect_poll "Connect hands the terminal ssh-session with the device's name and DNS name" \
   "$(words --title=attic-nas -- "$tui_self" ssh-session --name attic-nas --host attic-nas.tail-fixture.ts.net)" recorded
@@ -1290,12 +1291,14 @@ chmod 755 "$sandbox/tailscale-tui.missing"
 cp -- "$sandbox/tailscale-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
 expected_errors+=('tui: refused: tui=core/ssh reason=launcher-missing' 'tailscale: connect reason=launcher-missing' 'tailscale: connect refused: tui=core/ssh reason=launcher-missing')
 forget_record
-tailscale_device_menu "attic-nas's menu opens on Connect in terminal with no terminal" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_device_menu "attic-nas's menu opens on Star with no terminal" '["Star", "Connect in terminal", "Copy"]' "Star"
+tailscale_key Down
 tailscale_key Return
 expect_poll "with no terminal launcher Connect leaves the launcher-missing line" "$(tailscale_launcher_missing_line)" tailscale_label tailscale-problem
 expect_poll "the launcher's exit 69 records the terminal missing" '"missing"' lent tui.launcher
 cp -- "$sandbox/tailscale-tui.real" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
-tailscale_device_menu "attic-nas's menu opens on Connect in terminal again" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_device_menu "attic-nas's menu opens on Star again" '["Star", "Connect in terminal", "Copy"]' "Star"
+tailscale_key Down
 tailscale_key Return
 expect_poll "a connect while the terminal reads missing leaves the launcher-missing line" "$(tailscale_launcher_missing_line)" tailscale_label tailscale-problem
 expect_poll "the probe that connect started finds the terminal again" '"present"' lent tui.launcher

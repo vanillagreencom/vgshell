@@ -24,7 +24,10 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // clipboard and reads Copied while it confirms; Connect in terminal shows
 // on the devices that run an ssh server and hands the core the device's
 // name and DNS name, a launcher with no terminal leaves the launcher-missing
-// line, and a missing ssh raises its requirement notice instead; the Exit node row opens the
+// line, and a missing ssh raises its requirement notice instead; a star
+// leads each network device's icons, and over the production service its
+// click writes the starred node IDs and lists that device first, star
+// checked, until the row's menu clears it; the Exit node row opens the
 // chooser on its search field and asks for a suggestion, at its top, and
 // Back or Escape leaves each view with the keyboard on the row it came
 // from; the card keeps its height while the chooser shows; Tailscale
@@ -108,7 +111,7 @@ Item {
         return {
             tailscale: Logic.published(false, snapshot, checkingSetup ? null : setupLine, { accounts: root.accountsRead ? accounts : [], accountsRead: root.accountsRead, action: "", login: "idle", problem: "",
                 suggestion: root.suggested ? Logic.suggestion("se-sto-wg-001.mullvad.ts.net", snapshot) : null }),
-            devices: snapshot.devices,
+            devices: Logic.devices(snapshot.peerRows, []),
             exitNodes: snapshot.exitNodes,
             inbound: root.inbound
         };
@@ -161,7 +164,9 @@ Item {
             property bool opened: false
             property bool closing: false
             property string toggleReply: "ok"
-            readonly property string statusText: JSON.stringify({ BackendState: "Running", TUN: true,
+            // Each setting the views wrote through `configure`, as [key, value].
+            property var configured: []
+            property string statusText: JSON.stringify({ BackendState: "Running", TUN: true,
                 Self: { ID: "self", HostName: "desk", TailscaleIPs: ["100.64.0.1"] } })
             // SummonHost.toggle -> SummonPopup.requestDismiss keeps the body
             // until finishDismiss. A toggle while closing reopens that same
@@ -174,7 +179,12 @@ Item {
             }
             QtObject {
                 id: pollingShell
-                readonly property var settings: ({ pollSeconds: 30, hideConnectTags: "" })
+                property var settings: ({ pollSeconds: 30, hideConnectTags: "", starred: [] })
+                readonly property var configure: ({ set: (key, value) => {
+                    world.configured = world.configured.concat([[key, value]]);
+                    pollingShell.settings = Object.assign({}, pollingShell.settings, { [key]: value });
+                    return "ok";
+                } })
                 readonly property var requirements: ({ missing: [], outdated: [], revision: 0 })
                 readonly property var system: ({
                     state: { "service-tailscaled": { state: "ready" }, "tailscale-operator": { state: "ready" } },
@@ -592,13 +602,67 @@ Item {
         }
         function icon(name) { return find(panel, item => item.objectName === name && item.label !== undefined); }
 
-        function test_network_devices_draw_connect_where_ssh_runs_and_copy_on_each() {
+        function test_network_devices_draw_a_star_connect_where_ssh_runs_and_copy_on_each() {
             const list = networkList();
-            const drawn = list.rows.map(row => [row.text, ["connect", "copy"].filter(key => icon(row.key + "/" + key) !== null)]);
-            compare(drawn, [["gateway", ["connect", "copy"]], ["pixel", ["copy"]], ["attic-nas", ["connect", "copy"]]]);
+            const drawn = list.rows.map(row => [row.text, ["star", "connect", "copy"].filter(key => icon(row.key + "/" + key) !== null)]);
+            compare(drawn, [["gateway", ["star", "connect", "copy"]], ["pixel", ["star", "copy"]], ["attic-nas", ["star", "connect", "copy"]]]);
             const left = item => item.mapToItem(list, 0, 0).x;
+            verify(left(icon("nGATE/connect")) > left(icon("nGATE/star")), "the star sits left of Connect in terminal");
+            verify(left(icon("nPIXEL/copy")) > left(icon("nPIXEL/star")), "the star sits left of copy without Connect");
             verify(left(icon("nGATE/copy")) > left(icon("nGATE/connect")), "copy keeps the row's last place");
             compare(left(icon("nPIXEL/copy")), left(icon("nGATE/copy")), "copy keeps one column on every row");
+        }
+
+        // The production service and body over one tailnet: a star click
+        // writes the starred node IDs through `configure`, and the service,
+        // given that setting, lists the device first, its star drawn checked
+        // in the shared checked colour; the row's menu, which the keyboard
+        // opens, reads Unstar and puts both back.
+        function test_a_star_keeps_a_network_device_at_the_top() {
+            const made = freshPollingFlyout();
+            made.statusText = JSON.stringify({ BackendState: "Running", TUN: true, Self: { ID: "self", HostName: "desk", TailscaleIPs: ["100.64.0.1"] },
+                Peer: {
+                    a: { ID: "nGATE", HostName: "gateway", DNSName: "gateway.tail-fixture.ts.net.", OS: "linux", TailscaleIPs: ["100.64.0.2"], Online: true },
+                    b: { ID: "nATTIC", HostName: "attic-nas", DNSName: "attic-nas.tail-fixture.ts.net.", OS: "linux", TailscaleIPs: ["100.64.0.3"], Online: false },
+                    c: { ID: "nPIXEL", HostName: "pixel", DNSName: "pixel.tail-fixture.ts.net.", OS: "android", TailscaleIPs: ["100.64.0.4"], Online: true }
+                } });
+            clickPollingWidget(made);
+            finishCycle(made);
+            find(made.panel, item => item.objectName === "tailscale-network-devices").expanded = true;
+            const list = find(made.panel, item => item.objectName === "tailscale-devices");
+            renderedFrame(list);
+            const order = () => list.rows.map(row => row.key);
+            const star = key => find(made.panel, item => item.objectName === key + "/star" && item.label !== undefined);
+            const drawn = key => [star(key).iconName, star(key).label, star(key).checked];
+            compare(order(), ["nGATE", "nPIXEL", "nATTIC"]);
+            compare(drawn("nATTIC"), ["star", "Star", false]);
+            mouseClick(star("nATTIC"));
+            compare(made.configured, [["starred", ["nATTIC"]]]);
+            compare(order(), ["nATTIC", "nGATE", "nPIXEL"], "the starred device leads");
+            compare(drawn("nATTIC"), ["vgs-star-filled", "Unstar", true]);
+            compare(drawn("nGATE"), ["star", "Star", false]);
+            tryVerify(() => Qt.colorEqual(star("nATTIC").contentItem.color, Theme.button.checked.foreground), 5000, "the star fills in the checked colour");
+            list.current = 0;
+            list.focusCurrent(Qt.TabFocusReason);
+            tryCompare(list.rowAt(0), "activeFocus", true);
+            keyClick(Qt.Key_F10, Qt.ShiftModifier);
+            const menu = deepFind(list.rowAt(0), item => item.triggerCurrent !== undefined);
+            tryCompare(menu, "opened", true);
+            compare(menu.items()[0].text, "Unstar");
+            keyClick(Qt.Key_Return);
+            compare(made.configured, [["starred", ["nATTIC"]], ["starred", []]]);
+            compare(order(), ["nGATE", "nPIXEL", "nATTIC"], "an unstarred device returns to its place");
+            compare(drawn("nATTIC"), ["star", "Star", false]);
+            made.panel.close();
+        }
+        // The first item under ITEM that WANTED takes, drawn or not.
+        function deepFind(item, wanted) {
+            for (const child of item.children) {
+                if (wanted(child)) return child;
+                const found = deepFind(child, wanted);
+                if (found !== null) return found;
+            }
+            return null;
         }
 
         function test_a_network_devices_copy_icon_copies_its_address() {

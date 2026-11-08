@@ -34,6 +34,8 @@ function suite(logic, service = serviceSource) {
     const read = name => plain(logic.snapshot(0, text(name), ""));
     const running = read("running.json");
     const mullvad = read("mullvad.json");
+    // The devices the views draw from a read, with the STARRED node IDs.
+    const devicesOf = (snapshot, starred = []) => plain(logic.devices(snapshot.peerRows, starred));
 
     // The recorded shapes.
     assert.equal(running.state, "running");
@@ -41,15 +43,15 @@ function suite(logic, service = serviceSource) {
     assert.equal(running.tailnet, "fixture.example");
     assert.equal(running.account, "owner@fixture.example");
     assert.deepEqual(running.exit, { id: "nFIXTURE0002CNTRL", name: "gateway" });
-    assert.deepEqual(running.devices.rows.map(row => [row.name, row.online]),
+    assert.deepEqual(devicesOf(running).rows.map(row => [row.name, row.online]),
         [["100.64.0.4", true], ["attic box", true], ["gateway", true], ["laptop", true], ["backup", false]]);
-    assert.equal(running.devices.count, 5);
+    assert.equal(devicesOf(running).count, 5);
     const stopped = read("stopped.json");
     assert.equal(stopped.state, "stopped");
     assert.equal(stopped.exit, null);
     const loggedOut = read("logged-out.json");
     assert.equal(loggedOut.state, "signed-out");
-    assert.deepEqual([loggedOut.devices.rows, loggedOut.exitNodes.own, loggedOut.exitNodes.countries, loggedOut.account, loggedOut.tailnet], [[], [], [], "", ""]);
+    assert.deepEqual([devicesOf(loggedOut).rows, loggedOut.exitNodes.own, loggedOut.exitNodes.countries, loggedOut.account, loggedOut.tailnet], [[], [], [], "", ""]);
     assert.equal(plain(logic.snapshot(1, "", text("service-off.txt"))).state, "service-off");
     for (const [code, stdout] of [[1, ""], [-1, text("running.json")], [0, "not json"], [0, "[]"], [0, '{"BackendState":"Future"}']])
         assert.equal(logic.snapshot(code, stdout, "").state, "unavailable");
@@ -75,7 +77,7 @@ function suite(logic, service = serviceSource) {
         ["Sweden", [["nFIXTURE0011CNTRL", "100.64.0.11", "Stockholm"]]], ["Switzerland", [["nFIXTURE0013CNTRL", "100.64.0.13", "Zurich"]]]
     ]);
     assert.deepEqual(mullvad.exit, { id: "nFIXTURE0013CNTRL", name: "Zurich, Switzerland" });
-    assert.deepEqual(mullvad.devices.rows.map(row => row.name), ["gateway", "laptop"]);
+    assert.deepEqual(devicesOf(mullvad).rows.map(row => row.name), ["gateway", "laptop"]);
     const unaddressed = plain(logic.exitNodes([{ ID: "nG", ExitNodeOption: true, Tags: mullvadTag, TailscaleIPs: ["fd7a:115c:a1e0::d"] }]));
     assert.deepEqual(unaddressed, { own: [], countries: [], cityCount: 0, targets: {}, exit: null });
     const listedNodes = snapshot => snapshot.exitNodes.own.concat(...snapshot.exitNodes.countries.map(country => country.cities));
@@ -113,7 +115,7 @@ function suite(logic, service = serviceSource) {
         { ID: "mB", Tags: mullvadTag, TailscaleIPs: ["100.64.2.2"], Online: true, ExitNodeOption: true, Location: { Country: "Sweden", CountryCode: "SE", City: "Malmö", CityCode: "MMA", Priority: 10 } }
     ]));
     assert.deepEqual(offlineBest.countries[0].best, { id: "mB", city: "Malmö" });
-    assert.deepEqual(sheet.devices, {
+    assert.deepEqual(devicesOf(sheet), {
         rows: [
             { id: "nSHEET0003CNTRL", name: "attic-nas", os: "linux", icon: "laptop", address: "100.64.0.3", dnsName: "attic-nas.tail-fixture.ts.net", online: true, connects: true, tags: [] },
             { id: "nSHEET0002CNTRL", name: "gateway", os: "linux", icon: "server", address: "100.64.0.2", dnsName: "gateway.tail-fixture.ts.net", online: true, connects: true, tags: ["tag:server"] },
@@ -124,7 +126,22 @@ function suite(logic, service = serviceSource) {
         count: 5,
         online: 3
     });
-    assert.equal(logic.devicesLine(sheet.devices), "3 of 5 online");
+    assert.equal(logic.devicesLine(devicesOf(sheet)), "3 of 5 online");
+    // Starred devices lead, online first then by name among themselves,
+    // and the rest keep their order; a star the tailnet does not hold
+    // moves nothing.
+    for (const [starred, want] of [
+        [[], ["attic-nas", "gateway", "pixel", "ipad", "old-laptop"]],
+        [["nSHEET0009CNTRL"], ["old-laptop", "attic-nas", "gateway", "pixel", "ipad"]],
+        [["nSHEET0009CNTRL", "nSHEET0004CNTRL", "nSHEET0007CNTRL"], ["pixel", "ipad", "old-laptop", "attic-nas", "gateway"]],
+        [["nGONE"], ["attic-nas", "gateway", "pixel", "ipad", "old-laptop"]]
+    ]) assert.deepEqual(devicesOf(sheet, starred).rows.map(row => row.name), want, "order with " + JSON.stringify(starred));
+    // The `starred` setting as a user's file may hold it.
+    assert.deepEqual(manifest.settings.starred, []);
+    for (const [value, want] of [
+        [[], []], [["nA", "nB"], ["nA", "nB"]], [["nA", 7, "", null, "n".repeat(logic.TEXT_MAX + 1)], ["nA"]],
+        ["nA", []], [undefined, []], [{ nA: true }, []]
+    ]) assert.deepEqual(plain(logic.starredList(value)), want, "starred " + JSON.stringify(value));
     assert.equal(manifest.settings.hideConnectTags, "");
     for (const [setting, hidden, valid] of [
         ["", [], true], ["  ", [], true], ["tag:server", ["gateway"], true],
@@ -134,11 +151,11 @@ function suite(logic, service = serviceSource) {
         ["tag:server_other", [], false], ["tag:sérver", [], false],
         ["tag:server,", [], false], ["tag:server,,tag:unused", [], false]
     ]) {
-        const filtered = plain(logic.connectFilter(sheet.devices, setting));
+        const filtered = plain(logic.connectFilter(devicesOf(sheet), setting));
         assert.equal(filtered.problem === "", valid, "tag filter validity: " + setting);
         assert.deepEqual(filtered.devices, {
-            ...sheet.devices,
-            rows: sheet.devices.rows.map(row => ({ ...row, connects: row.connects && !hidden.includes(row.name) }))
+            ...devicesOf(sheet),
+            rows: devicesOf(sheet).rows.map(row => ({ ...row, connects: row.connects && !hidden.includes(row.name) }))
         }, "only Connect changes for full matching peer tags: " + setting);
     }
     // Connect in terminal, by each OS value Tailscale reports, in its own
@@ -163,16 +180,16 @@ function suite(logic, service = serviceSource) {
         ["linux", undefined, false]
     ]) {
         const peer = { ID: "nOS", OS: os, DNSName: dns, TailscaleIPs: ["100.64.0.5"], Online: false };
-        assert.equal(logic.devices([peer]).rows[0].connects, want, "connects for OS " + JSON.stringify(os) + " and DNS name " + JSON.stringify(dns));
+        assert.equal(logic.peerRows([peer])[0].connects, want, "connects for OS " + JSON.stringify(os) + " and DNS name " + JSON.stringify(dns));
     }
     // The rows carry what their icon actions read: the address, the DNS
-    // name and whether the device connects.
-    assert.deepEqual(plain(logic.deviceRows(sheet.devices)).map(row => [row.key, row.text, row.address, row.dnsName, row.connects]), [
-        ["nSHEET0003CNTRL", "attic-nas", "100.64.0.3", "attic-nas.tail-fixture.ts.net", true],
-        ["nSHEET0002CNTRL", "gateway", "100.64.0.2", "gateway.tail-fixture.ts.net", true],
-        ["nSHEET0004CNTRL", "pixel", "100.64.0.4", "pixel.tail-fixture.ts.net", false],
-        ["nSHEET0007CNTRL", "ipad", "100.64.0.7", "ipad.tail-fixture.ts.net", false],
-        ["nSHEET0009CNTRL", "old-laptop", "100.64.0.9", "old-laptop.tail-fixture.ts.net", true]
+    // name, whether the device connects and whether it is starred.
+    assert.deepEqual(plain(logic.deviceRows(devicesOf(sheet), ["nSHEET0002CNTRL"])).map(row => [row.key, row.text, row.address, row.dnsName, row.connects, row.starred]), [
+        ["nSHEET0003CNTRL", "attic-nas", "100.64.0.3", "attic-nas.tail-fixture.ts.net", true, false],
+        ["nSHEET0002CNTRL", "gateway", "100.64.0.2", "gateway.tail-fixture.ts.net", true, true],
+        ["nSHEET0004CNTRL", "pixel", "100.64.0.4", "pixel.tail-fixture.ts.net", false, false],
+        ["nSHEET0007CNTRL", "ipad", "100.64.0.7", "ipad.tail-fixture.ts.net", false, false],
+        ["nSHEET0009CNTRL", "old-laptop", "100.64.0.9", "old-laptop.tail-fixture.ts.net", true, false]
     ]);
 
     // `tailscale exit-node suggest` has no JSON form: its text names the
@@ -300,7 +317,7 @@ function suite(logic, service = serviceSource) {
         // names why goes in the hint under it, which every line but Ready
         // carries and the published value keeps.
         assert.equal(shown.hint === "", tone === "ok", "a hint on every line but Ready: " + JSON.stringify(context));
-        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes, logic.inboundIdle())[1][1];
+        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.devices([], []), logic.emptySnapshot("checking").exitNodes, logic.inboundIdle())[1][1];
         assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
         // A line that is not Ready and offers no step reads Not available on Setup.
         assert.equal(written.available, action === "" && tone !== "ok" ? false : undefined, "an unoffered line is Not available: " + JSON.stringify(context));
@@ -318,7 +335,7 @@ function suite(logic, service = serviceSource) {
         { missing: false, state: "service-off", service: "", operator: "" }
     ]) assert.equal(logic.setup(context), null, "no step reading, no setup line: " + JSON.stringify(context));
     assert.deepEqual([logic.setup({ missing: true, state: "checking", service: "", operator: "" }).tone], ["info"], "a missing command needs no step reading");
-    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes, logic.inboundIdle())[1]), ["setup", null], "a null line clears the setup entry");
+    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread(), logic.devices([], []), logic.emptySnapshot("checking").exitNodes, logic.inboundIdle())[1]), ["setup", null], "a null line clears the setup entry");
     const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
@@ -575,8 +592,12 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(cities.filter(city => city.active).map(city => city.id), ["m9"], "the city in use is kept past the bound");
     assert.equal(largest.exitNodes.own.length, logic.PEER_MAX);
     assert.deepEqual(largest.exitNodes.own.filter(row => row.active).map(row => row.id), ["n" + "299".padStart(63, "0")], "the node in use is kept");
-    assert.equal(largest.devices.rows.length, logic.PEER_MAX);
-    assert.deepEqual([largest.devices.count, largest.devices.online], [300, 200], "the counts cover every device, kept or not");
+    assert.equal(devicesOf(largest).rows.length, logic.PEER_MAX);
+    assert.deepEqual([devicesOf(largest).count, devicesOf(largest).online], [300, 200], "the counts cover every device, kept or not");
+    // An offline device sorts past the cut until it is starred.
+    const offline = "n" + "0".padStart(63, "0");
+    assert.equal(devicesOf(largest).rows.some(row => row.id === offline), false);
+    assert.equal(devicesOf(largest, [offline]).rows[0].id, offline, "a starred device is kept past the bound");
     assert.equal(largest.inboundIndex.addresses["100.64.1.49"].id, "n" + "299".padStart(63, "0"), "the address index covers peers past the device list");
     // The largest inbound value: every peer connected, each name and user
     // at its ceiling.
@@ -593,7 +614,7 @@ function suite(logic, service = serviceSource) {
     const manyAccounts = plain(logic.accounts(0, JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: "a".repeat(63) + (i % 10), tailnet: wide, account: wide, selected: false }))))).rows;
     assert.equal(manyAccounts.length, logic.ACCOUNT_MAX);
     const bigValue = plain(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) }));
-    const written = logic.statusWrites({ tone: "ok", text: "" }, denied, bigValue, largest.devices, largest.exitNodes, crowdInbound);
+    const written = logic.statusWrites({ tone: "ok", text: "" }, denied, bigValue, devicesOf(largest), largest.exitNodes, crowdInbound);
     const bytes = Buffer.byteLength(JSON.stringify(Object.fromEntries(written)));
     assert.ok(bytes < STATUS_MAX_BYTES, "the largest status is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
     // Each data value within its own budget, and the budgets together
@@ -607,7 +628,7 @@ function suite(logic, service = serviceSource) {
     assert.ok(writtenValues.inbound.rows.length < crowdInbound.rows.length, "the largest inbound value is cut to its budget");
     assert.equal(writtenValues.inbound.count, 300);
     // The bound drops rows and keeps the counts and the city in use.
-    assert.ok(writtenValues.devices.rows.length < largest.devices.rows.length, "the largest devices value is cut to its budget");
+    assert.ok(writtenValues.devices.rows.length < devicesOf(largest).rows.length, "the largest devices value is cut to its budget");
     assert.deepEqual([writtenValues.devices.count, writtenValues.devices.online], [300, 200]);
     assert.equal(writtenValues.exitNodes.cityCount, 300);
     assert.deepEqual(writtenValues.exitNodes.countries.reduce((all, country) => all.concat(country.cities), []).filter(city => city.active).map(city => city.id), ["m9"]);
@@ -627,9 +648,9 @@ function suite(logic, service = serviceSource) {
     } } };
     for (const [data, snap, setupLine] of [[bigValue, largest, ready], [shown, running, denied], [bigValue, largest, denied], [shown, running, null]]) {
         const original = JSON.stringify([data, snap]);
-        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false, snap === largest ? crowdInbound : logic.inboundIdle(), logic.connectFilter(snap.devices, ""));
+        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false, snap === largest ? crowdInbound : logic.inboundIdle(), logic.connectFilter(devicesOf(snap), ""));
         assert.equal(JSON.stringify([data, snap]), original);
-        assert.equal(values.devices.count, snap.devices.count);
+        assert.equal(values.devices.count, devicesOf(snap).count);
         assert.equal(values.exitNodes.cityCount, snap.exitNodes.cityCount);
         assert.deepEqual(values.exitNodes.own.filter(row => row.active), snap.exitNodes.own.filter(row => row.active));
         for (const row of values.exitNodes.own) assert.deepEqual(row, snap.exitNodes.own.find(input => input.id === row.id));
@@ -772,6 +793,9 @@ try {
         ["a tagged peer has no user", "user: isTagged(peer) ? \"\" : userName(", "user: false ? \"\" : userName("],
         ["the inbound value keeps its budget", "while (bytes(inboundOut) > INBOUND_BYTES", "while (bytes(inboundOut) > 2 * INBOUND_BYTES"],
         ["an unread read hides the held count", '(value.state === "read" || value.state === "unread")', 'value.state === "read"'],
+        ["starred devices lead the list", "return Number(has(lifted, b.id)) - Number(has(lifted, a.id)) || onlineFirst(a, b);", "return onlineFirst(a, b);"],
+        ["a starred row draws starred", "starred: starred.indexOf(row.id) !== -1 };", "starred: false };"],
+        ["the star list keeps only node IDs", "return Array.isArray(value) ? value.filter(validId) : [];", "return Array.isArray(value) ? value : [];"],
         ["the online count covers every device", 'online: all.filter(function (row) { return row.online; }).length', 'online: all.slice(0, PEER_MAX).filter(function (row) { return row.online; }).length']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

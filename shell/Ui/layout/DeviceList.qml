@@ -35,12 +35,13 @@ import qs.Ui
 // for none; a busy row ignores that action and shows a Spinner instead.
 // `menuOf(row)` its overflow menu as a list of `{ key, text, iconName }`.
 // `iconActionsOf(row)` answers the row's icon actions as a list of `{ key,
-// iconName, label }`, drawn in that order as ghost IconButtons after the
-// action, with the label as the tooltip; a press emits `chose(key,
-// actionKey)`. They take no Tab stop: the list puts each first in the
-// row's menu, which Shift+F10 and the Menu key open, and draws the
-// overflow button only for a `menuOf` entry, since a menu that only
-// repeats the icons needs no button. A busy row draws none. An icon
+// iconName, label, checked }`, drawn in that order as ghost IconButtons
+// after the action, with the label as the tooltip and `checked`, where
+// given, the button's checked state, which the owner's next answer
+// changes; a press emits `chose(key, actionKey)`. They take no Tab stop:
+// the list puts each first in the row's menu, which Shift+F10 and the
+// Menu key open, and draws the overflow button only for a `menuOf` entry,
+// since a menu that only repeats the icons needs no button. A busy row draws none. An icon
 // action's key and a menu entry's are distinct within a row.
 // A row with `opens` true opens a view of its own, such as a country's
 // cities: it draws a trailing chevron-right, and since opening changes
@@ -270,6 +271,11 @@ FocusScope {
                             focusPolicy: Qt.NoFocus
                             iconName: iconAction.iconName
                             label: iconAction.label
+                            // Qt toggles `checked` on a press only while
+                            // `checkable`, which stays false, so this
+                            // binding holds (AbstractButton:
+                            // https://doc.qt.io/qt-6/qml-qtquick-controls-abstractbutton.html#checkable-prop).
+                            checked: iconAction.checked === true
                             // A locked row takes no click, so neither do its icons.
                             hoverEnabled: row.clickable
                             onClicked: if (row.clickable) list.chose(row.key, modelData)
