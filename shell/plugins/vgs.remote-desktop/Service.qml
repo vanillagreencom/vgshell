@@ -197,10 +197,56 @@ Item {
             return refuse("profile=" + name + " field=host", "The Computer of this entry is not a computer name. Change it in [Remote desktop settings](page:vgs.remote-desktop/Settings/profiles).");
         if (built.field === "output")
             return refuse("profile=" + name + " field=output", "One screen needs a Screen name for " + profile.host + ". Choose one in [Remote desktop settings](page:vgs.remote-desktop/Settings/profiles).");
-        const reply = shell.run.detached(built.argv);
-        if (reply !== "ok") return refuse("profile=" + name + " " + reply, "VGS could not start gliff.");
+        const check = serverCheck.createObject(root, { profile: Object.assign({}, profile), viewer: built.argv });
+        check.start();
+        return "ok";
+    }
+
+    function checked(check, completion) {
+        const profile = check.profile;
+        Qt.callLater(() => check.destroy());
+        if (completion !== null && completion.status === 0 && completion.code === 1)
+            return refuse("profile=" + profile.name + " server=missing host=" + profile.host,
+                profile.host + " has no remote desktop server. On that computer, install gliff from [Remote desktop Setup](page:vgs.remote-desktop/Setup).");
+        // An unavailable read, including a timeout, leaves connecting to
+        // gliff as before; it establishes nothing about the remote server.
+        // createObject's property map exposes the saved argv as a QML
+        // sequence; detached's judge needs a JS array (remote-desktop
+        // smoke, scripts/validate 2026-11-08).
+        const reply = shell.run.detached(Array.from(check.viewer));
+        if (reply !== "ok") return refuse("profile=" + profile.name + " " + reply, "VGS could not start gliff.");
         if (profile.window === "fullscreen") fullscreenUntil = Date.now() + 15000;
         return "ok";
+    }
+
+    Component {
+        id: serverCheck
+        Item {
+            id: check
+            objectName: "remote-desktop-connect-check"
+            required property var profile
+            required property var viewer
+            property var completion: null
+            function start() { reader.running = true; }
+            // Process.running is false after a failed start too; no exit
+            // then means an unavailable read. The service owns both the
+            // process and deadline, and destroying it kills the child.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+            Process {
+                id: reader
+                objectName: "remote-desktop-ssh-check"
+                command: Remote.checkArgv(check.profile)
+                stdout: StdioCollector {}
+                stderr: StdioCollector {}
+                onExited: (code, status) => { check.completion = { code: code, status: status }; }
+                onRunningChanged: if (!running) root.checked(check, check.completion)
+            }
+            Timer {
+                interval: 5000
+                running: reader.running
+                onTriggered: reader.signal(9)
+            }
+        }
     }
 
     // gliff sets its Wayland app id to its program name, "gliff"

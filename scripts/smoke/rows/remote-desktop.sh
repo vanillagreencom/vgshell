@@ -16,8 +16,11 @@
 # idle, the widget is hidden and the poll timer stopped; one grim frame in
 # the nested session raises Hyprland's `screencast` event, which shows the
 # widget with the viewer and starts the poll; the viewer leaving, with no
-# event, hides it through the poll, which stops; the launcher's Connect to
-# smoke-beta hands gliff that profile's argv; the pane's Set up sign-in
+# event, hides it through the poll, which stops; Connect's one table
+# refuses a missing remote server without opening gliff, passes the
+# loopback server its profile argv, and keeps launching for unreachable
+# smoke-beta; a copy that skips refusal fails the same missing-server
+# assertion; the pane's Set up sign-in
 # hands the terminal the sign-in script and the host; the script, run
 # against smoke-sshd with the bootstrap key in an ssh-agent standing in
 # for the typed password and an askpass for the typed passphrase, makes a
@@ -43,15 +46,22 @@ rd_remote="$rd_dir/remote-home"
 rd_long="smoke-$(printf 'l%.0s' $(seq 1 64))"
 rd_pid="" rd_sshd_pid="" rd_agent_pid=""
 devices_ready remote-desktop || return 0
-mkdir -p -- "$rd_dir/bin" "$home/.ssh/config.d" "$rd_remote/.ssh"
+mkdir -p -- "$rd_dir/bin" "$rd_dir/remote-bin" "$home/.ssh/config.d" "$rd_remote/.ssh"
 rd_python="$(command -v python3)" || { fail "remote-desktop: python3 is unavailable"; return 0; }
+rd_ssh_bin="$(command -v ssh)" || { fail "remote-desktop: ssh is unavailable"; return 0; }
 rd_sshd_bin="$(command -v sshd)" || rd_sshd_bin=""
 cp -p -- "$rd_user" "$rd_dir/shell.json.before"
 ssh-keygen -q -t ed25519 -N '' -f "$rd_dir/host_key" && ssh-keygen -q -t ed25519 -N '' -f "$rd_dir/bootstrap" || { fail "remote-desktop: the test keys could not be made"; return 0; }
 cp -- "$rd_dir/bootstrap.pub" "$rd_remote/.ssh/authorized_keys"
 rd_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-printf 'Port %s\nListenAddress 127.0.0.1\nHostKey %s\nPidFile %s\nAuthorizedKeysFile %s\nUsePAM no\nPermitUserRC no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nForceCommand env HOME=%s /bin/sh -c "$SSH_ORIGINAL_COMMAND"\n' \
-  "$rd_port" "$rd_dir/host_key" "$rd_dir/sshd.pid" "$rd_remote/.ssh/authorized_keys" "$rd_remote" >"$rd_dir/sshd_config"
+# This private PATH keeps an installed host gliff-server out of the
+# missing-server case. These are ssh-copy-id's remote script's tools.
+for rd_tool in sh id uname dirname mkdir tail cat; do
+  rd_tool_path="$(command -v "$rd_tool")" || { fail "remote-desktop: $rd_tool is unavailable"; return 0; }
+  ln -s -- "$rd_tool_path" "$rd_dir/remote-bin/$rd_tool"
+done
+printf 'Port %s\nListenAddress 127.0.0.1\nHostKey %s\nPidFile %s\nAuthorizedKeysFile %s\nUsePAM no\nPermitUserRC no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nForceCommand env HOME=%s PATH=%s /bin/sh -c "$SSH_ORIGINAL_COMMAND"\n' \
+  "$rd_port" "$rd_dir/host_key" "$rd_dir/sshd.pid" "$rd_remote/.ssh/authorized_keys" "$rd_remote" "$rd_dir/remote-bin" >"$rd_dir/sshd_config"
 # smoke-sshd stands in the main file: ssh expands %d to the account's
 # home, where the include names nothing.
 printf 'Include %%d/.ssh/config.d/*.conf\nHost smoke-alpha\n  HostName 192.0.2.10\nHost smoke-sshd\n  HostName 127.0.0.1\n  Port %s\n  User %s\n' "$rd_port" "$(id -un)" >"$home/.ssh/config"
@@ -68,10 +78,12 @@ printf '#!/usr/bin/env bash\n[[ ${1:-} == --version ]] && { echo "gliff 0.4.1"; 
   'import json,sys; print(json.dumps(sys.argv[1:]))' "$rd_dir/gliff.argv" >"$shim/gliff"
 printf '#!%s\nimport time\nwhile True: time.sleep(3600)\n' "$rd_python" >"$shim/gliff-server"
 printf '#!/usr/bin/env bash\nexec %q -F %q -o UserKnownHostsFile=%q -o IdentityFile=none "$@"\n' \
-  "$(command -v ssh)" "$home/.ssh/config" "$home/.ssh/known_hosts" >"$rd_dir/bin/ssh"
+  "$rd_ssh_bin" "$home/.ssh/config" "$home/.ssh/known_hosts" >"$rd_dir/bin/ssh"
+printf '#!/usr/bin/env bash\nexec %q -F %q -o UserKnownHostsFile=%q -o IdentitiesOnly=yes -i %q "$@"\n' \
+  "$rd_ssh_bin" "$home/.ssh/config" "$home/.ssh/known_hosts" "$rd_dir/bootstrap" >"$shim/ssh"
 # The askpass answers ssh-add for the passphrase a user types.
 printf '#!/bin/sh\necho smoke-pass\n' >"$rd_dir/askpass"
-chmod 755 "$shim/gliff" "$shim/gliff-server" "$rd_dir/bin/ssh" "$rd_dir/askpass"
+chmod 755 "$shim/gliff" "$shim/gliff-server" "$shim/ssh" "$rd_dir/bin/ssh" "$rd_dir/askpass"
 device_reply systemctl 3 "" is-active --quiet sshd.service
 device_reply systemctl 0 loaded show --property=LoadState --value sshd.service
 terminal_stand_in
@@ -87,7 +99,6 @@ rd_polling() {
   ipc smoke popupDrop rd-poll-observer >/dev/null || return 1
   printf '%s\n' "$reading"
 }
-rd_last_argv() { if [[ -f $rd_dir/gliff.argv ]]; then tail -n 1 -- "$rd_dir/gliff.argv"; else echo none; fi; }
 rd_settings() { python3 -c 'import json,sys; r=[p for p in json.load(open(sys.argv[1])).get("plugins", []) if p["id"] == "vgs.remote-desktop"]; print(json.dumps([p["host"] for p in r[0].get("profiles", [])]) if r else "absent")' "$rd_user"; }
 # rd_values EXPRESSION: the python EXPRESSION over the plugin's status
 # values `v`, as JSON.
@@ -100,8 +111,9 @@ import json, os, sys
 path, key, value = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
 d = json.load(open(path))
 row = next(p for p in d["plugins"] if p["id"] == "vgs.remote-desktop")
-if key == "beta":
-    row["profiles"] = [dict(p, **value) if p["host"] == "smoke-beta" else p for p in row["profiles"]]
+if key in ("beta", "sshd"):
+    host = "smoke-beta" if key == "beta" else "smoke-sshd"
+    row["profiles"] = [dict(p, **value) if p["host"] == host else p for p in row["profiles"]]
 else:
     row[key] = value
 json.dump(d, open(path + ".next", "w"))
@@ -135,7 +147,7 @@ rd_new_key_signs_in() { SSH_AUTH_SOCK="$rd_dir/agent.sock" "$rd_dir/bin/ssh" -o 
 rd_restore() {
   local pid
   for pid in "$rd_pid" "$rd_sshd_pid" "$rd_agent_pid"; do [[ -z $pid ]] || kill -TERM -- "$pid" 2>/dev/null || true; done
-  rm -f -- "${shim:?}/gliff" "${shim:?}/gliff-server"
+  rm -f -- "${shim:?}/gliff" "${shim:?}/gliff-server" "${shim:?}/ssh"
   rm -rf -- "${home:?}/.ssh"
   device_reply_clear systemctl
   ipc shell hide window vgs.system >/dev/null || true
@@ -174,13 +186,58 @@ rd_pid=""
 expect_poll "the poll hides the widget after the viewer left" false rd_widget shown
 expect_poll "the poll timer stops once no session is active" false rd_polling
 
-# A profile connects from the launcher with its own options.
+# One table observes Connect through the existing refusal key,
+# notification delivery and detached viewer argv.
+expected_errors+=('remote-desktop: connect refused: profile=.* server=missing host=smoke-sshd' 'notify: unsent plugin=vgs\.remote-desktop ')
+rd_connect_reading() {
+  python3 - "$instance_log" "$rd_connect_offset" "$rd_dir/gliff.argv" <<'PY'
+import json, sys
+log, offset, argv = sys.argv[1:]
+with open(log, "rb") as stream:
+    stream.seek(int(offset))
+    text = stream.read().decode(errors="replace")
+with open(argv) as stream:
+    runs = [json.loads(line) for line in stream]
+print(json.dumps([runs, " server=missing host=smoke-sshd" in text, text.count("notify: unsent plugin=vgs.remote-desktop ")]))
+PY
+}
+rd_connect_expected() {
+  printf '[[["--release-hotkey", "shift+escape", "--no-clipboard", "--video", "cpu", "--headless", "--server-bin", "gliff-server --capture shm", "--", "%s"]], false, 0]\n' "$1"
+}
+rd_connect_table() {
+  local only="${1:-}" state host expected
+  while read -r state host; do
+    [[ -z $only || $state == "$only" ]] || continue
+    rm -f -- "$rd_dir/remote-bin/gliff-server"
+    [[ $state != present ]] || ln -s -- "$shim/gliff-server" "$rd_dir/remote-bin/gliff-server"
+    : >"$rd_dir/gliff.argv"
+    rd_connect_offset="$(stat -c %s -- "$instance_log")"
+    if [[ $state == missing ]]; then
+      expected='[[], true, 1]'
+    else
+      expected="$(rd_connect_expected "$host")"
+    fi
+    expect "$state: the launcher opens the host" ok ipc shell summon overlay vgs.launcher "{\"query\":\"Connect to $host\"}"
+    expect_poll "$state: the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
+    expect_poll "$state: the launcher selects the host" "\"Connect to $host\"" rd_first_row
+    type_keys -k Return || fail "$state: Return in the launcher failed"
+    expect_poll "$state: Connect preserves refusal, notice and viewer argv" "$expected" rd_connect_reading
+  done <<'CASES'
+missing smoke-sshd
+present smoke-sshd
+unreachable smoke-beta
+CASES
+}
 rd_set beta '{"screen":"private","video":"cpu","capture":"shm","clipboard":false}'
-expect "the launcher opens searching for smoke-beta" ok ipc shell summon overlay vgs.launcher '{"query":"Connect to smoke-beta"}'
-expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
-expect_poll "the launcher lists Connect to smoke-beta first" '"Connect to smoke-beta"' rd_first_row
-type_keys -k Return || fail "Return in the launcher failed"
-expect_poll "Connect hands gliff the profile's argv" '["--release-hotkey", "shift+escape", "--no-clipboard", "--video", "cpu", "--headless", "--server-bin", "gliff-server --capture shm", "--", "smoke-beta"]' rd_last_argv
+rd_set sshd '{"screen":"private","video":"cpu","capture":"shm","clipboard":false}'
+if [[ -z $rd_sshd_bin ]]; then
+  not_measured remote-desktop-connect "no sshd on PATH"
+else
+  spawn "$rd_dir/sshd.log" "$rd_sshd_bin" -D -e -f "$rd_dir/sshd_config"
+  rd_sshd_pid="$spawn_pid"
+  expect_poll "the test sshd listens" up rd_listening
+  rd_connect_table
+fi
 
 # Set up sign-in: the pane hands the terminal the script and the host.
 forget_record
@@ -196,15 +253,12 @@ expect "System Settings closes" ok ipc shell hide window vgs.system
 if [[ -z $rd_sshd_bin ]]; then
   not_measured remote-desktop-sign-in "no sshd on PATH"
 else
-  spawn "$rd_dir/sshd.log" "$rd_sshd_bin" -D -e -f "$rd_dir/sshd_config"
-  rd_sshd_pid="$spawn_pid"
   spawn "$rd_dir/agent.log" ssh-agent -D -a "$rd_dir/agent.sock"
   rd_agent_pid="$spawn_pid"
   # The script's ssh-add records each argv, then runs the real one.
   printf '#!/usr/bin/env bash\npython3 -c %q "$@" >>%q\nexec %q "$@"\n' \
     'import json,sys; print(json.dumps(sys.argv[1:]))' "$rd_dir/ssh-add.argv" "$(command -v ssh-add)" >"$rd_dir/bin/ssh-add"
   chmod 755 "$rd_dir/bin/ssh-add"
-  expect_poll "the test sshd listens" up rd_listening
   expect_poll "the agent takes the bootstrap key" ok bash -c 'SSH_AUTH_SOCK="$1" ssh-add -q "$2" 2>/dev/null && echo ok' _ "$rd_dir/agent.sock" "$rd_dir/bootstrap"
   expect "Set up sign-in ends with sign-in working" ok rd_sign_in
   expect "the new key is in the remote authorized_keys" yes bash -c 'grep -qxF -- "$(cat "$1")" "$2" && echo yes' _ "$home/.ssh/id_ed25519.pub" "$rd_remote/.ssh/authorized_keys"
@@ -240,17 +294,38 @@ else
   expect "the passphrase key alone signs in through the agent" yes rd_new_key_signs_in
 fi
 
+# The same missing-server row must fail under today's launch behavior.
+rd_missing_control() {
+  (failures=0
+   rd_connect_table missing >"$rd_dir/missing-server-control.log"
+   rd_connect_reading >"$rd_dir/missing-server-control.reading"
+   echo "$failures")
+}
+if [[ -n $rd_sshd_bin ]] && copy_tree remote-desktop-no-server-check && edit_tree remote-desktop-no-server-check shell/plugins/vgs.remote-desktop/Service.qml \
+    'if (completion !== null && completion.status === 0 && completion.code === 1)' \
+    'if (false && completion !== null && completion.status === 0 && completion.code === 1)'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-remote-desktop-no-server-check" "$sandbox/remote-desktop-no-server-check-qs.log"; then
+    expect_poll "control: the unchecked service is built" True record_exists "$rd_id"
+    expect "control: launching without the remote server fails the missing-server row" 1 rd_missing_control
+    expect "control: the failed row actually opened the viewer without a missing-server notice" "$(rd_connect_expected smoke-sshd)" cat -- "$rd_dir/missing-server-control.reading"
+  fi
+  stop_shell || :
+  start_shell "$repo" "$sandbox/remote-desktop-server-check-restored-qs.log" || fail "the missing-server control restores the repository shell"
+  expect_poll "the checked service is restored" True record_exists "$rd_id"
+fi
+
 # Hosting off: a session is ended, and pending-restart has its text.
 # The sandbox has no notification server, so the core logs the notice
 # unsent: that line is the service's one notice.
-expected_errors+=('notify: unsent plugin=vgs\.remote-desktop ')
+read_count rd_notices_before "hosting off reads the prior notices" log_lines 'notify: unsent plugin=vgs\.remote-desktop '
 rd_viewer
 rd_set hosting false
 expect_poll "hosting off ends the session" gone rd_gone "$rd_pid"
 rd_status "$rd_pid"
 expect "the session ended by SIGTERM" 143 echo "$rd_exit"
 rd_pid=""
-expect_log "the service sends one notice for the ended session" 1 'notify: unsent plugin=vgs\.remote-desktop '
+expect_log "the service sends one notice for the ended session" "$((rd_notices_before + 1))" 'notify: unsent plugin=vgs\.remote-desktop '
 expect_poll "the core reads the permission block as pending-restart" '"pending-restart"' rd_service permission
 expect_poll "while pending-restart, the Hosting field has its text" true rd_values 'v.get("hostingProblem") is not None'
 

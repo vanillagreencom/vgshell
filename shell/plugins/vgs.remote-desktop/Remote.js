@@ -100,6 +100,14 @@ function argv(profile) {
             server.length === 0 ? [] : ["--server-bin", ["gliff-server"].concat(server).join(" ")], ["--", profile.host]) };
 }
 
+// OpenSSH returns the remote command's exit status, or 255 on error
+// (https://man.openbsd.org/ssh.1). Only command's absent-name exit 1
+// means missing; BatchMode prevents a hidden authentication prompt.
+// The host has already passed argv's judge and stays one local argument.
+function checkArgv(profile) {
+    return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", profile.host, "command -v gliff-server"];
+}
+
 // The `connectRows` launcher rows: one Connect entry per profile with a
 // host, its id the profile's name, which the `connect` shortcut takes, and
 // its screen and window beside the host, so two profiles of one computer
