@@ -123,6 +123,9 @@ ORCH_OVERSEER_LANES = "9"
 
 # Overseer provider order, using the shared model class at medium effort.
 ORCH_OVERSEER_PREFERENCE = "claude:standard:medium,codex:standard:medium"
+# Projected room lanes pick leaves on the overseer's account (owner Slack
+# 1794169726, 2026-11-08: one reserve on every machine).
+ORCH_OVERSEER_SEAT_RESERVE_PCT = "25"
 ORCH_HANDOFF_HEADROOM_PCT = "3"
 ORCH_LANE_MAX_PCT = "95"
 ORCH_LANE_CODEX_CREDIT_FLOOR = "0"
