@@ -19,6 +19,9 @@ stdout for each copy recorded:
     {"type": "text", "id": SHA256, "time": SECONDS, "text": TEXT}
     {"type": "image", "id": SHA256, "time": SECONDS, "mime": MIME}
 
+The non-secret data transfer is read to its end, used directly when its type is
+the recorded type, otherwise requesting that type after the first ends.
+Over-size data is drained without keeping it, within the capture deadline.
 An image's bytes are whole in images/<SHA256> before its line is printed. A
 copy that is not recorded prints nothing and exits 0: a secret, an empty or
 over-size copy, text that is not UTF-8 and a copy that offers neither plain
@@ -90,19 +93,37 @@ def offers_text(types):
     return any(kind in PLAIN_TEXT or kind.startswith("text/plain;") for kind in types)
 
 
+def stdin_type(types):
+    # Service.qml's watcher has no --type and its stdout is a pipe. Selection
+    # is UTF-8 plain, plain, first textual type, then first offered type:
+    # https://github.com/bugaevc/wl-clipboard/blob/v2.3.0/src/wl-paste.c#L143-L175
+    # The textual heuristic (including markup and application types) is:
+    # https://github.com/bugaevc/wl-clipboard/blob/v2.3.0/src/util/string.c#L26-L59
+    for preferred in ("text/plain;charset=utf-8", "text/plain"):
+        if preferred in types:
+            return preferred
+    return next((kind for kind in types if kind.startswith("text/") or kind in PLAIN_TEXT
+                 or "json" in kind or kind.endswith(("script", "xml", "yaml", "csv", "ini", "pgp-keys"))
+                 or "application/vnd.ms-publisher" in kind), next(iter(types), None))
+
+
 def bounded(source, limit):
-    """SOURCE's bytes to its end, or None once they pass LIMIT."""
+    """Read SOURCE to its end, keeping no bytes beyond LIMIT."""
     data = source.read(limit + 1)
-    return None if len(data) > limit else data
+    if len(data) <= limit:
+        return data
+    while source.read(1024 * 1024):
+        pass
+    return None
 
 
 def emit(kind, digest, **fields):
     print(json.dumps({"type": kind, "id": digest, "time": int(time.time()), **fields}), flush=True)
 
 
-def capture_text():
-    data = bounded(sys.stdin.buffer, TEXT_LIMIT)
-    if data is None:
+def capture_text(source, reader):
+    data = bounded(source, TEXT_LIMIT)
+    if data is None or (reader is not None and reader.wait() != 0):
         return
     try:
         text = data.decode()
@@ -112,30 +133,22 @@ def capture_text():
         emit("text", hashlib.sha256(data).hexdigest(), text=text)
 
 
-def capture_image(store, mime):
+def capture_image(store, mime, source, reader):
     """Stream the image into images/ under a private name, bounded as it arrives, then name it by its id."""
-    # wl-paste hands this run the copy's first offered type on stdin, and a
-    # source such as wl-copy serves one transfer at a time: while a copy
-    # larger than the pipe waits to be read here, it sends no byte of the
-    # image asked for below. Nothing reads stdin on this path, so it closes.
-    os.close(0)
     handle, path = tempfile.mkstemp(prefix="incoming-", dir=images(store))
     digest, size, kept = hashlib.sha256(), 0, False
-    reader = subprocess.Popen(["wl-paste", "--no-newline", "--type", mime], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
         with os.fdopen(handle, "wb") as out:
-            while size <= IMAGE_LIMIT:
-                chunk = reader.stdout.read(1024 * 1024)
+            while True:
+                chunk = source.read(1024 * 1024)
                 if not chunk:
                     break
                 size += len(chunk)
-                digest.update(chunk)
-                out.write(chunk)
-        kept = 0 < size <= IMAGE_LIMIT and reader.wait() == 0
+                if size <= IMAGE_LIMIT:
+                    digest.update(chunk)
+                    out.write(chunk)
+        kept = 0 < size <= IMAGE_LIMIT and (reader is None or reader.wait() == 0)
     finally:
-        if reader.poll() is None:
-            reader.kill()
-            reader.wait()
         if not kept:
             os.unlink(path)
     if not kept:
@@ -161,12 +174,32 @@ def capture(store):
     types = offered()
     if SECRET_TYPE in types:
         return
+    incoming = stdin_type(types)
     if offers_text(types):
-        capture_text()
+        mime = incoming if offers_text([incoming]) else next(kind for kind in types if offers_text([kind]))
+    else:
+        mime = next((kind for kind in types if IMAGE_TYPE.fullmatch(kind)), None)
+    if mime is None:
+        bounded(sys.stdin.buffer, 0)
         return
-    mime = next((kind for kind in types if IMAGE_TYPE.fullmatch(kind)), None)
-    if mime is not None:
-        capture_image(store, mime)
+    reader = None
+    try:
+        source = sys.stdin.buffer
+        if incoming != mime:
+            # wl-copy can serve transfers serially: finish the handed one
+            # before requesting a different type, without retaining it.
+            bounded(source, 0)
+            reader = subprocess.Popen(["wl-paste", "--no-newline", "--type", mime], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            source = reader.stdout
+        if offers_text([mime]):
+            capture_text(source, reader)
+        else:
+            capture_image(store, mime, source, reader)
+    finally:
+        if reader is not None:
+            if reader.poll() is None:
+                reader.kill()
+            reader.wait()
 
 
 def drop(store, names):

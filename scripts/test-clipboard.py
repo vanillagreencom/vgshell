@@ -12,6 +12,7 @@ Controls: each rule is removed from a copy of the helper, and the case that
 holds the rule must then fail. The secret rule has one control for each of
 its two triggers.
 """
+import fcntl
 import hashlib
 import json
 import os
@@ -28,18 +29,15 @@ SECRET = "x-kde-passwordManagerHint"
 TEXT_LIMIT = 1024 * 1024
 IMAGE_LIMIT = 16 * 1024 * 1024
 CAPTURE_SECONDS = 5
-# What one pipe holds, pipe(7): a writer of more blocks until a reader takes
-# the bytes or closes its end.
-PIPE_BYTES = 65536
 
 # A source's first transfer: SIZE bytes into stdout, the helper's stdin, and
 # then one word in the file DONE: `sent` when a reader took them all,
 # `closed` when the reader closed its end first.
 WRITER = r'''import os, sys
 from pathlib import Path
-done, size = Path(sys.argv[1]), int(sys.argv[2])
+done, size, byte = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3].encode()
 try:
-    sys.stdout.buffer.write(b"F" * size)
+    sys.stdout.buffer.write(byte * size)
     sys.stdout.buffer.flush()
     word = "sent"
 except BrokenPipeError:
@@ -128,71 +126,97 @@ def ready(root, helper):
 
 # Each case answers whether its rule holds for HELPER in a fresh world ROOT.
 
-def text_is_recorded(root, helper):
-    plant(root, {"types": ["text/html", "text/plain;charset=utf-8", "UTF8_STRING"]})
-    ready(root, helper)
-    data = "héllo\n  wörld".encode()
-    code, out, err = run(root, helper, ["capture"], "data", data)
-    lines = out.splitlines()
-    if code != 0 or len(lines) != 1:
-        return False
-    line = json.loads(lines[0])
-    return (set(line) == {"type", "id", "time", "text"} and line["type"] == "text" and line["text"] == "héllo\n  wörld"
-            and line["id"] == hashlib.sha256(data).hexdigest() and isinstance(line["time"], int)
-            and payload_reads(root) == [] and image_files(root) == [])
+# types, handed bytes, requested type (None uses stdin), stored type, stored bytes.
+INPUTS = [
+    (["text/html", "text/plain;charset=utf-8", "text/plain"], "héllo\n  wörld".encode(), None, "text", "héllo\n  wörld".encode()),
+    (["text/plain;charset=ascii", "text/plain"], b"plain", None, "text", b"plain"),
+    (["image/png", "STRING"], b"both", None, "text", b"both"),
+    (["UTF8_STRING", "image/png"], b"utf8", None, "text", b"utf8"),
+    (["TEXT", "image/png"], b"text", None, "text", b"text"),
+    (["text/html", "STRING"], b"<b>markup</b>", "STRING", "text", b"plain"),
+    (["text/html", "image/png"], b"<img>", "image/png", "image/png", b"PNG"),
+    (["image/png", "text/html"], b"<img>", "image/png", "image/png", b"PNG"),
+    (["image/jpeg", "image/png"], b"first image", None, "image/jpeg", b"first image"),
+    (["application/x-other", "image/jpeg", "image/png"], b"other", "image/jpeg", "image/jpeg", b"JPEG"),
+    (["image/png"], b"\x89PNG\r\n\x1a\nimage bytes", None, "image/png", b"\x89PNG\r\n\x1a\nimage bytes"),
+    (["image/png", "application/json"], b"{}", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/javascript"], b"script", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/xml"], b"xml", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/yaml"], b"yaml", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/csv"], b"csv", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/ini"], b"ini", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/vnd.ms-publisher"], b"key", "image/png", "image/png", b"PNG"),
+    (["image/png", "application/pgp-keys"], b"key", "image/png", "image/png", b"PNG"),
+]
 
 
-def text_wins_over_an_image(root, helper):
-    plant(root, {"types": ["image/png", "STRING"], "data": {"image/png": "PNG"}})
-    ready(root, helper)
-    code, out, err = run(root, helper, ["capture"], "data", b"both")
-    return code == 0 and json.loads(out)["type"] == "text" and payload_reads(root) == [] and image_files(root) == []
+def input_types_are_recorded(root, helper):
+    for index, (types, stdin, requested, stored, data) in enumerate(INPUTS):
+        case = root / str(index)
+        plant(case, {"types": types, "data": {requested: data.decode("latin-1")} if requested else {}})
+        ready(case, helper)
+        code, out, err = run(case, helper, ["capture"], "data", stdin)
+        lines = out.splitlines()
+        if code != 0 or len(lines) != 1:
+            return False
+        line = json.loads(lines[0])
+        digest = hashlib.sha256(data).hexdigest()
+        reads = [["--no-newline", "--type", requested]] if requested else []
+        kind = "text" if stored == "text" else "image"
+        field = "text" if kind == "text" else "mime"
+        value = data.decode() if kind == "text" else stored
+        if not (set(line) == {"type", "id", "time", field} and line["type"] == kind and line[field] == value
+                and line["id"] == digest and isinstance(line["time"], int) and payload_reads(case) == reads
+                and image_files(case) == ([] if kind == "text" else [digest])):
+            return False
+        if kind == "image":
+            final = case / "store/images" / digest
+            if final.read_bytes() != data or mode(final) != 0o600:
+                return False
+    return True
 
 
-def markup_beside_an_image_is_an_image(root, helper):
-    plant(root, {"types": ["text/html", "image/png"], "data": {"image/png": "PNG"}})
-    ready(root, helper)
-    code, out, err = run(root, helper, ["capture"], "data", b'<img src="https://example.org/a.png">')
-    return code == 0 and json.loads(out)["type"] == "image" and payload_reads(root) == [["--no-newline", "--type", "image/png"]]
-
-
-def image_is_recorded(root, helper):
-    data = "\x89PNG\r\n\x1a\nimage bytes"
-    plant(root, {"types": ["application/x-other", "image/jpeg", "image/png"], "data": {"image/jpeg": data, "image/png": "other"}})
-    ready(root, helper)
-    code, out, err = run(root, helper, ["capture"], "data")
-    lines = out.splitlines()
-    if code != 0 or len(lines) != 1:
-        return False
-    line = json.loads(lines[0])
-    digest = hashlib.sha256(data.encode("latin-1")).hexdigest()
-    final = root / "store/images" / digest
-    return (set(line) == {"type", "id", "time", "mime"} and line["type"] == "image" and line["id"] == digest and line["mime"] == "image/jpeg"
-            and payload_reads(root) == [["--no-newline", "--type", "image/jpeg"]]
-            and image_files(root) == [digest] and final.read_bytes() == data.encode("latin-1") and mode(final) == 0o600)
+# The handed transfer exceeds a pipe in every row. A serial source sends a
+# requested image only after that transfer ends. Normal runs wait on progress;
+# a broken control is bounded by the helper and the parent process deadline.
+TRANSFERS = [
+    ("first image delivery", ["image/png"], 128 * 1024, "I", True, False),
+    ("image behind markup", ["text/html", "image/png"], 128 * 1024, "F", True, True),
+    ("oversize text", ["text/plain"], TEXT_LIMIT + 128 * 1024, "F", False, False),
+    ("oversize image", ["image/png"], IMAGE_LIMIT + 2 * 1024 * 1024, "I", False, False),
+]
 
 
 def image_behind_a_blocked_transfer_is_recorded(root, helper):
-    """A real wait in the control alone: without the rule, the helper's own deadline ends the capture."""
-    size = 2 * PIPE_BYTES
-    plant(root, {"types": ["image/png"], "size": {"image/png": size}, "afterWriter": True})
-    ready(root, helper)
-    env = {"PATH": str(root / "bin"), "HOME": str(root / "home"), "LC_ALL": "C", "VGS_TEST_RUN": "1", "CLIPBOARD_STATE": "data"}
-    source, sink = os.pipe()
-    writer = subprocess.Popen([sys.executable, "-c", WRITER, str(root / "writer-done"), str(size)], env=env, stdin=subprocess.DEVNULL, stdout=sink)
-    os.close(sink)
-    capture = subprocess.Popen([sys.executable, str(helper), str(root / "store"), "capture"], env=env, stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    os.close(source)
-    try:
-        out, err = capture.communicate(timeout=CAPTURE_SECONDS + 3)
-    finally:
-        capture.kill()
-        capture.wait()
-        writer.wait(timeout=30)
-    digest = hashlib.sha256(b"I" * size).hexdigest()
-    lines = out.decode().splitlines()
-    return (capture.returncode == 0 and len(lines) == 1 and json.loads(lines[0])["id"] == digest and image_files(root) == [digest]
-            and (root / "writer-done").read_text() == "closed")
+    for index, (label, types, size, byte, recorded, requested) in enumerate(TRANSFERS):
+        case = root / str(index)
+        source, sink = os.pipe()
+        # The stopped reader's remaining bytes must exceed both its last
+        # buffered read and this pipe's capacity, or the writer can finish
+        # without the drain. Keep the table's overflow margins as well.
+        size += 2 * fcntl.fcntl(source, fcntl.F_GETPIPE_SZ)
+        plant(case, {"types": types, "size": {"image/png": size}, "afterWriter": True})
+        ready(case, helper)
+        env = {"PATH": str(case / "bin"), "HOME": str(case / "home"), "LC_ALL": "C", "VGS_TEST_RUN": "1", "CLIPBOARD_STATE": "data"}
+        writer = subprocess.Popen([sys.executable, "-c", WRITER, str(case / "writer-done"), str(size), byte], env=env, stdin=subprocess.DEVNULL, stdout=sink)
+        os.close(sink)
+        capture = subprocess.Popen([sys.executable, str(helper), str(case / "store"), "capture"], env=env, stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        os.close(source)
+        try:
+            out, err = capture.communicate(timeout=CAPTURE_SECONDS + 3)
+        finally:
+            capture.kill()
+            capture.wait()
+            writer.wait(timeout=30)
+        digest = hashlib.sha256(b"I" * size).hexdigest()
+        lines = out.decode().splitlines()
+        if not (capture.returncode == 0 and (case / "writer-done").read_text() == "sent"
+                and payload_reads(case) == ([["--no-newline", "--type", "image/png"]] if requested else [])
+                and image_files(case) == ([digest] if recorded else [])):
+            return False
+        if (recorded and (len(lines) != 1 or json.loads(lines[0])["id"] != digest)) or (not recorded and lines):
+            return False
+    return True
 
 
 def nothing_recorded(root, helper, world, state, stdin=b"", reads=None):
@@ -230,15 +254,14 @@ def text_limit_holds(root, helper):
 def image_limit_holds(root, helper):
     plant(root / "at", {"types": ["image/png"], "size": {"image/png": IMAGE_LIMIT}})
     ready(root / "at", helper)
-    code, out, err = run(root / "at", helper, ["capture"], "data")
-    read = [["--no-newline", "--type", "image/png"]]
+    code, out, err = run(root / "at", helper, ["capture"], "data", b"I" * IMAGE_LIMIT)
     return (code == 0 and json.loads(out)["type"] == "image" and (root / "at/store/images" / json.loads(out)["id"]).stat().st_size == IMAGE_LIMIT
-            and nothing_recorded(root / "over", helper, {"types": ["image/png"], "size": {"image/png": IMAGE_LIMIT + 1}}, "data", reads=read))
+            and nothing_recorded(root / "over", helper, {"types": ["image/png"]}, "data", b"I" * (IMAGE_LIMIT + 1)))
 
 
 def stalled_source_ends(root, helper):
     """A real wait: the helper's own deadline is what the case reads."""
-    plant(root, {"types": ["image/png"], "hang": True})
+    plant(root, {"types": ["text/html", "image/png"], "hang": True})
     ready(root, helper)
     try:
         code, out, err = run(root, helper, ["capture"], "data", timeout=CAPTURE_SECONDS + 3)
@@ -327,16 +350,14 @@ SKIPPED = {
     "text that is not UTF-8": ({"types": ["text/plain"]}, "data", b"\x89PNG\r\n", None),
     "neither text nor an image": ({"types": ["application/pdf"]}, "data", b"%PDF", None),
     "markup alone": ({"types": ["text/html"]}, "data", b"<b>bold</b>", None),
-    "an empty image": ({"types": ["image/png"], "size": {"image/png": 0}}, "data", b"", [["--no-newline", "--type", "image/png"]]),
-    "an image the source fails to send": ({"types": ["image/png"], "data": {"image/png": "part"}, "pasteExit": 1}, "data", b"", [["--no-newline", "--type", "image/png"]]),
+    "an empty image": ({"types": ["image/png"], "size": {"image/png": 0}}, "data", b"", None),
+    "an image the source fails to send": ({"types": ["image/png"], "pasteExit": 1}, "data", b"", None),
+    "a failed requested image": ({"types": ["text/html", "image/png"], "data": {"image/png": "part"}, "pasteExit": 1}, "data", b"<img>", [["--no-newline", "--type", "image/png"]]),
 }
 
 CASES = [
-    ("a text copy is recorded", text_is_recorded),
-    ("text wins over an image", text_wins_over_an_image),
-    ("markup beside an image is recorded as the image", markup_beside_an_image_is_an_image),
-    ("an image copy is recorded under its id", image_is_recorded),
-    ("an image behind a blocked transfer is recorded", image_behind_a_blocked_transfer_is_recorded),
+    ("the handed type and recorded type select the data read", input_types_are_recorded),
+    ("first and oversize transfers complete before an image request", image_behind_a_blocked_transfer_is_recorded),
     ("a sensitive copy is skipped", sensitive_state_is_skipped),
     ("a copy with the secret type is skipped", secret_type_is_skipped),
     ("a copy without a state is refused", absent_state_is_refused),
@@ -354,11 +375,14 @@ CONTROLS = [
     ("secret-state", sensitive_state_is_skipped, '    if state != "data":\n        return\n', '    if state not in ("data", "sensitive"):\n        return\n'),
     ("secret-type", secret_type_is_skipped, "    if SECRET_TYPE in types:\n        return\n", "    if False:\n        return\n"),
     ("absent-state", absent_state_is_refused, "    if state is None:\n", "    if False:\n"),
-    ("image-before-text", text_wins_over_an_image, "    if offers_text(types):\n", "    if offers_text(types) and not any(IMAGE_TYPE.fullmatch(kind) for kind in types):\n"),
-    ("markup-as-text", markup_beside_an_image_is_an_image, '    return any(kind in PLAIN_TEXT or kind.startswith("text/plain;") for kind in types)\n', '    return any(kind in PLAIN_TEXT or kind.startswith("text/") for kind in types)\n'),
-    ("first-image-type", image_is_recorded, "    mime = next((kind for kind in types if IMAGE_TYPE.fullmatch(kind)), None)\n", "    mime = next((kind for kind in reversed(types) if IMAGE_TYPE.fullmatch(kind)), None)\n"),
-    ("unnamed-image", image_is_recorded, "    os.replace(path, images(store) / digest.hexdigest())\n", "    os.replace(path, path)\n"),
-    ("open-stdin", image_behind_a_blocked_transfer_is_recorded, "    os.close(0)\n", "    os.close(os.dup(0))\n"),
+    ("image-before-text", input_types_are_recorded, "    if offers_text(types):\n", "    if offers_text(types) and not any(IMAGE_TYPE.fullmatch(kind) for kind in types):\n"),
+    ("markup-as-text", input_types_are_recorded, '    return any(kind in PLAIN_TEXT or kind.startswith("text/plain;") for kind in types)\n', '    return any(kind in PLAIN_TEXT or kind.startswith("text/") for kind in types)\n'),
+    ("first-image-type", input_types_are_recorded, "        mime = next((kind for kind in types if IMAGE_TYPE.fullmatch(kind)), None)\n", "        mime = next((kind for kind in reversed(types) if IMAGE_TYPE.fullmatch(kind)), None)\n"),
+    ("unnamed-image", input_types_are_recorded, "    os.replace(path, images(store) / digest.hexdigest())\n", "    os.replace(path, path)\n"),
+    ("unread-first-transfer", image_behind_a_blocked_transfer_is_recorded, "            bounded(source, 0)\n", "            os.close(source.fileno())\n"),
+    ("second-image-transfer", input_types_are_recorded, "        if incoming != mime:\n", "        if True:\n"),
+    ("undrained-text", image_behind_a_blocked_transfer_is_recorded, "    while source.read(1024 * 1024):\n        pass\n", "    if False:\n        source.read(1024 * 1024)\n"),
+    ("undrained-image", image_behind_a_blocked_transfer_is_recorded, "            while True:\n", "            while size <= IMAGE_LIMIT:\n"),
     ("text-ceiling", text_limit_holds, "TEXT_LIMIT = 1024 * 1024\n", "TEXT_LIMIT = 2 * 1024 * 1024\n"),
     ("image-ceiling", image_limit_holds, "IMAGE_LIMIT = 16 * 1024 * 1024\n", "IMAGE_LIMIT = 32 * 1024 * 1024\n"),
     ("no-deadline", stalled_source_ends, "    signal.alarm(CAPTURE_SECONDS)\n", "    signal.alarm(0)\n"),
