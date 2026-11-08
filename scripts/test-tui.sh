@@ -351,7 +351,17 @@ for name in "${screen_names[@]}"; do
 done
 # The presenter removes the window's mark once it exits.
 mark_left() { compgen -G "$rt/vgs-tui-mark.*" >/dev/null; }
-check "the presenter leaves no mark behind" screen_poll eval '! mark_left'
+if screen_poll eval '! mark_left'; then
+  ok "the presenter leaves no mark behind"
+else
+  printf 'test-tui: presenter-exit-not-observed; remaining mark paths and bytes follow\n' >&2
+  for mark_path in "$rt"/vgs-tui-mark.*; do
+    printf 'test-tui: mark path=%s\n' "$mark_path" >&2
+    cat -- "$mark_path" >&2 ||
+      printf 'test-tui: mark read failed path=%s exit=%s; native error above\n' "$mark_path" "$?" >&2
+  done
+  fail "the presenter leaves no mark behind"
+fi
 
 # A key typed before an opener stays queued for the next question, whose
 # answer it reaches; the screen keeps the typed key's echo.
@@ -378,11 +388,24 @@ check "a block with no terminal draws the blank row and empties the mark" test "
 # ends well inside 15 s, a bound on a hang and not a timing; and the
 # terminal's settings are as they were.
 silent_row() {
+  local query_count normalized query_read_status=0 output_read_status=0
   status=0
   "${lib_env[@]}" VGS_TUI_MARK="$tmp/silent-mark" timeout 15 script -qec "$(printf '%q ' "$BASH" -c "source $(printf '%q' "$LIB"); printf '3 0 0\n' >\"\$VGS_TUI_MARK\"; before=\"\$(stty -g </dev/tty)\"; vgs_tui_step Next; for q in 1 2 3; do vgs_tui_confirm Q; done; vgs_tui_step Next; [[ \$(stty -g </dev/tty) == \"\$before\" ]] && echo restored")" /dev/null \
     </dev/null >"$tmp/out" 2>&1 || status=$?
-  [[ $status == 0 && "$(grep -o $'\e\\[6n' "$tmp/out" | wc -l)" == 1 &&
-    "$(tr -d '\r' <"$tmp/out" | sed -e $'s/\e\\[[0123456789;?]*[a-zA-Z]//g')" == $'\n'"${edge}Next"$'\n\n\n\n\n'"${edge}Next"$'\n'restored ]]
+  query_count="$(grep -o $'\e\\[6n' "$tmp/out" | wc -l)" || query_read_status=$?
+  normalized="$(tr -d '\r' <"$tmp/out" | sed -e $'s/\e\\[[0123456789;?]*[a-zA-Z]//g')" || output_read_status=$?
+  if [[ $status == 0 && "$query_count" == 1 &&
+    "$normalized" == $'\n'"${edge}Next"$'\n\n\n\n\n'"${edge}Next"$'\n'restored ]]; then return 0; fi
+  printf 'test-tui: silent terminal exit=%s cursor-query-count=%s capture=%s\n' "$status" "$query_count" "$tmp/out" >&2
+  if ((query_read_status != 0)); then
+    printf 'test-tui: cursor-query grep/wc exit=%s (grep exit 1 also means no matches); native read errors above\n' "$query_read_status" >&2
+  fi
+  if ((output_read_status != 0)); then
+    printf 'test-tui: capture normalization read failed path=%s exit=%s; native error above\n' "$tmp/out" "$output_read_status" >&2
+  fi
+  cat -- "$tmp/out" >&2 ||
+    printf 'test-tui: original capture read failed path=%s exit=%s; native error above\n' "$tmp/out" "$?" >&2
+  return 1
 }
 check "a terminal that never answers still gets every block and its blank row" silent_row
 # A terminal that answers 0.5 s late, a pseudo-terminal whose other end
