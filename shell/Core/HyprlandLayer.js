@@ -1085,6 +1085,10 @@ function requestedBindKeys(sections, foreign, userRows) {
 // a native map the active layout refuses (`keysRefused`) changes no merge.
 function bindIdentities(keys, answer) {
     if (!answer.ok) {
+        // HyprlandState answers a read whose keyboard layout changed under it
+        // with this, after publishing the new devices: the read was
+        // superseded, and says nothing about the keys.
+        if (answer.error === "refused: keymap=layout-changed") return { kind: "superseded" };
         if (/^refused: keymap=(custom-file|native-rules|native-model|rules|model|keysym-unresolved|keysym-ambiguous|keycode-unresolved)$/.test(answer.error))
             return { kind: "unresolved", identities: null, error: answer.error };
         return { kind: "failed", error: answer.error };

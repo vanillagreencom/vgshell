@@ -924,6 +924,8 @@ function verifyRefusedAliasMap(layer) {
     }
     for (const cause of ["busy", "timeout", "resolver-failed", "unresolved", "reply", "translation"])
         assert.equal(layer.bindIdentities(keys, { ok: false, error: "refused: keymap=" + cause }).kind, "failed", "operational missing evidence cannot invoke unsupported-map policy: " + cause);
+    same(layer.bindIdentities(keys, { ok: false, error: "refused: keymap=layout-changed" }), { kind: "superseded" },
+        "a read the layout changed under is superseded: no failure, no identities");
     const resolved = layer.bindIdentities(keys, { ok: true, translation: keys.map(() => ({ modifiers: ["SUPER", "SHIFT"], keycode: 44 })) });
     same(resolved.identities, { "SUPER+SHIFT+J": "SUPER+SHIFT+code:44", "SUPER+SHIFT+code:44": "SUPER+SHIFT+code:44" }, "publication consumes the existing global translation facts");
 }

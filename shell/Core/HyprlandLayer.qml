@@ -305,6 +305,14 @@ Scope {
             if (!lifetime.active) return;
             if (request !== root.bindRequest || admission !== root.bindAdmission) { Qt.callLater(root.resolveBindKeys); return; }
             const read = Layer.bindIdentities(keys, answer);
+            // A superseded read records no failure, and a failure it was
+            // retrying no longer stands, so the early return above admits
+            // the read that follows: the resolver's release always reaches
+            // onResolvingKeysChanged, possibly in a later turn.
+            if (read.kind === "superseded") {
+                if (root.bindSnapshot !== null && root.bindSnapshot.read.kind === "failed") root.bindSnapshot = null;
+                return;
+            }
             root.bindSnapshot = { request: request, admission: admission, read: read };
             if (read.kind === "failed") console.error("hyprland: " + read.error);
         });

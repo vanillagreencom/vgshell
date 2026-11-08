@@ -217,6 +217,58 @@ Item {
             finishWrite();
         }
 
+        function test_a_layout_change_during_a_key_read_reads_the_keys_again_data() {
+            return [{ tag: "first-read", retry: false }, { tag: "failed-read-retry", retry: true }];
+        }
+
+        // HyprlandState answers a read whose layout changed under it in this
+        // order: the new devices, then the answer while the helper still
+        // runs, then the helper's exit in a later turn (HyprlandState.qml's
+        // devicesReader). The stand-in's finishKeys releases first, so the
+        // case answers by hand.
+        // expected-log: hyprland: refused: keymap=timeout -- the failed-read-retry row's first read fails before the retry it supersedes
+        function test_a_layout_change_during_a_key_read_reads_the_keys_again(data) {
+            const devicesBefore = Capabilities.hyprland.devices;
+            const keyboard = (index, keymap) => ({ mice: [], keyboards: [{ main: true, name: "fixture", layout: "us,de",
+                activeLayoutIndex: index, activeKeymap: keymap }] });
+            Registry.hyprlandSections = [{ id: "acme.layout", version: "1.0.0", binds: [{ shortcut: "talk", key: "SUPER+code:30" }],
+                options: [], layerRules: [], appearance: {}, monitors: null, padRefusals: [], unknownKeys: [] }];
+            tryVerify(() => Capabilities.hyprland.pendingKeys !== null);
+            tryVerify(() => layer.machine.phase === "preparing");
+            finishWrite();
+            try {
+                if (data.retry) {
+                    Capabilities.hyprland.finishKeys({ ok: false, error: "refused: keymap=timeout" });
+                    compare(layer.bindSnapshot.read.kind, "failed");
+                    Capabilities.hyprland.devices = keyboard(0, "English (US)");
+                    tryVerify(() => Capabilities.hyprland.pendingKeys !== null, 1000, "a devices change retries the failed read");
+                }
+                const asked = Capabilities.hyprland.pendingKeys;
+                Capabilities.hyprland.devices = keyboard(1, "German");
+                Capabilities.hyprland.pendingKeys = null;
+                asked.done({ ok: false, error: "refused: keymap=layout-changed" });
+                let turned = false;
+                Qt.callLater(() => turned = true);
+                tryVerify(() => turned, 1000, "the turn after the answer runs");
+                compare(Capabilities.hyprland.pendingKeys, null, "no read starts while the resolver is held");
+                Capabilities.hyprland.resolvingKeys = false;
+                tryVerify(() => Capabilities.hyprland.pendingKeys !== null, 1000, "the superseded read is asked again");
+                compare(JSON.stringify(Capabilities.hyprland.pendingKeys.keys), JSON.stringify(asked.keys));
+                verify(layer.bindSnapshot === null || layer.bindSnapshot.read.kind !== "failed", "a superseded read records no failure");
+                Capabilities.hyprland.finishKeys({ ok: true, translation: [{ modifiers: ["SUPER"], keycode: 30 }] });
+                tryVerify(() => layer.bindPlan !== null, 1000, "the read again admits the binds");
+            } finally {
+                // A failed assertion leaves the next case no held resolver.
+                if (Capabilities.hyprland.pendingKeys !== null)
+                    Capabilities.hyprland.finishKeys({ ok: true, translation: [{ modifiers: ["SUPER"], keycode: 30 }] });
+                Capabilities.hyprland.resolvingKeys = false;
+                Capabilities.hyprland.devices = devicesBefore;
+                Registry.hyprlandSections = [];
+                tryVerify(() => layer.machine.phase === "preparing");
+                finishWrite();
+            }
+        }
+
         function test_pending_keymap_retains_live_bind_readback_and_hold_data() {
             return [{ tag: "success", failed: false }, { tag: "operational-failure", failed: true }];
         }
