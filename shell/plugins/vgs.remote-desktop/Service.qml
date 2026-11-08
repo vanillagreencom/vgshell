@@ -186,17 +186,19 @@ Item {
         return "refused: " + key;
     }
 
-    // Opens gliff with profile NAME's options. A missing gliff raises the
-    // core's requirement notice, which installs it in one press.
+    // Opens gliff with profile NAME's options. Missing tools raise the
+    // core's requirement notice, which installs them in one press.
     function connect(name) {
         const profile = profiles.find(item => item.name === name);
         if (profile === undefined) return refuse("profile=" + name, "This computer is no longer in your Remote desktop list.");
-        if (missing.indexOf("gliff") !== -1) return shell.requirements.offer(["gliff"]);
+        if (missing.indexOf("gliff") !== -1 || missing.indexOf("systemd-cat") !== -1)
+            return shell.requirements.offer(["gliff", "systemd-cat"]);
         const built = Remote.argv(profile);
         if (built.field === "host")
             return refuse("profile=" + name + " field=host", "The Computer of this entry is not a computer name. Change it in [Remote desktop settings](page:vgs.remote-desktop/Settings/profiles).");
         if (built.field === "output")
             return refuse("profile=" + name + " field=output", "One screen needs a Screen name for " + profile.host + ". Choose one in [Remote desktop settings](page:vgs.remote-desktop/Settings/profiles).");
+        console.info("remote-desktop: connect profile=" + profile.name + " journal=" + Remote.JOURNAL_IDENTIFIER);
         const check = serverCheck.createObject(root, { profile: Object.assign({}, profile), viewer: built.argv });
         check.start();
         return "ok";

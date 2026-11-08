@@ -14,6 +14,8 @@ Remote desktop opens the desktop of your other computers in a window, and shows 
 
 A window your Hyprland configuration marks `no_screen_share` stays hidden in every screen capture, a remote session included.
 
+Connect sends gliff's own standard output and error output to the system journal under `vgs-gliff`.
+
 ## Setup
 
 Both computers need gliff, and the computer you connect to needs SSH on. Open Settings → Plugins → Remote desktop → Setup to install missing tools under Optional tools. SSH on this computer starts the SSH server and keeps it on after a restart when you allow hosting.
@@ -22,4 +24,4 @@ In System Settings → Remote desktop, select Set up sign-in beside a computer. 
 
 Remote desktop cannot ask for a password or key passphrase when it connects. A key with a passphrase needs an SSH agent running in your session; Set up sign-in stops without changing anything if none runs. The setup also stops if only the public half of your default key exists, so it does not replace a key held by an agent or security device.
 
-Connect also offers to install gliff while it is missing. The first time the plugin is on, Hosting off takes full effect after you sign in again, because Hyprland reads its screen capture rules only when it starts. Until then, VGS ends each session it finds while hosting is off.
+Connect also offers to install gliff or its journal tool while either is missing. The first time the plugin is on, Hosting off takes full effect after you sign in again, because Hyprland reads its screen capture rules only when it starts. Until then, VGS ends each session it finds while hosting is off.

@@ -187,6 +187,17 @@
       "floor": "0.4.1"
     },
     {
+      "command": "systemd-cat",
+      "packages": {
+        "pacman": "systemd",
+        "apt": "systemd",
+        "dnf": "systemd",
+        "nix": "systemd"
+      },
+      "optional": true,
+      "purpose": "Sends remote desktop connection output to the system journal"
+    },
+    {
       "command": "gliff-server",
       "packages": {
         "verified-file": "gliff"

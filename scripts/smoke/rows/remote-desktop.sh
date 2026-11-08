@@ -1,8 +1,11 @@
-# Remote desktop, vgs.remote-desktop, over stand-ins for gliff and
-# gliff-server and a loopback test sshd. No call reaches a host gliff or a
-# remote computer: `gliff` is a stand-in in the shell's PATH directory
-# that records its argv, one JSON list a line, and answers --version as
-# gliff 0.4.1; `gliff-server` there is a python stand-in whose kernel name
+# Remote desktop, vgs.remote-desktop, over stand-ins for systemd-cat,
+# gliff and gliff-server and a loopback test sshd. No call reaches a host
+# gliff, journal or remote computer: `systemd-cat` in the shell's PATH
+# records its full argv, one JSON list a line in the existing gliff.argv,
+# then execs the stand-in gliff with both output streams in a row-owned
+# sink. This models command wrapping, not journal delivery or detached
+# lifetime. `gliff` answers --version as gliff 0.4.1 and otherwise exits 0;
+# `gliff-server` there is a python stand-in whose kernel name
 # is gliff-server, which the row starts with SSH_CONNECTION naming a
 # TEST-NET-1 viewer. The sandbox HOME's SSH settings name smoke-alpha and,
 # through `Include %d/.ssh/config.d/*.conf`, smoke-beta (hashed in
@@ -18,7 +21,8 @@
 # widget with the viewer and starts the poll; the viewer leaving, with no
 # event, hides it through the poll, which stops; Connect's one table
 # refuses a missing remote server without opening gliff, passes the
-# loopback server its profile argv, and keeps launching for unreachable
+# loopback server its systemd-cat identifier prefix and unchanged gliff
+# profile argv, and keeps launching for unreachable
 # smoke-beta; a copy that skips refusal fails the same missing-server
 # assertion; the pane's Set up sign-in
 # hands the terminal the sign-in script and the host; the script, run
@@ -74,8 +78,12 @@ hashed = "|1|%s|%s" % (base64.b64encode(salt).decode(), base64.b64encode(hmac.ne
 key = " ".join(open(host_key).read().split()[:2])
 open(path, "w").write("smoke-alpha %s\n%s %s\n%s %s\n[127.0.0.1]:%s %s\n" % (key, hashed, key, long, key, port, key))
 PY
-printf '#!/usr/bin/env bash\n[[ ${1:-} == --version ]] && { echo "gliff 0.4.1"; exit 0; }\npython3 -c %q "$@" >>%q\n' \
-  'import json,sys; print(json.dumps(sys.argv[1:]))' "$rd_dir/gliff.argv" >"$shim/gliff"
+printf '#!/usr/bin/env bash\n[[ ${1:-} == --version ]] && echo "gliff 0.4.1"\nexit 0\n' >"$shim/gliff"
+# systemd-cat(1), installed systemd 262.1: command mode connects stdout
+# and stderr to the journal, sharing a channel at equal priorities. exec
+# preserves the command's status; the fixture sink is not a journal.
+printf '#!/usr/bin/env bash\nset -euo pipefail\n[[ ${1:-} == --version ]] && { echo "systemd 262.1"; exit 0; }\npython3 -c %q "$@" >>%q\n[[ ${1:-} == --identifier=* && ${2:-} == gliff ]] || exit 64\nshift\nexec "$@" >>%q 2>&1\n' \
+  'import json,sys; print(json.dumps(["systemd-cat"] + sys.argv[1:]))' "$rd_dir/gliff.argv" "$rd_dir/gliff.output" >"$shim/systemd-cat"
 printf '#!%s\nimport time\nwhile True: time.sleep(3600)\n' "$rd_python" >"$shim/gliff-server"
 printf '#!/usr/bin/env bash\nexec %q -F %q -o UserKnownHostsFile=%q -o IdentityFile=none "$@"\n' \
   "$rd_ssh_bin" "$home/.ssh/config" "$home/.ssh/known_hosts" >"$rd_dir/bin/ssh"
@@ -83,7 +91,7 @@ printf '#!/usr/bin/env bash\nexec %q -F %q -o UserKnownHostsFile=%q -o Identitie
   "$rd_ssh_bin" "$home/.ssh/config" "$home/.ssh/known_hosts" "$rd_dir/bootstrap" >"$shim/ssh"
 # The askpass answers ssh-add for the passphrase a user types.
 printf '#!/bin/sh\necho smoke-pass\n' >"$rd_dir/askpass"
-chmod 755 "$shim/gliff" "$shim/gliff-server" "$shim/ssh" "$rd_dir/bin/ssh" "$rd_dir/askpass"
+chmod 755 "$shim/gliff" "$shim/systemd-cat" "$shim/gliff-server" "$shim/ssh" "$rd_dir/bin/ssh" "$rd_dir/askpass"
 device_reply systemctl 3 "" is-active --quiet sshd.service
 device_reply systemctl 0 loaded show --property=LoadState --value sshd.service
 terminal_stand_in
@@ -147,7 +155,7 @@ rd_new_key_signs_in() { SSH_AUTH_SOCK="$rd_dir/agent.sock" "$rd_dir/bin/ssh" -o 
 rd_restore() {
   local pid
   for pid in "$rd_pid" "$rd_sshd_pid" "$rd_agent_pid"; do [[ -z $pid ]] || kill -TERM -- "$pid" 2>/dev/null || true; done
-  rm -f -- "${shim:?}/gliff" "${shim:?}/gliff-server" "${shim:?}/ssh"
+  rm -f -- "${shim:?}/gliff" "${shim:?}/systemd-cat" "${shim:?}/gliff-server" "${shim:?}/ssh"
   rm -rf -- "${home:?}/.ssh"
   device_reply_clear systemctl
   ipc shell hide window vgs.system >/dev/null || true
@@ -202,7 +210,7 @@ print(json.dumps([runs, " server=missing host=smoke-sshd" in text, text.count("n
 PY
 }
 rd_connect_expected() {
-  printf '[[["--release-hotkey", "shift+escape", "--no-clipboard", "--video", "cpu", "--headless", "--server-bin", "gliff-server --capture shm", "--", "%s"]], false, 0]\n' "$1"
+  printf '[[["systemd-cat", "--identifier=vgs-gliff", "gliff", "--release-hotkey", "shift+escape", "--no-clipboard", "--video", "cpu", "--headless", "--server-bin", "gliff-server --capture shm", "--", "%s"]], false, 0]\n' "$1"
 }
 rd_connect_table() {
   local only="${1:-}" state host expected
@@ -313,6 +321,27 @@ if [[ -n $rd_sshd_bin ]] && copy_tree remote-desktop-no-server-check && edit_tre
   stop_shell || :
   start_shell "$repo" "$sandbox/remote-desktop-server-check-restored-qs.log" || fail "the missing-server control restores the repository shell"
   expect_poll "the checked service is restored" True record_exists "$rd_id"
+fi
+
+# Removing only the wrapper prefix must fail the same present argv case.
+if [[ -n $rd_sshd_bin ]] && copy_tree remote-desktop-no-journal-prefix && edit_tree remote-desktop-no-journal-prefix shell/plugins/vgs.remote-desktop/Remote.js \
+    '["systemd-cat", "--identifier=" + JOURNAL_IDENTIFIER, "gliff", "--release-hotkey", profile.releaseKey]' \
+    '["gliff", "--release-hotkey", profile.releaseKey]'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-remote-desktop-no-journal-prefix" "$sandbox/remote-desktop-no-journal-prefix-qs.log"; then
+    expect_poll "control: the service without the prefix is built" True record_exists "$rd_id"
+    rd_prefix_failures="$(
+      failures=0
+      rd_connect_table present >"$rd_dir/journal-prefix-control.log"
+      rd_connect_reading >"$rd_dir/journal-prefix-control.reading"
+      printf '%s\n' "$failures"
+    )"
+    expect "control: removing the prefix fails the present argv case" 1 echo "$rd_prefix_failures"
+    expect "control: the prefix-free case records no wrapper argv or missing-server refusal" '[[], false, 0]' cat -- "$rd_dir/journal-prefix-control.reading"
+  fi
+  stop_shell || :
+  start_shell "$repo" "$sandbox/remote-desktop-journal-prefix-restored-qs.log" || fail "the prefix control restores the repository shell"
+  expect_poll "the service with its prefix is restored" True record_exists "$rd_id"
 fi
 
 # Hosting off: a session is ended, and pending-restart has its text.

@@ -3,6 +3,8 @@
 // The Remote desktop plugin's pure decisions, shared by Service.qml,
 // Widget.qml and Pane.qml. No QML object and no I/O.
 
+var JOURNAL_IDENTIFIER = "vgs-gliff";
+
 // The sessions helper/sessions.py `list` printed, one JSON object a line.
 // Throws on a line that is not one, since a bad reading is no idle reading.
 function parseSessions(text) {
@@ -89,13 +91,15 @@ const FLAGS = {
 // crates/gliff/src/main.rs struct Cli, and the server's
 // crates/gliff-server/src/main.rs struct Cli, which the client reaches
 // only through --server-bin.
+// systemd-cat(1), systemd 262.1: command mode connects both stdout and
+// stderr to the journal; --identifier= names their entries.
 function argv(profile) {
     if (!HOST.test(profile.host)) return { field: "host" };
     if (profile.screen === "one" && !OUTPUT.test(profile.output)) return { field: "output" };
     const screen = profile.screen === "one" ? ["--output", profile.output] : FLAGS.screen[profile.screen];
     const server = FLAGS.picture[profile.picture].concat(FLAGS.capture[profile.capture],
         profile.bitrate > 0 ? ["--bitrate", String(Math.round(profile.bitrate * 1000000))] : []);
-    return { argv: ["gliff", "--release-hotkey", profile.releaseKey]
+    return { argv: ["systemd-cat", "--identifier=" + JOURNAL_IDENTIFIER, "gliff", "--release-hotkey", profile.releaseKey]
         .concat(profile.clipboard ? [] : ["--no-clipboard"], FLAGS.video[profile.video], screen,
             server.length === 0 ? [] : ["--server-bin", ["gliff-server"].concat(server).join(" ")], ["--", profile.host]) };
 }
