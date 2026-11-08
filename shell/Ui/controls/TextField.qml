@@ -17,11 +17,13 @@ import qs.Ui
 // The leading icon takes its top from the placeholder's leading icon
 // reading (Label.topForLeadingIcon), whose role the typed text shares.
 // `search` spans its containing content box, without the form width cap,
-// fill or outline. Its bottom rule carries the same focus/error states.
+// fill or outline. Its optional bottom rule carries the same focus/error
+// states; without the rule, keyboard focus uses the enclosing ring.
 T.TextField {
     id: root
 
     property string variant: "default"
+    property bool searchUnderline: true
     readonly property bool searchVariant: variant === "search"
     readonly property real minimumWidth: searchVariant ? 0 : Theme.field.minWidth
     readonly property real maximumWidth: searchVariant ? Infinity : Theme.control.maxWidth
@@ -40,6 +42,9 @@ T.TextField {
     property alias actions: actionRow.data
     readonly property color outline: error ? Theme.textField.error : focusRing.visible ? Theme.textField.focus : hovered ? Theme.textField.hover : Theme.textField.borderColor
     readonly property real sidePadding: searchVariant ? Theme.textField.searchPadding : Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius, Math.max(Theme.textField.height, height), contentHeight)
+    // Transparent search headers can align their visible content with a
+    // container inset without changing the shared field's hit area.
+    readonly property real contentInkTop: Math.min(placeholder.y + Theme.inkAbove(placeholder), leadingIcon !== "" ? leading.y + leading.painted[1] : Infinity)
 
     implicitWidth: Theme.size.panel.sm / 2
     implicitHeight: Math.max(Theme.textField.height, contentHeight + topPadding + bottomPadding)
@@ -81,6 +86,7 @@ T.TextField {
         // colour immediately.
 
         Icon {
+            id: leading
             visible: root.leadingIcon !== ""
             name: root.leadingIcon
             size: Theme.icon.size.md
@@ -105,7 +111,7 @@ T.TextField {
         }
 
         Rectangle {
-            visible: root.searchVariant
+            visible: root.searchVariant && root.searchUnderline
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -113,9 +119,9 @@ T.TextField {
             color: root.outline
         }
 
-        // Keep the shared keyboard-focus judgement. Search draws that
-        // state through its rule, never through an enclosing ring.
-        FocusRing { id: focusRing; target: root; opacity: root.searchVariant ? 0 : 1; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
+        // Keep the shared keyboard-focus judgement on searches without a
+        // rule too.
+        FocusRing { id: focusRing; target: root; opacity: root.searchVariant && root.searchUnderline ? 0 : 1; ringColor: root.error ? Theme.textField.error : Theme.focusRing.color }
     }
 
     // A child of the field, not of the background: the control puts its

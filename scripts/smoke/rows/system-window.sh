@@ -356,9 +356,10 @@ click_in "window:System Settings" window vgs.system Switch "Show in bar" || fail
 expect_poll "the fixture widget returns to the bar" True widget_placed acme.pane
 expect_poll "Show in bar follows the placement" true sys_switch_checked
 
-# Edges: the sidebar's search field, headings and rows share its content
-# edges, the rule stands between the columns, and the section's icon, its
-# Show in bar switch and the mounted section share the detail's.
+# Edges: the sidebar's rows keep the pane inset, while its search field
+# shares their content edges and its headings their icon column. The rule
+# stands between the columns, and the section's icon, its Show in bar
+# switch and the mounted section share the detail's.
 sys_edges() {
   local rows inset pane
   rows="$(ipc smoke descendantGeometry window vgs.system)" && inset="$(ipc smoke themeValue inset.window)" && pane="$(ipc smoke instanceGeometry window acme.pane)" || return 1
@@ -388,7 +389,7 @@ under = lambda kind: [i for i, r in enumerate(rows) if r["type"] == kind and ins
 search, items = under("TextField"), under("ListItem")
 eyebrows = [i for i in under("Label") if rows[i].get("role") == "eyebrow"]
 if len(search) != 1 or len(items) < 2 or not eyebrows: print(json.dumps(["search=%d items=%d eyebrows=%d" % (len(search), len(items), len(eyebrows))])); sys.exit()
-edge_l, edge_r = rows[search[0]]["box"][0], right(rows[search[0]])
+edge_l, edge_r = rows[items[0]]["box"][0], right(rows[items[0]])
 check("sidebar.leftInset", edge_l - sb["box"][0], inset)
 check("sidebar.rightInset", right(sb) - edge_r, inset)
 icon_x = None
@@ -397,6 +398,9 @@ for n, i in enumerate(items):
     check("item%d.right" % n, right(rows[i]), edge_r)
     icons = [j for j, r in enumerate(rows) if r["type"] == "Icon" and rows[r["parent"]]["parent"] == i]
     if len(icons) != 1: out.append("item%d icons=%d" % (n, len(icons))); continue
+    content = rows[rows[icons[0]]["parent"]]
+    check("search.item%d.content.left" % n, rows[search[0]]["box"][0], content["box"][0])
+    check("search.item%d.content.right" % n, right(rows[search[0]]), right(content))
     if icon_x is None: icon_x = rows[icons[0]]["box"][0]
     check("item%d.icon.x" % n, rows[icons[0]]["box"][0], icon_x)
 for n, i in enumerate(eyebrows):
