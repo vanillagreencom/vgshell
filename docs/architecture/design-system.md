@@ -124,6 +124,12 @@ A private control or literal drawing value creates a second style system that th
 - Use RowAction after a key/value reading and RowActions for several actions, never boxed buttons. Keep published row lists passive with independently focusable actions. Mark danger with a distinct icon as well as colour: trash alone only at the end of the row being removed, trash before other remove text, and an appropriate mark for non-removing danger. Place no icon-only control alone on a line (owner, Slack 1792184728 and 1792452164). `scripts/qml-tests/tst_rowaction.qml` and `tst_settings_rows.qml` check shared controls.
 - Use shared BindField and ShortcutField for key editing, hints and icon states. Keep explanation over a hint only when it fits; otherwise use the info dialog. `scripts/qml-tests/tst_shortcutfield.qml` checks the shared control.
 
+### Independent tools
+
+- Present Settings' Open through the existing normal window host, even when its content entry is a panel. Keep the declared content choice separate from its presentation. `PluginLogic.openRequest` and `summonSurface` own this choice; `scripts/test-plugin-logic.js` checks it.
+- Draw no private window border or drag behavior. The compositor owns focus indication, move, tiling and close. Keep anchored bar flyouts and generic IPC summons on their declared hosts; Open is not a conversion of every unanchored panel.
+- Replace an existing flyout or layer when Open requests a window, without a second instance and without discarding held work. Normal windows remain open when another window receives focus. Host lifetime review holds these boundaries.
+
 ## The canonical example
 
 Copy `shell/Ui/controls/IconButton.qml` for a control. For a plugin-owned look, copy `shell/plugins/vgs.launcher/Appearance.js` with `Launcher.qml`.

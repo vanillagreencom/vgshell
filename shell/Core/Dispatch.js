@@ -396,6 +396,21 @@ function windowState(text) {
 
 var ACTIVATION_STATE_REQUEST = "j/clients;j/getoption cursor:no_warps";
 
+// Associate a host's first map with its native address, excluding the
+// known host addresses before showing. Compositor refuses same-title maps
+// before either can consume this result, so a sibling cannot lend its id.
+function windowMapAddress(clients, before, pid, title) {
+    var added = clients.filter(function (c) {
+        return c && c.mapped && c.pid === pid && c.title === title
+            && !before.some(function (old) { return old && old.address === c.address; });
+    });
+    if (added.length === 0) return { ok: false, pending: true, error: "refused: window-map=unmapped" };
+    if (added.length !== 1) return { ok: false, error: "refused: window-map=windows count=" + added.length };
+    if (typeof added[0].address !== "string" || !ADDRESS.test(added[0].address))
+        return { ok: false, error: "refused: window-map=address" };
+    return { ok: true, address: added[0].address };
+}
+
 // CWindow::activate in Hyprland 0.56.2 skips a window it already names
 // active, even when a popup took its native keyboard focus. focusWindow
 // reaches fullWindowFocus instead. Suppress its warp rather than restoring
@@ -413,10 +428,10 @@ var ACTIVATION_STATE_REQUEST = "j/clients;j/getoption cursor:no_warps";
 // Capture Settings-link screenshots, cachy, 2026-11-04). Stack it explicitly:
 // https://wiki.hypr.land/configuring/core/dispatchers/#window
 // https://wiki.hypr.land/0.54.0/Configuring/Dispatchers/
-function activationRequest(text, pid, title, usingLua) {
+function activationRequest(text, pid, address, usingLua) {
     var read = jsonReplies(text, [["clients", "array"], ["no-warps", "object"]], "activation state");
     if (!read.ok) return read;
-    var clients = read.values[0].filter(function (c) { return c && c.mapped && c.pid === pid && c.title === title; });
+    var clients = read.values[0].filter(function (c) { return c && c.mapped && c.pid === pid && c.address === address; });
     if (clients.length === 0) return { ok: false, pending: true, error: "refused: activation=unmapped" };
     if (clients.length !== 1) return { ok: false, error: "refused: activation=windows count=" + clients.length };
     var focus = request("focusWindow", [clients[0].address], usingLua);

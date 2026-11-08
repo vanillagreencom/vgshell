@@ -487,6 +487,41 @@ failures += verifyPlace(ctx, true);
 // Each control removes one reveal rule from a copy of Dispatch.js and keeps
 // the text around it; verifyReveal must fail on every copy.
 const fs = require("fs");
+const vm = require("vm");
+
+// Execute the native map owner with its Qt allocation and IPC transport
+// replaced. An unanswered reply must not keep any new tool invisible.
+function verifyWindowMapping(compositorSource, verbose) {
+    const methods = ["windowRecord", "showWindow", "readWindowAddress"].map(name => {
+        const found = compositorSource.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        if (!found) throw new Error("production method not found: " + name);
+        return found[0];
+    }).join("\n");
+    let bad = 0;
+    for (const [name, state, reads] of [["first host", null, 1], ["bound sibling", { phase: "bound", address: "0xab" }, 1],
+        ["unknown sibling", { phase: "mapping", before: [] }, 0]]) {
+        const unanswered = [];
+        const owner = {
+            appWindows: state === null ? [] : [{ window: {}, title: "Window", state }],
+            appWindowRecord: { createObject: (_parent, properties) => Object.assign({ state: {} }, properties) },
+            readWindows: done => unanswered.push(done),
+            readActivation: () => {}, Quickshell: { processId: 42 }, Dispatch: ctx
+        };
+        owner.root = owner;
+        vm.runInNewContext(methods, owner);
+        const window = { title: "Window", visible: false };
+        owner.showWindow(window);
+        if (window.visible !== true) bad++;
+        if (verbose) {
+            check("native map " + name + " maps before any IPC reply", window.visible, true);
+            check("native map " + name + " holds the identity read", unanswered.length, reads);
+        }
+    }
+    return bad;
+}
+
+const compositorSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "Compositor.qml"), "utf8");
+verifyWindowMapping(compositorSource, true);
 const revealControls = [
     ["an observed window is checked at focus execution", 'if hl.get_window(\\\"address:" + address + "\\\") ~= nil then', 'if true then'],
     ["the window bound", "addresses.length > REVEAL_WINDOWS_MAX)", "false)"],
@@ -524,6 +559,15 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-dispatch-"));
 fs.copyFileSync(path.join(path.dirname(dispatchFile), "HyprlandLayer.js"), path.join(scratch, "HyprlandLayer.js"));
 fs.copyFileSync(path.join(path.dirname(dispatchFile), "MonitorLogic.js"), path.join(scratch, "MonitorLogic.js"));
 try {
+    const visibilityNeedle = "        window.visible = true;\n        readWindowAddress(record);";
+    if (compositorSource.split(visibilityNeedle).length !== 2) check("control native visibility matches once", false, true);
+    else {
+        const mutant = path.join(scratch, "Compositor.qml");
+        fs.writeFileSync(mutant, compositorSource.replace(visibilityNeedle,
+            "        readWindows(() => { window.visible = true; readWindowAddress(record); });"));
+        check("control IPC-gated native mapping fails the visibility rows",
+            verifyWindowMapping(fs.readFileSync(mutant, "utf8"), false) > 0, true);
+    }
     const dispatchControls = [
         ["known dispatcher", "if (!Object.prototype.hasOwnProperty.call(DISPATCHERS, name))", "if (false)"],
         ["argument count", "if (!Array.isArray(args) || args.length !== d.args.length)", "if (!Array.isArray(args))"],

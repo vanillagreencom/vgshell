@@ -4093,7 +4093,7 @@ function openRequest(manifest, id) {
     var kind = openKind(manifest);
     if (kind === "")
         return { ok: false, answer: "refused: open=" + tuiLabel(id) + " reason=no-surface" };
-    return { ok: true, kind: "summon", surface: kind };
+    return { ok: true, kind: "summon", surface: kind, presentation: "window" };
 }
 
 // The launcher state after a probe or a launch that was started while the
@@ -6285,12 +6285,14 @@ function notifyAction(actions, stdout) {
 }
 
 // The surface a summon of KIND builds: `window`, a Hyprland toplevel, for
-// kind `window` whatever the anchor, since a toplevel is never placed by
-// the shell; `popup` under an ANCHORED summon's item; `layer` otherwise.
-function summonSurface(kind, anchored) {
+// kind `window` or Settings Open's window PRESENTATION. Open keeps the
+// declared content kind; generic summons still use their anchor or layer.
+// https://quickshell.org/docs/v0.3.1/types/Quickshell/FloatingWindow/
+function summonSurface(kind, anchored, presentation) {
     if (SUMMONABLE_KINDS.indexOf(kind) === -1)
         throw new Error("summonSurface: kind " + JSON.stringify(kind) + " is not summonable");
     if (kind === "window") return "window";
+    if (kind === "panel" && presentation === "window") return "window";
     return anchored ? "popup" : "layer";
 }
 

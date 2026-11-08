@@ -7,7 +7,8 @@
 # The control removes the widget filter's result in a disposable tree;
 # the same inventory reader must then reject the missing fixture.
 # Generic Settings Open keeps the Calendar and an open chooser's click
-# context. Its control restores window preference in a disposable tree.
+# context. Each same-title sibling can retake native keyboard focus. Its
+# control restores window preference in a disposable tree.
 # A place-then-move chooser control must fail the ordinary one-write judge.
 # inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/AddWidget.qml shell/plugins/vgs.bar/Calendar.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/Registry.qml scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
@@ -109,6 +110,12 @@ aw_generic_state() {
 aw_open left
 aw_generic_open
 expect_poll "generic Bar Open draws Calendar and preserves the chooser's original click context" True aw_generic_state
+expect_poll "generic Bar Open gives Calendar native keyboard focus" true ipc smoke windowFocused panel vgs.bar
+expect "the existing chooser opens beside Calendar" ok ipc shell summon window vgs.bar "$aw_generic_payload"
+expect_poll "the same-title chooser retakes native keyboard focus" true ipc smoke windowFocused window vgs.bar
+expect "generic Open returns to the existing Calendar" ok ipc smoke invokeInstance window vgs.settings openSurface vgs.bar
+expect_poll "the same-title Calendar retakes native keyboard focus" true ipc smoke windowFocused panel vgs.bar
+expect "both native windows preserve the chooser's original click context" True aw_generic_state
 expect "Calendar closes after generic Open" ok ipc shell hide panel vgs.bar
 settings_page_close vgs.bar
 expect "the chooser closes after generic Open" ok ipc shell hide window vgs.bar

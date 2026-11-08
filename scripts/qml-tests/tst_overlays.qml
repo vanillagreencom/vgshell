@@ -274,9 +274,21 @@ Item {
 
         function test_native_activation_judges_the_client_and_both_dispatcher_dialects() {
             const clients = [{ mapped: true, pid: 42, title: "Window", address: "0xab" },
-                { mapped: true, pid: 99, title: "Window", address: "0xcd" }];
+                { mapped: true, pid: 99, title: "Window", address: "0xcd" },
+                { mapped: true, pid: 42, title: "Window", address: "0xef" }];
+            const before = clients.slice(1);
+            compare(Dispatch.windowMapAddress(clients, before, 42, "Window"), { ok: true, address: "0xab" });
+            for (const row of [
+                { clients: before, pending: true },
+                { clients: clients.concat([{ mapped: true, pid: 42, title: "Window", address: "0x12" }]), pending: false },
+                { clients: [{ mapped: true, pid: 42, title: "Window", address: "invalid" }], pending: false }
+            ]) {
+                const mapped = Dispatch.windowMapAddress(row.clients, before, 42, "Window");
+                verify(!mapped.ok);
+                compare(mapped.pending === true, row.pending);
+            }
             const state = JSON.stringify(clients) + "\n\n\n" + JSON.stringify({ int: 0 });
-            const lua = Dispatch.activationRequest(state, 42, "Window", true);
+            const lua = Dispatch.activationRequest(state, 42, "0xab", true);
             verify(lua.ok);
             compare(lua.argv[0], "hyprctl");
             verify(lua.argv[2].includes("address:0xab"));
@@ -292,20 +304,20 @@ Item {
             verify(lua.argv[2].includes("if not raised.ok then return raised end"));
             for (const noWarps of [0, 1]) {
                 const classicState = JSON.stringify(clients) + "\n\n\n" + JSON.stringify({ int: noWarps });
-                const classic = Dispatch.activationRequest(classicState, 42, "Window", false);
+                const classic = Dispatch.activationRequest(classicState, 42, "0xab", false);
                 verify(classic.ok);
                 compare(classic.argv, ["hyprctl", "--batch", "dispatch alterzorder top,address:0xab ; keyword cursor:no_warps 1 ; dispatch focuswindow address:0xab ; keyword cursor:no_warps " + noWarps]);
             }
-            verify(!Dispatch.activationRequest(state, 41, "Window", true).ok);
-            verify(!Dispatch.activationRequest(state, 42, "Other", true).ok);
-            compare(Dispatch.activationRequest("[]\n\n\n{}", 42, "Window", true).pending, true);
-            verify(!Dispatch.activationRequest("unread", 42, "Window", true).ok);
+            verify(!Dispatch.activationRequest(state, 41, "0xab", true).ok);
+            verify(!Dispatch.activationRequest(state, 42, "0xff", true).ok);
+            compare(Dispatch.activationRequest("[]\n\n\n{}", 42, "0xab", true).pending, true);
+            verify(!Dispatch.activationRequest("unread", 42, "0xab", true).ok);
             const duplicate = JSON.stringify([clients[0], clients[0]]) + "\n\n\n{}";
-            verify(!Dispatch.activationRequest(duplicate, 42, "Window", true).ok);
-            verify(Dispatch.activationRequest(duplicate, 42, "Window", true).pending !== true);
+            verify(!Dispatch.activationRequest(duplicate, 42, "0xab", true).ok);
+            verify(Dispatch.activationRequest(duplicate, 42, "0xab", true).pending !== true);
             for (const option of [{}, { int: "0" }, { int: null }, { int: 2 }]) {
                 const unreadOption = JSON.stringify(clients) + "\n\n\n" + JSON.stringify(option);
-                verify(!Dispatch.activationRequest(unreadOption, 42, "Window", false).ok);
+                verify(!Dispatch.activationRequest(unreadOption, 42, "0xab", false).ok);
             }
             compare(Dispatch.activationAnswer("ok", true), "ok");
             compare(Dispatch.activationAnswer("ok\n\n\nok\n\n\nok\n\n\nok", false), "ok");

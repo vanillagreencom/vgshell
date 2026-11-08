@@ -2934,7 +2934,7 @@ function suite(ctx, configLogic, check) {
     const openRequestRows = [
         ["null manifest", null, "acme.missing", { ok: false, answer: "unknown: acme.missing" }],
         ["no surface", openManifests.service, "acme.svc", { ok: false, answer: "refused: open=acme.svc reason=no-surface" }],
-        ["window", openManifests.window, "acme.window", { ok: true, kind: "summon", surface: "window" }],
+        ["window", openManifests.window, "acme.window", { ok: true, kind: "summon", surface: "window", presentation: "window" }],
     ];
     for (const [name, manifest, id, want] of openRequestRows)
         check("openRequest: " + name, ctx.openRequest(manifest, id), want);
@@ -3089,18 +3089,44 @@ delete withoutNoticeOwner.status.rebootNoticeOwner;
 require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNoticeOwner), require("node:assert/strict").AssertionError,
     "the baseline declaration without an owner reading fails the denied-row assertion");
 
+// Settings' Open presents every independent tool as a normal window.
+// Keep the content choice separate from the fixed presentation contract.
+function openRoutes(ctx, check, bundled) {
+    const fixtures = [
+        ["acme.open-panel", ["panel"]],
+        ["acme.open-bar", ["bar", "panel", "window"]],
+    ].map(([id, kinds]) => {
+        const entryPoints = Object.fromEntries(kinds.map(kind => [kind, kind + ".qml"]));
+        const result = ctx.validateManifest({ schemaVersion: 1, id, name: id, version: "1", author: "a", description: "d", kinds, entryPoints }, "/fixture");
+        if (!result.ok) throw new Error("Open fixture refused: " + id + ": " + result.error);
+        return result.manifest;
+    });
+    const candidates = Object.values(bundled).filter(manifest => ctx.openKind(manifest) !== "");
+    check("Open route: discovery includes Power and the bar", ["vgs.power", "vgs.bar"].every(id => candidates.some(manifest => manifest.id === id)), true);
+    for (const manifest of candidates.concat(fixtures)) {
+        const request = ctx.openRequest(manifest, manifest.id);
+        // SummonHost derives anchored from origin.anchor, not from kind.
+        const anchored = !!request.anchor;
+        const surface = request.ok ? ctx.summonSurface(request.surface, anchored, request.presentation) : null;
+        check("Open route: " + manifest.id + " opens a normal window",
+            { ok: request.ok, surface },
+            { ok: true, surface: "window" });
+    }
+}
+
 // The map the bundled manifests build renames a Cloud Sync user file
 // enabled, disabled and placed, so the rename the shell runs at its first
 // start after the update comes from the shipped manifest. Run once, outside
 // the controls, which the rows above cover.
+const bundled = Object.create(null);
 {
     const logic = load(LOGIC), configLogic = load(CONFIG);
-    const bundled = Object.create(null);
-    for (const name of fs.readdirSync(PLUGINS_DIR).sort()) {
-        const file = path.join(PLUGINS_DIR, name, "manifest.json");
-        if (!fs.existsSync(file)) continue;
+    for (const entry of fs.readdirSync(PLUGINS_DIR, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        if (!entry.isDirectory()) continue;
+        const file = path.join(PLUGINS_DIR, entry.name, "manifest.json");
         const r = logic.validateManifest(JSON.parse(fs.readFileSync(file, "utf8")), path.dirname(file));
-        if (r.ok) bundled[r.manifest.id] = r.manifest;
+        if (!r.ok) throw new Error("bundled manifest refused: " + file + ": " + r.error);
+        bundled[r.manifest.id] = r.manifest;
     }
     const layout = right => ({ id: "vgs.bar", layout: { left: [], center: [], right: right } });
     const user = { version: 6, bar: layout([{ id: "c.d" }, { id: "vgs.cloud-sync" }]), plugins: [{ id: "vgs.cloud-sync", x: 1 }], disabledPlugins: ["c.d", "vgs.cloud-sync"] };
@@ -3117,6 +3143,7 @@ require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNotic
     report("formerIdClaims: an installed claim of vgs.cloud-sync and vgs.google-drive is left out", thiefClaims.ignored,
         [{ id: "acme.drive", reason: "installed", formerIds: ["vgs.cloud-sync", "vgs.google-drive"] }]);
 }
+openRoutes(load(LOGIC), report, bundled);
 
 // Each control removes one rule from a copy of a judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the
@@ -3125,6 +3152,7 @@ require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNotic
 const CONTROLS = [
     ["a key setting names a declared shortcut", "if (unboundSetting !== undefined)", "if (false)", "underKey:"],
     ["an unplaced widget is mounted", 'out[manifest.unplacedSection].unshift({ id: id, transient: true });', 'out[manifest.unplacedSection].slice();', "unplaced mounts:"],
+    ["Open routed to today's panel without an anchor", 'return { ok: true, kind: "summon", surface: kind, presentation: "window" };', 'return { ok: true, kind: "summon", surface: "panel" };', "Open route: acme.open-panel"],
     ["splitFrom refuses its own id", "raw.splitFrom === raw.id ||", "false ||", "validateManifest:"],
     ["idleStages is a manifest key", '"schema", "idleStages", "defaultSection"', '"schema", "defaultSection"'],
     ["idle stages need capability idle", 'if (capabilities.indexOf("idle") === -1)\n        return "idleStages needs', 'if (false)\n        return "idleStages needs'],
@@ -3776,8 +3804,10 @@ try {
                 else if (filter === "underKey:") keySettings(ctx, check);
                 else if (filter === "unplaced mounts:") unplacedMounts(ctx, check);
                 else if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
+                else if (filter === "Open route: acme.open-panel") openRoutes(ctx, check, bundled);
                 else suite(ctx, configLogic, check);
             } catch (e) {
+                if (filter === "Open route: acme.open-panel") throw e;
                 red += 1;
             }
             report("control: the suite fails without the rule: " + label, red > 0, true);

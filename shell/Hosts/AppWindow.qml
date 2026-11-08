@@ -41,7 +41,11 @@ FloatingWindow {
     // QsWindow's backingWindowVisible means the native window is shown.
     // Request activation then; Compositor waits for its mapped client.
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
-    onBackingWindowVisibleChanged: if (backingWindowVisible) focusInitial()
+    onBackingWindowVisibleChanged: {
+        if (backingWindowVisible) focusInitial();
+        else Compositor.forgetWindow(win);
+    }
+    Component.onDestruction: Compositor.forgetWindow(win)
 
     function focusInitial() {
         slot.focusInitial();
@@ -92,7 +96,7 @@ FloatingWindow {
             // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
             Qt.callLater(() => {
                 if (win === null || slot === null || slot.instance !== instance) return;
-                win.visible = true;
+                Compositor.showWindow(win);
                 slot.focusInitial();
             });
         }

@@ -548,7 +548,7 @@ Singleton {
             if (end.code === 0) dictation.restart();
         });
         case "file": return tuis.editFor(id, request.path);
-        case "summon": return Plugins.route("summon", request.surface, id, "{}", null);
+        case "summon": return Plugins.route("summon", request.surface, id, "{}", request.presentation ? { presentation: request.presentation } : null);
         case "pane": return root.paneRoute(id, "summon", "{}", null);
         }
         throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, system, core, file, summon, pane");

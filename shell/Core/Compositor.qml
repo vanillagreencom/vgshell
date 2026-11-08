@@ -107,6 +107,77 @@ Singleton {
     property bool activationWaiting: false
     onActivationWindowChanged: if (activationWindow === null) activationWaiting = false
 
+    // QsWindow exposes no native client id in Quickshell 0.3.1. AppWindow,
+    // the shell's normal-window producer, records known host addresses
+    // before showing and binds its new address once. Titles alone cannot
+    // distinguish two kinds of the same plugin. An unknown same-title host
+    // prevents association, but never mapping: IPC must not hide a tool.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+    property var appWindows: []
+    Component {
+        id: appWindowRecord
+        QtObject {
+            property QtObject window: null
+            property string title
+            property var state: ({ phase: "mapping", before: [] })
+            onWindowChanged: if (window === null) root.forgetAppWindow(this)
+        }
+    }
+
+    function windowRecord(window) {
+        return appWindows.find(record => record.window === window) || null;
+    }
+
+    function showWindow(window) {
+        if (windowRecord(window) !== null) return;
+        const record = appWindowRecord.createObject(root, { window: window, title: window.title });
+        if (record === null) { console.error("compositor: refused: window-map=record"); return; }
+        const overlapping = appWindows.filter(other => other.title === record.title && other.state.phase !== "bound");
+        // Every native host registers before it maps. Bound hosts provide
+        // the exclusion set synchronously, so an unanswered client read
+        // cannot keep this host invisible.
+        record.state = { phase: "mapping", before: appWindows.filter(other => other.state.phase === "bound")
+            .map(other => ({ address: other.state.address })) };
+        appWindows = appWindows.concat([record]);
+        if (overlapping.length > 0) {
+            for (const other of overlapping.concat([record]))
+                other.state = { phase: "failed", error: "refused: window-map=overlapping" };
+            window.visible = true;
+            return;
+        }
+        window.visible = true;
+        readWindowAddress(record);
+    }
+
+    function readWindowAddress(record) {
+        if (record.state.phase !== "mapping" || record.window === null) return;
+        const pending = record.state;
+        readWindows(state => {
+            if (root.appWindows.indexOf(record) === -1 || record.window === null || record.state !== pending) return;
+            const mapped = state.ok ? Dispatch.windowMapAddress(state.clients, pending.before, Quickshell.processId, record.title)
+                : { ok: false, error: "refused: window-map=read " + state.error };
+            if (!mapped.ok && mapped.pending === true) return;
+            record.state = mapped.ok ? { phase: "bound", address: mapped.address } : { phase: "failed", error: mapped.error };
+            root.readActivation();
+        });
+    }
+
+    function forgetAppWindow(record) {
+        if (appWindows.indexOf(record) === -1) return;
+        appWindows = appWindows.filter(other => other !== record);
+        record.state = { phase: "failed", error: "refused: window-map=unmapped" };
+        if (record.window !== null && activationWindow === record.window) {
+            ++activationEpoch;
+            activationWindow = null;
+        }
+        record.destroy();
+    }
+
+    function forgetWindow(window) {
+        const record = windowRecord(window);
+        if (record !== null) forgetAppWindow(record);
+    }
+
     function activateWindow(window) {
         ++activationEpoch;
         activationWindow = window;
@@ -123,6 +194,13 @@ Singleton {
     // and destruction or hide makes both the read and queued dispatch inert.
     function readActivation() {
         if (!activationWaiting || !activationLive(activationEpoch)) return;
+        const record = windowRecord(activationWindow);
+        if (record === null || record.state.phase === "failed") {
+            activationWaiting = false;
+            console.error("compositor: " + (record === null ? "refused: activation=unknown-window" : record.state.error));
+            return;
+        }
+        if (record.state.phase !== "bound") return;
         activationReader.read(["hyprctl", "--batch", Dispatch.ACTIVATION_STATE_REQUEST], activationEpoch);
     }
 
@@ -140,7 +218,9 @@ Singleton {
         label: "activation"
         onReadDone: (epoch, text, failure) => {
             if (!root.activationLive(epoch)) return;
-            const r = failure === "" ? Dispatch.activationRequest(text, Quickshell.processId, root.activationWindow.title, Hyprland.usingLua)
+            const record = root.windowRecord(root.activationWindow);
+            if (record === null || record.state.phase !== "bound") return;
+            const r = failure === "" ? Dispatch.activationRequest(text, Quickshell.processId, record.state.address, Hyprland.usingLua)
                 : { ok: false, error: failure };
             if (!r.ok && r.pending === true) return;
             root.activationWaiting = false;
@@ -580,7 +660,20 @@ Singleton {
             // openwindow announces the map; HyprctlReader coalesces it
             // with an in-flight pre-map read, dropping that older reply.
             // https://wiki.hypr.land/ipc/#events-list
-            if (event.name === "openwindow") root.readActivation();
+            if (event.name === "openwindow") {
+                for (const record of root.appWindows) root.readWindowAddress(record);
+                root.readActivation();
+            }
+            if (event.name === "closewindow") {
+                const address = "0x" + event.data.toLowerCase();
+                for (const record of root.appWindows.slice()) {
+                    if (record.state.phase === "bound" && record.state.address === address) root.forgetAppWindow(record);
+                    else if (record.state.phase === "mapping") {
+                        record.state = { phase: "mapping", before: record.state.before.filter(client => client && client.address !== address) };
+                        root.readWindowAddress(record);
+                    }
+                }
+            }
             // Invalidate before any asynchronous read: a closed client's pid
             // or address may be reused while an older read is still running.
             if (event.name === "openwindow" || event.name === "closewindow" || event.name === "configreloaded")

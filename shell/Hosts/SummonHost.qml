@@ -15,7 +15,7 @@ Scope {
 
     // Ids open now, the Variants model, replaced whole on every change.
     property var openIds: []
-    // id -> { payloadJson, anchor, screen }: what each open id was summoned with.
+    // id -> { payloadJson, anchor, screen, presentation }: each summon's intent.
     property var requests: ({})
     // id -> the built instance, set when its slot builds.
     property var instances: ({})
@@ -37,10 +37,21 @@ Scope {
     Component.onCompleted: Plugins.registerHost(kind, host)
 
     // Open `id`, or hand an open one the new payload. `origin` is null for
-    // an IPC summon, or { anchor, screen } for one from a plugin. The
-    // anchor is the item whose window owns the popup.
+    // an IPC summon, { anchor, screen } from a plugin, or Open's
+    // { presentation }. The anchor's window owns a popup.
     function summon(id, payloadJson, origin) {
-        if (PluginLogic.hasOwn(instances, id)) {
+        const presentation = origin ? origin.presentation : undefined;
+        const anchored = !!(origin && origin.anchor);
+        if (PluginLogic.hasOwn(instances, id)
+                && PluginLogic.summonSurface(kind, requests[id].anchored, requests[id].presentation)
+                    !== PluginLogic.summonSurface(kind, anchored, presentation)) {
+            const instance = instances[id];
+            if (typeof instance.holdsHide === "function" && instance.holdsHide()) return "refused: held=" + id;
+            // Drop the old presentation before building its replacement.
+            // The entry's dropped latch prevents deferred Variants teardown
+            // from reading the new request and building a second surface.
+            drop(id);
+        } else if (PluginLogic.hasOwn(instances, id)) {
             const next = Object.assign({}, requests);
             next[id] = Object.assign({}, requests[id], { payloadJson: payloadJson });
             requests = next;
@@ -60,7 +71,8 @@ Scope {
         next[id] = {
             payloadJson: payloadJson,
             anchor: origin ? origin.anchor : null,
-            anchored: !!(origin && origin.anchor),
+            anchored: anchored,
+            presentation: presentation,
             screen: screen,
             returnFocus: origin && origin.returnFocus ? origin.returnFocus : null,
             returnFocusWasVisual: !!(origin && origin.returnFocusWasVisual)
@@ -96,7 +108,9 @@ Scope {
     // outside m_seatGrab (src/desktop/state/FocusState.cpp).
     function yieldToWindow(screen) {
         for (const id of openIds.slice()) {
-            if (requests[id].anchored || requests[id].screen === screen) hide(id);
+            const request = requests[id];
+            if (PluginLogic.summonSurface(kind, request.anchored, request.presentation) !== "window"
+                    && (request.anchored || request.screen === screen)) hide(id);
         }
     }
 
@@ -223,7 +237,7 @@ Scope {
                 active: entry.request !== undefined
                 sourceComponent: {
                     if (!entry.request) return null;
-                    const surface = PluginLogic.summonSurface(host.kind, entry.request.anchored);
+                    const surface = PluginLogic.summonSurface(host.kind, entry.request.anchored, entry.request.presentation);
                     return surface === "window" ? appWindow : surface === "popup" ? popup : layer;
                 }
             }
