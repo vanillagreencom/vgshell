@@ -584,7 +584,7 @@ jarvis_speakable_plan=$'node scripts/test-jarvis-speakable.js\n'"$repo_plan"
 jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-jarvis-speakable.js\nnode scripts/test-jarvis-speech-language.js\n'"$repo_plan"
 keyboard_rows=$'python3 scripts/check-keyboard.py shell\npython3 scripts/test-check-keyboard.py\n'
 keyboard_check=$'python3 scripts/check-keyboard.py shell\n'
-dispatch_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
+dispatch_plan=$'node scripts/test-tui-logic.js\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$repo_plan"$'\nscripts/test-validate.sh'
 session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/test-check-smoke-terminal.py\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
@@ -640,7 +640,7 @@ cases=(
   "devtools-service|shell/plugins/vgs.devtools/Service.qml|logic|node scripts/test-devtools-view.js"
   "settings-reply-window|shell/plugins/vgs.settings/Window.qml|logic|node scripts/test-settings-reply.js"
   "settings-reply-page|shell/plugins/vgs.settings/PluginPage.qml|logic|"$'node scripts/test-jarvis-setup-gate.js\nnode scripts/test-settings-reply.js'
-  "settings-reply-input|shell/Commons/Reply.js|logic|node scripts/test-settings-reply.js"
+  "settings-reply-input|shell/Commons/Reply.js|logic|node scripts/test-tui-logic.js"$'\nnode scripts/test-settings-reply.js'
   "settings-reply-suite|scripts/test-settings-reply.js|logic|node scripts/test-settings-reply.js"
   "settings-steps-input|shell/plugins/vgs.settings/Steps.js|logic|node scripts/test-bluetooth-logic.js"$'\nnode scripts/test-screensaver-logic.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_steps_row"
   "settings-steps-suite|scripts/test-settings-steps.js|logic|$settings_steps_row"
@@ -1458,6 +1458,33 @@ PYTHEME
   row "control: omitting $theme_input skips the theme judge" "$d" 0 "" "!node scripts/test-theme-logic.js"
 done
 
+# The integrated SSH proof reads the compositor/dispatch, popup hide and
+# caller reply owners and executes the shipped launcher. Each input selects it even
+# when no TuiRunner or test file changed.
+for tui_input in shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Hosts/SummonHost.qml shell/Hosts/SummonPopup.qml shell/Commons/Reply.js shell/plugins/vgs.tailscale/TailscaleBody.qml bin/vgshell-tui bin/lib/tui.sh; do
+  d="$tmp/plan-tui-ssh-input-${tui_input//\//-}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$tui_input")"
+  printf 'changed\n' >"$d/$tui_input"
+  test_area=logic
+  test_args=(--changed HEAD --list)
+  row "the integrated SSH proof is selected for $tui_input" "$d" 0 "" "node scripts/test-tui-logic.js"
+  [[ $tui_input == shell/Core/Compositor.qml ]] || continue
+  python3 - "$d/scripts/validate" "$tui_input" <<'PYTUI'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1]); source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "logic|floating TUI logic table|')]
+edge = ' ' + sys.argv[2] + ' '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, ' ', 1))
+assert changed != source
+path.write_text(changed)
+PYTUI
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: omitting the compositor skips the integrated SSH proof" "$d" 0 "" "!node scripts/test-tui-logic.js"
+done
+
 # The terminal suite runs the shipped sign-in script. Broad Jarvis checks
 # do not replace its interactive folder, vendor and failure assertions.
 d="$tmp/plan-jarvis-sign-in-terminal-control"; fresh "$d"
@@ -1596,7 +1623,7 @@ printf 'source\n' >"$d/shell/Core/Dispatch.js"
 "${base_env[@]}" git -C "$d" mv shell/Core/Dispatch.js README.md
 # The removed path's consumers, and README.md's: the install tree and the
 # README check, and the ceiling row, since README.md is a document.
-rename_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
+rename_plan=$'node scripts/test-tui-logic.js\nnode scripts/test-input-facts.js\nnode scripts/test-dispatch.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\npython3 scripts/test-capture.py\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows"$'python3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check"$'scripts/test-sandbox-shots.sh\n'"$needle_rows$repo_plan"$'\ndoc_limits_check\nscripts/test-validate.sh'
 if ! rename_plan="$(with_daemon_consumers shell/Core/Dispatch.js offline "$rename_plan")"; then
   fail "the rename's expected consumer plan could not be built"
 fi

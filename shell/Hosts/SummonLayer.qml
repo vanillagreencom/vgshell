@@ -40,7 +40,7 @@ PanelWindow {
 
     Component.onCompleted: {
         if (place.error !== "") console.error("summon host: " + pluginId + " " + place.error);
-        if (exclusiveKeyboard) keyboardRelease = Compositor.keyboardLayer();
+        if (exclusiveKeyboard) keyboardRelease = Compositor.keyboardLayer(WlrLayershell.namespace);
     }
     // The release stays with the destruction, which every way out reaches.
     // The host unmaps the surface before it drops it, so the release

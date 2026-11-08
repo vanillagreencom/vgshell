@@ -38,6 +38,8 @@ var MESSAGES = [
     [/^refused: requirements=\S+ reason=satisfied$/, "All tools are installed."],
     [/^refused: notices=full limit=\d+$/, "Close an open setup notice and try again."],
     [/^refused: tui=\S+ reason=launcher-missing$/, "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],
+    [/^refused: tui=core\/ssh reason=focus-(?:unread|none|ambiguous|failed|unconfirmed)$/, "The session opened in your existing terminal. VGS could not confirm keyboard focus there."],
+    [/^refused: tui=core\/ssh reason=(?:launcher-failed|launcher-reply)$/, "VGS could not open your terminal."],
     [/^refused: secret=\S+ reason=busy$/, "VGS is saving another account. Try again shortly."],
     [/^refused: secret=\S+ reason=(?:undeclared|unlisted)$/, "This account is no longer available. Close Plugins and open it again."],
     [/^refused: secret=\S+ reason=not-offered$/, "This account has changed. Close Plugins and open it again."],

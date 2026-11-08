@@ -28,7 +28,7 @@ Singleton {
     CoverPresentation { id: coverPresentation; idle: idleWatches; sessionLock: sessionLock }
     Component { id: screencopyPreview; ScreencopyPreview {} }
     ThemeRunner { id: themes; notificationHub: notifications }
-    TuiRunner { id: tuis }
+    TuiRunner { id: tuis; notificationHub: notifications }
     SecretWriter { id: secrets }
     SystemSteps { id: systemSteps; active: root.systemHeld }
     SudoGrant { id: sudoGrant; active: root.sudoHeld; runner: tuis }

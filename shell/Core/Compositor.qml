@@ -468,6 +468,31 @@ Singleton {
         return enqueue(["hyprctl", "dispatch", r.request], done, judged === true);
     }
 
+    // The SSH request retains this snapshot through its async launcher and
+    // process/window reads, so a local hide cannot erase an observed grab.
+    function focusBoundary() {
+        return { unobservableGrab: OverlayState.grabs > 0, namespaces: keyboardLayers.map(layer => layer.namespace) };
+    }
+
+    // Preserve the request's release boundary before normal hide disposes it.
+    // OverlayState's native-hide count cannot prove an xdg_popup absent
+    // from j/layers; Dispatch keeps that outcome explicitly unconfirmed.
+    // DONE takes { ok } or { ok: false, reason, error } after one attempt.
+    function focusWindow(address, boundary, done) {
+        if (typeof done !== "function") throw new Error("refused: focus=callback");
+        const unobservableGrab = boundary.unobservableGrab || OverlayState.grabs > 0;
+        const namespaces = boundary.namespaces.concat(keyboardLayers.map(layer => layer.namespace));
+        Plugins.yieldToWindow(root.focusedScreen());
+        return enqueueRequest(Dispatch.request("focusWindow", [address], Hyprland.usingLua), answer => {
+            if (answer !== "ok") { done({ ok: false, reason: "focus-failed", error: answer }); return; }
+            const queued = root.enqueue(["hyprctl", "--batch", Dispatch.FOCUS_STATE_REQUEST], text => {
+                done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),
+                    Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));
+            }, true);
+            if (queued !== "ok") done({ ok: false, reason: "focus-failed", error: queued });
+        }, true);
+    }
+
     // Switch every keyboard's layout: `next`, `prev` or an index. Returns
     // `ok` once the request is accepted, or the keyed refusal; the reply is
     // judged when it lands, as a dispatch's is.
@@ -696,8 +721,8 @@ Singleton {
 
     // A layer surface that holds the keyboard exclusively, from its host:
     // returns the release its host calls as the surface goes.
-    function keyboardLayer() {
-        const record = {};
+    function keyboardLayer(namespace) {
+        const record = { namespace: namespace };
         keyboardLayers = keyboardLayers.concat([record]);
         return () => {
             keyboardLayers = keyboardLayers.filter(r => r !== record);

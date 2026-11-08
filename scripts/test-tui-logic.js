@@ -20,6 +20,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const vm = require("vm");
+const { spawnSync } = require("child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const CORE = path.join(__dirname, "..", "shell", "Core");
@@ -549,7 +550,7 @@ function suite(ctx, check) {
         ["a host that is no string", "present", "n", null, sshArgs],
         ["a label of 64 characters", "present", "n", "a" + label63 + ".x", sshArgs],
         ["a host of 254 characters", "present", "n", host253 + "b", sshArgs],
-        ["no terminal launcher asks for a probe", "missing", "n", "nas.example", { ok: false, answer: "refused: tui=core/ssh reason=launcher-missing", action: "probe", key: "core/ssh" }],
+        ["a missing launcher still allows attached reuse", "missing", "n", "nas.example", sshOk("n", "nas.example")],
         ["bad arguments are refused before the launcher", "missing", "", "nas.example", sshArgs],
     ];
     for (const [name, launcher, device, host, want] of sshRows)
@@ -564,6 +565,36 @@ function suite(ctx, check) {
     ];
     for (const [name, completion, want] of sshDoneRows)
         check("tuiSshDone: " + name, ctx.tuiSshDone(completion), want);
+
+    const success = { code: 0, status: 0 };
+    const badReply = { kind: "failed", done: { code: null, reason: "launcher-reply" } };
+    const replyRows = [
+        ["terminal start", success, "", { kind: "launched", done: { code: 0, reason: null } }],
+        ["attached client", success, "reused=tailnet pid=4711\n", { kind: "reused", pid: 4711 }],
+        ["missing newline", success, "reused=tailnet pid=4711", badReply],
+        ["extra newline", success, "reused=tailnet pid=4711\n\n", badReply],
+        ["leading text", success, "noise\nreused=tailnet pid=4711\n", badReply],
+        ["trailing text", success, "reused=tailnet pid=4711\nnoise", badReply],
+        ["zero PID", success, "reused=tailnet pid=0\n", badReply],
+        ["unsafe PID", success, "reused=tailnet pid=9007199254740992\n", badReply],
+        ["failed launch overrides reuse", { code: 1, status: 0 }, "reused=tailnet pid=4711\n", { kind: "failed", done: { code: null, reason: "launcher-failed" } }],
+    ];
+    for (const [name, completion, stdout, want] of replyRows)
+        check("tuiSshResult: " + name, ctx.tuiSshResult(completion, stdout), want);
+
+    const processRows = [
+        ["snapshot", success, " 1 0\n 4711 4611\n 4611 4511\n", { ok: true, parents: { 1: 0, 4711: 4611, 4611: 4511 } }],
+        ["empty snapshot", success, "", { ok: false, error: "process-reply" }],
+        ["partial malformed snapshot", success, "1 0\nbad\n", { ok: false, error: "process-reply" }],
+        ["duplicate process", success, "1 0\n1 0\n", { ok: false, error: "process-reply" }],
+        ["zero process", success, "0 0\n", { ok: false, error: "process-reply" }],
+        ["unsafe process", success, "9007199254740992 0\n", { ok: false, error: "process-reply" }],
+        ["failed read", { code: 1, status: 0 }, "1 0\n", { ok: false, error: "process-read" }],
+        ["crashed read", { code: 0, status: 1 }, "1 0\n", { ok: false, error: "process-read" }],
+        ["unstarted read", null, "", { ok: false, error: "process-read" }],
+    ];
+    for (const [name, completion, text, want] of processRows)
+        check("tuiProcesses: " + name, ctx.tuiProcesses(completion, text), want);
 
     // tuiRecord: [name, record object, null for accepted or the start of
     // the refusal].
@@ -738,6 +769,21 @@ function suite(ctx, check) {
     for (const [name, windows, want] of windowRows)
         check("tuiWindow: " + name, ctx.tuiWindow(windows, win), want);
 
+    const p = (address, pid, mapped = true) => ({ address, pid, mapped });
+    const processWindowRows = [
+        ["exact PID", [p("0xa1", 4711)], {}, { state: "found", address: "0xa1" }],
+        ["terminal ancestor", [p("a1", 4511)], { 4711: 4611, 4611: 4511 }, { state: "found", address: "0xa1" }],
+        ["nearest ancestor", [p("0xb2", 4511), p("0xa1", 4611)], { 4711: 4611, 4611: 4511 }, { state: "found", address: "0xa1" }],
+        ["unmapped window ignored", [p("0xb2", 4711, false), p("0xa1", 4611)], { 4711: 4611 }, { state: "found", address: "0xa1" }],
+        ["Ghostty same-PID ambiguity", [p("0xb2", 4511), p("0xa1", 4511)], { 4711: 4611, 4611: 4511 }, { state: "ambiguous", count: 2 }],
+        ["ambiguity never falls back to a farther ancestor", [p("0xb2", 4611), p("0xa1", 4611), p("0xc3", 4511)], { 4711: 4611, 4611: 4511 }, { state: "ambiguous", count: 2 }],
+        ["no mapped ancestor", [], { 4711: 1, 1: 0 }, { state: "none" }],
+        ["missing process", [], {}, { state: "unread", error: "process-missing" }],
+        ["ancestry cycle", [], { 4711: 4611, 4611: 4711 }, { state: "unread", error: "process-ancestry" }],
+    ];
+    for (const [name, windows, parents, want] of processWindowRows)
+        check("tuiWindow process: " + name, ctx.tuiWindow(windows, { pid: 4711 }, parents), want);
+
     // tuiReapOutcome: [name, completion, stdout, stderr, log lines].
     const reapRows = [
         ["a reap that ended nothing", { code: 0, status: 0 }, "", "", []],
@@ -760,11 +806,217 @@ suite(load(LOGIC), report);
 // model that keeps a closed window of the same app-id and title; the
 // control reads that model, as the runner once did.
 const RUNNER = fs.readFileSync(path.join(CORE, "TuiRunner.qml"), "utf8");
+const COMPOSITOR = fs.readFileSync(path.join(CORE, "Compositor.qml"), "utf8");
+const SUMMON_HOST = fs.readFileSync(path.join(CORE, "..", "Hosts", "SummonHost.qml"), "utf8");
+const SUMMON_POPUP = fs.readFileSync(path.join(CORE, "..", "Hosts", "SummonPopup.qml"), "utf8");
+const TAILSCALE_BODY = fs.readFileSync(path.join(CORE, "..", "plugins", "vgs.tailscale", "TailscaleBody.qml"), "utf8");
+const SSH_REPLY = load(path.join(CORE, "..", "Commons", "Reply.js"));
 function runnerFunction(source, header) {
     const parts = source.split("    function " + header + " {\n");
     if (parts.length !== 2) throw new Error("TuiRunner function " + header + " occurs " + (parts.length - 1) + " times");
     return "function " + header + " {\n" + parts[1].split("\n    }\n")[0] + "\n}\n";
 }
+
+// Execute the shipped launcher and core request methods together. tmux and
+// terminal are files in this suite's private PATH. Ancestry is synthetic;
+// neither ps nor a compositor nor an ssh session starts in this proof.
+function sshSuite(source, compositorSource, logic, check) {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tui-ssh-"));
+    try {
+        const stubs = path.join(scratch, "bin");
+        fs.mkdirSync(stubs);
+        const stub = (name, body) => fs.writeFileSync(path.join(stubs, name), "#!/bin/sh\n" + body + "\n", { mode: 0o700 });
+        stub("tmux", 'case "$1" in\nhas-session) exit 0;;\nlist-clients) if [ "$ATTACHED" = 1 ]; then printf "4711\\n"; fi;;\nnew-window) printf "@7\\n";;\nselect-window) exit 0;;\n*) exit 91;;\nesac');
+        stub("setsid", 'if [ "$1" = -f ] || [ "$1" = -w ]; then shift; fi\nexec "$@"');
+        stub("xdg-terminal-exec", 'printf "launch\\n" >>"$TERMINAL_LOG"');
+        const functions = ["provider(ctx)", "guarded(ctx, done, operation)", "ssh(name, host, done)", "sshFinished(process, stdout, stderr)",
+            "sshParentsRead(pid, done, boundary, completion, text)", "sshFocusEnded(done, reason, detail)"]
+            .map(header => runnerFunction(source, header)).join("");
+        const focus = 'hl.dsp.focus({ window = "address:0xa1" })';
+        const good = { code: 0, reason: null };
+        const failed = reason => ({ code: null, reason });
+        const rows = [
+            ["attached", { attached: true }, 0, [focus], 1, good],
+            ["unattached", {}, 1, [], 0, good],
+            ["attached with cached missing launcher", { attached: true, launcher: "missing" }, 0, [focus], 1, good],
+            ["attached with unknown launcher", { attached: true, launcher: "unknown" }, 0, [focus], 1, good],
+            ["terminal start proves launcher presence", { launcher: "unknown" }, 1, [], 0, good],
+            ["unread process snapshot", { attached: true, parentsExit: 1 }, 0, [], 1, failed("focus-unread")],
+            ["unread clients", { attached: true, windowError: true }, 0, [], 1, failed("focus-unread")],
+            ["no terminal window", { attached: true, clients: [] }, 0, [], 1, failed("focus-none")],
+            ["Ghostty windows share the terminal PID", { attached: true, clients: [
+                { address: "0xa1", pid: 4511, mapped: true }, { address: "0xb2", pid: 4511, mapped: true }
+            ] }, 0, [], 1, failed("focus-ambiguous")],
+            ["focus admission refused", { attached: true, queueError: true }, 0, [], 1, failed("focus-failed")],
+            ["focus dispatcher refused", { attached: true, dispatchReply: "refused" }, 0, [focus], 1, failed("focus-failed")],
+            ["focus readback unread", { attached: true, readback: "bad" }, 0, [focus], 1, failed("focus-unread")],
+            ["focus readback names another window", { attached: true, active: "0xb2", cause: "target-inactive" }, 0, [focus], 1, failed("focus-unconfirmed")],
+            ["held registered layer with active target", { attached: true, layer: true, heldLayer: true, cause: "layer-held" }, 0, [focus], 1, failed("focus-unconfirmed")],
+            ["absent registered layer with active target and unrelated bar", { attached: true, layer: true, releaseLayer: true }, 0, [focus], 1, good],
+            ["unread layer enumeration with active target", { attached: true, readback: '{"address":"0xa1"}\n\n\n{"DP-1":{"levels":{}}}', cause: "layers-shape" }, 0, [focus], 1, failed("focus-unread")],
+            ["popup native hide before focus cannot prove release", { attached: true, popup: true, nativeHideBeforeFocus: true, cause: "grab-release-unobservable" }, 0, [focus], 1, failed("focus-unconfirmed")],
+            ["popup disposal preserves failure notification", { attached: true, popup: true, dispose: true, cause: "grab-release-unobservable" }, 0, [focus], 1, failed("focus-unconfirmed")],
+        ];
+        for (const [name, row, launches, focuses, lookups, done] of rows) {
+            const terminalLog = path.join(scratch, "terminal-log");
+            fs.writeFileSync(terminalLog, "");
+            const calls = { focus: [], lookups: 0, done: [], jobs: [], notices: [], closes: 0, errors: [] };
+            const lifetime = { active: true };
+            // Consume the shipped popup's native-visibility handler and
+            // normal hide methods. This proves local hide never becomes a
+            // server popup-absence receipt, not Qt/Wayland delivery itself.
+            const overlays = { grabs: 0, grabStarted() { this.grabs += 1; }, grabEnded() { this.grabs -= 1; } };
+            const popup = vm.createContext({
+                OverlayState: overlays, grabCounted: false, closing: false, backingWindowVisible: false,
+                setMotion: () => { calls.closes += 1; }
+            });
+            vm.runInContext(["shareGrab(open)", "requestDismiss()"].map(header => runnerFunction(SUMMON_POPUP, header)).join(""), popup);
+            const nativeHandler = SUMMON_POPUP.match(/^    onBackingWindowVisibleChanged: (.+)$/m);
+            if (nativeHandler === null) throw new Error("popup native visibility handler missing");
+            const nativeHide = () => {
+                popup.backingWindowVisible = false;
+                vm.runInContext(nativeHandler[1], popup);
+            };
+            if (row.popup) {
+                popup.backingWindowVisible = true;
+                vm.runInContext(nativeHandler[1], popup);
+            }
+            const screen = { name: "DP-1" };
+            const host = vm.createContext({
+                PluginLogic: logic, openIds: row.popup ? ["acme.flyout"] : [],
+                instances: { "acme.flyout": {} }, requests: { "acme.flyout": { anchored: true, screen } },
+                closers: { "acme.flyout": popup.requestDismiss }, drop: () => { throw new Error("anchored popup bypassed normal hide"); }
+            });
+            vm.runInContext(["hide(id)", "yieldToWindow(screen)"].map(header => runnerFunction(SUMMON_HOST, header)).join(""), host);
+            let releaseLayer = null;
+            const compositor = vm.createContext({
+                Dispatch: load(path.join(CORE, "Dispatch.js")), Hyprland: { usingLua: true },
+                Quickshell: { processId: 8111 }, OverlayState: overlays, keyboardLayers: [], revealing: null,
+                Qt: { callLater: callback => calls.jobs.push(callback) }, focusedScreen: () => screen,
+                Plugins: { yieldToWindow: output => {
+                    host.yieldToWindow(output);
+                    if (row.releaseLayer) releaseLayer();
+                    if (row.dispose) calls.jobs.push(() => { nativeHide(); lifetime.active = false; });
+                } },
+                enqueueRequest: (request, callback) => {
+                    if (!request.ok) return request.error;
+                    if (row.queueError) return "refused: dispatch-queue=full";
+                    calls.focus.push(request.request);
+                    calls.jobs.push(() => callback(row.dispatchReply || "ok"));
+                    return "ok";
+                },
+                enqueue: (argv, callback) => {
+                    const roots = row.heldLayer ? [{ namespace: "vgs:overlay", pid: 8111 }] : [{ namespace: "vgs:bar", pid: 8111 }];
+                    calls.jobs.push(() => callback(row.readback || JSON.stringify({ address: row.active || "0xa1" })
+                        + "\n\n\n" + JSON.stringify({ "DP-1": { levels: { "0": [], "1": [], "2": roots, "3": [] } } })));
+                    return "ok";
+                },
+            });
+            compositor.root = compositor;
+            vm.runInContext(["focusBoundary()", "focusWindow(address, boundary, done)", "keyboardLayer(namespace)", "layersGone()"]
+                .map(header => runnerFunction(compositorSource, header)).join(""), compositor);
+            if (row.layer) releaseLayer = compositor.keyboardLayer("vgs:overlay");
+            const sandbox = vm.createContext({
+                Logic: logic, launcher: row.launcher || "present", launching: [],
+                coreBin: BIN, console: { error: line => calls.errors.push(line) }, notificationHub: {}, Reply: SSH_REPLY,
+                Notifier: { send: (ctx, app, options) => { calls.notices.push(options); return "ok"; } },
+                runner: () => ({ launcher: row.launcher || "present", busy: [], run: "9-1" }),
+                Compositor: {
+                    focusBoundary: compositor.focusBoundary,
+                    readWindows: callback => calls.jobs.push(() => {
+                        if (row.nativeHideBeforeFocus) nativeHide();
+                        callback(row.windowError ? { ok: false, error: "refused: windows=read-failed" }
+                            : { ok: true, clients: row.clients || [{ address: "0xa1", pid: 4511, mapped: true }] });
+                    }),
+                    focusWindow: compositor.focusWindow,
+                },
+            });
+            sandbox.root = sandbox;
+            sandbox.sshLauncherComponent = {
+                createObject: () => ({
+                    destroy() {},
+                    set running(value) {
+                        if (!value) return;
+                        const child = spawnSync("/usr/bin/bash", this.command, {
+                            cwd: scratch, timeout: 10000, encoding: "utf8",
+                            env: { PATH: stubs + ":/usr/bin:/bin", HOME: scratch, TMPDIR: scratch,
+                                XDG_RUNTIME_DIR: scratch, XDG_CONFIG_HOME: scratch, XDG_STATE_HOME: scratch,
+                                VGS_TEST_RUN: "1", TMUX_TMPDIR: scratch, LANG: "C",
+                                ATTACHED: row.attached ? "1" : "0", TERMINAL_LOG: terminalLog },
+                        });
+                        if (child.error || child.signal) throw new Error("ssh fixture failed: " + (child.error || child.signal));
+                        this.completion = { code: child.status, status: 0 };
+                        sandbox.sshFinished(this, child.stdout, child.stderr);
+                    },
+                }),
+            };
+            sandbox.sshParentsComponent = {
+                createObject: () => ({
+                    set running(value) {
+                        if (!value) return;
+                        calls.lookups += 1;
+                        sandbox.sshParentsRead(this.pid, this.done, this.focusBoundary, { code: row.parentsExit || 0, status: 0 },
+                            "4711 4611\n4611 4511\n4511 1\n1 0\n");
+                    },
+                }),
+            };
+            vm.runInContext(functions, sandbox);
+            const answer = sandbox.provider(lifetime).ssh("attic-nas", "nas.example", value => calls.done.push(value));
+            while (calls.jobs.length > 0) calls.jobs.shift()();
+            check("TuiRunner ssh integrated: " + name, {
+                answer, launches: fs.readFileSync(terminalLog, "utf8").split("\n").filter(Boolean).length,
+                focus: calls.focus, lookups: calls.lookups, done: calls.done, launching: sandbox.launching.length,
+                launcher: sandbox.launcher, notices: calls.notices.length, closes: calls.closes,
+                causes: calls.errors.flatMap(line => { const cause = /\bcause=([a-z-]+)/.exec(line); return cause === null ? [] : [cause[1]]; }),
+            }, { answer: "ok", launches, focus: focuses, lookups, done: row.dispose ? [] : [done], launching: 0,
+                launcher: row.attached ? row.launcher || "present" : "present",
+                notices: done.reason === null ? 0 : 1, closes: row.popup ? 1 : 0,
+                causes: row.cause ? [row.cause] : [] });
+        }
+    } finally {
+        fs.rmSync(scratch, { recursive: true, force: true });
+    }
+}
+sshSuite(RUNNER, COMPOSITOR, load(LOGIC), report);
+for (const [name, source, needle, replacement, target] of [
+    ["reuse focuses before success", RUNNER, "reader.running = true;", 'root.sshFocusEnded(done, null, "");', "runner"],
+    ["focus requires truthful release and active readback", COMPOSITOR,
+        'done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),\n                    Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));',
+        'done({ ok: true });', "compositor"],
+    ["reuse does not prove launcher presence", RUNNER,
+        'if (result.kind === "launched" || (result.kind === "failed" && result.done.reason !== "launcher-reply"))',
+        "if (true)", "runner"],
+    ["focus refusal survives caller disposal", RUNNER, 'Notifier.send({ id: "core" }, "VGS", {',
+        '((ctx, app, options, hub) => "ok")({ id: "core" }, "VGS", {', "runner"],
+]) {
+    report("control: " + name + " needle", source.split(needle).length - 1, 1);
+    let red = 0;
+    sshSuite(target === "runner" ? source.replace(needle, replacement) : RUNNER,
+        target === "compositor" ? source.replace(needle, replacement) : COMPOSITOR,
+        load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    report("control: " + name + " detects the defect", red > 0, true);
+}
+
+// The caller delegates all typed SSH failures to the shared reply owner;
+// it must not label focus refusal as a failed new-terminal launch.
+function sshCallerSuite(source, check) {
+    for (const reason of ["focus-unread", "focus-none", "focus-ambiguous", "focus-failed", "focus-unconfirmed"]) {
+        const replies = [];
+        vm.runInNewContext(runnerFunction(source, "connectEnded(end)") + "connectEnded(end);", {
+            end: { code: null, reason }, console: { warn() {} },
+            Reply: { line: reply => { replies.push(reply); return "message"; } }
+        });
+        check("Tailscale SSH failure uses the shared category: " + reason, replies, ["refused: tui=core/ssh reason=" + reason]);
+    }
+}
+sshCallerSuite(TAILSCALE_BODY, report);
+const sshCallerNeedle = 'localProblem = Reply.line("refused: tui=core/ssh reason=" + end.reason);';
+report("control: SSH caller category needle", TAILSCALE_BODY.split(sshCallerNeedle).length - 1, 1);
+let sshCallerRed = 0;
+sshCallerSuite(TAILSCALE_BODY.replace(sshCallerNeedle, 'localProblem = "terminal-open";'),
+    (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) sshCallerRed += 1; });
+report("control: wrong-cause SSH caller mapping is detected", sshCallerRed > 0, true);
+
 function runnerSuite(source, logic, check) {
     const win = { appId: "org.vgs.tui", title: "VGS · Hello" };
     const client = (address, appClass, title) => ({ address: address, class: appClass, title: title, mapped: true });
@@ -1629,7 +1881,7 @@ const CONTROLS = [
     ["the latest wait record of a key is kept", "return hasOwn(listedRunning, record.run) || latest[record.key] === record;", "return hasOwn(listedRunning, record.run);"],
     ["a window matches the app-id", "        return w.appId === window.appId && ", "        return "],
     ["a window matches the title", "w.title === window.title && typeof w.address", "typeof w.address"],
-    ["a window needs an address", " && typeof w.address === \"string\" && w.address !== \"\";", ";"],
+    ["a window needs an address", "w.title === window.title && typeof w.address === \"string\" && w.address !== \"\";", "w.title === window.title;"],
     ["two windows alike are ambiguous", "if (matches.length > 1)\n        return { state: \"ambiguous\"", "if (false)\n        return { state: \"ambiguous\""],
     ["an address gets its prefix once", "address.indexOf(\"0x\") === 0 ? address : \"0x\" + address", "\"0x\" + address"],
     ["a reap line is parsed", "/^reaped=[a-z0-9.-]+\\/[a-z0-9-]+ run=[a-z0-9-]+$/.test(line)", "true"],
@@ -1661,7 +1913,6 @@ const CONTROLS = [
     ["an ssh host is judged", " || !TUI_SSH_HOST.test(host))", ")"],
     ["an ssh host is bounded", " || host.length > TUI_SSH_HOST_MAX || ", " || "],
     ["an ssh label is bounded", "[a-z0-9-]{0,62}(\\.[a-z0-9][a-z0-9-]{0,62})*$/", "[a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$/"],
-    ["no terminal launcher refuses ssh", "    var refusal = tuiRunnerRefusal(runner, TUI_SSH_KEY, TUI_SSH_KEY);", "    var refusal = null;"],
     ["a launched ssh ends with code 0", "return failed === null ? { code: 0, reason: null } : { code: failed.code, reason: failed.reason };", "return failed === null ? failed : { code: failed.code, reason: failed.reason };"],
     ["the package judge reads the record's run", "PackageReview.packageOutcome(value.package, value.run, value.code)", "PackageReview.packageOutcome(value.package, \"\", value.code)"],
     ["the package judge reads the record's code", "PackageReview.packageOutcome(value.package, value.run, value.code)", "PackageReview.packageOutcome(value.package, value.run, 0)"],

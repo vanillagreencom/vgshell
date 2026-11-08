@@ -394,7 +394,7 @@ const controls = [
     [dispatchFile, dispatchChecks, "layer vertical translation", "surface.y + origin.y", "surface.y"],
     [dispatchFile, dispatchChecks, "retired layers have no input recipient", "if (surface && surface.pid === -1) continue;", "if (false) continue;"],
     [dispatchFile, dispatchChecks, "numeric rectangle coordinates", "[r.x, r.y, r.w, r.h].every(Number.isFinite)", "true"],
-    [dispatchFile, dispatchChecks, "layer namespace", 'typeof surface.namespace !== "string"', "false"],
+    [dispatchFile, dispatchChecks, "layer namespace", '!rect(surface) || typeof surface.namespace !== "string"', "!rect(surface) || false"],
     [dispatchFile, dispatchChecks, "VGS layer pointer protection", 'surface.namespace.indexOf("vgs:") === 0 && contains(absolute, point)', 'surface.namespace.indexOf("vgs:") === 0 && false'],
     [dispatchFile, dispatchChecks, "application covers only lower VGS layers", "if (Number(level) >= 2)", "if (true)"],
     [dispatchFile, dispatchChecks, "desktop lower-layer protection", "lowerLayer = surface.namespace;", "lowerLayer = null;"],

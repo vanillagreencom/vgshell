@@ -186,7 +186,7 @@ FocusScope {
     function connectEnded(end) {
         if (end.reason === null) return;
         console.warn("tailscale: connect reason=" + end.reason);
-        localProblem = end.reason === "launcher-missing" ? Reply.line("refused: tui=core/ssh reason=launcher-missing") : "VGS could not open your terminal.";
+        localProblem = Reply.line("refused: tui=core/ssh reason=" + end.reason);
     }
     function chooseExit(id) {
         if (id === (tailscale.exit === null ? "" : tailscale.exit.id)) {

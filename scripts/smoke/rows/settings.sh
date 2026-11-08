@@ -1219,7 +1219,7 @@ for name, text in [("TuiInstallGood", source), ("TuiInstallChosen", mutant)]:
         file.write(text)
 PYTHON
 for control in TuiInstallGood TuiInstallChosen; do
-  expect "the probe builds $control" ok ipc smoke popupLoad "$control" "$repo/shell/Core/TuiInstallControls/$control.qml" window vgs.settings '{}'
+  expect "the probe builds $control" ok ipc smoke popupLoad "$control" "$repo/shell/Core/TuiInstallControls/$control.qml" window vgs.settings '{"notificationHub":null}'
 done
 expect "the unchanged TUI owner runs the full-list request" ok ipc smoke popupCall TuiInstallGood smokeRun
 expect "the unchanged owner accepts the full-list installation notice" '"ok"' ipc smoke popupRead TuiInstallGood smokeAnswer

@@ -21,6 +21,7 @@ import "PluginLogic.js" as Logic
 // for the shell's life.
 Scope {
     id: root
+    required property var notificationHub
 
     // Launchers still running, each a Process carrying its TUI's `key` and
     // `run`, an ssh launcher its `key` alone. Replaced whole on every
@@ -102,16 +103,16 @@ Scope {
     // ssh: the user's terminal, tiled, on an ssh session to HOST in a
     // window named NAME (bin/vgshell-tui ssh), as PluginLogic.tuiSsh judges
     // the request. Answers `ok` once the launcher starts, or the refusal;
-    // DONE, when given, receives tuiSshDone's { code, reason } once the
-    // launcher ends, so a terminal missing since the last probe still
-    // reaches `launcher-missing`. The run keeps no record, key or wait: the
-    // session is the user's, and the shell reads no result of it.
+    // DONE receives { code, reason } after terminal start or checked
+    // reused-client focus. Focus refusal also takes the core notification
+    // route, independent of the caller. The session keeps no record or wait.
     function ssh(name, host, done) {
         const launch = Logic.tuiSsh(runner(), name, host);
         if (!launch.ok) return start(launch, null, undefined);
         const process = sshLauncherComponent.createObject(root);
         process.key = launch.key;
         process.done = done === undefined ? null : done;
+        process.focusBoundary = Compositor.focusBoundary();
         // Assigned after creation, as start's launcher command is.
         process.command = [root.coreBin + "/vgshell-tui"].concat(launch.argv);
         launching = launching.concat([process]);
@@ -121,15 +122,71 @@ Scope {
 
     // The end of an ssh launcher: logged and read into the launcher state
     // as a launch's is, then handed to its `done`.
-    function sshFinished(process, stderr) {
+    function sshFinished(process, stdout, stderr) {
         const line = Logic.tuiLaunchOutcome(process.key, process.completion, stderr);
         if (line !== "") console.error(line);
-        launcher = Logic.tuiLauncherAfter(launcher, process.completion);
+        const result = Logic.tuiSshResult(process.completion, stdout);
+        // Reuse performs no terminal check. Only a terminal-start reply
+        // proves presence; malformed stdout establishes nothing either.
+        if (result.kind === "launched" || (result.kind === "failed" && result.done.reason !== "launcher-reply"))
+            launcher = Logic.tuiLauncherAfter(launcher, process.completion);
         launching = launching.filter(p => p !== process);
         const done = process.done;
-        const end = Logic.tuiSshDone(process.completion);
+        const boundary = process.focusBoundary;
         process.destroy();
-        if (done !== null) done(end);
+        switch (result.kind) {
+        case "reused":
+            const reader = sshParentsComponent.createObject(root);
+            reader.pid = result.pid;
+            reader.done = done;
+            reader.focusBoundary = boundary;
+            reader.running = true;
+            break;
+        case "launched":
+        case "failed":
+            if (result.done.reason === "launcher-reply")
+                console.error("tui: ssh=launcher-reply");
+            if (done !== null) done(result.done);
+            break;
+        default:
+            throw new Error("tui: ssh result=" + JSON.stringify(result.kind));
+        }
+    }
+
+    function sshParentsRead(pid, done, boundary, completion, text) {
+        const read = Logic.tuiProcesses(completion, text);
+        if (!read.ok) {
+            sshFocusEnded(done, "focus-unread", "pid=" + pid + " " + read.error);
+            return;
+        }
+        Compositor.readWindows(state => {
+            if (!state.ok) {
+                root.sshFocusEnded(done, "focus-unread", "pid=" + pid + " " + state.error);
+                return;
+            }
+            const found = Logic.tuiWindow(state.clients, { pid: pid }, read.parents);
+            if (found.state !== "found") {
+                root.sshFocusEnded(done, "focus-" + found.state, "pid=" + pid + " " + JSON.stringify(found));
+                return;
+            }
+            const queued = Compositor.focusWindow(found.address, boundary, answer =>
+                root.sshFocusEnded(done, answer.ok ? null : answer.reason, answer.ok ? "" : answer.error));
+            if (queued !== "ok") root.sshFocusEnded(done, "focus-failed", queued);
+        });
+    }
+
+    function sshFocusEnded(done, reason, detail) {
+        if (reason !== null) {
+            console.error("tui: ssh=" + reason + " " + detail);
+            // Yielding can destroy the caller before the focus reply.
+            // This core-owned send has no waiting callback or instance lease.
+            const sent = Notifier.send({ id: "core" }, "VGS", {
+                title: "Connect in terminal", message: Reply.line("refused: tui=core/ssh reason=" + reason),
+                tone: "warning", icon: "terminal"
+            }, notificationHub);
+            if (sent !== "ok") console.error("tui: ssh-notify=" + sent);
+        }
+        if (done !== null) done({ code: reason === null ? 0 : null, reason: reason });
     }
 
     // runFor: plugin ID's own declared script NAME, with ARGS after it as
@@ -611,11 +668,39 @@ Scope {
             property string key: ""
             property var done: null
             property var completion: null
+            property var focusBoundary: null
+            // StdioCollector closes before runningChanged on exit, as the
+            // file probe above. Collect before launch, including empty output.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/StdioCollector
+            stdout: StdioCollector { id: sshOutput }
             stderr: StdioCollector { id: sshErrors }
             onExited: (code, status) => { sshProcess.completion = { code: code, status: status }; }
             onRunningChanged: {
                 if (running) return;
-                root.sshFinished(sshProcess, sshErrors.text);
+                root.sshFinished(sshProcess, sshOutput.text, sshErrors.text);
+            }
+        }
+    }
+
+    Component {
+        id: sshParentsComponent
+        Process {
+            id: parents
+            property var pid: 0
+            property var done: null
+            property var completion: null
+            property var focusBoundary: null
+            command: ["ps", "-e", "-o", "pid=,ppid="]
+            environment: ({ LC_ALL: "C", PS_PERSONALITY: "linux" })
+            stdout: StdioCollector { id: parentOutput }
+            onExited: (code, status) => { parents.completion = { code: code, status: status }; }
+            onRunningChanged: {
+                if (running) return;
+                try {
+                    root.sshParentsRead(parents.pid, parents.done, parents.focusBoundary, parents.completion, parentOutput.text);
+                } finally {
+                    parents.destroy();
+                }
             }
         }
     }

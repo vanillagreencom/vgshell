@@ -3922,19 +3922,17 @@ var TUI_SSH_HOST_MAX = 253;
 // bin/vgshell-tui, NAME the terminal's title and the tmux window's name and
 // HOST what ssh reaches, each one argv element; or the refusal
 // `refused: tui=core/ssh` with `reason=args` for a NAME tuiArgsValid
-// refuses or a HOST outside TUI_SSH_HOST, then `reason=launcher-missing`
-// as tuiRunnerRefusal decides, which asks for one probe.
+// refuses or a HOST outside TUI_SSH_HOST. Even a missing terminal launcher
+// must reach bash's attached-client check; reuse needs no new terminal.
 function tuiSsh(runner, name, host) {
     if (!tuiArgsValid([name]) || typeof host !== "string" || host.length > TUI_SSH_HOST_MAX || !TUI_SSH_HOST.test(host))
         return tuiRefusal(TUI_SSH_KEY, "args");
-    var refusal = tuiRunnerRefusal(runner, TUI_SSH_KEY, TUI_SSH_KEY);
-    if (refusal !== null)
-        return refusal;
     return { ok: true, key: TUI_SSH_KEY, argv: ["ssh", "--name", name, "--host", host] };
 }
 
-// What `shell.tui.ssh`'s `done` receives once its launcher ended with
-// COMPLETION: `{ code: 0, reason: null }` for exit 0, which says
+// The launcher completion of `shell.tui.ssh`: exit 0 still needs its stdout
+// judged by tuiSshResult and, for reuse, its window focused before `done`.
+// With empty stdout, `{ code: 0, reason: null }` says
 // xdg-terminal-exec handed the session on, exiting 0 or still running at
 // the launcher's start ceiling (bin/vgshell-tui), not that ssh reached the
 // host; else tuiLaunchDone's code and reason, `launcher-missing` for no
@@ -3943,6 +3941,37 @@ function tuiSsh(runner, name, host) {
 function tuiSshDone(completion) {
     var failed = tuiLaunchDone(completion);
     return failed === null ? { code: 0, reason: null } : { code: failed.code, reason: failed.reason };
+}
+
+// bin/vgshell-tui ssh owns this wire format: empty stdout for a terminal
+// start, exactly one reused line for tmux's first attached client.
+function tuiSshResult(completion, stdout) {
+    var done = tuiSshDone(completion);
+    if (done.reason !== null) return { kind: "failed", done: done };
+    if (stdout === "") return { kind: "launched", done: done };
+    var match = /^reused=tailnet pid=([1-9][0-9]*)\n$/.exec(stdout);
+    if (match !== null && match[0] === stdout && Number.isSafeInteger(Number(match[1])))
+        return { kind: "reused", pid: Number(match[1]) };
+    return { kind: "failed", done: { code: null, reason: "launcher-reply" } };
+}
+
+// procps ps -e -o pid=,ppid= supplies a complete parent snapshot. Parse
+// before mapping; a failed or partial read must not become an empty tree.
+// https://gitlab.com/procps-ng/procps/-/blob/master/man/ps.1
+function tuiProcesses(completion, text) {
+    if (completion === null || completion.code !== 0 || completion.status !== 0)
+        return { ok: false, error: "process-read" };
+    var parents = {};
+    var lines = text.trim().split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+        var row = /^\s*([0-9]+)\s+([0-9]+)\s*$/.exec(lines[i]);
+        if (row === null) return { ok: false, error: "process-reply" };
+        var pid = Number(row[1]), parent = Number(row[2]);
+        if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(parent) || hasOwn(parents, pid))
+            return { ok: false, error: "process-reply" };
+        parents[pid] = parent;
+    }
+    return { ok: true, parents: parents };
 }
 
 // The launch key and refusal label of core TUI NAME run for OWNER, a
@@ -4395,11 +4424,31 @@ function tuiWaitRecordsKept(listed, waited) {
 // { state: "found", address } with a `0x` address for exactly one match,
 // { state: "none" } for none, { state: "ambiguous", count } for more. The
 // presenter records the app-id and the title the terminal was opened with,
-// and a terminal that honours `--title` keeps it.
-function tuiWindow(windows, window) {
-    var matches = windows.filter(function (w) {
-        return w.appId === window.appId && w.title === window.title && typeof w.address === "string" && w.address !== "";
-    });
+// and a terminal that honours `--title` keeps it. For { pid }, PARENTS is
+// tuiProcesses' snapshot: the nearest mapped ancestor owns the terminal.
+// A single-instance terminal such as Ghostty can own multiple windows at
+// that same PID. Ancestry cannot distinguish them: refuse, never pick one.
+function tuiWindow(windows, window, parents) {
+    var matches;
+    if (window.pid !== undefined) {
+        var pid = window.pid, seen = {};
+        while (pid !== 0) {
+            if (!Number.isSafeInteger(pid) || pid < 0 || hasOwn(seen, pid))
+                return { state: "unread", error: "process-ancestry" };
+            seen[pid] = true;
+            matches = windows.filter(function (w) {
+                return w.pid === pid && w.mapped === true && typeof w.address === "string" && w.address !== "";
+            });
+            if (matches.length > 0) break;
+            if (!hasOwn(parents, pid)) return { state: "unread", error: "process-missing" };
+            pid = parents[pid];
+        }
+        if (pid === 0) return { state: "none" };
+    } else {
+        matches = windows.filter(function (w) {
+            return w.appId === window.appId && w.title === window.title && typeof w.address === "string" && w.address !== "";
+        });
+    }
     if (matches.length === 0)
         return { state: "none" };
     if (matches.length > 1)

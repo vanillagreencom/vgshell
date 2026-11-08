@@ -15,7 +15,8 @@
 # list` and `vgshell tui open` run against a stub qs that answers the shell's
 # reply and records its arguments. The ssh verbs run against the same
 # stub terminal, a stub tmux and a stub ssh: the launcher's argv, the tmux
-# plan for no tmux, no tailnet session and a session present, a hostile
+# plan for no tmux, no tailnet session, attached and unattached clients,
+# session-local status-right, a hostile
 # device name, and the prompt that keeps a failure on screen. No row opens
 # a terminal window or reaches a tmux server or ssh.
 set -euo pipefail
@@ -39,7 +40,7 @@ stub setsid "printf '%s\\n' \"\$1\" >\"$tmp/setsid\"; case \"\$1\" in -f|-w) shi
 # waitint SECS records its pid, then sleeps as that pid until SECS pass or a
 # signal ends it.
 stub waitint "echo \$\$ >\"$tmp/child\"; exec sleep \"\$1\""
-stub xdg-terminal-exec ": >\"$tmp/term\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/term\"; done; printf '%s\\n' \"\${VGSHELL_RUNNER_PID-unset}\" >\"$tmp/term-env\""
+stub xdg-terminal-exec "printf 'launch\\n' >>\"$tmp/term-launches\"; : >\"$tmp/term\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/term\"; done; printf '%s\\n' \"\${VGSHELL_RUNNER_PID-unset}\" >\"$tmp/term-env\""
 
 # on_tty BIN ARGS...: BIN on a pseudo-terminal; stdout and stderr together
 # land in $tmp/out, the exit status in $tty_status. A key is typed every
@@ -919,9 +920,9 @@ check "check with a terminal launcher prints nothing" test ! -s "$tmp/err"
 # The ssh verbs, against a stub tmux and a stub ssh, each of which records
 # its argv one element a line, tmux each call after a `call` line that names
 # the TMUX and TMUX_PANE it saw. The stub tmux answers has-session by the
-# file tmux-session, prints the id @7 for new-window, and fails new-window
-# while the file tmux-fail exists; the stub ssh exits with the code in
-# ssh-code, 0 without one. No row reaches a real tmux server or ssh.
+# file tmux-session, reads client PIDs from tmux-clients, prints the id @7
+# for new-window, and fails named steps through fixture files. ssh exits
+# with the code in ssh-code, 0 without one. No row reaches real tmux or ssh.
 sshdir="$tmp/ssh"; ssh_stubs="$sshdir/stubs"; tmux_stubs="$sshdir/tmux"
 mkdir -p "$ssh_stubs" "$tmux_stubs"
 printf '#!/bin/sh\n: >"%s"; for a; do printf "%%s\\n" "$a" >>"%s"; done\nif [ -e "%s" ]; then exit "$(cat "%s")"; fi\n' \
@@ -931,7 +932,11 @@ cat >"$tmux_stubs/tmux" <<TMUX
 { printf 'call TMUX=%s TMUX_PANE=%s\n' "\${TMUX-unset}" "\${TMUX_PANE-unset}"; for a; do printf '%s\n' "\$a"; done; } >>"$sshdir/tmux-calls"
 case "\$1" in
   has-session) [ -e "$sshdir/tmux-session" ] ;;
+  list-clients)
+    if [ -e "$sshdir/tmux-clients-fail" ]; then exit 1; fi
+    if [ -e "$sshdir/tmux-clients" ]; then cat "$sshdir/tmux-clients"; fi ;;
   new-window) if [ -e "$sshdir/tmux-fail" ]; then exit 1; fi; printf '@7\n' ;;
+  select-window) if [ -e "$sshdir/tmux-select-fail" ]; then exit 1; fi ;;
 esac
 TMUX
 chmod +x "$ssh_stubs/ssh" "$tmux_stubs/tmux"
@@ -942,26 +947,68 @@ ln -s -- "$node_bin" "$notmux/node"
 for tool in bash readlink dirname awk cat; do ln -s -- "$(command -v "$tool")" "$notmux/$tool"; done
 ssh_reset() {
   rm -f -- "${sshdir:?}/tmux-calls" "${sshdir:?}/ssh-argv" "${sshdir:?}/ssh-code" "${sshdir:?}/tmux-session" "${sshdir:?}/tmux-fail"
-  rm -f -- "${tmp:?}/term" "${tmp:?}/setsid" "${tmp:?}/term-env"
+  rm -f -- "${sshdir:?}/tmux-clients" "${sshdir:?}/tmux-clients-fail" "${sshdir:?}/tmux-select-fail"
+  rm -f -- "${tmp:?}/term" "${tmp:?}/setsid" "${tmp:?}/term-env" "${tmp:?}/term-launches"
 }
 host="attic-nas.tail-fixture.ts.net"
 hostile="my box; \$(touch $sshdir/planted) #{host} 'q'"
 
 # ssh: the terminal with a title and no app-id, so no window rule floats
-# it, on ssh-session; no VGSHELL_RUNNER_PID; no tmux, which runs only
-# inside the terminal.
-# ssh_launch_row BIN NAME: sets ssh_reading to the exit, setsid's flag and
-# whether tmux ran, and leaves the terminal's argv in $tmp/term.
-ssh_launch_row() { # BIN NAME
+# it, on ssh-session; no VGSHELL_RUNNER_PID. With an attached client,
+# only create/select a window and return the first PID for core focus.
+# ssh_launch_row BIN NAME [SESSION CLIENTS FAILURE]: records the launch
+# and tmux calls. PIDs are synthetic; the test never probes their liveness.
+ssh_launch_row() { # BIN NAME [SESSION CLIENTS FAILURE]
   ssh_reset
-  plain_run env VGSHELL_RUNNER_PID=4242 PATH="$tmux_stubs:$ssh_stubs:$stubs:$base_path" "$1" ssh --name "$2" --host "$host"
-  ssh_reading="$plain_status $(cat "$tmp/setsid" 2>/dev/null) $([[ -e $sshdir/tmux-calls ]] && echo tmux-ran || echo no-tmux)"
+  [[ ${3:-no} == no ]] || : >"$sshdir/tmux-session"
+  [[ -z ${4:-} ]] || printf '%s\n' "$4" >"$sshdir/tmux-clients"
+  case "${5:-}" in
+    clients) : >"$sshdir/tmux-clients-fail" ;;
+    window) : >"$sshdir/tmux-fail" ;;
+    select) : >"$sshdir/tmux-select-fail" ;;
+  esac
+  plain_run env VGSHELL_RUNNER_PID=4242 TMUX=/tmp/tmux-1/default,1,0 TMUX_PANE=%1 PATH="$tmux_stubs:$ssh_stubs:$stubs:$base_path" "$1" ssh --name "$2" --host "$host"
+  ssh_reading="$plain_status $(cat "$tmp/setsid" 2>/dev/null || printf none)"
+  ssh_calls="$(paste -sd '|' "$sshdir/tmux-calls" 2>/dev/null || echo none)"
+  ssh_reply="$(cat "$tmp/out")"
+  ssh_launches=0
+  if [[ -e $tmp/term-launches ]]; then
+    ssh_launches="$(wc -l <"$tmp/term-launches")" || return "$?"
+  fi
 }
+unset_call="call TMUX=unset TMUX_PANE=unset"
 ssh_launch_row "$subject" "$hostile"
-check "ssh exits 0 through setsid -w and runs no tmux" test "$ssh_reading" == "0 -w no-tmux"
+check "ssh with no session exits 0 through setsid -w" test "$ssh_reading" == "0 -w"
+check "ssh with no session opens one terminal" test "$ssh_launches" == 1
+check "ssh with no session only queries tmux and prints no reply" test "$ssh_calls:$ssh_reply" == "$unset_call|has-session|-t|=tailnet:"
 check "ssh hands the terminal a title, no app-id, and ssh-session with the name and host as data" \
   test "$(cat "$tmp/term")" == "$(lines "--title=$hostile" -- "$subject" ssh-session --name "$hostile" --host "$host")"
 check "ssh hands the terminal no VGSHELL_RUNNER_PID" test "$(cat "$tmp/term-env")" == unset
+# One table covers the attached-client decision, with the terminal stub
+# recording exactly one launch and the tmux stub recording each operation.
+for row in 'unattached||-w|1|' 'attached|4711|none|0|reused=tailnet pid=4711'; do
+  IFS='|' read -r name clients flag launches reply <<<"$row"
+  ssh_launch_row "$subject" "$hostile" yes "$clients"
+  check "ssh $name client: exits 0 and terminal launch is $flag" test "$ssh_reading" == "0 $flag"
+  check "ssh $name client: opens $launches terminals" test "$ssh_launches" == "$launches"
+  want="$unset_call|has-session|-t|=tailnet|$unset_call|list-clients|-t|=tailnet|-F|#{client_pid}"
+  if [[ $name == attached ]]; then
+    check "ssh attached client: stdout is the exact core reply" cmp -s "$tmp/out" <(printf '%s\n' "$reply")
+    want+="|$unset_call|new-window|-P|-F|#{window_id}|-t|=tailnet:|-n|my box; \$(touch $sshdir/planted) ##{host} 'q'|--|$subject|ssh-run|--|$host|$unset_call|select-window|-t|@7"
+    check "ssh attached client treats the name as data" test ! -e "$sshdir/planted"
+  else
+    check "ssh unattached client: stdout is empty" test ! -s "$tmp/out"
+    check "ssh unattached client opens one tiled terminal" test "$(cat "$tmp/term")" == "$(lines "--title=$hostile" -- "$subject" ssh-session --name "$hostile" --host "$host")"
+  fi
+  check "ssh $name client: exact tmux operations, no attach or option change" test "$ssh_calls" == "$want"
+done
+ssh_launch_row "$subject" attic-nas yes $'4711\n4812'
+check "ssh with multiple attached clients returns only the first PID" test "$ssh_reply" == 'reused=tailnet pid=4711'
+for failure in clients window select; do
+  ssh_launch_row "$subject" attic-nas yes 4711 "$failure"
+  check "ssh $failure failure refuses without terminal launch" test "$ssh_reading" == '1 none'
+  check "ssh $failure failure returns no successful reuse reply" test -z "$ssh_reply"
+done
 ssh_reset
 plain_run env PATH="$bare" "$subject" ssh --name n --host "$host"
 check "ssh with no terminal launcher exits 69" test "$plain_status" == 69
@@ -971,18 +1018,19 @@ check "ssh with no terminal launcher names it as launch does" test "$(err_first)
 # into the background and returns, as setsid -f does, and runs -w in
 # place, a stub xdg-terminal-exec that exits 1 with its own words is a
 # refused start, and one still running past the launcher's 1 s ceiling is
-# a start. The launcher leaves no file of its own behind either way.
+# a start. Its startup stdout must not enter TuiRunner's reply. The
+# launcher leaves no file of its own behind either way.
 # ssh_start BIN CASE: sets ssh_start_status, its first stderr line in
 # ssh_start_first, and ssh_start_secs, the whole seconds the launcher took.
 start_stubs="$sshdir/start"; mkdir -p "$start_stubs/failing" "$start_stubs/slow"
 printf '#!/bin/sh\ncase "$1" in -f) shift; "$@" & exit 0 ;; -w) shift ;; esac\nexec "$@"\n' >"$start_stubs/setsid"
 printf '#!/bin/sh\necho "xdg-terminal-exec: No valid terminal entry" >&2\nexit 1\n' >"$start_stubs/failing/xdg-terminal-exec"
-printf '#!/bin/sh\n: >"%s"\nexec sleep 4\n' "$sshdir/slow-started" >"$start_stubs/slow/xdg-terminal-exec"
+printf '#!/bin/sh\necho "terminal startup log"\n: >"%s"\nexec sleep 4\n' "$sshdir/slow-started" >"$start_stubs/slow/xdg-terminal-exec"
 chmod +x "$start_stubs/setsid" "$start_stubs/failing/xdg-terminal-exec" "$start_stubs/slow/xdg-terminal-exec"
 ssh_start() { # BIN CASE
   local began
   began="$(date +%s)"
-  plain_run env PATH="$start_stubs/$2:$start_stubs:$stubs:$base_path" "$1" ssh --name n --host "$host"
+  plain_run env PATH="$tmux_stubs:$start_stubs/$2:$start_stubs:$stubs:$base_path" "$1" ssh --name n --host "$host"
   ssh_start_status="$plain_status" ssh_start_first="$(err_first)" ssh_start_secs=$(($(date +%s) - began))
 }
 ssh_start "$subject" failing
@@ -992,6 +1040,7 @@ check "the refusal hands on xdg-terminal-exec's own words" grep -qxF "xdg-termin
 check "a failed start leaves no file behind" test -z "$(find "$rt" -maxdepth 1 -name 'vgs-terminal.*')"
 ssh_start "$subject" slow
 check "a terminal still running at the ceiling is a start" test "$ssh_start_status" == 0
+check "terminal startup stdout leaves the launcher reply empty" test ! -s "$tmp/out"
 check "the launcher returns at its ceiling, before the terminal ends" test "$ssh_start_secs" -lt 4
 check "a confirmed start leaves no file behind" test -z "$(find "$rt" -maxdepth 1 -name 'vgs-terminal.*')"
 # A shell restart kills the launcher during its wait: once the terminal
@@ -1001,7 +1050,7 @@ check "a confirmed start leaves no file behind" test -z "$(find "$rt" -maxdepth 
 ssh_killed() { # BIN
   local launcher n
   rm -f -- "${sshdir:?}/slow-started"
-  "${tui_env[@]}" PATH="$start_stubs/slow:$start_stubs:$stubs:$base_path" "$1" ssh --name n --host "$host" </dev/null >/dev/null 2>&1 &
+  "${tui_env[@]}" PATH="$tmux_stubs:$start_stubs/slow:$start_stubs:$stubs:$base_path" "$1" ssh --name n --host "$host" </dev/null >/dev/null 2>&1 &
   launcher=$!
   for ((n = 0; n < 100; n++)); do [[ ! -e $sshdir/slow-started ]] || break; sleep 0.05; done
   kill -KILL "$launcher" 2>/dev/null || :
@@ -1027,11 +1076,10 @@ ssh_session_calls() { # BIN NAME PATH_KIND SESSION
   ssh_calls="$(paste -sd '|' "$sshdir/tmux-calls" 2>/dev/null || echo none)"
   ssh_argv="$(paste -sd '|' "$sshdir/ssh-argv" 2>/dev/null || echo none)"
 }
-unset_call="call TMUX=unset TMUX_PANE=unset"
 window="my box; \$(touch $sshdir/planted) ##{host} 'q'"
 rows=(
   "tmux absent runs ssh-run alone|attic-nas|notmux|no|none|--|$host"
-  "a missing session is made with the device's window|attic-nas|tmux|no|$unset_call|has-session|-t|=tailnet|$unset_call|new-session|-s|tailnet|-n|attic-nas|--|$subject|ssh-run|--|$host|none"
+  "a missing session is made with the device's window and its own status-right|attic-nas|tmux|no|$unset_call|has-session|-t|=tailnet|$unset_call|new-session|-s|tailnet|-n|attic-nas|--|$subject|ssh-run|--|$host|;|set-option|-t|=tailnet|status-right|#{window_name}|none"
   "a session present gets a new window, selected by its id, then attached|attic-nas|tmux|yes|$unset_call|has-session|-t|=tailnet|$unset_call|new-window|-P|-F|#{window_id}|-t|=tailnet:|-n|attic-nas|--|$subject|ssh-run|--|$host|$unset_call|select-window|-t|@7|$unset_call|attach-session|-t|=tailnet|none"
 )
 for row in "${rows[@]}"; do
@@ -1450,11 +1498,11 @@ check "the wait-gone-failed mutant exits 1 for a run a later run removed" test "
 rm -f -- "$rdir"/acme.tui@b2b*
 # The ssh verbs' controls: a window name tmux reads as a format, a new
 # window left to the user's hook, an ssh failure the terminal closes on,
-# and a tmux plan run from the launcher, in the shell's process tree.
-control ssh-window-format vgshell-tui '  window="${ssh_name//#/##}"' '  window="$ssh_name"'
+# a duplicate terminal despite an attached client, and global status changes.
+control ssh-window-format vgshell-tui $'  window="${ssh_name//#/##}"\n  id=' $'  window="$ssh_name"\n  id='
 ssh_session_calls "$control_bin" "$hostile" tmux yes
 check "the ssh-window-format mutant hands tmux an undoubled #" test "$(ssh_window)" != "$window"
-control ssh-unselected vgshell-tui $'  tmux select-window -t "$id" || end_shown "$?"\n' ''
+control ssh-unselected vgshell-tui '  tmux select-window -t "$id" >/dev/null || status=$?' '  :'
 ssh_session_calls "$control_bin" attic-nas tmux yes
 check "the ssh-unselected mutant selects no new window" test "$(grep -c '^select-window$' "$sshdir/tmux-calls")" == 0
 control ssh-run-unheld vgshell-tui '    255|127) end_shown "$code" ;;' '    -) ;;'
@@ -1463,7 +1511,11 @@ check "the ssh-run-unheld mutant shows no prompt for a failed ssh" test "$ssh_pr
 control ssh-run-any-status vgshell-tui '    255|127) end_shown "$code" ;;' '    *) end_shown "$code" ;;'
 ssh_run_prompt "$control_bin" 1
 check "the ssh-run-any-status mutant shows the failed prompt for a remote status" test "$ssh_prompt" == failed
-control ssh-start-forked vgshell-tui '  setsid -w xdg-terminal-exec "$@" 2>&' '  setsid -f xdg-terminal-exec "$@" 2>&'
+control ssh-start-stdout vgshell-tui '  setsid -w xdg-terminal-exec "$@" >/dev/null 2>&' '  setsid -w xdg-terminal-exec "$@" 2>&'
+ssh_start "$control_bin" slow
+check "the stdout control still confirms a successful terminal start" test "$ssh_start_status" == 0
+check "control: inherited terminal stdout violates the empty launcher reply" test -s "$tmp/out"
+control ssh-start-forked vgshell-tui '  setsid -w xdg-terminal-exec "$@" >/dev/null 2>&' '  setsid -f xdg-terminal-exec "$@" >/dev/null 2>&'
 ssh_start "$control_bin" failing
 check "the ssh-start-forked mutant reports a failed start as a start" test "$ssh_start_status" == 0
 control ssh-start-named vgshell-tui $'  fi\n  rm -f -- "${errors:?}"\n  # A background' $'  fi\n  # A background'
@@ -1471,7 +1523,10 @@ check "the ssh-start-named mutant leaves its file when killed during the wait" t
 control ssh-start-unjudged vgshell-tui '  [[ $status == 0 ]] || exit 1' '  :'
 ssh_start "$control_bin" failing
 check "the ssh-start-unjudged mutant exits 0 on a failed start" test "$ssh_start_status" == 0
-control ssh-launcher-tmux vgshell-tui '  ssh) parse_ssh "$@"; ssh_launch ;;' '  ssh) parse_ssh "$@"; ssh_session ;;'
-ssh_launch_row "$control_bin" attic-nas
-check "the ssh-launcher-tmux mutant runs tmux from the launcher" test "${ssh_reading##* }" == tmux-ran
+control ssh-ignore-attached vgshell-tui '    if [[ -n $clients ]]; then' '    if false; then'
+ssh_launch_row "$control_bin" attic-nas yes 4711
+check "control: ignoring an attached client opens a duplicate terminal" test "$ssh_reading:$ssh_reply" == '0 -w:'
+control ssh-global-status vgshell-tui "set-option -t =tailnet status-right '#{window_name}'" "set-option -g status-right '#{window_name}'"
+ssh_session_calls "$control_bin" attic-nas tmux no
+check "control: a global option violates the new-session status contract" test "$ssh_calls" == "$unset_call|has-session|-t|=tailnet|$unset_call|new-session|-s|tailnet|-n|attic-nas|--|$control_bin|ssh-run|--|$host|;|set-option|-g|status-right|#{window_name}"
 rows_done test-vgshell-tui

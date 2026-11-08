@@ -371,6 +371,39 @@ function revealState(text) {
     return { ok: true, clients: read.values[0], active: read.values[1], monitors: read.values[2] };
 }
 
+var FOCUS_STATE_REQUEST = "j/activewindow;j/layers";
+
+// Only registered layer-shell roots can be checked for absence. Hyprland
+// v0.57.0 layersRequest enumerates mapped roots, not their xdg_popups;
+// activeWindowRequest reads focusState()->window(), not keyboard delivery.
+// A grab present before hide stays unprovable even after local native hide.
+// https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/ipc/s1/Commands.cpp
+function focusWindowState(text, address, namespaces, pid, unobservableGrab) {
+    var read = jsonReplies(text, [["activewindow", "object"], ["layers", "object"]], "focus state");
+    if (!read.ok) return { ok: false, reason: "focus-unread", error: read.error };
+    var active = read.values[0], layers = read.values[1], held = "";
+    for (var output of Object.keys(layers)) {
+        var levels = layers[output] && layers[output].levels;
+        if (!levels || typeof levels !== "object" || Array.isArray(levels)
+                || Object.keys(levels).length !== 4 || !["0", "1", "2", "3"].every(function (level) { return Array.isArray(levels[level]); }))
+            return { ok: false, reason: "focus-unread", error: "refused: focus=unread cause=layers-shape" };
+        for (var level of Object.keys(levels)) {
+            for (var surface of levels[level]) {
+                if (!surface || typeof surface.namespace !== "string" || !Number.isSafeInteger(surface.pid) || surface.pid <= 0)
+                    return { ok: false, reason: "focus-unread", error: "refused: focus=unread cause=layer-shape" };
+                if (surface.pid === pid && namespaces.indexOf(surface.namespace) !== -1) held = surface.namespace;
+            }
+        }
+    }
+    if (unobservableGrab)
+        return { ok: false, reason: "focus-unconfirmed", error: "refused: focus=not-confirmed cause=grab-release-unobservable" };
+    if (held !== "")
+        return { ok: false, reason: "focus-unconfirmed", error: "refused: focus=not-confirmed cause=layer-held namespace=" + held };
+    if (active.address !== address)
+        return { ok: false, reason: "focus-unconfirmed", error: "refused: focus=not-confirmed cause=target-inactive address=" + address };
+    return { ok: true };
+}
+
 // The workspaces and the monitors that show them, from one `hyprctl
 // --batch` of WORKSPACE_STATE_REQUEST: { ok: true, workspaces, monitors }
 // or { ok: false, error }.
