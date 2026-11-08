@@ -1,22 +1,22 @@
 # Capture > Record > Picker, then a screen, on a nested output at transform
 # 1, through the real capture service and worker, the VGS share picker,
-# xdph and the public portal on the world's bus with a PipeWire of the
-# row's own. The screen is chosen through the service's share-choice IPC.
-# The worker hands the screen to Display mode (VGS-2242): the portal's
+# xdph, the public portal and gpu-screen-recorder on the world's bus with a
+# PipeWire of the row's own. Choices go through the service's share-choice
+# IPC. The worker hands the screen to Display mode (VGS-2242): the portal's
 # recorder is gone before xdph starts a stream, xdph keeps no session, and
-# the next recorder gets the portal recorder's argv with the picked output
-# for its target and the same file, as record-output builds it. The real
-# gpu-screen-recorder runs for `-w portal`. Its own monitor capture reads
-# DRM connectors (6.1.6 src/recorder/capture_setup.c
-# validate_monitor_get_valid), which a nested output is not, so the
-# output's recorder is a stand-in that writes grim's frame of the output:
-# its frame shows Hyprland's screencopy, not gpu-screen-recorder's capture.
-# Control: a tree whose ShareSession answers the picker as before the
-# hand-off records the portal's stream, which fails the hand-off reading;
-# its last frame, the portal's turned recording, is kept beside the
-# stand-in's under $smoke_log_dir/picked-screen.
+# the next recorder gets record-output's argv for the picked output and the
+# same file. That recorder cannot record here: gpu-screen-recorder's
+# monitor capture looks the name up among DRM connectors (6.1.6
+# src/recorder/capture_setup.c validate_monitor_get_valid), which a nested
+# output is not, so it ends with `display "NAME" not found`, the job with
+# its Recording failed to start notice, and no file is left. Controls: a
+# tree whose ShareSession answers the picker as before records the
+# portal's stream sideways and fails the hand-off reading; its last frame
+# is kept as $smoke_log_dir/picked-screen/control.png. A share another
+# app opened before the job launched is answered with its choice and hands
+# nothing off; a tree that hands off any request's screen fails that.
 # No latency ceiling. State readbacks poll every 200 ms through expect_poll.
-# inputs: shell/plugins/vgs.capture/* shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh bin/lib/owned-group.py scripts/smoke/fixtures/share-picker/* scripts/smoke/toplevel/*
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh bin/lib/owned-group.py scripts/smoke/fixtures/share-picker/* scripts/smoke/toplevel/*
 set -euo pipefail
 for ps_required in /usr/lib/xdg-desktop-portal /usr/lib/xdg-desktop-portal-hyprland /usr/lib/xdg-permission-store /usr/bin/gpu-screen-recorder; do
   if [[ ! -x $ps_required ]]; then not_measured picked-screen missing="$ps_required"; return 0; fi
@@ -27,7 +27,7 @@ fi
 ps_world="$sandbox/picked-screen"
 ps_fixture="$source_repo/scripts/smoke/fixtures/share-picker"
 ps_out="$smoke_log_dir/picked-screen"
-mkdir -p -- "$ps_world/frames" "$ps_out"
+mkdir -p -- "$ps_world" "$ps_out"
 ps_output=VGS-2242-OUT
 cp -- "$home/.config/vgshell/shell.json" "$ps_world/shell.saved"
 # The mark paints its quadrants red, green, blue and yellow from the top
@@ -42,27 +42,17 @@ new = ('for (int32_t y = 0; y < height; y++) for (int32_t x = 0; x < width; x++)
 pathlib.Path(sys.argv[2]).write_text(text.replace(old, new, 1))
 PY
 cc -Wall -Wextra -Werror "$ps_world/mark.c" "$sandbox/xdg-shell-protocol.c" -I"$sandbox" -o "$ps_world/mark" $(pkg-config --cflags --libs wayland-client) || { fail "picked-screen: mark build failed"; return 0; }
-# The recorder the worker runs: the real one for the portal, the stand-in
-# above for an output. Each call's argv goes to calls.jsonl first.
+# The worker's recorder: the real one for every target, each call's argv
+# written to calls.jsonl first.
 ps_saved_recorder=absent
 if [[ -e $shim/gpu-screen-recorder ]]; then mv -- "$shim/gpu-screen-recorder" "$ps_world/recorder.saved"; ps_saved_recorder=saved; fi
 ps_calls="$ps_world/calls.jsonl"
 cat >"$shim/gpu-screen-recorder" <<PY
 #!/usr/bin/env python3
-import json, os, signal, subprocess, sys
-args = sys.argv[1:]
+import json, os, sys
 with open("$ps_calls", "a") as log:
-    log.write(json.dumps({"pid": os.getpid(), "args": args}) + "\n")
-target = args[args.index("-w") + 1]
-if target.startswith("portal"):
-    os.execv("/usr/bin/gpu-screen-recorder", ["/usr/bin/gpu-screen-recorder", *args])
-signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-frame = "$ps_world/frames/%d.png" % os.getpid()
-subprocess.run(["grim", "-o", target.split("|")[0], frame], check=True)
-subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1", "-framerate", "10", "-i", frame, "-t", "2",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-f", "mp4", args[args.index("-o") + 1]], check=True)
-while True:
-    signal.pause()
+    log.write(json.dumps({"pid": os.getpid(), "args": sys.argv[1:]}) + "\\n")
+os.execv("/usr/bin/gpu-screen-recorder", ["/usr/bin/gpu-screen-recorder", *sys.argv[1:]])
 PY
 chmod 755 -- "$shim/gpu-screen-recorder"
 # The picker's probe reads the portal active and started after its file.
@@ -164,21 +154,38 @@ ps_setting() { # LABEL KEY JSON
   payload="$(python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":json.loads(sys.argv[2])}))' "$2" "$3")" || return 1
   expect "$1: setting $2 is accepted" ok ipc vgs.capture invoke setting "$payload"
 }
-# ps_handoff: one JSON of what the hand-off decides while the recording
-# runs. recorders: each call's -w; argv: whether the last call is the
-# first with the picked output for its target; videoSources: the portal's
-# source nodes; starts and sessions: the shares xdph started and holds
-# open; portalLeft: whether a portal recorder writing this file runs.
+# The app the early round shares for: the share-picker fixture's portal
+# client, with its PipeWire consumer.
+cc -Wall -Wextra -Werror "$ps_fixture/consume.c" -o "$ps_world/consume" $(pkg-config --cflags --libs libpipewire-0.3) || { fail "picked-screen: consumer build failed"; return 0; }
+ps_app_phase() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.read_text() if p.exists() else "pending")' "$ps_world/app-$1.phase"; }
+# The failure notice is read from vgs.notifications' cards.
+expect "picked-screen: notifications are enabled for the failure notice" ok ipc shell setPluginEnabled vgs.notifications true
+# ps_failures: the first line of each Capture failure card shown, up to
+# its exit status.
+ps_failures() {
+  local raw
+  raw="$(ipc smoke modelRows vgs.notifications rows app,summary,body,leaving)" || return 1
+  if [[ $raw == absent ]]; then echo '[]'; return; fi
+  py_reply 'import json,sys; print(json.dumps([r[2].split("\n")[0].split(" (exit")[0] for r in json.load(sys.stdin) if r[0]=="Capture" and r[1]=="Capture failed" and r[3]==""]))' <<<"$raw"
+}
+ps_recorder_log() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.is_file() and sys.argv[2] in p.read_text(errors="replace"))' "$home/.local/state/vgshell/plugins/vgs.capture/recorder.log" "display \"$ps_output\" not found"; }
+ps_empty() { python3 -c 'import os,sys; d=sys.argv[1]; print(os.path.isdir(d) and os.listdir(d)==[])' "$1"; }
+# ps_handoff: what the hand-off decided. recorders: each call's -w; argv:
+# whether the second call is record-output's argv for the picked output
+# with the manifest's default options and audio none, into the first
+# call's file; videoSources: the portal's source nodes; starts and
+# sessions: the shares xdph started and holds open; portalLeft: whether a
+# portal recorder of that file still runs.
 ps_handoff() {
-  local dump path
+  local dump
   dump="$("${ps_env[@]}" timeout -k 1 5 pw-dump)" || { echo pw-dump-failed; return 0; }
-  path="$(ps_read lastPath)" || return
-  py_dumps "$dump" "\"$ps_calls\"" "\"$ps_xdph_log\"" "\"$path\"" "\"$ps_output\"" <<'PY'
+  py_dumps "$dump" "\"$ps_calls\"" "\"$ps_xdph_log\"" "\"$ps_output\"" <<'PY'
 import json, os, sys
-nodes, calls, xdph, path, output = (json.loads(a) for a in sys.argv[1:])
+nodes, calls, xdph, output = (json.loads(a) for a in sys.argv[1:])
 rows = [json.loads(line)["args"] for line in open(calls)] if os.path.exists(calls) else []
 targets = [r[r.index("-w") + 1] for r in rows]
-same = len(rows) == 2 and rows[1] == [output if i == rows[0].index("-w") + 1 else a for i, a in enumerate(rows[0])]
+path = rows[0][rows[0].index("-o") + 1] if rows else None
+display = ["-w", output, "-f", "60", "-k", "auto", "-q", "very_high", "-fm", "cfr", "-cursor", "no", "-o", path]
 log = open(xdph, errors="replace").read() if os.path.exists(xdph) else ""
 left = False
 for pid in filter(str.isdigit, os.listdir("/proc")):
@@ -186,17 +193,30 @@ for pid in filter(str.isdigit, os.listdir("/proc")):
         argv = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
     except OSError:
         continue
-    left = left or (b"-w" in argv and argv[argv.index(b"-w") + 1:argv.index(b"-w") + 2] == [b"portal"] and path.encode() in argv)
-print(json.dumps({"recorders": targets, "argv": same,
+    left = left or (path is not None and b"-w" in argv and argv[argv.index(b"-w") + 1:argv.index(b"-w") + 2] == [b"portal"] and path.encode() in argv)
+print(json.dumps({"recorders": targets, "argv": len(rows) == 2 and rows[1] == display,
                   "videoSources": sum(n.get("type") == "PipeWire:Interface:Node" and (n.get("info") or {}).get("props", {}).get("media.class") == "Video/Source" for n in nodes),
                   "starts": log.count("[screencopy] Start:"), "sessions": log.count("[screencopy] New session:") - log.count("[screencopy] Session destroyed"),
                   "portalLeft": left}, sort_keys=True))
 PY
 }
 ps_handed='{"argv": true, "portalLeft": false, "recorders": ["portal", "'"$ps_output"'"], "sessions": 0, "starts": 0, "videoSources": 0}'
-# ps_files FOLDER PATH: the round's folder holds one file, the saved PATH,
-# and it is not empty.
-ps_files() { python3 -c 'import os,sys; d,p=sys.argv[1:]; f=sorted(os.path.join(d,n) for n in os.listdir(d)) if os.path.isdir(d) else []; print(f==[p] and os.path.getsize(p)>0)' "$1" "$2"; }
+# ps_early LABEL: whether the app's own request got its choice and nothing
+# was handed off: the app's phase, the job's phase, each recorder call's
+# -w, and how many screen selections the picker gave xdph.
+ps_early() {
+  local phase
+  phase="$(ps_read phase)" || return
+  python3 -c 'import json,os,sys
+calls, xdph, app, phase, output = sys.argv[1:]
+rows = [json.loads(line)["args"] for line in open(calls)] if os.path.exists(calls) else []
+log = open(xdph, errors="replace").read() if os.path.exists(xdph) else ""
+print(json.dumps({"app": app, "phase": phase, "recorders": [r[r.index("-w") + 1] for r in rows],
+                  "selections": log.count("[SELECTION]/screen:" + output)}, sort_keys=True))' "$ps_calls" "$ps_xdph_log" "$(ps_app_phase "$1")" "$phase" "$ps_output"
+}
+ps_answered='{"app": "complete", "phase": "capturing", "recorders": ["portal"], "selections": 1}'
+# ps_classify PNG LABEL: the frame's orientation, read from where the
+# mark's quadrants stand.
 ps_classify() { python3 - "$@" <<'PY'
 import json, sys
 from PIL import Image
@@ -226,62 +246,117 @@ verdict = "mark-not-found" if None in (cent["red"], cent["green"], cent["blue"])
 print(json.dumps({"label": label, "size": [w, h], "orientation": verdict}))
 PY
 }
-# ps_round LABEL TREE: one Picker recording of the turned output. The
-# share-choice and the stop go through the service as the picker and the
-# bar's press send them.
-ps_round() {
-  local label="$1" tree="$2" id path
-  ps_portal_start "$label" "$tree"
+ps_capture_on() { # LABEL
   : >"$ps_calls"
-  expect "$label: capture enables" ok ipc shell setPluginEnabled vgs.capture true
-  expect_poll "$label: capture's service is built" True record_exists vgs.capture
-  expect_poll "$label: capture is idle" idle ps_read phase
-  ps_setting "$label" audio '"none"'
-  ps_setting "$label" recordFolder "\"$ps_world/videos-$label\""
-  spawn "$ps_out/linker-$label.log" "${ps_env[@]}" timeout 40 python3 "$ps_world/linker.py" 30
-  ps_linker_pid="$spawn_pid"
-  expect "$label: Picker starts a recording" ok ipc vgs.capture invoke record-portal ''
-  expect_poll "$label: the portal's picker asks VGS" pending ps_share
+  expect "$1: capture enables" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "$1: capture's service is built" True record_exists vgs.capture
+  expect_poll "$1: capture is idle" idle ps_read phase
+  ps_setting "$1" audio '"none"'
+  ps_setting "$1" recordFolder "\"$ps_world/videos-$1\""
+}
+ps_choose() { # LABEL ID
+  expect "$1: the screen is chosen" ok ipc vgs.capture invoke share-choice "{\"id\":\"$2\",\"choice\":{\"type\":\"screen\",\"output\":\"$ps_output\",\"remember\":false}}"
+}
+# ps_handoff_round: the hand-off of the job's own request.
+ps_handoff_round() {
+  local id
+  ps_portal_start handoff "$repo"
+  ps_capture_on handoff
+  expect "handoff: Picker starts a recording" ok ipc vgs.capture invoke record-portal ''
+  expect_poll "handoff: the portal's picker asks VGS" pending ps_share
   id="$(ps_share_id)"
-  expect "$label: the screen is chosen" ok ipc vgs.capture invoke share-choice "{\"id\":\"$id\",\"choice\":{\"type\":\"screen\",\"output\":\"$ps_output\",\"remember\":false}}"
-  expect_poll "$label: the recording runs" recording ps_read phase
-  expect_poll "$label: the picked screen records without the portal" "$ps_handed" ps_handoff
-  printf 'picked-screen: %s handoff=%s\n' "$label" "$(ps_handoff)"
-  expect_poll "$label: the share request is released" none ps_share
-  expect "$label: the recording stops" ok ipc vgs.capture invoke record-portal ''
+  ps_choose handoff "$id"
+  expect_poll "handoff: the job ends" idle ps_read phase
+  expect_poll "handoff: the picked screen goes to Display mode's recorder, not the portal" "$ps_handed" ps_handoff
+  printf 'picked-screen: handoff handoff=%s\n' "$(ps_handoff)"
+  expect_poll "handoff: the share request is released" none ps_share
+  expect_poll "handoff: the job ends in its start failure" '["Recording failed to start"]' ps_failures
+  expect "handoff: the recorder could not find the nested output" True ps_recorder_log
+  expect "handoff: no file is left" True ps_empty "$ps_world/videos-handoff"
+  expect "handoff: capture disables" ok ipc shell setPluginEnabled vgs.capture false
+  ps_portal_stop handoff
+}
+# ps_early_round LABEL TREE: an app's share opens before the job; the
+# job's request queues behind it in xdph.
+ps_early_round() {
+  local label="$1" id own
+  ps_portal_start "$label" "$2"
+  ps_capture_on "$label"
+  spawn "$ps_out/app-$label.log" "${ps_env[@]}" timeout 90 python3 "$ps_fixture/portal-client.py" "$ps_world/app-$label" "$ps_world/consume"
+  ps_app_pid="$spawn_pid"
+  expect_poll "$label: the app's picker asks VGS" pending ps_share
+  id="$(ps_share_id)"
+  expect "$label: Picker starts a recording behind the app's share" ok ipc vgs.capture invoke record-portal ''
+  ps_choose "$label" "$id"
+  expect_poll "$label: the app's request gets its screen and nothing is handed off" "$ps_answered" ps_early "$label"
+  printf 'picked-screen: %s early=%s\n' "$label" "$(ps_early "$label")"
+  # Every request still open is cancelled, so its caller ends: the job's
+  # own, which opens once the app's is answered while the job waits, and
+  # the app's when a hand-off held it.
+  ps_own() { ps_share_id | py_reply 'import sys; s=sys.stdin.read().strip(); print(s not in ("none", sys.argv[1]))' "$id"; }
+  [[ $(ps_read phase) != capturing ]] || expect_poll "$label: the job's own request opens" True ps_own
+  own="$(ps_share_id)"
+  [[ $own == none ]] || expect "$label: the open request is cancelled" ok ipc vgs.capture invoke share-cancel "{\"id\":\"$own\"}"
+  [[ $(ps_read phase) == idle ]] || expect "$label: the waiting recording is cancelled" ok ipc vgs.capture invoke record-portal ''
   expect_poll "$label: capture is idle again" idle ps_read phase
-  path="$(ps_read lastPath)"
-  expect "$label: one file holds the recording" True ps_files "$ps_world/videos-$label" "$path"
-  if ffmpeg -hide_banner -loglevel error -y -sseof -1 -i "$path" -frames:v 1 "$ps_out/$label.png"; then
-    printf 'picked-screen: frame %s\n' "$(ps_classify "$ps_out/$label.png" "$label" || echo unread)"
-  else
-    printf 'picked-screen: frame %s unread\n' "$label"
-  fi
-  kill -TERM -- -"$ps_linker_pid" 2>/dev/null || true
-  wait "$ps_linker_pid" 2>/dev/null || true
+  own="$(ps_share_id)"
+  [[ $own == none ]] || expect "$label: the job's request is cancelled" ok ipc vgs.capture invoke share-cancel "{\"id\":\"$own\"}"
+  kill -TERM -- -"$ps_app_pid" 2>/dev/null || true
+  wait "$ps_app_pid" 2>/dev/null || true
   expect "$label: capture disables" ok ipc shell setPluginEnabled vgs.capture false
   ps_portal_stop "$label"
 }
-ps_round handoff "$repo"
+ps_handoff_round
+ps_early_round early "$repo"
+# Control: the portal answers the screen. Its recording runs, stops and
+# saves; the hand-off reading alone fails, and the frame reads sideways.
 copy_tree picked-screen-portal
 if edit_tree picked-screen-portal shell/plugins/vgs.capture/ShareSession.qml \
-    'const handed = answer.choice !== null && typeof answer.choice === "object" && answer.choice.type === "screen" && handOff(answer.choice.output);' \
+    'const handed = answer.choice !== null && typeof answer.choice === "object" && answer.choice.type === "screen" && handOff(answer.id, answer.choice.output);' \
     'const handed = false;'; then
   stop_shell || :
   start_shell "$sandbox/tree-picked-screen-portal" "$sandbox/picked-screen-portal.log"
-  # The control's one failure is the hand-off reading: its recording runs,
-  # stops and saves as the hand-off's does.
+  ps_portal_start control "$sandbox/tree-picked-screen-portal"
+  ps_capture_on control
+  spawn "$ps_out/linker-control.log" "${ps_env[@]}" timeout 40 python3 "$ps_world/linker.py" 30
+  ps_linker_pid="$spawn_pid"
+  expect "control: Picker starts a recording" ok ipc vgs.capture invoke record-portal ''
+  expect_poll "control: the portal's picker asks VGS" pending ps_share
+  ps_choose control "$(ps_share_id)"
+  expect_poll "control: the portal's recording runs" recording ps_read phase
   ps_control() {
     (failures=0 behaviour_failures=0
-    ps_round control "$sandbox/tree-picked-screen-portal" >"$ps_world/control.log"
-    grep -q -F -- "FAIL  control: the picked screen records without the portal" "$ps_world/control.log" && echo "failures=$failures named=True" || echo "failures=$failures named=False")
+    expect_poll "control: the picked screen goes to Display mode's recorder, not the portal" "$ps_handed" ps_handoff >"$ps_world/control.log"
+    echo "failures=$failures")
   }
-  expect "control: the portal's own recording fails the hand-off reading alone" "failures=1 named=True" ps_control
+  expect "control: the portal's own recording fails the hand-off reading" failures=1 ps_control
   control_output "$ps_world/control.log"
-  stop_shell || :
-  start_shell "$repo" "$sandbox/picked-screen-restored.log"
+  expect "control: the recording stops" ok ipc vgs.capture invoke record-portal ''
+  expect_poll "control: capture is idle again" idle ps_read phase
+  ps_path="$(ps_read lastPath)"
+  ps_orientation() { ffmpeg -hide_banner -loglevel error -y -sseof -1 -i "$ps_path" -frames:v 1 "$ps_out/control.png" && ps_classify "$ps_out/control.png" control | py_reply 'import json,sys; print(json.load(sys.stdin)["orientation"])'; }
+  expect "control: the portal records the output at transform 1 sideways" "turned 90 clockwise" ps_orientation
+  kill -TERM -- -"$ps_linker_pid" 2>/dev/null || true
+  wait "$ps_linker_pid" 2>/dev/null || true
+  expect "control: capture disables" ok ipc shell setPluginEnabled vgs.capture false
+  ps_portal_stop control
 fi
-cp -- "$ps_calls" "$ps_world/control.log" "$ps_out/" 2>/dev/null || true
+# Control: a service that hands off any request's screen takes the app's.
+copy_tree picked-screen-claim
+if edit_tree picked-screen-claim shell/plugins/vgs.capture/Service.qml 'job.shareId !== id || ' ''; then
+  stop_shell || :
+  start_shell "$sandbox/tree-picked-screen-claim" "$sandbox/picked-screen-claim.log"
+  ps_claim_control() {
+    (failures=0 behaviour_failures=0
+    ps_early_round claim "$sandbox/tree-picked-screen-claim" >"$ps_world/claim-control.log"
+    grep -q -F -- "FAIL  claim: the app's request gets its screen and nothing is handed off" "$ps_world/claim-control.log" && echo "failures=$failures named=True" || echo "failures=$failures named=False")
+  }
+  expect "control: handing off the app's request fails the early reading alone" "failures=1 named=True" ps_claim_control
+  control_output "$ps_world/claim-control.log"
+fi
+stop_shell || :
+start_shell "$repo" "$sandbox/picked-screen-restored.log"
+cp -- "$ps_calls" "$ps_world/control.log" "$ps_world/claim-control.log" "$ps_out/" 2>/dev/null || true
 close_toplevel "$ps_mark_pid" "picked-screen: the mark closes"
 expect "picked-screen: the nested compositor removes the output" ok hypr output remove "$ps_output"
 for ps_process in "$ps_perm_pid" "$ps_pw_pid"; do kill -TERM -- -"$ps_process" 2>/dev/null || true; wait "$ps_process" 2>/dev/null || true; done
