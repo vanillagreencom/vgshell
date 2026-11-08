@@ -4,7 +4,7 @@
   "name": "Remote desktop",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Use your other computers from this one, and see when someone uses this one.",
+  "description": "Use your other computers from this one.",
   "license": "MIT",
   "icon": "screen-share",
   "kinds": [

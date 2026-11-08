@@ -1117,7 +1117,7 @@ Item {
                                     Repeater {
                                         id: focusListRows
                                         model: ["First", "Second", "Third"]
-                                        ListItem {
+                                        NavigationRow {
                                             required property string modelData
                                             required property int index
                                             width: focusListColumn.width
@@ -1256,6 +1256,44 @@ Item {
                         Divider { width: parent.width }
                         ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; clickable: false; highlighted: true; width: parent.width }
                         ListItem { text: "Clock"; iconName: "clock"; clickable: false; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
+                        // Content rows: one item with its action at its end and no
+                        // hover, the same height whatever the secondary line holds.
+                        ContentRow { text: "Clock"; secondary: "Show the time and date"; iconName: "clock"; width: parent.width; trailing: [ Button { size: "sm"; variant: "secondary"; text: "Add"; iconName: "plus"; anchors.verticalCenter: parent.verticalCenter } ] }
+                        ContentRow { text: "Weather"; secondary: "Show the weather where you are, with the temperature, the wind and the chance of rain for the next hours"; iconName: "cloud"; width: parent.width; trailing: [ Button { size: "sm"; variant: "secondary"; text: "Add"; iconName: "plus"; anchors.verticalCenter: parent.verticalCenter } ] }
+                        ContentRow {
+                            text: "Battery"
+                            secondary: "Show battery level"
+                            iconName: "battery"
+                            width: parent.width
+                            trailing: [
+                                Button {
+                                    property string focusExample: "ContentRow action"
+                                    focusPreview: true
+                                    size: "sm"
+                                    variant: "secondary"
+                                    text: "Remove"
+                                    iconName: "minus"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            ]
+                        }
+                        ContentRow { text: "Printers"; secondary: "Turn this plugin on to add its widget"; iconName: "printer"; width: parent.width; trailing: [ Button { size: "sm"; variant: "secondary"; text: "Settings"; iconName: "settings"; anchors.verticalCenter: parent.verticalCenter } ] }
+                        // Navigation rows: the whole row opens a page and ends in a
+                        // chevron; the list's cursor draws the hover.
+                        NavigationRow { text: "Bluetooth"; secondary: "1.4.0  Included"; iconName: "bluetooth"; cursor: listRowsCursor; width: parent.width }
+                        NavigationRow { text: "Network"; secondary: "Selected row"; iconName: "wifi"; cursor: listRowsCursor; highlighted: true; width: parent.width }
+                        NavigationRow { text: "Sound"; secondary: "The page shown now"; iconName: "volume-2"; cursor: listRowsCursor; active: true; width: parent.width }
+                        NavigationRow {
+                            text: "Updates"
+                            secondary: "With accessories"
+                            iconName: "package"
+                            cursor: listRowsCursor
+                            width: parent.width
+                            accessories: [
+                                Badge { tone: "danger"; iconName: "circle-alert"; text: "2"; anchors.verticalCenter: parent.verticalCenter },
+                                Badge { tone: "warning"; text: "Setup needed"; anchors.verticalCenter: parent.verticalCenter }
+                            ]
+                        }
                         Disclosure {
                             width: parent.width
                             cursor: listRowsCursor

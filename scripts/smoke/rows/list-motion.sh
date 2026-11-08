@@ -8,7 +8,7 @@
 # pointer leaves the plate on the pointed row, and the launcher's selection
 # goes back to the keys' row when the pointer leaves the list. The rows run with the launcher disabled as the rows
 # before left it, and leave it so, with the default theme.
-# inputs: shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Commons/Reply.js shell/plugins/vgs.launcher/*
+# inputs: shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Commons/Reply.js shell/plugins/vgs.launcher/* shell/Ui/layout/NavigationRow.qml
 set -euo pipefail
 motion_theme="$home/.config/vgshell/theme.json"
 write_motion_theme() { printf '%s\n' "$1" >"$motion_theme.tmp" && mv -T -- "$motion_theme.tmp" "$motion_theme"; }
@@ -50,8 +50,8 @@ expect "at motion scale 0 the Settings list's cursor lands on the row at once" s
 # A filter moves rows under a resting pointer: the list disarms the pointer
 # first, so a row that lands under it takes nothing from the keyboard. The
 # pointer arrives on the second row by two motions, which arm it.
-settings_second="$(ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.load(sys.stdin)[1][0])')" || settings_second=""
-settings_second_box="$(ipc smoke windowGeometry window vgs.settings ListItem "$settings_second")" || settings_second_box=""
+settings_second="$(ipc smoke itemTexts window vgs.settings NavigationRow | py_reply 'import json,sys; print(json.load(sys.stdin)[1][0])')" || settings_second=""
+settings_second_box="$(ipc smoke windowGeometry window vgs.settings NavigationRow "$settings_second")" || settings_second_box=""
 settings_surface="$(surface_box window:Plugins)" || settings_surface=""
 settings_second_points="$(python3 - "$settings_second_box" "$settings_surface" <<'PY'
 import json, sys
@@ -96,7 +96,7 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 hover_ceiling_ms=150
 hover_fixture="$repo/scripts/smoke/fixtures/list-cursor/CursorFrames.qml"
 declare -A hover_name
-hover_row_box() { ipc smoke windowGeometry window vgs.settings ListItem "${hover_name[$1]}"; }
+hover_row_box() { ipc smoke windowGeometry window vgs.settings NavigationRow "${hover_name[$1]}"; }
 hover_row_point() {
   local box surface step="${2:-0}"
   box="$(hover_row_box "$1")" || return
@@ -222,7 +222,7 @@ expect_poll "the defaults return for the hover travel" vgs ipc smoke themeName
 expect "the Settings window summons for the hover travel" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings list's cursor holds a row for the hover travel" true ipc smoke readShownDescendant window vgs.settings ListCursor shown
 expect "the probe builds the cursor frame trace" ok ipc smoke popupLoad cursor-frames "$hover_fixture" window vgs.settings "{\"host\":\"@instance\",\"ceilingMs\":$hover_ceiling_ms}"
-hover_rows="$(ipc smoke itemTexts window vgs.settings ListItem)" || hover_rows='[]'
+hover_rows="$(ipc smoke itemTexts window vgs.settings NavigationRow)" || hover_rows='[]'
 for hover_row in 0 1; do
   hover_row_name="$(py_reply 'import json,sys; r=json.load(sys.stdin); i=int(sys.argv[1]); print(r[i][0] if len(r) > i else "")' "$hover_row" <<<"$hover_rows")" || hover_row_name=""
   hover_name[$hover_row]="$hover_row_name"

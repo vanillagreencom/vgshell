@@ -4,7 +4,7 @@
   "name": "Voice",
   "version": "0.1.0",
   "author": "VGS",
-  "description": "Dictate into the focused field and see the recording state in the bar.",
+  "description": "Dictate into the focused field.",
   "license": "MIT",
   "icon": "mic",
   "kinds": [

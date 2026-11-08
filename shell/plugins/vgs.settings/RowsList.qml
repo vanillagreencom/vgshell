@@ -5,12 +5,12 @@ import qs.Ui
 import "Steps.js" as Steps
 
 // A `rows` status entry of a plugin's page (PluginLogic.statusRows) as a
-// section of its own, the list full width under its label: one ListItem per
-// published row, led by the entry's `icon`, with the row's label, its
+// section of its own, the list full width under its label: one ContentRow
+// per published row, led by the entry's `icon`, with the row's label, its
 // secondary line and, at its end, its state, as plain text for a calm state
 // and as a chip for one that needs the user (`chip`), then its row actions.
-// A row takes no click (ListItem's `clickable` is false), so it draws no hover, no press
-// and no pointing hand; each row action is a RowAction with its own hover,
+// A row takes no click (ContentRow), so it draws no hover, no press and no
+// pointing hand; each row action is a RowAction with its own hover,
 // pointer, keyboard focus and click. A danger action that removes its row
 // draws the trash mark alone (RowAction's `removesItem`), its text, which
 // names the row, its tooltip and accessible name. The rows are the groups
@@ -60,19 +60,15 @@ Section {
                 values: root.view.rows
                 objectProp: "key"
             }
-            // The text sits on the content edge, as the section's other
-            // lines do: a row that takes no click draws no box to inset.
-            // A trash mark drawn alone ends its ink on the content edge
-            // too, as a list item's does (ListField), so its square, whose
-            // hit target and focus ring reach past the mark, stands past
-            // that edge by `overhang`.
-            ListItem {
+            // A trash mark drawn alone ends its ink on the content edge,
+            // as a list item's does (ListField), so its square, whose hit
+            // target and focus ring reach past the mark, stands past that
+            // edge by `overhang`.
+            ContentRow {
                 id: line
                 required property var modelData
                 width: list.width
-                leftPadding: 0
                 rightPadding: -actions.overhang
-                clickable: false
                 iconName: root.entry === null ? "" : root.entry.icon
                 text: modelData.label
                 secondary: modelData.secondary

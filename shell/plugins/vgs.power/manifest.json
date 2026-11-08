@@ -4,7 +4,7 @@
   "name": "Power",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Show battery level, choose the power profile, see what happens while you are away and open the power menu.",
+  "description": "Show battery, set the power profile and open the power menu.",
   "license": "MIT",
   "icon": "battery-medium",
   "kinds": [

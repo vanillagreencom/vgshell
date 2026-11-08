@@ -111,6 +111,8 @@ ROWS = [
     ("a ListItem whose background reads the hover", body("    ListItem { background: Rectangle { radius: 4; color: hovered ? \"#222\" : \"transparent\" } }\n"), "row-hover", 5),
     ("a row filled from its own MouseArea's hover", body("    ListItem {\n        MouseArea { id: area; hoverEnabled: true; PointerCursor {} }\n        background: Rectangle { color: area.containsMouse ? \"#222\" : \"transparent\" }\n    }\n"), "row-hover", 7),
     ("a qualified row's border reads the hover", "import QtQuick\nimport qs.Ui as Ui\nItem {\n    Ui.MenuItem { Rectangle { border.color: hovered ? \"#222\" : \"#000\" } }\n}\n", "row-hover", 4),
+    ("a NavigationRow whose title reads the hover", body("    NavigationRow {\n        Label { color: parent.hovered ? \"#fff\" : \"#888\" }\n    }\n"), "row-hover", 6),
+    ("a ContentRow whose background reads the hover", body("    ContentRow { background: Rectangle { color: hovered ? \"#222\" : \"transparent\" } }\n"), "row-hover", 5),
     ("a Disclosure whose title reads the hover", body("    Disclosure {\n        Label { color: parent.hovered ? \"#fff\" : \"#888\" }\n    }\n"), "row-hover", 6),
     ("a hover colour in a comment is no finding", body("    ListItem {\n        // color: hovered ? \"#222\" : \"#000\"\n    }\n"), None, None),
     ("a row that colours itself by lit passes", body("    ListItem { cursor: plate; Label { color: parent.lit ? \"#fff\" : \"#000\" } }\n"), None, None),

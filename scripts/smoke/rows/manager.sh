@@ -19,7 +19,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # takes the plug off the bar again.
-# inputs: shell/plugins/vgs.bar/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js shell/Ui/overlay/OverlayState.qml
+# inputs: shell/plugins/vgs.bar/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js shell/Ui/overlay/OverlayState.qml shell/Ui/layout/NavigationRow.qml
 set -euo pipefail
 leak_plugin_setup acme.probe true acme.bare true || { fail "manager: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
@@ -187,7 +187,7 @@ expect_poll "the Settings window is one window" 1 window_count Plugins
 main_monitor="$(first_monitor)" || fail "the first monitor's name is unreadable"
 geometry expect_poll "the window is the token width, grows for its titled content up to the cap, centred across at the pinned top" '[]' window_fits "$main_monitor"
 expect_poll "the window takes the keyboard when it opens" true ipc smoke activeFocusIn window vgs.settings
-listed_names() { ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
+listed_names() { ipc smoke itemTexts window vgs.settings NavigationRow | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
 type_keys probe || fail "typing into the Settings search failed"
 expect_poll "typing filters the list to the matching plugin" '["Probe"]' listed_names
 type_keys -k BackSpace -k BackSpace -k BackSpace -k BackSpace -k BackSpace || fail "clearing the Settings search failed"
@@ -249,7 +249,7 @@ def check(name, got, want):
 page = [i for i, r in enumerate(rows) if r["type"] == "ListPage"]
 if len(page) != 1: print(json.dumps(["pages=%d" % len(page)])); sys.exit()
 under = lambda kind: [i for i, r in enumerate(rows) if r["type"] == kind and inside(i, page[0])]
-search, areas, items = under("TextField"), under("ScrollArea"), under("ListItem")
+search, areas, items = under("TextField"), under("ScrollArea"), under("NavigationRow")
 heading = [i for i in under("Label") if rows[i].get("role") == "windowTitle" and visible(i)]
 if len(search) != 1 or len(areas) != 1 or len(heading) != 1 or len(items) < 3:
     print(json.dumps(["search=%d areas=%d heading=%d items=%d" % (len(search), len(areas), len(heading), len(items))])); sys.exit()
@@ -334,11 +334,11 @@ expect "a manager row carries each requirement with its state and placement" '[[
 # the heading, the controls that read no hand. Each shape differs from the
 # reading before it, so each is a request the shell sent.
 settings_box() { ipc smoke windowGeometry window vgs.settings "$1" "$2"; }
-probe_row_box() { ipc smoke scopedWindowGeometry window vgs.settings ListItem Probe "$1" "$2"; }
+probe_row_box() { ipc smoke scopedWindowGeometry window vgs.settings NavigationRow Probe "$1" "$2"; }
 expect_cursor "the search field shows the I-beam" text window:Plugins "$(settings_box TextField "")"
 expect_cursor "Add plugin shows the hand" pointer window:Plugins "$(settings_box Button "Add plugin")"
 expect_cursor "the list's heading shows the arrow" default window:Plugins "$(settings_box Label Plugins)"
-expect_cursor "a plugin's row shows the hand" pointer window:Plugins "$(settings_box ListItem Probe)"
+expect_cursor "a plugin's row shows the hand" pointer window:Plugins "$(settings_box NavigationRow Probe)"
 expect_cursor "the search field shows the I-beam again" text window:Plugins "$(settings_box TextField "")"
 expect_cursor "the row's switch shows the hand" pointer window:Plugins "$(probe_row_box Switch "")"
 expect_cursor "the heading shows the arrow again" default window:Plugins "$(settings_box Label Plugins)"
@@ -349,7 +349,7 @@ expect_cursor "the row's chevron shows the hand" pointer window:Plugins "$(probe
 # without one, and a bounded number is a slider. The list can still move
 # under a slow run, so the click waits for the Probe row itself to report
 # the pointer at a box that holds still (click_item).
-click_item window:Plugins window vgs.settings ListItem Probe || fail "the click on the fixture's row failed"
+click_item window:Plugins window vgs.settings NavigationRow Probe || fail "the click on the fixture's row failed"
 expect_poll "a click on a row opens that plugin's page" '"acme.probe"' settings_page
 expect_poll "Tab from the pushed page stays on it" '["PluginPage"]' focus_pages 12
 expect_poll "Shift+Tab from the pushed page stays on it" '["PluginPage"]' focus_pages -12

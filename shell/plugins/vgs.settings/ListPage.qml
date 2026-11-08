@@ -171,7 +171,7 @@ FocusScope {
                 objectProp: "id"
             }
 
-            ListItem {
+            NavigationRow {
                 id: entry
                 required property var modelData
                 required property int index
@@ -186,7 +186,7 @@ FocusScope {
                 highlighted: index === page.current
                 cursor: plate
                 onClicked: page.panel.openRow(modelData.id, Qt.MouseFocusReason)
-                trailing: [
+                accessories: [
                     Badge {
                         tone: Steps.problemTone(entry.modelData.errors)
                         iconName: "circle-alert"
@@ -214,12 +214,6 @@ FocusScope {
                             checked = Qt.binding(() => entry.modelData.enabled);
                             page.panel.setEnabled(entry.modelData.id, !entry.modelData.enabled);
                         }
-                    },
-                    Icon {
-                        name: "chevron-right"
-                        size: Theme.icon.size.sm
-                        color: Theme.color.textMuted
-                        anchors.verticalCenter: parent.verticalCenter
                     }
                 ]
             }
