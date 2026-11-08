@@ -118,10 +118,10 @@ expect_poll "an empty Main Jarvis host is this computer" "This computer runs you
 satellite_state '{"reachable": true}'
 satellite_choose mainHost cachy
 expect_poll "the choice reaches the package as the main and this Home's path" "cachy:$satellite_home" satellite_set
-expect_poll "the Now line reads the main as reachable" "Your main Jarvis on cachy is reachable." satellite_line
+expect_poll "the Now line reads the main as reachable" "Requests that need your main Jarvis go to cachy. It is reachable." satellite_line
 satellite_state "{\"main\": \"cachy:$satellite_home\", \"reachable\": false}"
 satellite_choose mainHost jarvis
-expect_poll "the Now line names a main that did not answer" "Your main Jarvis on jarvis did not answer. Forwarded requests wait here." satellite_line
+expect_poll "the Now line names a main that did not answer" "Requests that need your main Jarvis go to jarvis. It did not answer. Requests wait here." satellite_line
 satellite_choose mainHost ""
 expect_poll "choosing This computer clears the package's setting" "" satellite_set
 expect_poll "the Now line reads this computer as the main" "This computer runs your main Jarvis." satellite_line

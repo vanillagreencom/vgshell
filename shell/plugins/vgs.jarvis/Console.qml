@@ -356,7 +356,9 @@ FocusScope {
         if (reach.cause === "package-unread")
             return blocked + "the Jarvis package in your home folder did not answer as expected.";
         if (reach.cause === "setting-unhanded")
-            return blocked + "the Jarvis package names a different main. Change [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) to a different value, then choose the value you want.";
+            return blocked + (shell.settings.mainHost === ""
+                ? "set [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) to " + reach.host + "."
+                : "choose This computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost), then choose " + reach.host + ".");
         if (reach.cause === "package")
             return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
         if (reach.cause === "vgs-package")
@@ -365,9 +367,10 @@ FocusScope {
             return blocked + "the Jarvis package in your [Home folder](page:vgs.jarvis/Settings/home) cannot be opened.";
         if (reach.cause === "setting-invalid")
             return "Jarvis cannot reach your main Jarvis: [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) is not a computer name.";
-        if (reach.reachable === true) return "Your main Jarvis on " + reach.host + " is reachable.";
-        if (reach.reachable === false) return "Your main Jarvis on " + reach.host + " did not answer. Forwarded requests wait here.";
-        return "Jarvis has not sent a request to your main Jarvis on " + reach.host + " yet.";
+        const destination = "Requests that need your main Jarvis go to " + reach.host + ". ";
+        if (reach.reachable === true) return destination + "It is reachable.";
+        if (reach.reachable === false) return destination + "It did not answer. Requests wait here.";
+        return destination + "None sent yet.";
     }
 
     function rows() {

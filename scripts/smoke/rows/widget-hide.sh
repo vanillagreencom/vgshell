@@ -224,9 +224,8 @@ if copy_tree widget-hide-control \
   hide_right_click acme.hideable || fail "control: the right click on the widget failed"
   sleep 0.5
   expect "control: a frame with no menu opens nothing on a right click" false hide_read acme.hideable frameMenuOpen
-  hide_settings_menuitem=$'                MenuItem {\n                    text: "Settings"\n                    iconName: "settings"\n                    visible: ui.settingsPage !== ""\n                    onTriggered: {\n                        const reply = root.frame.openSettings();\n                        if (reply !== "ok") console.warn("bar widget: settings of " + root.moduleName + " " + reply);\n                    }\n                }\n'
   if copy_tree widget-settings-control \
-    && edit_tree widget-settings-control shell/Ui/BarWidget.qml "$hide_settings_menuitem" ''; then
+    && edit_tree widget-settings-control shell/Ui/BarWidget.qml ': role === "settings" ? ui.settingsPage !== "" : true' ': role === "settings" ? false : true'; then
     stop_shell
     start_shell "$sandbox/tree-widget-settings-control" "$sandbox/widget-settings-control.log" || fail "the widget-settings control shell starts"
     expect_poll "control: the placed widget is built for the Settings control" '[true]' hide_in_bars acme.hideable

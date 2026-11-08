@@ -723,6 +723,8 @@ Item {
                 { tag: "uncontacted", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" }, shown: true, warning: false, link: "" },
                 { tag: "unanswered", reach: { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }, shown: true, warning: true, link: "" },
                 { tag: "setting", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "setting-invalid" }, shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost" },
+                { tag: "unhanded-empty", reach: unavailable("setting-unhanded"), mainHost: "", shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost", differsFromSet: true },
+                { tag: "unhanded-set", reach: unavailable("setting-unhanded"), mainHost: "cachy", shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost" },
                 { tag: "old", reach: unavailable("package-old"), shown: true, warning: true, link: "" },
                 { tag: "unanswering", reach: unavailable("package-unread"), shown: true, warning: true, link: "" },
                 { tag: "package", reach: unavailable("package"), shown: true, warning: true, link: "page:vgs.jarvis/Setup/sessionStart" },
@@ -734,12 +736,21 @@ Item {
         function test_main_reach_line(data) {
             const values = root.values({});
             if (data.reach !== undefined) values.mainReach = data.reach;
-            jarvisConsole.shell = root.shellWith(values);
+            const shell = root.shellWith(values);
+            shell.settings.mainHost = data.mainHost === undefined ? "cachy" : data.mainHost;
+            jarvisConsole.shell = shell;
             const line = () => collect(jarvisConsole, n => n.objectName === "mainReachLine", [])[0];
             compare(line().visible, data.shown);
             if (data.shown) compare(Qt.colorEqual(line().color, data.warning ? Theme.color.warning : Theme.color.textMuted), true);
             const links = (line().text.match(/\]\(([^)]*)\)/g) || []).map(link => link.slice(2, -1));
             compare(JSON.stringify(links), JSON.stringify(data.link === "" ? [] : [data.link]), "the line links where its route is fixed");
+            if (data.differsFromSet) {
+                const emptyText = line().text;
+                const setShell = root.shellWith(values);
+                setShell.settings.mainHost = data.reach.host;
+                jarvisConsole.shell = setShell;
+                verify(line().text !== emptyText, "an empty field and a set field need different steps for the same main");
+            }
             jarvisConsole.tab = 2;
             compare(line().visible, false, "the line is Now's alone");
         }

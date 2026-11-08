@@ -281,25 +281,63 @@ Item {
             compare(JSON.stringify(root.calls), '[["microphone-mute",""]]');
         }
 
-        function test_microphone_rebuild_closes_and_reopens_the_same_menu() {
+        function test_microphone_rebuild_closes_and_reopens_the_same_menu_data() {
+            return [
+                { tag: "no suffix", page: "", readme: "" },
+                { tag: "Readme", page: "", readme: "https://example.test/readme" },
+                { tag: "Settings", page: "vgs.jarvis", readme: "" },
+                { tag: "both", page: "vgs.jarvis", readme: "https://example.test/readme" }
+            ];
+        }
+        function test_microphone_rebuild_closes_and_reopens_the_same_menu(data) {
             root.synchronousMicrophone = true;
             widget.frame = {
                 hide: () => "ok",
-                describe: () => ({ name: "Jarvis", page: "", readme: "", keys: [], stops: false, builtin: false, owner: "" })
+                describe: () => ({ name: "Jarvis", page: data.page, readme: data.readme, keys: [], stops: false, builtin: false, owner: "" })
             };
             for (const [label, muted, total] of [["Mute microphone", true, 1], ["Unmute microphone", false, 2]]) {
                 mouseClick(button(), button().width / 2, button().height / 2, Qt.RightButton);
                 tryCompare(widget, "frameMenuOpen", true);
                 const menu = frameMenu();
+                const current = root.ready({});
+                current.microphoneMute = { kind: "ready", muted: !muted };
+                const changed = root.ready({ voiceMute: { kind: "on" }, visibility: { kind: "hidden" } });
+                changed.microphoneMute = { kind: "ready", muted: !muted };
+                const offered = Object.assign({}, current,
+                    { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [], checkedAt: null } });
+                const actions = ["Mute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"];
+                const rows = [
+                    { tag: "same labels", values: current, actions: actions },
+                    { tag: "changed labels", values: changed, actions: ["Unmute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Show Jarvis", "Key hints"] },
+                    { tag: "growth", values: offered, actions: actions.concat(["Do not resume"]) },
+                    { tag: "shrink", values: current, actions: actions }
+                ];
+                for (const row of rows) {
+                    widget.shell = root.shellWith(row.values);
+                    const expected = ["Hide"].concat(row.actions,
+                        data.readme === "" ? [] : ["Readme"], data.page === "" ? [] : ["Settings"]);
+                    // Read the public snapshot before yielding; a later action
+                    // lookup must not replace this independently expected order.
+                    compare(JSON.stringify(widget.frameMenuEntries), JSON.stringify(expected), row.tag + " readback");
+                    compare(JSON.stringify(menu.items().filter(item => item.visible).map(item => item.text)),
+                        JSON.stringify(expected), row.tag + " actual menu");
+                    compare(frameMenu(), menu, row.tag + " keeps the same open menu");
+                }
                 // Visibility is not a completed layout; mouseClick delivers
                 // coordinates to the window, not directly to this row.
                 // https://doc.qt.io/qt-6/qml-qttest-testcase.html#mouseClick-method
                 verify(renderedFrame(menu.surface.scope), "the frame menu lays out before pointer input");
                 const action = menu.items().find(item => item.text === label);
                 verify(action !== undefined && action.disabledReason === "");
-                mouseClick(action);
+                if (total === 1) mouseClick(action);
+                else {
+                    menu.keyTo(2);
+                    compare(menu.items()[menu.currentIndex], action, "keyboard and pointer choose the current microphone row");
+                    keyClick(Qt.Key_Return);
+                }
                 tryVerify(() => root.calls.length === total);
                 tryCompare(widget, "frameMenuOpen", false);
+                compare(JSON.stringify(widget.frameMenuEntries), "[]");
                 tryVerify(() => root.calls.length === total && widget.microphoneMuted === muted);
             }
             compare(JSON.stringify(root.calls), '[["microphone-mute",""],["microphone-mute",""]]');

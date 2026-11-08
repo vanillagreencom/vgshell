@@ -272,49 +272,48 @@ Item {
             Menu {
                 id: hideMenu
 
-                MenuItem {
-                    text: root.frameHideText
-                    iconName: root.frameHideIcon
-                    // The menu's grab ends before the dialog takes its own.
-                    onTriggered: {
-                        if (root.frame.describe().builtin) {
-                            const reply = root.frame.hide();
-                            if (reply !== "ok") console.warn("bar widget: hide " + root.moduleName + " " + reply);
-                            return;
-                        }
-                        ui.asking = true;
-                        Qt.callLater(ui.ask, "hide");
-                    }
-                }
+                // Repeater inserts its delegates in index order. Keep the
+                // suffix in that same segment, not beside a replaceable batch.
+                // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#details
                 Repeater {
-                    model: root.frameActions
+                    model: root.frameActions.length + 3
                     MenuItem {
-                        required property var modelData
                         required property int index
-                        text: modelData.label
-                        iconName: modelData.icon
-                        disabledReason: modelData.disabledReason || ""
-                        // Read from the list itself: a model entry is a copy
-                        // that need not keep the function.
-                        onTriggered: ui.triggerFrameAction(index)
-                    }
-                }
-                MenuItem {
-                    text: "Readme"
-                    iconName: "book"
-                    visible: ui.readme !== ""
-                    onTriggered: {
-                        const reply = root.frame.openReadme();
-                        if (reply !== "ok") console.warn("bar widget: readme of " + root.moduleName + " " + reply);
-                    }
-                }
-                MenuItem {
-                    text: "Settings"
-                    iconName: "settings"
-                    visible: ui.settingsPage !== ""
-                    onTriggered: {
-                        const reply = root.frame.openSettings();
-                        if (reply !== "ok") console.warn("bar widget: settings of " + root.moduleName + " " + reply);
+                        readonly property int actionIndex: index - 1
+                        readonly property string role: index === 0 ? "hide"
+                            : index <= root.frameActions.length ? "action"
+                            : index === root.frameActions.length + 1 ? "readme" : "settings"
+
+                        text: role === "hide" ? root.frameHideText
+                            : role === "action" ? root.frameActions[actionIndex].label
+                            : role === "readme" ? "Readme" : "Settings"
+                        iconName: role === "hide" ? root.frameHideIcon
+                            : role === "action" ? root.frameActions[actionIndex].icon
+                            : role === "readme" ? "book" : "settings"
+                        disabledReason: role === "action" ? root.frameActions[actionIndex].disabledReason || "" : ""
+                        visible: role === "readme" ? ui.readme !== ""
+                            : role === "settings" ? ui.settingsPage !== "" : true
+
+                        onTriggered: {
+                            if (role === "action") {
+                                ui.triggerFrameAction(actionIndex);
+                            } else if (role === "hide") {
+                                // The menu's grab ends before the dialog takes its own.
+                                if (root.frame.describe().builtin) {
+                                    const reply = root.frame.hide();
+                                    if (reply !== "ok") console.warn("bar widget: hide " + root.moduleName + " " + reply);
+                                    return;
+                                }
+                                ui.asking = true;
+                                Qt.callLater(ui.ask, "hide");
+                            } else if (role === "readme") {
+                                const reply = root.frame.openReadme();
+                                if (reply !== "ok") console.warn("bar widget: readme of " + root.moduleName + " " + reply);
+                            } else {
+                                const reply = root.frame.openSettings();
+                                if (reply !== "ok") console.warn("bar widget: settings of " + root.moduleName + " " + reply);
+                            }
+                        }
                     }
                 }
             }
