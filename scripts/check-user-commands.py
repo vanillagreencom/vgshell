@@ -162,7 +162,7 @@ EXEMPT = (
     ("status", "*", "sourceAction", "tui"),
     ("status", "*", "settings"), ("status", "*", "icon"), ("status", "*", "plain"),
     ("setupGuide", "readme"),
-    ("requirements", "*", "command"), ("requirements", "*", "dbus", "bus"), ("requirements", "*", "dbus", "name"), ("requirements", "*", "nmVpn", "service"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"), ("requirements", "*", "install"),
+    ("requirements", "*", "command"), ("requirements", "*", "drmDriver"), ("requirements", "*", "dbus", "bus"), ("requirements", "*", "dbus", "name"), ("requirements", "*", "nmVpn", "service"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"), ("requirements", "*", "install"),
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "args"), ("tui", "*", "entry", "icon"), ("tui", "*", "entry", "settings"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "tui"), ("menu", "*", "tuiGroup"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),

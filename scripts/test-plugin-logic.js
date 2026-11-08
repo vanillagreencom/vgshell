@@ -3252,7 +3252,7 @@ const CONTROLS = [
     ["a row action runs on a row that does not offer it", "return published.id === row && published.actions !== undefined && published.actions.indexOf(rowAction) !== -1;", "return true;"],
     ["a row's state is never a chip", 'var STATUS_ROW_CHIP_TONES = ["warning", "danger"];', "var STATUS_ROW_CHIP_TONES = [];"],
     ["a schema field may be an action", 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];', 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];'],
-    ["a requirement may sit beside a field", '"floor", "install"];', '"floor", "install", "setting"];'],
+    ["a requirement may sit beside a field", '"floor", "install", "drmDriver"];', '"floor", "install", "drmDriver", "setting"];'],
     ["a listed screen may sit beside a field", 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "settings"];', 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "setting", "settings"];'],
     ["a field may read its hint from a status entry", 'var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info",', 'var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info",'],
 

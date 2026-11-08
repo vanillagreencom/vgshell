@@ -539,9 +539,10 @@ Singleton {
     }
 
     // Plugin `id`'s requirement rows, each with its state from the last
-    // scan: PluginLogic.requirementRows over its judged manifest.
+    // scan. A manifest publication may request rows before the derived
+    // requirementOwners binding recomputes, so use the same judge directly.
     function requirementsOf(id) {
-        return Logic.requirementRows(requirementOwners[id], Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
+        return Logic.requirementRows(Logic.requirementOwner(manifests[id], requirementDrivers[id]), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
     }
 
     // Where a plugin was found: `bundled` under the shell's own plugins

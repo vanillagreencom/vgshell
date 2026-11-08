@@ -373,7 +373,7 @@ def drm_driver_rows(script=SCAN, quiet=False):
             stderr = io.StringIO()
             try:
                 if unreadable is not None:
-                    os.chmod(os.path.join(root, unreadable), 0o000)
+                    os.chmod(root if unreadable == "." else os.path.join(root, unreadable), 0o000)
                 with mock.patch.object(module, "DRM_DIRECTORY", root), \
                         mock.patch.dict(os.environ, {"PATH": os.path.join(tmp, "stubs")}), \
                         mock.patch.object(module.os, "listdir", wraps=os.listdir) as listed, \
@@ -381,7 +381,7 @@ def drm_driver_rows(script=SCAN, quiet=False):
                     module.scan_base(os.path.join(tmp, "plugins"), out, False, None, {}, {})
             finally:
                 if unreadable is not None:
-                    os.chmod(os.path.join(root, unreadable), 0o755)
+                    os.chmod(root if unreadable == "." else os.path.join(root, unreadable), 0o755)
             entries = {os.path.basename(entry["dir"]): entry for entry in out}
             facts = [entries[owner].get("drmDrivers", {}).get("nvidia") for owner in ("a", "b")]
             good = set(entries) == set(manifests) and all(isinstance(fact, dict) and fact.get("state") == state for fact in facts) and facts[0] == facts[1]
