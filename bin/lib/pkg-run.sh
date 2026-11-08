@@ -88,7 +88,7 @@ if [[ $elevator == sudo ]]; then
 fi
 for k in "${!starts[@]}"; do
   step=("${prefix[@]}" "${args[@]:${starts[k]}:${counts[k]}}")
-  vgs_tui_step 'Run this step to make the selected software change.'
+  vgs_tui_step 'Running'
   printf -v shown '%q ' "${step[@]}"
   vgs_tui_commands "${shown% }"
   status=0
