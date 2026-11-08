@@ -221,7 +221,7 @@ case "$read_only_jarvis_before" in
 esac
 chmod -R u+w -- "$readonly_dest/usr"
 read_only_prefix_check_installed_log "$instance_log"
-jarvis_notice_close
+jarvis_notice_close "$signal_shim"
 # Later rows edit the sandbox tree, so they must run its shell again.
 if stop_shell && start_shell "$repo" "$sandbox/read-only-restored-qs.log"; then
   ok "the read-only prefix row restores the repository shell"

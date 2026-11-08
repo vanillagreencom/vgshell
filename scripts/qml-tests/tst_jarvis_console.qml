@@ -16,13 +16,14 @@ Item {
 
     property var recoveryConsole: null
     property int destroyedRecoveryConsoles: 0
+    property var savedShortcutNames: null
 
     // Status values over Session's initial record with REGIONS set, the
     // AI model the daemon names beside it.
     function values(regions) {
         const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gate: { kind: "up" } }, regions);
         return { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
-            detail: { phase: Session.phaseOf(s), seq: 1, state: s, brain: "Claude Opus 5.5" } };
+            detail: { phase: Session.phaseOf(s), seq: 1, state: s, brain: "Claude Opus 5.5", conversationId: "fixture:" + s.history.epoch } };
     }
 
     function shellWith(values) {
@@ -30,8 +31,8 @@ Item {
             screens: { current: null },
             status: { values: values },
             session: { locked: false },
-            settings: { mode: "hold", voiceProvider: "gemini", home: "" },
-            shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
+            settings: { holdToTalk: true, voiceProvider: "gemini", home: "" },
+            shortcut: { keys: { talk: "SUPER+code:44", "voice-mute": "SUPER+CTRL+M", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
             ipc: { handle: (name, fn) => {}, call: (name, arg) => "ok" },
             surfaces: { openPage: (page, tab) => {} }
         };
@@ -47,12 +48,14 @@ Item {
     }
     Button { id: outside; text: "Outside Console" }
 
-    TestCase {
+    UnitCase {
         name: "jarvisConsole"
         when: windowShown
 
         function init() {
             UnitTheme.reset();
+            root.savedShortcutNames = ShortcutLabels.names;
+            ShortcutLabels.names = Object.assign({}, ShortcutLabels.symbolNames, { "CODE:44": { keysym: "j", codepoint: 106 } });
             jarvisConsole.tab = 0;
             jarvisConsole.historyType = 0;
             jarvisConsole.shell = root.shellWith(root.values({}));
@@ -87,6 +90,123 @@ Item {
             jarvisConsole.closeAskEditor();
             jarvisConsole.visible = true;
             wait(0);
+            ShortcutLabels.names = root.savedShortcutNames;
+        }
+
+        function test_resume_outcomes_reach_only_the_now_body_data() {
+            const reading = (steps, checkedAt) => ({ model: null, since: null, offer: null,
+                steps: steps, checkedAt: checkedAt === undefined ? null : checkedAt });
+            const step = (kind, name, outcome, cause) => ({ kind: kind, name: name, outcome: outcome, cause: cause });
+            const table = [
+                { tag: "unpublished", reading: undefined, lines: [] },
+                { tag: "no-answer", reading: null, lines: [] },
+                { tag: "record-not-resumed", reading: reading([]), lines: [] },
+                { tag: "resumed", reading: reading([step("delegate", "jarvis", "resumed", null)]),
+                    lines: ["Resumed the Jarvis session."] },
+                { tag: "pending", reading: reading([step("lane", "VGS-1797", "pending", null)]),
+                    lines: ["Waiting to resume coding task VGS-1797."] },
+                { tag: "failed", reading: reading([step("overseer", "vgshell", "failed", "settings-busy")]),
+                    lines: ["Could not resume the agent fleet for project vgshell: settings-busy."] },
+                { tag: "unreached", reading: reading([step("lane", "VGS-1797", "failed", null)]),
+                    lines: ["Could not resume coding task VGS-1797."] },
+                { tag: "polling-stopped", reading: reading([step("delegate", "jarvis", "resumed", null)], "11:12"),
+                    lines: ["Resumed the Jarvis session."], checked: true }
+            ];
+            // session-control.js restartOf admits 32 steps, 100-character
+            // names and 200-character causes. No Setup badge bound applies
+            // to the console's complete, wrapped data reading.
+            const name = "X".repeat(100), cause = "<b>literal</b>" + "c".repeat(186);
+            const maximum = Array.from({ length: 32 }, () => step("lane", name, "failed", cause));
+            table.push({ tag: "maximum", reading: reading(maximum),
+                lines: maximum.map(() => "Could not resume coding task " + name + ": " + cause + "."), wrapped: true });
+            return table;
+        }
+
+        function test_resume_outcomes_reach_only_the_now_body(data) {
+            const values = root.values({});
+            if (data.reading !== undefined) values.jarvisSession = data.reading;
+            const calls = [];
+            const shell = root.shellWith(values);
+            shell.surfaces.openPage = (page, tab) => calls.push([page, tab]);
+            jarvisConsole.shell = shell;
+            const section = collect(jarvisConsole, n => n.objectName === "sessionResume", [])[0];
+            const checked = collect(jarvisConsole, n => n.objectName === "sessionResumeChecked", [])[0];
+            tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === data.lines.length);
+            let labels = collect(section, n => n.objectName === "sessionResumeLine", []);
+            compare(labels.map(label => label.text), data.lines, "the complete ordered outcomes reach their drawn labels");
+            compare(section.visible, data.lines.length > 0 || data.checked === true);
+            compare(checked.visible, data.checked === true);
+            verify(renderedFrame(jarvisConsole), "the real Now view draws the changed reading");
+            for (const label of labels) {
+                verify(label.visible && label.width > 0 && label.height >= label.implicitHeight);
+                compare(label.textFormat, Text.PlainText, "a package cause remains literal text");
+                compare(label.wrapMode, Text.Wrap);
+                if (data.wrapped) verify(label.lineCount > 1, "a complete maximum-length outcome wraps");
+            }
+            if (data.checked) {
+                verify(checked.text.includes("11:12"));
+                checked.forceActiveFocus(Qt.TabFocusReason);
+                tryCompare(checked, "activeFocus", true);
+                keyClick(Qt.Key_Return);
+                compare(calls, [["vgs.jarvis", "Setup/sessionStart"]]);
+            }
+            jarvisConsole.tab = 2;
+            tryCompare(section, "visible", false, 1000, "resume outcomes do not leak into History");
+            verify(labels.every(label => !label.visible) && !checked.visible);
+            jarvisConsole.tab = 0;
+            tryCompare(section, "visible", data.lines.length > 0 || data.checked === true);
+            compare(labels.map(label => label.text), data.lines, "returning to Now retains the current complete reading");
+            if (data.lines.length > 0) {
+                // Removing the Repeater from the visual hierarchy destroys
+                // its delegates without changing its model. Let it own the
+                // removal; never detach or destroy a delegate ourselves.
+                // Read the model separately: itemAt, not count, tells whether
+                // a delegate is live while the Repeater is detached.
+                // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#itemAt-method
+                const repeaters = collect(section, n => n instanceof Repeater && n.itemAt(0) === labels[0], []);
+                compare(repeaters.length, 1, "the outcome delegate identifies its owning Repeater");
+                const repeater = repeaters[0];
+                const owner = repeater.parent;
+                const outcomeModel = repeater.model.slice();
+                compare(outcomeModel, data.lines);
+                compare(repeater.count, data.lines.length);
+                labels = [];
+                try {
+                    repeater.parent = null;
+                    tryVerify(() => outcomeModel.every((line, index) => repeater.itemAt(index) === null));
+                    tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === 0);
+                    compare(repeater.model, outcomeModel, "detachment retains the complete outcome model");
+                    // Recreate through a transient visual owner whose width
+                    // differs from the content layout. The Repeater still
+                    // owns every delegate; no delegate is detached by hand.
+                    verify(root.width !== section.width);
+                    repeater.parent = root;
+                    tryCompare(repeater, "count", data.lines.length);
+                    for (let index = 0; index < outcomeModel.length; index++) {
+                        const label = repeater.itemAt(index);
+                        verify(label !== null);
+                        compare(label.text, outcomeModel[index]);
+                        compare(label.width, section.width, "a transient parent does not own resume text width");
+                    }
+                } finally {
+                    repeater.parent = owner;
+                }
+                tryCompare(repeater, "count", data.lines.length);
+                tryVerify(() => collect(section, n => n.objectName === "sessionResumeLine", []).length === data.lines.length);
+                const restored = collect(section, n => n.objectName === "sessionResumeLine", []);
+                compare(restored.map(label => label.text), data.lines, "the complete reading survives delegate replacement");
+                compare(repeater.model, outcomeModel);
+                verify(renderedFrame(jarvisConsole), "the reattached Now view draws the complete recreated reading");
+                for (let index = 0; index < restored.length; index++) {
+                    const label = restored[index];
+                    compare(repeater.itemAt(index), label, "the Repeater recreates each ordered outcome delegate");
+                    verify(label.visible && label.width > 0 && label.height >= label.implicitHeight);
+                    compare(label.width, section.width);
+                    compare(label.textFormat, Text.PlainText);
+                    compare(label.wrapMode, Text.Wrap);
+                    if (data.wrapped) verify(label.lineCount > 1, "a recreated maximum-length outcome wraps");
+                }
+            }
         }
 
         function test_handoff_is_unsent_and_preserves_occupied_draft() {
@@ -195,6 +315,42 @@ Item {
             compare(sent[2], "Deliberate button press");
         }
 
+        function test_new_conversation_uses_the_shared_keyboard_action() {
+            const shell = root.shellWith(root.values({}));
+            const calls = [];
+            shell.ipc.call = (name, arg) => { calls.push([name, arg]); return "ok"; };
+            jarvisConsole.shell = shell;
+            const controls = composerControls();
+            const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
+            verify(action !== undefined);
+            controls.entry.text = "Unsent draft";
+            action.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(calls), '[["new-conversation",""]]');
+            compare(controls.entry.text, "");
+            compare(jarvisConsole.problem, "");
+            verify(action.activeFocus, "reset leaves its keyboard target available");
+            jarvisConsole.shell = root.shellWith({});
+            verify(action.disabledReason !== "");
+        }
+
+        function test_now_uses_resumed_history_and_fresh_resets_keep_the_archive() {
+            const values = root.values({ history: { kind: "current", epoch: 4 } });
+            values.conversation = [
+                { gen: 2, role: "user", text: "Earlier context", stage: "final", session: "fixture:3", at: 1000, startedAt: 1000 },
+                { gen: 4, role: "user", text: "First open", stage: "final", session: "fixture:4", at: 2000, startedAt: 2000 },
+                { gen: 6, role: "assistant", text: "Resumed answer", stage: "final", session: "fixture:4", at: 3000, startedAt: 2000 }
+            ];
+            jarvisConsole.shell = root.shellWith(values);
+            compare(JSON.stringify(jarvisConsole.transcriptRows.map(row => row.text)), '["First open","Resumed answer"]');
+            compare(jarvisConsole.historyGroups.length, 2, "history keeps the older context");
+            const reset = root.values({ history: { kind: "reset", epoch: 5, reason: "requested" } });
+            reset.conversation = values.conversation;
+            jarvisConsole.shell = root.shellWith(reset);
+            compare(jarvisConsole.transcriptRows.length, 0, "fresh Now contains none of the old model context");
+            compare(jarvisConsole.historyGroups.length, 2, "reset erases no history rows");
+        }
+
         function test_ask_recovery_survives_console_recreation_data() {
             return ["first-pending", "unknown", "retry-pending"].map(kind => ({ tag: kind, kind: kind }));
         }
@@ -298,14 +454,11 @@ Item {
             verify(jarvisConsole.askRecoveryText.indexOf(ask.what) !== -1, jarvisConsole.askRecoveryText);
         }
 
-        // Real Session regions: mute and gate can refuse before duplex, and
-        // engine changes arrive while the same Console instance stays open.
+        // Gate and engine changes arrive while the same Console stays open.
         function test_composer_transition_data() {
             const typed = { engine: { kind: "chained" } };
             const speech = { engine: { kind: "duplex" } };
             const rows = [
-                { tag: "unmute-duplex", from: Object.assign({}, speech, { mute: { kind: "on" } }), to: speech, focus: "speechStop", expected: "speechStop" },
-                { tag: "mute-duplex", from: speech, to: Object.assign({}, speech, { mute: { kind: "on" } }), focus: "speechStop", expected: "speechStop" },
                 { tag: "ready-duplex", from: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), to: speech, focus: "speechStop", expected: "speechStop" },
                 { tag: "unready-duplex", from: speech, to: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), focus: "speechStop", expected: "speechStop" },
                 { tag: "dictation", from: typed, to: { engine: { kind: "dictation" } }, focus: "entry", expected: "entry" }
@@ -358,6 +511,34 @@ Item {
             }
         }
 
+        function test_system_mute_keeps_the_typed_composer_available() {
+            const values = root.values({ engine: { kind: "chained" } });
+            values.microphoneMute = { kind: "ready", muted: true };
+            jarvisConsole.shell = root.shellWith(values);
+            compare(jarvisConsole.ready, true);
+            compare(jarvisConsole.speechOnly, false);
+            const controls = composerControls();
+            verify(controls.entry.visible);
+            controls.entry.text = "Fixture message";
+            compare(controls.send.disabledReason, "", "system microphone mute cannot refuse typed input");
+        }
+
+        function test_cloud_voice_keeps_its_own_guidance_data() {
+            return [{ tag: "toggle", hold: false }, { tag: "hold", hold: true }];
+        }
+        function test_cloud_voice_keeps_its_own_guidance(data) {
+            const values = root.values({ engine: { kind: "duplex" } });
+            values.voiceRoute = { tone: "ok", text: "Fixture cloud voice" };
+            const shell = root.shellWith(values);
+            shell.settings.holdToTalk = data.hold;
+            jarvisConsole.shell = shell;
+            const controls = composerControls();
+            verify(controls.speechHint.visible);
+            verify(controls.speechHint.text.indexOf("Fixture cloud voice") !== -1, "Console retains its voice reading");
+            verify(controls.speechHint.text.indexOf(jarvisConsole.talkLine) !== -1, "Console retains the current Talk guidance");
+            verify(jarvisConsole.talkLine.indexOf("Super+J") !== -1);
+        }
+
         function test_tabs_enter_visible_composer_data() {
             return [{ tag: "typed", kind: "chained", control: "entry" }, { tag: "speech", kind: "duplex", control: "speechStop" }];
         }
@@ -365,9 +546,14 @@ Item {
         function test_tabs_enter_visible_composer(data) {
             setRegions({ engine: { kind: data.kind } });
             const controls = composerControls();
+            const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
             controls.tabs.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Tab);
+            tryCompare(action, "activeFocus", true);
+            keyClick(Qt.Key_Tab);
             tryCompare(controls[data.control], "activeFocus", true);
+            keyClick(Qt.Key_Backtab);
+            tryCompare(action, "activeFocus", true);
             keyClick(Qt.Key_Backtab);
             tryCompare(controls.tabs, "activeFocus", true);
         }

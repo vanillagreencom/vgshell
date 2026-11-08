@@ -2133,11 +2133,11 @@ ipc_page_control() {
   cat >"$fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ ${1:-} == ipc && ${2:-} == call && ${3:-} == shell && ${4:-} == page ]]; then
-  case "${6:-}" in
+if [[ ${1:-} == ipc && ${2:-} == call && ${3:-} == -- && ${4:-} == shell && ${5:-} == page ]]; then
+  case "${7:-}" in
     0) echo '2 {"a":' ;;
     1) echo '2 1}' ;;
-    *) echo "refused: page=${6:-} pages=2" ;;
+    *) echo "refused: page=${7:-} pages=2" ;;
   esac
 else
   echo paged=7
@@ -2152,8 +2152,8 @@ ipc_page_failure_control() {
   cat >"$fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ ${1:-} == ipc && ${2:-} == call && ${3:-} == shell && ${4:-} == page ]]; then
-  case "${6:-}" in
+if [[ ${1:-} == ipc && ${2:-} == call && ${3:-} == -- && ${4:-} == shell && ${5:-} == page ]]; then
+  case "${7:-}" in
     0) echo '2 {"a":' ;;
     1) echo 'Function not found.' ;;
   esac

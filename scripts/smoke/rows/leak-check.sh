@@ -67,7 +67,7 @@
 # per-screen layers every 0.1 s for up to timeout_s; the end reading's
 # files, for the feed, every 50 ms for up to timeout_s. Notification owner
 # waits poll every 0.2 s at the harness's state-wait bound.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/tree.sh scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 expect "the seed starts Themes disabled" False plugin_enabled vgs.themes
 leak_plugin_setup vgs.themes true || { fail "leak-check: fixture precondition failed"; return 1; }

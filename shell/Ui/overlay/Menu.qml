@@ -142,7 +142,8 @@ Item {
 
     function triggerCurrent() {
         const all = items();
-        if (currentIndex >= 0 && currentIndex < all.length && reachable(all[currentIndex])) all[currentIndex].triggered();
+        if (currentIndex >= 0 && currentIndex < all.length && reachable(all[currentIndex])
+                && !all[currentIndex].lock.locked) all[currentIndex].triggered();
     }
 
     // Add `letter` to the typed letters and highlight the first reachable

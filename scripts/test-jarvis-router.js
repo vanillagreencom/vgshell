@@ -27,7 +27,7 @@ world(async () => {
         const audit = Audit.create({ state: directory, now: () => Date.UTC(2026, 9, 1) });
         const rows = () => fs.existsSync(path.join(directory, "audit/2026-10-01.jsonl"))
             ? fs.readFileSync(path.join(directory, "audit/2026-10-01.jsonl"), "utf8").trim().split("\n").map(JSON.parse) : [];
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => {
                 if (options.ackCancel !== false) done();
@@ -63,8 +63,8 @@ world(async () => {
             assert.ok(lease, "setup-verified browser registers its real executors");
             cleanups.push(() => lease.close());
         }
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         function newTurn() { runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user"); }
         newTurn();
         const dispatch = e => runner.dispatch(e);
@@ -539,7 +539,10 @@ esac
             const w = make(implementation, session); held(w);
             // A brain may end its response while the approval remains on screen.
             w.dispatch({ type: "brain-done", ...w.runner.state.turn });
-            w.time(60000); w.confirm();
+            const approval = w.runner.state.approval;
+            w.tick(approval.deadline);
+            assert.equal(w.runner.state.approval.kind, "none", "the deadline retires an unanswered hold");
+            w.confirm({ id: approval.id, digest: approval.digest, gen: approval.gen });
             assert.equal(w.starts.length, 0);
             assert.equal(w.runner.state.approval.kind, "none");
             assert.equal(w.rows().at(-1).decision, "refuse");
@@ -674,7 +677,7 @@ esac
             first.answers[1]({ outcome: "completed", content: "typed twice" });
             const second = make(implementation);
             assert.equal(second.call("input.text", text).kind, "held", "a new router cannot inherit a grant");
-            first.dispatch({ type: "stop" }); first.newTurn();
+            first.dispatch({ type: "toggle" }); first.newTurn();
             assert.equal(first.call("input.text", text).kind, "held", "a new conversation cannot inherit a grant");
         }],
         ["grant-bound", implementation => {

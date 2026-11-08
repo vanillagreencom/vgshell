@@ -540,6 +540,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/Core.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Denied.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Desktop.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/DesktopSession.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/EchoCancel.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ElevenLabs.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Executors.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Files.js
@@ -579,12 +580,14 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/ToolBridge.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ToolRouter.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Tools.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Vision.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/VoiceRollover.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/WireBrain.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/audio-child.py
 f share/vgshell/shell/plugins/vgs.jarvis/backend/browser-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/claude-hook
 f share/vgshell/shell/plugins/vgs.jarvis/backend/clone-speech.py
+f share/vgshell/shell/plugins/vgs.jarvis/backend/echo-cancel-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/fleet-setup.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/input-check.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/jarvisd.js
@@ -631,6 +634,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/remove-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/repair-home.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/resume-session.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-echo-cancel.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-fleet.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-input.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-local.sh

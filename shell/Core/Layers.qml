@@ -20,6 +20,26 @@ Singleton {
     // The entries' serials, the host's model: Variants copies a JS object it
     // is handed, so it is keyed by a value and looks the entry up.
     readonly property var serials: entries.map(e => e.serial)
+    // Completed bar frames, written only by BarHost. An observation names
+    // the real widget's owner/revision, output, request key and drawn dot.
+    property var barFrames: ({})
+
+    function setBarFrame(host, rows) {
+        if (JSON.stringify(barFrames[host] || []) === JSON.stringify(rows)) return;
+        const next = Object.assign({}, barFrames);
+        if (rows.length === 0) delete next[host];
+        else next[host] = rows;
+        barFrames = next;
+    }
+
+    function barIndicators(ctx) {
+        if (!ctx.active) return Object.freeze([]);
+        // QML's array API has no flat; concatenate the host-owned row lists.
+        const rows = Object.values(barFrames).reduce((all, hostRows) => all.concat(hostRows), []);
+        return Object.freeze(rows.filter(row =>
+            row.plugin === ctx.id && row.revision === ctx.manifest.__revision).map(row =>
+                Object.freeze({ output: row.output, key: row.key, dot: row.dot })));
+    }
 
     // Emitted with an entry's serial before it leaves `entries`, so the host
     // destroys its content while the plugin that declared the component

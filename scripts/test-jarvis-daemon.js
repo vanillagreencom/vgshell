@@ -15,8 +15,7 @@ const { standins } = require("./fixtures/jarvis/audio.js");
 const desktopFixture = require("./fixtures/jarvis/desktop.js");
 const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-driver.js");
 const tree = path.resolve(__dirname, "..");
-// Session's tap bound: the shipped daemon reads a Talk release sooner than
-// this after its press as a tap, which keeps listening.
+// A held release uses Session's own press clock and tap boundary.
 const TAP_MS = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")).TAP_MS;
 // The daemon's held snapshot acknowledges the press on its Session clock.
 // Advance only that disposable clock; a parent's write time says nothing
@@ -29,11 +28,11 @@ function releaseHeld(clock, state, send) {
 }
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
     cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
+keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 // The rows of a file another process appends to. Every writer ends a row
 // with a newline, so the text after the last one is a row still being
 // written: a poll skips it rather than parse half a row.
@@ -113,7 +112,7 @@ async function inside() {
             else assert.equal(err, "");
             const frames = out.trim() === "" ? [] : out.trim().split("\n").map(line => JSON.parse(line));
             const shell = frames.filter(frame => frame.type === "shell-status");
-            assert.deepEqual(shell, expected.length || (typeof reason === "string" && /^jarvis: (voice-)?mute=/.test(reason)) ? [{ v: 1, type: "shell-status", gen: hello.gen,
+            assert.deepEqual(shell, expected.length || (typeof reason === "string" && /^jarvis: (voice-mute=|hidden=|state=retired-mute-)/.test(reason)) ? [{ v: 1, type: "shell-status", gen: hello.gen,
                 revision: hello.revision, availability: { kind: "checking" } }] : []);
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
@@ -127,8 +126,8 @@ async function inside() {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.notEqual(frame.snapshot.kind, "ready", "this legacy Home has no asks source; startup must never fabricate an empty inbox");
             }
-            // Satellite owns classification; this runner checks its wire frames.
-            for (const frame of frames.filter(frame => frame.type === "main-reach"))
+            // Validate independent readings without pinning their device availability.
+            for (const frame of frames.filter(frame => ["main-reach", "echo-cancel"].includes(frame.type)))
                 Protocol.accept(JSON.stringify(frame), "daemon");
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
@@ -141,7 +140,7 @@ async function inside() {
                     : ["cause", "decision", "effect", "outcome", "refusal", "time", "tool"]);
             }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
-                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks" && frame.type !== "main-reach"
+                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks" && frame.type !== "main-reach" && frame.type !== "echo-cancel"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")
                 && (keepShown || !shownTypes.includes(frame.type))), expected);
@@ -161,10 +160,11 @@ async function inside() {
                 seq: ++seq, state: {
                     gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
                     gate: { kind: "down", reason: locked ? "locked" : "unconfigured" },
-                    mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
+                    voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
-                    conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
-                    indicator: { kind: "gone" },
+                    conversation: { kind: "ended" }, history: { kind: "current", epoch: 1 },
+                    input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" }, cue: { kind: "none" },
+                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
                 }, phase: "down", brain: "" });
@@ -221,7 +221,7 @@ async function inside() {
     await run(daemon, ["a".repeat(262145)], 65, "jarvis: protocol=line-too-long");
     await run(daemon, [JSON.stringify({ ...hello, type: "unknown" }) + "\n"], 65, "jarvis: protocol=type");
     const intent = name => ({ v: 1, type: "intent", gen: 0, revision: hello.revision, intent: name });
-    const indicator = shown => ({ v: 1, type: "indicator", gen: 0, revision: hello.revision, shown });
+    const indicator = (shown, bar = "gone", gen = 0) => ({ v: 1, type: "indicator", gen, revision: hello.revision, shown, bar });
     await run(daemon, [JSON.stringify(indicator(true)) + "\n"], 65, "jarvis: protocol=indicator-identity");
     await run(daemon, [JSON.stringify(hello) + "\n",
         JSON.stringify({ ...indicator(true), revision: "b".repeat(64) }) + "\n"],
@@ -230,6 +230,10 @@ async function inside() {
     await run(daemon, [JSON.stringify(hello) + "\n",
         JSON.stringify({ ...intent("stop"), revision: "b".repeat(64) }) + "\n"],
         65, "jarvis: protocol=identity", states([false]));
+    for (const name of ["hide", "show"])
+        await run(daemon, [JSON.stringify(hello) + "\n",
+            JSON.stringify({ ...intent(name), revision: "b".repeat(64) }) + "\n"],
+            65, "jarvis: protocol=identity", states([false]));
     for (const changed of [{ revision: "b".repeat(64) },
         { directories: { ...hello.directories, state: path.join(process.env.JARVIS_TEST_ROOT, "other") } }])
         await run(daemon, [JSON.stringify(hello) + "\n", JSON.stringify({ ...hello, ...changed }) + "\n"],
@@ -675,13 +679,20 @@ async function inside() {
             fs.writeFileSync(file, before.replace(needle, "const fixtureHeldClock = " + JSON.stringify(clock) + ";\n    "
                 + "const runner = new SessionRunner(Session, ports, {\n        now: () => "
                 + (fixed ? read : "Math.max(performance.now(), " + read + ")") + ","));
+        } else if (fixed) {
+            const read = 'Number(fs.readFileSync(fixtureHeldClock, "utf8"))';
+            const elapsed = "Math.max(performance.now(), " + read + ")";
+            if (before.includes(elapsed)) {
+                assert.equal(before.split(elapsed).length - 1, 1, "one disposable elapsed Session clock");
+                fs.writeFileSync(file, before.replace(elapsed, read));
+            }
         }
         fs.writeFileSync(clock, "0");
         return clock;
     }
-    async function conversation(file, check, mode = "hold", expectedCode = 0, expectedError = "", beforeState = null,
-        sounds = hello.settings.sounds, settings = {}) {
-        const clock = holdClock(file);
+    async function conversation(file, check, holdToTalk = true, expectedCode = 0, expectedError = "", beforeState = null,
+        sounds = hello.settings.sounds, settings = {}, fixedClock = false) {
+        const clock = holdClock(file, fixedClock);
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -711,16 +722,31 @@ async function inside() {
             assert.fail("daemon state timeout: " + JSON.stringify(last()) + " stderr=" + err);
         };
         try {
-            send({ ...hello, settings: { ...hello.settings, mode, sounds, ...settings } });
+            send({ ...hello, settings: { ...hello.settings, holdToTalk, sounds, ...settings } });
             if (beforeState !== null) await beforeState({ messages });
             await wait(m => m.state.gate.kind !== "down" || m.state.gate.reason === "unconfigured");
-            const talk = name => send(intent(name));
+            const talk = name => send({ ...intent(name), gen: last().state.gen });
             const holdUp = async (release = releaseHeld) => {
                 const held = await wait(message => message.state.input.kind === "held");
-                release(clock, held.state, () => send(intent("talk-up")));
+                release(clock, held.state, () => talk("talk-up"));
             };
-            await check({ send: talk, holdUp, raw: send, reply: send,
-                indicator: shown => send(indicator(shown)), wait, last, messages, pid: child.pid,
+            const closeTalk = async gates => {
+                assert.equal(fixedClock, true, "short silent Talk closes use the injected Session clock");
+                const silent = path.join(gates, "silent-capture");
+                // Held input is published before playback cleanup can acquire
+                // capture. Own its empty result before either intent can race.
+                fs.writeFileSync(silent, "");
+                if (last().state.input.kind !== "held") talk("talk-down");
+                const held = await wait(message => message.state.input.kind === "held");
+                fs.writeFileSync(clock, String(held.state.input.since + TAP_MS - 1));
+                talk("talk-up");
+                const released = await wait(message => message.state.input.kind !== "held");
+                if (released.state.conversation.kind === "ended")
+                    fs.rmSync(silent, { force: true });
+            };
+            await check({ send: talk, holdUp, closeTalk, raw: send, reply: send,
+                indicator: (shown, bar = "gone", gen = last().state.gen) => send(indicator(shown, bar, gen)),
+                wait, last, messages, pid: child.pid,
                 pressClock: at => fs.writeFileSync(clock, String(at)) });
             child.stdin.end();
             const [code, signal] = await closed;
@@ -826,20 +852,6 @@ async function inside() {
     await taskWire(daemonCopy("task-wire"));
     await control("task-request-owner", 'requests.send("tui.run", args, 20000, result => {',
         'requests.send("desktop.list", [], 20000, result => {', taskWire);
-    const muteFile = path.join(hello.directories.state, "mute.json");
-    const muteCheck = async file => {
-        await conversation(file, async w => {
-            w.send("mute");
-            await w.wait(m => m.state.mute.kind === "on");
-            assert.deepEqual(JSON.parse(fs.readFileSync(muteFile, "utf8")), { muted: true });
-            assert.equal(fs.statSync(muteFile).mode & 0o777, 0o600);
-            for (const name of ["talk-down", "talk-up", "stop"]) w.send(name);
-            await w.wait(m => m.seq >= 5);
-            assert.equal(w.last().state.mute.kind, "on");
-            assert.equal(w.last().state.capture.kind, "closed");
-        });
-    };
-    await muteCheck(daemon);
     // No harness brain exists, so startup opens no tool bridge session.
     const noBridge = file => conversation(file, async () => {
         assert.equal(fs.existsSync(path.join(hello.directories.runtime, "tools.sock")), false, "startup creates no tools.sock");
@@ -849,64 +861,47 @@ async function inside() {
         'void bridge.open({ gen: 0, recipients: require("./Policy.js").recipients({ conversation: "planted",'
         + ' profile: "standard", cloudVision: "ask", brain: { kind: "local", provider: "planted", account: "" },'
         + ' speech: [{ kind: "local", provider: "planted", account: "" }] }) });', noBridge);
-    const restoreCheck = file => conversation(file, async w => {
-        assert.equal(w.last().state.mute.kind, "on");
-        await w.wait(m => m.state.mute.kind === "on" && w.messages.some(message =>
-            message.type === "devices" && message.microphones.some(item => item.value === "fixture.mic")));
-        w.send("talk-down"); w.send("talk-up"); w.send("stop");
-        await w.wait(m => m.seq >= 5);
-        assert.equal(w.last().state.capture.kind, "closed");
-        w.send("mute");
-        await w.wait(m => m.state.mute.kind === "off");
-        assert.deepEqual(JSON.parse(fs.readFileSync(muteFile, "utf8")), { muted: false });
-    });
-    await restoreCheck(daemon);
-    fs.writeFileSync(muteFile, JSON.stringify({ muted: true }));
-    await control("muted-device-offers", "if (first) void audio.discover()", "if (seq === 1) void audio.discover()", restoreCheck);
-    fs.writeFileSync(muteFile, JSON.stringify({ muted: true }));
-    await control("mute-restore", 'if (first && readMute()) runner.dispatch({ type: "mute" });',
-        'if (false && first && readMute()) runner.dispatch({ type: "mute" });', restoreCheck);
-    fs.writeFileSync(muteFile, JSON.stringify({ muted: false }));
-    await control("mute-store", 'fs.renameSync(file, path.join(directory, name));',
-        'void directory;', muteCheck);
-    await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "voice-mute" ? { type: "voice-mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : message.intent === "preview" ? { type: "preview", voice: message.voice }\n                                : { type: message.intent });',
-        'void message.intent;', muteCheck);
-    for (const [bytes, reason] of [["{", "record-json"], ['{"muted":"yes"}', "record-shape"],
-        ['{"muted":true,"extra":0}', "record-shape"], [" ".repeat(65), "record-size"]]) {
-        fs.writeFileSync(muteFile, bytes);
-        await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=" + reason);
-    }
-    fs.unlinkSync(muteFile);
-    fs.mkdirSync(muteFile);
-    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=record-not-file");
-    fs.rmdirSync(muteFile);
-    await conversation(daemon, async w => {
-        fs.mkdirSync(muteFile);
-        w.send("mute");
-    }, "hold", 78, "jarvis: mute=write-failed");
-    fs.rmdirSync(muteFile);
-    await control("mute-size", 'if (size > limit) throw new Error("jarvis: " + area + "=record-size");', 'void size;',
-        async file => {
-            fs.writeFileSync(muteFile, '{"muted":false}' + " ".repeat(51));
-            await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=record-size");
-        });
-    await control("mute-shape", 'throw new Error("jarvis: " + area + "=record-shape");', ';',
-        async file => {
-            fs.writeFileSync(muteFile, '{"muted":false,"extra":0}');
-            await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=record-shape");
-        });
-    fs.unlinkSync(muteFile);
-    const linkedRecord = path.join(root, "linked-mute.json");
-    fs.writeFileSync(linkedRecord, '{"muted":false}');
-    fs.symlinkSync(linkedRecord, muteFile);
-    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=read-failed");
-    await control("mute-link", 'fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK',
-        'fs.constants.O_RDONLY | fs.constants.O_NONBLOCK',
-        file => run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=read-failed"));
-    fs.unlinkSync(muteFile);
+    // A retired privacy record is removed as an entry, without reading its
+    // bytes or restoring state. Voice mute has an independent lifetime.
+    const retiredMuteFile = path.join(hello.directories.state, "mute.json");
+    const retainedVoiceMuteFile = path.join(hello.directories.state, "voice-mute.json");
+    const retiredTarget = path.join(root, "retired-mute-target.json");
+    const retireCheck = async file => {
+        for (const entry of ["muted", "corrupt", "linked", "absent"]) {
+            fs.writeFileSync(retainedVoiceMuteFile, '{"muted":true}\n', { mode: 0o600 });
+            const before = fs.statSync(retainedVoiceMuteFile, { bigint: true });
+            if (entry === "muted") fs.writeFileSync(retiredMuteFile, '{"muted":true}');
+            else if (entry === "corrupt") fs.writeFileSync(retiredMuteFile, Buffer.from([0xff, 0x7b]));
+            else if (entry === "linked") {
+                fs.writeFileSync(retiredTarget, "untouched target\n");
+                fs.symlinkSync(retiredTarget, retiredMuteFile);
+            }
+            try {
+                await conversation(file, async w => {
+                    assert.equal(fs.existsSync(retiredMuteFile), false, "hello removes the retired " + entry + " entry");
+                    assert.equal(w.last().state.voiceMute.kind, "on", "the independent voice mute still restores");
+                    assert.equal(Object.hasOwn(w.last().state, "mute"), false);
+                    if (entry === "linked") assert.equal(fs.readFileSync(retiredTarget, "utf8"), "untouched target\n");
+                    const after = fs.statSync(retainedVoiceMuteFile, { bigint: true });
+                    assert.deepEqual([after.ino, after.mtimeNs], [before.ino, before.mtimeNs], "retirement never rewrites voice mute");
+                    w.raw(hello);
+                    await w.wait(m => m.seq > 2);
+                    assert.equal(fs.existsSync(retiredMuteFile), false, "a later hello needs no retired record");
+                });
+            } finally {
+                fs.rmSync(retiredMuteFile, { force: true });
+                fs.rmSync(retainedVoiceMuteFile, { force: true });
+            }
+        }
+    };
+    await retireCheck(daemon);
+    await control("retired-mute-removal", "if (first) retireMute();", "if (false) retireMute();", retireCheck);
+    fs.mkdirSync(retiredMuteFile);
+    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: state=retired-mute-remove-failed");
+    fs.rmdirSync(retiredMuteFile);
     // Voice mute keeps its own record: the intent stores it, talk and stop
     // keep it, the next daemon restores it, and a malformed record is
-    // refused like the microphone's.
+    // refused before it can grant voice state.
     const voiceMuteFile = path.join(hello.directories.state, "voice-mute.json");
     const storedVoiceMute = () => fs.existsSync(voiceMuteFile) ? JSON.parse(fs.readFileSync(voiceMuteFile, "utf8")) : null;
     const voiceMuteCheck = async file => {
@@ -925,19 +920,163 @@ async function inside() {
         });
         await conversation(file, async w => {
             assert.equal(w.last().state.voiceMute.kind, "on", "the next daemon restores voice mute");
-            assert.equal(w.last().state.mute.kind, "off", "voice mute is not the microphone's");
             w.send("voice-mute");
             await w.wait(m => m.state.voiceMute.kind === "off");
             assert.deepEqual(storedVoiceMute(), { muted: false });
         });
     };
     await voiceMuteCheck(daemon);
+    await control("voice-mute-store", 'fs.renameSync(file, path.join(directory, name));',
+        'void directory;', voiceMuteCheck);
     await control("voice-mute-restore", 'if (first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });',
         'if (false && first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });', voiceMuteCheck);
-    await control("voice-mute-intent", ': message.intent === "voice-mute" ? { type: "voice-mute-toggle" }', '', voiceMuteCheck);
-    fs.writeFileSync(voiceMuteFile, '{"muted":"yes"}');
-    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=record-shape");
+    await control("voice-mute-intent", 'message.intent === "voice-mute" ? { type: "voice-mute-toggle" }', 'message.intent === "voice-mute" ? { type: "voice-mute" }', voiceMuteCheck);
+    for (const [bytes, reason] of [["{", "record-json"], ['{"muted":"yes"}', "record-shape"],
+        ['{"muted":true,"extra":0}', "record-shape"], [" ".repeat(65), "record-size"]]) {
+        fs.writeFileSync(voiceMuteFile, bytes);
+        await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=" + reason);
+    }
     fs.unlinkSync(voiceMuteFile);
+    fs.mkdirSync(voiceMuteFile);
+    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=record-not-file");
+    fs.rmdirSync(voiceMuteFile);
+    await conversation(daemon, async w => {
+        fs.mkdirSync(voiceMuteFile);
+        w.send("voice-mute");
+    }, true, 78, "jarvis: voice-mute=write-failed");
+    fs.rmdirSync(voiceMuteFile);
+    await control("voice-mute-size", 'if (size > limit) throw new Error("jarvis: " + area + "=record-size");', 'void size;',
+        async file => {
+            fs.writeFileSync(voiceMuteFile, '{"muted":false}' + " ".repeat(51));
+            await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=record-size");
+        });
+    await control("voice-mute-shape", 'throw new Error("jarvis: " + area + "=record-shape");', ';',
+        async file => {
+            fs.writeFileSync(voiceMuteFile, '{"muted":false,"extra":0}');
+            await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=record-shape");
+        });
+    fs.unlinkSync(voiceMuteFile);
+    const linkedVoiceRecord = path.join(root, "linked-voice-mute.json");
+    fs.writeFileSync(linkedVoiceRecord, '{"muted":false}');
+    fs.symlinkSync(linkedVoiceRecord, voiceMuteFile);
+    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=read-failed");
+    await control("voice-mute-link", 'fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK',
+        'fs.constants.O_RDONLY | fs.constants.O_NONBLOCK',
+        file => run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=read-failed"));
+    fs.unlinkSync(voiceMuteFile);
+
+    const hiddenFile = path.join(hello.directories.state, "hidden.json");
+    const hiddenCheck = async file => {
+        try {
+            await conversation(file, async w => {
+                assert.equal(w.last().state.visibility.kind, "shown", "an absent record means shown");
+                assert.equal(fs.existsSync(hiddenFile), false, "absence creates no default record");
+                let seq = w.last().seq;
+                w.send("hide");
+                await w.wait(m => m.seq > seq);
+                assert.equal(w.last().state.visibility.kind, "shown", "Hide needs a presented widget");
+                assert.equal(fs.existsSync(hiddenFile), false, "a refused Hide stores nothing");
+                w.indicator(false, "present");
+                await w.wait(m => m.state.barIndicator.kind === "present");
+                w.send("hide");
+                await w.wait(m => m.state.visibility.kind === "hidden");
+                assert.equal(fs.existsSync(hiddenFile), true, "admitted Hide stores its choice before publication");
+                assert.equal(fs.readFileSync(hiddenFile, "utf8"), '{"hidden":true}\n');
+                assert.equal(fs.statSync(hiddenFile).mode & 0o777, 0o600);
+                const before = fs.statSync(hiddenFile, { bigint: true });
+                seq = w.last().seq;
+                w.send("hide");
+                w.send("voice-mute");
+                for (const name of ["talk-down", "talk-up", "stop", "new-conversation"]) w.send(name);
+                await w.wait(m => m.seq >= seq + 6);
+                assert.equal(w.last().state.visibility.kind, "hidden");
+                assert.equal(w.last().state.voiceMute.kind, "on", "voice mute is independent");
+                const after = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([after.ino, after.mtimeNs], [before.ino, before.mtimeNs],
+                    "idempotent Hide, voice mute, Talk, Stop and New conversation never rewrite the choice");
+            });
+            const before = fs.statSync(hiddenFile, { bigint: true });
+            await conversation(file, async w => {
+                assert.equal(w.last().state.visibility.kind, "hidden", "a new daemon restores the choice");
+                assert.equal(w.last().state.voiceMute.kind, "on");
+                assert.equal(w.last().state.capture.kind, "closed", "restore grants no capture");
+                const restored = w.messages.findIndex(m => m.type === "state" && m.state.visibility.kind === "hidden");
+                const ready = w.messages.findIndex(m => m.type === "status");
+                assert.ok(restored >= 0 && restored < ready, "restore precedes readiness");
+                assert.equal(w.messages[restored].state.gate.reason, "starting");
+                const after = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([after.ino, after.mtimeNs], [before.ino, before.mtimeNs], "restore writes nothing");
+                w.send("show");
+                await w.wait(m => m.state.visibility.kind === "shown");
+                assert.equal(fs.readFileSync(hiddenFile, "utf8"), '{"hidden":false}\n');
+                assert.equal(w.last().state.barIndicator.kind, "gone", "Show needs no widget");
+                const shown = fs.statSync(hiddenFile, { bigint: true });
+                let seq = w.last().seq;
+                w.send("show");
+                await w.wait(m => m.seq > seq);
+                const unchanged = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([unchanged.ino, unchanged.mtimeNs], [shown.ino, shown.mtimeNs], "idempotent Show writes nothing");
+                fs.writeFileSync(hiddenFile, '{"hidden":true}\n');
+                seq = w.last().seq;
+                w.raw(hello);
+                await w.wait(m => m.seq > seq);
+                assert.equal(w.last().state.visibility.kind, "shown", "only the first hello restores the record");
+                fs.writeFileSync(hiddenFile, '{"hidden":false}'.padEnd(64));
+                w.send("voice-mute");
+                await w.wait(m => m.state.voiceMute.kind === "off");
+            });
+            const storedFalse = fs.statSync(hiddenFile, { bigint: true });
+            await conversation(file, async w => {
+                assert.equal(w.last().state.visibility.kind, "shown", "a saved false at the read bound stays shown");
+                assert.equal(w.last().state.voiceMute.kind, "off");
+                assert.equal(w.messages.filter(m => m.type === "state")[0].state.gate.reason, "unconfigured",
+                    "false needs no private restore event");
+                const after = fs.statSync(hiddenFile, { bigint: true });
+                assert.deepEqual([after.ino, after.mtimeNs], [storedFalse.ino, storedFalse.mtimeNs]);
+            });
+        } finally {
+            fs.rmSync(hiddenFile, { force: true });
+            fs.rmSync(voiceMuteFile, { force: true });
+        }
+    };
+    await hiddenCheck(daemon);
+    for (const [name, needle, replacement] of [
+        ["hidden-store", 'storeRecord("hidden", "hidden.json", { hidden });', 'void hidden;'],
+        ["hidden-restore", 'if (first && readHidden()) runner.dispatch({ type: "hidden" });',
+            'if (false && first && readHidden()) runner.dispatch({ type: "hidden" });'],
+        ["hidden-first-hello", 'if (first && readHidden()) runner.dispatch({ type: "hidden" });',
+            'if (readHidden()) runner.dispatch({ type: "hidden" });'],
+        ...["hide", "show"].map(name => ["hidden-" + name + "-intent", ': { type: message.intent });',
+            ': { type: message.intent === "' + name + '" ? "stop" : message.intent });'])
+    ]) await control(name, needle, replacement, hiddenCheck);
+
+    // Hidden is a private exact boolean record, not settings or a mute record.
+    const hiddenRefusal = async (file, bytes, reason) => {
+        try {
+            fs.writeFileSync(hiddenFile, bytes);
+            await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: hidden=" + reason);
+        } finally { fs.rmSync(hiddenFile, { force: true }); }
+    };
+    for (const [bytes, reason] of [
+        ["{", "record-json"], ["null", "record-shape"], ["[]", "record-shape"], ["{}", "record-shape"],
+        ['{"muted":true}', "record-shape"], ['{"hidden":null}', "record-shape"],
+        ['{"hidden":0}', "record-shape"], ['{"hidden":"false"}', "record-shape"],
+        ['{"hidden":false,"extra":0}', "record-shape"], ['{"hidden":false}'.padEnd(65), "record-size"]
+    ]) await hiddenRefusal(daemon, bytes, reason);
+    fs.mkdirSync(hiddenFile);
+    try { await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: hidden=record-not-file"); }
+    finally { fs.rmdirSync(hiddenFile); }
+    const linkedHiddenRecord = path.join(root, "linked-hidden.json");
+    fs.writeFileSync(linkedHiddenRecord, '{"hidden":true}\n');
+    fs.symlinkSync(linkedHiddenRecord, hiddenFile);
+    try {
+        await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: hidden=read-failed");
+        assert.equal(fs.readFileSync(linkedHiddenRecord, "utf8"), '{"hidden":true}\n');
+    } finally { fs.unlinkSync(hiddenFile); }
+    await control("hidden-shape", 'throw new Error("jarvis: hidden=record-shape");', ';',
+        file => hiddenRefusal(file, '{"hidden":false,"extra":0}', "record-shape"));
+    await control("hidden-size", 'if (size > limit) throw new Error("jarvis: " + area + "=record-size");', 'void size;',
+        file => hiddenRefusal(file, '{"hidden":false}'.padEnd(65), "record-size"));
 
     const scripted = daemonCopy("scripted");
     const gates = path.join(root, "gates");
@@ -957,27 +1096,13 @@ async function inside() {
         await w.holdUp(release);
         await w.wait(message => message.phase === "thinking" && message.state.input.kind === "released");
         w.send("stop");
-        await w.wait(message => message.state.conversation.kind === "ended" && message.phase === "idle");
+        await w.wait(message => message.state.conversation.kind === "active" && message.phase === "idle");
     });
     const deliveries = [{ name: "immediate", at: 0 }, { name: "delayed", at: 4 * TAP_MS }];
     for (const delivery of deliveries) {
         await heldDelivery(delivery.at);
         console.log("test-jarvis-daemon: held-delivery=" + delivery.name + " passed");
     }
-    const heldControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-held-control-"));
-    try {
-        const needle = "state.input.since + 2 * TAP_MS";
-        assert.equal(releaseHeld.toString().split(needle).length - 1, 1);
-        const file = path.join(heldControl, "release.js");
-        fs.writeFileSync(file, 'const assert = require("node:assert/strict");\nconst fs = require("node:fs");\n'
-            + "module.exports = " + releaseHeld.toString().replace(needle, "state.input.since") + ";\n");
-        await assert.rejects(() => heldDelivery(deliveries[1].at, require(file)),
-            error => error instanceof assert.AssertionError && error.message.startsWith("daemon state timeout:")
-                && error.message.includes('"input":{"kind":"tapped"'),
-            "a release before the daemon's tap threshold must fail the held-delivery assertion");
-        controls++;
-        console.log("test-jarvis-daemon: control=held-release-before-daemon-threshold detected");
-    } finally { fs.rmSync(heldControl, { recursive: true, force: true }); }
     async function desktopDriver(file, directory, mappedIndicator = false) {
         await conversation(file, async w => {
             writeCall(directory, { id: "fixture-help", tool: "help", arguments: { topic: "input" } });
@@ -1053,7 +1178,7 @@ async function inside() {
                 await w.wait(() => routed(id) !== undefined);
             }
             assert.deepEqual(["protected", "workspace"].map(routed), expected);
-        }, "hold", 0, error);
+        }, true, 0, error);
     };
     const deniedDaemon = daemonCopy("denied-driver");
     instrument(deniedDaemon, path.join(root, "denied-gates"));
@@ -1117,9 +1242,9 @@ async function inside() {
             await w.holdUp();
             await w.wait(m => m.phase === "thinking");
             assert.equal(effects("playback-start"), 0, "the basic fixture keeps its assistant reply gated");
-            w.send("stop");
+            await w.closeTalk(lifecycleGates);
             await w.wait(m => m.state.conversation.kind === "ended" && m.state.playback.kind === "idle");
-        }, "hold", 0, "", null, true);
+        }, true, 0, "", null, true, {}, true);
         await firstTalk();
         fs.writeFileSync(file, source);
         const floor = cp.spawnSync(process.execPath, [path.join(tree, "scripts/fixtures/jarvis/prepare.js"),
@@ -1154,12 +1279,14 @@ async function inside() {
         w.indicator(false);
         const gone = await w.wait(m => m.state.indicator.kind === "gone" && m.state.capture.kind === "closed");
         assert.equal(gone.state.capture.kind, "closed", "indicator loss releases capture");
-        w.send("stop");
+        await w.closeTalk(gates);
         await w.wait(m => m.state.conversation.kind === "ended");
-    });
+        assert.equal(fs.existsSync(path.join(gates, "silent-capture")), false,
+            "a no-capture close leaves no empty result for the next utterance");
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     await mappedCheck(mapped);
     for (const [name, needle, replacement] of [
-        ["indicator-delivery", 'runner.dispatch({ type: "indicator", shown: message.shown });', 'void message.shown;'],
+        ["indicator-delivery", 'runner.dispatch({ type: "indicator", gen: message.gen, shown: message.shown, bar: message.bar });', 'void message.shown;'],
         ["indicator-loss", 'shown: message.shown', 'shown: true']
     ]) {
         const copy = daemonCopy(name);
@@ -1168,6 +1295,121 @@ async function inside() {
         assert.equal(before.split(needle).length - 1, 1);
         fs.writeFileSync(copy, before.replace(needle, replacement));
         await assert.rejects(() => mappedCheck(copy), assert.AssertionError, name + " must turn red");
+        controls++;
+    }
+
+    const hiddenMapped = daemonCopy("hidden-indicator");
+    const hiddenGates = path.join(root, "hidden-indicator-gates");
+    instrument(hiddenMapped, hiddenGates, "chained", true);
+    const hiddenIndicatorCheck = async file => {
+        try {
+            await conversation(file, async w => {
+                w.indicator(false, "present");
+                await w.wait(m => m.state.barIndicator.kind === "present");
+                w.send("hide");
+                await w.wait(m => m.state.visibility.kind === "hidden");
+                w.send("talk-down");
+                const waiting = await w.wait(m => m.state.input.kind === "held");
+                assert.equal(waiting.state.capture.kind, "closed", "a previous generation's widget grants no capture");
+                const gen = waiting.state.gen;
+                let seq = waiting.seq;
+                w.indicator(false, "listening", gen - 1);
+                await w.wait(m => m.seq > seq);
+                assert.equal(w.last().state.barIndicator.kind, "gone", "the wire retains the observed generation");
+                assert.equal(w.last().state.capture.kind, "closed", "a stale listening badge cannot open capture");
+                w.indicator(false, "present");
+                await w.wait(m => m.state.barIndicator.kind === "present");
+                assert.equal(w.last().state.capture.kind, "closed", "a widget without a listening badge grants no capture");
+                w.indicator(false, "listening");
+                await w.wait(m => m.state.capture.kind === "open");
+                assert.deepEqual(w.last().state.barIndicator, { kind: "listening", gen });
+                fs.writeFileSync(path.join(hiddenGates, "silent-capture"), "");
+                w.indicator(false, "gone", gen - 1);
+                await w.wait(m => m.state.capture.kind === "closed");
+                await w.wait(m => m.state.turn.kind === "none");
+                assert.equal(w.last().state.barIndicator.kind, "gone", "loss withdraws across generations");
+                w.send("show");
+                await w.wait(m => m.state.visibility.kind === "shown");
+                assert.equal(w.last().state.capture.kind, "closed", "shown mode waits for the orb");
+                w.indicator(true);
+                await w.wait(m => m.state.capture.kind === "open");
+                seq = w.last().seq;
+                await w.closeTalk(hiddenGates);
+                await w.wait(m => m.seq > seq && m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
+            }, true, 0, "", null, hello.settings.sounds, {}, true);
+        } finally { fs.rmSync(hiddenFile, { force: true }); }
+    };
+    await hiddenIndicatorCheck(hiddenMapped);
+    for (const [name, needle, replacement] of [
+        ["hidden-indicator-gen", 'gen: message.gen, shown: message.shown, bar: message.bar',
+            'shown: message.shown, bar: message.bar'],
+        ["hidden-indicator-stale", 'gen: message.gen, shown: message.shown, bar: message.bar',
+            'gen: runner.state.gen, shown: message.shown, bar: message.bar'],
+        ["hidden-indicator-bar", 'bar: message.bar', 'bar: "gone"']
+    ]) {
+        const copy = daemonCopy(name);
+        instrument(copy, hiddenGates, "chained", true);
+        const before = fs.readFileSync(copy, "utf8");
+        assert.equal(before.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(copy, before.replace(needle, replacement));
+        await assert.rejects(() => hiddenIndicatorCheck(copy), assert.AssertionError, name + " must turn red");
+        controls++;
+    }
+
+    // Both menu intents use the same ordinary daemon route. A failed
+    // durable choice ends that lease without publishing the new choice,
+    // even while its capture needs privacy teardown.
+    const hiddenFailureCheck = async file => {
+        for (const action of ["hide", "show"]) {
+            let messages, from, capture;
+            const effects = lines(path.join(hiddenGates, "effects.jsonl")).length;
+            try {
+                await conversation(file, async w => {
+                    if (action === "show") {
+                        w.indicator(false, "present");
+                        await w.wait(m => m.state.barIndicator.kind === "present");
+                        w.send("hide");
+                        await w.wait(m => m.state.visibility.kind === "hidden");
+                    } else w.indicator(true);
+                    w.send("talk-down");
+                    await w.wait(m => m.state.input.kind === "held");
+                    w.indicator(action === "hide", action === "hide" ? "present" : "listening");
+                    const open = await w.wait(m => m.state.capture.kind === "open"
+                        && m.state.barIndicator.gen === m.state.gen);
+                    capture = { gen: open.state.capture.gen, op: open.state.capture.op };
+                    assert.equal(open.state.visibility.kind, action === "hide" ? "shown" : "hidden");
+                    if (fs.existsSync(hiddenFile)) fs.unlinkSync(hiddenFile);
+                    fs.mkdirSync(hiddenFile);
+                    messages = w.messages;
+                    from = messages.length;
+                    w.send(action);
+                }, true, 78, "jarvis: hidden=write-failed");
+                assert.equal(messages.slice(from).some(m => m.type === "state"
+                    && m.state.visibility.kind === (action === "hide" ? "hidden" : "shown")), false,
+                    "failed " + action + " and fatal teardown publish no changed choice");
+                assert.ok(lines(path.join(hiddenGates, "effects.jsonl")).slice(effects)
+                    .some(e => e.kind === "capture-close" && e.gen === capture.gen && e.target === capture.op),
+                    "failed " + action + " still closes its acquired capture");
+                assert.deepEqual(fs.readdirSync(hello.directories.state).filter(name => name.startsWith(".hidden.json-")), [],
+                    "failed rename cleans up the owned temporary record");
+            } finally {
+                if (fs.existsSync(hiddenFile) && fs.lstatSync(hiddenFile).isDirectory()) fs.rmdirSync(hiddenFile);
+                else fs.rmSync(hiddenFile, { force: true });
+            }
+        }
+    };
+    await hiddenFailureCheck(hiddenMapped);
+    for (const [name, needle, replacement] of [
+        ["hidden-permanent-failure", '(voice-mute=|hidden=|state=retired-mute-)', '(voice-mute=|state=retired-mute-)'],
+        ["hidden-fatal-publication", 'if (!ending && context !== null) write({ v: 1, type: "state"',
+            'if (context !== null) write({ v: 1, type: "state"']
+    ]) {
+        const copy = daemonCopy(name);
+        instrument(copy, hiddenGates, "chained", true);
+        const before = fs.readFileSync(copy, "utf8");
+        assert.equal(before.split(needle).length - 1, 1, name + " mutation match");
+        fs.writeFileSync(copy, before.replace(needle, replacement));
+        await assert.rejects(() => hiddenFailureCheck(copy), assert.AssertionError, name + " must turn red");
         controls++;
     }
 
@@ -1206,12 +1448,12 @@ async function inside() {
     }
     // Stop's settled frame: the flush acknowledgement publishes the idle
     // playback after the flushing frame, so a reader waits for it.
-    const stopSettled = m => m.state.conversation.kind === "ended" && m.phase === "idle"
+    const stopSettled = m => m.state.conversation.kind === "active" && m.phase === "idle"
         && m.state.playback.kind === "idle";
     const stopGates = ["brain", "played", "late-brain", "late-played", "hold-flush", "flush"];
     const activeStop = async (file, phase, settled = stopSettled) => conversation(file, async w => {
         w.send("talk-down");
-        await w.wait(m => m.phase === "listening");
+        const listening = await w.wait(m => m.phase === "listening");
         await w.holdUp();
         await w.wait(m => m.phase === "thinking");
         if (phase === "speaking") {
@@ -1241,19 +1483,20 @@ async function inside() {
         assert.equal(count(effect), before + 1, "active Stop delivers " + effect);
         assert.equal(ended.state.capture.kind, "closed");
         assert.equal(ended.state.playback.kind, "idle");
-        assert.equal(ended.state.brain.kind, "closed");
+        assert.equal(ended.state.brain.kind, "acquired", "Stop keeps the conversation adapter");
+        assert.equal(ended.state.gen, listening.gen, "Stop keeps the conversation identity");
         assert.equal(ended.state.turn.kind, "none");
         gate(phase === "thinking" ? "late-brain" : "late-played");
         const late = await w.wait(m => m.state.stale > ended.state.stale);
         assert.equal(late.phase, "idle", "late callback cannot restart the stopped turn");
-        assert.equal(late.state.conversation.kind, "ended");
+        assert.equal(late.state.conversation.kind, "active");
         assert.equal(late.state.capture.kind, "closed");
         assert.equal(late.state.playback.kind, "idle");
         assert.equal(count("playback-start"), playback);
     });
     for (const phase of ["thinking", "speaking"]) await activeStop(scripted, phase);
-    // The first ended frame alone reads the held flushing frame.
-    await assert.rejects(() => activeStop(scripted, "speaking", m => m.state.conversation.kind === "ended" && m.phase === "idle"),
+    // An active conversation frame can still carry a held playback flush.
+    await assert.rejects(() => activeStop(scripted, "speaking", m => m.state.conversation.kind === "active" && m.phase === "idle"),
         { name: "AssertionError", message: /'flushing' !== 'idle'/ }, "a Stop read before its flush settles must turn red");
     for (const name of stopGates)
         fs.rmSync(path.join(gates, name), { force: true });
@@ -1261,7 +1504,7 @@ async function inside() {
     console.log("test-jarvis-daemon: control=stop-settled detected");
     const stopControl = daemonCopy("stop-routing");
     instrument(stopControl, gates);
-    const dispatch = 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }';
+    const dispatch = 'runner.dispatch(message.intent === "voice-mute" ? { type: "voice-mute-toggle" }';
     const stopSource = fs.readFileSync(stopControl, "utf8");
     assert.equal(stopSource.split(dispatch).length - 1, 1);
     const misrouted = stopSource.replace(dispatch, 'if (message.intent === "stop") message.intent = "talk-up";\n                    ' + dispatch);
@@ -1292,24 +1535,14 @@ async function inside() {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
         gate("hold-close");
-        w.send("mute");
-        await w.wait(m => m.state.mute.kind === "muting");
-        w.send("talk-down"); w.send("talk-up"); w.send("stop");
+        await w.closeTalk(gates);
+        await w.wait(m => m.state.input.kind === "closing-tap" && m.state.capture.kind === "closing");
+        assert.equal(w.last().state.conversation.kind, "active", "an empty tap waits for the recorder's final");
         gate("close");
-        await w.wait(m => m.state.mute.kind === "on");
-        assert.equal(w.last().state.capture.kind, "closed");
+        await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
         assert.equal(count("capture-open"), initialOpens + 2);
         fs.unlinkSync(path.join(gates, "hold-close"));
-    });
-    await conversation(scripted, async w => {
-        assert.equal(w.last().state.mute.kind, "on");
-        const opens = count("capture-open");
-        w.send("talk-down"); w.send("talk-up"); w.send("stop");
-        await w.wait(m => m.seq >= 6);
-        assert.equal(count("capture-open"), opens, "restart preserves privacy before every key");
-        w.send("mute");
-        await w.wait(m => m.state.mute.kind === "off");
-    });
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     await conversation(scripted, async w => {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
@@ -1317,11 +1550,11 @@ async function inside() {
         w.send("talk-up");
         await w.wait(m => m.seq > before);
         assert.equal(w.last().state.input.kind, "conversation", "release does not commit toggle");
-        await new Promise(resolve => setTimeout(resolve, 250)); // Reach the reducer's next permitted toggle edge.
+        w.pressClock(w.last().state.toggleAt + 250);
         w.send("talk-down");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
         assert.equal(w.last().state.capture.kind, "closed");
-    }, "toggle");
+    }, false);
     // The duplex wire: a caption from the live speech session reaches stdout as
     // a judged transcript line; one from a closed session is counted stale.
     const duplexGates = path.join(root, "duplex-gates");
@@ -1332,12 +1565,12 @@ async function inside() {
         await w.wait(() => w.messages.some(m => m.type === "transcript"));
         assert.deepEqual(w.messages.filter(m => m.type === "transcript"), [{ v: 1, type: "transcript", gen: open.gen,
             revision: hello.revision, role: "user", text: "scripted words", stage: "partial", rev: 1 }]);
-        w.send("stop");
+        await w.closeTalk(duplexGates);
         const ended = await w.wait(m => m.state.speech.kind === "closed");
         fs.writeFileSync(path.join(duplexGates, "transcript"), "");
         await w.wait(m => m.state.stale > ended.state.stale);
         assert.equal(w.messages.filter(m => m.type === "transcript").length, 1, "a closed session's caption stays off the wire");
-    });
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     const duplex = daemonCopy("duplex");
     instrument(duplex, duplexGates, "duplex");
     await captions(duplex);
@@ -1368,9 +1601,13 @@ async function inside() {
                 [thinking.gen, "assistant", "partial", 2, "On it. " + scriptedReply],
                 [thinking.gen, "assistant", "final", 3, "On it. " + scriptedReply]],
             "the bubble fixture's words come from the chained engine");
-        w.send("stop");
+        await w.closeTalk(chainedGates);
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-    });
+        assert.equal(w.messages.filter(m => m.type === "transcript" && m.role === "user" && m.stage === "final").length, 1,
+            "short cleanup supplies no second utterance to the retained brain");
+        assert.equal(fs.existsSync(path.join(chainedGates, "silent-capture")), false,
+            "short cleanup releases its empty-result fixture");
+    }, true, 0, "", null, hello.settings.sounds, {}, true);
     for (const [name, plant] of [["chained-scripted", null], ["chained-scripted-silent", "        caption(c, turn, sentence);\n"]]) {
         const file = daemonCopy(name);
         instrument(file, chainedGates);
@@ -1445,9 +1682,9 @@ async function inside() {
         assert.equal(w.messages.filter(m => m.type === "status").length, judged + 1, "the request judges the home once");
         for (const folder of HARNESS)
             assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + " holds the shipped render");
-        w.send("stop");
+        await w.closeTalk(renderGates);
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-    }, "hold", 0, owner === "kendex" ? "jarvis: home=absent" : "");
+    }, true, 0, owner === "kendex" ? "jarvis: home=absent" : "", null, hello.settings.sounds, {}, true);
     for (const [name, needle, replacement, owner = "vgs"] of [["render-removed", null, null], ["render-removed-kendex", null, null, "kendex"],
         ["render-removed-unjudged", 'if (error.message !== "jarvis: home=absent") throw error; }\n        rejudge();\n',
             'if (error.message !== "jarvis: home=absent") throw error; }\n']]) {
@@ -1507,82 +1744,6 @@ async function inside() {
         }
         assert.fail("desktop daemon: " + what);
     }
-    const keyRow = fs.readFileSync(path.join(tree, "scripts/smoke/rows/jarvis-keys.sh"), "utf8");
-    const retryStart = 'expect "repeated physical Mute during retry stays one request"';
-    const helloRead = 'expect_poll "the restarted daemon consumes hello" seen jarvis_seen_hello';
-    const startupRead = 'expect_poll "the retry starts its next daemon with Mute pending" '
-        + '\'{"kind":"starting","pendingMute":"waiting"}\' jarvis_key_pending';
-    for (const needle of [retryStart, helloRead, startupRead]) assert.equal(keyRow.split(needle).length - 1, 1);
-    const retryReads = keyRow.slice(keyRow.indexOf(retryStart), keyRow.indexOf(helloRead) + helloRead.length);
-    const harness = fs.readFileSync(path.join(tree, "scripts/smoke/harness.sh"), "utf8");
-    const pollers = harness.match(/^expect_poll\(\) \{[\s\S]*?^\}/gm);
-    assert.equal(pollers?.length, 1);
-    const pollBound = harness.match(/^smoke_poll_bound_ms=[0-9]+$/gm);
-    assert.equal(pollBound?.length, 1);
-    const pollTries = harness.match(/^smoke_poll_tries\(\) \{[\s\S]*?^\}/gm);
-    assert.equal(pollTries?.length, 1);
-    const onePending = keyRow.match(/^jarvis_key_one_pending\(\) \{[\s\S]*?^\}/gm);
-    assert.equal(onePending?.length, 1);
-    const retryClock = path.join(root, "retry-clock");
-    function retryOrdering(reads, helloTick) {
-        fs.writeFileSync(retryClock, "0");
-        // One tick is the real poller's 0.2 s sleep. The service starts
-        // after the fixture's 4.5 s retry; hello follows that child start.
-        const fixture = `
-set -euo pipefail
-failures=0
-clock=${JSON.stringify(retryClock)}
-sandbox=${JSON.stringify(root)}
-ipc_timeout_log="$sandbox/ipc-timeout.log"
-hello_tick=${helloTick}
-ok() { :; }
-fail() { failures=$((failures + 1)); printf '%s\\n' "$1"; }
-reader_stderr() { [[ ! -s $2 ]]; }
-seq() {
-    local value
-    for ((value=$1; value<=$2; value++)); do printf '%s\\n' "$value"; done
-}
-expect() {
-    local label="$1" want="$2" got
-    shift 2
-    got="$("$@")"
-    [[ $got == "$want" ]] || fail "$label: got $got want $want"
-}
-sleep() {
-    [[ $1 == 0.2 ]]
-    local tick
-    tick="$(<"$clock")"
-    printf '%s' "$((tick + 1))" >"$clock"
-}
-now_ms() { printf '%s\\n' "$(( $(<"$clock") * 200 ))"; }
-jarvis_key_pending() {
-    local tick
-    tick="$(<"$clock")"
-    if ((tick < 23)); then printf '%s\\n' '{"kind":"retry","pendingMute":"waiting"}'
-    else printf '%s\\n' '{"kind":"starting","pendingMute":"waiting"}'; fi
-}
-${onePending[0]}
-jarvis_seen_hello() {
-    local tick
-    tick="$(<"$clock")"
-    if ((tick >= hello_tick)); then echo seen; else echo pending; fi
-}
-${pollBound[0]}
-${pollTries[0]}
-${pollers[0]}
-${reads}
-exit "$failures"
-`;
-        const result = cp.spawnSync("bash", ["-c", fixture], { env: { PATH: process.env.PATH, HOME: process.env.HOME },
-            encoding: "utf8", timeout: 3000 });
-        assert.equal(result.error, undefined);
-        return result;
-    }
-    for (const helloTick of [24, 28]) {
-        const actual = retryOrdering(retryReads, helloTick);
-        assert.equal(actual.status, 0, actual.stdout + actual.stderr);
-        cases++;
-    }
     async function gatedHello(file, dropMarker = false) {
         const gate = path.join(path.dirname(file), "hello-gate");
         const seen = path.join(path.dirname(file), "hello-seen");
@@ -1602,7 +1763,7 @@ exit "$failures"
         for (const start of ["startup", "restart"]) {
             fs.rmSync(gate, { force: true });
             fs.rmSync(seen, { force: true });
-            await conversation(file, async () => {}, "hold", 0, "", async ({ messages }) => {
+            await conversation(file, async () => {}, true, 0, "", async ({ messages }) => {
                 await desktopUntil(() => fs.existsSync(seen)
                     && (dropMarker || lines(seen).some(message => message.type === "status" && message.daemon === "ready")),
                 start + " hello marker is absent");
@@ -1919,7 +2080,7 @@ exit "$failures"
                 + (recipients === null ? "" : ", recipients: " + JSON.stringify(recipients)) + " }), fixture.row))(require("
                 + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ")) });"],
             ["backend/jarvisd.js", 'runner.dispatch({ type: "snapshot", locked: context.locked,',
-                'if (runner.state.indicator.kind !== "shown") runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
+                'if (runner.state.indicator.kind !== "shown") runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']]) {
             const target = path.join(directory, relative);
             const original = fs.readFileSync(target, "utf8");
             assert.equal(original.split(needle).length - 1, 1, name + " engine instrumentation");
@@ -1961,7 +2122,7 @@ exit "$failures"
                     revision: hello.revision, saved, used: "claude-fable-5-1" }], "the engine publishes one fallback notice on the daemon wire");
                 const Protocol = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
                 assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(notices[0]), "daemon"))), notices[0]);
-            }, "hold", 0, "", null, false, { brain: chosen.id, model: saved });
+            }, true, 0, "", null, false, { brain: chosen.id, model: saved });
         } finally {
             fs.rmSync(command);
             fs.rmSync(account, { recursive: true });

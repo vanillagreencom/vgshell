@@ -39,7 +39,7 @@ const SHAPES = Object.freeze({
     ready: [["type"], false], partial: [["id", "rev", "text", "type"], false],
     ended: [["id", "speech", "type"], false], audio: [["id", "type"], true],
     spoken: [["id", "rate", "type"], false], failed: [["cause", "type"], false],
-    woke: [["id", "type"], false], checked: [["id", "result", "type"], false]
+    checked: [["id", "result", "type"], false]
 });
 
 function failure(cause, kind = "fault") { return Object.assign(new Error("jarvis: speech=local-" + cause), { code: cause, kind }); }
@@ -234,9 +234,6 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
             if (typeof header.speech !== "boolean") throw new Error("ended=invalid");
             request(header, "utterance")?.settle({ kind: "ended", speech: header.speech });
             return;
-        case "woke":
-            request(header, "wake")?.settle({ kind: "woke" });
-            return;
         case "checked":
             if (!["ready", "silent", "not-heard"].includes(header.result)) throw new Error("check=invalid");
             request(header, "check")?.settle({ kind: "checked", result: header.result });
@@ -370,18 +367,16 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
             };
         },
         /**
-         * Spot the wake word in frames, on this computer only. The outcome
-         * resolves once: {kind:"woke"}, {kind:"abandoned"} when the frames
-         * end or abort() runs first, or {kind:"failed", error}. Frames
-         * A check resolves after frames end with {kind:"checked", result}, using
-         * the same spotter. It never resolves early when the phrase is heard. Frames
+         * Check the setup phrase on this computer. The outcome resolves
+         * after frames end with {kind:"checked", result}, or on abandonment
+         * or failure. It never resolves early when the phrase is heard. Frames
          * before the models are ready are dropped: no word can be spotted
          * then, and queueing them would grow the backlog unread.
          */
-        spot(frames, { check = false } = {}) {
+        check(frames) {
             let resolve;
             const outcome = new Promise(done => { resolve = done; });
-            const { id, value } = track(check ? "check" : "wake", resolve);
+            const { id, value } = track("check", resolve);
             const input = frames[Symbol.asyncIterator]();
             // waiting: no frame sent; sent: the request is open in the sidecar.
             let stream = { kind: "waiting" };
@@ -393,8 +388,8 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
             void outcome.then(() => input.return?.());
             (async () => {
                 // The setup check must report silence even if its source
-                // sends no frames. Normal wake capture waits for audio.
-                if (check && life.kind === "ready") {
+                // sends no frames.
+                if (life.kind === "ready") {
                     write({ type: "check", id });
                     stream = { kind: "sent", resampler: new Resampler(PCM_RATE, MODEL_RATE), carry: Buffer.alloc(0) };
                 }
@@ -402,7 +397,7 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
                     const step = await input.next();
                     if (pending.get(id) !== value) return;
                     if (step.done) {
-                        if (!check || stream.kind !== "sent") { abort(); return; }
+                        if (stream.kind !== "sent") { abort(); return; }
                         sendAudio(id, stream.resampler.flush());
                         write({ type: "end", id });
                         value.bound(END_MS, "check-timeout");
@@ -410,7 +405,7 @@ function open(state, data, clock = CLOCK, changed = () => {}, extra = []) {
                     }
                     if (life.kind !== "ready") continue;
                     if (stream.kind === "waiting") {
-                        write({ type: check ? "check" : "wake", id });
+                        write({ type: "check", id });
                         stream = { kind: "sent", resampler: new Resampler(PCM_RATE, MODEL_RATE), carry: Buffer.alloc(0) };
                     }
                     let bytes = Buffer.concat([stream.carry, step.value.content]);
@@ -503,7 +498,7 @@ function select({ settings, directories }) {
     const voices = voice.speakers.map(speaker => ({ label: speaker.label, value: speaker.name }));
     const extra = settings.clonedVoice === true ? ["--reference", path.join(state, REFERENCE)] : [];
     const identity = JSON.stringify([extra, extra.length === 0 ? null : clonePublication(state)]);
-    return { kind: "ready", lifetime: "daemon", wake: true, dictation: true, publication, identity, recipients: RECIPIENTS, voices,
+    return { kind: "ready", lifetime: "daemon", check: true, dictation: true, publication, identity, recipients: RECIPIENTS, voices,
         open: ({ clock = CLOCK, changed } = {}) => open(state, data, clock, changed, extra) };
 }
 

@@ -33,19 +33,19 @@
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh scripts/smoke/rows/settings.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
 expected_errors+=("${dictation_absent_errors[@]}")
-page_tuis="$repo/shell/plugins/vgs.jarvis/tui"
-page_manifest="$repo/shell/plugins/vgs.jarvis/manifest.json"
-cp -- "$page_tuis/add-key.sh" "$sandbox/page-add-key-original"
-cp -- "$page_tuis/accounts.sh" "$sandbox/page-accounts-original"
-cp -- "$page_manifest" "$sandbox/page-manifest-original"
+page_tuis="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui"
+page_manifest="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/manifest.json"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/add-key.sh" "$page_tuis/add-key.sh"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$page_tuis/accounts.sh"
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 printf 'none\n' >"$sandbox/jarvis-world/key-mode"
-terminal_stand_in
+jarvis_fixture_terminal
+jarvis_fixture_copy jarvis-page-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 terminal_ready "Jarvis page"
 jarvis_rescan
 jarvis_enable
@@ -98,7 +98,7 @@ page_open() { # KEY TUI TITLE
   forget_record
   expect "Settings starts $1's declared action" ok settings_act vgs.jarvis "$1"
   expect_poll "$1's action hands the terminal its declared script" \
-    "$(words --app-id=org.vgs.tui "--title=VGS · $3" -- "$tui_self" present --presentation full \
+    "$(words --app-id=org.vgs.tui "--title=VGS · $3" -- "$jarvis_fixture_tree/bin/vgshell-tui" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record "vgs.jarvis/$2" --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · $3" -- "tui/$2.sh")" recorded
   expect_run_end "the fixture $2 terminal ends" "vgs.jarvis/$2"
@@ -161,9 +161,11 @@ page_accounts_control() {
    echo "$failures")
 }
 expect "a search text that names a missing button breaks the named-button read" 1 page_accounts_control
-cp -- "$sandbox/page-manifest-original" "$page_manifest"
+jarvis_fixture_begin "$sandbox/tree-jarvis-page-input" "$sandbox/tree-jarvis-page-input.commands"
+page_manifest="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/manifest.json"
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
+settings_page_open vgs.jarvis
 expect_poll "the restored search finds nothing and offers Accounts" '["Accounts", true, "info"]' page_offered accountSearch
 
 page_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"brain"}'; }
@@ -200,7 +202,7 @@ rows=[r for r in json.load(sys.stdin) if r["key"] == "copilotMemory"]
 print(json.dumps([[r["report"], r["tone"], r["link"]["url"], r["link"]["text"] in r["hint"], r["action"]] for r in rows]))
 '; }
 expect_poll "with no Copilot account the page draws no Copilot Memory row" '[]' page_copilot
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
 printf 'copilot\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "with a Copilot account the page shows Copilot Memory" '[["reported", "info", "https://github.com/settings/copilot/features", true, null]]' page_copilot
@@ -260,8 +262,7 @@ expect_poll "without the Copilot account the row leaves the page" '[]' page_copi
 
 # The AI model hint on Setup opens the Settings tab at its field.
 # The control keeps its words and drops only their page reference.
-page_gate="$repo/shell/plugins/vgs.jarvis/SetupGate.js"
-cp -- "$page_gate" "$sandbox/page-gate-original"
+page_gate="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/SetupGate.js"
 expect "the page clears the chosen AI account" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"brain","value":""}'
 page_model_hint() { status_row vgs.jarvis setupModel | py_reply 'import json,sys; print(json.load(sys.stdin).get("hint", "absent"))'; }
 page_model_hint_link() {
@@ -305,10 +306,12 @@ page_model_link_control() {
 }
 expect "plain AI model words fail the rendered-link assertion" 1 page_model_link_control
 jarvis_disable
-cp -- "$sandbox/page-gate-original" "$page_gate"
+jarvis_fixture_begin "$sandbox/tree-jarvis-page-input" "$sandbox/tree-jarvis-page-input.commands"
+page_manifest="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/manifest.json"
 jarvis_rescan
 jarvis_enable
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
+settings_page_open vgs.jarvis
 settings_tab_click Settings || fail "the page did not return to Settings after the hint control"
 
 # The model and effort of the chosen sign-in. The world's claude stand-in
@@ -348,6 +351,7 @@ PY
 # Where the shell's log stands before the model steps: they end with a
 # check of what they logged.
 page_log_start="$(wc -c <"$instance_log")"
+page_log_path="$instance_log"
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "the AI model list offers Claude Code and local servers" '[["Claude Code, team@example.invalid", "LM Studio, local", "Ollama, local", "llama-server, local"], "", ""]' page_choice_state brain
@@ -396,8 +400,13 @@ page_effort_control() {
    echo "$failures")
 }
 expect "an effort field with nothing to offer breaks the hidden-field read" 1 page_effort_control
-cp -- "$sandbox/page-manifest-original" "$page_manifest"
+tail -c "+$((page_log_start + 1))" -- "$page_log_path" >"$sandbox/jarvis-page-model-steps.log"
+jarvis_fixture_begin "$sandbox/tree-jarvis-page-input" "$sandbox/tree-jarvis-page-input.commands"
+page_manifest="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/manifest.json"
+page_log_start=0
+page_log_path="$instance_log"
 jarvis_rescan
+settings_page_open vgs.jarvis
 expect_poll "the restored page draws no effort field for Haiku 4.5" absent page_choice effort
 # The first choice of the model field saves the list's default again.
 expect_poll "the restored page reads the list again" '[["Fable 5.1", "Opus 5.5", "Haiku 4.5"], "Haiku 4.5", "claude-haiku-4-5"]' page_choice_state model
@@ -419,8 +428,7 @@ expect "with the page closed nothing is saved" '["", ""]' page_saved
 expect "a setting changed with the page closed reads no list" "$page_reads_closed" page_reads
 # The control: a reader that wants the list whatever the page shows reads
 # it with the page closed and saves its default.
-page_reader="$repo/shell/plugins/vgs.jarvis/Accounts.qml"
-cp -- "$page_reader" "$sandbox/page-reader-original"
+page_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Accounts.qml"
 python3 - "$page_reader" <<'PY'
 from pathlib import Path
 import sys
@@ -440,7 +448,11 @@ page_closed_control() {
    echo "$failures")
 }
 expect "a list read with the page closed breaks both closed-page readings" 2 page_closed_control
-cp -- "$sandbox/page-reader-original" "$page_reader"
+tail -c "+$((page_log_start + 1))" -- "$page_log_path" >>"$sandbox/jarvis-page-model-steps.log"
+jarvis_fixture_begin "$sandbox/tree-jarvis-page-input" "$sandbox/tree-jarvis-page-input.commands"
+page_manifest="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/manifest.json"
+page_log_start=0
+page_log_path="$instance_log"
 jarvis_rescan
 page_settings_drop model effort
 expect_poll "the restored reader runs the unsaved default" '["claude-fable-5-1", "high"]' page_daemon_choice
@@ -472,14 +484,14 @@ settings_page_close vgs.jarvis
 # The model steps wrote the settings from the reader and from the page. The
 # next row starts a new shell, so what this shell logged in those steps is
 # read here.
-tail -c "+$((page_log_start + 1))" -- "$instance_log" >"$sandbox/jarvis-page-model-steps.log"
+tail -c "+$((page_log_start + 1))" -- "$page_log_path" >>"$sandbox/jarvis-page-model-steps.log"
 check_unexpected_log "the shell's log of the model steps" "$sandbox/jarvis-page-model-steps.log"
 
-cp -- "$sandbox/page-add-key-original" "$page_tuis/add-key.sh"
-cp -- "$sandbox/page-accounts-original" "$page_tuis/accounts.sh"
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
-jarvis_rescan
+rescan "the restored world is read again"
+settings_page_open vgs.jarvis
+page_open keyStore add-key "Add Jarvis key"
 expect_poll "the restored world publishes its fixture key" matched jarvis_key_value present
 
 # The provider key list is a Details reading: Jarvis stores its keys
@@ -599,12 +611,15 @@ expect_poll "vgs.system's enablement is as the row found it" "$page_system_was" 
 expect_poll "the user file holds Realtime" '["realtime"]' page_voice_saved
 settings_page_close vgs.jarvis
 jarvis_disable
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
 stop_shell || :
-start_shell "$repo" "$sandbox/jarvis-page-restarted.log"
+start_shell "$jarvis_fixture_tree" "$sandbox/jarvis-page-restarted.log" bar PATH="$jarvis_fixture_shim:$shim:$shell_host_path"
 settings_page_open vgs.jarvis
 expect_poll "the stored Realtime survives a shell restart" '"realtime"' page_voice
 page_settings_drop voiceProvider
 expect "the user file holds no Voice provider again" absent page_voice_saved
 expect_poll "with nothing saved the Voice provider reads Local" '"local"' page_voice
 settings_page_close vgs.jarvis
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-page-stock.log"

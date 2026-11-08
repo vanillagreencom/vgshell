@@ -87,8 +87,11 @@ world(async () => {
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 2) });
         const rows = () => { const file = path.join(root, "state/audit/2026-10-02.jsonl");
             return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : []; };
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
+            // No audio in this world. A dispatched engine acknowledgement
+            // must complete its playback effect, not hit unavailable().
+            playback: { start: (e, done) => done(), flush: (e, done) => done() },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         let engine = null;
         const runnerClock = { now: () => at, set: () => ({}), clear() {} };
@@ -110,9 +113,12 @@ world(async () => {
             gate.executor.start(call, done);
         } });
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
-        bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-        runner.dispatch({ type: "indicator", shown: true });
+        bridge = Bridge.create({ router, state: () => runner.state, audit,
+            release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) },
+            answered: (value, tool) => engine?.brain.bridged(value, tool),
+            sent: (value, labels) => engine?.brain.retained(value, labels), directory: runtime });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");
         const recipients = Policy.recipients({ conversation: "codex-" + serial, profile: "standard", cloudVision: "ask",
@@ -160,6 +166,20 @@ world(async () => {
     fs.renameSync(path.join(fixtures.project, "existing"), existing);
 
     const CASES = {
+        async suspendResume(folder) {
+            scenario({ turns: [[delta("First."), { complete: "completed" }], [delta("Second."), { complete: "completed" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("remember this")), [{ kind: "text", text: "First." }, { kind: "done", reason: "stop" }]);
+            const child = program();
+            await w.brain.suspend();
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=codex-suspended" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await drain(w.say("continue")), [{ kind: "text", text: "Second." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(program(), child, "resume keeps the same native child and private working folder");
+            assert.equal(received("thread/start").length, 1, "resume keeps the exact native thread");
+            assert.deepEqual(received("turn/start").map(message => message.params.input[0].text), ["remember this", "continue"]);
+            validWrites();
+        },
         async completedText(folder) {
             const complete = { notify: "item/completed", params: { threadId: "$THREAD", turnId: "$TURN", completedAtMs: 1,
                 item: { type: "agentMessage", id: "m1", text: "Fixture.", phase: null, memoryCitation: null, delivery: null, questions: null } } };
@@ -388,10 +408,13 @@ world(async () => {
             assert.deepEqual((await iterator.next()).value, { kind: "text", text: "a" });
             const pending = assert.rejects(iterator.next(), { message: "jarvis: brain=cancelled" });
             let cancelled = false;
-            const cancellation = w.brain.cancel().then(() => { cancelled = true; });
+            const cancellation = w.brain.suspend().then(() => { cancelled = true; });
+            assert.throws(() => w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=codex-busy" }, "resume waits for the native cancellation acknowledgement");
             await pending;
             await until(() => cancelled, "Codex completion settles cancellation after the reader rejects");
             await cancellation;
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             assert.equal(received("turn/interrupt").length, 1);
             validWrites();
         },
@@ -429,7 +452,7 @@ world(async () => {
                 const w = make(copied);
                 const Secrets = require(path.join(copied, "backend/Secrets.js"));
                 const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                    accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
+                    accounts: () => ({ secrets: { revision: () => "fixture" }, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
                         source: { kind: "cli", directory: account }, model: "" } }),
                         resolve: id => ({ id, provider: "openai", source: { kind: "keyring",
                             reference: Secrets.ownReference("openai", "fixture", "https://api.openai.com") } }) }),
@@ -437,7 +460,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime }, trace: { marker: "1", file: trace } });
                 owners.unshift(() => engine.close());
-                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready", cautions: [] });
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", model: "", effort: "", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready", cautions: [] });
                 const { gen, turn: { op } } = w.runner.state;
                 const callbacks = [];
                 const send = (id, text) => engine.brain.send({ gen, op: id, owner: 1, text, delegation: "del_" + id },
@@ -476,6 +499,117 @@ world(async () => {
                 await engine.close();
                 for (const owner of owners.splice(0)) owner();
             }
+        },
+        async retainedTimeout(folder) {
+            for (const adopted of [false, true]) {
+                const barrier = path.join(process.env.JARVIS_TEST_ROOT, "retained-interrupt-" + serial);
+                const trace = barrier + "-text";
+                scenario({ interruptBarrier: barrier, turns: [[delta("unfinished"), { interrupt: true }]] });
+                Fixture.reset();
+                const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+                const w = make(copied);
+                const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                    accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
+                        source: { kind: "cli", directory: account }, model: "" } }) }),
+                    policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                    captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
+                    harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime }, trace: { marker: "1", file: trace } });
+                owners.unshift(() => engine.close());
+                w.installEngine(engine);
+                w.runner.ports.brain = engine.brain;
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", model: "", effort: "" }), { kind: "ready", cautions: [] });
+                const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
+                engine.brain.send({ gen, op, owner, text: "first" }, () => {});
+                await until(() => fs.existsSync(trace) && fs.readFileSync(trace, "utf8").includes("unfinished"),
+                    "native inference is running");
+                w.runner.dispatch({ type: "toggle" });
+                await until(() => read("codex-log").some(row => row.direction === "barrier"), "native cancellation remains unacknowledged");
+                if (adopted) {
+                    // A generation's speech/capture owner can adopt history
+                    // before its next brain request crosses the quiet barrier.
+                    Fixture.control.utterances.push(Fixture.utterance(""));
+                    engine.captureSink({ gen: w.runner.state.gen, op: op + 20, mode: "conversation" });
+                }
+                w.time(2000);
+                w.runner.dispatch({ type: "deadline", gen, op });
+                await until(() => !fs.existsSync(path.join(w.runtime, "tools.sock"))
+                    && fs.readdirSync(w.runtime).every(name => !name.startsWith("codex-")),
+                "the existing cancellation timeout reaps the exact retained native owner");
+                assert.equal(received("turn/start").length, 1, "retirement starts no replacement inference");
+                await engine.close();
+                for (const close of owners.splice(0)) close();
+            }
+        },
+        async retainedAuthority(folder) {
+            scenario({ turns: [
+                [{ mcp: { tool: "files_read", arguments: { path: existing } } }, { complete: "completed" }],
+                [{ mcp: { tool: "files_write", arguments: { path: path.join(fixtures.project, "new"), text: "fixture" } } },
+                    { mcp: { tool: "memory_propose", arguments: { id: "facts/resumed.md", text: "# Fixture\nRetained file fact.\n" } } },
+                    { complete: "completed" }]
+            ] });
+            Fixture.reset();
+            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+            const w = make(copied);
+            const home = path.join(w.root, "home");
+            require(path.join(copied, "backend/Home.js")).layout(home);
+            const memory = require(path.join(copied, "backend/Memory.js")).install({
+                router: w.router, directory: path.join(w.root, "memory"), home: () => home
+            });
+            assert.equal(memory.kind, "installed");
+            owners.unshift(() => memory.close());
+            const reads = [], writes = [];
+            w.router.register("files", { commands: [], timeoutMs: 1000, cancellable: false, start(call, done) {
+                if (call.id === "files.read") reads.push(call.args.path);
+                if (call.id === "files.write") writes.push(call);
+                done({ outcome: "completed", content: call.id === "files.read" ? "untrusted fixture content" : "fixture written" });
+            } });
+            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
+                    source: { kind: "cli", directory: account }, model: "" } }) }),
+                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
+                home: () => ({ kind: "ready", path: home }),
+                harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
+            owners.unshift(() => engine.close());
+            w.installEngine(engine);
+            w.runner.ports.brain = engine.brain;
+            w.runner.ports.capture.collect = (_e, done) => done("final", "continue");
+            assert.deepEqual(engine.configure({ brain: "codex-fixture", model: "", effort: "" }), { kind: "ready", cautions: [] });
+            const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
+            const done = (type, values) => w.runner.dispatch({ type, ...values, gen, op });
+            engine.brain.send({ gen, op, owner, text: "read file" }, done);
+            await until(() => w.runner.state.approval.kind === "held", "file content requires release consent");
+            assert.equal(w.runner.state.approval.purpose, "release");
+            assert.deepEqual(reads, [existing], "the native bridge reads the current fixture file before release");
+            w.show(); w.time(1000); w.confirm();
+            await until(() => w.runner.state.turn.kind === "none", "first native turn completes");
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.runner.state.conversation.kind === "ended"
+                && w.runner.state.capture.kind === "closed"
+                && w.runner.state.brain.kind === "closed", "ordinary close releases the first generation");
+            // Session collapses presses inside 250 ms. A second physical
+            // press has a distinct injected time, after close acknowledged.
+            w.time(1500);
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.runner.state.approval.kind === "held", "retained file context needs new release consent");
+            assert.equal(w.runner.state.approval.purpose, "release");
+            assert.equal(received("turn/start").length, 1, "retained content is rejudged before native resume sends a turn");
+            assert.deepEqual(writes, [], "old release or action grants do not cross generations");
+            const release = w.runner.state.approval;
+            w.show(); w.time(2500); w.confirm();
+            assert.equal(w.runner.state.approval.kind, "none", "the matching retained release ends before native resume");
+            await until(() => received("turn/start").length === 2, "renewed release admits the second actual native turn");
+            await until(() => w.runner.state.approval.kind === "held"
+                && w.runner.state.approval.purpose === "action", "a resumed new-target write needs action confirmation");
+            assert.equal(w.runner.state.approval.purpose, "action");
+            assert.equal(w.runner.state.approval.gen, release.gen, "the action belongs to the released generation");
+            assert.deepEqual(writes, []);
+            w.show(); w.time(3500); w.confirm();
+            await until(() => w.runner.state.turn.kind === "none", "resumed native turn completes");
+            assert.equal(writes.length, 1);
+            assert.deepEqual(memory.pending().map(row => [row.target, [...row.labels].sort()]),
+                [["facts/resumed.md", ["file", "home", "speech"]]], "retained file origin quarantines memory");
+            assert.equal(fs.existsSync(path.join(home, "memory/facts/resumed.md")), false);
         },
         // close ends the program, the bridge session and the private directory.
         async close(folder) {
@@ -528,7 +662,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: {bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime}});
                 owners.unshift(() => engine.close()); w.installEngine(engine);
-                assert.deepEqual(engine.configure({brain: "codex-fixture"}), {kind: "ready", cautions: []});
+                assert.deepEqual(engine.configure({brain: "codex-fixture", model: "", effort: ""}), {kind: "ready", cautions: []});
                 const {gen, turn: {op}} = w.runner.state;
                 let verdict;
                 engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => { if (kind === "brain-done") verdict = kind; });
@@ -550,26 +684,13 @@ world(async () => {
                 await engine.close();
             }
         },
-        // The plan's context bound in user turns: past it the chained engine
-        // ends the conversation cleanly, as it does a wire brain's.
+        // The adapter's own bound is distinct from the earlier engine rollover.
         async limit(folder) {
             scenario({ turns: Array.from({ length: 41 }, () => [{ complete: "completed" }]) });
-            // The world loads the engine's own module copies: a recipient set is
-            // judged by the Policy module that made it.
-            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
-            const w = make(copied);
-            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "codex", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" } }) }),
-                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock, harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
-            owners.unshift(() => engine.close());
-            assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready", cautions: [] });
-            const { gen, turn: { op } } = w.runner.state;
-            const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
-                (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));
-            for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
-            assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
+            const w = make(folder);
+            for (let turn = 0; turn < 40; turn++)
+                assert.deepEqual(await drain(w.say("turn " + turn)), [{ kind: "done", reason: "stop" }]);
+            assert.throws(() => w.say("one more"), { message: "jarvis: brain=context-limit" });
         },
         // Account Verify on a Codex directory: the release record, then one probe turn.
         async verify(folder) {
@@ -724,6 +845,11 @@ world(async () => {
         }
         let controls = 0;
         for (const [name, relative, edits, row] of [
+            ["retained-cancel-owner", "backend/ChainedEngine.js",
+                [["if (pending && pending.gen === e.gen && pending.owner === e.target)", "if (false)"]], "retainedTimeout"],
+            ["retained-authority", "backend/ChainedEngine.js",
+                [["router.observe(turn, [...c.historyLabels]);", ""],
+                    ["const labels = Policy.labels([...c.historyLabels, ...reply.release.labels]);", "const labels = reply.release.labels;"]], "retainedAuthority"],
             ["message-prefix", "backend/CodexHarness.js", [['if (!e.item.text.startsWith(prior.value)) {', 'if (false && !e.item.text.startsWith(prior.value)) {']], "completionConflict"],
             ["empty-delta", "backend/CodexHarness.js", [['!prior.completed && e.delta !== ""', '!prior.completed']], "completedText"],
             ["completed-message", "backend/CodexHarness.js", [['if (e.item.kind === "message") {', 'if (false && e.item.kind === "message") {']], "completedText"],
@@ -763,6 +889,7 @@ world(async () => {
             ["directory-removal", "backend/CodexHarness.js", [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
                 "    await session.program.close();"]], "close"],
             ["context-limit", "backend/CodexHarness.js", [['if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");', ""]], "limit"],
+            ["suspended-send", "backend/CodexHarness.js", [['if (suspended) fail("suspended");', ""]], "suspendResume"],
             ["context-key", "backend/CodexHarness.js", [['throw new Error("jarvis: brain=context-limit");', 'fail("context-limit");']], "limit"],
             ["opening-close", "backend/CodexHarness.js", [['if (closed) { launch.close(); fail("closed"); }', 'if (closed) fail("closed");']], "opening"],
             ["probe-observed", "backend/CodexHarness.js", [["done.catch(() => {});", "void done;"]], "verify"],

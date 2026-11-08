@@ -8,6 +8,169 @@ const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
 const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/backend/session-runner.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Audio.js");
 const { Audio } = require(file);
+const EchoCancel = require("../shell/plugins/vgs.jarvis/backend/EchoCancel.js");
+require("../shell/plugins/vgs.jarvis/backend/Core.js").use(tree);
+
+function echoGraph() {
+    const targets = { microphone: "physical.mic", speaker: "physical.speaker" }, group = EchoCancel.group(targets);
+    const node = (id, name, media, props = {}) => ({ id, type: "PipeWire:Interface:Node",
+        info: { props: { "node.name": name, "media.class": media, ...props } } });
+    return { targets, graph: [
+        node(10, targets.microphone, "Audio/Source", { "device.id": 8 }),
+        node(11, targets.speaker, "Audio/Sink", { "device.id": 8 }),
+        ...Object.entries(EchoCancel.NAMES).map(([role, name], i) => node(20 + i, name,
+            { capture: "Stream/Input/Audio", source: "Audio/Source", sink: "Audio/Sink", playback: "Stream/Output/Audio" }[role],
+            { "node.group": group, "node.link-group": group, "node.virtual": true,
+                ...(role === "capture" ? { "target.object": targets.microphone }
+                    : role === "playback" ? { "target.object": targets.speaker } : {}) })),
+        { id: 30, type: "PipeWire:Interface:Module", info: { name: "libpipewire-module-echo-cancel",
+            args: "{\n" + EchoCancel.argumentsText(targets) + "\n}" } },
+        { id: 31, type: "PipeWire:Interface:Link", info: { "output-node-id": 10, "input-node-id": 20, state: "paused" } },
+        { id: 32, type: "PipeWire:Interface:Link", info: { "output-node-id": 23, "input-node-id": 11, state: "active" } },
+        { id: 4, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "default" }, metadata: [
+            { subject: 0, key: "default.audio.source", type: "Spa:String:JSON", value: { name: targets.microphone } },
+            { subject: 0, key: "default.audio.sink", type: "Spa:String:JSON", value: { name: targets.speaker } }
+        ] }
+    ] };
+}
+
+async function echoRoutes(Implementation = Audio) {
+    const fixture = echoGraph(), w = setup(Implementation);
+    try {
+        w.audio.echoFile = { state: "installed", path: "/fixture/pipewire.conf.d/60-jarvis-echo-cancel.conf", reason: "", targets: fixture.targets };
+        w.audio.snapshot(fixture.graph, "full");
+        w.dispatch("snapshot", { locked: false, configured: true, engine: "duplex", echoCancel: true,
+            settings: { microphone: "", speaker: "" } });
+        assert.equal(w.audio.echoRoute.state, "active", "connected native graph matches the owned plan");
+        assert.equal(w.audio.echoActive(), true);
+        const judgeGraph = w.audio.echoGraph;
+        let judgments = 0;
+        w.audio.echoGraph = function (...args) { judgments++; return judgeGraph.apply(this, args); };
+        for (const type of ["snapshot", "deadline", "indicator"]) {
+            const before = judgments;
+            w.dispatch(type, type === "snapshot" ? { locked: false, configured: true, engine: "duplex",
+                echoCancel: true, settings: { microphone: "", speaker: "" } }
+                : type === "indicator" ? { gen: w.runner.state.gen, shown: true, bar: "gone" } : {});
+            assert.equal(judgments, before, type + " with unchanged physical selections reuses the graph judgment");
+            assert.equal(w.audio.state, w.runner.state, "Audio still observes the current Session");
+        }
+        assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, "duplex"), "jarvis_ec_source");
+        assert.equal((await w.audio.selected("speakers", "speaker")).target, "jarvis_ec_sink");
+        for (const engine of ["dictation", "chained"]) {
+            assert.equal(w.audio.echoActive(engine), false, engine + " keeps half duplex");
+            assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, engine), fixture.targets.microphone);
+        }
+        assert.deepEqual(w.audio.setupTargets(w.runner.state.settings), fixture.targets,
+            "setup reuses the physical selection while live audio chooses the EC pair");
+        for (const row of [
+            { name: "unrelated module", id: 30, change: item => { item.info.args = "library.name=aec/libspa-aec-webrtc"; } },
+            { name: "wrong module", id: 30, change: item => { item.info.name = "libpipewire-module-loopback"; } },
+            { name: "wrong group", id: 21, change: item => { item.info.props["node.group"] = "other-ec"; } },
+            { name: "wrong physical target", id: 20, change: item => { item.info.props["target.object"] = "other.mic"; } },
+            { name: "failed link", id: 31, change: item => { item.info.state = "error"; } },
+            { name: "wrong link", id: 32, change: item => { item.info["input-node-id"] = 10; } },
+            { name: "missing module", id: 30, remove: true },
+            { name: "missing source", id: 21, remove: true }
+        ]) {
+            const graph = structuredClone(fixture.graph);
+            if (row.remove) graph.splice(graph.findIndex(item => item.id === row.id), 1);
+            else row.change(graph.find(item => item.id === row.id));
+            w.audio.snapshot(graph, "full");
+            assert.equal(w.audio.echoRoute.state, "pending", row.name);
+            assert.equal(w.audio.echoActive(), false, row.name + " grants no overlap");
+            assert.equal(w.audio.device("microphones", "microphone", w.runner.state.settings, "duplex"), fixture.targets.microphone,
+                row.name + " changes the check source with the actual route");
+        }
+        w.audio.snapshot(fixture.graph, "full");
+        w.audio.snapshot([{ id: 13, type: "PipeWire:Interface:Node", info: { props: {
+            "node.name": "physical.usb", "media.class": "Audio/Source", "device.id": 9 } } }]);
+        w.dispatch("snapshot", { locked: false, configured: true, engine: "duplex", echoCancel: true,
+            settings: { microphone: "physical.usb", speaker: "" } });
+        assert.equal(w.audio.echoRoute.reason, "targets-changed", "a new physical setting needs explicit setup again");
+        assert.equal(w.audio.echoActive(), false);
+        w.dispatch("snapshot", { locked: false, configured: true, engine: "duplex", echoCancel: false,
+            settings: { microphone: "", speaker: "" } });
+        w.audio.snapshot(fixture.graph, "full");
+        const crowded = Array.from({ length: 32 }, (_, i) => ({ id: 100 + i, type: "PipeWire:Interface:Node",
+            info: { props: { "node.name": "a.mic." + i, "media.class": "Audio/Source", "device.id": i + 100 } } }));
+        w.audio.snapshot([...fixture.graph, ...crowded], "full");
+        assert.equal(w.audio.echoActive(), false, "raw pair presence outside bounded target offers grants no overlap");
+        w.audio.snapshot(fixture.graph, "full");
+        w.audio.capture = { target: fixture.targets.microphone };
+        assert.equal(w.audio.echoActive(), false, "an existing physical recorder cannot inherit full duplex");
+        w.audio.capture = null;
+        const child = {};
+        w.audio.children.set(child, { kind: "playback", target: fixture.targets.speaker, stopping: true });
+        assert.equal(w.audio.echoActive(), false, "retiring physical audio waits for its actual exit");
+        w.audio.children.delete(child);
+        assert.equal(w.audio.echoActive(), true);
+        w.audio.snapshot([{ id: 31, info: null }]);
+        assert.equal(w.audio.echoActive(), false, "monitor removal revokes route admission");
+        w.audio.snapshot(fixture.graph, "full");
+        const overlap = { ids: new Set([31]), defaults: false };
+        w.audio.snapshot([{ id: 31, info: { state: "error" }, type: "PipeWire:Interface:Link" }]);
+        w.audio.snapshot(fixture.graph, "full", overlap);
+        assert.equal(w.audio.echoActive(), false, "an older full read cannot revive a failed monitor link");
+    } finally { w.audio.capture = null; w.audio.children.clear(); w.runner.close(); await w.audio.close("test-end"); }
+}
+
+function echoInstallation() {
+    const root = fs.mkdtempSync(path.join(process.env.HOME, "echo-setup-")), targets = echoGraph().targets;
+    const environment = { HOME: root }, file = EchoCancel.location(environment);
+    try {
+        assert.equal(EchoCancel.read(environment).state, "absent");
+        const installed = cp.spawnSync(process.execPath, [path.join(tree, "shell/plugins/vgs.jarvis/backend/echo-cancel-setup.js"), "install", tree], {
+            env: { HOME: root, PATH: process.env.PATH }, input: JSON.stringify(targets), encoding: "utf8", timeout: 10000
+        });
+        assert.equal(installed.error, undefined);
+        assert.equal(installed.status, 0, installed.stderr);
+        const before = fs.statSync(file);
+        assert.equal(EchoCancel.read(environment).state, "installed");
+        const content = fs.readFileSync(file, "utf8");
+        for (const clause of ["name = libpipewire-module-echo-cancel", "library.name = aec/libspa-aec-webrtc",
+            "webrtc.noise_suppression = false", "webrtc.gain_control = false", "webrtc.high_pass_filter = true",
+            'target.object = "physical.mic"', 'target.object = "physical.speaker"',
+            "node.name = jarvis_ec_source", "node.name = jarvis_ec_sink"])
+            assert.equal(content.includes(clause), true, "PipeWire consumes the native configuration: " + clause);
+        assert.equal(EchoCancel.install(environment, targets).changed, false);
+        const after = fs.statSync(file);
+        assert.equal(after.ino, before.ino, "unchanged setup keeps the existing file");
+        assert.equal(after.mtimeMs, before.mtimeMs, "unchanged setup needs no restart");
+        const rename = fs.renameSync;
+        try {
+            fs.renameSync = () => { throw Object.assign(new Error("fixture replacement failed"), { code: "EIO" }); };
+            assert.throws(() => EchoCancel.install(environment, { ...targets, microphone: "physical.usb" }), { code: "EIO" });
+            assert.equal(fs.readFileSync(file, "utf8"), content, "a failed replacement preserves the complete installed file");
+            assert.deepEqual(fs.readdirSync(path.dirname(file)), [path.basename(file)]);
+        } finally { fs.renameSync = rename; }
+        const link = fs.linkSync;
+        fs.unlinkSync(file);
+        try {
+            fs.linkSync = () => { throw Object.assign(new Error("fixture publication failed"), { code: "EIO" }); };
+            assert.throws(() => EchoCancel.install(environment, targets), { code: "EIO" });
+            assert.equal(fs.existsSync(file), false, "a failed publication exposes no partial configuration");
+            assert.deepEqual(fs.readdirSync(path.dirname(file)), [], "the owned temporary file is removed");
+        } finally { fs.linkSync = link; }
+        for (const row of [
+            { name: "foreign", prepare: () => fs.writeFileSync(file, "# User configuration\n"), read: () => fs.readFileSync(file, "utf8") },
+            { name: "edited owned", prepare: () => fs.writeFileSync(file, EchoCancel.render(targets) + "# User edit\n"), read: () => fs.readFileSync(file, "utf8") },
+            { name: "linked", prepare: () => fs.symlinkSync(path.join(root, "keep"), file), read: () => fs.readlinkSync(file) }
+        ]) {
+            fs.writeFileSync(path.join(root, "keep"), "keep\n");
+            row.prepare();
+            const unchanged = row.read();
+            assert.equal(EchoCancel.read(environment).state, "foreign", row.name);
+            assert.throws(() => EchoCancel.install(environment, targets), { message: /^echo-cancel-/ }, row.name);
+            assert.equal(row.read(), unchanged, row.name + " remains unchanged");
+            assert.equal(fs.readFileSync(path.join(root, "keep"), "utf8"), "keep\n");
+            fs.unlinkSync(file);
+        }
+        const linkedRoot = path.join(root, "linked-config");
+        fs.symlinkSync(path.dirname(path.dirname(file)), linkedRoot);
+        assert.equal(EchoCancel.read({ HOME: root, XDG_CONFIG_HOME: linkedRoot }).state, "foreign");
+        assert.throws(() => EchoCancel.install({ HOME: root, XDG_CONFIG_HOME: linkedRoot }, targets), { message: /^echo-cancel-config-/ });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
 
 function setup(Implementation = Audio, sink = null, source = null, clock = null, spoken = true) {
     const levels = [], offers = [], faults = [];
@@ -46,8 +209,8 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     });
     const dispatch = (type, values = {}) => runner.dispatch({ type, ...values });
     dispatch("snapshot", { locked: false, engine: "chained", configured: true,
-        settings: { microphone: "", speaker: "" } });
-    dispatch("indicator", { shown: true });
+        settings: { microphone: "", speaker: "", holdToTalk: true } });
+    dispatch("indicator", { gen: runner.state.gen, shown: true, bar: "gone" });
     // A Talk release that ends a hold: past Session's tap bound, so it
     // closes the capture.
     const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
@@ -61,34 +224,73 @@ async function capture(w) {
         "fixture descendant actually holds its lock");
 }
 
-// Always mode's wake capture reads the microphone but publishes no level.
-async function armedLevels(Implementation) {
-    const w = setup(Implementation);
+// Exercise Audio's real capture feed with a held recorder close. No child or
+// device runs; the fake boundary supplies only raw PCM and its exit receipt.
+async function cloudInput(Implementation = Audio) {
+    const writes = [], ends = [], readings = [], failures = [];
+    let finish;
+    const closed = new Promise(resolve => { finish = resolve; });
+    const stdout = new PassThrough(), lease = new PassThrough();
+    const child = { stdout, stdin: new PassThrough(), stdio: [null, null, null, lease] };
+    const owner = { child, kind: "capture", stopping: false, closed };
+    const feed = new Writable({ write(pcm, encoding, done) { writes.push(Buffer.from(pcm)); done(); } });
+    feed.endInput = () => { ends.push(writes.length); return true; };
+    const audio = new Implementation({ session: { canCapture: () => true }, environment: {},
+        clock: { now: () => 0, set: () => ({}), clear() {} }, offers() {}, level() {}, fault: value => failures.push(value),
+        captureSink: () => feed, playbackSource: null, input: value => readings.push(value) });
+    audio.observe({ engine: { kind: "duplex" }, settings: {} });
+    audio.discover = async () => {};
+    audio.selected = async () => ({ target: "fixture.mic", from: "default" });
+    audio.spawn = async () => { audio.children.set(child, owner); return owner; };
+    void closed.then(() => audio.children.delete(child));
+    const pcm = value => {
+        const bytes = Buffer.alloc(960);
+        for (let at = 0; at < bytes.length; at += 2) bytes.writeInt16LE(value, at);
+        return bytes;
+    };
+    const send = (value, count) => { for (let i = 0; i < count; i++) stdout.emit("data", pcm(value)); };
     try {
-        w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
-            settings: { microphone: "", speaker: "", mode: "always" } });
-        await until(() => w.runner.state.capture.kind === "open" && w.runner.state.capture.mode === "armed", "wake capture opens");
-        await until(() => w.frames() >= 15, "wake capture PCM");
-        assert.deepEqual(w.levels, [], "a wake capture publishes no level");
-    } finally { w.runner.close(); await w.audio.close("test-end"); }
+        await audio.openCapture({ gen: 3, op: 7, mode: "conversation" }, () => {}, reason => failures.push(reason));
+        send(0, 110);
+        assert.deepEqual(writes, [], "digital silence never leaves for the cloud");
+        assert.deepEqual(readings, [{ type: "input-silent", gen: 3, op: 7, device: "fixture.mic" }],
+            "one nonblocking hint belongs to the microphone capture");
+        send(128, 20);
+        assert.deepEqual(writes, [], "quiet background frames stay on this computer");
+        send(8192, 1);
+        send(0, 30);
+        assert.equal(ends.length, 1, "the captured hangover ends one native input");
+        assert.ok(ends[0] >= 6 && ends[0] <= 26, "a short actual hangover follows the speech frame");
+        assert.deepEqual(writes[0], pcm(8192), "the real speech frame is forwarded");
+        assert.ok(writes.slice(1).every(bytes => bytes.equals(pcm(0))), "hangover contains only actual captured frames");
+        assert.equal(readings.filter(value => value.type === "input-sound").length, 1, "sound clears the hint once");
+        send(8192, 1);
+        let result = null;
+        const ending = audio.capturePort.close({ gen: 3, op: 8, target: 7 }, value => { result = value; }, error => { throw error; });
+        assert.equal(owner.stopping, true, "microphone shutdown starts before native-end acknowledgement");
+        assert.equal(ends.length, 2, "recorder close finishes the active native input");
+        assert.equal(result, null, "capture-close waits for the held recorder exit");
+        finish();
+        await ending;
+        assert.deepEqual(result, { speech: true }, "the close reports queued audio, not recognition");
+        assert.equal(feed.destroyed, true);
+        assert.deepEqual(failures, []);
+    } finally { finish(); await audio.close("test-end"); }
 }
 
 async function trigger(Implementation, type) {
     const w = setup(Implementation);
     try {
         await capture(w);
-        if (type === "mute") w.dispatch("mute");
-        else if (type === "indicator") w.dispatch("indicator", { shown: false });
+        if (type === "indicator") w.dispatch("indicator", { gen: w.runner.state.gen, shown: false, bar: "gone" });
         else if (type === "provider") w.audio.failCapture("provider-disconnected", "");
         else if (type === "lease") w.runner.close();
         else w.dispatch("snapshot", { locked: type === "unknown" ? null : true, engine: "chained", configured: true,
             settings: w.runner.state.settings });
-        if (type === "mute") assert.equal(w.runner.state.mute.kind, "muting");
         await until(() => w.runner.state.capture.kind === "closed", type + " acknowledgment");
         assert.equal([...w.audio.children.values()].filter(owner => owner.kind !== "discovery").length, 0,
             type + " leaves no audio process");
         assert.equal(unlocked(), true, type + " leaves no detached descendant");
-        if (type === "mute") assert.equal(w.runner.state.mute.kind, "on");
         if (type === "provider") assert.equal(w.runner.state.fault.reason, "provider-disconnected");
     } finally { w.runner.close(); await w.audio.close("test-end"); }
 }
@@ -108,6 +310,9 @@ async function inside() {
             await until(() => w.runner.state.capture.kind === "open", "capture starts after feedback drains");
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
+    await cloudInput();
+    await echoRoutes();
+    echoInstallation();
     await firstPlayback();
     async function desktopDefaults(Implementation = Audio) {
         const w = setup(Implementation);
@@ -213,8 +418,7 @@ async function inside() {
         }
     }
     await defaultRemoval();
-    await armedLevels(Audio);
-    for (const type of ["mute", "locked", "unknown", "indicator", "provider", "lease"])
+    for (const type of ["locked", "unknown", "indicator", "provider", "lease"])
         await trigger(Audio, type);
     const retired = setup();
     retired.runner.close();
@@ -366,7 +570,9 @@ async function inside() {
         const source = new PassThrough();
         const w = setup(Implementation, null, source);
         try {
-            w.dispatch("toggle");
+            w.dispatch("snapshot", { configured: true, locked: false, engine: "chained",
+                settings: { ...w.runner.state.settings, holdToTalk: false } });
+            w.dispatch("talk-down");
             await until(() => w.runner.state.capture.kind === "open", "conversation capture opens");
             w.dispatch("final", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, text: "fixture" });
             await until(() => w.runner.state.capture.kind === "open", "conversation capture reopens after final");
@@ -382,7 +588,7 @@ async function inside() {
             assert.equal(sink.closed, true, "speech receives no microphone feed during playback");
             assert.equal([...w.audio.children.values()].some(owner => owner.kind === "capture"), false);
             const playback = w.runner.state.playback;
-            const resumes = ["complete", "interrupt", "talk"].includes(operation);
+            const resumes = ["complete", "interrupt", "stop"].includes(operation);
             if (operation === "complete") source.end();
             else if (operation === "interrupt") w.dispatch("interrupt");
             else if (operation === "talk") w.dispatch("talk-down");
@@ -390,11 +596,11 @@ async function inside() {
                 w.dispatch("talk-down");
                 w.release();
             }
-            else if (operation === "indicator") w.dispatch("indicator", { shown: false });
+            else if (operation === "indicator") w.dispatch("indicator", { gen: w.runner.state.gen, shown: false, bar: "gone" });
             else if (operation === "provider") source.destroy(new Error("synthetic provider disconnect"));
             else if (operation === "device") w.audio.snapshot([{ id: 12, info: null }]);
             else if (operation === "lease") w.runner.close();
-            else if (operation === "mute" || operation === "stop") w.dispatch(operation);
+            else if (operation === "stop") w.dispatch(operation);
             else if (operation === "locked" || operation === "unknown") {
                 w.dispatch("snapshot", { locked: operation === "unknown" ? null : true, engine: "chained", configured: true,
                     settings: w.runner.state.settings });
@@ -411,7 +617,7 @@ async function inside() {
             if (resumes) {
                 await until(() => w.runner.state.capture.kind === "open", operation + " resumes permitted demand");
                 assert.notEqual(w.audio.feed, sink, "resume acquires a new speech feed");
-                assert.equal(w.runner.state.input.kind, operation === "talk" ? "held" : "conversation");
+                assert.equal(w.runner.state.input.kind, "conversation");
             } else {
                 assert.equal(w.runner.state.capture.kind, "closed", operation + " cannot revive capture");
                 assert.equal(w.audio.capture, null);
@@ -423,7 +629,7 @@ async function inside() {
             assert.equal(calls.some(row => row.command === "pw-cli"), false, "half duplex loads no module");
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
-    for (const operation of ["complete", "interrupt", "talk", "release", "mute", "stop", "locked", "unknown",
+    for (const operation of ["complete", "interrupt", "talk", "release", "stop", "locked", "unknown",
         "indicator", "provider", "device", "lease"]) await halfDuplex(Audio, operation);
 
     // Voice mute sends the speaker silence of the length of Jarvis's spoken
@@ -749,6 +955,14 @@ async function inside() {
         await assert.rejects(() => check(require(path.join(folder, "Audio.js")).Audio), assert.AssertionError);
         controls++;
     }
+    await control("cloud-level-gate", 'gate: this.state.engine.kind === "duplex" ?',
+        'gate: false ?', cloudInput);
+    await control("echo-physical-links", 'if (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id)) return "links-missing";',
+        'if (false && (!linked(microphone[0].id, nodes.capture.id) || !linked(nodes.playback.id, speaker[0].id))) return "links-missing";', echoRoutes);
+    await control("echo-semantic-selection", 'if (settings?.microphone !== state.settings.microphone || settings?.speaker !== state.settings.speaker)',
+        'if (settings !== state.settings)', echoRoutes);
+    await control("silent-hint", "capture.frames >= SILENT_FRAMES", "false", cloudInput);
+    await control("native-close-result", "speech: capture.gate.committed", "speech: false", cloudInput);
     await control("desktop-default", 'if (!before.unsettled.includes(group)) return before[group];',
         'if (!before.unsettled.includes(group)) return this.devices[group][0] && this.devices[group][0].value;', desktopDefaults);
     // The base rule: an empty delta read as a cleared store.
@@ -758,17 +972,17 @@ async function inside() {
     await control("read-order", "if (this.defaults !== before) return", "if (false) return", defaultRemoval);
     await control("first-playback-discovery", 'await this.discover();\n            if (this.playback !== playback) return;',
         'if (this.playback !== playback) return;', firstPlayback);
-    await control("early-muted", "return this.release;", "return Promise.resolve();", async impl => {
+    await control("early-capture-ack", "return this.release;", "return Promise.resolve();", async impl => {
         let released;
         const sink = new Writable({ write(frame, encoding, done) { done(); },
             destroy(error, done) { released = () => done(error); } });
         const w = setup(impl, sink);
         try {
             await capture(w);
-            w.dispatch("mute");
+            w.release();
             await until(() => released !== undefined, "feed close requested");
             await new Promise(resolve => setImmediate(resolve));
-            assert.equal(w.runner.state.mute.kind, "muting", "mute waits for feed and process exits");
+            assert.equal(w.runner.state.capture.kind, "closing", "capture acknowledgement waits for feed and process exits");
         } finally {
             if (released) released();
             w.runner.close();
@@ -783,8 +997,6 @@ async function inside() {
             assert.ok(w.levels[1].at - w.levels[0].at >= 1000 / 30);
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     });
-    await control("armed-level", 'if (e.mode !== "armed") this.reportLevel(e.gen, "capture", pcm);',
-        'this.reportLevel(e.gen, "capture", pcm);', armedLevels);
     await control("env-scrub", "this.environment = {};", "this.environment = { ...environment };", async impl => {
         const w = setup(impl);
         try {
@@ -860,7 +1072,7 @@ async function inside() {
     await control("default-offer", "if (read.microphones !== before.microphones) this.offers(this.devices);",
         "if (false) this.offers(this.devices);", defaultRemoval);
     await control("empty-read", 'text.trim() === "" ? [] : JSON.parse(text)', "JSON.parse(text)", defaultRemoval);
-    console.log("test-jarvis-audio: ok triggers=6 controls=" + controls);
+    console.log("test-jarvis-audio: ok triggers=5 controls=" + controls);
 }
 
 if (process.argv[2] !== "--inside") hungWorld();

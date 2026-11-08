@@ -1,1 +1,1 @@
-{"input": {"tts": "Jarvis, which AI model is answering me right now?"},"mode": "toggle","confirm": "none","heard": ["model","answering"],"tool": "none","said": ["model"]}
+{"input": {"tts": "Jarvis, which AI model is answering me right now?"},"confirm": "none","heard": ["model","answering"],"tool": "none","said": ["model"]}

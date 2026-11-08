@@ -171,7 +171,7 @@ async function main() {
         const waiters = [];
         const auditRoot = fs.mkdtempSync(path.join(root, "vision-audit-"));
         const audit = Audit.create({ state: auditRoot, now: () => Date.UTC(2026, 9, 1) });
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {},
                 outcome: value => { waiters.splice(0).forEach(resolve => resolve(value)); } } };
@@ -194,8 +194,8 @@ async function main() {
             await pause(10);
         }
         function turn() {
-            runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-            runner.dispatch({ type: "indicator", shown: true });
+            runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+            runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
             runner.dispatch({ type: "talk-down" });
             transcript("final", "fixture user");
         }

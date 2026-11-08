@@ -14,9 +14,8 @@ const TAIL_BYTES = 64 * 1024;
 const owners = new Set();
 const effects = ["read", "reversible", "input", "persistent", "exec", "external", "destructive"];
 // Why a duplex voice stream failed, as ChainedEngine closes its release
-// rows: the microphone sent only silence, the voice heard no words, the
-// provider refused the key at the handshake, or any other fault of the stream.
-const STREAM_CAUSES = ["input-silent", "unheard", "key-refused", "voice-stopped"];
+// rows: the provider refused the key, or another fault stopped the stream.
+const STREAM_CAUSES = ["key-refused", "voice-stopped"];
 
 function fail(code) {
     const error = new Error("jarvis: audit=" + code);
@@ -87,10 +86,16 @@ function eventRecord(event, time) {
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }
 
+function storedEvent(record) {
+    if (typeof record.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.time)) fail("seed-time");
+    return eventRecord(record, record.time);
+}
+
 /**
  * Acquire the daemon's only writer for an absolute Jarvis state directory.
  * auditDays is the manifest owner's setting; now returns wall-clock ms.
- * Creation reads only the newest daily file's bounded tail. close() ends this owner's lifetime.
+ * Creation converts an unversioned store once, then reads the newest daily
+ * file's bounded tail. close() ends this owner's lifetime.
  * The VGS instance/child lease supplies process exclusivity, not this API.
  */
 function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
@@ -105,6 +110,92 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     let lifetime = "open";
     let recent = [];
     let seedError = null;
+    let migrations = 0;
+    let causeCurrent = false;
+
+    function replace(file, lines, previous = null) {
+        const candidate = path.join(state, ".audit-migrate-" + process.pid + "-" + (++migrations));
+        let fd, owned = false;
+        try {
+            fd = fs.openSync(candidate, "wx", 0o600);
+            owned = true;
+            for (const line of lines) fs.writeFileSync(fd, line);
+            fs.fsyncSync(fd);
+            fs.closeSync(fd);
+            fd = undefined;
+            if (previous !== null) {
+                const current = fs.lstatSync(file);
+                regular(current);
+                if (current.dev !== previous.dev || current.ino !== previous.ino || current.size !== previous.size) fail("migration-changed");
+            }
+            fs.renameSync(candidate, file);
+            owned = false;
+            for (const folder of new Set([state, path.dirname(file)])) {
+                const parent = fs.openSync(folder, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+                try { fs.fsyncSync(parent); } finally { fs.closeSync(parent); }
+            }
+        } finally {
+            if (fd !== undefined) fs.closeSync(fd);
+            if (owned) fs.unlinkSync(candidate);
+        }
+    }
+
+    // This store's first explicit format marker. Its absence is the old
+    // daily-file format; current writers can never emit the retired causes.
+    // Publish only after every daily file converted, so a crash retries the
+    // idempotent conversion rather than leaving an unread old day behind.
+    function converted() {
+        let fd;
+        try {
+            fd = fs.openSync(path.join(state, "audit-cause-version.json"), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+            regular(fs.fstatSync(fd));
+            const buffer = Buffer.alloc(129);
+            const count = fs.readSync(fd, buffer, 0, buffer.length, 0);
+            if (count > 128) fail("format-size");
+            let version;
+            try { version = JSON.parse(buffer.subarray(0, count).toString("utf8")); } catch { fail("format-json"); }
+            if (version === null || typeof version !== "object" || Array.isArray(version)
+                    || Object.keys(version).join(",") !== "version" || version.version !== 1) fail("format-version");
+            return true;
+        } catch (error) {
+            if (error.code === "ENOENT") return false;
+            throw error;
+        } finally { if (fd !== undefined) fs.closeSync(fd); }
+    }
+
+    // D107: the old writer recorded these two silence endings as failures.
+    // Keep that historical outcome, removing only its retired cause. This
+    // is a read-boundary conversion, never a second current-format reader.
+    function migrate(file) {
+        const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        try {
+            const stat = fs.fstatSync(fd);
+            regular(stat);
+            if (stat.size > STORE_BYTES) fail("store-size");
+            const bytes = Buffer.alloc(stat.size);
+            let offset = 0;
+            while (offset < bytes.length) {
+                const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset);
+                if (count === 0) fail("migration-read");
+                offset += count;
+            }
+            const text = bytes.toString("utf8");
+            if (!text.includes("unheard") && !text.includes("input-silent")) return;
+            if (bytes.length !== 0 && bytes[bytes.length - 1] !== 10) fail("partial-line");
+            let changed = false;
+            const lines = text.split("\n").slice(0, -1).map(line => {
+                if (line === "") return "\n";
+                let row;
+                try { row = JSON.parse(line); } catch { fail("seed-json"); }
+                if (row.kind !== "release" || row.outcome !== "failed" || !["unheard", "input-silent"].includes(row.cause)) return line + "\n";
+                const { cause, ...current } = row;
+                changed = true;
+                return encode(storedEvent(current)).toString("utf8");
+            });
+            if (!changed) return;
+            replace(file, lines, stat);
+        } finally { fs.closeSync(fd); }
+    }
 
     function retain(record) {
         if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) return false;
@@ -127,7 +218,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
             file: path.join(directory, time.slice(0, 10) + ".jsonl") };
     }
 
-    function scan(today) {
+    function scan(today, convert = false) {
         let total = 0, oldest = null, expired = null, newest = null;
         const entries = fs.opendirSync(directory);
         try {
@@ -137,6 +228,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
                 const file = path.join(directory, entry.name);
                 const stat = fs.lstatSync(file);
                 regular(stat);
+                if (convert) migrate(file);
                 total += stat.size;
                 if (!Number.isSafeInteger(total)) fail("store-size");
                 const row = { file, date, bytes: stat.size };
@@ -149,11 +241,16 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     }
 
     function seed() {
-        try { fs.lstatSync(directory); }
+        try { fs.lstatSync(state); }
         catch (error) { if (error.code === "ENOENT") return; throw error; }
         Private.directory(state);
+        const moved = converted();
+        try { fs.lstatSync(directory); }
+        catch (error) { if (error.code === "ENOENT") { causeCurrent = moved; return; } throw error; }
         Private.directory(directory);
-        const newest = scan(clock().today).newest;
+        const newest = scan(clock().today, !moved).newest;
+        if (!moved) replace(path.join(state, "audit-cause-version.json"), ['{"version":1}\n']);
+        causeCurrent = true;
         if (newest === null) return;
         const fd = fs.openSync(newest.file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
         try {
@@ -172,8 +269,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
                 let record;
                 try { record = JSON.parse(line); } catch { fail("seed-json"); }
                 if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) continue;
-                if (typeof record.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.time)) fail("seed-time");
-                retain(eventRecord(record, record.time));
+                retain(storedEvent(record));
             }
         } finally { fs.closeSync(fd); }
     }
@@ -206,8 +302,13 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     }
 
     function persist(record, stamp) {
+        if (seedError !== null) throw seedError;
         Private.directory(state);
         Private.directory(directory);
+        if (!causeCurrent && seedError === null) {
+            replace(path.join(state, "audit-cause-version.json"), ['{"version":1}\n']);
+            causeCurrent = true;
+        }
         const line = encode(record);
         let inventory = scan(stamp.today);
         // Keep only the next oldest candidate, not an unbounded filename list.
@@ -269,7 +370,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
         },
         /** Privacy shutdown cannot depend on a writable audit store. */
         cleanup(kind, start) {
-            if (!["stop", "mute", "teardown"].includes(kind) || typeof start !== "function") fail("cleanup-shape");
+            if (!["stop", "teardown"].includes(kind) || typeof start !== "function") fail("cleanup-shape");
             const audit = attempt(time => ({ time, kind: "cleanup", tool: kind, args: {},
                 effect: "reversible", decision: "allow", confirmed: "none", outcome: "pending" }));
             return { kind: "started", audit, value: start() };

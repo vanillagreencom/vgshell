@@ -377,7 +377,7 @@ leak_shell() {
   local reading
   if [[ -z ${shell_qs_pid:-} ]]; then
     echo no-shell
-  elif reading="$(devices_guard "$shell_qs_pid" 2>/dev/null)"; then
+  elif reading="$(devices_guard "$shell_qs_pid" "${devices_private_shim:-}" 2>/dev/null)"; then
     printf '%s\n' "$reading"
   else
     echo "environ=unreadable runner=[$(leak_runner_exit)]"

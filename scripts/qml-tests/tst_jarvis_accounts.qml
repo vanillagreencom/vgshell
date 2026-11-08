@@ -39,7 +39,7 @@ Item {
             property var published: ({})
             // The manifest's voice defaults under the user's row, as the
             // core merges them.
-            readonly property var effective: Object.assign({ voiceProvider: "local", voiceAccount: "", mode: "hold" }, user)
+            readonly property var effective: Object.assign({ voiceProvider: "local", voiceAccount: "", holdToTalk: true }, user)
             onEffectiveChanged: shell = build()
             // Whether the Settings window shows the Jarvis page.
             property bool viewed: false

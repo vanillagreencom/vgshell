@@ -19,10 +19,7 @@ import "plugins/vgs.jarvis/Field.js" as JarvisField
 // whose level widens the orb's radius (Appearance.js `driveRadius`), and
 // the shader returns at once past 1.3 radii, so it draws the largest area:
 // the stress case. The shader's other exits depend on its noise, so it
-// bounds no other state's cost. jarvis-orb-armed is the full orb waiting
-// for the wake word at level 0, its base rate alone: the look that can stay
-// up all day, which the motion model keeps moving, measured directly per
-// frame. radial-backdrop is
+// bounds no other state's cost. radial-backdrop is
 // qs.Ui's RadialBackdrop at Jarvis's largest field, in Jarvis's look: the
 // orb's disc with its halo, the icon row, the widest approval prompt and
 // three lines of Jarvis's words, on a layer the size of the bottom-centre
@@ -41,7 +38,7 @@ ShellRoot {
     readonly property bool complete: frames >= 730
 
     readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb",
-                                    "jarvis-orb-reduced": "particleorb.frag.qsb", "jarvis-orb-armed": "particleorb.frag.qsb",
+                                    "jarvis-orb-reduced": "particleorb.frag.qsb",
                                     "radial-backdrop": "radialbackdrop.frag.qsb" })
 
     function plant(item) {
@@ -112,8 +109,8 @@ ShellRoot {
         Jarvis.ParticleOrb {
             active: !root.complete
             look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
-            phase: root.shader === "jarvis-orb-armed" ? "armed" : "speaking"
-            playback: root.shader === "jarvis-orb-armed" ? 0 : 1
+            phase: "speaking"
+            playback: 1
             reduced: root.shader === "jarvis-orb-reduced"
         }
     }
@@ -127,7 +124,7 @@ ShellRoot {
         // 72 x 24 px, at the ring's top right.
         Item {
             readonly property var look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
-            readonly property real ring: look.state.armed.radius * look.orb.size / 2
+            readonly property real ring: look.state.idle.radius * look.orb.size / 2
             readonly property real centre: width / 2
             readonly property real promptTop: height - look.layout.margin - 146
             readonly property real orbCentre: promptTop - look.layout.below - ring
@@ -145,7 +142,7 @@ ShellRoot {
                 blend: parent.look.field.blend
                 falloff: parent.look.field.falloff
                 halo: ({ strength: orb.halo.strength, width: orb.halo.width, ring: orb.halo.ring * parent.ring,
-                         stops: [parent.look.state.armed.top, parent.look.state.armed.upper, parent.look.state.armed.lower, parent.look.state.armed.bottom] })
+                         stops: [parent.look.state.idle.top, parent.look.state.idle.upper, parent.look.state.idle.lower, parent.look.state.idle.bottom] })
             }
         }
     }

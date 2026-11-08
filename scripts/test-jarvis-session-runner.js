@@ -23,8 +23,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
         if (synchronous && done && ["open", "close"].includes(name)) done();
     };
     const runner = new implementation.SessionRunner(session, {
-        mute: { store: value => calls.push({ name: "mute-store", value }) },
         voiceMute: { store: value => calls.push({ name: "voice-mute-store", value }) },
+        hidden: { store: value => calls.push({ name: "hidden-store", value }) },
         transcript: port("transcript"),
         capture: { open: port("open"), close: port("close"), collect: port("collect") },
         brain: {
@@ -43,7 +43,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
                 connection.kind = "closed";
                 port("brain-close")(e);
             },
-            outcome: port("outcome")
+            outcome: port("outcome"),
+            reset: port("brain-reset")
         },
         playback: { start: port("play"), flush: port("flush") },
         tools: { start: port("tool"), cancel: port("tool-cancel"), outcome: port("outcome"), sync: () => {}, close: () => {} },
@@ -73,8 +74,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
         }
         assert.fail("deadline owner rescheduled an expired deadline");
     };
-    dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: {} });
-    dispatch("indicator", { shown: true });
+    dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+    dispatch("indicator", { gen: runner.state.gen, shown: true, bar: "gone" });
     return { runner, dispatch, tick, timers, pending, calls, published, trace, connections };
 }
 
@@ -88,10 +89,22 @@ function thinking(w) {
     assert.equal(w.runner.state.turn.kind, "thinking");
 }
 const tests = [
+    ["closed-history-reset", impl => {
+        const w = world(impl);
+        const epoch = w.runner.state.history.epoch;
+        w.dispatch("new-conversation");
+        assert.equal(w.runner.state.conversation.kind, "ended");
+        assert.equal(w.runner.state.history.epoch, epoch + 1);
+        const reset = w.calls.find(call => call.name === "brain-reset");
+        assert.ok(reset, "reset reaches the backend while no brain connection is active");
+        assert.equal(reset.e.gen, w.runner.state.gen);
+        assert.equal(w.calls.some(call => call.name === "open" || call.name === "send" || call.name === "play"), false);
+        w.runner.close();
+    }],
     ...["start", "working"].map(cue => ["feedback-deadline-" + cue, (impl, session = Session) => {
         const w = world(impl, false, session);
         if (cue === "working") thinking(w);
-        w.dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { sounds: true } });
+        w.dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { holdToTalk: true, sounds: true } });
         if (cue === "start") w.dispatch("talk-down");
         else {
             w.dispatch("feedback", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op });
@@ -119,7 +132,7 @@ const tests = [
         assert.equal(w.runner.state.turn.kind, "thinking");
         assert.equal(w.calls.find(value => value.name === "send").e.delegation, "fixture");
         assert.equal(w.calls.find(value => value.name === "send").e.text, "transcript context");
-        w.dispatch("stop");
+        w.runner.close();
         const stale = w.runner.state.stale;
         w.pending.speech.delegation({ id: "old", text: "old context" });
         assert.equal(w.runner.state.stale, stale + 1);
@@ -137,7 +150,7 @@ const tests = [
         w.pending.speech.due(false);
         assert.deepEqual([w.runner.state.speech.reply.kind, w.published.at(-1).phase], ["none", "thinking"], "dropped words leave no reply due");
         w.pending.speech.due(true);
-        w.dispatch("stop");
+        w.runner.close();
         const stale = w.runner.state.stale;
         w.pending.speech.due(true);
         assert.equal(w.runner.state.stale, stale + 1, "a closed session's due words are stale");
@@ -145,20 +158,18 @@ const tests = [
     ["speech-deadlines", impl => {
         const w = world(impl);
         w.dispatch("talk-down");
-        assert.equal([...w.timers.values()][0]?.deadline, 60000);
         w.pending.open();
-        assert.equal(w.timers.size, 0);
+        const quiet = w.runner.state.quiet.deadline;
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [quiet]);
         w.tick(100000);
         assert.equal(w.runner.state.turn.kind, "collecting");
         w.dispatch("talk-up");
         w.pending.close();
-        assert.equal([...w.timers.values()][0]?.deadline, 160000);
         w.tick(160000);
-        assert.equal(w.runner.state.fault.reason, "speech=collect-timeout");
-        assert.equal(w.timers.size, 0);
+        assert.equal(w.runner.state.turn.kind, "collecting", "missing captions do not decide silence or a fault");
+        assert.equal(w.runner.state.fault.kind, "none");
         w.pending.collect("final", "fixture");
-        assert.equal(w.runner.state.turn.kind, "none");
-        assert.equal(w.timers.size, 0);
+        assert.equal(w.runner.state.turn.kind, "thinking");
         w.runner.close();
         const p = world(impl);
         thinking(p);
@@ -173,19 +184,6 @@ const tests = [
         assert.equal(p.runner.state.playback.kind, "idle");
         assert.equal(p.timers.size, 0);
         p.runner.close();
-    }],
-    ["durable-mute", impl => {
-        const w = world(impl);
-        let stored = false;
-        w.runner.ports.mute.store = value => { stored = value; };
-        const publish = w.runner.publish;
-        w.runner.publish = (state, phase) => {
-            if (state.mute.kind === "on") assert.equal(stored, true);
-            if (state.mute.kind === "off") assert.equal(stored, false);
-            publish(state, phase);
-        };
-        w.dispatch("mute-toggle");
-        w.dispatch("mute-toggle");
     }],
     // A published voice mute is already stored; a failed store publishes
     // nothing and reaches the daemon.
@@ -208,35 +206,41 @@ const tests = [
         assert.throws(() => w.dispatch("voice-mute-toggle"), error => error === failure);
         assert.equal(w.published.length, publications, "failed storage cannot publish changed voice mute");
     }],
-    ...["capture", "playback"].map(resource => ["failed-mute-" + resource, impl => {
+    ["durable-hidden", impl => {
         const w = world(impl);
-        let active = false, released = 0;
-        if (resource === "capture") {
-            w.runner.ports.capture.open = (e, done) => { active = true; done(); };
-            w.runner.ports.capture.close = (e, done) => { active = false; released++; done(); };
-            w.dispatch("talk-down");
-        } else {
-            thinking(w);
-            w.runner.ports.playback.start = () => { active = true; };
-            w.runner.ports.playback.flush = (e, done) => { active = false; released++; done(); };
-            w.pending.send("play", { interruptible: true });
-        }
-        assert.equal(active, true, resource + " acquires its inert resource");
-        const failure = new Error("jarvis: mute=fixture-write-failed");
-        w.runner.ports.mute.store = () => { throw failure; };
-        const publications = w.published.length;
-        assert.throws(() => w.dispatch("mute-toggle"), error => error === failure,
-            "the actual storage error propagates after cleanup");
-        assert.equal(w.published.length, publications, "failed storage cannot publish changed mute");
-        assert.equal(active, false, resource + " releases before failure reaches the daemon");
-        assert.equal(released, 1);
-        if (resource === "playback") assert.equal(w.calls.some(c => c.name === "cancel"), true);
+        let stored = false;
+        const stores = [];
+        w.runner.ports.hidden.store = value => { stores.push(value); stored = value; };
+        const publish = w.runner.publish;
+        w.runner.publish = (state, phase) => {
+            assert.equal(stored, state.visibility.kind === "hidden", "publication follows durable choice");
+            publish(state, phase);
+        };
+        w.dispatch("indicator", { gen: w.runner.state.gen, shown: true, bar: "present" });
+        w.dispatch("hide");
+        assert.equal(stored, true);
+        w.dispatch("hide");
+        w.dispatch("show");
+        assert.equal(stored, false);
+        w.dispatch("show");
+        assert.deepEqual(stores, [true, false], "only changed choices store");
         w.runner.close();
-        assert.equal(active, false, resource + " remains released after daemon-style close");
-        assert.equal(released, 1, "close does not become a second cleanup owner");
-        assert.equal(w.timers.size, 0);
-        assert.equal(w.runner.state[resource].kind, resource === "capture" ? "closed" : "idle");
-    }]),
+    }],
+    ["hidden-store-failure", impl => {
+        const w = world(impl);
+        w.dispatch("talk-down");
+        w.pending.open();
+        w.dispatch("indicator", { gen: w.runner.state.gen, shown: true, bar: "present" });
+        const failure = new Error("jarvis: hidden=write-failed");
+        w.runner.ports.hidden.store = () => { throw failure; };
+        const publications = w.published.length;
+        assert.throws(() => w.dispatch("hide"), error => error === failure);
+        assert.equal(w.published.length, publications, "failed storage cannot publish the changed hidden choice");
+        assert.equal(w.calls.at(-1).name, "close", "failed storage still consumes privacy cleanup");
+        assert.equal(w.runner.state.capture.kind, "closing");
+        w.pending.close();
+        w.runner.close();
+    }],
     ["router-ports", impl => {
         const w = world(impl);
         const syncs = [];
@@ -262,19 +266,6 @@ const tests = [
         w.runner.close();
         assert.equal(closed, 1);
     }],
-    ["mute-persistence", impl => {
-        const w = world(impl);
-        w.dispatch("talk-down");
-        w.pending.open();
-        w.dispatch("mute-toggle");
-        assert.equal(w.runner.state.mute.kind, "muting");
-        assert.deepEqual(w.calls.find(call => call.name === "mute-store"), { name: "mute-store", value: true });
-        w.pending.close();
-        assert.equal(w.runner.state.mute.kind, "on");
-        w.dispatch("mute-toggle");
-        assert.deepEqual(w.calls.at(-1), { name: "mute-store", value: false });
-        assert.equal(w.runner.state.capture.kind, "closed");
-    }],
     ["audio-failure", impl => {
         const w = world(impl);
         w.dispatch("talk-down");
@@ -283,6 +274,37 @@ const tests = [
         assert.equal(w.runner.state.capture.kind, "closing");
         w.pending.close();
         assert.equal(w.runner.state.capture.kind, "closed");
+    }],
+    ["capture-close-outcome", impl => {
+        for (const speech of [false, true]) {
+            const w = world(impl);
+            w.dispatch("snapshot", { locked: false, engine: "duplex", configured: true, settings: { holdToTalk: true } });
+            w.dispatch("talk-down");
+            w.pending.open();
+            const capture = w.runner.state.capture.op;
+            w.dispatch("talk-up");
+            assert.equal(w.runner.state.input.kind, "closing-tap");
+            w.pending.close({ speech });
+            assert.equal(w.runner.state.conversation.kind, speech ? "active" : "ended",
+                "Audio's explicit capture outcome reaches the closing identity");
+            if (speech) {
+                w.pending.speech.inputEnded({ capture, empty: false });
+                assert.equal(w.runner.state.input.kind, "released");
+                assert.equal(w.runner.state.conversation.kind, "active");
+            }
+            w.runner.close();
+        }
+    }],
+    ["capture-close-failure", impl => {
+        const w = world(impl);
+        w.dispatch("talk-down");
+        w.pending.open();
+        w.dispatch("talk-up");
+        w.pending["close-failed"](new Error("capture-fixture"));
+        assert.equal(w.runner.state.fault.reason, "capture-fixture");
+        assert.equal(w.runner.state.capture.kind, "closed");
+        assert.equal(w.runner.state.conversation.kind, "ended");
+        w.runner.close();
     }],
     ["collect-failure", impl => {
         const w = world(impl);
@@ -295,7 +317,7 @@ const tests = [
         assert.equal(turn.kind, "collecting");
     }],
     ["completed-connection", (impl, session = Session) => {
-        for (const boundary of ["lease", "stop", "settings"]) {
+        for (const boundary of ["lease", "toggle", "settings"]) {
             const w = world(impl, false, session);
             thinking(w);
             const sent = w.calls.find(c => c.name === "send").e;
@@ -303,7 +325,7 @@ const tests = [
             assert.equal(w.runner.state.turn.kind, "none");
             assert.equal(w.connections.get(sent.owner).kind, "open", "done leaves the connection acquired");
             if (boundary === "lease") w.runner.close();
-            else if (boundary === "stop") w.dispatch("stop");
+            else if (boundary === "toggle") w.dispatch("toggle");
             else w.dispatch("snapshot", { locked: false, engine: "chained", configured: true, settings: { model: "new" } });
             assert.equal(w.connections.get(sent.owner).kind, "closed", boundary + " releases the completed owner");
             const closes = w.calls.filter(c => c.name === "brain-close");
@@ -323,7 +345,7 @@ const tests = [
         const tool = w.calls.find(c => c.name === "tool").e;
         w.pending.send("brain-done");
         w.dispatch("stop");
-        assert.equal(w.connections.get(sent.owner).kind, "closed");
+        assert.equal(w.connections.get(sent.owner).kind, "open", "Stop retains the conversation adapter");
         w.pending.tool("completed");
         const outcome = w.calls.at(-1);
         assert.equal(outcome.name, "outcome");
@@ -331,7 +353,9 @@ const tests = [
         assert.equal(outcome.e.gen, sent.gen);
         assert.equal(outcome.e.source, tool.op);
         assert.equal(outcome.e.outcome, "completed");
-        assert.equal(w.connections.get(sent.owner).kind, "closed", "outcome does not reopen the adapter");
+        assert.equal(w.connections.get(sent.owner).kind, "open", "the outcome keeps the conversation adapter");
+        w.runner.close();
+        assert.equal(w.connections.get(sent.owner).kind, "closed", "lease end releases the retained adapter");
     }],
     ["synchronous-queue", impl => {
         const w = world(impl, true);
@@ -352,7 +376,10 @@ const tests = [
         assert.equal(w.runner.state.stale, 1);
         w.pending.cancel();
         assert.equal(w.runner.state.turn.kind, "none");
-        assert.equal(w.calls.at(-1).name, "brain-close");
+        assert.equal(w.runner.state.brain.kind, "acquired");
+        assert.equal(w.runner.state.conversation.kind, "active");
+        assert.equal(w.runner.state.quiet.kind, "waiting");
+        w.runner.close();
         assert.equal(w.timers.size, 0);
     }],
     ["deadlines", impl => {
@@ -369,6 +396,7 @@ const tests = [
         w.tick(62000);
         assert.equal(w.runner.state.turn.kind, "none");
         assert.equal(w.calls.at(-1).name, "brain-close");
+        w.runner.close();
         assert.equal(w.timers.size, 0);
     }],
     ["approval-schedules-full-interval", impl => {
@@ -434,19 +462,23 @@ const tests = [
         w.runner.close();
         assert.equal(w.timers.size, 0);
     }],
-    // A tap's end of speech fires on its own, with no other event to run it.
-    ["tap-timer", impl => {
+    // The runner schedules Session's quiet lifetime without another event.
+    ["quiet-timer", impl => {
         const w = world(impl);
         w.dispatch("talk-down");
         w.pending.open();
-        w.dispatch("talk-up");
-        assert.equal(w.runner.state.input.kind, "tapped");
-        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [Session.TAP_SILENCE_MS]);
-        w.tick(Session.TAP_SILENCE_MS - 1);
-        assert.equal(w.runner.state.capture.kind, "open");
-        w.tick(Session.TAP_SILENCE_MS);
-        assert.deepEqual([w.runner.state.input.kind, w.runner.state.capture.kind], ["released", "closing"]);
+        const quiet = w.runner.state.quiet;
+        assert.equal(quiet.kind, "waiting");
+        assert.equal(quiet.deadline, 30 * 60 * 1000);
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [quiet.deadline]);
+        w.tick(quiet.deadline - 1);
+        assert.equal(w.runner.state.conversation.kind, "active");
+        w.tick(quiet.deadline);
+        assert.equal(w.runner.state.conversation.kind, "ended");
+        assert.equal(w.runner.state.fault.kind, "none");
         w.pending.close();
+        assert.equal(w.runner.state.capture.kind, "closed");
+        assert.equal(w.timers.size, 0);
         w.runner.close();
     }],
     ["timer-release", impl => {
@@ -496,31 +528,24 @@ const source = fs.readFileSync(file, "utf8");
 let controls = 0;
 try {
     const mutants = [
-        ["check timer scheduled", 'this.state.approval, this.state.check, toolDeadline', 'this.state.approval, toolDeadline', "check-timer"],
-        ["tap timer scheduled", "toolDeadline, tapDeadline]", "toolDeadline]", "tap-timer"],
+        ["closed history reset", "this.ports.brain.reset(e);", "void e;", "closed-history-reset"],
+        ["check timer scheduled", 'this.state.approval, this.state.check, this.state.quiet, toolDeadline', 'this.state.approval, this.state.quiet, toolDeadline', "check-timer"],
+        ["quiet timer scheduled", "this.state.check, this.state.quiet, toolDeadline", "this.state.check, toolDeadline", "quiet-timer"],
         ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],
         ["speech-due", 'due: due => done("speech-due", { due }),', "due: () => {},", "speech-due-identity"],
         ["speech-due-value", 'due: due => done("speech-due", { due }),', 'due: () => done("speech-due", { due: true }),', "speech-due-identity"],
         ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
-        ["durable-mute", 'if (STORES.includes(effect.kind)) this.consume(effect);',
-            'if (false) this.consume(effect);', "durable-mute"],
-        ["durable-voice-mute", 'const STORES = ["mute-store", "voice-mute-store"];',
-            'const STORES = ["mute-store"];', "durable-voice-mute"],
+        ["durable-voice-mute", 'const STORES = ["voice-mute-store", "hidden-store"];',
+            'const STORES = ["hidden-store"];', "durable-voice-mute"],
         ["voice-mute-persistence", 'this.ports.voiceMute.store(e.muted);', 'void e.muted;', "durable-voice-mute"],
-        ["mute-cleanup-order", 'catch (error) { persistence = { kind: "failed", error }; }',
-            'catch (error) { throw error; }', "failed-mute-capture"],
-        ["mute-capture-close", 'this.ports.capture.close(e, () => done("capture-closed"));',
-            'if (false) this.ports.capture.close(e, () => done("capture-closed"));', "failed-mute-capture"],
-        ["mute-playback-flush", 'this.ports.playback.flush(e, () => done("flushed"));',
-            'if (false) this.ports.playback.flush(e, () => done("flushed"));', "failed-mute-playback"],
-        ["mute-failure-publication", 'if (persistence.kind === "stored")',
-            'if (true)', "failed-mute-capture"],
-        ["mute-failure-propagation", 'if (persistence.kind === "failed") throw persistence.error;',
-            'if (false) throw persistence.error;', "failed-mute-capture"],
+        ["durable-hidden", 'const STORES = ["voice-mute-store", "hidden-store"];',
+            'const STORES = ["voice-mute-store"];', "durable-hidden"],
+        ["hidden-persistence", 'this.ports.hidden.store(e.hidden);', 'void e.hidden;', "durable-hidden"],
+        ["hidden-store-cleanup", 'if (!STORES.includes(effect.kind)) this.consume(effect);',
+            'if (persistence.kind === "stored" && !STORES.includes(effect.kind)) this.consume(effect);', "hidden-store-failure"],
         ["router-sync", 'this.ports.tools.sync(this.state);', 'void this.state;', "router-ports"],
         ["confirmation-refusal", 'this.ports.approval.refused(e);', 'void e;', "router-ports"],
         ["router-close", 'this.ports.tools.close();', 'void this.ports.tools;', "router-ports"],
-        ["mute-persistence", 'this.ports.mute.store(e.muted);', 'void e.muted;', "mute-persistence"],
         ["queue", 'if (this.draining) return;', 'if (false && this.draining) return;', "synchronous-queue"],
         ["identity", 'gen: e.gen, op: e.op', 'gen: e.gen, op: e.op + 1', "identity"],
         ["deadline", 'owner.deadline - this.clock.now()', 'owner.deadline - this.clock.now() + 1', "deadlines"],
@@ -528,6 +553,9 @@ try {
         ["timer-replace", 'if (this.timer !== null) this.clock.clear(this.timer);', 'if (false && this.timer !== null) this.clock.clear(this.timer);', "timer-release"],
         ["closed-clock", 'if (this.lifetime.kind === "closed") return;', 'if (false && this.lifetime.kind === "closed") return;', "closed-clock"],
         ["outcome", 'this.ports.tools.outcome(e);', 'void this.ports.tools.outcome;', "approval-and-tool"],
+        ["capture-close-outcome", 'values => done("capture-closed", values)', '() => done("capture-closed", { speech: true })', "capture-close-outcome"],
+        ["speech-input-outcome", 'inputEnded: result => done("speech-input-ended", result),', 'inputEnded: () => {},', "capture-close-outcome"],
+        ["capture-close-failure", 'reason => done("capture-failed", { reason: reason.message ?? reason })', 'reason => void reason', "capture-close-failure"],
         ["collect-failure", 'reason => done("collect-failed", { reason })', 'reason => void reason', "collect-failure"],
         ["completed-connection", 'this.ports.brain.close(e);', 'if (false) this.ports.brain.close(e);', "completed-connection"],
         ["speech-release", 'this.ports.speech.release();', 'void this.ports.speech;', "timer-release"],
@@ -545,10 +573,10 @@ try {
     }
     const sessionFile = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js");
     const sessionSource = fs.readFileSync(sessionFile, "utf8");
-    const needle = 's.turn = { kind: "none" };\n        if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)';
+    const needle = 's.turn = { kind: "none" };\n        if (e.type === "brain-done") activity(s, e.at);\n        if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)';
     assert.equal(sessionSource.split(needle).length - 1, 1, "completed-owner mutation match");
     const changed = sessionSource.replace(needle,
-        's.turn = { kind: "none" };\n        s.brain = { kind: "closed" };\n        if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)');
+        's.turn = { kind: "none" };\n        s.brain = { kind: "closed" };\n        if (e.type === "brain-done") activity(s, e.at);\n        if (e.type === "brain-done" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1)');
     assert.notEqual(changed, sessionSource);
     const mutant = path.join(root, "completed-owner.js");
     fs.writeFileSync(mutant, changed);

@@ -1,1 +1,1 @@
-{"input": {"tts": "What is the capital of France?"},"mode": "toggle","confirm": "none","heard": ["capital","france"],"tool": "none","said": ["paris"]}
+{"input": {"tts": "What is the capital of France?"},"confirm": "none","heard": ["capital","france"],"tool": "none","said": ["paris"]}

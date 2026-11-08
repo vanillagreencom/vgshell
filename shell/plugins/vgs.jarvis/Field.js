@@ -1,6 +1,6 @@
 .pragma library
 
-// Where the Jarvis overlay's dark field lies (Appearance.js `field`): the
+// Where the Jarvis overlay's field lies (Appearance.js `field`): the
 // boxes qs.Ui's RadialBackdrop draws, and the rectangle that holds their
 // reach. Bubble.qml binds through it, and scripts/shader/Scene.qml draws
 // its largest field through it.
@@ -29,6 +29,7 @@ function boxes(field, centre, ring, rects, width) {
 // The whole-pixel rectangle that holds every box of BOXES with its reach,
 // `fade - inset` past its edge, cut to a layer WIDTH by HEIGHT.
 function extent(boxes, width, height) {
+    if (boxes.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const b of boxes) {
         const reach = b.fade - b.inset;

@@ -84,6 +84,9 @@ class Vad:
             raise AssertionError("the VAD takes whole 512-sample windows")
         self.offered += len(window)
 
+    def is_speech_detected(self):
+        return False
+
     def flush(self):
         self.queue = [type("Segment", (), {"start": s, "samples": [0.0] * n})() for s, n in self.segments]
 
@@ -224,7 +227,7 @@ def serve(m, messages, model):
     highest = 0
     for message in messages:
         header = message[0]
-        if header["id"] > highest and header["type"] not in ("listen", "speak", "wake", "check"):
+        if header["id"] > highest and header["type"] not in ("listen", "speak", "check"):
             explicit.append(({"type": "listen", "id": header["id"], "detect": False},))
         highest = max(highest, header["id"])
         explicit.append(message)
@@ -338,40 +341,41 @@ def streaming_cases(m):
         raise AssertionError(f"silence {output}")
 
 
-def wake_cases(m):
-    # The keyword ends in the second block: one woke, no transcript, and the
-    # stream saw only the samples sent until then.
-    spotter = Spotter(at=6000)
-    model = speech(m, [(0, 16000)], spotter=spotter)
-    out = serve(m, [({"type": "wake", "id": 1},), ({"type": "audio", "id": 1}, floats(4000)),
-                    ({"type": "audio", "id": 1}, floats(4000)), ({"type": "audio", "id": 1}, floats(4000))], model)
-    if [h for h, _ in out] != [{"type": "woke", "id": 1}]:
-        raise AssertionError(f"woke {out}")
-    if len(spotter.streams) != 1 or spotter.streams[0].samples != 8000 or spotter.streams[0].keywords != KEYWORDS:
-        raise AssertionError("one keyword stream, fed until the word")
-    # No keyword: an abort ends the request unanswered, audio crossing the
-    # abort is dropped, and a listen may follow.
-    out = serve(m, [({"type": "wake", "id": 2},), ({"type": "audio", "id": 2}, floats(4000)),
-                    ({"type": "abort", "id": 2},), ({"type": "audio", "id": 2}, floats(4)),
-                    ({"type": "listen", "id": 3, "detect": False},), ({"type": "end", "id": 3},)],
-                speech(m, [], spotter=Spotter()))
-    if [h for h, _ in out] != [{"type": "ended", "id": 3, "speech": False}]:
-        raise AssertionError(f"no keyword {out}")
-    # A keyword the model cannot encode fails the request, not the sidecar.
-    out = serve(m, [({"type": "wake", "id": 4},), ({"type": "audio", "id": 4}, floats(4)),
-                    ({"type": "listen", "id": 5, "detect": False},), ({"type": "end", "id": 5},)],
-                speech(m, [], spotter=Spotter(encodes=False)))
-    if [h for h, _ in out] != [{"type": "failed", "id": 4, "cause": "wake-keywords"},
-                               {"type": "ended", "id": 5, "speech": False}]:
-        raise AssertionError(f"keywords {out}")
-
-
 def bound_case(m):
     m.UTTERANCE_SAMPLES = 10
     out = serve(m, [({"type": "audio", "id": 1}, floats(8)), ({"type": "audio", "id": 1}, floats(8)),
                     ({"type": "end", "id": 1},)], speech(m, [(0, 16)]))
     if [h for h, _ in out] != [{"type": "failed", "id": 1, "cause": "utterance-too-long"}]:
         raise AssertionError(f"utterance bound {out}")
+
+
+def quiet_case(m):
+    # Captured sample counts drive the production cache. No elapsed time or
+    # model runtime is needed to cover listening beyond the utterance bound.
+    captions = Captions()
+    model = speech(m, [], captions=captions)
+    utterance = m.Utterance(model, True)
+    samples = array("f", [0.0]) * m.RATE
+    for _ in range(125):
+        partial, ended = utterance.push(samples)
+        if partial is not None or ended:
+            raise AssertionError("quiet capture produced a turn")
+        if len(utterance.samples) > 9 * m.RATE:
+            raise AssertionError("leading quiet capture grew beyond the retained window and current block")
+    if utterance.heard() or captions.streams[0].samples != 125 * m.RATE:
+        raise AssertionError("quiet capture must stay silent and consume every captured sample")
+    # The bound still applies once voice activity is in progress.
+    active = speech(m, [])
+    active.vad.is_speech_detected = lambda: True
+    utterance = m.Utterance(active, False)
+    try:
+        for _ in range(121):
+            utterance.push(array("f", [0.5]) * m.RATE)
+    except m.Failed as error:
+        if str(error) != "utterance-too-long":
+            raise
+    else:
+        raise AssertionError("active speech escaped the utterance bound")
 
 
 def microphone_cases(m):
@@ -386,6 +390,13 @@ def microphone_cases(m):
             raise AssertionError(f"{name}: {out}")
         if spotter.streams[0].keywords != KEYWORDS or model.captions.streams:
             raise AssertionError("the check must use the wake detector, without captions")
+
+    out = serve(m, [({"type": "check", "id": 1},), ({"type": "audio", "id": 1}, floats(4)),
+                    ({"type": "listen", "id": 2, "detect": False},), ({"type": "end", "id": 2},)],
+                speech(m, [], spotter=Spotter(encodes=False)))
+    if [h for h, _ in out] != [{"type": "failed", "id": 1, "cause": "wake-keywords"},
+                               {"type": "ended", "id": 2, "speech": False}]:
+        raise AssertionError(f"unencodable check keywords {out}")
 
 
 # Wire violations: each frame list must end the sidecar with this protocol key.
@@ -412,14 +423,12 @@ VIOLATIONS = [
     ("invalid detection", [frame({"type": "listen", "id": 1, "detect": "toggle"})], "listen=invalid"),
     ("overlapping captures", [frame({"type": "listen", "id": 1, "detect": True}),
                               frame({"type": "listen", "id": 2, "detect": True})], "listen=invalid"),
-    ("wake beside a capture", [frame({"type": "listen", "id": 1, "detect": True}),
-                               frame({"type": "wake", "id": 2})], "wake=invalid"),
-    ("capture beside a wake", [frame({"type": "wake", "id": 1}),
-                               frame({"type": "listen", "id": 2, "detect": True})], "listen=invalid"),
-    ("reused wake id", [frame({"type": "wake", "id": 2}), frame({"type": "abort", "id": 2}),
-                        frame({"type": "wake", "id": 2})], "wake=invalid"),
-    ("wake with a key", [frame({"type": "wake", "id": 1, "detect": True})], "message=invalid type=wake"),
-    ("wake ended", [frame({"type": "wake", "id": 1}), frame({"type": "end", "id": 1})], "end=wake"),
+    ("check beside a capture", [frame({"type": "listen", "id": 1, "detect": True}),
+                                frame({"type": "check", "id": 2})], "check=invalid"),
+    ("capture beside a check", [frame({"type": "check", "id": 1}),
+                                frame({"type": "listen", "id": 2, "detect": True})], "listen=invalid"),
+    ("reused check id", [frame({"type": "check", "id": 2}), frame({"type": "abort", "id": 2}),
+                         frame({"type": "check", "id": 2})], "check=invalid"),
 ]
 
 
@@ -804,6 +813,7 @@ CONTROLS = [
      wire_cases),
     ("synthesis empty", "if not samples or not all(math.isfinite(v) for v in samples) or not any(samples):",
      "if False:", wire_cases),
+    ("quiet cache retained", "discard = max(0, len(self.samples) - 8 * RATE)", "discard = 0", quiet_case),
     ("utterance bound", "if len(self.samples) + len(received) > UTTERANCE_SAMPLES:", "if False:", bound_case),
     ("message shape", "or set(header) != SHAPES[kind][0] ", "", violation_cases),
     ("speaker type", "if type(speaker) is not str:", "if False:", violation_cases),
@@ -820,14 +830,10 @@ CONTROLS = [
     ("wake role", '"smart-turn": "turn", "wake": "wake"}', '"smart-turn": "turn"}', roles_case),
     ("unknown engine refused", 'raise RuntimeError(f"tier=unknown-role engine={artifact[\'engine\']} tier={tier}")', "continue",
      roles_case),
-    ("woke once", '                    utterances.pop(ident)\n                    send(writer, {"type": "woke", "id": ident})',
-     '                    send(writer, {"type": "woke", "id": ident})', wake_cases),
-    ("wake answered", 'send(writer, {"type": "woke", "id": ident})', "pass", wake_cases),
-    ("spotter fed", "self.stream.accept_waveform(RATE, self.speech.waveform(received))", "pass", wake_cases),
-    ("keyword encoded", 'raise Failed("wake-keywords")', "pass", wake_cases),
-    ("wake alone", '            if not fresh or utterances:\n                raise Protocol("wake=invalid")',
-     '            if not fresh:\n                raise Protocol("wake=invalid")', violation_cases),
-    ("wake has no end", 'raise Protocol("end=wake")', "continue", violation_cases),
+    ("spotter fed", "self.stream.accept_waveform(RATE, self.speech.waveform(received))", "pass", microphone_cases),
+    ("keyword encoded", 'raise Failed("wake-keywords")', "pass", microphone_cases),
+    ("check alone", '            if not fresh or utterances:\n                raise Protocol("check=invalid")',
+     '            if not fresh:\n                raise Protocol("check=invalid")', violation_cases),
     ("memory admission", 'judge.admit(need, provider)', 'False and judge.admit(need, provider)', admission_case),
     ("load serialization", 'with judge.loading(data / "models"):', 'if True:', admission_case),
     ("clone readiness", '\n                      and setup.clone_status(judge, state, data, provider == setup.CLONE_PROVIDER)["tone"] == "ok")', ')', clone_cases),
@@ -886,10 +892,10 @@ class LocalSpeech(unittest.TestCase):
     def test_wire(self):
         m = load()
         wire_cases(m)
-        wake_cases(m)
         violation_cases(m)
         bound_case(load())
         microphone_cases(load())
+        quiet_case(load())
 
     def test_readiness(self):
         m = load()

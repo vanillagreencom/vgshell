@@ -229,10 +229,11 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             }
 
             world = make({});
-            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, childSerial: 0, lifetime: { kind: "retry", pendingMute: "none" },
+            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, childSerial: 0, lifetime: { kind: "retry" },
+                Gate: GATE, voiceProvider: world.shell.settings.voiceProvider, echoCancel: null,
                 child: { running: false }, Conversation: load(path.join(JARVIS, "Conversation.js")),
                 publishHomes: () => true, publishInput: () => true, publishSetup: () => true, shellStatus: () => true, publish: () => true },
-            sources.Service, ["start"]);
+            sources.Service, ["start", "publishEchoCancel"]);
             const timer = sources.Service.match(/Timer \{ id: retry; onTriggered: ([^}]+) \}/);
             if (!timer) throw new Error("production retry timer not found");
             vm.runInNewContext(timer[1], { root });
@@ -241,7 +242,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             world = make({});
             let retried = 0;
             const stoppedTimer = { stop: () => {} };
-            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, lifetime: { kind: "ready", pendingMute: "none" },
+            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, lifetime: { kind: "ready" },
                 cause: "", outputTail: "", errorTail: "", retries: 0,
                 helloDeadline: stoppedTimer, stopDeadline: stoppedTimer, startWait: stoppedTimer,
                 cancelDictation: () => {}, publishPreview: () => {}, shellStatus: () => {},
@@ -258,6 +259,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["devices", { microphones: [], speakers: [] }, ["request"]],
                 ["homes", { homes: [], current: "" }, ["fleet", "request"]],
                 ["voices", { voices: [] }, ["request"]],
+                ["echo-cancel", { state: "absent", path: "/fixture/echo.conf", reason: "config-missing" }, ["request"]],
                 ["input-ready", { commands: ["wtype", "wlrctl"] }, ["request"]],
                 ["personality", { personality: { kind: "missing" } }, ["request"]],
                 ["start-text", { size: { kind: "unreadable" } }, ["request"]],
@@ -270,7 +272,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["audit-failures", { rows: [] }, ["request"]],
                 ["level", { level: { capture: 0, playback: 0 } }, ["request"]],
                 ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1 }, ["request"]],
-                ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["mute", "request"]],
+                ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["request"]],
                 ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "main-host", "request"]]
             ]) {
                 world = make({});
@@ -278,17 +280,20 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 const events = [], broken = [], queue = [];
                 root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
                     Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "", childSerial: 1,
-                    lifetime: { kind: "starting", pendingMute: "none" }, sessionState: protocol.Session.initial(),
+                    lifetime: { kind: "starting" }, sessionState: protocol.Session.initial(),
                     setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },
                     voiceProvider: world.shell.settings.voiceProvider, accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
+                    echoCancel: null, echoRefreshPending: false,
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
-                    deliverMute: () => events.push("mute"), sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
+                    sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
                     deliverMainHost: () => events.push("main-host"),
-                    helloDeadline: { stop: () => {} }, indicatorPresented: false, sendIndicator: () => {},
+                    helloDeadline: { stop: () => {} }, indicatorPresented: false, barIndicator: "gone",
+                    indicatorObservations: [], destroying: false, sendIndicator: () => {},
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
                 sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",
-                    "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish"]);
+                    "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish", "publishEchoCancel", "refreshEchoCancel", "conversationChanged",
+                    "queueIndicator", "flushIndicators"]);
                 const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };
                 const first = Object.assign({}, base, { type }, fields);
                 const request = Object.assign({}, base, { type: "request", id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] });
@@ -1100,7 +1105,7 @@ function handlerChecks(logic, check, source = STATUS_SOURCE) {
 
 // The choice route as shipped: Capabilities.managerChoose over Plugins'
 // setSetting and writeSetting, Config.writeUser and PluginStatus's choice
-// table, on the Jarvis manifest's `mode` field. A user's choice reaches
+// table, on the Jarvis manifest's `cloudVision` enum. A user's choice reaches
 // the plugin once, after the write, with the value it replaced; a re-pick,
 // a refused write, a disabled plugin, the plugin's own configure write and
 // another caller's setSetting reach it never.
@@ -1121,18 +1126,18 @@ function choiceChecks(logic, check, capabilities = CAPABILITIES_SOURCE) {
             vm.runInNewContext(qmlMethod(capabilities, "managerChoose"), manager);
             const id = world.shell.manifest.id;
             const told = [];
-            status.handleChoice({ id: id, manifest: world.shell.manifest, onDispose: () => {} }, "mode", (value, previous) => told.push([value, previous, world.shell.settings.mode]));
+            status.handleChoice({ id: id, manifest: world.shell.manifest, onDispose: () => {} }, "cloudVision", (value, previous) => told.push([value, previous, world.shell.settings.cloudVision]));
             const label = enabled ? "" : " of a disabled plugin";
             if (!enabled) {
-                check("choice: a choice" + label + " is refused and tells nothing", [manager.managerChoose(id, "mode", "toggle"), told], ["refused: disabled=" + id, []]);
+                check("choice: a choice" + label + " is refused and tells nothing", [manager.managerChoose(id, "cloudVision", "allow"), told], ["refused: disabled=" + id, []]);
                 continue;
             }
-            check("choice: a user's choice tells the plugin once, after the write", [manager.managerChoose(id, "mode", "toggle"), told], ["ok", [["toggle", "hold", "toggle"]]]);
-            check("choice: a re-pick of the stored value tells nothing", [manager.managerChoose(id, "mode", "toggle"), told.length], ["ok", 1]);
-            check("choice: a refused value tells nothing", [manager.managerChoose(id, "mode", "loud").startsWith("refused:"), told.length], [true, 1]);
-            check("choice: the plugin's own configure write tells nothing", [world.shell.configure.set("mode", "always"), world.shell.settings.mode, told.length], ["ok", "always", 1]);
-            check("choice: another caller's setSetting tells nothing", [plugins.setSetting(id, "mode", "hold"), world.shell.settings.mode, told.length], ["ok", "hold", 1]);
-            check("choice: the next choice names the value it replaced", [manager.managerChoose(id, "mode", "always"), told[1]], ["ok", ["always", "hold", "always"]]);
+            check("choice: a user's choice tells the plugin once, after the write", [manager.managerChoose(id, "cloudVision", "allow"), told], ["ok", [["allow", "ask", "allow"]]]);
+            check("choice: a re-pick of the stored value tells nothing", [manager.managerChoose(id, "cloudVision", "allow"), told.length], ["ok", 1]);
+            check("choice: a refused value tells nothing", [manager.managerChoose(id, "cloudVision", "loud").startsWith("refused:"), told.length], [true, 1]);
+            check("choice: the plugin's own configure write tells nothing", [world.shell.configure.set("cloudVision", "never"), world.shell.settings.cloudVision, told.length], ["ok", "never", 1]);
+            check("choice: another caller's setSetting tells nothing", [plugins.setSetting(id, "cloudVision", "ask"), world.shell.settings.cloudVision, told.length], ["ok", "ask", 1]);
+            check("choice: the next choice names the value it replaced", [manager.managerChoose(id, "cloudVision", "never"), told[1]], ["ok", ["never", "ask", "never"]]);
         }
     } finally {
         fs.rmSync(scratch, { recursive: true, force: true });

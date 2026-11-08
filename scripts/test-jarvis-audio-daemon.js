@@ -21,13 +21,14 @@ function daemonCopy(name, mutant = null, half = false) {
             '                    audio.captureSink = () => new (require("node:stream").Writable)({ write(frame, encoding, done) { done(); } });\n' +
             '                    runner.ports.capture = { ...runner.ports.capture, collect: () => {} };' + (half ? "\n                    fixtureSpeech();" : "")],
         ['configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),\n'
-            + '            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });',
+            + '            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()),\n'
+            + '            echoCancel: audio.echoActive(engine.engine()), settings: context.settings });',
             'configured: true, settings: context.settings });\n' +
             // Device/configuration snapshots must not toggle the fixture's
             // conversation off while its first recorder is still opening.
             '                if (!fixtureStarted) {\n' +
             '                    fixtureStarted = true;\n' +
-            '                    runner.dispatch({ type: "indicator", shown: true });\n' +
+            '                    runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });\n' +
             '                    runner.dispatch({ type: "talk-down" });\n' +
             '                }']
     ]) {
@@ -82,8 +83,8 @@ async function run(file, trigger) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const half = trigger.startsWith("speaking-");
     const hello = locked => JSON.stringify({ v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: half ? "toggle" : "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
-        keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null }, locked,
+        settings: { home: "", sounds: false, holdToTalk: !half, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
+        keys: { talk: null, deny: null, stop: null, confirm: null, console: null, "voice-mute": null }, locked,
         directories: { state: process.env.HOME, data: process.env.HOME, runtime: process.env.XDG_RUNTIME_DIR },
         revision: "a".repeat(64) }) + "\n";
     try {
@@ -106,12 +107,13 @@ async function run(file, trigger) {
             if (trigger === "speaking-complete") {
                 fs.writeFileSync(path.join(process.env.HOME, "audio-complete"), "");
                 await until(() => state().capture.kind === "open", "actual daemon resumes permitted conversation");
-            } else if (trigger === "speaking-mute") {
-                intent("mute");
-                await until(() => state().playback.kind === "idle" && state().mute.kind === "on",
-                    "mute ends playback without restarting capture");
-                assert.equal(state().capture.kind, "closed");
-                await until(() => unlocked(), "mute releases every audio child");
+            } else if (trigger === "speaking-stop") {
+                const gen = state().gen;
+                intent("stop");
+                await until(() => state().playback.kind === "idle" && state().capture.kind === "open",
+                    "Stop cancels playback and resumes conversation capture");
+                assert.equal(state().conversation.kind, "active");
+                assert.equal(state().gen, gen, "Stop preserves the conversation identity");
             } else if (trigger === "speaking-lock") {
                 child.stdin.write(hello(true));
                 await until(() => state().gate.reason === "locked" && state().playback.kind === "idle",
@@ -134,7 +136,7 @@ async function run(file, trigger) {
         assert.equal(unlocked(), true);
     } finally {
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-        for (const marker of ["final", "brain", "audio-complete", "mute.json"])
+        for (const marker of ["final", "brain", "audio-complete"])
             fs.rmSync(path.join(process.env.HOME, marker), { force: true });
     }
 }
@@ -212,14 +214,14 @@ async function inside() {
     const file = daemonCopy("audio-daemon");
     for (const trigger of ["lease", "lock", "kill"]) await run(file, trigger);
     const half = daemonCopy("half-daemon", null, true);
-    for (const trigger of ["speaking-complete", "speaking-mute", "speaking-lock", "speaking-lease", "speaking-kill"])
+    for (const trigger of ["speaking-complete", "speaking-stop", "speaking-lock", "speaking-lease", "speaking-kill"])
         await run(half, trigger);
     const admission = daemonCopy("half-admission-control", null, true);
     const sessionFile = path.resolve(admission, "../../Session.js");
     const sessionSource = fs.readFileSync(sessionFile, "utf8");
-    const admissionNeedle = '"shown"\n        && s.playback.kind === "idle"';
+    const admissionNeedle = '(s.playback.kind === "idle" || overlapping(s) && s.playback.kind === "playing")';
     assert.equal(sessionSource.split(admissionNeedle).length - 1, 1);
-    const admissionChanged = sessionSource.replace(admissionNeedle, '"shown"\n        && (true || s.playback.kind === "idle")');
+    const admissionChanged = sessionSource.replace(admissionNeedle, '(true || s.playback.kind === "idle" || overlapping(s) && s.playback.kind === "playing")');
     assert.notEqual(admissionChanged, sessionSource);
     fs.writeFileSync(sessionFile, admissionChanged);
     await assert.rejects(() => run(admission, "speaking-complete"), assert.AssertionError);

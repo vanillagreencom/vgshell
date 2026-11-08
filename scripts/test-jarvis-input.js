@@ -220,7 +220,7 @@ async function pointerAuthority(makeInput, refined) {
     const changes = ["lock", "stop", "generation", "expiry", "policy"];
     async function run(module, transport, hold, change, action = actions[0], finalOnly = false) {
         let at = 0, transcript, locked = false;
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
@@ -233,9 +233,15 @@ async function pointerAuthority(makeInput, refined) {
         Object.assign(ports, router.ports);
         const changeState = () => {
             switch (change) {
-            case "lock": locked = true; runner.dispatch({ type: "snapshot", engine: "chained", locked: true, configured: true, settings: {} }); break;
+            case "lock": locked = true; runner.dispatch({ type: "snapshot", engine: "chained", locked: true, configured: true, settings: { holdToTalk: true } }); break;
             case "stop": runner.dispatch({ type: "stop" }); break;
-            case "generation": runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true, settings: { mode: "toggle" } }); break;
+            case "generation": {
+                const gen = runner.state.gen;
+                runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true,
+                    settings: { holdToTalk: true, model: "replacement-model" } });
+                assert.notEqual(runner.state.gen, gen, "a relevant selection retires the action's generation");
+                break;
+            }
             case "expiry": at += 1001; break;
             case "policy": locked = true; break;
             default: throw new Error("fixture-change");
@@ -247,7 +253,7 @@ async function pointerAuthority(makeInput, refined) {
             const record = await input.owner.ready();
             router.register("input", { ...record, timeoutMs: 1000,
                 start(call, done, authority) { record.start(call, answer => { done(answer); finish(); }, authority); } });
-            runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true, settings: {} }); runner.dispatch({ type: "indicator", shown: true });
+            runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true, settings: { holdToTalk: true } }); runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
             runner.dispatch({ type: "talk-down" }); transcript("final", "fixture");
             const [id, args] = action;
             assert.equal(refined(id, args).id, id);
@@ -291,7 +297,7 @@ async function routerEvidence() {
     function make(module = Router, profile = "standard") {
         let at = 0, transcript, answer;
         const results = [], starts = [];
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {}, capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
+        const ports = { ...unavailable(), transcript() {}, capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
         const router = module.create({ session: Session, state: () => runner.state, dispatch: event => runner.dispatch(event),
@@ -300,7 +306,7 @@ async function routerEvidence() {
         Object.assign(ports, router.ports);
         router.register("input", { commands: ["wtype"], timeoutMs: 1000, cancellable: false,
             observe: () => new Promise(resolve => { answer = resolve; }), start: (call, done) => { starts.push(call); done({ outcome: "completed", content: "fixture" }); } });
-        runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true, settings: {} }); runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "snapshot", engine: "chained", locked: false, configured: true, settings: { holdToTalk: true } }); runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
         const route = () => router.route({ kind: "tool-call", id: "input-call", tool: "input.text", arguments: { text: "literal" } }, { gen: runner.state.gen, op: runner.state.turn.op });
         return { runner, router, starts, route, resolve: () => answer({ target: { kind: "application", id: "editor" }, text: { effective: [] } }), advance: n => { at += n; } };

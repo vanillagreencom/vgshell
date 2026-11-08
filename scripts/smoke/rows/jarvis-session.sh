@@ -35,9 +35,9 @@
 # the bar widget while Start Jarvis at boot is off. Resume asks for one
 # manual resume; a second Resume before the package answers is refused and
 # asks for none. Once the resume starts the offer ends, the row reads the
-# resumed session and the widget each step's outcome and the failed step's
+# resumed session and the Console each step's outcome and the failed step's
 # cause. A resume that
-# fails at its first step keeps that step's cause on the widget, reads
+# fails at its first step keeps that step's cause in the Console, reads
 # the steps it did not reach as not resumed and offers nothing again. A
 # resume that leaves the session failed before its first step offers
 # again, and a second Resume is taken. Do not resume asks the package for
@@ -64,8 +64,33 @@
 # No latency ceiling. Reads poll once per nested IPC round trip.
 # The home's Jarvis package is the copy VGS writes there; the row adds only
 # the stand-in command beside it.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py scripts/smoke/jarvis-console.sh shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+local session_systemctl_private=false
+jarvis_fixture_begin
+# Retained task observations can notify during the real daemon's session
+# checks. Give only this row's J09 lease a recorded command double, never
+# a host notify-send or a replacement in the shared command directory.
+python3 - "$sandbox/jarvis-world/standins" "$sandbox/jarvis-session-standins" \
+  "$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml" "$smoke_log_dir/jarvis-session-notify.jsonl" <<'PYNOTIFY'
+from pathlib import Path
+import json,shutil,sys
+source,owned,service,record=map(Path,sys.argv[1:])
+shutil.copytree(source,owned)
+command=owned/"notify-send"
+assert not command.exists()
+command.write_text("#!/usr/bin/env python3\nimport json,sys\nwith open("+repr(str(record))+", 'a') as out:\n    out.write(json.dumps(sys.argv[1:])+'\\n')\n")
+command.chmod(0o700)
+assert not service.is_symlink()
+text=service.read_text()
+needle=json.dumps(str(source))
+assert text.count(needle)==1
+changed=text.replace(needle,json.dumps(str(owned)))
+assert changed!=text
+service.write_text(changed)
+PYNOTIFY
+source "$source_repo/scripts/smoke/jarvis-console.sh"
 expected_errors+=("${dictation_absent_errors[@]}")
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
@@ -144,12 +169,28 @@ value=json.load(sys.stdin)["status"].get("jarvisSession")
 print("pending" if value is None else json.dumps(value["offer"]))
 '
 }
-session_tip() { ipc smoke readDescendant "$(bar_key)" vgs.jarvis Tooltip text; }
-# The bar widget's tooltip lines that name a resume step.
-session_steps() {
-  ipc smoke readDescendant "$(bar_key)" vgs.jarvis Tooltip details | py_reply '
+session_tip() {
+  ipc smoke readInstance "$(bar_key)" vgs.jarvis view | py_reply '
 import json,sys
-print(json.dumps([line for line in json.load(sys.stdin) if line.startswith(("Resumed ", "Could not resume ", "Waiting to resume "))]))
+v=json.load(sys.stdin)
+print(json.dumps([v["state"], v["click"]]))
+'
+}
+session_console_open() {
+  expect "the session outcome consumer opens its Console" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the session outcome Console maps" 1 window_count Jarvis
+  jarvis_asks_tab Now || fail "the session outcome Console opens Now"
+}
+session_console_close() {
+  expect "the session outcome Console hides" ok ipc shell hide window vgs.jarvis
+  expect_poll "the session outcome Console unmaps" 0 window_count Jarvis
+}
+# Complete outcome strings at their actual visible Console consumer.
+session_steps() {
+  ipc smoke itemValues window vgs.jarvis Label objectName,text,visible | py_reply '
+import json,sys
+print(json.dumps([r["text"] for r in json.load(sys.stdin)
+    if r.get("objectName")=="sessionResumeLine" and r.get("visible")]))
 '
 }
 # VERB's calls as session_calls prints them, once two status reads follow
@@ -209,14 +250,17 @@ print(json.dumps(value))
 PY
 }
 session_shell_start() { # TREE NAME
+  row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
   stop_shell || :
-  start_shell "$1" "$sandbox/jarvis-session-$2.log"
+  devices_private_shim=""
+  [[ $session_systemctl_private != true ]] || devices_private_shim="$1.commands"
+  start_shell "$1" "$sandbox/jarvis-session-$2.log" bar PATH="$1.commands:$shim:$shell_host_path"
   jarvis_enable
 }
 
-jarvis_setup_requirements
+jarvis_setup_requirements "$jarvis_fixture_shim"
 session_set "$(python3 -c 'import json,sys; print(json.dumps({"brain": sys.argv[1], "home": "~/SmokeJarvis"}))' "$session_brain")"
-session_shell_start "$repo" no-package
+session_shell_start "$jarvis_fixture_tree" no-package
 expect_poll "the home VGS laid out reads that it offers no session" \
   '["Not offered in this home folder", "VGS made this Home folder without the Jarvis session program. Voice Jarvis works without it. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home)."]' session_row
 
@@ -224,7 +268,7 @@ mkdir -p -- "$session_package/scripts"
 cp -- "$source_repo/scripts/fixtures/jarvis/session-package.py" "$session_package/scripts/jarvis-session"
 chmod 755 "$session_package/scripts/jarvis-session"
 session_answers "stopped never-started" "running existing" "stopping stop-requested"
-session_shell_start "$repo" off
+session_shell_start "$jarvis_fixture_tree" off
 expect_poll "with the setting off the row reads not started" "Not started" session_text
 expect "with the setting off the page is offered no session choice" '[]' session_modes
 expect "with the setting off a shell start asks for no start" '[]' session_calls start
@@ -255,6 +299,7 @@ except (ValueError, KeyError, TypeError): print("unread"); sys.exit()
 print(str(box[1] >= view[1] and box[1] + box[3] <= view[1] + view[3]).lower())' "$box" "$view"
 }
 session_answer status '{"exit": 2, "raw": ""}'
+expected_errors+=('WARN qml: jarvis-session: status=blocked block=unread cause=jarvis: session-status=exit=2$')
 expect "the session fault's reference opens the Jarvis page" ok ipc shell summon window vgs.settings \
   "$(python3 -c 'import json,sys; page, tab = sys.argv[1].split("/", 1); print(json.dumps({"plugin": page, "tab": tab}))' "$session_fault_target")"
 expect_poll "a status outside the contract reads its own cause" "$(python3 -c 'import json,sys; print(json.dumps(["Cannot start", sys.argv[1]]))' "$session_unread_hint")" session_row
@@ -275,16 +320,16 @@ expect "the page is offered both session choices" '["resume", "new"]' session_mo
 expect "turning the setting on asks for no start" '[]' session_calls start
 
 session_answers "running existing" "running existing" "stopping stop-requested"
-session_shell_start "$repo" first
+session_shell_start "$jarvis_fixture_tree" first
 expect_poll "a shell start with the setting on asks the package for one boot start" "$(session_start_words resume boot)" session_calls start
 expect_poll "the row reads the session the package answers" Running session_text
 expect "a session the package names no model or start time for shows neither" '[]' session_lines
-session_shell_start "$repo" second
+session_shell_start "$jarvis_fixture_tree" second
 expect_poll "a second shell start asks the package again" "$(session_start_words resume boot boot)" session_calls start
 expect_poll "the row reads running after the second start" Running session_text
 expect "VGS itself starts no session" '[]' session_tmux
 
-copy_tree jarvis-session-twice
+jarvis_fixture_copy jarvis-session-twice "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 if edit_tree jarvis-session-twice shell/plugins/vgs.jarvis/backend/session-control.js \
     '        if (started === null) return failed;' \
     '        await run(at, ["start", "--harness", who.harness, "--account", who.directory, "--mode", mode, "--origin", origin]);
@@ -296,7 +341,7 @@ fi
 
 session_answers "stopped ended" "running new-requested" "stopping stop-requested"
 session_set '{"bootSession": "new", "startAtBoot": false}'
-session_shell_start "$repo" manual
+session_shell_start "$jarvis_fixture_tree" manual
 expect_poll "with the setting off again the shell start only reads" "Not started" session_text
 expect "the Start step is taken" ok ipc vgs.jarvis invoke start-session ''
 expect_poll "the Start step asks the package for a manual start in the chosen mode" "$(session_start_words new manual)" session_calls start
@@ -314,7 +359,7 @@ session_refuse() { # LABEL
   session_set '{"home": null}'
   expect "$1: the configuration reloads with no home folder" ok ipc shell reloadConfig
 }
-copy_tree jarvis-session-follows
+jarvis_fixture_copy jarvis-session-follows "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 if edit_tree jarvis-session-follows shell/plugins/vgs.jarvis/SessionStart.qml \
     '        if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;' \
     '        if (answer.kind === "answer" && answer.unapplied !== undefined) { unapplied = answer.unapplied; sessionHome = current.home; }'; then
@@ -337,9 +382,9 @@ session_live_named() {
   session_answer status "$(python3 -c 'import json,sys; print(json.dumps({"exit": 0, "object": {"state": "running", "reason": "existing", "model": sys.argv[1], "since": sys.argv[2]}}))' "$session_model" "$session_since")"
 }
 session_live_named
-session_shell_start "$repo" named
+session_shell_start "$jarvis_fixture_tree" named
 expect_poll "a live session's model and start time show on the row" "$session_named" session_lines
-copy_tree jarvis-session-unnamed
+jarvis_fixture_copy jarvis-session-unnamed "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 if edit_tree jarvis-session-unnamed shell/plugins/vgs.jarvis/backend/session-control.js \
     '...Object.fromEntries(["model", "since", "restart"]' '...Object.fromEntries(["restart"]'; then
   session_live_named
@@ -349,16 +394,18 @@ if edit_tree jarvis-session-unnamed shell/plugins/vgs.jarvis/backend/session-con
 fi
 
 # The machine's Reboot and Shut down. The row's systemctl stands over the
-# harness's and records each call's argv and time; sentinel_restore puts
-# the harness's back once every helper has asked for its last one.
+# harness's and records each call's argv and time in the row's retained log.
 session_systemctl_log="$sandbox/jarvis-session-systemctl.calls"
 session_bin="$sandbox/jarvis-session-bin"
 mkdir -p -- "$session_bin"
-ln -sfn -- "$repo/bin/vgshell" "$session_bin/vgshell"
-sentinel_stand_over "$shim/systemctl" <<EOF
+ln -sfn -- "$jarvis_fixture_tree/bin/vgshell" "$session_bin/vgshell"
+cat >"$jarvis_fixture_shim/systemctl" <<EOF
 #!/usr/bin/env bash
 exec $(printf %q "$(command -v python3)") -c 'import json,sys,time; open(sys.argv[1], "a").write(json.dumps({"argv": sys.argv[2:], "time": time.time()}) + "\n")' $(printf %q "$session_systemctl_log") "\$@"
 EOF
+chmod 755 "$jarvis_fixture_shim/systemctl"
+session_systemctl_private=true
+devices_private_shim="$jarvis_fixture_shim"
 # The systemctl argv lists recorded, as one JSON list.
 session_systemctl() {
   python3 - "$session_systemctl_log" <<'PY'
@@ -403,7 +450,7 @@ print("none" if not rows else "shown" if any(row[2]["shown"] for row in rows) el
 }
 # The launcher's System menu ITEM, its argv run as menu.json gives it, with
 # the row's stand-ins first on its PATH and the tree's vgshell as vgshell.
-session_path="$session_bin:$shell_start_path"
+session_path="$session_bin:$jarvis_fixture_shim:$shim:$shell_host_path"
 session_resolves() { "${shell_env[@]}" PATH="$session_path" bash -c 'command -v -- "$1"' _ "$1"; }
 session_menu() { # ITEM
   local words
@@ -435,11 +482,12 @@ session_live_holding() { # HOLD
   rm -f -- "$session_systemctl_log"
 }
 
-if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves vgshell) == "$session_bin/vgshell" \
-    && $(shell_resolves systemctl) == "$shim/systemctl" ]]; then
+if [[ $(session_resolves systemctl) == "$jarvis_fixture_shim/systemctl" && $(session_resolves vgshell) == "$session_bin/vgshell" \
+    && $(jarvis_fixture_resolves systemctl) == "$jarvis_fixture_shim/systemctl" ]]; then
   session_answers "stopped ended" "running existing" "stopping stop-requested"
   rm -f -- "$session_systemctl_log"
-  session_shell_start "$repo" power-none
+  session_shell_start "$jarvis_fixture_tree" power-none
+  expect "the power fixture resolves device commands only at the exact owned roots" inside devices_guard "$shell_qs_pid" "$devices_private_shim"
   expect_poll "with no live session the row reads not started" "Not started" session_text
   expect "with no live session Jarvis lets a reboot proceed" proceed ipc vgs.jarvis invoke power reboot
   expect "the launcher's Reboot runs with no live session" "" session_menu system.reboot
@@ -450,7 +498,7 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
   expect "with no live session nothing asks the package to save" '[]' session_calls prepare
 
   session_live_holding 1
-  session_shell_start "$repo" power
+  session_shell_start "$jarvis_fixture_tree" power
   expect_poll "the power wait reads the live session" Running session_text
   expect "the launcher's Reboot runs while a session lives" "" session_menu system.reboot
   expect_poll "the wait's card shows while the reboot waits" shown session_card
@@ -468,7 +516,7 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
   expect "the Updates Reboot answer runs systemctl once" '[["reboot"]]' session_systemctl
   expect "a second ask ends the Updates Reboot's wait" proceed ipc vgs.jarvis invoke power reboot
   expect_poll "the Updates Reboot's card goes" none session_card
-  copy_tree jarvis-updates-direct
+  jarvis_fixture_copy jarvis-updates-direct "$jarvis_fixture_tree" "$jarvis_fixture_shim"
   if edit_tree jarvis-updates-direct shell/plugins/vgs.updates/tui/pipeline.sh '    0) "$_updates_vgshell" power reboot ;;' '    0) systemctl reboot ;;'; then
     session_live_holding 1
     expect "control: the copy's Updates Reboot answer runs" "" session_updates_reboot "$sandbox/tree-jarvis-updates-direct"
@@ -488,7 +536,7 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
   fi
   expect_poll "the helper still asks for the shutdown once the session answers" '[["poweroff"], ["poweroff"]]' session_systemctl
 
-  copy_tree jarvis-power-bound
+  jarvis_fixture_copy jarvis-power-bound "$jarvis_fixture_tree" "$jarvis_fixture_shim"
   if edit_tree jarvis-power-bound shell/plugins/vgs.jarvis/backend/power-wait.js 'const PREPARE_MS = 60000;' 'const PREPARE_MS = 2000;'; then
     session_live_holding 10
     session_shell_start "$sandbox/tree-jarvis-power-bound" power-bound
@@ -497,7 +545,7 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
     expect_poll "a prepare that holds past the bound still reaches systemctl reboot before it answers" before-answer session_power_when
     expect "the bound runs systemctl once" '[["reboot"]]' session_systemctl
   fi
-  copy_tree jarvis-power-unbound
+  jarvis_fixture_copy jarvis-power-unbound "$jarvis_fixture_tree" "$jarvis_fixture_shim"
   if edit_tree jarvis-power-unbound shell/plugins/vgs.jarvis/backend/power-wait.js \
       '        const bound = setTimeout(() => {
             prepare.kill("SIGKILL");
@@ -512,8 +560,11 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
 else
   fail "systemctl or vgshell does not resolve to the row's stand-in, so no power action was asked"
 fi
-sentinel_restore "$shim/systemctl"
-rm -rf -- "${session_bin:?}" "$session_systemctl_log"
+jarvis_fixture_begin "$jarvis_fixture_tree"
+session_systemctl_private=false
+devices_private_shim=""
+jarvis_setup_requirements "$jarvis_fixture_shim"
+rm -rf -- "${session_bin:?}"
 
 # A record saved before a machine restart as the package's `restart`
 # field, one STEP a step as KIND:NAME:OUTCOME[:CAUSE].
@@ -538,17 +589,19 @@ session_resume_words() { # ORIGIN...
   python3 -c 'import json,sys; print(json.dumps([["resume", "--origin", origin, "--home", sys.argv[1]] for origin in sys.argv[2:]]))' "$session_home" "$@"
 }
 session_offer_answers
-session_shell_start "$repo" offer
+session_shell_start "$jarvis_fixture_tree" offer
 expect_poll "a record saved before the restart offers its resume on the row" '["Saved before the restart", "Resume Jarvis from before the restart"]' session_row
-expect_poll "the bar widget offers the resume" '"Resume Jarvis from before the restart"' session_tip
+expect_poll "the state-only bar widget keeps its Resume click" '["off", "resume"]' session_tip
 expect "the offer asks for no resume" '[]' session_calls resume
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
 expect "a second Resume before the package answers is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
 expect_poll "two Resumes ask the package for one manual resume, in the session's home" "$(session_resume_words manual)" session_calls_settled resume
 expect_poll "the offer ends once the resume starts" null session_offer
 expect_poll "the row reads the resumed session" Running session_text
-expect_poll "the widget shows each step's outcome and the failed step's cause" \
+session_console_open
+expect_poll "the Console shows each step's outcome and the failed step's cause" \
   '["Resumed the Jarvis session.", "Could not resume the agent fleet for project vgshell: settings-busy.", "Waiting to resume coding task VGS-1797."]' session_steps
+session_console_close
 expect "a Resume once the resume started is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
 expect "the refused Resume asks for no resume" "$(session_resume_words manual)" session_calls resume
 
@@ -556,12 +609,15 @@ expect "the refused Resume asks for no resume" "$(session_resume_words manual)" 
 # failed with its cause and the others still pending.
 session_offer_answers
 session_failed="$(session_restart delegate:jarvis:failed:launch-timeout overseer:vgshell:pending lane:VGS-1797:pending)"
+expected_errors+=('WARN qml: jarvis-session: resume=failed reason=launch-failed$')
 session_answer resume "{\"exit\": 1, \"object\": {\"state\": \"failed\", \"reason\": \"launch-failed\", \"restart\": $session_failed}, \"then\": {\"status\": {\"exit\": 1, \"object\": {\"state\": \"failed\", \"reason\": \"launch-failed\", \"restart\": $session_failed}}}}"
-session_shell_start "$repo" resume-failed
+session_shell_start "$jarvis_fixture_tree" resume-failed
 expect_poll "a shell before a resume that fails offers it" '{"unlock": null}' session_offer
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
+session_console_open
 expect_poll "a failed resume shows the failed step's cause and the steps it did not reach" \
   '["Could not resume the Jarvis session: launch-timeout.", "Could not resume the agent fleet for project vgshell.", "Could not resume coding task VGS-1797."]' session_steps
+session_console_close
 expect "the failed resume asks for one manual resume" "$(session_resume_words manual)" session_calls resume
 expect "a failed resume offers nothing again" null session_offer
 expect "the row reads the failed session" "Not started" session_text
@@ -575,7 +631,7 @@ session_unstarted_answers() {
   session_answer resume "{\"exit\": 1, \"object\": {\"state\": \"failed\", \"reason\": \"launch-failed\", \"restart\": $unstarted}}"
 }
 session_unstarted_answers
-session_shell_start "$repo" resume-unstarted
+session_shell_start "$jarvis_fixture_tree" resume-unstarted
 expect_poll "a shell before a resume that never starts offers it" '{"unlock": null}' session_offer
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
 expect_poll "the resume that never started reads the failed session" '["Saved before the restart", "Resume Jarvis from before the restart"]' session_row
@@ -593,7 +649,7 @@ session_record() { python3 -c 'import json,sys; print("kept" if json.load(open(s
 # The row's extra lines, as their count, or pending.
 session_line_count() { session_lines | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if t == "pending" else len(json.loads(t)))'; }
 session_offer_answers
-session_shell_start "$repo" dismiss
+session_shell_start "$jarvis_fixture_tree" dismiss
 expect_poll "a new shell offers the record's resume" '{"unlock": null}' session_offer
 expect "Do not resume is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
 expect_poll "Do not resume asks the package for one dismiss, in the session's home" "$(session_dismiss_words)" session_calls dismiss
@@ -601,11 +657,12 @@ expect_poll "the package drops the record" dropped session_record
 expect_poll "the row reads the session without the record" '["Not started", "Start Jarvis to continue your work"]' session_row
 expect "Do not resume hides the offer" null session_offer
 expect "Do not resume asks for no resume" '[]' session_calls resume
-session_shell_start "$repo" dismiss-restart
+session_shell_start "$jarvis_fixture_tree" dismiss-restart
 expect_poll "after a shell restart the row reads the session without the record" '["Not started", "Start Jarvis to continue your work"]' session_row
 expect "after a shell restart Do not resume still holds" null session_offer
 
-copy_tree jarvis-session-dismiss-nothing
+jarvis_fixture_copy jarvis-session-dismiss-nothing "$jarvis_fixture_tree" "$jarvis_fixture_shim"
+expected_errors+=('WARN qml: jarvis-session: dismiss=not-saved kind=failed$')
 if edit_tree jarvis-session-dismiss-nothing shell/plugins/vgs.jarvis/SessionStart.qml \
     '        call("dismiss", sessionHome, [sessionHome]);
 ' ''; then
@@ -620,14 +677,15 @@ fi
 
 # A package without `dismiss`: the stand-in refuses the verb.
 session_offer_answers
+expected_errors+=('WARN qml: jarvis-session: dismiss=failed cause=jarvis: session-dismiss=exit=2$')
 session_answer dismiss '{"exit": 2, "raw": ""}'
-session_shell_start "$repo" dismiss-refused
+session_shell_start "$jarvis_fixture_tree" dismiss-refused
 expect_poll "a shell before a refused Do not resume offers the resume" '{"unlock": null}' session_offer
 expect "the Do not resume the package refuses is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
 expect_poll "a refused Do not resume puts one line on the row" 1 session_line_count
 expect "a refused Do not resume keeps the offer" '{"unlock": null}' session_offer
 expect "a refused Do not resume asked for one dismiss" "$(session_dismiss_words)" session_calls dismiss
-copy_tree jarvis-session-dismiss-silent
+jarvis_fixture_copy jarvis-session-dismiss-silent "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 if edit_tree jarvis-session-dismiss-silent shell/plugins/vgs.jarvis/SessionStart.qml \
     '            dismissFailed = answer.kind !== "answer";' '            dismissFailed = false;'; then
   session_offer_answers
@@ -639,7 +697,7 @@ if edit_tree jarvis-session-dismiss-silent shell/plugins/vgs.jarvis/SessionStart
   expect "control: that copy says nothing of the refusal" 0 session_line_count
 fi
 
-copy_tree jarvis-session-resume-twice
+jarvis_fixture_copy jarvis-session-resume-twice "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 if edit_tree jarvis-session-resume-twice shell/plugins/vgs.jarvis/SessionStart.qml \
     '        resumed = true;
 ' ''; then
@@ -650,7 +708,7 @@ if edit_tree jarvis-session-resume-twice shell/plugins/vgs.jarvis/SessionStart.q
   expect "control: a Resume that keeps no mark of its ask takes a second Resume before the answer" ok ipc vgs.jarvis invoke resume-session ''
   expect_poll "control: two Resumes read two resumes" "$(session_resume_words manual manual)" session_calls_settled resume
 fi
-copy_tree jarvis-session-resume-kept
+jarvis_fixture_copy jarvis-session-resume-kept "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 if edit_tree jarvis-session-resume-kept shell/plugins/vgs.jarvis/SessionStart.qml \
     '        if (current.verb === "resume") resumed = false;
 ' ''; then
@@ -664,13 +722,13 @@ fi
 
 session_set '{"startAtBoot": true, "bootSession": null}'
 session_offer_answers
-session_shell_start "$repo" boot-resume
+session_shell_start "$jarvis_fixture_tree" boot-resume
 expect_poll "with Start Jarvis at boot on a shell start asks for one boot resume" "$(session_resume_words boot)" session_calls_settled resume
 expect "the boot resume asks for no start" '[]' session_calls start
 expect "a record resumed at boot offers nothing" null session_offer
 # The resumed session lives: the stand-in's status reads it running restart-resumed.
 rm -f -- "${session_package:?}/scripts/calls.log"
-session_shell_start "$repo" boot-live
+session_shell_start "$jarvis_fixture_tree" boot-live
 expect_poll "a shell restart while the resumed session lives asks for one boot start" "$(session_start_words resume boot)" session_calls_settled start
 expect "the restart asks for no second resume" '[]' session_calls resume
 
@@ -681,15 +739,17 @@ stop_shell || :
 session_set '{"startAtBoot": true, "bootSession": "new"}'
 session_offer_answers
 session_answer start "{\"exit\": 0, \"object\": {\"state\": \"starting\", \"reason\": \"launching\"}, \"then\": {\"status\": {\"exit\": 0, \"object\": {\"state\": \"running\", \"reason\": \"existing\", \"restart\": $(session_restart delegate:jarvis:pending overseer:vgshell:pending lane:VGS-1797:pending)}}}}"
-session_shell_start "$repo" boot-new
+session_shell_start "$jarvis_fixture_tree" boot-new
 expect_poll "with Start a new session a shell start asks for one boot start" "$(session_start_words new boot)" session_calls start
 expect_poll "the new session runs beside the kept record" Running session_text
 expect "the boot start asks for no resume" '[]' session_calls resume
+session_console_open
 expect "a session beside the kept record shows no step" '[]' session_steps
+session_console_close
 session_set '{"startAtBoot": false, "bootSession": "new"}'
 
 session_answers "running existing" "running existing" "stopping stop-requested"
-session_shell_start "$repo" restart
+session_shell_start "$jarvis_fixture_tree" restart
 expect_poll "the restarted shell reads the running session" Running session_text
 expect "a shell restart asks for no stop" '[]' session_calls stop
 session_refuse "a refused selection"
@@ -705,4 +765,8 @@ expect "the configuration reloads with the manifest's settings" ok ipc shell rel
 rm -f -- "${session_package:?}/scripts/jarvis-session" "${session_package:?}/scripts/answers.json" "${session_package:?}/scripts/calls.log"
 rmdir -- "$session_package/scripts"
 [[ $session_account_made == false ]] || rmdir -- "$session_account"
-jarvis_restore_requirements
+jarvis_restore_requirements "$jarvis_fixture_shim"
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+devices_private_shim=""
+start_shell "$repo" "$smoke_log_dir/jarvis-session-stock.log"

@@ -8,6 +8,8 @@
 set -euo pipefail
 expected_errors+=("${dictation_absent_errors[@]}")
 expected_errors+=('WARN qml: jarvis-session: (change|status|build)=blocked block=package' 'WARN qml: jarvis: stderr=jarvis: home=package')
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 # Accepted homes are remembered even after their folders go away. Preserve
 # the incoming profile as well as its history, while no daemon can write it.
 repair_homes="$home/.local/state/vgshell/jarvis/homes.json"
@@ -36,15 +38,12 @@ repair_home_profile() {
     echo restored
   fi
 }
-repair_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-repair_reader="$repo/shell/plugins/vgs.jarvis/HomeRepair.qml"
-repair_tui="$repo/shell/plugins/vgs.jarvis/tui/repair-home.sh"
-cp -- "$repair_service" "$sandbox/repair-home-service-original"
-cp -- "$repair_reader" "$sandbox/repair-home-reader-original"
-cp -- "$repair_tui" "$sandbox/repair-home-tui-original"
+repair_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+repair_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/HomeRepair.qml"
+repair_tui="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/repair-home.sh"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/repair-home.sh" "$repair_tui"
-jarvis_setup_requirements
-terminal_stand_in
+jarvis_setup_requirements "$jarvis_fixture_shim"
+jarvis_fixture_terminal
 terminal_ready "Jarvis Home repair"
 
 # Keep the daemon's isolated HOME aligned with the shell's scratch HOME.
@@ -62,6 +61,7 @@ changed=source.replace(old,json.dumps(str(lease)))
 assert changed!=source
 p.write_text(changed)
 PYREPAIR
+jarvis_fixture_copy jarvis-home-repair-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 
 repair_home_value() {
   status_row vgs.jarvis setupHome | py_reply 'import json,sys
@@ -113,6 +113,8 @@ jarvis_disable
 
 # The control changes only the completion effect, leaving the reader and
 # the Repair press present, so the observed missing outcome names the defect.
+jarvis_fixture_begin "$sandbox/tree-jarvis-home-repair-input" "$sandbox/tree-jarvis-home-repair-input.commands"
+repair_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/HomeRepair.qml"
 python3 - "$repair_reader" <<'PYREPAIR'
 from pathlib import Path
 import sys
@@ -135,9 +137,6 @@ expect "removing the completion recheck rejects the repaired outcome" 1 repair_h
 settings_page_close vgs.jarvis
 jarvis_disable
 cp -- "$repair_homes" "$sandbox/repair-home-homes-leaked"
-cp -- "$sandbox/repair-home-service-original" "$repair_service"
-cp -- "$sandbox/repair-home-reader-original" "$repair_reader"
-cp -- "$sandbox/repair-home-tui-original" "$repair_tui"
 rm -rf -- "${home:?}/Repair Home"
 rm -f -- "${home:?}/.repair-home-persona" "${home:?}/.repair-home-pressed"
 repair_home_restore_profile
@@ -154,5 +153,7 @@ expect "a leaked used home breaks the profile restoration assertion" 1 repair_ho
 repair_home_restore_profile
 expect "the profile is restored after its leak control" restored repair_home_profile
 expect "the restored user profile is read again" ok ipc shell reloadConfig
+jarvis_restore_requirements "$jarvis_fixture_shim"
+stop_shell
+start_shell "$repo" "$sandbox/jarvis-home-repair-stock.log"
 rescan "the original Home repair service is restored"
-jarvis_restore_requirements

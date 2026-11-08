@@ -37,7 +37,7 @@
     "binds": [
       {
         "shortcut": "toggle",
-        "key": "SUPER+CTRL+X",
+        "key": null,
         "info": "Press once to start dictating, speak, and press again to stop. VGS types what you said into the focused field."
       },
       {

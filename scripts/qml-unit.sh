@@ -234,6 +234,12 @@ mkdir -p -- "$imports/Quickshell/Hyprland"
 cp -- "$tests/stand-ins/GlobalShortcut.qml" "$imports/Quickshell/Hyprland/GlobalShortcut.qml"
 cp -- "$tests/stand-ins/Hyprland.qml" "$imports/Quickshell/Hyprland/Hyprland.qml"
 printf 'module Quickshell.Hyprland\nGlobalShortcut 1.0 GlobalShortcut.qml\nsingleton Hyprland 1.0 Hyprland.qml\n' >"$imports/Quickshell/Hyprland/qmldir"
+# Jarvis reads the current default source and tracks its ready/audio fields.
+# Tests own these observations; this module connects to no audio service.
+mkdir -p -- "$imports/Quickshell/Services/Pipewire"
+printf 'pragma Singleton\nimport QtQml\nQtObject { property bool ready: false; property var defaultAudioSource: null }\n' >"$imports/Quickshell/Services/Pipewire/Pipewire.qml"
+printf 'import QtQml\nQtObject { property var objects: [] }\n' >"$imports/Quickshell/Services/Pipewire/PwObjectTracker.qml"
+printf 'module Quickshell.Services.Pipewire\nsingleton Pipewire 1.0 Pipewire.qml\nPwObjectTracker 1.0 PwObjectTracker.qml\n' >"$imports/Quickshell/Services/Pipewire/qmldir"
 for file in FileView.qml Process.qml StdioCollector.qml SplitParser.qml ProcessRegistry.qml FileViewError.qml; do
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/Io/$file"
 done

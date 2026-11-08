@@ -32,6 +32,7 @@ function ports(root, engine, state) {
     const waiting = new Map();
     let collect = null;
     let capture = null;
+    let feedback = null;
     record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
         JSON.stringify({ ...values, kind }) + "\n");
     const wait = (gate, done) => waiting.set(gate, done);
@@ -81,7 +82,9 @@ function ports(root, engine, state) {
                 gates.drop("device-back");
                 const final = collect;
                 collect = null;
-                const finish = () => { done(); if (final !== null) final("final", "scripted utterance"); };
+                const silent = fs.existsSync(path.join(root, "silent-capture"));
+                if (silent) fs.unlinkSync(path.join(root, "silent-capture"));
+                const finish = () => { done({ speech: !silent }); if (final !== null) final("final", silent ? "" : "scripted utterance"); };
                 if (fs.existsSync(path.join(root, "hold-close"))) wait("close", finish);
                 else finish();
             }
@@ -124,16 +127,41 @@ function ports(root, engine, state) {
                 if (chained) engine.brain.close(e);
                 else waiting.delete("brain");
             },
+            reset: e => {
+                record("brain-reset", e);
+                if (chained) engine.brain.reset(e);
+                else waiting.delete("brain");
+            },
             // The chained plan's engine answers its own turn's results.
             outcome: e => { record("tool-outcome", e); if (chained) engine.brain.outcome(e); }
         },
         playback: {
-            start: (e, done) => {
-                // Key and bubble rows gate assistant playback. Their local
-                // start cue completes before that capture can begin.
-                if (state().playback.kind === "feedback" && state().playback.cue === "start") {
-                    record("feedback-start", e);
+            start: (e, done, failed) => {
+                // Key and bubble rows gate replies. Conversation cues complete
+                // independently so a close cannot retain the next capture.
+                if (state().playback.kind === "feedback" && ["start", "stop"].includes(state().playback.cue)) {
+                    record("feedback-" + state().playback.cue, e);
                     done();
+                    return;
+                }
+                // A line is not the gated model reply. Consume the real
+                // engine's process-free source and acknowledge its actual end.
+                if (state().playback.kind === "feedback" && state().playback.cue === "line") {
+                    const source = engine.playbackSource(e.source);
+                    if (source === null) { failed("scripted-feedback-source"); return; }
+                    record("feedback-line", e);
+                    const stream = feedback = source.readable;
+                    stream.once("end", () => {
+                        if (feedback !== stream) return;
+                        feedback = null;
+                        done();
+                    });
+                    stream.once("error", () => {
+                        if (feedback !== stream) return;
+                        feedback = null;
+                        failed("scripted-feedback-stream");
+                    });
+                    stream.resume();
                     return;
                 }
                 record("playback-start", e);
@@ -141,6 +169,9 @@ function ports(root, engine, state) {
             },
             flush: (e, done) => {
                 record("playback-flush", e);
+                const stream = feedback;
+                feedback = null;
+                stream?.destroy();
                 const late = waiting.get("played");
                 waiting.delete("played");
                 if (late !== undefined) wait("late-played", late);
@@ -219,6 +250,7 @@ function readyPlan() {
 // reply gate.
 const driver = { create() {
     let pending = null;
+    let suspended = false;
     // Only a waiting response holds the reply gate.
     const end = () => {
         if (pending === null) return Promise.resolve();
@@ -233,6 +265,7 @@ const driver = { create() {
         start() {},
         // As WireBrain does, the request releases its items' labels.
         send(request) {
+            if (suspended) throw new Error("scripted: brain-suspended");
             const labels = [...new Set(request.items.flatMap(item => item.labels))];
             const scriptedLong = gatesRoot !== null && fs.existsSync(path.join(gatesRoot, "long-request"));
             const steps = scriptedLong
@@ -259,6 +292,8 @@ const driver = { create() {
         },
         record() {},
         cancel: end,
+        suspend() { suspended = true; return end(); },
+        resume() { suspended = false; },
         close() { void end(); }
     };
 } };
@@ -275,7 +310,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
     ];
     if (!mappedIndicator) changes.push(
         ['runner.dispatch({ type: "snapshot", locked: context.locked,',
-            'runner.dispatch({ type: "indicator", shown: true });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']);
+            'runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });\n                runner.dispatch({ type: "snapshot", locked: context.locked,']);
     edit(file, changes);
     fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
     edit(path.join(path.dirname(file), "ChainedEngine.js"), [
@@ -311,6 +346,7 @@ function chainedEngine(file) {
 // row reads the user's words its turn took and ends the turn with Stop.
 const waitingDriver = { create() {
     let pending = null;
+    let suspended = false;
     const end = () => {
         const resolve = pending;
         pending = null;
@@ -320,6 +356,7 @@ const waitingDriver = { create() {
     return {
         start() {},
         send(request) {
+            if (suspended) throw new Error("scripted: brain-suspended");
             const labels = [...new Set(request.items.flatMap(item => item.labels))];
             const events = { [Symbol.asyncIterator]() { return {
                 next: () => new Promise(resolve => { pending = resolve; }),
@@ -329,6 +366,8 @@ const waitingDriver = { create() {
         },
         record() {},
         cancel: end,
+        suspend() { suspended = true; return end(); },
+        resume() { suspended = false; },
         close() { void end(); }
     };
 } };
@@ -373,7 +412,7 @@ let consoleRows = [
 const consoleFailures = [
     { time: "2026-10-11T09:30:00.000Z", tool: "files.delete", effect: "destructive", decision: "refuse", outcome: "cancelled", refusal: null, cause: null },
     { time: "2026-10-11T09:35:00.000Z", tool: "release", effect: null, decision: "withhold", outcome: "cancelled", refusal: "source", cause: null },
-    { time: "2026-10-11T09:40:00.000Z", tool: "release", effect: "external", decision: "send", outcome: "failed", refusal: null, cause: "unheard" }
+    { time: "2026-10-11T09:40:00.000Z", tool: "release", effect: "external", decision: "send", outcome: "failed", refusal: null, cause: "voice-stopped" }
 ];
 function consoleTasks() { return consoleRows; }
 function consoleAudit() { return consoleFailures; }

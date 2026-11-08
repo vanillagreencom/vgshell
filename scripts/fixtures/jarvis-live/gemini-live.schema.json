@@ -8,7 +8,11 @@
    "https://ai.google.dev/gemini-api/docs/live-api/capabilities",
    "https://ai.google.dev/gemini-api/docs/live-api/tools",
    "https://ai.google.dev/gemini-api/docs/speech-generation"
-  ]
+  ],
+  "nativeInputReference": "https://aistudio.google.com/docs/live-api/capabilities",
+  "nativeInputRead": "2026-11-05",
+  "capReference": "https://ai.google.dev/api/live#GoAway",
+  "capRead": "2026-11-05"
  },
  "rule": [
   "Each schema transcribes the message of the same name in the Live API reference to the checker's keyword set. A client or server message is an object holding one message kind; enum values stay as the reference spells them; optional members stay optional.",
@@ -19,7 +23,7 @@
   "usageMetadata, the arguments of a function call and a go-away's time stay open. The checker closes every other object."
  ],
  "omitted": [
-  "Client messages the voice does not send: toolResponse, and realtimeInput's video, text, activityStart, activityEnd and audioStreamEnd members.",
+  "Client messages the voice does not send: toolResponse, and realtimeInput's video, text, activityStart and activityEnd members.",
   "Setup members the voice leaves unset: contextWindowCompression, sessionResumption, proactivity, the automatic activity detection tuning, turnCoverage and interimTranscriptTimestampEnabled.",
   "serverContent's groundingMetadata and urlContextMetadata, which answer tools the voice never offers, and the media resolution and thinking settings."
  ],
@@ -215,11 +219,11 @@
      "properties": {
       "audio": {
        "$ref": "#/schemas/Blob"
+      },
+      "audioStreamEnd": {
+       "type": "boolean"
       }
-     },
-     "required": [
-      "audio"
-     ]
+     }
     }
    },
    "required": [

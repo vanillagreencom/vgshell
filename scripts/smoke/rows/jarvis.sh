@@ -1,6 +1,54 @@
 # Shared Jarvis smoke helpers and warning state for downstream rows.
-# inputs: shell/plugins/vgs.jarvis/* scripts/smoke/rows/plugins.sh
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh packaging/jarvis-home/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
+
+# A fixture selects disposable inputs; the leak owner never restores source
+# bytes. Keep the run tree and its command directory untouched for successors.
+jarvis_fixture_copy() { # NAME SOURCE COMMANDS
+  local repo="$2"
+  copy_tree "$1" || return 1
+  mkdir -p -- "$sandbox/tree-$1/scripts/fixtures" "$sandbox/tree-$1/scripts/lib" "$sandbox/tree-$1/packaging" || return 1
+  cp -R -- "$repo/scripts/fixtures/jarvis" "$sandbox/tree-$1/scripts/fixtures/jarvis" || return 1
+  cp -- "$repo/scripts/lib/jarvis-env.sh" "$sandbox/tree-$1/scripts/lib/jarvis-env.sh" || return 1
+  ln -s -- "$repo/scripts/smoke" "$sandbox/tree-$1/scripts/smoke" || return 1
+  cp -R -- "$repo/packaging/jarvis-home" "$sandbox/tree-$1/packaging/jarvis-home" || return 1
+  rm -rf -- "$sandbox/tree-$1.commands" || return 1
+  mkdir -p -- "$sandbox/tree-$1.commands" || return 1
+  [[ -z $3 ]] || cp -R -- "$3/." "$sandbox/tree-$1.commands/" || return 1
+}
+jarvis_fixture_begin() { # [SOURCE [COMMANDS]]
+  local source="${1:-$repo}" commands="${2:-}" previous=""
+  jarvis_fixture_serial=$((${jarvis_fixture_serial:-0} + 1))
+  jarvis_fixture_name="$smoke_row_name-$BASHPID-$leak_seq-$jarvis_fixture_serial"
+  jarvis_fixture_copy "$jarvis_fixture_name" "$source" "$commands" || return 1
+  if [[ -n ${shell_qs_pid:-} ]]; then previous="$(jarvis_revision)" || return 1; fi
+  if [[ -n ${jarvis_fixture_tree:-} && -n ${instance_log:-} ]]; then
+    row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+  fi
+  stop_shell || return 1
+  jarvis_fixture_tree="$sandbox/tree-$jarvis_fixture_name"
+  jarvis_fixture_shim="$sandbox/tree-$jarvis_fixture_name.commands"
+  start_shell "$jarvis_fixture_tree" "$smoke_log_dir/$jarvis_fixture_name.log" bar PATH="$jarvis_fixture_shim:$shim:$shell_host_path" || return 1
+  jarvis_fixture_revision="$previous"
+}
+jarvis_fixture_terminal() {
+  local tui_terminal="$jarvis_fixture_shim/${tui_terminal##*/}"
+  local tui_terminal_written="$jarvis_fixture_shim/terminal-written"
+  terminal_stand_in "$@"
+}
+jarvis_fixture_dictation() {
+  local shell_start_path="$jarvis_fixture_shim:$shim:$shell_host_path"
+  local shim="$jarvis_fixture_shim"
+  dictation_stand_ins "$@"
+}
+jarvis_fixture_dictation_processes() {
+  local shim="$jarvis_fixture_shim"
+  dictation_processes "$@"
+}
+jarvis_fixture_resolves() {
+  local shell_start_path="$jarvis_fixture_shim:$shim:$shell_host_path"
+  shell_resolves "$@"
+}
 # Every row that starts the Jarvis fixtures declares this set, as the
 # real daemon's fixtures provoke it: jarvis_provoked_errors is the one place.
 jarvis_provoked_errors=()
@@ -74,7 +122,9 @@ PY
 
 # Positive Settings setup cases need the plugin's required commands present.
 # These scanner-facing stand-ins exit if called; J09 owns executable doubles.
-jarvis_setup_requirements() {
+jarvis_setup_requirements() { # COMMANDS
+  local shell_start_path="$1:$shim:$shell_host_path"
+  local shim="$1"
   local commands command
   jarvis_requirement_standins=()
   commands="$(python3 - "$repo/shell/plugins/vgs.jarvis/manifest.json" <<'PYTHON'
@@ -89,9 +139,10 @@ PYTHON
 )" || return 1
   while IFS= read -r command; do
     [[ $(shell_resolves "$command") == none ]] || continue
-    printf '#!/bin/sh\nexit 99\n' >"$shim/$command"
-    chmod 755 "$shim/$command"
+    (set -o noclobber; : >"$shim/$command") || return 1
     jarvis_requirement_standins+=("$command")
+    printf '#!/bin/sh\nexit 99\n' >"$shim/$command" || return 1
+    chmod 755 "$shim/$command" || return 1
   done <<<"$commands"
 }
 # A published ready value can precede the reader's queued initialization
@@ -114,12 +165,14 @@ print("idle" if len(rows)==1 and rows[0]["pending"] is False and rows[0]["comple
 '
 }
 
-jarvis_restore_requirements() {
-  local command
+jarvis_restore_requirements() { # COMMANDS
+  local shim="$1"
+  local command result=0
   for command in "${jarvis_requirement_standins[@]}"; do
-    rm -f -- "${shim:?}/$command"
+    rm -f -- "${shim:?}/$command" || result=1
   done
-  rescan "the setup requirement stand-ins are removed"
+  rescan "the setup requirement stand-ins are removed" || result=1
+  return "$result"
 }
 
 # jarvis_notice_close: the requirement notice enabling Jarvis raised while
@@ -127,16 +180,31 @@ jarvis_restore_requirements() {
 # in rows/jarvis-setup.sh; a scan raises no notice, so the stand-ins then
 # go again and it stays closed. A row that raised it calls this before it
 # ends, so no later row starts under it.
-jarvis_notice_close() {
-  jarvis_setup_requirements || { fail "the Jarvis requirement stand-ins are not written"; return 1; }
+jarvis_notice_close() { # COMMANDS
+  jarvis_setup_requirements "$1" || { fail "the Jarvis requirement stand-ins are not written"; return 1; }
   rescan "the scan that finds Jarvis's required commands"
   expect_poll "the scan that finds Jarvis's required commands closes its notice" 0 layer_count vgs:notice
-  jarvis_restore_requirements
+  jarvis_restore_requirements "$1"
 }
 
+# Startup evidence excludes conversation text and separates a pre-launch
+# publication return from a running child awaiting hello.
+jarvis_startup() {
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+d=json.load(sys.stdin)
+status=d.get("status",{})
+detail=status.get("detail")
+print(json.dumps({**{k:d.get(k) for k in ("pid","lifetime","retries","cause","audioHealth")},
+    "gate":detail.get("state",{}).get("gate") if isinstance(detail,dict) else None,
+    "setup":status.get("setup")}))
+'
+}
 jarvis_enable() {
   expect "Jarvis enables" ok ipc shell setPluginEnabled vgs.jarvis true
   expect "the real Jarvis daemon answers hello" ready jarvis_wait_ready
+  printf 'jarvis-startup='
+  jarvis_startup
 }
 jarvis_revision() {
   ipc shell listPlugins | py_reply 'import json,sys; print(next(p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.jarvis"))'
@@ -153,7 +221,10 @@ jarvis_launcher_pid() {
 
 jarvis_rescan() {
   local before current
-  if ! before="$(jarvis_revision)"; then fail "Jarvis revision is unreadable before rescan"; return 1; fi
+  if [[ -n ${jarvis_fixture_revision:-} ]]; then
+    before="$jarvis_fixture_revision"
+    jarvis_fixture_revision=""
+  elif ! before="$(jarvis_revision)"; then fail "Jarvis revision is unreadable before rescan"; return 1; fi
   rescan "the changed Jarvis service rescans"
   if ! current="$(jarvis_revision)"; then fail "Jarvis revision is unreadable after rescan"; return 1; fi
   [[ $current == "$before" ]] || return 0

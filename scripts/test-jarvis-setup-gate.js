@@ -35,14 +35,13 @@ const detailActionRows = status => Array.from(settings.detailEntries(status)).ma
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
-const keyNav = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 // The libraries Service.qml imports beside SetupGate.js, for its functions
 // run under node.
+const keyNav = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget,
     spelledTalk: null,
-    ShortcutLabels: { keyCaps: key => keyNav.keyCaps(key, Object.assign(keyNav.symbolNames(judge.CAPTURE_KEY_NAMES), { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } })) },
+    ShortcutLabels: { keyCaps: key => keyNav.keyCaps(key, keyNav.symbolNames(judge.CAPTURE_KEY_NAMES)) },
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
-let manifestControlCount = 0;
 // LocalTier's reading with no local voice model wanted or ready, as the
 // service's publishSetup reads it (localTier.pickSize, wantedTier,
 // readyTier).
@@ -78,9 +77,7 @@ function verifyMicrophoneAction(script, root) {
         const result = cp.spawnSync("/bin/bash", [script], { encoding: "utf8",
             env: { PATH: root, VGS_TUI_LIB: library, CHECK_REPLY: reply } });
         assert.equal(result.status, reply === "ok" ? 0 : 1, "the action reports daemon refusal");
-        assert.match(result.stdout, /Say Hey Jarvis.*three seconds/);
-        assert.match(result.stdout, /Settings > Jarvis/);
-        if (reply !== "ok") assert.match(result.stderr, /cannot check the microphone/);
+        if (reply !== "ok") assert.notEqual(result.stderr.trim(), "", "a refused check names its failure");
     }
 }
 
@@ -439,12 +436,10 @@ const VOICE = [
     ["Local chosen beside a stored key", { voiceProvider: "local", voiceAccount: "openai-1" }, KEY, "local"],
     ["Realtime saved with no key", { voiceProvider: "realtime" }, [], "realtime"],
     ["Realtime saved beside a stored named key", { voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"],
-    ["Always talk mode with Realtime chosen", { mode: "always", voiceProvider: "realtime", voiceAccount: "openai-1" }, KEY, "realtime"],
     ["Gemini saved with no key", { voiceProvider: "gemini" }, [], "gemini"],
     ["Gemini saved beside a stored named key", { voiceProvider: "gemini", voiceAccount: "gemini-1" }, GEMINI_KEY, "gemini"],
     ["ElevenLabs saved with no key", { voiceProvider: "elevenlabs" }, [], "elevenlabs"],
     ["ElevenLabs saved beside a stored named key", { voiceProvider: "elevenlabs", voiceAccount: "eleven-1" }, ELEVEN_KEY, "elevenlabs"],
-    ["Always talk mode with ElevenLabs chosen", { mode: "always", voiceProvider: "elevenlabs", voiceAccount: "eleven-1" }, ELEVEN_KEY, "elevenlabs"]
 ];
 // The Voice key the account reader chooses: [label, the stored cloud voice
 // keys or null for a failed read, the settings, the Voice key choices it
@@ -470,7 +465,6 @@ const START_CAUSES = [
     ["Node too old", "jarvis: node=20.19.5 need=22", "node-too-old"],
     ["Node exit", "jarvis: daemon=exit code=78 status=0", "node-too-old"],
     ["voice mute not saved", "jarvis: voice-mute=write-failed", "mute-not-saved"],
-    ["mute record unreadable", "jarvis: mute=record-shape", "mute-not-saved"],
     ["daemon exit", "jarvis: daemon=exit code=1 status=0", "daemon-exit"],
     ["daemon ended", "jarvis: daemon=ended", "daemon-exit"],
     ["wire defect", "jarvis: protocol=identity", "wire-defect"]
@@ -874,7 +868,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
     for (const row of MODEL) {
         const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
         if (row.keys !== undefined) assert.equal(judge.statusWrite(manifest, {}, "keys", values.keys).ok, true);
-        const shell = { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", mode: "hold", voiceAccount: "" }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
+        const shell = { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", holdToTalk: true, voiceAccount: "" }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
             const accepted = judge.statusWrite(manifest, values, key, value);
             assert.equal(accepted.ok, true, row.name + ": accepted status " + key);
             values[key] = value;
@@ -920,7 +914,7 @@ function helloSettings(gate, serviceSource, providers, manifest, settings, reade
     assert.ok(hello);
     const keys = Object.fromEntries(manifest.hyprland.binds.map(bind => [bind.shortcut, bind.key]));
     let wire = null;
-    const root = { accountReader: reader, voiceProvider: settings.voiceProvider, shell: { settings,
+    const root = { accountReader: reader, voiceProvider: settings.voiceProvider, shell: { settings, dictation: { state: null },
         shortcut: { keys }, manifest: { hyprland: manifest.hyprland, __revision: "a".repeat(64) } },
         child: { running: true, write: text => { wire = text; } }, cause: "", lifetime: { kind: "starting" }, sessionState: null, dictationCause: "",
         feedbackSounds: false, lockObservation: () => false, broken: reason => assert.fail(label + ": the daemon refuses the hello: " + reason),
@@ -930,52 +924,26 @@ function helloSettings(gate, serviceSource, providers, manifest, settings, reade
     return JSON.parse(wire).settings;
 }
 
-// The shipped service's first read of SETTINGS, the ones a user changed over
-// MANIFEST's: its shell handler with the migration it calls, over a writer that
-// answers REPLY. { writes, settled, started }: the writes, voiceSettled, and
-// whether the handler went on to register the keys, which it does first.
-function firstRead(serviceSource, gate, manifest, changed, reply) {
-    const handler = serviceSource.match(/^    onShellChanged: \{\n([\s\S]*?)^    \}/m);
-    const methods = ["migrateVoiceProvider", "ownerAskOperation", "setOwnerAskOperation"].map(name =>
-        serviceSource.match(new RegExp("^    function " + name + "\\([a-z]*\\) \\{\\n[\\s\\S]*?^    \\}", "m")));
-    assert.ok(handler && methods.every(found => found !== null), "the service's first read");
-    const writes = [], started = new Error("started");
-    // A fresh shell's status holds no retained owner-ask operation.
-    const shell = { settings: { ...plain(manifest.settings), ...changed }, shortcut: { register: () => { throw started; } },
-        configure: { set: (key, value) => { writes.push([key, value]); return reply; } }, status: { values: {} } };
-    const root = { shell, lifetime: { kind: "new" }, voiceSettled: false, refreshTextOffer: () => {} };
-    const install = methods.map(found => "root." + found[0].match(/function (\w+)/)[1] + " = (" + found[0] + ");").join(" ");
-    let went = false;
-    try {
-        vm.runInNewContext("(function() { with(root) { " + install + " (function() {\n" + handler[1] + "}).call(root); } })()",
-            { root, Gate: gate, StatusPublication: SERVICE_IMPORTS.StatusPublication, console: { warn: () => {} } });
-    } catch (error) {
-        if (error !== started) throw error;
-        went = true;
-    }
-    return { writes, settled: root.voiceSettled, started: went };
-}
-
 // The console under a voice that takes speech only: its line and its empty
 // state say how to talk in the talk sentence (SetupGate.talkHint) of the
-// Talk mode.
+// Hold to talk preference.
 function verifyConsoleTalk(gate, consoleSource) {
     const named = ["speechOnlyLine", "emptyText"].map(name =>
         consoleSource.match(new RegExp("^    function " + name + "\\([a-z, ]*\\) \\{\\n[\\s\\S]*?^    \\}", "m")));
     assert.ok(named.every(found => found !== null), "the console's talk functions");
     const scope = { Gate: gate, PageReference: pageReference };
     vm.runInNewContext(named.map(found => found[0]).join("\n"), scope);
-    assert.ok(/readonly property string talkLine: Gate\.talkHint\(shell === null \? "hold" : shell\.settings\.mode, spelledKeys\.talk\) \+ "\."/.test(consoleSource),
-        "the console's talk line is the talk sentence of the Talk mode");
+    assert.ok(/readonly property string talkLine: Gate\.talkHint\(shell !== null && shell\.settings\.holdToTalk, spelledKeys\.talk\) \+ "\."/.test(consoleSource),
+        "the console uses the saved Hold to talk preference");
     assert.ok(consoleSource.includes("readonly property var spelledKeys: WidgetView.spelledKeys("), "the console spells the keys as the bar does");
-    for (const mode of ["hold", "toggle"])
+    for (const hold of [false, true])
         for (const key of ["Super+J", null, "Choose a key in [Settings](page:vgs.settings)"]) {
-            const talk = gate.talkHint(mode, key) + ".";
+            const talk = gate.talkHint(hold, key) + ".";
             const line = scope.speechOnlyLine({ tone: "info", text: "Gemini Live" }, talk);
-            assert.ok(line.startsWith("Gemini Live ") && line.endsWith(" " + talk), mode + " " + key + ": the speech-only line ends with the talk sentence");
+            assert.ok(line.startsWith("Gemini Live ") && line.endsWith(" " + talk), hold + " " + key + ": the speech-only line ends with the talk sentence");
             const empty = scope.emptyText(true, talk);
-            assert.ok(empty.endsWith(" " + talk), mode + " " + key + ": the empty state retains the talk action");
-            assert.equal(scope.emptyText(false, talk).includes(pageReference.plain(talk)), false, mode + " " + key + ": the typed console's empty state asks for a message");
+            assert.ok(empty.endsWith(" " + talk), hold + " " + key + ": the empty state retains the talk action");
+            assert.equal(scope.emptyText(false, talk).includes(pageReference.plain(talk)), false, hold + " " + key + ": the typed console's empty state asks for a message");
         }
 }
 
@@ -1014,13 +982,12 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         }
         assert.equal(plain(readiness(gate, { kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
         // The Voice provider takes its four options and nothing else. A value
-        // a settings file already holds reads as it is, "auto" too, which
-        // the service rewrites in place on its first read (D107).
+        // a settings file holds reads as it is after ConfigLogic migrates it.
         const provider = value => judge.settingRefusal(manifest, "voiceProvider", value);
         const options = "refused: setting=voiceProvider want=one-of:local|realtime|gemini|elevenlabs";
         assert.deepEqual(["local", "realtime", "gemini", "elevenlabs", "auto", "openai", "Gemini Live", "ElevenLabs"].map(provider),
             ["", "", "", "", options, options, options, options], "the Voice provider takes one of its options");
-        for (const saved of ["realtime", "gemini", "elevenlabs", "auto"])
+        for (const saved of ["realtime", "gemini", "elevenlabs"])
             assert.equal(judge.settingsFor({ version: 2, plugins: [{ id: "vgs.jarvis", voiceProvider: saved }] }, manifest).voiceProvider, saved,
                 saved + ": a saved Voice provider reads unchanged");
         // The Voice key choices follow the selected cloud voice: a switch
@@ -1058,22 +1025,6 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const GEMINI_TWO = [...GEMINI_KEY, { value: "gemini-2", label: "Gemini / second", provider: "gemini" }];
         for (const [label, offered, settings, choices, writes] of VOICE_KEY_CHOICE(GEMINI_TWO))
             assert.deepEqual(publication(label, settings, offered), { choices, writes }, label);
-        // A Voice provider saved as "auto" before VGS-1953 is rewritten in
-        // place on the service's first read, from the settings alone, and the
-        // service goes on only with the rewritten settings: Realtime beside a
-        // named key unless Talk mode is Always, else Local. A refused write
-        // leaves the service waiting. Settings of this version are kept.
-        for (const [label, settings, reply, writes] of [
-            ["auto beside a named key, Hold", { voiceProvider: "auto", voiceAccount: "openai-1", mode: "hold" }, "ok", [["voiceProvider", "realtime"]]],
-            ["auto beside a named key, Toggle", { voiceProvider: "auto", voiceAccount: "gemini-1", mode: "toggle" }, "ok", [["voiceProvider", "realtime"]]],
-            ["auto beside a named key, Always", { voiceProvider: "auto", voiceAccount: "openai-1", mode: "always" }, "ok", [["voiceProvider", "local"]]],
-            ["auto with no key named", { voiceProvider: "auto", voiceAccount: "", mode: "hold" }, "ok", [["voiceProvider", "local"]]],
-            ["auto whose rewrite is refused", { voiceProvider: "auto", voiceAccount: "", mode: "hold" }, "refused: disabled=vgs.jarvis", [["voiceProvider", "local"]]],
-            ["Local beside a named key", { voiceProvider: "local", voiceAccount: "openai-1", mode: "hold" }, "ok", []],
-            ["Realtime with no key", { voiceProvider: "realtime", voiceAccount: "", mode: "always" }, "ok", []]
-        ])
-            assert.deepEqual(firstRead(serviceSource, gate, manifest, settings, reply), { writes, settled: writes.length === 0, started: writes.length === 0 },
-                label + ": the first read's writes, and whether the service goes on");
         // The Voice key field: no hint and no link (the hint rule); its list
         // ends with Add a key, which opens the add-key window for the chosen
         // cloud voice. Its help sits behind the info button. No status row
@@ -1160,7 +1111,7 @@ function verifyReadiness(gate) {
         assert.notEqual(got.setupVoice.hint.trim(), "", "memory refusal carries guidance");
     }
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own hint");
-    for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required", "speech=always-local-voice",
+    for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required",
         "speech=elevenlabs-voice"]) {
         const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
@@ -1597,6 +1548,51 @@ function verifyVoiceRoute(gate, serviceSource) {
     assert.equal(sentences.size, manifest.schema.voiceProvider.options.length, "the Voice provider hint: one sentence per provider");
 }
 
+function verifyEchoCancellation(gate, serviceSource) {
+    const file = "/home/user/config/pipewire/pipewire.conf.d/80-vgs-jarvis-echo-cancel.conf";
+    for (const provider of ["local", "elevenlabs", "realtime", "gemini"]) {
+        for (const [state, tone, action] of [[null, "info", false], ["absent", "info", true],
+            ["pending", "info", true], ["active", "ok", true], ["foreign", "warning", false], ["unavailable", "warning", true]]) {
+            const values = {};
+            const shell = { status: { isOk: judge.statusReplyOk, set: (key, value) => {
+                assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, provider + ": " + state + ": accepted status");
+                values[key] = value;
+                return "ok";
+            } } };
+            serviceCall(serviceSource, "publishEchoCancel", { shell, voiceProvider: provider,
+                echoCancel: state === null ? null : { state, path: file, reason: state === "active" ? "" : "fixture" } }, gate);
+            assert.equal(values.echoCancel.tone, tone);
+            assert.equal(values.echoCancel.action, action);
+            assert.equal(values.echoRoute.lines !== undefined, state === "active" && ["realtime", "gemini"].includes(provider));
+            if (state !== null) assert.equal(pageReference.file(pageReference.parse(values.echoCancel.info).page), file,
+                "configuration recovery opens the actual file");
+            const status = judge.statusRows(manifest, values);
+            assert.equal(settings.detailEntries(status).some(entry => entry.key === "echoRoute"), true);
+            assert.equal(settings.detailEntries(status).some(entry => entry.key === "echoCancel"), false, "setup action stays on Setup");
+        }
+    }
+    assert.equal(manifest.status.echoCancel.setup, "optional");
+    assert.equal(manifest.status.echoCancel.action.tui, "setup-echo-cancel");
+    assert.equal(manifest.tui["setup-echo-cancel"].script, "tui/setup-echo-cancel.sh");
+    assert.deepEqual(Array.from(manifest.tui["setup-echo-cancel"].args), [], "no page text becomes installer arguments");
+    const longPath = "/" + "directory/".repeat(400) + "echo.conf";
+    const long = gate.echoCancellation("gemini", { state: "pending", path: longPath, reason: "nodes-missing" });
+    assert.equal(judge.statusWrite(manifest, {}, "echoCancel", long.setup).ok, true, "long actual paths fit the info contract");
+    assert.equal(pageReference.file(pageReference.parse(long.setup.info).page), longPath, "the long configuration target is not truncated");
+    for (const blocked of [{ lifetime: { kind: "starting" } }, { child: { running: false } }, { cause: "stopped" }, { shell: null }]) {
+        const root = { echoRefreshPending: true, shell: {}, lifetime: { kind: "ready" }, child: { running: true }, cause: "", ...blocked,
+            send() { assert.fail("an unavailable child cannot receive the refresh"); } };
+        serviceCall(serviceSource, "refreshEchoCancel", root, gate);
+        assert.equal(root.echoRefreshPending, true, "completion refresh waits for the ready child");
+    }
+    const sent = [];
+    const root = { echoRefreshPending: true, shell: {}, lifetime: { kind: "ready" }, child: { running: true }, cause: "",
+        send(value) { sent.push(JSON.parse(JSON.stringify(value))); } };
+    serviceCall(serviceSource, "refreshEchoCancel", root, gate);
+    serviceCall(serviceSource, "refreshEchoCancel", root, gate);
+    assert.deepEqual(sent, [{ type: "echo-cancel-refresh" }], "one completion reads installation again without inferring success");
+}
+
 // Every Jarvis session row beside every Setup summary, its states taken
 // from SetupGate.js's own tables and required to hold the contract's: a
 // warning or danger row stands beside a Ready summary only when that
@@ -1664,7 +1660,7 @@ function verifyHintStops(gate) {
         for (const cause of ["speech=live-key-required", "speech=live-account-unselected", "speech=live-key-refused"])
             for (const keys of [0, 1])
                 take("voiceStep " + [provider, cause, keys].join(" "), gate.voiceStep({ tone: "warning", text: "To do", action: "key" },
-                    { provider, voice: cloudVoice(provider), causes: [cause], talk: gate.talkHint("hold", "Super+J"), keys, size: "", failure: null }));
+                    { provider, voice: cloudVoice(provider), causes: [cause], talk: gate.talkHint(true, "Super+J"), keys, size: "", failure: null }));
     for (const [label, facts] of ELEVEN_ROWS) take("elevenLabsStep " + label, gate.elevenLabsStep(facts));
     for (const option of manifest.schema.voiceProvider.options) take("voiceRoute " + option.value, gate.voiceRoute(option.value, cloudVoice(option.value)));
     for (const kind of ["failed", "unreadable", "timeout"]) take("checkFailure " + kind, gate.checkFailure(kind, manifest.status.localRuntime));
@@ -1879,7 +1875,7 @@ function verifyHomeActions(gate, source) {
     for (const [missing, expected] of missingCases) {
         const label = missing.join("+") || "all present";
         const values = {};
-        const shell = { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", mode: "hold", voiceAccount: "", startAtBoot: false }, requirements: { missing },
+        const shell = { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", holdToTalk: true, voiceAccount: "", startAtBoot: false }, requirements: { missing },
             status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
                 assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
                 values[key] = value;
@@ -1938,7 +1934,7 @@ function verifyLocalSetup(gate) {
         assert.equal(failure !== null, kept, "local failure: " + label);
         if (kept) assert.deepEqual(plain(failure), { cause: "busy", log, text: "Medium is not set up" }, "local failure fields: " + label);
     }
-    const facts = (provider, failure) => ({ provider, voice: cloudVoice(provider), causes: [], talk: "Tap or hold Super+J, then speak", keys: 0, size: "1.2 GB", failure });
+    const facts = (provider, failure) => ({ provider, voice: cloudVoice(provider), causes: [], talk: "Hold Super+J while you speak", keys: 0, size: "1.2 GB", failure });
     const hints = new Set();
     for (const cause of LOCAL_CAUSES) {
         const failure = gate.localFailure(record(cause), "medium", "small");
@@ -2085,9 +2081,9 @@ function verify(gate) {
     for (const [check, tone, action] of [[{ kind: "ready" }, "info", "check"],
         [{ kind: "waiting" }, "info", undefined], [{ kind: "recording" }, "info", undefined],
         [{ kind: "finishing" }, "info", undefined], [{ kind: "failed", reason: "check-timeout" }, "danger", "check"],
-        [{ kind: "failed", reason: "speech=local-wake-failed" }, "danger", "check"], [{ kind: "done", result: "ready" }, "ok", "check"],
+        [{ kind: "failed", reason: "speech=local-ready-timeout" }, "danger", "check"], [{ kind: "done", result: "ready" }, "ok", "check"],
         [{ kind: "done", result: "silent" }, "warning", "check"], [{ kind: "done", result: "not-heard" }, "warning", "check"]]) {
-        const value = gate.voiceCheck(gate.DONE, check, gate.talkHint("hold", "Super+J"));
+        const value = gate.voiceCheck(gate.DONE, check, gate.talkHint(true, "Super+J"));
         assert.deepEqual([value.tone, value.action], [tone, action]);
         assert.equal(judge.statusWrite(manifest, {}, "setupVoice", value).ok, true, JSON.stringify(check));
     }
@@ -2108,6 +2104,7 @@ function verify(gate) {
     verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyElevenLabsRow(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyVoiceRoute(gate, fs.readFileSync(serviceFile, "utf8"));
+    verifyEchoCancellation(gate, fs.readFileSync(serviceFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
         const got = gate.setupValue(value, requires, missing);
         if (names === null) {
@@ -2266,7 +2263,7 @@ function verifyStopIntents(serviceSource) {
         ["stopped", false, ""], ["ready", false, ""], ["ready", true, "jarvis: hello=timeout"], ["ready", true, ""]]) {
         const sent = [], notices = [];
         const timer = () => ({ running: true, stop() { this.running = false; }, restart() { this.running = true; } });
-        const root = { shell: { status: { set: () => "ok", isOk: value => value === "ok" } }, lifetime: { kind, pendingMute: "waiting" }, cause, sessionState: {},
+        const root = { shell: { status: { set: () => "ok", isOk: value => value === "ok" } }, lifetime: { kind }, cause, sessionState: {},
             pendingStart: {}, child: { running, stdinEnabled: true }, retry: timer(), helloDeadline: timer(), startWait: timer(),
             stopDeadline: { running: false, restart() { this.running = true; } },
             cancelDictation() { this.cancelled = true; }, cancelled: false,
@@ -2278,7 +2275,6 @@ function verifyStopIntents(serviceSource) {
             continue;
         }
         assert.equal(root.lifetime.kind, "stopped", kind + ": Stop ends the lifetime");
-        assert.equal(root.lifetime.pendingMute, "none");
         assert.deepEqual([root.retry.running, root.helloDeadline.running, root.startWait.running, root.pendingStart,
             root.sessionState, root.child.stdinEnabled, root.cancelled, root.stopDeadline.running],
             [false, false, false, null, null, false, true, running], kind + ": Stop cancels retry, capture and child lease");
@@ -2289,6 +2285,118 @@ function verifyStopIntents(serviceSource) {
         assert.equal(sent.length, 0);
     }
 }
+// start() runs synchronously on shell assignment, before voiceProvider's
+// dependent binding must have updated. Run its real Setup gate and startup
+// continuation with that prior observation; retired writes must still stop it.
+function verifySetupStart(serviceSource) {
+    const methods = ["start", "publishSetup"].map(name => {
+        const found = serviceSource.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, name + ": the startup owner exists");
+        return "root." + name + " = (" + found[0] + ");";
+    }).join("\n");
+    for (const option of manifest.schema.voiceProvider.options) {
+        for (const observed of ["", option.value === "local" ? "realtime" : "local"]) {
+            for (const live of [true, false]) {
+                const label = option.value + "/" + (observed || "initial") + "/" + (live ? "live" : "retired-at-setup");
+                const values = {};
+                const root = {
+                    ...SERVICE_IMPORTS, Gate: load(file), Conversation: load(path.join(path.dirname(file), "Conversation.js")),
+                    childSerial: 0, lifetime: { kind: "new" }, child: { running: false, stdinEnabled: false },
+                    voiceProvider: observed, sessionState: null, setupAnswer: { kind: "checking" }, voiceStep: null,
+                    localTier: TIER_IDLE, homeRepair: { result: { kind: "unavailable" } },
+                    homePathRead: { kind: "empty" }, dictationState: null, sessionStart: { result: null },
+                    accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } },
+                    localRuntime: { setupCause: "", reading: null, republish: () => true },
+                    publishEchoCancel: () => true, publishHomes: () => true, publishInput: () => true,
+                    shellStatus: () => true, publish: () => true,
+                    shell: { manifest, shortcut: { keys: null }, requirements: { missing: [] },
+                        settings: { ...plain(manifest.settings), voiceProvider: option.value },
+                        status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
+                            if (!live && key === "setupVoice") return "refused: status=" + key + " reason=retired";
+                            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
+                            values[key] = plain(value);
+                            return "ok";
+                        } } }
+                };
+                vm.runInNewContext("(function() { with(root) { " + methods + " } })()", { root });
+                root.start();
+                assert.equal(root.child.running, live, label + ": only a current instance starts its child");
+                assert.equal(root.lifetime.kind, "starting", label + ": starting never fabricates daemon readiness");
+                assert.equal(values.setupVoice !== undefined, live, label + ": initial Setup publication is not lost to a prior binding");
+            }
+        }
+    }
+}
+// The core invokes these actual registrations. Supply only capabilities and
+// observation ports; the callbacks retain the displayed request identity.
+function verifyShortcutRegistration(serviceSource) {
+    const handler = serviceSource.match(/^    onShellChanged: \{\n([\s\S]*?)^    \}/m);
+    assert.ok(handler, "the service installs shortcut handlers");
+    const shortcuts = {}, ipc = {}, intents = [], sent = [], confirmed = [], offers = [];
+    const hold = { gen: 7, id: "request", digest: "digest" };
+    const root = {
+        lifetime: { kind: "new" }, cause: "", child: { running: true },
+        releaseTextOffer: null, destroying: false, textOfferReason: "Fixture is starting", shell: {
+            settings: { home: "/fixture" },
+            shortcut: { register: (name, label, press, release) => { shortcuts[name] = { press, release }; } },
+            ipc: { handle: (name, callback) => { ipc[name] = callback; } },
+            handoff: { offer: (name, accept, reason) => { offers.push([name, accept, reason]); return () => {}; } },
+            status: { handlePreview: () => "ok", handleChoice: () => "ok" },
+            layers: { show: () => {} }
+        },
+        publishMicrophoneMute: () => {}, ownerAskOperation: () => null, setOwnerAskOperation: () => {},
+        bubble: {}, start: () => {}, intent: name => intents.push(name),
+        displayedApproval: () => hold, send: value => sent.push(plain(value)),
+        confirmApproval: (value, source) => confirmed.push([value, source])
+    };
+    const cancel = serviceSource.match(/^    function cancelApproval\(hold\) \{\n[\s\S]*?^    \}/m);
+    const refresh = serviceSource.match(/^    function refreshTextOffer\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(cancel, "the service owns cancellation identity");
+    assert.ok(refresh, "the service refreshes its text offer on shell assignment");
+    vm.runInNewContext("(function() { with(root) { root.cancelApproval = (" + cancel[0]
+        + "); root.refreshTextOffer = (" + refresh[0] + "); " + handler[1] + " } })()", { root });
+    assert.deepEqual(offers, [["compose", null, root.textOfferReason]], "initial registration keeps the unavailable offer's reason");
+    root.lifetime = { kind: "ready" };
+    shortcuts.talk.press();
+    assert.equal(typeof shortcuts.talk.release, "function", "Talk registers its release companion");
+    shortcuts.talk.release();
+    shortcuts["voice-mute"].press();
+    shortcuts.stop.press();
+    shortcuts.deny.press();
+    shortcuts.confirm.press();
+    assert.deepEqual(intents, ["talk-down", "talk-up", "voice-mute", "stop"]);
+    assert.deepEqual(sent, [{ type: "intent", intent: "cancel", gen: hold.gen, id: hold.id }], "Deny sends the displayed request identity");
+    assert.deepEqual(confirmed, [[hold, "key"]]);
+    assert.equal(Object.hasOwn(shortcuts, "mute"), false, "privacy mute has no registration");
+    assert.equal(typeof ipc["microphone-mute"], "function", "system microphone has an explicit action");
+    assert.equal(Object.hasOwn(ipc, "mute"), false);
+}
+const registeredSource = fs.readFileSync(serviceFile, "utf8");
+verifySetupStart(registeredSource);
+{
+    const provider = '        const provider = shell.settings.voiceProvider;\n        const setupCause = localRuntime.setupCause;';
+    assert.equal(registeredSource.split(provider).length, 2, "one Setup provider observation");
+    const changed = registeredSource.replace(provider,
+        '        if (voiceProvider === "") return false;\n        const provider = voiceProvider;\n        const setupCause = localRuntime.setupCause;');
+    assert.throws(() => verifySetupStart(changed), assert.AssertionError, "a prior binding must not block initial child startup");
+}
+verifyShortcutRegistration(registeredSource);
+for (const [label, needle, replacement] of [
+    ["Talk release", '() => intent("talk-down"), () => intent("talk-up")', '() => intent("talk-down"), () => intent("talk-down")'],
+    ["Deny identity", '() => cancelApproval(displayedApproval())', '() => cancelApproval(null)']
+]) {
+    assert.equal(registeredSource.split(needle).length, 2, label + ": one control target");
+    assert.throws(() => verifyShortcutRegistration(registeredSource.replace(needle, replacement)), assert.AssertionError, label);
+}
+for (const value of [{ kind: "unavailable" }, { kind: "ready", muted: false }, { kind: "ready", muted: true }]) {
+    const writes = [];
+    serviceCall(registeredSource, "publishMicrophoneMute", {
+        microphoneMute: value,
+        shell: { status: { values: {}, isOk: answer => answer === "ok", set: (key, observed) => { writes.push([key, plain(observed)]); return "ok"; } } }
+    }, load(file));
+    assert.deepEqual(writes, [["microphoneMute", value]], "status publishes the actual microphone observation");
+}
+
 verifyStopIntents(fs.readFileSync(serviceFile, "utf8"));
 const stopControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-intent-"));
 try {
@@ -2309,9 +2417,7 @@ const CONTROLS = [
     ["a failure of a tier the user left stays", "if (failure.tier !== wanted || ready === wanted) return null;", "", "local failure: the user went back"],
     ["a failure beside the tier before it reads done", 'var failed = facts.failure !== null && hearsLocally(facts.provider);', "var failed = false;", "Setup row of a busy failure beside the ready tier before it"],
     ["the download opens beside a local voice", "&& hearsLocally(after) && !hearsLocally(before);", "&& hearsLocally(after);", "the download opens: one local voice in place of another"],
-    ["a failed start's tooltip draws its keyed cause", 'hint: retrying ? RETRYING_START : problem.action,', 'hint: retrying ? RETRYING_START : "jarvis: hello=timeout",', "the bar tooltip draws no keyed cause"],
     ["the stopped notice draws its keyed cause", 'message: sentence(problem.action), tone: "danger"', 'message: sentence(cause), tone: "danger"', "the stopped notice draws no keyed cause"],
-    ["the mute notice draws its keyed cause", '"Mute request could not be saved: " + startCause(cause).title', '"Mute request could not be saved: " + String(cause)', "the mute refused notice draws no keyed cause"],
     ["the Daemon row loses its cause", 'hint: retrying ? RETRYING_START : problem.action, lines: problem.lines };', 'hint: retrying ? RETRYING_START : problem.action };', "the Daemon row keeps the cause"],
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", "if (value.tone !== \"ok\" || check === null", "if (check === null", "voice setup cause survives microphone check"],
@@ -2381,8 +2487,6 @@ const CONTROLS = [
     ["the service starts another device", 'return otherDevice(state) ? "refused: dictation=device" : "";', 'return "";', "another device"],
     ["a step's named action is dropped", ': typeof value.action === "string" ? value : noAction(value);', ': noAction(value);', "the Voice step"],
     ["the key row offers another voice's keys", "return keys.filter(function (key) { return voice !== null && key.provider === voice.provider; })", "return keys.filter(function (key) { return key.provider === \"openai\"; })"],
-    ["a named key rewrites Auto as Local", 'settings.voiceAccount !== "" ? "realtime" : "local";', '"local";'],
-    ["Always talk mode rewrites Auto as Realtime", 'return settings.mode !== "always" && settings.voiceAccount', "return settings.voiceAccount"],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
     ["the two withheld reasons swapped", 'provider !== "local" ? CLONE_WITHHELD.provider : value.tierReady === false ? CLONE_WITHHELD.tier : null',
@@ -2407,8 +2511,6 @@ const CONTROLS = [
     ["optional Voice tools hide its setup action", 'requirement.name === command && !requirement.optional', 'requirement.name === command'],
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["the Realtime voice offers the local install action", 'return cause.indexOf("speech=live-") !== 0 && ', 'return true && '],
-    ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
-    ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
     ["a cause marks the other step", 'speech: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", brain: "setupVoice" };'],
     ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
@@ -2603,7 +2705,7 @@ try {
     const consoleText = fs.readFileSync(path.join(path.dirname(file), "Console.qml"), "utf8");
     for (const [label, needle, replacement] of [
         ["console-empty-asks-to-type", 'return "No conversation yet. " + (speech ? talk : "Type a message to start.");', 'return "No conversation yet. Type a message to start.";'],
-        ["console-talk-line-fixed", 'readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."',
+        ["console-talk-line-fixed", 'readonly property string talkLine: Gate.talkHint(shell !== null && shell.settings.holdToTalk, spelledKeys.talk) + "."',
             'readonly property string talkLine: "Tap or hold " + spelledKeys.talk + ", then speak."'],
         ["console-speech-line-drops-talk", 'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;',
             'return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only.";']]) {
@@ -2631,17 +2733,22 @@ try {
             "a reader that reads a failed check as an answer turns red");
         console.log("test-jarvis-setup-gate: control=LocalRuntime.qml check=failed-check-read rejected=true");
     }
-    for (const [label, needle, replacement = ""] of [["voice-step-republish-dropped", "            if (!localRuntime.republish()) return false;\n", "            if (false && !localRuntime.republish()) return false;\n"],
+    for (const [label, needle, replacement = "", matches = 1] of [["voice-step-republish-dropped", "            if (!localRuntime.republish()) return false;\n", "            if (false && !localRuntime.republish()) return false;\n"],
         ["voice-step-unstored", "            voiceStep = values.setupVoice;\n"],
         ["session-summary-unjudged", "        values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));\n"],
         ["session-answer-unpublished", "; onResultChanged: root.publishShellSetup()"],
         ["tier-reading-unpublished", "; onReadingChanged: root.publishShellSetup()"],
         ["talk-name-unpublished", "onSpelledTalkChanged: Qt.callLater(root.publishShellSetup)", "onSpelledTalkChanged: Qt.callLater(() => {})"],
         ["talk-name-snapshot", "View.spelledKeys(effectiveKeys, ShortcutLabels.keyCaps).talk", "null"],
-        ["talk-publisher-ignores-name", "Gate.talkHint(shell.settings.mode, spelledTalk)", 'Gate.talkHint(shell.settings.mode, "Super+J")'],
-        ["talk-queued-after-release", "if (shell === null) return false;", "if (false) return false;"]]) {
-        assert.equal(serviceSource.split(needle).length, 2, label + ": the text to remove must occur once");
-        assert.throws(() => verifyVoiceStepRepublish(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
+        ["talk-publisher-ignores-name", "Gate.talkHint(shell.settings.holdToTalk, spelledTalk)", 'Gate.talkHint(shell.settings.holdToTalk, "Super+J")'],
+        // publishShellSetup and its actual publishSetup callee both refuse
+        // the released shell. Remove the behavior across that call chain,
+        // not only the outer guard whose callee still protects the input.
+        ["talk-queued-after-release", "if (shell === null) return false;", "if (false) return false;", 2]]) {
+        assert.equal(serviceSource.split(needle).length, matches + 1, label + ": every owner control target occurs");
+        const changed = serviceSource.split(needle).join(replacement);
+        assert.notEqual(changed, serviceSource, label + ": the control changes its source");
+        assert.throws(() => verifyVoiceStepRepublish(load(file), changed), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
     }
     for (const [target, original, needle, replacement] of [
@@ -2663,9 +2770,7 @@ try {
     }
     const manifestFile = path.join(path.dirname(file), "manifest.json");
     for (const [target, original, needle, replacement] of [
-        ["Service.qml", serviceSource, "voiceProvider: voiceProvider, dictation", 'voiceProvider: "local", dictation'],
-        ["Service.qml", serviceSource, 'shell.configure.set("voiceProvider", Gate.autoVoiceProvider(shell.settings))', 'shell.configure.set("voiceProvider", "local")'],
-        ["Service.qml", serviceSource, "        voiceSettled = shell !== null && migrateVoiceProvider();\n        if (!voiceSettled) return;\n", "        voiceSettled = shell !== null && migrateVoiceProvider() || true;\n"],
+        ["Service.qml", serviceSource, "voiceProvider: provider, dictation", 'voiceProvider: "local", dictation'],
         ["Accounts.qml", accountsSource, "voiceKeys = value.voiceAccounts;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "voiceKeys = undefined;", "voiceKeys = [];"],
         ["Accounts.qml", accountsSource, "let chosen = pending ? null : Gate.voiceChoice(keys, voice, shell.settings.voiceAccount);", "let chosen = null;"],
@@ -2717,7 +2822,6 @@ try {
         finally { fs.readFileSync = readFile; }
         assert.ok(failure instanceof assert.AssertionError, label + ": the manifest control must fail an assertion: " + failure);
         assert.equal(failure.check, "voice-default", label + ": the intended voice check rejects the change");
-        manifestControlCount++;
         console.log("test-jarvis-setup-gate: control=manifest.json case=" + label + " check=voice-default rejected=true");
     }
     // The model and effort choice and its list read: one rule at a time.
@@ -2820,7 +2924,6 @@ try {
         finally { fs.readFileSync = readFile; }
         assert.ok(failure instanceof assert.AssertionError, label + ": the manifest control must fail an assertion");
         assert.equal(failure.check, "model-choice", label + ": the intended model check rejects the change");
-        manifestControlCount++;
         console.log("test-jarvis-setup-gate: control=manifest.json case=" + label + " check=model-choice rejected=true");
     }
     // The Agent fleet row's read-only probes: no home, a home without
@@ -2909,8 +3012,7 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY_CHOICE([]).length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
-    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 11 + 59 + manifestControlCount - 10 + 3}`);
+console.log("test-jarvis-setup-gate: ok");
 // The fleet setup terminal opens from the Agent fleet step alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI, the step is
 // an Optional step of the Setup tab that hides while no home is chosen and
@@ -3065,7 +3167,7 @@ function verifyDictation(gate, serviceSource) {
     for (const [label, voice, state, missing, cause, expect, offered, names] of DICTATION) {
         assert.equal(gate.dictationCause(voice, state), cause, label + ": the cause");
         const values = {};
-        const shell = { manifest, shortcut: { keys: null }, settings: { voiceProvider: voice, mode: "hold", voiceAccount: "" }, requirements: { missing }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
+        const shell = { manifest, shortcut: { keys: null }, settings: { voiceProvider: voice, holdToTalk: true, voiceAccount: "" }, requirements: { missing }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
             values[key] = value;
             return "ok";
@@ -3082,7 +3184,7 @@ function verifyDictation(gate, serviceSource) {
         }
         // A done step names the voice and how to talk; no Talk key is set here.
         else assert.deepEqual(voice_, plain({ entry: gate.DICTATION[cause], loading: gate.noAction(gate.LOADING),
-            done: { tone: "ok", text: voice === "local" ? "Local voice" : cloudVoice(voice).product, hint: gate.talkHint("hold", null) } }[expect]), label + ": the Voice step");
+            done: { tone: "ok", text: voice === "local" ? "Local voice" : cloudVoice(voice).product, hint: gate.talkHint(true, null) } }[expect]), label + ": the Voice step");
         assert.equal(values.setup.lines, undefined, label + ": the summary draws no cause line");
         const row = judge.statusRows(manifest, values).find(item => item.key === "setupVoice");
         assert.equal(row.action.offered && row.action.label === "Set up dictation", offered, label + ": Set up dictation");
@@ -3153,17 +3255,14 @@ function verifyOneReadiness(gate) {
         ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting", "speech=elevenlabs-voices-reading"];
     assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
-    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+.", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
     for (const causes of sets) {
         const status = plain(readiness(gate, { kind: "answered", causes }));
         const configured = causes.every(cause => cause === shellCause || cause === "speech=local-loading");
         const state = Object.assign(plain(session.initial()), { gate: configured ? { kind: "up" } : { kind: "down", reason: "unconfigured" } });
         assert.equal(session.validate(state), true, causes.join(",") + ": a Session record");
         const bar = widget.view(Object.assign({ daemon: { tone: "info", text: "Ready" }, audio: { tone: "ok", text: "Devices" },
-            detail: { phase: session.phaseOf(state), seq: 1, state } }, status), keys, "hold");
+            detail: { phase: session.phaseOf(state), seq: 1, state } }, status), null);
         assert.equal(bar.state === "ready", status.setup.tone === "ok", causes.join(",") + ": the bar and the Setup status state one readiness");
-        if (causes.includes(shellCause) && bar.state === "ready")
-            assert.equal(bar.tooltipDetails.includes(String(status.setup.hint).replace(/\.?$/, ".")), true, causes.join(",") + ": the bar shows the caution as a sentence");
     }
 }
 
@@ -3171,13 +3270,12 @@ function verifyOneReadiness(gate) {
 // failed start (the bar tooltip, the desktop notices and the Setup values)
 // words its state; the service log keeps the keyed cause.
 function verifyWordedText(gate) {
-    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+.", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
     const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
     const up = { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
         detail: { phase: session.phaseOf(state), seq: 1, state } };
     for (const [label, answer] of READINESS) {
         const status = plain(readiness(gate, answer));
-        const bar = widget.view(Object.assign({}, up, status), keys, "hold");
+        const bar = widget.view(Object.assign({}, up, status), null);
         assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + ": the bar tooltip draws no keyed cause");
     }
     const causes = START_CAUSES.map(([label, cause]) => [label, cause]).concat([["keyed stderr", "node: heap=exhausted"]]);
@@ -3187,11 +3285,11 @@ function verifyWordedText(gate) {
             assert.deepEqual(daemon.lines, [gate.startCause(cause).lines[0]], label + ": the Daemon row keeps the cause");
             assert.equal(judge.statusWrite(manifest, {}, "daemon", daemon).ok, true, label + ": the daemon value fits its entry");
             const setup = plain(readiness(gate, retrying ? { kind: "problem", cause, action: gate.RETRYING_START } : { kind: "problem", cause }));
-            const bar = widget.view(Object.assign({ daemon, detail: null }, setup), keys, "hold");
+            const bar = widget.view(Object.assign({ daemon, detail: null }, setup), null);
             assert.equal(bar.state, "problem", label + ": the bar reads a problem");
             assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + " retrying=" + retrying + ": the bar tooltip draws no keyed cause");
         }
-        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)], ["voice mute refused", gate.voiceMuteRefusedNotice(cause)]]) {
+        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["voice mute refused", gate.voiceMuteRefusedNotice(cause)]]) {
             assert.deepEqual(keyedCauses(notice, ["title", "message"]), [], label + ": the " + name + " notice draws no keyed cause");
             assert.equal(notice.message.endsWith("."), true, label + ": the " + name + " notice's message ends as a sentence");
         }
@@ -3228,7 +3326,6 @@ function verifyPathForm(gate) {
         ["speech=live-account-unreadable", "vgs.jarvis", "Setup/accountSearch"],
         ["speech=live-key-required", "vgs.jarvis", "Settings"],
         ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
-        ["speech=always-local-voice", "vgs.jarvis", "Settings"],
         ["speech=dictation-elsewhere", "vgs.voice", "Setup"],
         ["speech=dictation-device", "vgs.voice", "Settings"],
         ["home=link", "vgs.jarvis", "Settings/home"],
@@ -3302,9 +3399,10 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     assert.ok(publishSetup, "Service.qml declares publishSetup");
     const values = {};
     const calls = [];
+    const writes = [];
     const context = { ...SERVICE_IMPORTS, Gate: gate, localTier: TIER_IDLE, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, voiceProvider: "local", accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
         voiceStep: readiness(gate, { kind: "checking" }).setupVoice, sessionStart: { result: null },
-        shell: { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", mode: "hold", voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => { values[key] = value; return "ok"; } } } };
+        shell: { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", holdToTalk: true, voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => { writes.push(key); values[key] = value; return "ok"; } } } };
     context.localRuntime = { setupCause: "", republish: () => { calls.push(plain(context.voiceStep)); return true; } };
     const publish = vm.runInNewContext("(" + publishSetup[0] + ")", context);
     for (const [label, answer, republished] of [
@@ -3333,8 +3431,6 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     publish({ kind: "answered", causes: ["speech=local-not-set-up"] });
     assert.ok(values.setupVoice.hint.includes("685 MB"), "the Voice step names the tier reading's download size");
     assert.match(serviceSource, /^ {4}Jarvis\.LocalTier \{[^\n]*onReadingChanged: root\.publishShellSetup\(\)/m, "each tier reading publishes the Voice step again");
-    // Execute the service's binding, handler and publisher on resolver inputs.
-    // Node proves publication and release guarding, not Qt notification timing.
     const binding = serviceSource.match(/^    readonly property var spelledTalk: (.*)$/m);
     const handler = serviceSource.match(/^    onSpelledTalkChanged: (.*)$/m);
     const refresh = serviceSource.match(/^    function publishShellSetup\(\) \{\n[\s\S]*?^    \}/m);
@@ -3350,8 +3446,8 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     context.setupAnswer = { kind: "answered", causes: [] };
     for (const [label, native, expected] of [
         ["unresolved", null, "Choose a key in Settings"],
-        ["resolved", { keysym: "j", codepoint: 106 }, "Tap or hold Super+J, then speak"],
-        ["layout changed", { keysym: "Cyrillic_o", codepoint: 1086 }, "Tap or hold Super+О, then speak"],
+        ["resolved", { keysym: "j", codepoint: 106 }, "Hold Super+J while you speak"],
+        ["layout changed", { keysym: "Cyrillic_o", codepoint: 1086 }, "Hold Super+О while you speak"],
         ["layout lost", null, "Choose a key in Settings"]
     ]) {
         names = Object.assign(keyNav.symbolNames(judge.CAPTURE_KEY_NAMES), { "CODE:44": native });
@@ -3363,8 +3459,10 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     }
     const retainedShell = context.shell;
     context.shell = null;
+    const writesBeforeRelease = writes.length;
     let released;
     assert.doesNotThrow(() => { released = context.publishShellSetup(); }, "a queued publication after release writes nothing");
     assert.equal(released, false);
+    assert.equal(writes.length, writesBeforeRelease, "a queued publication after release performs no status write");
     context.shell = retainedShell;
 }

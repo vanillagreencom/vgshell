@@ -345,6 +345,33 @@ Item {
             menu.close();
         }
 
+        function test_menu_reason_keeps_the_entry_reachable_but_inert() {
+            const entry = menu.items()[1];
+            entry.disabledReason = "Connect the microphone, then try again.";
+            try {
+                menu.open("key");
+                menu.move(1);
+                compare(menu.currentIndex, 1, "the keyboard can reach the unavailable entry and its reason");
+                verify(entry.enabled && entry.lock.locked);
+                const reason = entry.contentItem.children.find(child => child.text === entry.disabledReason);
+                verify(reason !== undefined && reason.visible, "the reason stays visible inside the open menu");
+                mouseClick(entry);
+                compare(root.triggered, -1, "the reason's shield takes pointer activation");
+                verify(menu.opened);
+                menu.currentIndex = 1;
+                menu.triggerCurrent();
+                compare(root.triggered, -1, "keyboard activation takes no unavailable action");
+                verify(menu.opened);
+                entry.disabledReason = "";
+                menu.triggerCurrent();
+                compare(root.triggered, 1, "removing the condition restores the same entry's action");
+                verify(!menu.opened);
+            } finally {
+                entry.disabledReason = "";
+                menu.close();
+            }
+        }
+
         // A press anywhere in the window an overlay's anchor draws in closes
         // it and reaches no item under it; once it is closed, a press
         // reaches the window again.

@@ -46,7 +46,9 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // keeps every setting of a plugin in its plugins[] row; version 3 moves
 // saved package review choices to the package owner; version 4 replaces
 // retired shortcut defaults. Retained converters run in saved-version order.
-var CONFIG_VERSION = 4;
+// Version 5 also records retirement of a saved shortcut with null.
+// Version 6 retires a conversation mode and its private microphone key.
+var CONFIG_VERSION = 6;
 
 // A newer build produces whole-number versions this build cannot read.
 // Classify them before inspecting any fields of that unknown format.
@@ -89,9 +91,23 @@ function configError(config) {
             var replacement = config.shortcutKeyMigrations[m];
             if (!isPlainObject(replacement) || typeof replacement.id !== "string" || typeof replacement.shortcut !== "string" || !NAME_PATTERN.test(replacement.shortcut))
                 return "shortcutKeyMigrations." + m + " must name a plugin id and shortcut";
-            if (!hyprlandKey(replacement.from).ok || !hyprlandKey(replacement.to).ok)
+            if (replacement.targetVersion !== undefined && replacement.targetVersion !== 5)
+                return "shortcutKeyMigrations." + m + " has unsupported targetVersion";
+            if (!hyprlandKey(replacement.from).ok || !(replacement.targetVersion === 5 && replacement.to === null) && !hyprlandKey(replacement.to).ok)
                 return "shortcutKeyMigrations." + m + " must name valid from and to keys";
         }
+    }
+    if (config.conversationSettingsMigration !== undefined) {
+        var migration = config.conversationSettingsMigration;
+        if (!isPlainObject(migration) || typeof migration.id !== "string" || migration.id === "")
+            return "conversationSettingsMigration must name a plugin id";
+        var fields = ["mode", "holdToTalk", "voiceProvider", "voiceAccount", "retiredKey"];
+        for (var f = 0; f < fields.length; f++) {
+            if (typeof migration[fields[f]] !== "string" || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(migration[fields[f]]))
+                return "conversationSettingsMigration." + fields[f] + " must name a field";
+        }
+        if (!isPlainObject(migration.modeValues) || Object.keys(migration.modeValues).length === 0 || Object.keys(migration.modeValues).some(function (key) { return typeof migration.modeValues[key] !== "boolean"; }))
+            return "conversationSettingsMigration.modeValues must map modes to booleans";
     }
     var rows = function (list, at) {
         if (!Array.isArray(list))
@@ -264,7 +280,7 @@ function migratePackageReview(config, packageReviewSettingsSource) {
 // Replacement data comes from the shipped layer, never from the user file.
 // Only a saved value matching a retired default moves; null and custom keys
 // stay intact. Normalizing through the key judge also reaches old spellings.
-function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations) {
+function migrateShortcutKeysV4(config, packageReviewSettingsSource, shortcutKeyMigrations) {
     var same = { config: config, migrated: false };
     if (!isPlainObject(config) || (config.version !== undefined && config.version !== 1 && config.version !== 2 && config.version !== 3)) return same;
     var previous = migratePackageReview(config, packageReviewSettingsSource);
@@ -296,6 +312,92 @@ function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigration
             moved = true;
         });
     });
+    if (config.version === undefined && !moved) return same;
+    out.version = CONFIG_VERSION;
+    return { config: out, migrated: true };
+}
+
+// A current version 4 key can be a deliberate choice of a formerly retired
+// default. Select by the original saved version, before retained converters
+// stamp the current version. Only the shipped table supplies replacements.
+function migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4].indexOf(config.version) === -1)) return same;
+    var replacements = shortcutKeyMigrations === undefined ? [] : shortcutKeyMigrations;
+    var previous = migrateShortcutKeysV4(config, packageReviewSettingsSource, replacements.filter(function (row) {
+        return row.targetVersion === undefined;
+    }));
+    if (previous.error !== undefined) return previous;
+    var out = clone(previous.config);
+    var moved = previous.migrated;
+    replacements.filter(function (row) { return row.targetVersion === 5; }).forEach(function (replacement) {
+        if (!Array.isArray(out.plugins)) return;
+        out.plugins.forEach(function (row) {
+            if (!isPlainObject(row) || row.id !== replacement.id || !isPlainObject(row.keys)) return;
+            var value = row.keys[replacement.shortcut];
+            if (value === undefined || value === null || keyValueError(value, "key", false) !== "") return;
+            var from = hyprlandKey(replacement.from).key;
+            var to = replacement.to === null ? null : hyprlandKey(replacement.to).key;
+            var changed = false;
+            var values = [];
+            (Array.isArray(value) ? value : [value]).forEach(function (key) {
+                if (hyprlandKey(key).key === from) {
+                    changed = true;
+                    if (to !== null) values.push(to);
+                } else values.push(key);
+            });
+            if (!changed) return;
+            values = values.filter(function (key, index) {
+                return values.findIndex(function (other) { return hyprlandKey(other).key === hyprlandKey(key).key; }) === index;
+            });
+            // Null records an unbinding. Absence would restore a default.
+            row.keys[replacement.shortcut] = values.length === 0 ? null : Array.isArray(value) ? values : values[0];
+            moved = true;
+        });
+    });
+    if (config.version === undefined && !moved) return same;
+    return { config: Object.assign(out, { version: CONFIG_VERSION }), migrated: true };
+}
+
+// Select the retained chain by the saved version, since its converters
+// stamp CONFIG_VERSION. Only shipped data grants authority over a row.
+// Resolve automatic voice selection before removing the mode it used.
+function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== undefined && [1, 2, 3, 4, 5].indexOf(config.version) === -1)) return same;
+    var previous = migrateShortcutKeysV5(config, packageReviewSettingsSource, shortcutKeyMigrations);
+    if (previous.error !== undefined) return previous;
+    var out = clone(previous.config), moved = previous.migrated;
+    var migration = conversationSettingsMigration;
+    if (migration !== undefined && Array.isArray(out.plugins)) {
+        for (var i = 0; i < out.plugins.length; i++) {
+            var row = out.plugins[i];
+            if (!isPlainObject(row) || row.id !== migration.id) continue;
+            var oldMode = row[migration.mode];
+            if (hasOwn(row, migration.holdToTalk) && typeof row[migration.holdToTalk] !== "boolean")
+                return { config: config, migrated: false, error: "conversation-setting-type field=" + migration.holdToTalk };
+            if (hasOwn(row, migration.mode)) {
+                if (!hasOwn(migration.modeValues, oldMode))
+                    return { config: config, migrated: false, error: "conversation-setting-value field=" + migration.mode };
+                if (!hasOwn(row, migration.holdToTalk)) row[migration.holdToTalk] = migration.modeValues[oldMode];
+            }
+            if (row[migration.voiceProvider] === "auto") {
+                var account = row[migration.voiceAccount];
+                if (account !== undefined && typeof account !== "string")
+                    return { config: config, migrated: false, error: "conversation-setting-type field=" + migration.voiceAccount };
+                row[migration.voiceProvider] = oldMode !== "always" && typeof account === "string" && account !== "" ? "realtime" : "local";
+                moved = true;
+            }
+            if (hasOwn(row, migration.mode)) {
+                delete row[migration.mode];
+                moved = true;
+            }
+            if (isPlainObject(row.keys) && hasOwn(row.keys, migration.retiredKey)) {
+                delete row.keys[migration.retiredKey];
+                moved = true;
+            }
+        }
+    }
     if (config.version === undefined && !moved) return same;
     out.version = CONFIG_VERSION;
     return { config: out, migrated: true };

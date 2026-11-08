@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 import "." as Jarvis
@@ -17,7 +18,7 @@ import "Composer.js" as Composer
 Item {
     id: root
     property var shell: null
-    property var lifetime: ({ kind: "new", pendingMute: "none" })
+    property var lifetime: ({ kind: "new" })
     property int retries: 0
     property int childSerial: 0
     property string outputTail: ""
@@ -66,6 +67,8 @@ Item {
     // when that exit writes no line of its own.
     property string lastDiagnostic: ""
     property var audioHealth: ({ kind: "reading" })
+    property var echoCancel: null
+    property bool echoRefreshPending: false
     property var sessionState: null
     property var conversationLog: []
     // Survives daemon restarts and new conversations within this service.
@@ -88,14 +91,11 @@ Item {
     readonly property string elevenLabsFacts: shell === null ? "" : JSON.stringify([voiceProvider,
         accountReader.voiceKeys === undefined ? null : accountReader.voiceKeys, shell.settings.voiceAccount, setupAnswer, voiceOffers])
     onElevenLabsFactsChanged: publishElevenLabs()
-    // Whether the settings `shell` holds name a Voice provider of this
-    // version: onShellChanged sets it once it finds no provider stored as
-    // "auto" before VGS-1953, which migrateVoiceProvider rewrites first.
-    property bool voiceSettled: false
-    // The voice the daemon runs, the Voice provider setting, "" without a
-    // shell and until voiceSettled, so no reader meets the old form.
-    readonly property string voiceProvider: voiceSettled && shell !== null ? shell.settings.voiceProvider : ""
-    onVoiceProviderChanged: publishVoiceRoute()
+    readonly property string voiceProvider: shell !== null ? shell.settings.voiceProvider : ""
+    onVoiceProviderChanged: {
+        publishVoiceRoute();
+        publishEchoCancel();
+    }
     property var homeMessage: ({ homes: [], current: "" })
     property var homePathRead: ({ kind: "empty" })
     onHomePathReadChanged: {
@@ -113,10 +113,23 @@ Item {
     property var requests: null
     property var bubbles: []
     property var indicatorDelivery: ({ kind: "unknown" })
+    property var indicatorObservations: []
     readonly property string focusedOutput: Hyprland.focusedMonitor === null ? "" : Hyprland.focusedMonitor.name
     readonly property bool bubbleWanted: !lockObservation() && lifetime.kind === "ready" && cause === ""
         && sessionState !== null && Session.indicatorWanted(sessionState)
-    readonly property bool indicatorPresented: bubbles.some(item => item !== null && item.presented)
+        && (sessionState.visibility.kind !== "hidden" || sessionState.approval.kind === "held" || sessionState.fault.kind !== "none")
+    readonly property bool indicatorPresented: bubbles.some(item => item !== null && item.capturePresented)
+    // Only the core bar host publishes these completed frames. Placement,
+    // existence and widget-originated IPC are not presentation evidence.
+    readonly property var barPresentations: shell === null ? [] : shell.layers.barIndicators
+    readonly property string barIndicator: {
+        if (locked || lifetime.kind !== "ready" || cause !== "" || sessionState === null) return "gone";
+        const key = String(sessionState.gen);
+        const current = barPresentations.filter(row => row.output === focusedOutput
+            && (row.key === key + ":present" || row.key === key + ":listening"));
+        return current.some(row => row.key === key + ":listening" && row.dot === "success")
+            ? "listening" : current.length > 0 ? "present" : "gone";
+    }
     // The console's box while a request waits for an answer, so the bubble
     // on that output can stand clear of the message field: { output, x, y,
     // width, height } in the logical pixels of a passive layer there, which
@@ -140,6 +153,16 @@ Item {
     // Qt.callLater coalesces calls to the same function after bindings settle:
     // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
     onSpelledTalkChanged: Qt.callLater(root.publishShellSetup)
+    // Quickshell 0.3.1: the current default input is nullable; its mute is
+    // usable only after PwObjectTracker binds the node and ready is true.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.Pipewire/Pipewire/
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.Pipewire/PwNode/
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.Pipewire/PwNodeAudio/
+    readonly property var microphoneSource: Pipewire.defaultAudioSource
+    readonly property var microphoneMute: !Pipewire.ready || microphoneSource === null || !microphoneSource.ready || microphoneSource.audio === null
+        ? { kind: "unavailable" } : { kind: "ready", muted: microphoneSource.audio.muted }
+    onMicrophoneMuteChanged: publishMicrophoneMute()
+    PwObjectTracker { objects: [root.microphoneSource] }
     // Whether the daemon plays its tones: the user's choice for the
     // manifest's `feedback` sound event, which the Sounds page sets.
     readonly property bool feedbackSounds: shell !== null && shell.sounds.choices.feedback !== ""
@@ -151,6 +174,12 @@ Item {
     // state (TuiRunner.editFor). A folder open has no editor run.
     readonly property var homeEditEndedAt: shell === null ? null : shell.tui.state.edit.endedAt
     onHomeEditEndedAtChanged: if (homeEditEndedAt !== null) hello()
+    readonly property var echoSetupEndedAt: shell === null ? null : shell.tui.state["setup-echo-cancel"].endedAt
+    onEchoSetupEndedAtChanged: {
+        if (echoSetupEndedAt === null) return;
+        echoRefreshPending = true;
+        refreshEchoCancel();
+    }
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
     // The core's one recording (D106), which the local voice's final words
     // come from (D064): a new copy after each change, and the cause the
@@ -172,15 +201,10 @@ Item {
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     onPageViewedChanged: if (pageViewed) hello()
 
-    // Qt runs this handler before the bindings that read `shell` (checked
-    // with qmltestrunner on Qt 6.12), so a stored "auto" is rewritten
-    // before they read the provider, and voiceSettled withholds it from a
-    // binding either way. The rewrite publishes new settings, which the core
-    // hands back as a new `shell` once this handler returns (Plugins.qml).
     onShellChanged: {
         refreshTextOffer();
-        voiceSettled = shell !== null && migrateVoiceProvider();
-        if (!voiceSettled) return;
+        if (shell === null) return;
+        publishMicrophoneMute();
         // shell's dependent bindings can still hold the previous settings here.
         const operation = ownerAskOperation();
         if (operation !== null && (lifetime.kind === "new" || operation.home !== shell.settings.home))
@@ -188,17 +212,13 @@ Item {
         if (lifetime.kind === "new") {
             shell.shortcut.register("talk", "Talk to Jarvis",
                 () => intent("talk-down"), () => intent("talk-up"));
-            shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
             shell.shortcut.register("voice-mute", "Mute Jarvis's voice", () => intent("voice-mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
+            shell.shortcut.register("deny", "Deny Jarvis request", () => cancelApproval(displayedApproval()));
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
             shell.shortcut.register("home", "Switch Jarvis home", item => switchHome(item));
-            // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
-            // mute` reach the Mute key's intent; the bar widget's menu
-            // reaches the Voice mute and Stop keys' intents the same way
-            // (WidgetView.menuEntries).
-            shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
+            shell.ipc.handle("microphone-mute", () => toggleMicrophoneMute());
             shell.ipc.handle("voice-mute", () => { intent("voice-mute"); return "ok"; });
             // The local voice setup's release (tui/setup-local.sh, localSetup).
             shell.ipc.handle("local-setup", step => localSetup(step));
@@ -206,6 +226,9 @@ Item {
             shell.ipc.handle("console", () => { summonConsole(); return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
+            shell.ipc.handle("new-conversation", () => newConversation());
+            shell.ipc.handle("hide", () => setVisibility("hide"));
+            shell.ipc.handle("show", () => setVisibility("show"));
             shell.ipc.handle("check-microphone", () => {
                 if (locked || !Session.canCheck(sessionState)) return "refused: microphone-check=unavailable";
                 intent("voice-check");
@@ -268,26 +291,40 @@ Item {
     onFeedbackSoundsChanged: hello()
     onEffectiveKeysChanged: hello()
     onTaskTuiRunningChanged: sendTuiState()
-    onIndicatorPresentedChanged: {
-        const shown = indicatorPresented;
-        // Keep every loss edge, but never grant a queued stale presentation.
-        Qt.callLater(() => sendIndicator(shown));
-    }
-    onSessionStateChanged: Qt.callLater(() => sendIndicator(indicatorPresented))
+    onIndicatorPresentedChanged: queueIndicator()
+    onBarIndicatorChanged: queueIndicator()
+    onSessionStateChanged: queueIndicator()
 
     function attachBubble(item) { bubbles = bubbles.concat([item]); }
     function detachBubble(item) { bubbles = bubbles.filter(found => found !== item); }
 
-    function sendIndicator(shown) {
-        if (shell === null || lifetime.kind !== "ready" || sessionState === null || cause !== "" || !child.running) return;
-        if (shown && !indicatorPresented) shown = false;
-        const kind = shown ? "shown" : "gone";
-        if (indicatorDelivery.kind === kind) return;
+    function queueIndicator() {
+        if (destroying) return;
+        indicatorObservations.push({ shown: indicatorPresented, bar: barIndicator });
+        // Coalesce the drain, not observations: every loss edge must survive.
+        // Qt guards a QObject method's owner before delayed execution:
+        // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/qml/qml/qqmldelayedcallqueue.cpp?h=6.11
+        Qt.callLater(root.flushIndicators);
+    }
+
+    function flushIndicators() {
+        const observations = indicatorObservations;
+        indicatorObservations = [];
+        for (const observation of observations) sendIndicator(observation);
+    }
+
+    function sendIndicator(observation) {
+        if (destroying || shell === null || lifetime.kind !== "ready" || sessionState === null || cause !== "" || !child.running) return;
+        const shown = observation.shown && indicatorPresented;
+        const bar = observation.bar === "gone" || barIndicator === "gone" ? "gone"
+            : observation.bar === "listening" && barIndicator === "listening" ? "listening" : "present";
+        const identity = JSON.stringify([sessionState.gen, shown, bar]);
+        if (indicatorDelivery.identity === identity) return;
         try {
             const wire = JSON.stringify({ v: 1, type: "indicator", gen: sessionState.gen,
-                revision: shell.manifest.__revision, shown: shown });
+                revision: shell.manifest.__revision, shown: shown, bar: bar });
             Protocol.accept(wire, "shell");
-            indicatorDelivery = { kind: kind };
+            indicatorDelivery = { identity: identity };
             child.write(wire + "\n");
         } catch (error) { broken(error.message); }
     }
@@ -311,7 +348,10 @@ Item {
     // (SetupGate.sessionSummary).
     function publishSetup(answer) {
         setupAnswer = answer;
-        if (voiceProvider === "") return false;
+        if (shell === null) return false;
+        // start() calls this from onShellChanged. Read that shell's settings,
+        // as hello() does, not the previous value of a dependent binding.
+        const provider = shell.settings.voiceProvider;
         const setupCause = localRuntime.setupCause;
         const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
@@ -321,9 +361,8 @@ Item {
         values.homePath = homePathRead.kind === "ready" ? homePathRead.path : "";
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
-        const provider = voiceProvider;
         const voice = Providers.cloudVoice(provider);
-        const talk = Gate.talkHint(shell.settings.mode, spelledTalk);
+        const talk = Gate.talkHint(shell.settings.holdToTalk, spelledTalk);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check, talk);
         values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice, shell.manifest), shell.requirements.missing, true);
         values.setupVoice = Gate.voiceStep(values.setupVoice, { provider: provider, voice: voice, causes: merged.kind === "answered" ? merged.causes : [], talk: talk,
@@ -358,7 +397,7 @@ Item {
 
     function start() {
         childSerial += 1;
-        lifetime = { kind: "starting", pendingMute: lifetime.pendingMute === "none" ? "none" : "waiting" };
+        lifetime = { kind: "starting" };
         sentRequirementsRevision = -1;
         outputTail = "";
         errorTail = "";
@@ -369,6 +408,8 @@ Item {
         startTextShown = null;
         voiceOffers = 0;
         audioHealth = { kind: "reading" };
+        echoCancel = null;
+        publishEchoCancel();
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
         const result = StatusPublication.write(shell.status, "detail", null);
@@ -422,8 +463,11 @@ Item {
     }
 
     function hello() {
-        if (voiceProvider === "" || !child.running || cause !== ""
+        if (shell === null || !child.running || cause !== ""
                 || (lifetime.kind !== "starting" && lifetime.kind !== "ready")) return;
+        // onShellChanged can run before derived bindings settle. The wire
+        // snapshot reads the new settings object itself.
+        const provider = shell.settings.voiceProvider;
         const keys = shell.shortcut.keys;
         // Enablement and disposal can change the registry before the instance.
         // A partial key observation is not a complete hello snapshot.
@@ -443,7 +487,7 @@ Item {
             // model choice by the account it resolves, for a hello sent
             // before the account reader's first answer.
             settings: Object.assign(settings, { sounds: feedbackSounds,
-                voiceProvider: voiceProvider, dictation: dictationCause },
+                voiceProvider: provider, dictation: Gate.dictationCause(provider, shell.dictation.state) },
                 Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),
             directories: {
                 state: Paths.stateDir + "/jarvis",
@@ -464,8 +508,13 @@ Item {
 
     function intent(name) {
         if (shell === null) return;
+        if (name === "hide" || name === "show") {
+            const reply = setVisibility(name);
+            if (reply !== "ok") console.warn("jarvis: visibility " + reply);
+            return;
+        }
         if (name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {
-            lifetime = { kind: "stopped", pendingMute: "none" };
+            lifetime = { kind: "stopped" };
             retry.stop();
             helloDeadline.stop();
             pendingStart = null;
@@ -486,27 +535,36 @@ Item {
             notice(Gate.voiceMuteRefusedNotice(cause));
             return;
         }
-        if (name === "mute") {
-            if (lifetime.kind === "problem" || lifetime.kind === "stopped") {
-                notice(Gate.muteRefusedNotice(cause));
-                return;
-            }
-            if (lifetime.pendingMute !== "none") return;
-            if (lifetime.kind !== "ready" || sessionState === null || cause !== "" || !child.running) {
-                lifetime = { kind: lifetime.kind, pendingMute: "waiting" };
-                if (!publish("warning", "Jarvis will mute when it is ready; turning Jarvis off cancels this request")) return;
-                notice({ title: "Jarvis mute pending",
-                    message: "Waiting for daemon; disabling Jarvis cancels this request.",
-                    tone: "warning", icon: "vgs-letter-j", transient: true });
-                return;
-            }
-        }
+        if (name === "microphone-mute") { toggleMicrophoneMute(); return; }
         if (lifetime.kind !== "ready" || cause !== "" || !child.running) {
             notice({ title: "Jarvis is not ready", message: "Check [Settings > Jarvis](page:vgs.jarvis/Settings) before trying again.",
                 tone: "warning", icon: "vgs-letter-j", transient: true });
             return;
         }
         sendIntent(name);
+    }
+
+    function newConversation() {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        sendIntent("new-conversation");
+        return "ok";
+    }
+
+    function setVisibility(name) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        if (name === "hide" && barIndicator === "gone") return "refused: hide=indicator";
+        // The current host observation precedes the request on the same
+        // ordered wire. Session rejudges it, including loss during Hide.
+        sendIndicator({ shown: indicatorPresented, bar: barIndicator });
+        sendIntent(name);
+        return "ok";
+    }
+
+    function conversationChanged(previous, current) {
+        if (current.history.kind !== "reset" || previous !== null && previous.history.epoch === current.history.epoch) return;
+        notice(View.conversationResetNotice(current.history.reason));
     }
 
     function displayedApproval() {
@@ -753,21 +811,27 @@ Item {
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
 
-    // The Voice provider field's hint, from the provider the user chose.
-    // Whether the settings name a Voice provider of this version. A provider
-    // stored as "auto" before VGS-1953 is rewritten in place on this first
-    // read (D107), the only reader of that form, and answers false: the
-    // rewritten settings arrive as the next `shell`.
-    function migrateVoiceProvider() {
-        if (shell.settings.voiceProvider !== "auto") return true;
-        const reply = shell.configure.set("voiceProvider", Gate.autoVoiceProvider(shell.settings));
-        if (reply !== "ok") console.warn("jarvis: voice-provider-migration=" + reply);
-        return false;
-    }
     function publishVoiceRoute() {
         if (voiceProvider === "") return;
         const reply = StatusPublication.write(shell.status, "voiceRoute", Gate.voiceRoute(voiceProvider, Providers.cloudVoice(voiceProvider)));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+    }
+
+    function publishEchoCancel() {
+        if (shell === null || voiceProvider === "") return false;
+        const values = Gate.echoCancellation(voiceProvider, echoCancel);
+        for (const key of ["echoCancel", "echoRoute"]) {
+            const reply = StatusPublication.write(shell.status, key, key === "echoCancel" ? values.setup : values.route);
+            if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+            if (reply !== "ok") return false;
+        }
+        return true;
+    }
+
+    function refreshEchoCancel() {
+        if (!echoRefreshPending || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        echoRefreshPending = false;
+        send({ type: "echo-cancel-refresh" });
     }
 
 
@@ -976,6 +1040,13 @@ Item {
         if (reply !== "ok") console.error("jarvis: notice " + reply);
     }
 
+    function voiceRenewal(message) {
+        if (sessionState === null || message.gen !== sessionState.gen || sessionState.conversation.kind === "ended") return;
+        notice({ title: "Jarvis needs you to repeat that",
+            message: "The voice connection restarted before you finished. Please repeat what you said.",
+            tone: "warning", icon: "vgs-letter-j" });
+    }
+
     function modelFallback(message) {
         if (sessionState === null || message.gen !== sessionState.gen || modelNotices.has(message.saved)) return;
         // Hello resolves an unset model too; only a stored choice needs this notice.
@@ -998,16 +1069,16 @@ Item {
         return result === "ok";
     }
 
-    function deliverMute() {
-        if (lifetime.kind !== "ready" || lifetime.pendingMute === "none" || sessionState === null) return;
-        // An unavailable daemon has no current toggle state. Pending presses
-        // request mute on; retries must never toggle a restored mute off.
-        if (sessionState.mute.kind === "on") {
-            lifetime = { kind: "ready", pendingMute: "none" };
-        } else if (sessionState.mute.kind === "off" && lifetime.pendingMute === "waiting") {
-            lifetime = { kind: "ready", pendingMute: "sent" };
-            sendIntent("mute");
-        }
+    function publishMicrophoneMute() {
+        if (shell === null) return;
+        const result = StatusPublication.write(shell.status, "microphoneMute", microphoneMute);
+        if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
+    }
+
+    function toggleMicrophoneMute() {
+        if (microphoneMute.kind !== "ready") return "refused: microphone=unavailable";
+        microphoneSource.audio.muted = !microphoneSource.audio.muted;
+        return "ok";
     }
 
     // One reply per daemon request, from the capability that owns the act.
@@ -1152,9 +1223,10 @@ Item {
     // default, so a device list leads with that default under PipeWire's own
     // name for it. Settings stores "" for that entry, never the name.
     function deviceOffers(key, devices) {
-        if (devices.length === 0) return devices;
+        const physical = devices.filter(choice => choice.value !== "jarvis_ec_source" && choice.value !== "jarvis_ec_sink");
+        if (physical.length === 0) return physical;
         const systemDefault = key === "microphones" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@";
-        return [{ label: "System default", value: systemDefault }].concat(devices);
+        return [{ label: "System default", value: systemDefault }].concat(physical);
     }
     function homeOffers(homes) {
         const offers = [{ label: "None", value: "none" }].concat(homes);
@@ -1210,6 +1282,10 @@ Item {
                 const message = Protocol.accept(line, "daemon");
                 if (message.revision !== shell.manifest.__revision)
                     throw new Error("jarvis: protocol=identity");
+                if (message.type === "voice-renewal") {
+                    voiceRenewal(message);
+                    continue;
+                }
                 if (message.type === "model-fallback") {
                     modelFallback(message);
                     continue;
@@ -1228,6 +1304,11 @@ Item {
                         if (!shell.status.isOk(report)) throw new Error("jarvis: " + report);
                         if (report !== "ok") return;
                     }
+                    continue;
+                }
+                if (message.type === "echo-cancel") {
+                    echoCancel = { state: message.state, path: message.path, reason: message.reason };
+                    if (!publishEchoCancel()) return;
                     continue;
                 }
                 if (message.type === "homes") {
@@ -1348,7 +1429,7 @@ Item {
                         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                         if (reply !== "ok") return;
                         const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage,
-                            at: Date.now(), session: childSerial + ":" + message.gen };
+                            at: Date.now(), session: childSerial + ":" + sessionState.history.epoch };
                         conversationLog = Conversation.update(conversationLog, segment);
                         const history = StatusPublication.write(shell.status, "conversation", conversationLog);
                         if (!shell.status.isOk(history)) throw new Error("jarvis: " + history);
@@ -1363,27 +1444,30 @@ Item {
                     const fault = message.state.fault;
                     if (fault.kind !== "none" && (sessionState === null || JSON.stringify(sessionState.fault) !== JSON.stringify(fault)))
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
+                    const previousState = sessionState;
                     sessionState = message.state;
+                    conversationChanged(previousState, sessionState);
                     if (!publishShellSetup()) return;
-                    const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
+                    const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state,
+                        brain: message.brain, conversationId: childSerial + ":" + message.state.history.epoch });
                     if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
                     if (result !== "ok") return;
-                    deliverMute();
                     continue;
                 }
                 // An earlier snapshot can answer after the observed lock
                 // changed. Wait for the current snapshot's ordered reply.
                 if (message.daemon !== (lockObservation() ? "locked" : "ready")) continue;
-                lifetime = { kind: "ready", pendingMute: lifetime.pendingMute };
+                lifetime = { kind: "ready" };
                 helloDeadline.stop();
                 if (!publish("info", message.daemon === "locked" ? "Jarvis is locked; microphone is off" : "Jarvis is ready; microphone is off")) return;
                 // A home text over its budget is a caution of the home step.
                 if (!publishSetup({ kind: "answered", causes: message.cautions.concat(message.causes) })) return;
                 if (!publishPersonality() || !publishStartText()) return;
                 sendTuiState();
-                Qt.callLater(() => sendIndicator(indicatorPresented));
+                queueIndicator();
                 refreshShell();
                 deliverMainHost();
+                refreshEchoCancel();
             }
         } catch (error) { broken(error.message); }
     }
@@ -1414,8 +1498,7 @@ Item {
         if (!publishOwnerAsks({ type: "owner-asks", snapshot: { kind: "unavailable",
                 cause: "Jarvis stopped. Start Jarvis to read your asks again." } })) return;
         if (permanent || retries === 5) {
-            if (lifetime.pendingMute !== "none") notice(Gate.muteRefusedNotice(cause));
-            lifetime = { kind: "problem", pendingMute: "none" };
+            lifetime = { kind: "problem" };
             publishDaemon(Gate.startStatus(cause, false));
             publishSetup({ kind: "problem", cause });
             notice(Gate.stoppedNotice(cause));
@@ -1425,7 +1508,7 @@ Item {
         // repeatedly answers then dies cannot restart forever.
         retry.interval = 250 * Math.pow(2, retries);
         retries++;
-        lifetime = { kind: "retry", pendingMute: lifetime.pendingMute };
+        lifetime = { kind: "retry" };
         publishDaemon(Gate.startStatus(cause, true));
         publishSetup({ kind: "problem", cause, action: Gate.RETRYING_START });
         retry.start();
@@ -1442,7 +1525,7 @@ Item {
         destroying = true;
         if (ownerAskOperation() !== null) setOwnerAskOperation(null);
         cancelDictation();
-        lifetime = { kind: "stopped", pendingMute: "none" };
+        lifetime = { kind: "stopped" };
         retry.stop();
         helloDeadline.stop();
         stopDeadline.stop();

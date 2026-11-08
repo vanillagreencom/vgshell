@@ -1,7 +1,7 @@
 """Actual-model consumer of the speech sidecar. No model or network stand-ins.
 
-Each CPU tier's wake, voice activity, caption, turn and voice models run the
-bundled clip through the sidecar's own wire: the wake word, an utterance whose
+Each CPU tier's microphone check, voice activity, caption, turn and voice models
+run the bundled clip through the sidecar's own wire: a keyword check, an utterance whose
 end says voice activity heard speech, and synthesis. The utterance's words are
 the core's dictation recording's, so no recognizer runs. A missing input exits
 77 through the artifact judge; it never makes a smaller passing test.
@@ -66,15 +66,15 @@ try:
             payload = sidecar.little(array("f", samples)).tobytes()
             return b"".join(frame({"type": "audio", "id": ident}, payload[at:at + sidecar.PAYLOAD_BYTES])
                             for at in range(0, len(payload), sidecar.PAYLOAD_BYTES))
-        # The clip opens with the wake phrase. The control speaks only words of
-        # the model's own keywords.txt, which must not wake Jarvis.
+        # The clip contains the check phrase. Other keywords must not pass the
+        # microphone check.
         voiced = loaded["tts"].generate("Play music. Alexa. Hello world.", sid=0, speed=1)
         others = np.asarray(voiced.samples, dtype=np.float32)
         others = np.interp(np.arange(len(others) * sidecar.RATE // voiced.sample_rate) * voiced.sample_rate / sidecar.RATE,
                            np.arange(len(others)), others).astype(np.float32)
         others = np.concatenate([others, np.zeros(sidecar.RATE, dtype=np.float32)])
-        stream = frame({"type": "wake", "id": 1}) + audio_frames(1, clip) + frame({"type": "abort", "id": 1})
-        stream += frame({"type": "wake", "id": 2}) + audio_frames(2, others) + frame({"type": "abort", "id": 2})
+        stream = frame({"type": "check", "id": 1}) + audio_frames(1, clip) + frame({"type": "end", "id": 1})
+        stream += frame({"type": "check", "id": 2}) + audio_frames(2, others) + frame({"type": "end", "id": 2})
         stream += frame({"type": "listen", "id": 3, "detect": False}) + audio_frames(3, clip)
         # The last declared speaker: the table's sid order reaches the real voice.
         stream += frame({"type": "end", "id": 3}) + frame({"type": "speak", "id": 4, "speaker": chosen["tts"]["speakers"][-1]["name"]},
@@ -85,9 +85,9 @@ try:
         ended = [h for h, _ in replies if h["type"] == "ended"]
         spoken = [h for h, _ in replies if h["type"] == "spoken"]
         audio = sum(len(p) for h, p in replies if h["type"] == "audio")
-        woken = [h for h, _ in replies if h["id"] in (1, 2)]
-        if woken != [{"type": "woke", "id": 1}]:
-            raise RuntimeError(f"wake-mismatch {tier}: {woken}")
+        checked = [h for h, _ in replies if h["id"] in (1, 2)]
+        if checked != [{"type": "checked", "id": 1, "result": "ready"}, {"type": "checked", "id": 2, "result": "not-heard"}]:
+            raise RuntimeError(f"check-mismatch {tier}: {checked}")
         if ended != [{"type": "ended", "id": 3, "speech": True}] or spoken != [{"type": "spoken", "id": 4, "rate": chosen["tts"]["outputSampleRate"]}] or audio < 4 * spoken[0]["rate"]:
             raise RuntimeError(f"wire-mismatch {tier}: {[h for h, _ in replies][-3:]} audio={audio}")
         print(json.dumps({"tier": tier, "spoken_bytes": audio}), flush=True)

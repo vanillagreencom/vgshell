@@ -15,7 +15,7 @@ import "SetupGate.js" as Gate
 // and each opening of the Jarvis page reads the session again. A read
 // starts nothing. turnedOff() is the user's Off: it stops the session in a
 // process that outlives this service. Each answer is the Jarvis session row
-// and the bar widget's reading (`jarvisSession`). While Start Jarvis at boot
+// and the console and bar reading (`jarvisSession`). While Start Jarvis at boot
 // is off, that record is the Resume offer: the widget's click and the row's
 // Resume ask for its resume, Do not resume asks the package to drop the
 // record (`dismiss`), and the offer waits for either ask's answer and ends
@@ -23,7 +23,7 @@ import "SetupGate.js" as Gate
 // (SetupGate.sessionResumeStarted). While a resume that started still runs
 // with a pending step (SetupGate.sessionStepsPending), this instance reads
 // the session again every stepPollMs, for at most stepPollLimitMs from the
-// first such read; the widget then says when it last read the steps.
+// first such read; the console then says when it last read the steps.
 Item {
     id: root
     property var shell: null
@@ -232,7 +232,7 @@ Item {
                 root.call("status", root.sessionHome, [root.sessionHome]);
                 return;
             }
-            // The widget's pending steps give way to when they were read.
+            // The console's pending steps give way to when they were read.
             root.pollOver = true;
             root.publish();
         }

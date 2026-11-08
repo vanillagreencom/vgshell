@@ -1,8 +1,10 @@
 import QtQuick
+import QtQuick.Window
 import Quickshell
 import Quickshell.Wayland
 import qs.Core
 import qs.Commons
+import qs.Ui
 
 // A disabled, unknown or broken bar must reserve no desktop space.
 // Hiding a layer-shell window releases its Wayland surface's reserved
@@ -29,6 +31,7 @@ Item {
         // layer surface there, reserving space twice until it goes.
         active: host.screenPresent && host.wantedKey !== "" && host.wantedKey !== host.brokenKey
         sourceComponent: PanelWindow {
+            id: barWindow
             screen: host.screen
 
             anchors { top: true; left: true; right: true }
@@ -41,6 +44,108 @@ Item {
             // drops its item. Hide first, or Qt can remap it as a toplevel
             // while a removed output migrates its windows.
             visible: host.screenPresent && PluginLogic.barShown(slot.instance)
+
+            // QsWindow's visible and backingWindowVisible are distinct;
+            // windowTransform invalidates its non-reactive item mapping.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+            // As in LayerHost and Bubble's approval handshake, polish,
+            // sync and swap travel in order. Never acknowledge GUI state
+            // that changed after that frame's polish.
+            property int frameEpoch: 0
+            // Keep the publication address while a removed screen becomes null.
+            property string observationHost: ""
+            property var observedWidgets: []
+            property var frames: []
+            property var synchronizedFrame: null
+            readonly property var candidates: observeItems()
+            readonly property string candidateKey: JSON.stringify(candidates)
+            onCandidateKeyChanged: invalidateFrame()
+            onVisibleChanged: invalidateFrame()
+            onBackingWindowVisibleChanged: invalidateFrame()
+            Component.onCompleted: {
+                observationHost = host.hostKey;
+                widgetSetChanged();
+            }
+            Component.onDestruction: invalidateFrame()
+
+            function invalidateFrame() {
+                frameEpoch++;
+                Layers.setBarFrame(observationHost, []);
+            }
+
+            function widgetSetChanged() {
+                const current = (Plugins.built[host.hostKey] || [])
+                    .filter(row => row.origin === "core" && row.kind === "bar-widget").map(row => row.instance);
+                if (current.length === observedWidgets.length && current.every((item, i) => item === observedWidgets[i])) return;
+                observedWidgets = current;
+                invalidateFrame();
+            }
+
+            // Refuse a partial, faded, clipped or transformed indicator.
+            // Read every ancestor's geometry in this binding as mapToItem
+            // alone records no dependency (QsWindow reference above).
+            function whole(item, owner) {
+                if (item === null || item.width <= 0 || item.height <= 0) return false;
+                let owned = false;
+                for (let at = item; at !== null; at = at.parent) {
+                    if (at === owner) owned = true;
+                    if (!at.visible || at.opacity !== 1 || at.scale !== 1 || at.rotation !== 0 || at.transform.length !== 0) return false;
+                    const geometry = [at.x, at.y, at.width, at.height];
+                    if (at.clip || at === contentItem) {
+                        const p = item.mapToItem(at, 0, 0);
+                        if (p.x < 0 || p.y < 0 || p.x + item.width > geometry[2] || p.y + item.height > geometry[3]) return false;
+                    }
+                    // A scrolling bar section already owns its whole-widget
+                    // viewport, excluding its scroller buttons and fades.
+                    if (at.shownX !== undefined && at.shownWidth !== undefined) {
+                        const p = item.mapToItem(at, 0, 0);
+                        if (p.x < at.shownX || p.x + item.width > at.shownX + at.shownWidth) return false;
+                    }
+                    if (at === contentItem) return owned;
+                }
+                return false;
+            }
+
+            function observeItems() {
+                const transform = windowTransform;
+                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
+                const out = [];
+                for (const row of Plugins.built[host.hostKey] || []) {
+                    if (row.origin !== "core" || row.kind !== "bar-widget") continue;
+                    const widget = row.instance;
+                    const item = widget.presentationItem;
+                    if (!(item instanceof BarItem) || !whole(item, widget) || widget.presentationKey === "") continue;
+                    const dot = item.stateDotItem;
+                    out.push({ plugin: row.id, revision: row.revision, output: screen.name,
+                        key: widget.presentationKey, dot: dot !== null && whole(dot, item) ? item.stateDot : "" });
+                }
+                return out;
+            }
+
+            function framePolished() {
+                frames.push({ epoch: frameEpoch, rows: candidates });
+            }
+            function frameSynchronized() {
+                synchronizedFrame = frames.length === 0 ? null : frames.shift();
+            }
+            function frameSwapped() {
+                const drawn = synchronizedFrame;
+                if (drawn === null) return;
+                Qt.callLater(() => {
+                    if (drawn.epoch !== frameEpoch || !visible || !backingWindowVisible) return;
+                    Layers.setBarFrame(observationHost, drawn.rows);
+                });
+            }
+            Connections {
+                target: slot.instance !== null ? slot.instance.Window.window : null
+                function onAfterAnimating() { barWindow.framePolished(); }
+                function onAfterSynchronizing() { barWindow.frameSynchronized(); }
+                function onFrameSwapped() { barWindow.frameSwapped(); }
+            }
+            Connections {
+                target: Plugins
+                function onBuiltChanged() { barWindow.widgetSetChanged(); }
+            }
 
             PluginSlot {
                 id: slot

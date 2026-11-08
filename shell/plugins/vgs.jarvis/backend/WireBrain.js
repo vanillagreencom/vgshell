@@ -12,8 +12,8 @@ const REQUEST_BYTES = 20 * 1024 * 1024;
 // Bound one wire response and the reply its conversation keeps in history.
 const SSE_LIMITS = Object.freeze({ line: 1024 * 1024, event: 1024 * 1024, total: 8 * 1024 * 1024 });
 const TOOLS = 64;
-// The plan's context bound in user turns. Its overflow refuses until older
-// turns can be summarised; nothing is dropped silently.
+// The engine starts fresh before the next user turn at this bound. A caller
+// that bypasses that owner refuses here rather than silently dropping history.
 const TURNS = 40;
 const IMAGE_TYPES = ["image/png", "image/jpeg"];
 // What an image of an earlier turn renders as. Only the current turn's
@@ -38,6 +38,7 @@ function create({ provider, model, net, recipients, key }, protocol) {
     let history = [];
     let active = null;
     let closed = false;
+    let suspended = false;
 
     function usable() {
         if (closed) fail("closed");
@@ -141,6 +142,7 @@ function create({ provider, model, net, recipients, key }, protocol) {
 
     function send(turn, grants = []) {
         usable();
+        if (suspended) fail("suspended");
         if (context === null) fail("not-started");
         const entry = entryOf(turn);
         const request = render([...history, entry], grants);
@@ -291,6 +293,20 @@ function create({ provider, model, net, recipients, key }, protocol) {
         context = null;
         history = [];
     }
-    return Object.freeze({ start, send, record, cancel, close });
+    return Object.freeze({ start, send, record, cancel, close,
+        suspend() {
+            suspended = true;
+            if (secret !== null) secret.fill(0);
+            secret = null;
+            return cancel();
+        },
+        resume(next) {
+            if (closed || active !== null) fail(closed ? "closed" : "busy");
+            Policy.assertRecipients(next.recipients);
+            net = next.net;
+            recipients = next.recipients;
+            suspended = false;
+        }
+    });
 }
 module.exports = { create };

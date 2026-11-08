@@ -12,6 +12,8 @@
 # disposable Service copy: the same choice never reaches the package.
 # inputs: scripts/smoke/rows/jarvis.sh scripts/fixtures/jarvis/satellite-package.py scripts/fixtures/jarvis/prepare.js shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/feedback/LinkText.qml
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 # The real daemon logs the set jarvis.sh declares, and the setter an older
 # package or one before KEN-4874 refuses, by its key.
 expected_errors+=("${jarvis_provoked_errors[@]}")
@@ -23,13 +25,11 @@ if [[ -e $satellite_homes ]]; then
   cp -- "$satellite_homes" "$sandbox/satellite-homes-original"
   satellite_homes_present=true
 fi
-satellite_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-cp -- "$satellite_service" "$sandbox/satellite-service-original"
-satellite_daemon="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
-cp -- "$satellite_daemon" "$sandbox/satellite-daemon-original"
+satellite_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+satellite_daemon="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 satellite_home="$home/Satellite Home"
 satellite_two="$home/Satellite Two"
-jarvis_setup_requirements
+jarvis_setup_requirements "$jarvis_fixture_shim"
 
 # The daemon's isolated HOME is the shell's scratch HOME, so the Home folder
 # setting names the folder the stand-in records in (rows/jarvis-home-repair.sh).
@@ -50,6 +50,7 @@ changed=changed.replace(needle,'    function fixtureHomeActivate(item) { return 
 assert changed!=source
 p.write_text(changed)
 PYLEASE
+jarvis_fixture_copy jarvis-satellite-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 
 # Kendex-owned Homes, so VGS writes no package file over the stand-in.
 for satellite_folder in "$satellite_home" "$satellite_two"; do
@@ -166,7 +167,9 @@ expect_poll "the real Jarvis daemon answers hello" ready satellite_ready
 expect_poll "the choice made before the daemon was ready reaches the package" "jarvis:$satellite_home" satellite_set
 settings_page_close vgs.jarvis
 jarvis_disable
-cp -- "$sandbox/satellite-daemon-original" "$satellite_daemon"
+jarvis_fixture_begin "$sandbox/tree-jarvis-satellite-input" "$sandbox/tree-jarvis-satellite-input.commands"
+satellite_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+satellite_daemon="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 
 # The control drops only the hand-off, leaving the choice handler, the
 # daemon and the stand-in present, so the missing setting names the defect.
@@ -193,7 +196,6 @@ satellite_control() {
 expect "dropping the hand-off leaves the package's setting unset" 1 satellite_control
 settings_page_close vgs.jarvis
 jarvis_disable
-cp -- "$sandbox/satellite-service-original" "$satellite_service"
 rm -rf -- "${home:?}/Satellite Home" "${home:?}/Satellite Two"
 user_config_restore "$sandbox/satellite-config-original"
 if [[ $satellite_homes_present == true ]]; then
@@ -202,5 +204,7 @@ else
   rm -f -- "$satellite_homes"
 fi
 expect "the restored user profile is read again" ok ipc shell reloadConfig
+jarvis_restore_requirements "$jarvis_fixture_shim"
+stop_shell
+start_shell "$repo" "$sandbox/jarvis-satellite-stock.log"
 rescan "the original Jarvis service is restored"
-jarvis_restore_requirements

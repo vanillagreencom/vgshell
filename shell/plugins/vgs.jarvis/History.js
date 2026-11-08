@@ -65,8 +65,6 @@ function operation(row) {
 
 function problem(row) {
     var voice = {
-        "input-silent": "The microphone sent only silence.",
-        "unheard": "The voice service heard no words.",
         "key-refused": "The voice service refused the saved key.",
         "voice-stopped": "The voice service stopped before finishing."
     };

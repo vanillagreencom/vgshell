@@ -195,6 +195,13 @@ FocusScope {
     readonly property string stopKey: shell === null || shell.shortcut.keys.stop === undefined || shell.shortcut.keys.stop === null ? "" : shell.shortcut.keys.stop
     readonly property var conversation: Array.isArray(values.conversation) ? values.conversation : []
     readonly property var memoryInbox: Array.isArray(values.memoryInbox) ? values.memoryInbox : []
+    // SessionStart publishes the canonical resume reading independently of
+    // conversation readiness. Complete outcomes wrap in the scroll body;
+    // the state-only bar and bounded Setup badges cannot carry these lines.
+    readonly property var sessionReading: values.jarvisSession === undefined ? null : values.jarvisSession
+    readonly property var sessionLines: sessionReading === null ? [] : sessionReading.steps.map(Gate.sessionStepLine)
+    readonly property string sessionCheckedText: sessionReading === null || sessionReading.checkedAt === null ? ""
+        : Gate.sessionCheckedLine(sessionReading.checkedAt)
     readonly property string livePartial: state !== null && state.turn.kind === "collecting" ? state.turn.partial : ""
     readonly property var transcriptRows: rows()
     readonly property string hint: problem !== "" ? problem : refusalText(refusal)
@@ -205,7 +212,7 @@ FocusScope {
     // The shortcut keys as people read them, the bar's own spelling.
     readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, ShortcutLabels.keyCaps)
     // How to talk now: the sentence the Voice step and the bar say it with.
-    readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."
+    readonly property string talkLine: Gate.talkHint(shell !== null && shell.settings.holdToTalk, spelledKeys.talk) + "."
     // The Conversation tab's first control: the message box, or Stop where
     // one line stands in its place.
     readonly property Item composerFocus: speechOnly ? speechStop : entryField
@@ -265,7 +272,7 @@ FocusScope {
     function handleBacktab(event) {
         const backward = event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier));
         if (!backward || (event.modifiers & Qt.ControlModifier)) return false;
-        consoleTabs.forceActiveFocus(Qt.BacktabFocusReason);
+        (tab === 0 ? newConversationAction : consoleTabs).forceActiveFocus(Qt.BacktabFocusReason);
         event.accepted = true;
         return true;
     }
@@ -364,7 +371,7 @@ FocusScope {
     }
 
     function rows() {
-        const result = conversation.slice();
+        const result = detail === null ? [] : conversation.filter(row => row.session === detail.conversationId);
         if (livePartial.trim() !== "") result.push({ gen: state.gen, role: "user", text: livePartial, stage: "partial" });
         return result;
     }
@@ -405,6 +412,16 @@ FocusScope {
         if (reply !== "ok") {
             problem = "Jarvis did not stop";
             console.warn("jarvis console: " + reply);
+        }
+    }
+
+    function newConversation() {
+        if (shell === null) return;
+        const reply = shell.ipc.call("new-conversation", "");
+        problem = reply === "ok" ? "" : "Jarvis is not ready to start a new conversation";
+        if (reply === "ok") {
+            draft = "";
+            entryField.text = "";
         }
     }
 
@@ -490,8 +507,20 @@ FocusScope {
                 model: ["Now", "Needs you", "History"]
                 unreadCounts: root.asksReady && root.asksState.activeCount > 0 ? ({ "Needs you": root.asksState.activeCount }) : ({})
                 currentIndex: root.tab
-                KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch
+                KeyNavigation.tab: root.tab === 0 ? newConversationAction : root.tab === 1 ? asksBody : historySearch
                 onCurrentIndexChanged: root.tab = currentIndex
+            }
+            RowAction {
+                id: newConversationAction
+                objectName: "newConversationAction"
+                visible: root.tab === 0
+                text: "New conversation"
+                disabledReason: root.state === null ? "Wait for Jarvis to be ready." : ""
+                // Explicit reverse navigation keeps the header action between
+                // tabs and composer: https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
+                KeyNavigation.backtab: consoleTabs
+                KeyNavigation.tab: root.composerFocus
+                onClicked: root.newConversation()
             }
             // The main Jarvis's reachability, in the fixed header so a long
             // conversation never scrolls it away.
@@ -544,6 +573,38 @@ FocusScope {
             visible: root.tab === 0
             width: layout.contentWidth
             spacing: Theme.stack.row
+
+            Section {
+                objectName: "sessionResume"
+                visible: root.sessionLines.length > 0 || root.sessionCheckedText !== ""
+                width: layout.contentWidth
+                title: "Session resume"
+                Repeater {
+                    model: root.sessionLines
+                    Label {
+                        required property var modelData
+                        objectName: "sessionResumeLine"
+                        // Repeater teardown can detach a delegate before
+                        // deleting it. Keep geometry on the owning layout.
+                        // qml-smoke run 20261107T024427Z, Console.qml:596;
+                        // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#count-prop
+                        width: layout.contentWidth
+                        role: "body"
+                        text: modelData
+                        textFormat: Text.PlainText
+                        wrapMode: Text.Wrap
+                    }
+                }
+                LinkText {
+                    objectName: "sessionResumeChecked"
+                    visible: text !== ""
+                    width: parent.width
+                    role: "hint"
+                    text: root.sessionCheckedText
+                    wrapMode: Text.Wrap
+                    onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                }
+            }
 
             Repeater {
                 model: root.transcriptRows

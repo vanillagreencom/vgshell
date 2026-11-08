@@ -276,6 +276,8 @@ guard_control "a shell without the HID fake socket reads as a leak" \
 guard_control "a shell whose PATH finds the host's rfkill first reads as a leak" \
   "leak=path-shim value=rfkill=$host_rfkill" \
   "PATH=${host_rfkill%/*}:$shell_start_path"
+expect "control: a private device root outside the owned sandbox remains a leak" \
+  "leak=path-shim value=private-root=/usr/bin" devices_guard "$shell_qs_pid" /usr/bin
 expect "control: devices_guard fails an exited shell pid" \
   "status=1 stdout= stderr=devices_guard: environ=unreadable pid=<pid>" dead_pid_control
 expect "control: devices_ready fails an exited shell pid" \

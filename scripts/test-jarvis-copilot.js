@@ -104,7 +104,7 @@ world(async () => {
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 2) });
         const rows = () => { const file = path.join(root, "state/audit/2026-10-02.jsonl");
             return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : []; };
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: () => ({}), clear() {} }, () => {});
@@ -121,8 +121,8 @@ world(async () => {
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
             release: { prepare: () => Promise.resolve([]) } });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");
         const recipients = Policy.recipients({ conversation: "copilot-" + serial, profile: "standard", cloudVision: "ask",
@@ -195,6 +195,19 @@ world(async () => {
     ] });
 
     const CASES = {
+        async suspendResume(folder) {
+            scenario({ turns: [[chunk("First."), { stop: "end_turn" }], [chunk("Second."), { stop: "end_turn" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("remember this")), [{ kind: "text", text: "First." }, { kind: "done", reason: "stop" }]);
+            const child = program();
+            await w.brain.suspend();
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=copilot-suspended" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await drain(w.say("continue")), [{ kind: "text", text: "Second." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(program(), child, "resume keeps the same native child and private working folder");
+            assert.equal(received("session/new").length, 1, "resume keeps the exact native ACP session");
+            validWrites();
+        },
         // The lockdown argv, the scrubbed environment, the bridge as the only
         // configured MCP server in a private file, none in session/new, and
         // the instructions leading the first prompt only.
@@ -486,7 +499,10 @@ world(async () => {
             rest.catch(() => {});
             await until(() => w.runner.state.approval.kind === "held", "the approval is held");
             let timer;
-            await Promise.race([w.brain.cancel(), new Promise((resolve, reject) => {
+            const cancellation = w.brain.suspend();
+            assert.throws(() => w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=copilot-busy" }, "resume waits for the cancelled prompt stop reason");
+            await Promise.race([cancellation, new Promise((resolve, reject) => {
                 timer = setTimeout(() => reject(new assert.AssertionError({ message: "cancel never acknowledged" })), 5000);
             })]).finally(() => clearTimeout(timer));
             assert.deepEqual(outcomes("session/request_permission"), [{ outcome: "cancelled" }]);
@@ -494,6 +510,7 @@ world(async () => {
             assert.ok(log.findIndex(row => row.message.result?.outcome?.outcome === "cancelled")
                 < log.findIndex(row => row.message.method === "session/cancel"), "the request is answered before the cancel");
             await assert.rejects(rest, { message: "jarvis: brain=cancelled" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             validWrites();
         },
         // close ends the program, the bridge session and the private directory.
@@ -529,30 +546,36 @@ world(async () => {
             next.start({ instructions: "Be brief.", tools: [] });
             await assert.doesNotReject(drain(send(next)), "a later conversation opens its bridge session");
         },
-        // The plan's context bound in user turns: past it the chained engine
-        // ends the conversation cleanly, as it does a wire brain's.
+        // The adapter refuses beyond its own bound. Engine rollover is held
+        // at the engine boundary, before this adapter guard is reached.
         async limit(folder) {
             scenario({ turns: Array.from({ length: 41 }, () => [{ stop: "end_turn" }]) });
-            // The world loads the engine's own module copies: a recipient set is
-            // judged by the Policy module that made it.
+            const w = make(folder);
+            for (let turn = 0; turn < 40; turn++)
+                assert.deepEqual(await drain(w.say("turn " + turn)), [{ kind: "done", reason: "stop" }]);
+            assert.throws(() => w.say("one more"), { message: "jarvis: brain=context-limit" });
+            assert.equal(received("session/prompt").length, 40);
+        },
+        async engine(folder) {
+            scenario({ turns: [[{ stop: "end_turn" }]] });
+            Fixture.reset();
             const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
             const w = make(copied);
             const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "copilot", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" } }) }),
-                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: { now: () => 0, set: () => ({}), clear() {} },
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: {
+                    id, provider: "copilot", label: "default", source: { kind: "cli", directory: account }, model: "" } }) }),
+                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e),
                 harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
-            let plan;
-            assert.doesNotThrow(() => { plan = engine.configure({ brain: "copilot-fixture", model: "", effort: "" }); }, "the engine has the ACP driver");
-            assert.deepEqual(plan, { kind: "ready", cautions: [] });
-            const { gen, turn: { op } } = w.runner.state;
-            const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
-                (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));
-            for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
-            assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
-            assert.equal(received("session/prompt").length, 40);
+            assert.doesNotThrow(() => assert.deepEqual(engine.configure({ brain: "copilot-fixture", model: "", effort: "" }), { kind: "ready", cautions: [] }));
+            const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
+            const callbacks = [];
+            engine.brain.send({ gen, op, owner, text: "engine request" }, (kind, detail) => callbacks.push({ kind, detail }));
+            await until(() => callbacks.some(value => value.kind === "brain-done" || value.kind === "brain-failed"), "the engine answers");
+            assert.deepEqual(callbacks.filter(value => value.kind === "brain-failed"), []);
+            assert.deepEqual(received("session/prompt").map(value => value.params.prompt.at(-1).text), ["engine request"]);
+            validWrites();
         },
         // Account discovery and Verify on a Copilot directory: no status
         // command runs, then the release record precedes the one probe prompt.
@@ -736,7 +759,7 @@ world(async () => {
             ["folder-label", "backend/Accounts.js", [['item.source.kind === "cli" ? item.email || "" : item.label', 'item.source.kind === "cli" ? item.email || item.label : item.label']], "verify"],
             ["harness-reason", "backend/Accounts.js", [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|pi)-"]], "verify"],
             ["account-row", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null,', '{ id: "copilot-removed", label: "GitHub Copilot", kind: "cli", command: null,']], "verify"],
-            ["engine-driver", "backend/ChainedEngine.js", [["\"copilot-acp\": CopilotHarness, ", ""]], "limit"]
+            ["engine-driver", "backend/ChainedEngine.js", [["\"copilot-acp\": CopilotHarness, ", ""]], "engine"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

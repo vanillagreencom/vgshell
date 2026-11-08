@@ -532,11 +532,12 @@ devices_failed() { # KEY LOG
 # PIPEWIRE_RUNTIME_DIR lies in the sandbox runtime dir; hardware-root,
 # VGS_DEV_ROOT, VGS_SYSFS_ROOT and VGS_HID_FAKE each lie in the sandbox
 # or its runtime dir; path-shim, every stand-in name resolves on its PATH
-# to $shim/<name>. An unset variable breaks its rule.
-devices_guard() { # PID
-  python3 - "$1" "$rt_dir" "$sandbox" "$shim" "${device_stand_in_names[@]}" <<'PY'
+# to $shim/<name>. An explicit private root also permits its exact names,
+# only within the owned sandbox/runtime. An unset variable breaks its rule.
+devices_guard() { # PID [PRIVATE_ROOT]
+  python3 - "$1" "$rt_dir" "$sandbox" "$shim" "${2:-}" "${device_stand_in_names[@]}" <<'PY'
 import os, sys
-pid, rt, sandbox, shim, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+pid, rt, sandbox, shim, private, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6:]
 try:
     raw = open(f"/proc/{pid}/environ", "rb").read()
 except OSError:
@@ -546,6 +547,9 @@ env = dict(item.split("=", 1) for item in raw.decode(errors="replace").split("\0
 def within(path, roots):
     real = os.path.realpath(path)
     return any(real == os.path.realpath(r) or real.startswith(os.path.realpath(r) + os.sep) for r in roots)
+if private and not within(private, [sandbox, rt]):
+    print(f"leak=path-shim value=private-root={private}")
+    sys.exit()
 def resolves(name):
     for directory in env.get("PATH", "").split(":"):
         candidate = os.path.join(directory or ".", name)
@@ -562,7 +566,7 @@ for rule, var, holds in checks:
         sys.exit()
 for name in names:
     found = resolves(name)
-    if found != os.path.join(shim, name):
+    if found != os.path.join(shim, name) and (not private or found != os.path.join(private, name)):
         print(f"leak=path-shim value={name}={found}")
         sys.exit()
 print("inside")

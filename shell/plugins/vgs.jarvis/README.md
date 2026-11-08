@@ -8,7 +8,7 @@ Jarvis is a voice assistant for your desktop. Talk or type to the AI model you c
 
 ## Features
 
-- Tap or hold a key to talk, or say Hey Jarvis.
+- Press Talk to open a conversation, or choose Hold to talk to use the microphone only while you hold the key.
 - Hear and speak on your computer with Local voice.
 - Choose OpenAI Realtime, Gemini Live or ElevenLabs for cloud voice.
 - Speak in a voice recorded on your computer after cloned-voice setup.
@@ -20,7 +20,7 @@ Jarvis is a voice assistant for your desktop. Talk or type to the AI model you c
 - Read conversations, coding tasks and refused actions in the Console.
 - Share your instructions, skills and memory notes with every answering AI model.
 - Start or resume your Jarvis session and send it confirmed agent fleet requests. On another computer, forward them to your main Jarvis.
-- Keep provider keys in your desktop keyring and mute Jarvis across restarts.
+- Keep provider keys in your desktop keyring.
 - Mute Jarvis's voice and read its replies on screen.
 
 ## How it works
@@ -37,11 +37,11 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
 3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
 
-The orb at the bottom of the screen shows when Jarvis listens, thinks, speaks or needs your answer. Its menu and the J's right-click menu let you mute the microphone, mute Jarvis's voice, stop Jarvis or open Key hints. Muting the voice leaves replies on screen.
+The orb at the bottom of the screen shows while a conversation is open. Its menu and the J's right-click menu let you mute Jarvis's voice, change the system microphone mute, stop current work or open Key hints. Muting the voice leaves replies on screen. Muting the system microphone silences it for other applications too; Talk still opens a conversation.
 
 Click the J in the bar to open the Console. When it offers Resume, that click resumes the saved session instead; dismiss the offer from its menu if you do not want it. Change shortcuts under Keys on Settings. Turning Enabled off stops Jarvis and its session.
 
-On Settings, Talk mode chooses tap or hold, Toggle, or Always. Always listens locally for Hey Jarvis and works with Local or ElevenLabs. Press Talk to interrupt a spoken reply.
+Under the Talk key on Settings, Hold to talk starts unchecked. Press Talk to open the conversation and press it again to close. With Hold to talk checked, hold Talk while you speak; releasing closes the microphone and Jarvis replies while the orb stays. A short tap with no words closes the conversation. Stop interrupts a reply or task and keeps the conversation open.
 
 Screen to cloud chooses Ask, Allow or Never for sending screen images or text outside your computer. Private windows chooses which windows Jarvis paints black before it sends a screenshot. Titles do not reliably identify private browsing.
 

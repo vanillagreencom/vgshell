@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Measure each passive shader layer on a real GPU in the nested sandbox:
 # VoiceOrb, Voice's plasma orb and Jarvis's particle orb in its full and
-# reduced looks, and waiting for the wake word at its base rate, and the
-# shared RadialBackdrop at Jarvis's largest field.
+# reduced looks, and the shared RadialBackdrop at Jarvis's largest field.
 # Usage: scripts/measure-shader.sh [--shader NAME] [--calibrate FILE [--runs N]] [--keep]
 # Default: check every shader against its record in
 # scripts/shader/ceilings.json and prove its 256-step control. --shader
 # measures one, voiceorb, plasma, jarvis-orb, jarvis-orb-reduced,
-# jarvis-orb-armed or radial-backdrop.
+# or radial-backdrop.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
 # scale, floored at each stream's instrument resolution, written in FILE with
@@ -32,7 +31,7 @@ choice=(--check "$repo/scripts/shader/ceilings.json")
 keep=false
 runs=""
 # Every scene Scene.qml draws; --shader names one of them.
-scenes=(voiceorb plasma jarvis-orb jarvis-orb-reduced jarvis-orb-armed radial-backdrop)
+scenes=(voiceorb plasma jarvis-orb jarvis-orb-reduced radial-backdrop)
 shaders=("${scenes[@]}")
 argv=("$@")
 while (($#)); do
@@ -119,10 +118,8 @@ costly = {
                    "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21)) + vnoise(vec3(uv * 5.0, cost * 0.5 + float(i) * 0.13))",
                    "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
 }
-# The reduced and the armed looks are the same pass with other uniforms,
-# which the scene sets; their costly copy is the full look's.
+# The reduced look uses the same shader with uniforms the scene sets.
 costly["jarvis-orb-reduced"] = costly["jarvis-orb"]
-costly["jarvis-orb-armed"] = costly["jarvis-orb"]
 source, needle, seed, step, scaled = costly[shader]
 text = (repo / source).read_text()
 assert text.count(needle) == 1, "costly shader: output must match once"

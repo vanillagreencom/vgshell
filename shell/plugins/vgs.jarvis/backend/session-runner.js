@@ -6,7 +6,7 @@
 "use strict";
 
 // Effects whose value must already survive a daemon restart when published.
-const STORES = ["mute-store", "voice-mute-store"];
+const STORES = ["voice-mute-store", "hidden-store"];
 
 class SessionRunner {
     constructor(session, ports, clock, publish) {
@@ -50,7 +50,8 @@ class SessionRunner {
         switch (e.kind) {
         case "capture-open": this.ports.capture.open(e, () => done("capture-opened"),
             reason => done("capture-failed", { reason })); break;
-        case "capture-close": this.ports.capture.close(e, () => done("capture-closed")); break;
+        case "capture-close": this.ports.capture.close(e, values => done("capture-closed", values),
+            reason => done("capture-failed", { reason: reason.message ?? reason })); break;
         case "collect": this.ports.capture.collect(e, (type, text) => done(type, { text }),
             reason => done("collect-failed", { reason })); break;
         case "brain-send": this.ports.brain.send(e, (type, values) => done(type, values)); break;
@@ -58,6 +59,7 @@ class SessionRunner {
             this.ports.brain.cancel(e, () => this.dispatch({ type: "cancelled", gen: e.gen, op: e.target }));
             break;
         case "brain-close": this.ports.brain.close(e); break;
+        case "brain-reset": this.ports.brain.reset(e); break;
         case "playback-start": this.ports.playback.start(e, () => done("played"),
             reason => done("playback-failed", { reason })); break;
         case "playback-flush": this.ports.playback.flush(e, () => done("flushed")); break;
@@ -68,13 +70,14 @@ class SessionRunner {
         case "approval-show": this.ports.approval.show(e); break;
         case "approval-ended": this.ports.approval.end(e); break;
         case "confirm-refused": this.ports.approval.refused(e); break;
-        case "mute-store": this.ports.mute.store(e.muted); break;
         case "voice-mute-store": this.ports.voiceMute.store(e.muted); break;
+        case "hidden-store": this.ports.hidden.store(e.hidden); break;
         case "speech-open": this.ports.speech.open(e, {
             speak: () => done("speak"),
             due: due => done("speech-due", { due }),
             delegation: task => done("delegation", task),
             transcript: record => done("transcript", record),
+            inputEnded: result => done("speech-input-ended", result),
             idle: () => done("speech-idle"),
             failed: reason => done("speech-failed", { reason })
         }); break;
@@ -92,12 +95,7 @@ class SessionRunner {
         const action = this.state.action;
         const toolDeadline = action.kind === "running" && action.limit.kind === "pending"
             ? { gen: action.gen, op: action.op, deadline: action.limit.deadline } : {};
-        // A tap's end of speech runs while its microphone is open, under the
-        // capture's identity.
-        const { input, capture } = this.state;
-        const tapDeadline = input.kind === "tapped" && capture.kind === "open"
-            ? { gen: capture.gen, op: capture.op, deadline: input.deadline } : {};
-        const owners = [this.state.turn, this.state.playback, this.state.approval, this.state.check, toolDeadline, tapDeadline]
+        const owners = [this.state.turn, this.state.playback, this.state.approval, this.state.check, this.state.quiet, toolDeadline]
             .filter(owner => Number.isFinite(owner.deadline));
         if (owners.length === 0) return;
         const owner = owners.reduce((a, b) => a.deadline <= b.deadline ? a : b);
@@ -125,7 +123,7 @@ function unavailable() {
     function refuse() { throw new Error("jarvis: session=adapter-unavailable"); }
     return {
         capture: { open: refuse, close: (e, done) => done(), collect: refuse },
-        brain: { send: refuse, cancel: (e, done) => done(), close: () => {}, outcome: refuse },
+        brain: { send: refuse, cancel: (e, done) => done(), close: () => {}, reset: () => {}, outcome: refuse },
         playback: { start: refuse, flush: (e, done) => done() },
         tools: { start: refuse, cancel: refuse, outcome: refuse, sync: () => {}, close: () => {} },
         approval: { show: refuse, end: () => {}, refused: refuse },

@@ -238,7 +238,8 @@ Singleton {
             send: (options, done) => !ctx.active ? "refused: notify=released" : Notifier.send(ctx, Registry.manifests[ctx.id].name, options, notifications, done)
         }),
         layers: ctx => ({
-            show: component => Layers.show(ctx, component)
+            show: component => Layers.show(ctx, component),
+            get barIndicators() { return Layers.barIndicators(ctx); }
         }),
         // `act` runs the calling plugin's own status action, judged and run
         // as the manager's act is for that plugin; a key of another plugin

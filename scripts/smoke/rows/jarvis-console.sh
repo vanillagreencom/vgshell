@@ -1,29 +1,37 @@
 # Jarvis console window. Scripted daemon fixtures only: no audio, account,
 # provider or network runs. Under a voice that takes speech only (a duplex
 # engine) the Conversation tab shows no message box and no Send, one line
-# in their place and Stop; under mute Send names why it is off. The row has no latency ceiling. It polls once
+# in their place and Stop; voice mute keeps Send available. The row has no latency ceiling. It polls once
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
 # inputs: scripts/smoke/jarvis-console.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Ui/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 source "$source_repo/scripts/smoke/jarvis-console.sh"
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
 
 jarvis_console_config="$home/.config/vgshell/shell.json"
+local jarvis_key_config="$jarvis_console_config"
 jarvis_console_lua="$home/.config/hypr/hyprland.lua"
-jarvis_console_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-jarvis_console_qml="$repo/shell/plugins/vgs.jarvis/Console.qml"
-jarvis_console_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
-jarvis_console_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-jarvis_console_plugin="$repo/shell/plugins/vgs.jarvis"
+jarvis_console_paths() {
+  jarvis_console_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+  jarvis_console_qml="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Console.qml"
+  jarvis_console_backend="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  jarvis_console_engine="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+  jarvis_console_plugin="$jarvis_fixture_tree/shell/plugins/vgs.jarvis"
+}
+jarvis_console_select() { # INPUT
+  jarvis_fixture_begin "$sandbox/tree-$1" "$sandbox/tree-$1.commands"
+  jarvis_console_paths
+  jarvis_key_resume_marker
+}
+jarvis_console_paths
 jarvis_console_gates="$sandbox/jarvis-console-gates"
 jarvis_key_gates="$jarvis_console_gates"
 cp -- "$jarvis_console_config" "$sandbox/jarvis-console-config-before.json"
 cp -- "$jarvis_console_lua" "$sandbox/jarvis-console-lua-before"
-cp -- "$jarvis_console_service" "$sandbox/jarvis-console-service-before"
-cp -- "$jarvis_console_qml" "$sandbox/jarvis-console-qml-before"
-cp -- "$jarvis_console_backend" "$sandbox/jarvis-console-backend-before"
-cp -- "$jarvis_console_engine" "$sandbox/jarvis-console-engine-before"
+jarvis_fixture_copy jarvis-console-stock "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_console_resolve_binds_by_sym() { hypr -j getoption input:resolve_binds_by_sym | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("bool"), v["set"]]))'; }
 jarvis_console_option_before="$(jarvis_console_resolve_binds_by_sym)"
 jarvis_console_keyboards() {
@@ -88,9 +96,9 @@ jarvis_console_send_shown() {
   ipc smoke itemValues window vgs.jarvis Button text,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible") and r.get("text")=="Send"))'
 }
 jarvis_console_speech_line() {
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
+  ipc smoke itemValues window vgs.jarvis LinkText text,visible | py_reply '
 import json,sys
-print("shown" if any(r.get("visible") and str(r.get("text")).endswith(" takes speech only. Tap or hold Super+J, then speak.") for r in json.load(sys.stdin)) else "missing")
+print("shown" if any(r.get("visible") and str(r.get("text")).endswith(" takes speech only. Press Super+J to open or close the conversation.") for r in json.load(sys.stdin)) else "missing")
 '
 }
 jarvis_console_engine_kind() {
@@ -159,7 +167,7 @@ jarvis_console_audit_check() { expect_poll "History draws a plain problem senten
 # A failed voice stream's record draws its cause after its result, as a
 # withheld one draws its refusal.
 jarvis_console_audit_cause() {
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="The voice service heard no words." for r in rows) else "missing")'
+  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="The voice service stopped before finishing." for r in rows) else "missing")'
 }
 jarvis_console_audit_cause_check() { expect_poll "History draws the failed stream's cause" shown jarvis_console_audit_cause; }
 # With Problems selected, only its three-row GroupList draws separators.
@@ -208,7 +216,7 @@ jarvis_console_groups_control() {
    echo "$failures")
 }
 jarvis_console_requirement_shims() {
-  python3 - "$shim" "${jarvis_requirement_standins[@]}" <<'PY'
+  python3 - "$jarvis_fixture_shim" "${jarvis_requirement_standins[@]}" <<'PY'
 import json, pathlib, sys
 shim = pathlib.Path(sys.argv[1])
 print(json.dumps([name for name in sys.argv[2:] if (shim / name).exists()]))
@@ -223,13 +231,17 @@ expect_poll "the console row ordering marker is registered" 1 hold_native smoke:
 hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis-console "$sandbox/keyboard" us ""
-jarvis_setup_requirements
+jarvis_setup_requirements "$jarvis_fixture_shim"
 jarvis_asks_fixture "$source_repo"
 expect "the console row selects its private package Home" ok ipc shell reloadConfig
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --console-data "$jarvis_console_backend"
+jarvis_fixture_copy jarvis-console-typed "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_enable
+# Typed-turn cancellation requires manual capture. Automatic conversation
+# input intentionally starts a fresh collection after ordinary Stop.
+jarvis_key_hold true
 jarvis_shortcut_assertion
 # The first event from the row's virtual keyboard can be dropped by the
 # nested compositor; warm it with an unbound key before testing the shortcut.
@@ -254,16 +266,25 @@ expect_poll "the console sends typed text to the daemon" "$((say_before + 1))" j
 expect_poll "the console shows the typed user line" "user:typed from console:final" jarvis_console_state last
 jarvis_key_gate brain
 expect_poll "the console shows the scripted Jarvis reply" "assistant:scripted utterance:partial" jarvis_console_state last
-jarvis_key_mute
-expect_poll "muted state reaches the console" on jarvis_key_state mute
-type_keys " stays in field" || fail "typing while muted failed"
-type_keys -k Return || fail "pressing Enter while muted failed"
-expect_poll "muted Send is refused in the composer" shown jarvis_console_hint_has "Jarvis is muted. Unmute Jarvis before typing."
-expect "muted Send names why it is off" '"Jarvis is muted. Unmute Jarvis before typing."' jarvis_console_send_reason
-expect 'muted refusal keeps the typed text' '" stays in field"' jarvis_console_field_text
-expect "muted refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
-jarvis_key_mute
-expect_poll "the console controls start unmuted" off jarvis_key_state mute
+expect "voice mute reaches the daemon" ok ipc vgs.jarvis invoke voice-mute ""
+expect_poll "the console sees independent voice mute" on jarvis_key_state voiceMute
+expect_poll "the preceding reply is still playing" playing jarvis_key_state playback
+type_keys "typed from console" || fail "typing under voice mute failed"
+type_keys -k Return || fail "pressing Enter during playback failed"
+expect_poll "playback refusal reaches the composer" shown jarvis_console_hint_has "Jarvis is speaking. Wait for it to finish, or press Stop."
+expect "Send names the playback refusal" '"Jarvis is speaking. Wait for it to finish, or press Stop."' jarvis_console_send_reason
+expect "playback refusal keeps the typed text" '"typed from console"' jarvis_console_field_text
+expect "playback refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
+jarvis_key_gate played
+expect_poll "the preceding reply finishes before the next typed input" idle jarvis_key_state playback
+expect_poll "the previous typed turn completes" none jarvis_key_state turn
+expect_poll "voice mute leaves Send available" '""' jarvis_console_send_reason
+type_keys -k Return || fail "sending under voice mute failed"
+expect_poll "voice mute permits typed input" "$((say_before + 2))" jarvis_console_say_count
+expect "the typed-input case stops its pending reply" ok ipc vgs.jarvis invoke stop ""
+expect_poll "the typed-input case releases its pending turn" none jarvis_key_state turn
+expect "voice mute toggles off" ok ipc vgs.jarvis invoke voice-mute ""
+expect_poll "the console controls leave voice mute off" off jarvis_key_state voiceMute
 type_keys -k Escape || fail "typing Escape into the console failed"
 expect_poll "Escape closes the console" 0 jarvis_console_client_count
 jarvis_console_open
@@ -321,7 +342,7 @@ expect_poll "the console window is open before disable" 1 jarvis_console_client_
 jarvis_disable
 expect_poll "disabling Jarvis closes the console window" 0 jarvis_console_client_count
 
-cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
+jarvis_console_select jarvis-console-typed
 python3 - "$jarvis_console_service" <<'PY'
 from pathlib import Path
 import sys
@@ -338,7 +359,7 @@ jarvis_console_open
 hold_barrier
 expect "control: dropping the summon path breaks the open assertion" 1 jarvis_console_open_control
 jarvis_disable
-cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
+jarvis_console_select jarvis-console-typed
 python3 - "$jarvis_console_service" <<'PY'
 from pathlib import Path
 import sys
@@ -356,7 +377,7 @@ type_keys "typed from console" || fail "typing into the send control failed"
 type_keys -k Return || fail "pressing Enter in the send control failed"
 expect "control: dropping say delivery breaks the daemon assertion" 1 jarvis_console_send_drop_control "$((say_before + 1))"
 jarvis_disable
-cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
+jarvis_console_select jarvis-console-typed
 python3 - "$jarvis_console_qml" <<'PY'
 from pathlib import Path
 import sys
@@ -375,15 +396,16 @@ jarvis_console_open
 hold_barrier
 expect "control: moving focus off the field breaks the keyboard-path assertion" 1 jarvis_console_focus_control
 jarvis_disable
-cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 for jarvis_console_mutant in tabs stop audit groups; do
+  jarvis_console_select jarvis-console-typed
   python3 - "$jarvis_console_qml" "$jarvis_console_mutant" <<'PY_CONTROL'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
 changes={
     "tabs": ('model: ["Now", "Needs you", "History"]', 'model: ["Now", "Needs you"]'),
-    "stop": ('"open-task", row.id);', '"open-task", taskRows[0].id);'),
+    "stop": ('shell.ipc.call(action === "stop" ? "stop-task" : "open-task", row.id);',
+             'shell.ipc.call(action === "stop" ? "stop-task" : "open-task", taskRows[0].id);'),
     "audit": ('History.problems(auditRows, historyQuery)', 'History.problems([], historyQuery)'),
     "groups": ('GroupList {\n                    id: auditList', 'Column {\n                    id: auditList'),
 }
@@ -419,27 +441,32 @@ PY_CONTROL
     esac
   fi
   jarvis_disable
-  cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 done
 # A duplex voice: the scripted daemon again, its engine snapshotted as
 # duplex, then the same with a Console copy that keeps the message box.
 jarvis_console_duplex() { # LABEL
-  cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
-  cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
-  "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator --duplex
   jarvis_rescan
   jarvis_enable
+  # Both duplex fixtures own the Press-mode guidance, independently of
+  # the typed fixture's manual-capture premise.
+  jarvis_key_hold false
   expect_poll "$1: the scripted engine reads duplex" '"duplex"' jarvis_console_engine_kind
   jarvis_console_open
   hold_barrier
   expect_poll "$1: the console key opens one Jarvis window" 1 jarvis_console_client_count
 }
+jarvis_fixture_begin "$sandbox/tree-jarvis-console-stock" "$sandbox/tree-jarvis-console-typed.commands"
+jarvis_console_paths
+jarvis_key_resume_marker
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator --duplex
+jarvis_fixture_copy jarvis-console-duplex "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_console_duplex "duplex"
 jarvis_console_speech_only_check
 expect_poll "a duplex voice gives Stop the keyboard" true ipc smoke activeFocusWithin window vgs.jarvis IconButton
 type_keys -k Escape || fail "Escape on the duplex console failed"
 expect_poll "Escape closes the duplex console" 0 jarvis_console_client_count
 jarvis_disable
+jarvis_console_select jarvis-console-duplex
 python3 - "$jarvis_console_qml" <<'PY_DUPLEX'
 from pathlib import Path
 import sys
@@ -452,27 +479,27 @@ jarvis_console_duplex "duplex control"
 expect "control: a message box under a duplex voice fails the message box and Send assertions" 2 jarvis_console_speech_only_control
 jarvis_disable
 jarvis_asks_restore
-cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
-cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
-cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
-cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
-rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
-jarvis_rescan
 cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config.next" && mv -T -- "$jarvis_console_config.next" "$jarvis_console_config"
 cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
 expect "restore the Jarvis console shell configuration" ok ipc shell reloadConfig
 expect "restore the Jarvis console keyboard configuration" ok hypr reload config-only
 expect "the console row restores symbolic bind resolution" "$jarvis_console_option_before" jarvis_console_resolve_binds_by_sym
-jarvis_restore_requirements
+jarvis_restore_requirements "$jarvis_fixture_shim"
 expect "the console row removes its requirement shims" '[]' jarvis_console_requirement_shims
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-console-return.log" bar PATH="$jarvis_fixture_shim:$shim:$shell_host_path"
+jarvis_fixture_tree="$repo"
+jarvis_console_paths
+jarvis_key_resume_marker
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect "the console row leaves no scripted fixture" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$jarvis_console_plugin/backend/scripted-fixture.js"
-expect "the console row restores Console.qml" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
-expect "the console row restores ChainedEngine.js" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
-expect "the console row leaves no Jarvis mute state" False python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
+expect "the console row restores Console.qml" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/tree-jarvis-console-stock/shell/plugins/vgs.jarvis/Console.qml" "$repo/shell/plugins/vgs.jarvis/Console.qml"
+expect "the console row restores ChainedEngine.js" same python3 -c 'import filecmp,sys; print("same" if filecmp.cmp(sys.argv[1], sys.argv[2], shallow=False) else "different")' "$sandbox/tree-jarvis-console-stock/shell/plugins/vgs.jarvis/backend/ChainedEngine.js" "$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+
 jarvis_disable
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
 # Rows share the harness process. Waiting for EXIT keeps this keyboard
 # alive in later rows and replaces the harness's sandbox teardown.
 expect "control: retaining the console keyboard fails the device cleanup check" 1 jarvis_console_keyboard_control
@@ -481,3 +508,6 @@ hold_stop_keyboard
 expect "the console row releases its ordering marker" ok ipc smoke holdMarkerStop
 expect_poll "the console row leaves no ordering marker" 0 hold_native smoke:hold-marker
 jarvis_console_keyboard_check
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-console-stock.log"

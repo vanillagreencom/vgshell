@@ -12,24 +12,38 @@
 # 200 ms (expect_poll); the driver polls its call file every 10 ms.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
 
-jd_dir="$repo/shell/plugins/vgs.jarvis"
-jd_backend="$jd_dir/backend/jarvisd.js"
-jd_engine="$jd_dir/backend/ChainedEngine.js"
-jd_desktop="$jd_dir/backend/DesktopSession.js"
-jd_service="$jd_dir/Service.qml"
+jd_paths() {
+  jd_dir="$jarvis_fixture_tree/shell/plugins/vgs.jarvis"
+  jd_backend="$jd_dir/backend/jarvisd.js"
+  jd_engine="$jd_dir/backend/ChainedEngine.js"
+  jd_desktop="$jd_dir/backend/DesktopSession.js"
+  jd_service="$jd_dir/Service.qml"
+}
+jd_select() { # INPUT
+  jarvis_fixture_begin "$sandbox/tree-$1" "$sandbox/tree-$1.commands"
+  jd_paths
+}
+jd_hyprctl() {
+  if [[ $1 == real ]]; then
+    rm -f -- "$jarvis_fixture_shim/hyprctl"
+  else
+    local shim="$jarvis_fixture_shim"
+    shim_hyprctl "$1"
+  fi
+}
+jd_paths
 jd_driver="$sandbox/jarvis-desktop-driver"
 jd_gates="$sandbox/jarvis-desktop-gates"
 jd_standin="$sandbox/jarvis-world/standins/hyprctl"
 jd_entry="$home/.local/share/applications/smoke-jarvis-app.desktop"
 jd_audit="$home/.local/state/vgshell/jarvis/audit"
 mkdir -p -- "$jd_driver"
-cp -- "$jd_backend" "$sandbox/jarvis-desktop-backend-before"
-cp -- "$jd_engine" "$sandbox/jarvis-desktop-engine-before"
-cp -- "$jd_desktop" "$sandbox/jarvis-desktop-desktop-before"
-cp -- "$jd_service" "$sandbox/jarvis-desktop-service-before"
+jarvis_fixture_copy jarvis-desktop-stock "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jd_audit_before=false
 [[ -e $jd_audit ]] && jd_audit_before=true
 expect "the desktop row starts with Jarvis disabled" absent ipc smoke jarvisProcess
@@ -46,17 +60,18 @@ chmod 700 "$jd_standin"
 : >"$sandbox/jarvis-desktop-hyprctl.log"
 # The shell's dispatches dropped behind an `ok`, as a dispatcher that
 # moves nothing answers.
-cat >"$shim/hyprctl.jarvis-noop" <<EOF
+cat >"$jarvis_fixture_shim/hyprctl.jarvis-noop" <<EOF
 #!/usr/bin/env bash
 if [[ \${1:-} == dispatch ]]; then echo ok; else exec "$hyprctl_bin" "\$@"; fi
 EOF
-chmod 755 "$shim/hyprctl.jarvis-noop"
+chmod 755 "$jarvis_fixture_shim/hyprctl.jarvis-noop"
 mkdir -p -- "$home/.local/share/applications"
 printf '[Desktop Entry]\nType=Application\nName=Smoke Jarvis App\nExec=%s %s smoke.jarvis-app JarvisApp\nStartupWMClass=smoke.jarvis-app\n' \
   "$sandbox/display-client" "$sandbox/toplevel" >"$jd_entry"
 
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jd_backend" "$jd_gates"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/desktop-driver.js" "$jd_backend" "$jd_driver"
+jarvis_fixture_copy jarvis-desktop-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 
 jd_id=""
@@ -191,19 +206,20 @@ if open_toplevel "$sandbox/jarvis-desktop-target.log" smoke.jarvis-desktop targe
     # tool. The read-back defect must fail this same assertion once.
     jd_dropped() {
       local outcome
-      shim_hyprctl jarvis-noop
+      jd_hyprctl jarvis-noop
       jd_call windows.focus "{\"window\": \"$jd_other\"}"
       for _ in $(seq 1 50); do
         outcome="$(jd_result "$jd_id" outcome)"
         [[ $outcome == pending ]] || break
         sleep 0.2
       done
-      shim_hyprctl real
+      jd_hyprctl real
       expect "a dropped dispatch is not reported completed" failed printf '%s' "$outcome"
     }
     jd_dropped
     expect "the dropped focus left Hyprland unchanged" '["smoke.jarvis-desktop", "target"]' active_window
     jarvis_disable
+    jd_select jarvis-desktop-input
     "$node_bin" "$source_repo/scripts/fixtures/jarvis/desktop-driver.js" --readback-defect "$jd_desktop"
     python3 - "$jd_service" <<'PY'
 from pathlib import Path
@@ -220,8 +236,7 @@ PY
     jd_control_count="$( (failures=0 row_class=behaviour; expect "the service hands the daemon this session's Hyprland signature" "$signature" jd_signature >"$sandbox/jarvis-desktop-signature-control.log"; echo "$failures") )"
     expect "control: a service that drops the signature fails its hand-over once" 1 printf '%s' "$jd_control_count"
     jarvis_disable
-    cp -- "$sandbox/jarvis-desktop-desktop-before" "$jd_desktop"
-    cp -- "$sandbox/jarvis-desktop-service-before" "$jd_service"
+    jd_select jarvis-desktop-input
     jarvis_rescan
     jarvis_enable
 
@@ -312,8 +327,7 @@ print(rows[-1]["outcome"] if rows else "none")' "$1"
 jd_said() { ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; t=json.load(sys.stdin)["transcript"]; print("" if t is None else t["role"] + ": " + t["text"])'; }
 jd_fast_install() { # ENGINE_EDIT: python that edits the engine copy, or empty
   jarvis_disable
-  cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
-  cp -- "$sandbox/jarvis-desktop-engine-before" "$jd_engine"
+  jd_select jarvis-desktop-stock
   "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jd_backend" "$jd_gates"
   "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jd_engine"
   [[ -z $1 ]] || python3 -c "$1" "$jd_engine"
@@ -347,10 +361,9 @@ expect "control: an engine without the matcher fails the fast path once" 1 print
 expect "the control's waiting turn stops" ok ipc vgs.jarvis invoke stop ""
 
 jarvis_disable
-cp -- "$sandbox/jarvis-desktop-engine-before" "$jd_engine"
-rm -- "$jd_standin" "$jd_entry" "$shim/hyprctl.jarvis-noop" "$jd_dir/backend/desktop-driver-fixture.js" "$jd_dir/backend/scripted-fixture.js"
-cp -- "$sandbox/jarvis-desktop-backend-before" "$jd_backend"
-rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"
+rm -- "$jd_standin" "$jd_entry"
 [[ $jd_audit_before == true ]] || rm -rf -- "${jd_audit:?}"
-jarvis_rescan
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-desktop-stock.log"

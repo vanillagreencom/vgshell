@@ -2,7 +2,7 @@
 // jarvisd --tree ABSOLUTE_VGS_TREE
 // Stdin is the service's lease. EOF exits 0; a partial line or a refused
 // message exits 65. Task-store or confirmation-audit failure exits 74. Node below 22 or a
-// mute or voice mute record failure exits 78. Stdout carries status/state
+// voice mute or hidden record or retired-state cleanup failure exits 78. Stdout carries status/state
 // messages and shell requests judged by JarvisProtocol; stderr carries keyed jarvis: failures.
 // A reply for a request that awaits none exits 65 like any refused message.
 // Startup validates coding-task records and publishes their durable producer,
@@ -84,7 +84,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let files = null;
     let shell = null;
     let requirementsScan = -1;
-    const clock = { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
+    const clock = { now: () => performance.now(), wallNow: Date.now,
+        set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
     let tasks = null;
     let publishedTasks = null;
     let publishedVoices = null;
@@ -150,7 +151,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             causes: configuration.kind === "ready" ? [] : configuration.causes, cautions: configuration.cautions });
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
-        // Session still owns lock, mute, fault and indicator admission.
+        // Session still owns lock, fault and indicator admission.
         lastConfiguration = configuration;
         snapshot();
     }
@@ -162,7 +163,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function snapshot() {
         runner.dispatch({ type: "snapshot", locked: context.locked, engine: engine.engine(),
             configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),
-            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });
+            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()),
+            echoCancel: audio.echoActive(engine.engine()), settings: context.settings });
     }
 
     // Judge the home and the engine again; the status carries each failing
@@ -235,7 +237,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         void audio.close("protocol");
         refuse(error.message.startsWith("jarvis: tasks=") || error.message.startsWith("jarvis: task=")
             || error.message.startsWith("jarvis: audit=") ? 74
-            : /^jarvis: (voice-)?mute=/.test(error.message) ? 78 : 65, error.message);
+            : /^jarvis: (voice-mute=|hidden=|state=retired-mute-)/.test(error.message) ? 78 : 65, error.message);
     }
 
     // Adapt the shared request result to the task display's text contract.
@@ -353,8 +355,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         }
     }
 
-    // The microphone's mute and Jarvis's voice mute each keep their own
-    // record of one field, { muted }.
+    // The retired microphone mute record grants no state. Unlink the entry
+    // itself so a link cannot delete its target; never read or restore it.
+    function retireMute() {
+        try { fs.unlinkSync(path.join(context.directories.state, "mute.json")); }
+        catch (error) {
+            if (error.code !== "ENOENT") throw new Error("jarvis: state=retired-mute-remove-failed");
+        }
+    }
+
+    // Jarvis's voice mute keeps one field, { muted }.
     function readMuted(area, name) {
         return readRecord(area, name, 64, value => {
             if (value === null || typeof value !== "object" || Array.isArray(value)
@@ -364,10 +374,19 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         }, false);
     }
 
-    const readMute = () => readMuted("mute", "mute.json");
     const readVoiceMute = () => readMuted("voice-mute", "voice-mute.json");
-    function storeMute(muted) { storeRecord("mute", "mute.json", { muted }); }
     function storeVoiceMute(muted) { storeRecord("voice-mute", "voice-mute.json", { muted }); }
+
+    function readHidden() {
+        return readRecord("hidden", "hidden.json", 64, value => {
+            if (value === null || typeof value !== "object" || Array.isArray(value)
+                    || Object.keys(value).join(",") !== "hidden" || typeof value.hidden !== "boolean")
+                throw new Error("jarvis: hidden=record-shape");
+            return value.hidden;
+        }, false);
+    }
+
+    function storeHidden(hidden) { storeRecord("hidden", "hidden.json", { hidden }); }
 
     function readHomes() {
         try {
@@ -473,6 +492,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         try { write(memoryInboxMessage(entries)); }
         catch (error) { process.stderr.write("jarvis: memory=inbox-publish\n"); }
     }
+    function refreshAudioSnapshot() {
+        if (!ending && context !== null && lastConfiguration !== null
+                && (audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource
+                    || audio.echoActive(engine.engine()) !== (runner.state.duplex.kind === "full"))) snapshot();
+    }
     const audio = new Audio({
         session: Session, environment: process.env, clock: {
             now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
@@ -482,21 +506,24 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             write({ v: 1, type: "devices", gen: runner.state.gen, revision: context.revision, ...devices });
             // A new default microphone reaches Session after Audio's own
             // update, so a check result never outlives the source it heard.
-            queueMicrotask(() => {
-                if (!ending && context !== null && lastConfiguration !== null && audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource) snapshot();
-            });
+            queueMicrotask(refreshAudioSnapshot);
         },
         level: (gen, level) => {
             if (!ending && context !== null) write({ v: 1, type: "level", gen,
                 revision: context.revision, level });
         },
-        fault, captureSink: null, playbackSource: null
+        fault, captureSink: null, playbackSource: null, input: event => runner.dispatch(event),
+        echo: reading => {
+            if (ending || context === null) return;
+            write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...reading });
+            queueMicrotask(refreshAudioSnapshot);
+        }
     });
     const ports = unavailable();
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.playback = audio.playbackPort;
-    ports.mute = { store: storeMute };
     ports.voiceMute = { store: storeVoiceMute };
+    ports.hidden = { store: storeHidden };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
             revision: context.revision, role: e.role,
@@ -601,6 +628,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     });
                     continue;
                 }
+                if (message.type === "echo-cancel-refresh") {
+                    intentIdentity(message);
+                    audio.refreshEcho();
+                    write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...audio.echoRoute });
+                    snapshot();
+                    continue;
+                }
                 if (message.type === "reply") {
                     intentIdentity(message);
                     requests.reply(message);
@@ -609,9 +643,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 if (message.type === "indicator") {
                     if (context === null || message.revision !== context.revision)
                         throw new Error("jarvis: protocol=indicator-identity");
-                    // Mapping is service lifetime input, not a turn callback.
-                    // A gone observation must close capture even across gen.
-                    runner.dispatch({ type: "indicator", shown: message.shown });
+                    // Orb mapping is service lifetime input; a positive bar
+                    // frame belongs to the generation its badge presented.
+                    runner.dispatch({ type: "indicator", gen: message.gen, shown: message.shown, bar: message.bar });
                     continue;
                 }
                 if (message.type === "intent") {
@@ -629,13 +663,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         // takes the request, and the voices are read again.
                         if ((message.intent === "talk-down" || message.intent === "say") && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();
                         const dispatch = () => {
-                            runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
-                                : message.intent === "voice-mute" ? { type: "voice-mute-toggle" }
+                            runner.dispatch(message.intent === "voice-mute" ? { type: "voice-mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }
                                 : message.intent === "preview" ? { type: "preview", voice: message.voice }
                                 : { type: message.intent });
                         };
-                        if (["mute", "stop"].includes(message.intent)) audit.cleanup(message.intent, dispatch);
+                        if (message.intent === "stop") audit.cleanup(message.intent, dispatch);
                         else dispatch();
                     }
                     continue;
@@ -693,7 +726,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,
                         directory: context.directories.runtime, release: { prepare: (value, recipients) => engine.release.prepare(value, recipients) },
-                        answered: (value, tool) => engine.brain.bridged(value, tool) });
+                        answered: (value, tool) => engine.brain.bridged(value, tool),
+                        sent: (value, labels) => engine.brain.retained(value, labels) });
                     gate = HarnessGate.create({ router, state: () => runner.state });
                     router.register("harness", gate.executor);
                     // Executor owners register only after their real probes.
@@ -795,6 +829,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured, fatal,
                         log: line => process.stderr.write(line + "\n"),
                         modelUsed: choice => write({ v: 1, type: "model-fallback", gen: runner.state.gen, revision: context.revision, ...choice }),
+                        renewal: gen => write({ v: 1, type: "voice-renewal", gen, revision: context.revision }),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         tasks: { held: () => tasks.held(),
                             answer: (task, prompt, value) => {
@@ -820,9 +855,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     audio.captureSink = engine.captureSink;
                     audio.playbackSource = engine.playbackSource;
                 }
-                if (first && readMute()) runner.dispatch({ type: "mute" });
+                if (first) retireMute();
                 if (first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });
+                if (first && readHidden()) runner.dispatch({ type: "hidden" });
                 judgeSetup();
+                audio.refreshEcho();
+                write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...audio.echoRoute });
                 if (first) startFleetCutover();
                 if (memory !== null) writeMemoryInbox();
                 if (first) void audio.discover().catch(error => {

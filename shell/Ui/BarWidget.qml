@@ -52,6 +52,10 @@ Item {
     property var settings: ({})
     property var frame: null
     property bool unplaced: false
+    // Optional real BarItem for the bar host's frame observation. This
+    // declaration requests observation, never grants presentation itself.
+    property Item presentationItem: null
+    property string presentationKey: ""
     // A saved widget can become unplaced without being destroyed. Close
     // its frame UI before any menu action can use the withdrawn locator.
     onFrameChanged: if (frame === null) frameUi.active = false
@@ -230,6 +234,16 @@ Item {
                 hideMenu.open("pointer");
             }
 
+            // The entry's handler connects before Menu's open-time closers.
+            // A synchronous action can rebuild the Repeater and destroy those
+            // connections during triggered, so this owner closes first.
+            // https://doc.qt.io/qt-6/signalsandslots.html#signals
+            function triggerFrameAction(index) {
+                const action = root.frameActions[index].action;
+                hideMenu.close(true);
+                action();
+            }
+
             function ask(kind) {
                 asking = false;
                 if (root.frame === null) return;
@@ -279,9 +293,10 @@ Item {
                         required property int index
                         text: modelData.label
                         iconName: modelData.icon
+                        disabledReason: modelData.disabledReason || ""
                         // Read from the list itself: a model entry is a copy
                         // that need not keep the function.
-                        onTriggered: root.frameActions[index].action()
+                        onTriggered: ui.triggerFrameAction(index)
                     }
                 }
                 MenuItem {

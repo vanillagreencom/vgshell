@@ -102,10 +102,17 @@ jarvis_asks_action() { # ROW_TITLE ACTION
   click_scoped_in window:Jarvis window vgs.jarvis MessageRow "$1" Button "$2"
 }
 jarvis_asks_badge() {
-  ipc smoke itemValues "$(bar_key)" vgs.jarvis Badge variant,text,visible | py_reply '
+  ipc smoke itemValues "$(bar_key)" vgs.jarvis QQuickLoader objectName,active,item.text,item.displayedText | py_reply '
 import json,sys
-rows=[r for r in json.load(sys.stdin) if r.get("visible") and r.get("variant")=="unread"]
-print(rows[0].get("text") if len(rows)==1 else "badges="+str(len(rows)))
+rows=[r for r in json.load(sys.stdin) if r.get("objectName")=="bar-item-count"]
+if len(rows)!=1:
+    print("count-loaders="+str(len(rows)))
+elif not rows[0].get("active"):
+    print("absent")
+elif rows[0].get("item.text")!=rows[0].get("item.displayedText"):
+    print("count-draw-mismatch")
+else:
+    print(rows[0].get("item.text"))
 '
 }
 jarvis_asks_tab_badge() {

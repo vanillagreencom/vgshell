@@ -6,13 +6,12 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
+import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's approval prompt and fault line as the overlay draws them: the
 // question and the fault's title in the shared bodyStrong role, the state
-// line in label; each line and answer in the look's ink over the look's
-// text shadow, which draws no frame while nothing changes, the prompt's
-// lines and the answers in one ink in both modes while light mode draws
-// the state line, the fault's action and its link in LIGHT's inks; the
+// line in label; each line and answer in the mode's look over the look's
+// text shadow, which draws no frame while nothing changes; the
 // answers at the look's height, Cancel as bare words and Confirm on the
 // look's fill; and Confirm's shimmer still at motion scale 0. The held
 // request's frame acknowledgement and the drawn overlay on a real layer
@@ -27,13 +26,14 @@ Item {
     QtObject {
         id: service
         property var sessionState: null
+        property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
         property var consoleBox: null
         property string consoleKey: ""
         property string heldKey: ""
-        property var effectiveKeys: ({ stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" })
-        property var shell: ({ status: { values: {} }, surfaces: { openPage: () => {} } })
+        property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
+        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: {} }, surfaces: { openPage: () => {} } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) {}
@@ -55,9 +55,7 @@ Item {
     }
 
     function session(over) {
-        const s = { gen: 1, check: { kind: "none" }, gate: { kind: "up" }, fault: { kind: "none" }, approval: { kind: "none" },
-            action: { kind: "none" }, playback: { kind: "none" }, speech: { kind: "none" }, turn: { kind: "none" },
-            capture: { kind: "closed" }, mute: { kind: "off" }, voiceMute: { kind: "off" }, engine: { kind: "chained" } };
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
         for (const key in over) s[key] = over[key];
         return s;
     }
@@ -148,7 +146,7 @@ Item {
             return [
                 { tag: "the approval question", state: root.held, text: "Delete draft.txt?", role: "bodyStrong" },
                 { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), title: true, role: "bodyStrong" },
-                { tag: "the state line", state: root.session({ capture: { kind: "open", mode: "armed" } }), text: "Say Hey Jarvis", role: "label" }
+                { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk", role: "label" }
             ];
         }
 
@@ -197,7 +195,7 @@ Item {
                 { tag: "the payload", state: root.write("p", 3), payload: true },
                 { tag: "Cancel", state: root.held, answer: "Cancel" },
                 { tag: "Confirm", state: root.held, answer: "Confirm" },
-                { tag: "the state line", state: root.session({ capture: { kind: "open", mode: "armed" } }), text: "Say Hey Jarvis" },
+                { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk" },
                 { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), title: true },
                 { tag: "the fault action", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), action: true }
             ];
@@ -234,8 +232,7 @@ Item {
             tryVerify(() => frames.count > 0, 1000, "a changed question draws");
         }
 
-        // The prompt's lines draw the look's ink, the same in the light mode
-        // as in the dark; the state line draws the mode's own ink, which
+        // The prompt's lines and answers draw the mode's ink, which
         // tst_jarvis_field.qml holds to its measured contrast.
         function test_lines_draw_the_looks_ink_in_both_modes_data() {
             return [{ tag: "dark", light: false }, { tag: "light", light: true }];
@@ -243,15 +240,14 @@ Item {
 
         function test_lines_draw_the_looks_ink_in_both_modes(data) {
             if (data.light) compare(UnitTheme.override({ scheme: { mode: "light" } }), "ok");
-            const dark = Theme.appearance(Appearance.TOKENS, {});
             put(root.held);
-            compare(String(labelOf("Delete draft.txt?").color), String(Qt.color(dark.ink.question)));
-            compare(String(labelOf("/home/fixture/draft.txt").color), String(Qt.color(dark.ink.path)));
-            compare(String(labelOf("Use the button or key to confirm.").color), String(Qt.color(dark.ink.hint)));
-            compare(String(answer("Cancel").foreground), String(Qt.color(dark.answer.bareInk)));
-            compare(String(answer("Confirm").foreground), String(Qt.color(dark.answer.ink)));
-            put(root.session({ capture: { kind: "open", mode: "armed" } }));
-            compare(String(labelOf("Say Hey Jarvis").color), String(Qt.color(root.look.ink.state)));
+            compare(String(labelOf("Delete draft.txt?").color), String(Qt.color(root.look.ink.question)));
+            compare(String(labelOf("/home/fixture/draft.txt").color), String(Qt.color(root.look.ink.path)));
+            compare(String(labelOf("Use the button or key to confirm.").color), String(Qt.color(root.look.ink.hint)));
+            compare(String(answer("Cancel").foreground), String(Qt.color(root.look.answer.bareInk)));
+            compare(String(answer("Confirm").foreground), String(Qt.color(root.look.answer.ink)));
+            put(root.session({ conversation: { kind: "active", purpose: "conversation" } }));
+            compare(String(labelOf("Ready to talk").color), String(Qt.color(root.look.ink.state)));
         }
 
         // On a layer narrower than the prompt's width the prompt reflows to

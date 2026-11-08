@@ -1,11 +1,25 @@
 {
-  "version": 4,
+  "version": 6,
   "packageReviewSettingsSource": "vgs.updates",
+  "conversationSettingsMigration": {
+    "id": "vgs.jarvis",
+    "mode": "mode",
+    "holdToTalk": "holdToTalk",
+    "modeValues": { "hold": true, "toggle": false, "always": false },
+    "voiceProvider": "voiceProvider",
+    "voiceAccount": "voiceAccount",
+    "retiredKey": "mute"
+  },
   "shortcutKeyMigrations": [
     { "id": "vgs.jarvis", "shortcut": "talk", "from": "SUPER+code:108", "to": "SUPER+code:44" },
     { "id": "vgs.jarvis", "shortcut": "mute", "from": "SUPER+SHIFT+code:108", "to": "SUPER+SHIFT+code:44" },
     { "id": "vgs.settings", "shortcut": "toggle", "from": "SUPER+M", "to": "SUPER+PERIOD" },
-    { "id": "vgs.system", "shortcut": "toggle", "from": "SUPER+PERIOD", "to": "SUPER+COMMA" }
+    { "id": "vgs.system", "shortcut": "toggle", "from": "SUPER+PERIOD", "to": "SUPER+COMMA" },
+    { "id": "vgs.jarvis", "shortcut": "voice-mute", "from": "SUPER+ALT+code:44", "to": "SUPER+CTRL+M", "targetVersion": 5 },
+    { "id": "vgs.jarvis", "shortcut": "stop", "from": "SUPER+ALT+PERIOD", "to": "SUPER+CTRL+X", "targetVersion": 5 },
+    { "id": "vgs.jarvis", "shortcut": "confirm", "from": "SUPER+ALT+Y", "to": "SUPER+CTRL+Y", "targetVersion": 5 },
+    { "id": "vgs.voice", "shortcut": "toggle", "from": "SUPER+CTRL+X", "to": null, "targetVersion": 5 },
+    { "id": "vgs.agent-warden", "shortcut": "toggle", "from": "SUPER+CTRL+Y", "to": null, "targetVersion": 5 }
   ],
   "bar": {
     "id": "vgs.bar",

@@ -270,7 +270,7 @@ world(() => {
     function routerWorld(RouterImpl = Router) {
         let transcript, at = 0;
         const audit = Audit.create({ state: path.join(process.env.JARVIS_TEST_ROOT, "audit-" + ++serial), now: () => Date.UTC(2026, 9, 1) });
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome: value => results.push(value) } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: fn => ({ fn }), clear() {} }, () => {});
@@ -281,8 +281,8 @@ world(() => {
         Object.assign(ports, router.ports);
         router.register("files", { commands: [], timeoutMs: 1000, cancellable: false,
             start(call, done) { done({ outcome: "completed", content: "wrote" }); } });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
         const turn = () => ({ gen: runner.state.gen, op: runner.state.turn.op });
         const m = make();
@@ -371,7 +371,7 @@ world(() => {
         fs.mkdirSync(folder, { recursive: true }); fs.mkdirSync(state, { recursive: true });
         let transcript;
         const audit = Audit.create({ state: path.join(state, "audit"), now: () => Date.UTC(2026, 9, 1) });
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => 0, set: fn => ({ fn }), clear() {} }, () => {});
@@ -379,8 +379,8 @@ world(() => {
             audit, context: () => ({ profile: "standard", locked: false, denied: Denied.create(fixtures.roots) }), result() {} });
         Object.assign(ports, router.ports);
         logic.install({ router, directory: path.join(state, "memory"), home: () => null, log() {} });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture");
         assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false);
         audit.close();

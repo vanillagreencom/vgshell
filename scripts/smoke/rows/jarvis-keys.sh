@@ -4,6 +4,8 @@
 # gates poll at 10 ms; hold barriers use the shell's native marker.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
 expected_errors+=("${dictation_absent_errors[@]}")
@@ -13,23 +15,16 @@ expected_errors+=("${jarvis_provoked_errors[@]}")
 
 jarvis_key_config="$home/.config/vgshell/shell.json"
 jarvis_key_lua="$home/.config/hypr/hyprland.lua"
-jarvis_key_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-jarvis_key_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
-jarvis_key_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-jarvis_key_session="$repo/shell/plugins/vgs.jarvis/Session.js"
+jarvis_key_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+jarvis_key_backend="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+jarvis_key_engine="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+jarvis_key_session="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Session.js"
 jarvis_key_gates="$sandbox/jarvis-key-gates"
 cp -- "$jarvis_key_config" "$sandbox/jarvis-key-config-before.json"
 cp -- "$jarvis_key_lua" "$sandbox/jarvis-key-lua-before"
-cp -- "$jarvis_key_service" "$sandbox/jarvis-key-service-before"
-cp -- "$jarvis_key_backend" "$sandbox/jarvis-key-backend-before"
-cp -- "$jarvis_key_engine" "$sandbox/jarvis-key-engine-before"
-cp -- "$jarvis_key_session" "$sandbox/jarvis-key-session-before"
-# Session's own bounds: a release sooner than TAP_MS is a tap, and a tapped
-# request ends by itself TAP_SILENCE_MS after the tap or its last words.
+# Only short silent holds close the conversation; the real Session owns the bound.
 jarvis_key_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$jarvis_key_session")"
-jarvis_key_silence_ms="$(sed -n 's/^var TAP_SILENCE_MS = \([0-9][0-9]*\);$/\1/p' "$jarvis_key_session")"
-expect "Session names its tap and silence bounds" ok \
-  python3 -c 'import sys; print("ok" if all(v.isdigit() for v in sys.argv[1:]) else sys.argv[1:])' "$jarvis_key_tap_ms" "$jarvis_key_silence_ms"
+expect "Session names its tap bound" True python3 -c 'import sys; print(sys.argv[1].isdigit())' "$jarvis_key_tap_ms"
 expect "the key row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_key_backend" "$jarvis_key_gates" --mapped-indicator
 python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" <<'PY'
@@ -42,10 +37,17 @@ assert s.count(needle)==1
 record='\n                    fs.appendFileSync('+json.dumps(sys.argv[2])+', JSON.stringify(message.intent) + "\\n");'
 p.write_text(s.replace(needle,needle+record))
 PY
-cp -- "$jarvis_key_backend" "$sandbox/jarvis-key-scripted-before"
 jarvis_gate="$sandbox/jarvis-key-startup-gate"
 jarvis_seen="$sandbox/jarvis-key-startup-seen"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --gate-daemon "$jarvis_key_backend" "$jarvis_gate" "$jarvis_seen"
+jarvis_fixture_copy jarvis-keys-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
+jarvis_key_select() {
+  jarvis_fixture_begin "$sandbox/tree-jarvis-keys-input" "$sandbox/tree-jarvis-keys-input.commands"
+  jarvis_key_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+  jarvis_key_backend="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  jarvis_key_engine="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+  jarvis_key_session="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Session.js"
+}
 jarvis_rescan
 
 jarvis_key_state() { # FIELD
@@ -58,8 +60,8 @@ elif sys.argv[1] == "phase":
     print(d["phase"])
 elif sys.argv[1] == "stale":
     print(d["state"]["stale"])
-elif sys.argv[1] == "mode":
-    print(d["state"]["settings"]["mode"])
+elif sys.argv[1] == "holdToTalk":
+    print(str(d["state"]["settings"]["holdToTalk"]).lower())
 else:
     print(d["state"][sys.argv[1]]["kind"])
 ' "$1"
@@ -82,14 +84,8 @@ rows=[json.loads(line) for line in p.read_text().splitlines()] if p.exists() els
 print(len(rows) if sys.argv[2]=='count' else json.dumps(rows[int(sys.argv[2]):]))
 PY
 }
-jarvis_key_received_control() { # FIXTURE_FILE
-  (failures=0 behaviour_failures=0
-   jarvis_key_intents="$1"
-   expect "the exact muted key inputs and unmute must arrive in order" '["talk-down", "talk-up", "stop", "mute"]' jarvis_key_received 0 >"$sandbox/jarvis-key-received-control.log"
-   echo "$failures")
-}
 jarvis_key_gate() { : >"$jarvis_key_gates/$1"; }
-jarvis_key_mode() { # MODE
+jarvis_key_hold() { # true|false
   user_config_write python3 - "$jarvis_key_config" "$1" <<'PY'
 import json,sys
 from pathlib import Path
@@ -97,11 +93,11 @@ p=Path(sys.argv[1]); value=json.loads(p.read_text())
 row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
 if row is None:
     row={"id":"vgs.jarvis"}; value["plugins"].append(row)
-row["mode"]=sys.argv[2]
+row["holdToTalk"]=json.loads(sys.argv[2])
 print(json.dumps(value))
 PY
-  expect "deliver the Jarvis talk mode" ok ipc shell reloadConfig
-  expect_poll "the running daemon receives its mode" "$1" jarvis_key_state mode
+  expect "deliver the Jarvis hold setting" ok ipc shell reloadConfig
+  expect_poll "the running daemon receives Hold to talk" "$1" jarvis_key_state holdToTalk
 }
 # Sleep until MS milliseconds have passed since AT, a now_ms reading.
 jarvis_key_wait_past() { # AT MS
@@ -117,110 +113,13 @@ jarvis_key_talk_up() {
 }
 # A tap: both edges at once, far inside the tap bound.
 jarvis_key_tap() { hold_send "down 133" "down 44" "up 44" "up 133"; jarvis_key_tapped_at="$(now_ms)"; }
-# Whether the request is sent, phase thinking, before DEADLINE, a now_ms
-# reading. A silent tapped request ends by itself TAP_SILENCE_MS after its
-# release, so the callers' deadline, half that bound past the key, catches
-# only a send that comes from the key.
-jarvis_key_sent_before() { # DEADLINE
-  local phase
-  while :; do
-    phase="$(jarvis_key_state phase)" || return
-    if [[ $phase == thinking ]]; then echo sent; return; fi
-    if (( $(now_ms) >= $1 )); then echo "phase=$phase at the bound"; return; fi
-    sleep 0.1
-  done
-}
-# A tap, then the wait past the tap bound and the key barrier, which counts
-# its marker in this shell, never in a control's subshell.
-jarvis_key_tap_wait() {
-  jarvis_key_tap
-  jarvis_key_wait_past "$jarvis_key_tapped_at" $((jarvis_key_tap_ms + 300))
-  hold_barrier
-}
-jarvis_key_tap_keeps() { expect "a tap keeps listening past the tap bound" tapped jarvis_key_state input; }
-jarvis_key_tap_listens() { jarvis_key_tap_wait; jarvis_key_tap_keeps; }
-jarvis_key_hold_sends() {
-  local released
-  jarvis_key_talk_down
-  expect_poll "the held talk key starts listening" listening jarvis_key_state phase
-  jarvis_key_talk_up
-  released="$(now_ms)"
-  expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((released + jarvis_key_silence_ms / 2))
-}
-jarvis_key_second_tap_sends() {
-  local first="$jarvis_key_tapped_at"
-  jarvis_key_tap
-  expect "the second tap sends the tapped request" sent jarvis_key_sent_before $((first + jarvis_key_silence_ms / 2))
-}
-# One Session copy per tap rule: NEEDLE becomes REPLACEMENT, SETUP runs
-# ("-" for none), and JUDGED's one assertion must then fail once.
-jarvis_key_tap_control() { # LABEL NEEDLE REPLACEMENT SETUP JUDGED
-  python3 - "$jarvis_key_session" "$2" "$3" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); assert s.count(sys.argv[2])==1
-changed=s.replace(sys.argv[2], sys.argv[3])
-assert changed!=s
-p.write_text(changed)
-PY
-  jarvis_rescan
-  jarvis_enable
-  jarvis_key_mode hold
-  [[ $4 == - ]] || "$4"
-  expect "$1 breaks its tap assertion" 1 jarvis_key_tap_judged "$5"
-  jarvis_disable
-  cp -- "$sandbox/jarvis-key-session-before" "$jarvis_key_session"
-}
-jarvis_key_tap_judged() { # FUNCTION
-  (failures=0 behaviour_failures=0
-   "$1" >"$sandbox/jarvis-key-tap-control-$1.log"
-   echo "$failures")
-}
-jarvis_key_mute() { hold_send "down 133" "down 50" "down 44" "up 44" "up 50" "up 133"; }
-jarvis_key_stop() { hold_send "down 133" "down 64" "down 60" "up 60" "up 64" "up 133"; }
+jarvis_key_stop() { hold_send "down 133" "down 37" "down 53" "up 53" "up 37" "up 133"; }
 jarvis_key_commit() { expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase; }
 jarvis_key_commit_control() {
   (failures=0 behaviour_failures=0
    jarvis_key_commit >"$sandbox/jarvis-key-release-control.log"
    echo "$failures")
 }
-jarvis_key_muted() {
-  expect_poll "startup Mute is delivered and keeps capture closed" on jarvis_key_state mute
-  expect "startup Mute does not acquire capture" closed jarvis_key_state capture
-}
-jarvis_key_mute_control() {
-  (failures=0 behaviour_failures=0
-   jarvis_key_muted >"$sandbox/jarvis-key-startup-control.log"
-   echo "$failures")
-}
-jarvis_key_pending() { ipc smoke readInstance service vgs.jarvis lifetime; }
-# One pending privacy request while no daemon is ready. Service.qml's
-# helloDeadline (5000 ms) ends a daemon that holds its hello answer and its
-# retry keeps the request, so a held start reads starting or retry.
-jarvis_key_one_pending() { # [READING]
-  local reading="${1-}"
-  [[ -n $reading ]] || reading="$(jarvis_key_pending)" || return
-  python3 -c '
-import json,sys
-d=json.loads(sys.argv[1])
-print("one" if d.get("kind") in ("starting","retry") and d.get("pendingMute")=="waiting" and len(d)==2 else sys.argv[1])
-' "$reading"
-}
-# Always mode's resting bubble: the one presented bubble waits for the word
-# with no words. Its orb's stillness is scripts/qml-tests/tst_jarvis_orb.qml's
-# and the frame reading of scripts/smoke/rows/jarvis-bubble.sh.
-jarvis_key_resting() {
-  ipc smoke layerItems vgs.jarvis Bubble presented,phase,words | py_reply '
-import json,sys
-shown=[v for _,_,v in json.load(sys.stdin) if v["presented"]]
-if len(shown)!=1: print("presented=%d" % len(shown)); sys.exit()
-bubble=shown[0]
-print("resting" if bubble["phase"]=="armed" and bubble["words"]=="" else "phase=%s words=%d" % (bubble["phase"],len(bubble["words"])))
-'
-}
-jarvis_key_resting_assertion() { expect_poll "Always mode presents the resting bubble" resting jarvis_key_resting; }
-
 jarvis_shortcuts() {
   hypr globalshortcuts | python3 -c 'import json,re,sys; print(json.dumps(sorted(set(re.findall(r"vgs\.jarvis:[A-Za-z0-9_.-]+", sys.stdin.read())))))'
 }
@@ -264,27 +163,17 @@ jarvis_daemon_wait_control() { # held|ended
   if (( elapsed > jarvis_daemon_bound_ms + 2000 )); then waited=unbounded; elif (( elapsed >= jarvis_daemon_bound_ms )); then waited=bounded; fi
   printf 'status=%s waited=%s cause=%s\n' "$status" "$waited" "${got% launcher=*}"
 }
-# The Jarvis cards that say Mute was not saved for TITLE, the words of its cause.
-jarvis_key_refusals() { # TITLE
-  plugin_card_count Jarvis "Jarvis mute not saved" "$1"
-}
-jarvis_key_refusal_assertion() { expect_poll "unavailable Mute reports its actual cause" "$1" jarvis_key_refusals "$2"; }
-jarvis_key_refusal_control() {
-  (failures=0 behaviour_failures=0
-   jarvis_key_refusal_assertion "$1" "$2" >"$sandbox/jarvis-key-refusal-control.log"
-   echo "$failures")
-}
 jarvis_key_stopped() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 d=json.load(sys.stdin)["status"].get("detail")
 s=d["state"] if d is not None else None
 ok=s is not None and d["phase"]=="idle" and all(s[k]["kind"]==v for k,v in
-    {"conversation":"ended","capture":"closed","playback":"idle","brain":"closed","turn":"none"}.items())
+    {"conversation":"active","capture":"closed","playback":"idle","turn":"none"}.items())
 print("stopped" if ok else "pending")
 '
 }
-jarvis_key_stop_assertion() { expect_poll "active physical Stop ends the turn and idles playback" stopped jarvis_key_stopped; }
+jarvis_key_stop_assertion() { expect_poll "active physical Stop cancels the turn and keeps the conversation" stopped jarvis_key_stopped; }
 jarvis_key_stop_control() {
   (failures=0 behaviour_failures=0
    jarvis_key_stop_assertion >"$sandbox/jarvis-key-stop-$1-control.log"
@@ -335,16 +224,10 @@ jarvis_key_resume_marker() {
 jarvis_key_startup() {
   rm -f -- "$jarvis_gate" "$jarvis_seen"
   expect "the gated key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
-  expect_poll "the startup daemon consumes hello before the physical key" seen jarvis_seen_hello
-  jarvis_key_mute
-  jarvis_key_mute
-  jarvis_key_talk_down
-  jarvis_key_talk_up
-  hold_barrier
-  expect "unavailable repeated Mute keeps one pending privacy request" one jarvis_key_one_pending
+  expect_poll "the startup daemon consumes hello" seen jarvis_seen_hello
 }
 jarvis_key_unavailable_stop_assertion() {
-  expect "unavailable physical Stop ends the startup lifetime" '{"kind":"stopped","pendingMute":"none"}' jarvis_key_pending
+  expect "unavailable physical Stop ends the startup lifetime" '{"kind":"stopped"}' ipc smoke readInstance service vgs.jarvis lifetime
 }
 jarvis_key_unavailable_stop_control() {
   (failures=0 behaviour_failures=0
@@ -368,7 +251,7 @@ expect "the missing-home shortcut control enables" ok ipc shell setPluginEnabled
 expect_poll "the shortcut control's daemon consumes hello" seen jarvis_seen_hello
 expect "removing the home registration breaks the shipped shortcut assertion" 1 jarvis_shortcut_control
 jarvis_disable
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+jarvis_key_select
 jarvis_rescan
 
 # A disable issued during a daemon start: with no gate the daemon's hello
@@ -401,9 +284,6 @@ cause = re.search(r"FAIL  the Jarvis launcher is unreadable before disable: jarv
 print("status=%s row=%s cause=%s" % (sys.argv[3], row, cause.group(1) if cause else "none"))
 ' "$sandbox/jarvis-disable-control.log" "$sandbox/jarvis-disable-control.failures" "$jarvis_disable_control_status"
 
-# Every startup Mute sends its pending notice, so vgs.notifications draws
-# them from the first one on.
-notes_on "jarvis mute notices"
 printf '%s\n' \
   'hl.config({ input = { resolve_binds_by_sym = false } })' \
   'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$jarvis_key_lua"
@@ -415,6 +295,7 @@ hold_start_keyboard jarvis "$sandbox/keyboard" us ""
 
 # Restore the previous unavailable Stop behavior in the disposable plugin.
 # Only the lifetime assertion runs against this copy.
+notes_on "the unavailable Stop control"
 python3 - "$jarvis_key_service" <<'PY'
 from pathlib import Path
 import sys
@@ -432,8 +313,10 @@ jarvis_key_stop
 hold_barrier
 expect "previous unavailable Stop behavior fails the startup lifetime assertion" 1 jarvis_key_unavailable_stop_control
 jarvis_disable
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+notes_off "the unavailable Stop control"
+jarvis_key_select
 jarvis_rescan
+jarvis_key_resume_marker
 
 jarvis_key_startup
 jarvis_key_stop_launcher="$(ipc smoke jarvisProcess | jarvis_launcher_pid)"
@@ -446,152 +329,37 @@ expect "unavailable Stop releases the namespace launcher" absent jarvis_no_pid "
 expect "the stopped startup service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 expect_poll "disable drops the stopped startup owner" absent ipc smoke jarvisProcess
 
-# Pending Mute belongs to a fresh lifetime after Stop ended the first one.
 jarvis_key_startup
-for planted in '{"kind":"retry","pendingMute":["waiting","waiting"]}' '{"kind":"starting","pendingMute":"none"}'; do
-  expect "a planted pending Mute reading other than one request fails the judge" "$planted" jarvis_key_one_pending "$planted"
-done
 jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:44","mute":"SUPER+SHIFT+code:44","voice-mute":"SUPER+ALT+code:44","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
+  '{"talk":"SUPER+code:44","voice-mute":"SUPER+CTRL+M","stop":"SUPER+CTRL+X","confirm":"SUPER+CTRL+Y","deny":null,"console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
-jarvis_key_muted
-expect "ready acknowledges the pending Mute" '{"kind":"ready","pendingMute":"none"}' jarvis_key_pending
-jarvis_disable
-jarvis_key_startup
-: >"$jarvis_gate"
-jarvis_key_muted
-expect "pending startup Mute never toggles restored mute off" 0 jarvis_key_effects capture-open
-jarvis_key_mute
-expect_poll "a ready explicit Mute can unmute without capture" off jarvis_key_state mute
-
-jarvis_disable
-# Keep the real retry timer, with a fixture delay long enough for physical
-# input and its ordering barrier to complete before the next start.
-python3 - "$jarvis_key_service" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); needle='retry.interval = 250 * Math.pow(2, retries);'
-assert s.count(needle)==1
-changed=s.replace(needle, 'retry.interval = 4500;')
-assert changed!=s
-p.write_text(changed)
-PY
-jarvis_rescan
-jarvis_key_startup
-jarvis_key_launcher="$(ipc smoke jarvisProcess | jarvis_launcher_pid)"
-jarvis_key_pid="$(jarvis_descendants "$jarvis_key_launcher")"
-rm -- "$jarvis_seen"
-kill -KILL "$jarvis_key_pid"
-expect_poll "pending startup Mute remains owned during retry" '{"kind":"retry","pendingMute":"waiting"}' jarvis_key_pending
-jarvis_key_mute
-jarvis_key_mute
-hold_barrier
-expect "repeated physical Mute during retry stays one request" one jarvis_key_one_pending
-# The fixture's retry delay is not daemon startup time. Start the hello
-# read only after the service has started its next child.
-expect_poll "the retry starts its next daemon with Mute pending" '{"kind":"starting","pendingMute":"waiting"}' jarvis_key_pending
-expect_poll "the restarted daemon consumes hello" seen jarvis_seen_hello
-: >"$jarvis_gate"
-jarvis_key_muted
-expect "retry uses the existing restart allowance" ready jarvis_wait_ready 1
-jarvis_disable
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-jarvis_rescan
-jarvis_key_startup
-expect "the test-only lock holder enables" ok ipc shell setPluginEnabled acme.probe true
-expect "the fixture locks before pending Mute delivery" ok probe lock
-expect_poll "the nested compositor confirms the fixture lock" true read_service lockSecure
-: >"$jarvis_gate"
-jarvis_key_muted
-expect "the pending request uses the current locked snapshot" '{"kind":"ready","pendingMute":"none"}' jarvis_key_pending
-expect "the fixture unlocks without authentication" ok probe unlock
-expect_poll "unlock leaves privacy Mute on" on jarvis_key_state mute
-jarvis_key_talk_down
-jarvis_key_talk_up
-hold_barrier
-expect "unlock plus Talk cannot acquire muted capture" closed jarvis_key_state capture
-jarvis_key_mute
-expect_poll "explicit ready unmute clears only privacy state" off jarvis_key_state mute
-
-jarvis_disable
-notes_clear "the earlier pending Mute notices"
-jarvis_key_startup
-expect_poll "pending Mute tells the user that disable cancels the request" 1 \
-  plugin_card_count Jarvis "Jarvis mute pending" "disabling Jarvis cancels this request"
-expect "disable ends the pending service" ok ipc shell setPluginEnabled vgs.jarvis false
-expect_poll "disable drops the pending owner" absent ipc smoke jarvisProcess
-expect "a cancelled request never changes the persisted privacy state" False \
-  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["muted"])' "$home/.local/state/vgshell/jarvis/mute.json"
-jarvis_key_startup
-: >"$jarvis_gate"
-jarvis_key_muted
-jarvis_key_mute
-expect_poll "ready unmute is explicit after the new request" off jarvis_key_state mute
-
-# Keep the key registration and pending request. Remove only its delivery.
-jarvis_disable
-python3 - "$jarvis_key_service" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); needle='sendIntent("mute");'
-assert s.count(needle)==1
-changed=s.replace(needle, 'if (false) ' + needle)
-assert changed!=s
-p.write_text(changed)
-PY
-jarvis_rescan
-jarvis_key_startup
-: >"$jarvis_gate"
-expect "dropping pending delivery breaks the same startup Mute assertion" 1 jarvis_key_mute_control
-jarvis_disable
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
-"$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_key_backend"
-jarvis_rescan
-expect "the permanent-problem key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
-expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
-read_count jarvis_key_refused "jarvis-keys: refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
-jarvis_key_mute
-hold_barrier
-jarvis_key_refusal_assertion "$((jarvis_key_refused + 1))" 'Jarvis needs Node 22 or later'
-expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
-python3 - "$jarvis_key_service" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); needle='notice(Gate.muteRefusedNotice(cause));\n                return;'
-assert s.count(needle)==1
-changed=s.replace(needle, 'return;')
-assert changed!=s
-p.write_text(changed)
-PY
-jarvis_rescan
-expect "the refusal control enables without changing the key trigger" ok ipc shell setPluginEnabled vgs.jarvis true
-expect_poll "the refusal control reaches the same permanent cause" permanent jarvis_permanent
-read_count jarvis_key_refused "jarvis-keys: control refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
-jarvis_key_mute
-hold_barrier
-expect "dropping refusal breaks its same cause assertion" 1 jarvis_key_refusal_control "$((jarvis_key_refused + 1))" 'Jarvis needs Node 22 or later'
-expect "the refusal control disables" ok ipc shell setPluginEnabled vgs.jarvis false
-notes_off "jarvis mute notices"
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-cp -- "$sandbox/jarvis-key-scripted-before" "$jarvis_key_backend"
-jarvis_rescan
-jarvis_enable
-jarvis_key_mode hold
+expect_poll "ready acknowledges the startup" '{"kind":"ready"}' ipc smoke readInstance service vgs.jarvis lifetime
+jarvis_key_hold true
 jarvis_key_active_stop thinking
 jarvis_key_active_stop speaking
+# A restart can restore files and flags, not an in-memory conversation.
+# Close the held conversation before the nested row captures its baseline.
+jarvis_key_gate silent-capture
+jarvis_key_tap
+expect_poll "the bubble boundary has no retained active conversation" ended jarvis_key_state conversation
+expect_poll "the bubble boundary has released capture" closed jarvis_key_state capture
+expect_poll "the bubble boundary has no incoming orb layer" 0 layer_count vgs:layer
+rm -f -- "$jarvis_key_gates/silent-capture"
 # The bubble's requirement stand-ins span its row boundary: the scan closes
 # Jarvis's enable-time notice before the nested row captures its baseline.
-jarvis_setup_requirements
+jarvis_setup_requirements "$jarvis_fixture_shim"
 rescan "the bubble requirement stand-ins are ready before its boundary"
 expect_poll "no requirement notice enters the bubble row" null notice_shown
+jarvis_key_resume_tree="$jarvis_fixture_tree"
+jarvis_key_resume_shim="$jarvis_fixture_shim"
 smoke_row jarvis-bubble
-jarvis_restore_requirements
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$jarvis_key_resume_tree" "$smoke_log_dir/jarvis-keys-resumed.log" bar PATH="$jarvis_key_resume_shim:$shim:$shell_host_path"
+jarvis_enable
+jarvis_restore_requirements "$jarvis_fixture_shim"
 jarvis_key_resume_marker
 jarvis_key_initial_opens="$(jarvis_key_effects capture-open)"
 jarvis_key_talk_down
@@ -602,85 +370,64 @@ hold_send "down 44" "down 44"
 hold_barrier
 expect "physical repeat opens no second capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_talk_up
-jarvis_key_released="$(now_ms)"
-expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((jarvis_key_released + jarvis_key_silence_ms / 2))
+jarvis_key_commit
 expect "physical repeat sends only the release intent" "$((jarvis_key_received_before + 1))" jarvis_key_received count
 jarvis_key_gate brain
 expect_poll "the scripted brain starts speaking" speaking jarvis_key_state phase
 jarvis_key_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 
-# Talk tap through the real bind: a press released inside Session's tap
-# bound keeps listening past it on one capture, and the next tap sends the
-# request before the tap's silence bound could.
-jarvis_key_initial_opens="$(jarvis_key_effects capture-open)"
-jarvis_key_tap_listens
-expect "the tapped request still listens" listening jarvis_key_state phase
-expect "a tap opens one capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
-jarvis_key_second_tap_sends
-expect "the second tap opens no capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
-jarvis_key_gate brain
-expect_poll "the tapped request's answer speaks" speaking jarvis_key_state phase
-jarvis_key_gate played
-expect_poll "the tapped request's playback returns to idle" idle jarvis_key_state phase
+# The checked hold leaves the conversation open after the reply. A silent
+# short tap closes it using the engine's explicit final-empty outcome.
+expect "the held reply keeps its conversation" active jarvis_key_state conversation
+jarvis_key_gate silent-capture
+jarvis_key_tap
+expect_poll "a silent short tap closes the conversation" ended jarvis_key_state conversation
+expect_poll "a silent tap releases capture" closed jarvis_key_state capture
+expect "silence is no fault" none jarvis_key_state fault
+rm -f -- "$jarvis_key_gates/silent-capture"
 
-jarvis_key_mode toggle
+jarvis_key_hold false
 jarvis_key_talk_down
-expect_poll "toggle press opens a conversation" listening jarvis_key_state phase
+expect_poll "default Talk opens a conversation" listening jarvis_key_state phase
 jarvis_key_talk_up
 hold_barrier
-expect "toggle release leaves capture open" conversation jarvis_key_state input
+expect "default release keeps listening" conversation jarvis_key_state input
 jarvis_key_gate final
-expect_poll "the scripted turn detector commits toggle speech" thinking jarvis_key_state phase
+expect_poll "the turn detector commits speech" thinking jarvis_key_state phase
 jarvis_key_gate brain
-expect_poll "toggle's scripted answer speaks" speaking jarvis_key_state phase
+expect_poll "the answer speaks" speaking jarvis_key_state phase
 jarvis_key_gate played
-expect_poll "toggle resumes listening after its scripted answer" listening jarvis_key_state phase
-sleep 0.25 # The next press must be outside Session's toggle-collapse interval.
+expect_poll "default Talk listens after its answer" listening jarvis_key_state phase
+sleep 0.25 # A distinct press comes after the native repeat-collapse bound.
 jarvis_key_talk_down
 jarvis_key_talk_up
-expect_poll "the next toggle press closes its conversation" ended jarvis_key_state conversation
-expect_poll "closing toggle releases capture" closed jarvis_key_state capture
-jarvis_key_mode always
-expect_poll "idle Always mode waits for the word" armed jarvis_key_state phase
-jarvis_key_resting_assertion
-jarvis_key_mode toggle
-sleep 0.25 # The next conversation uses a separate permitted toggle edge.
+expect_poll "the next press closes its conversation" ended jarvis_key_state conversation
+expect_poll "closing releases capture" closed jarvis_key_state capture
+expect "closing leaves no fault" none jarvis_key_state fault
+
+sleep 0.25 # A distinct press comes after the native repeat-collapse bound.
 jarvis_key_talk_down
 jarvis_key_talk_up
-expect_poll "a fresh toggle conversation listens" listening jarvis_key_state phase
-jarvis_key_gate hold-close
-jarvis_key_mute
-expect_poll "mute waits for scripted capture teardown" muting jarvis_key_state mute
-jarvis_key_opens="$(jarvis_key_effects capture-open)"
-jarvis_key_talk_down
-jarvis_key_talk_up
+expect_poll "a new default conversation listens" listening jarvis_key_state phase
+jarvis_key_gate final
+expect_poll "the next default turn commits" thinking jarvis_key_state phase
+jarvis_key_gate brain
+expect_poll "the next default answer speaks" speaking jarvis_key_state phase
 jarvis_key_stop
-hold_barrier
-jarvis_key_gate close
-expect_poll "mute completes only after capture closes" on jarvis_key_state mute
-expect "muting keys cannot acquire capture" "$jarvis_key_opens" jarvis_key_effects capture-open
-rm -- "$jarvis_key_gates/hold-close"
-jarvis_disable
-jarvis_enable
-expect_poll "mute survives a service and daemon restart" on jarvis_key_state mute
-# State publications also include settings, presentation and completions.
-# The fixture observes validated intent delivery independently of them.
-jarvis_key_received_before="$(jarvis_key_received count)"
+expect_poll "default Stop resumes listening" listening jarvis_key_state phase
+expect "default Stop keeps its conversation" active jarvis_key_state conversation
+expect "default Stop flushes playback" idle jarvis_key_state playback
+jarvis_key_gate final
+expect_poll "speech after Stop commits in the same conversation" thinking jarvis_key_state phase
+jarvis_key_gate brain
+expect_poll "the answer after Stop speaks" speaking jarvis_key_state phase
 jarvis_key_talk_down
 jarvis_key_talk_up
-jarvis_key_stop
-hold_barrier
-expect "all implemented non-mute keys leave privacy mute on" on jarvis_key_state mute
-expect "muted keys after restart acquire no capture" "$jarvis_key_opens" jarvis_key_effects capture-open
-jarvis_key_mute
-expect_poll "the mute key explicitly unmutes" off jarvis_key_state mute
-expect "the daemon receives muted keys then the acknowledged unmute" '["talk-down", "talk-up", "stop", "mute"]' jarvis_key_received "$jarvis_key_received_before"
-printf '"talk-down"\n"stop"\n"mute"\n' >"$sandbox/jarvis-key-missing-intent.jsonl"
-expect "a missing muted key input fails the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-missing-intent.jsonl"
-printf '"talk-up"\n"talk-down"\n"stop"\n"mute"\n' >"$sandbox/jarvis-key-reordered-intents.jsonl"
-expect "reordered muted key inputs fail the delivery assertion" 1 jarvis_key_received_control "$sandbox/jarvis-key-reordered-intents.jsonl"
-expect "unmute alone keeps capture closed" closed jarvis_key_state capture
+expect_poll "default Talk also closes during a reply" ended jarvis_key_state conversation
+expect_poll "closing during a reply releases capture" closed jarvis_key_state capture
+expect_poll "closing during a reply flushes playback" idle jarvis_key_state playback
+expect "closing during a reply is no fault" none jarvis_key_state fault
 
 # Preserve both registration and wire dispatch. Misroute only Stop.
 jarvis_disable
@@ -697,14 +444,15 @@ PY
 jarvis_rescan
 for jarvis_key_phase in thinking speaking; do
   jarvis_enable
-  jarvis_key_mode hold
+  jarvis_key_hold true
   jarvis_key_turn "$jarvis_key_phase"
   jarvis_key_stop
   hold_barrier
   expect "Stop-to-talk-up fails the same active $jarvis_key_phase assertion" 1 jarvis_key_stop_control "$jarvis_key_phase"
   jarvis_disable
 done
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+jarvis_key_select
+jarvis_key_resume_marker
 
 # Preserve the registration and its pressed behavior. Drop only delivery of
 # the release callback; the same commit assertion must fail once.
@@ -719,44 +467,30 @@ p.write_text(changed)
 PY
 jarvis_rescan
 jarvis_enable
-jarvis_key_mode hold
+jarvis_key_hold true
 jarvis_key_talk_down
 expect_poll "the release control retains actual key-down delivery" listening jarvis_key_state phase
 jarvis_key_talk_up
 hold_barrier
 expect "dropping release delivery breaks the real phase assertion" 1 jarvis_key_commit_control
 jarvis_disable
-# Each tap rule's Session copy fails the same assertion once.
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-jarvis_key_tap_control "a Session whose every release ends the request" "var TAP_MS = $jarvis_key_tap_ms;" "var TAP_MS = 0;" jarvis_key_tap_wait jarvis_key_tap_keeps
-jarvis_key_tap_control "a Session whose every release is a tap" "var TAP_MS = $jarvis_key_tap_ms;" "var TAP_MS = 60000;" - jarvis_key_hold_sends
-jarvis_key_tap_control "a Session whose press after a tap starts a new hold" \
-  "        if (s.input.kind === \"tapped\") {
-            s.input = { kind: \"released\" };
-            closeCapture(s, effects);
-            break;
-        }
-        recover(s, effects, e.at);" "        recover(s, effects, e.at);" jarvis_key_tap_listens jarvis_key_second_tap_sends
-jarvis_rescan
+rescan "the release control is disabled without another source edit"
 expect_poll "disable unregisters every Jarvis key" 0 hold_native vgs.jarvis:
 hold_barrier
 hold_stop_keyboard
 expect "the observer releases its ordering marker" ok ipc smoke holdMarkerStop
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
-cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
-cp -- "$sandbox/jarvis-key-session-before" "$jarvis_key_session"
-rm -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
-rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"
-jarvis_rescan
 user_config_restore "$sandbox/jarvis-key-config-before.json"
 cp -- "$sandbox/jarvis-key-lua-before" "$jarvis_key_lua"
 expect "restore the Jarvis key configuration" ok ipc shell reloadConfig
 expect "restore the nested keyboard configuration" ok hypr reload config-only
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-keys-return.log" bar PATH="$jarvis_fixture_shim:$shim:$shell_host_path"
 jarvis_enable
 expect_poll "the restored stock daemon remains unconfigured" session jarvis_session unconfigured
 expect "the restored nested keys have no configuration errors" '[]' hypr_reload_errors
-expect "the scripted control leaves no Jarvis state file" False \
-  python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())' "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_disable
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-keys-stock.log"

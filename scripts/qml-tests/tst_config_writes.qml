@@ -17,7 +17,7 @@ Item {
 
     // In the writer's own form, so a write that returns the file to it
     // writes the bytes the file held before.
-    readonly property string baseText: JSON.stringify({ version: 4 }, null, 2) + "\n"
+    readonly property string baseText: JSON.stringify({ version: 6 }, null, 2) + "\n"
 
     // Adds `nested` once the outer write's `outer` arrives.
     Component {
@@ -130,18 +130,18 @@ Item {
             fail("no package review compare reader");
         }
 
-        // expected-log: newer: version=5 supported=4 -- an installed build refuses a newer build's file
+        // expected-log: newer: version=7 supported=6 -- an installed build refuses a newer build's file
         function test_newer_file_is_exposed_and_never_written() {
             Config.user = null;
             Config.userText = null;
             Config.publish();
-            const bytes = "{\"version\":5,\"plugins\":\"unknown format\"}\n";
+            const bytes = "{\"version\":7,\"plugins\":\"unknown format\"}\n";
             finishNextRead(Config.userPath, bytes);
             compare(Config.userState, "newer");
-            compare(Config.newerVersion, 5);
+            compare(Config.newerVersion, 7);
             compare(Config.user, null);
-            compare(Config.effective, { version: 4 });
-            verify(Config.writeUser({ version: 4, lost: true }) !== "ok");
+            compare(Config.effective, { version: 6 });
+            verify(Config.writeUser({ version: 6, lost: true }) !== "ok");
             compare(view(Config.userPath).content, bytes);
         }
 
@@ -157,7 +157,7 @@ Item {
             first[first.indexOf(120)] = 255;
             finishNextRead(Config.userPath, ' \r\n{ "version":3, "note":"\ufffd"}\r\n', new Uint8Array(first).buffer);
             compare(Config.userState, "loaded");
-            compare(Config.user.version, 4);
+            compare(Config.user.version, 6);
             compare(Array.from(new Uint8Array(copy.diskData)), first);
             verify(Config.preConversionPresent);
             finishNextRead(Config.userPath, Config.userText);
@@ -165,7 +165,7 @@ Item {
             const second = '\t{"version":3,"note":"next"}\n';
             finishNextRead(Config.userPath, second);
             compare(Array.from(new Uint8Array(copy.diskData)), bytesOf(second));
-            fileHolds({ version: 4, note: "next" });
+            fileHolds({ version: 6, note: "next" });
         }
 
         // expected-log: config: pre-conversion copy not saved: -- both the reported and false-success failures
@@ -175,11 +175,11 @@ Item {
                 ["reported", "retry"], ["lost", "retry"],
                 ["reported", "restore"], ["lost", "restore"]
             ];
-            const accepted = { version: 4, disabledPlugins: ["acme.off"], bar: { layout: { right: [{ id: "acme.kept" }] } } };
+            const accepted = { version: 6, disabledPlugins: ["acme.off"], bar: { layout: { right: [{ id: "acme.kept" }] } } };
             const acceptedBytes = JSON.stringify(accepted) + "\n";
             for (const [kind, recovery] of cases) {
                 finishNextRead(Config.userPath, acceptedBytes);
-                const converted = { version: 4, disabledPlugins: [], bar: { layout: { right: [{ id: "acme.other-" + kind + "-" + recovery }] } } };
+                const converted = { version: 6, disabledPlugins: [], bar: { layout: { right: [{ id: "acme.other-" + kind + "-" + recovery }] } } };
                 const bytes = JSON.stringify(Object.assign({}, converted, { version: 3 })) + "\n";
                 // A lost write must find stale bytes, never a prior row's
                 // successful retry of the same source.
@@ -191,7 +191,7 @@ Item {
                 compare(Config.user, converted);
                 compare(Config.effective, converted);
                 compare(view(Config.userPath).content, bytes);
-                verify(Config.writeUser({ version: 4, lost: true }) !== "ok");
+                verify(Config.writeUser({ version: 6, lost: true }) !== "ok");
                 compare(view(Config.userPath).content, bytes);
                 finishNextRead(Config.userPath, recovery === "retry" ? bytes : acceptedBytes);
                 compare(Config.userState, "loaded");
@@ -214,7 +214,7 @@ Item {
         }
 
         function test_package_review_write_preserves_absence_and_other_settings() {
-            const user = { version: 4, packages: { elevate: "doas", review: { agent: "codex", command: "" } }, unrelated: { keep: true } };
+            const user = { version: 6, packages: { elevate: "doas", review: { agent: "codex", command: "" } }, unrelated: { keep: true } };
             const bytes = JSON.stringify(user);
             finishNextRead(Config.userPath, bytes);
             const reader = compareReader();
@@ -229,14 +229,41 @@ Item {
         function test_retired_shortcuts_use_shipped_migration_data_and_write_current_values() {
             const replacements = [{ id: "acme.keys", shortcut: "talk", from: "SUPER+code:108", to: "SUPER+code:30" }];
             try {
-                finishNextRead(Config.shippedPath, JSON.stringify({ version: 4, shortcutKeyMigrations: replacements }));
+                finishNextRead(Config.shippedPath, JSON.stringify({ version: 6, shortcutKeyMigrations: replacements }));
                 finishNextRead(Config.userPath, JSON.stringify({ version: 3, plugins: [{ id: "acme.keys", keys: { talk: "super+CODE:00108", mute: null }, keep: true }] }));
-                const want = { version: 4, plugins: [{ id: "acme.keys", keys: { talk: "SUPER+code:30", mute: null }, keep: true }] };
+                const want = { version: 6, plugins: [{ id: "acme.keys", keys: { talk: "SUPER+code:30", mute: null }, keep: true }] };
                 compare(Config.user, want);
                 fileHolds(want);
                 finishNextRead(Config.userPath, JSON.stringify(want));
                 compare(Config.user, want);
             } finally {
+                finishNextRead(Config.shippedPath, root.baseText);
+            }
+        }
+
+        function test_version_4_keys_migrate_once_without_replaying_historical_defaults() {
+            const replacements = [
+                { id: "acme.keys", shortcut: "talk", from: "SUPER+code:108", to: "SUPER+code:44" },
+                { id: "acme.keys", shortcut: "toggle", from: "SUPER+CTRL+X", to: null, targetVersion: 5 }
+            ];
+            let saves = 0;
+            const counted = () => { saves += 1; };
+            try {
+                finishNextRead(Config.shippedPath, JSON.stringify({ version: 6, shortcutKeyMigrations: replacements }));
+                watched(Config.userPath).saved.connect(counted);
+                finishNextRead(Config.userPath, JSON.stringify({ version: 4, plugins: [
+                    { id: "acme.keys", keys: { talk: "SUPER+code:108", toggle: "super+ctrl+x", custom: null }, keep: false }
+                ] }));
+                const want = { version: 6, plugins: [
+                    { id: "acme.keys", keys: { talk: "SUPER+code:108", toggle: null, custom: null }, keep: false }
+                ] };
+                compare(Config.user, want);
+                fileHolds(want);
+                compare(saves, 1);
+                finishNextRead(Config.userPath, JSON.stringify(want));
+                compare(saves, 1);
+            } finally {
+                watched(Config.userPath).saved.disconnect(counted);
                 finishNextRead(Config.shippedPath, root.baseText);
             }
         }
@@ -258,6 +285,28 @@ Item {
             compare(Config.userText, bytes);
         }
 
+        function test_conversation_conversion_is_written_once_from_shipped_authority() {
+            const migration = { id: "acme.talk", mode: "mode", holdToTalk: "holdToTalk", modeValues: { hold: true, toggle: false, always: false }, voiceProvider: "voiceProvider", voiceAccount: "voiceAccount", retiredKey: "mute" };
+            const old = { version: 5, plugins: [{ id: "acme.talk", mode: "always", voiceProvider: "auto", voiceAccount: "saved", keys: { talk: "ALT+F8", mute: ["SUPER+J", "ALT+F7"], custom: null }, keep: false }], disabledPlugins: ["acme.talk"], unrelated: 7 };
+            const want = { version: 6, plugins: [{ id: "acme.talk", voiceProvider: "local", voiceAccount: "saved", keys: { talk: "ALT+F8", custom: null }, keep: false, holdToTalk: false }], disabledPlugins: ["acme.talk"], unrelated: 7 };
+            let saves = 0;
+            const counted = () => { saves += 1; };
+            try {
+                finishNextRead(Config.shippedPath, JSON.stringify({ version: 6, conversationSettingsMigration: migration }));
+                watched(Config.userPath).saved.connect(counted);
+                finishNextRead(Config.userPath, JSON.stringify(old));
+                compare(Config.user, want);
+                fileHolds(want);
+                compare(saves, 1);
+                finishNextRead(Config.userPath, JSON.stringify(want));
+                compare(Config.user, want);
+                compare(saves, 1);
+            } finally {
+                watched(Config.userPath).saved.disconnect(counted);
+                finishNextRead(Config.shippedPath, root.baseText);
+            }
+        }
+
         function initTestCase() {
             finishNextRead(Config.shippedPath, root.baseText);
             finishNextRead(Config.userPath, root.baseText);
@@ -267,10 +316,10 @@ Item {
         // Every case starts from a read of the file holding the version
         // alone, whatever an earlier case wrote.
         function init() {
-            finishNextRead(Config.userPath, "{\"version\": 4, \"reset\": true}\n");
+            finishNextRead(Config.userPath, "{\"version\": 6, \"reset\": true}\n");
             finishNextRead(Config.userPath, root.baseText);
-            compare(Config.user, { version: 4 });
-            compare(Config.effective, { version: 4 });
+            compare(Config.user, { version: 6 });
+            compare(Config.effective, { version: 6 });
         }
 
         // No case's rename map reaches the next case's reads.
@@ -279,7 +328,7 @@ Item {
         }
 
         function test_a_rename_after_load_writes_once() {
-            finishNextRead(Config.userPath, "{\"version\": 4, \"disabledPlugins\": [\"acme.old\"], \"bar\": {\"layout\": {\"right\": [{\"id\": \"acme.old\"}]}}}\n");
+            finishNextRead(Config.userPath, "{\"version\": 6, \"disabledPlugins\": [\"acme.old\"], \"bar\": {\"layout\": {\"right\": [{\"id\": \"acme.old\"}]}}}\n");
             compare(Config.effective.disabledPlugins, ["acme.old"]);
             let saves = 0;
             const counted = () => { saves += 1; };
@@ -288,7 +337,7 @@ Item {
             Config.adoptRenames({ "acme.old": "acme.new" });
             watched(Config.userPath).saved.disconnect(counted);
             compare(saves, 1);
-            const renamed = { version: 4, disabledPlugins: ["acme.new"], bar: { layout: { right: [{ id: "acme.new" }] } } };
+            const renamed = { version: 6, disabledPlugins: ["acme.new"], bar: { layout: { right: [{ id: "acme.new" }] } } };
             fileHolds(renamed);
             compare(Config.user, renamed);
             compare(Config.effective, renamed);
@@ -297,32 +346,32 @@ Item {
         function test_a_load_after_adopt_renames_publishes_the_new_id_first() {
             const disabled = createTemporaryObject(disabledSeenComponent, root);
             Config.adoptRenames({ "acme.old": "acme.new" });
-            finishNextRead(Config.userPath, "{\"version\": 4, \"disabledPlugins\": [\"acme.old\"]}\n");
+            finishNextRead(Config.userPath, "{\"version\": 6, \"disabledPlugins\": [\"acme.old\"]}\n");
             compare(disabled.seen, [["acme.new"]]);
-            fileHolds({ version: 4, disabledPlugins: ["acme.new"] });
-            compare(Config.effective, { version: 4, disabledPlugins: ["acme.new"] });
+            fileHolds({ version: 6, disabledPlugins: ["acme.new"] });
+            compare(Config.effective, { version: 6, disabledPlugins: ["acme.new"] });
         }
 
         // expected-log: config: user file not written at -- the planted write failure
         // expected-log: config: user file plugins renamed in memory, not written -- the rename the disk refused
         function test_a_rename_the_disk_refuses_is_renamed_in_memory() {
-            finishNextRead(Config.userPath, "{\"version\": 4, \"disabledPlugins\": [\"acme.old\"]}\n");
+            finishNextRead(Config.userPath, "{\"version\": 6, \"disabledPlugins\": [\"acme.old\"]}\n");
             view(Config.userPath).failNextWrite = 28;
             Config.adoptRenames({ "acme.old": "acme.new" });
             verify(Config.saveError !== "", "saveError=" + Config.saveError);
-            compare(Config.user, { version: 4, disabledPlugins: ["acme.new"] });
-            compare(Config.effective, { version: 4, disabledPlugins: ["acme.new"] });
+            compare(Config.user, { version: 6, disabledPlugins: ["acme.new"] });
+            compare(Config.effective, { version: 6, disabledPlugins: ["acme.new"] });
         }
 
         readonly property var splitClaims: [{ from: "acme.source", to: "acme.split", keys: ["keep"] }]
 
         function test_split_after_rename_writes_once_and_repeated_reads_do_nothing() {
-            finishNextRead(Config.userPath, JSON.stringify({ version: 4, disabledPlugins: ["acme.old"], plugins: [{ id: "acme.old", keep: false, retired: 1 }] }));
+            finishNextRead(Config.userPath, JSON.stringify({ version: 6, disabledPlugins: ["acme.old"], plugins: [{ id: "acme.old", keep: false, retired: 1 }] }));
             let saves = 0;
             const counted = () => { saves += 1; };
             watched(Config.userPath).saved.connect(counted);
             Config.adoptRenames({ "acme.old": "acme.source" }, splitClaims);
-            const want = { version: 4, disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.source", keep: false, retired: 1 }, { id: "acme.split", keep: false }] };
+            const want = { version: 6, disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.source", keep: false, retired: 1 }, { id: "acme.split", keep: false }] };
             fileHolds(want);
             Config.adoptRenames({ "acme.old": "acme.source" }, splitClaims);
             finishNextRead(Config.userPath, JSON.stringify(want));
@@ -337,9 +386,9 @@ Item {
             let saves = 0;
             const counted = () => { saves += 1; };
             watched(Config.userPath).saved.connect(counted);
-            const bytes = JSON.stringify({ version: 4, disabledPlugins: ["acme.source"] });
+            const bytes = JSON.stringify({ version: 6, disabledPlugins: ["acme.source"] });
             finishNextRead(Config.userPath, bytes);
-            const want = { version: 4, disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.split" }] };
+            const want = { version: 6, disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.split" }] };
             compare(disabled.seen, [["acme.source", "acme.split"]]);
             fileHolds(want);
             // A later external edit can again predate this declaration.
@@ -354,8 +403,8 @@ Item {
             watched(Config.userPath).read();
             view(Config.userPath).failRead(FileViewError.FileNotFound);
             compare(Config.userState, "absent");
-            compare(Config.writeUser({ version: 4, disabledPlugins: ["acme.source"] }), "ok");
-            const want = { version: 4, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }, { id: "acme.another" }] };
+            compare(Config.writeUser({ version: 6, disabledPlugins: ["acme.source"] }), "ok");
+            const want = { version: 6, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }, { id: "acme.another" }] };
             fileHolds(want);
             finishNextRead(Config.userPath, JSON.stringify(want));
             compare(Config.effective, want);
@@ -363,32 +412,32 @@ Item {
 
         function test_write_from_a_write_handler_keeps_both() {
             const adds = createTemporaryObject(addsComponent, root);
-            compare(Config.writeUser({ version: 4, outer: 1 }), "ok");
+            compare(Config.writeUser({ version: 6, outer: 1 }), "ok");
             compare(adds.answers, ["ok"]);
-            fileHolds({ version: 4, outer: 1, nested: 2 });
-            compare(Config.user, { version: 4, outer: 1, nested: 2 });
-            compare(Config.effective, { version: 4, outer: 1, nested: 2 });
+            fileHolds({ version: 6, outer: 1, nested: 2 });
+            compare(Config.user, { version: 6, outer: 1, nested: 2 });
+            compare(Config.effective, { version: 6, outer: 1, nested: 2 });
         }
 
         function test_write_back_to_the_earlier_bytes_is_written() {
             const clears = createTemporaryObject(clearsComponent, root);
             for (const round of [1, 2]) {
-                compare(Config.writeUser({ version: 4, notice: "round-" + round }), "ok");
+                compare(Config.writeUser({ version: 6, notice: "round-" + round }), "ok");
                 compare(clears.answers.length, round);
                 compare(clears.answers[round - 1], "ok");
-                fileHolds({ version: 4 });
-                compare(Config.user, { version: 4 });
-                compare(Config.effective, { version: 4 });
+                fileHolds({ version: 6 });
+                compare(Config.user, { version: 6 });
+                compare(Config.effective, { version: 6 });
             }
         }
 
         function test_write_from_a_read_handler_keeps_both() {
             const reads = createTemporaryObject(readsComponent, root);
-            finishNextRead(Config.userPath, "{\"version\": 4, \"read\": 1}\n");
+            finishNextRead(Config.userPath, "{\"version\": 6, \"read\": 1}\n");
             compare(reads.answers, ["ok"]);
-            fileHolds({ version: 4, read: 1, nested: 2 });
-            compare(Config.user, { version: 4, read: 1, nested: 2 });
-            compare(Config.effective, { version: 4, read: 1, nested: 2 });
+            fileHolds({ version: 6, read: 1, nested: 2 });
+            compare(Config.user, { version: 6, read: 1, nested: 2 });
+            compare(Config.effective, { version: 6, read: 1, nested: 2 });
         }
 
         // The warning is taken by ignoreWarning, which fails the case when
@@ -399,14 +448,14 @@ Item {
             turn.triggered.connect(seen);
             ignoreWarning(/^config: publish did not settle: repeats=16 file=.* writer=expression for onCountChanged@.*tst_config_writes\.qml:/);
             turn.start();
-            compare(Config.writeUser({ version: 4, count: 0 }), "ok");
+            compare(Config.writeUser({ version: 6, count: 0 }), "ok");
             verify(counts.writes > 1 && counts.writes < counts.cap, "writes=" + counts.writes);
             tryVerify(() => turn.writesSeen >= 0, 5000);
             verify(turn.writesSeen < counts.cap, "writes=" + turn.writesSeen);
             tryCompare(counts, "writes", counts.cap, 5000);
-            fileHolds({ version: 4, count: counts.cap });
-            compare(Config.user, { version: 4, count: counts.cap });
-            compare(Config.effective, { version: 4, count: counts.cap });
+            fileHolds({ version: 6, count: counts.cap });
+            compare(Config.user, { version: 6, count: counts.cap });
+            compare(Config.effective, { version: 6, count: counts.cap });
             turn.triggered.disconnect(seen);
         }
     }

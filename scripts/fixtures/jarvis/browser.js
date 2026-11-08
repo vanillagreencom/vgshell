@@ -61,13 +61,13 @@ async function daemonLease(ending, removeClose = false) {
         fs.writeFileSync(file, mutant);
     }
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
+        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
             runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
-        keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
+        keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
     const child = cp.spawn("node", [file, "--tree", tree], { env: {
         PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
         XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -104,9 +104,9 @@ async function daemonLease(ending, removeClose = false) {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.equal(frame.snapshot.kind, "unavailable", "no Home must not fabricate an empty inbox");
             }
-            for (const frame of frames.filter(frame => frame.type === "main-reach"))
+            for (const frame of frames.filter(frame => ["main-reach", "echo-cancel"].includes(frame.type)))
                 Protocol.accept(JSON.stringify(frame), "daemon");
-            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks", "main-reach"].includes(frame.type)), [
+            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks", "main-reach", "echo-cancel"].includes(frame.type)), [
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
@@ -114,10 +114,11 @@ async function daemonLease(ending, removeClose = false) {
                 { v: 1, type: "state", gen: 1, revision: hello.revision, seq: 1, state: {
                     gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
                     gate: { kind: "down", reason: "unconfigured" },
-                    mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
-                    playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
-                    conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
-                    indicator: { kind: "gone" },
+                    voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
+                    playback: { kind: "idle" }, cue: { kind: "none" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
+                    conversation: { kind: "ended" }, history: { kind: "current", epoch: 1 },
+                    input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
+                    indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
                 }, phase: "down", brain: "" },
@@ -149,13 +150,13 @@ async function daemonStartup(browserFile) {
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
     fs.copyFileSync(browserFile, path.join(folder, "backend/Browser.js"));
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
+        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
             runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
-        keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
+        keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
     const child = cp.spawn(process.execPath, [path.join(folder, "backend/jarvisd.js"), "--tree", tree],
         { env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME }, stdio: ["pipe", "pipe", "pipe"] });

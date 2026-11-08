@@ -42,23 +42,51 @@
 # that drops that refresh retains its earlier optional reading.
 # inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js bin/lib/dbus_wire.py
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
+setup_entry="$(mktemp -d "$sandbox/jarvis-setup-start.XXXXXX")"
+if [[ -e $sandbox/voxtype-model-installed ]]; then cp -a -- "$sandbox/voxtype-model-installed" "$setup_entry/model-installed"; fi
+jarvis_requirement_standins=()
+# smoke_row invokes this after an early command failure as well as running
+# the row's usual boundary checks. Stop holders before restoring the marker.
+setup_restore() {
+  local result=0
+  ipc shell hide window vgs.settings >/dev/null || result=1
+  ipc shell setPluginEnabled vgs.jarvis false >/dev/null || result=1
+  if [[ -e $setup_entry/model-installed ]]; then
+    cp -a -- "$setup_entry/model-installed" "$sandbox/voxtype-model-installed" || result=1
+  else
+    rm -f -- "$sandbox/voxtype-model-installed" || result=1
+  fi
+  jarvis_restore_requirements "$jarvis_fixture_shim" || result=1
+  return "$result"
+}
+smoke_row_abandon=(setup_restore)
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
 expected_errors+=("${dictation_absent_errors[@]}")
-local_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
-local_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-local.sh"
-cp -- "$local_reader" "$sandbox/local-reader-original"
-cp -- "$local_tui" "$sandbox/local-tui-original"
+setup_paths() {
+  local_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/LocalRuntime.qml"
+  local_tui="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/setup-local.sh"
+  accounts_tui="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/accounts.sh"
+  sign_in_tui="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/sign-in.sh"
+  setup_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+  setup_tier_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/LocalTier.qml"
+  setup_clone_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/CloneRuntime.qml"
+}
+setup_select() {
+  jarvis_fixture_begin "$sandbox/tree-jarvis-setup-input" "$sandbox/tree-jarvis-setup-input.commands"
+  setup_paths
+  settings_page_open vgs.jarvis
+  settings_setup
+}
+setup_paths
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-local.sh" "$local_tui"
-accounts_tui="$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
-cp -- "$accounts_tui" "$sandbox/accounts-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$accounts_tui"
-sign_in_tui="$repo/shell/plugins/vgs.jarvis/tui/sign-in.sh"
-cp -- "$sign_in_tui" "$sandbox/sign-in-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/sign-in.sh" "$sign_in_tui"
-jarvis_setup_requirements
-dictation_stand_ins on || fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
-terminal_stand_in
+jarvis_setup_requirements "$jarvis_fixture_shim"
+jarvis_fixture_dictation on || fail "the shell does not resolve voxtype to the stand-in: $(jarvis_fixture_resolves voxtype)"
+jarvis_fixture_terminal
 terminal_ready "Jarvis local setup"
 # A `pi` for the last section. The daemon's world copies its stand-ins when
 # it starts (scripts/lib/jarvis-env.sh), so the program is written before
@@ -68,6 +96,7 @@ setup_pi_version="$sandbox/jarvis-world/pi-version"
 setup_pi_standin="$sandbox/jarvis-world/standins/pi"
 printf '#!/bin/bash\n[[ $# == 1 && $1 == --version ]] || exit 2\nexec cat %q\n' "$setup_pi_version" >"$setup_pi_standin" && chmod 755 "$setup_pi_standin" ||
   fail "the daemon's Pi stand-in is not written"
+jarvis_fixture_copy jarvis-setup-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 forget_record
 jarvis_enable
@@ -112,7 +141,6 @@ setup_data="$home/.local/share/vgshell/jarvis"
 setup_codex="$home/setup-codex"
 setup_marker="$setup_state/local-ready.json"
 setup_config="$home/.config/vgshell/shell.json"
-setup_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 # Required Setup rows use manifest ids. Read the two daemon-controlled
 # steps independently of Tools and the Home folder's state.
 setup_rows() {
@@ -326,7 +354,6 @@ setup_tier_opens_none() { # LABEL RUN_ID
   expect_run_end "$1: no local setup is pending" vgs.jarvis/setup-local
   expect "$1: no terminal opened" "$2" setup_run_id
 }
-setup_tier_reader="$repo/shell/plugins/vgs.jarvis/LocalTier.qml"
 # A start with the default answer, small the pick and nothing ready, opens
 # no local setup: the reader acts only on a change of the setting.
 setup_tier_start_none() {
@@ -337,7 +364,6 @@ setup_tier_start_none() {
 setup_tier_start_none
 # Control: a reader copy that acts on the setting when no page choice
 # waits opens local setup at start, after its first read.
-cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
 python3 - "$setup_tier_reader" <<'PY'
 from pathlib import Path
 import sys
@@ -364,7 +390,7 @@ setup_tier_start_control() {
    echo "$failures")
 }
 expect "a reader that acts on the setting opens local setup at start" 1 local_control_count setup_tier_start_control
-cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
+setup_select
 jarvis_rescan
 # The Voice step offers its setup while the daemon reads local voice to do:
 # a status open follows local_ready with every reader idle, so no hello
@@ -382,7 +408,7 @@ local_open() { # status | launcher [unbounded]
     expect "the launcher starts its listed local setup" ok ipc shell openTui vgs.jarvis/setup-local
   fi
   expect_poll "setup receives the private plugin snapshot and declared argv" \
-    "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis local voice" -- "$tui_self" present --presentation full \
+    "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis local voice" -- "$jarvis_fixture_tree/bin/vgshell-tui" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-local --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Set up Jarvis local voice" -- tui/setup-local.sh)" recorded
   if [[ ${2-} == unbounded ]]; then expect_poll "the fixture local setup terminal ends" idle key_idle vgs.jarvis/setup-local
@@ -451,7 +477,6 @@ expect_poll "the ended Accounts screen reaches the daemon: only local voice rema
 
 # Control: the key and account readers' ends send no snapshot, so the
 # daemon keeps its answer after the account is added.
-cp -- "$setup_service" "$sandbox/setup-service-original"
 setup_service_without "$setup_keys_hook" "$setup_accounts_hook"
 rm -- "$setup_state/accounts.json"
 jarvis_rescan
@@ -465,7 +490,7 @@ setup_account_control() {
    echo "$failures")
 }
 expect "account reader ends that send no snapshot break the AI model read" 1 local_control_count setup_account_control
-cp -- "$sandbox/setup-service-original" "$setup_service"
+setup_select
 jarvis_rescan
 expect_poll "the restored service reads only local voice left" "$setup_voice_left" setup_rows
 expect_poll "the restored local voice reader is idle" idle jarvis_setup_reader_idle LocalRuntime
@@ -492,7 +517,7 @@ setup_local_control() {
    echo "$failures")
 }
 expect "a local voice reader end that sends no snapshot breaks the ready read" 1 local_control_count setup_local_control
-cp -- "$sandbox/setup-service-original" "$setup_service"
+setup_select
 jarvis_rescan
 expect_poll "the restored service reads ready" "$setup_ready" setup_rows
 
@@ -526,7 +551,6 @@ setup_tier_file_none() {
 setup_tier_file_none
 # Control: a reader copy that takes every change of the setting for the
 # user's choice opens local setup for the configuration file's Medium.
-cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
 python3 - "$setup_tier_reader" <<'PY'
 from pathlib import Path
 import sys
@@ -553,7 +577,7 @@ setup_tier_file_control() {
    echo "$failures")
 }
 expect "a reader that takes a configuration file change for a choice opens local setup" 1 local_control_count setup_tier_file_control
-cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
+setup_select
 setup_tier small
 jarvis_rescan
 expect_poll "the restored reader reads large as the pick, small ready" '["large", "small"]' setup_tier_reading
@@ -567,7 +591,6 @@ setup_tier_opens_none "Large while large is ready" "$setup_tier_run"
 setup_tier_choose auto
 setup_tier_opens_none "Automatic while the pick is ready" "$setup_tier_run"
 # Control: a reader copy that opens no run breaks the Medium read.
-cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
 python3 - "$setup_tier_reader" <<'PY'
 from pathlib import Path
 import sys
@@ -591,7 +614,7 @@ setup_tier_control() {
    echo "$failures")
 }
 expect "a reader that opens no run breaks the Medium read" 1 local_control_count setup_tier_control
-cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
+setup_select
 cp -- "$sandbox/local-tiers-original" "$setup_tiers"
 setup_tier auto
 jarvis_rescan
@@ -603,7 +626,16 @@ expect_poll "the restored Local voice reader reads the default answer" '["small"
 # setup takes the lock alone and ends ready, not busy, the px13 case. The
 # run's end starts the sidecar on the publication it left.
 setup_sidecar_starts() {
-  python3 -c 'import json,sys; print(sum(1 for line in open(sys.argv[1]) if "start" in json.loads(line)))' "$setup_data/local/log.jsonl"
+  py_reply '
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+if not p.exists():
+    print("unavailable:missing-log")
+else:
+    rows=[json.loads(line) for line in p.read_text().splitlines()]
+    print(sum("start" in row for row in rows))
+' "$setup_data/local/log.jsonl" <<<'{}'
 }
 setup_lock_state() {
   python3 -I -c '
@@ -625,6 +657,7 @@ setup_replace() { # SECONDS [unbounded]: the fixture's bound on the lock
 expect_poll "the ready local voice's sidecar runs before the replacement" "$setup_ready" setup_rows
 expect_poll "the sidecar holds the setup lock" held setup_lock_state
 setup_starts="$(setup_sidecar_starts)"
+if [[ $setup_starts =~ ^[0-9]+$ ]]; then
 # Unbounded: the run ends only once the daemon has closed the sidecar.
 setup_replace 30 unbounded
 expect "the shell released the local voice for the window" released setup_release_answer
@@ -633,7 +666,6 @@ expect_poll "the run's end starts the sidecar again" "$((setup_starts + 1))" set
 expect_poll "the Setup section reads ready after the replacement" "$setup_ready" setup_rows
 # Control: a service copy that releases nothing leaves the sidecar holding
 # the lock, so the replacement ends busy.
-cp -- "$setup_service" "$sandbox/setup-service-original"
 python3 - "$setup_service" <<'PY'
 from pathlib import Path
 import sys
@@ -654,9 +686,12 @@ setup_release_control() {
    echo "$failures")
 }
 expect "a service that releases nothing leaves the replacement busy" 1 local_control_count setup_release_control
-cp -- "$sandbox/setup-service-original" "$setup_service"
+setup_select
 jarvis_rescan
 expect_poll "the restored service reads ready after the release control" "$setup_ready" setup_rows
+else
+  fail "the sidecar replacement cases have no start record: $setup_starts"
+fi
 
 # A failed run's row: setup-local's status answers a busy record for Medium
 # (status.py failed-busy) while no tier is ready, and the Local voice model
@@ -722,7 +757,7 @@ local_refresh_control() {
    echo "$failures")
 }
 expect "removing end refresh breaks its consumer read" 1 local_control_count local_refresh_control
-cp -- "$sandbox/local-reader-original" "$local_reader"
+setup_select
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
 expect_poll "the restored reader reads not set up" matched local_value absent-open
@@ -750,10 +785,7 @@ local_failure_control() {
    echo "$failures")
 }
 expect "retaining ready after probe failure breaks its consumer read" 1 local_control_count local_failure_control
-cp -- "$sandbox/local-reader-original" "$local_reader"
-cp -- "$sandbox/local-tui-original" "$local_tui"
-cp -- "$sandbox/accounts-tui-original" "$accounts_tui"
-cp -- "$sandbox/sign-in-tui-original" "$sign_in_tui"
+setup_select
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 jarvis_rescan
 expect_poll "the restored reader reads not set up again" matched local_value absent-open
@@ -767,9 +799,7 @@ expect_poll "without the AI model and the marker the Setup section reads both st
 # status's (scripts/fixtures/jarvis-setup/status.py --clone); the voice the
 # daemon runs comes from the Voice provider setting, left unset at the end.
 setup_clone_status="$sandbox/jarvis-world/clone-status.json"
-setup_clone_reader="$repo/shell/plugins/vgs.jarvis/CloneRuntime.qml"
 cp -- "$setup_clone_status" "$sandbox/clone-status-original"
-cp -- "$setup_clone_reader" "$sandbox/clone-runtime-original"
 # The clone status answer with nothing set up, TIER_READY whether a large
 # tier is ready.
 setup_clone_answer() { # TIER_READY
@@ -920,7 +950,7 @@ clone_remove_control() {
    echo "$failures")
 }
 expect "dropping the unset call leaves Cloned voice on after Remove recording" 1 local_control_count clone_remove_control
-cp -- "$sandbox/clone-runtime-original" "$setup_clone_reader"
+setup_select
 jarvis_rescan
 setup_clone_setting false
 cp -- "$sandbox/clone-status-original" "$setup_clone_status"
@@ -935,7 +965,7 @@ setup_pi="$home/.pi/agent"
 pi_version() { # VERSION
   printf '%s\n' "$1" >"$setup_pi_version.next" && mv -T -- "$setup_pi_version.next" "$setup_pi_version"
 }
-cp -- "$setup_pi_standin" "$shim/pi" && chmod 755 "$shim/pi" || fail "the shell's Pi stand-in is not written"
+cp -- "$setup_pi_standin" "$jarvis_fixture_shim/pi" && chmod 755 "$jarvis_fixture_shim/pi" || fail "the shell's Pi stand-in is not written"
 setup_pi_id() {
   env -i PATH="$sandbox/setup-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
@@ -1022,7 +1052,7 @@ PYHOME
 )" || fail "the synthetic audio world's home is unreadable"
 expect "Check microphone asks the daemon to start" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "the selected stand-in source wakes the detector" ready setup_check_result
-expect_poll "Voice reports the passed check, how to talk, and keeps the check action" '["ok", "Microphone check passed", "Tap or hold Super+J, then speak", "check-microphone"]' setup_check_row
+expect_poll "Voice reports the passed check, how to talk, and keeps the check action" '["ok", "Microphone check passed", "Press Super+J to open or close the conversation", "check-microphone"]' setup_check_row
 expect "Check microphone can run again" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "sound without the wake phrase is not Ready" not-heard setup_check_result
 expect_poll "Voice gives not-heard guidance and keeps the check action" '["warning", "Not heard", true, "check-microphone"]' setup_check_row_hint_present
@@ -1044,7 +1074,6 @@ print(json.dumps({"id":"vgs.jarvis","key":"home","value":row.get("home","")}))
 PYHOME
 )" || { fail "the fleet refresh case cannot read the previous home setting"; return 1; }
 mkdir -p -- "$setup_fleet_home/.git" "${setup_fleet_tool%/*}"
-cp -- "$setup_service" "$sandbox/setup-fleet-service-original"
 setup_fleet_value() {
   status_row vgs.jarvis setupFleet | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["value"]))'
 }
@@ -1093,7 +1122,7 @@ setup_fleet_refresh_control() {
    echo "$failures")
 }
 expect "dropping the homes refresh breaks the fleet consumer read" 1 local_control_count setup_fleet_refresh_control
-cp -- "$sandbox/setup-fleet-service-original" "$setup_service"
+setup_select
 jarvis_rescan
 expect "restore the previous home after the fleet refresh case" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
 rm -rf -- "${setup_fleet_home:?}"
@@ -1101,7 +1130,6 @@ rm -rf -- "${setup_fleet_home:?}"
 # its contents. Keep this daemon's test home aligned with the shell's scratch
 # HOME. The ordinary J09 launcher still owns its isolated children.
 jarvis_disable
-cp -- "$setup_service" "$sandbox/setup-home-service-original"
 setup_home_lease="$sandbox/setup-home-lease.sh"
 python3 - "$setup_home_lease" "$home" "$setup_service" "$sandbox/jarvis-world/lease.sh" <<'PYHOME'
 from pathlib import Path
@@ -1141,7 +1169,7 @@ expect_poll "the refused home offers its selected AGENTS file" "$(words agents "
 : >"$sandbox/run-hold"
 forget_record
 expect "Open AGENTS uses the core file action" ok settings_act vgs.jarvis setupHome
-expect_poll "the editor receives the refused home's exact file" "$(words vgs.jarvis/edit "$core_vgshell" edit "$setup_home_dir/AGENTS.md")" recorded_tail
+expect_poll "the editor receives the refused home's exact file" "$(words vgs.jarvis/edit "$jarvis_fixture_tree/shell/../bin/vgshell" edit "$setup_home_dir/AGENTS.md")" recorded_tail
 printf '# Instructions\nUse plain text.\n' >"$setup_home_dir/AGENTS.md"
 rm -f -- "${sandbox:?}/run-hold"
 expect_run_end "the shared file editor run ends" vgs.jarvis/edit
@@ -1159,14 +1187,13 @@ expect "the daemon judges the oversized skill set" '' ipc smoke invokeInstance s
 expect_poll "the refused skill set offers the selected skills folder" "$(words skills "$setup_home_dir/skills/")" setup_home_value
 expect "restore the earlier home after the file actions" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
 jarvis_disable
-cp -- "$sandbox/setup-home-service-original" "$setup_service"
-jarvis_rescan
-jarvis_enable
 rm -rf -- "${setup_home_dir:?}"
 settings_page_close vgs.jarvis
-jarvis_disable
 rm -f -- "${setup_marker:?}"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
-dictation_stand_ins off
 rm -f -- "${sandbox:?}/voxtype-daemon.log" "${sandbox:?}/voxtype-follow.log"
-jarvis_restore_requirements
+setup_restore
+smoke_row_abandon=()
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-setup-stock.log"

@@ -1,9 +1,9 @@
 .pragma library
 .import "Session.js" as Session
 
-// Shell produces hello, intent, indicator, shown, requirements-scan, tui-state and reply. Voice confirmation
-// is daemon-internal. Daemon produces status/state/devices/homes/voices/personality/start-text/level/audio-fault,
-// request, tasks, task-answer, model-fallback and transcript. A line excludes its LF.
+// Shell produces hello, intent, indicator, shown, requirements-scan, tui-state, echo-cancel-refresh and reply. Voice confirmation
+// is daemon-internal. Daemon produces status/state/devices/echo-cancel/homes/voices/personality/start-text/level/audio-fault,
+// request, tasks, task-answer, model-fallback, voice-renewal and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
 var MAX_LINE_BYTES = 256 * 1024;
@@ -516,7 +516,7 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");
+        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");
         if (!["local", "realtime", "gemini", "elevenlabs"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");
@@ -536,7 +536,7 @@ function accept(line, direction) {
             if (typeof fallback.name !== "string" || typeof fallback.brain !== "string" || typeof fallback.model !== "string")
                 fail("fallbacks");
         }
-        if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");
+        if (typeof message.settings.holdToTalk !== "boolean") fail("hold-to-talk");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");
         if (typeof message.settings.privateWindows !== "string"
@@ -549,7 +549,7 @@ function accept(line, direction) {
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
-        keys(message.keys, ["talk", "mute", "voice-mute", "stop", "confirm", "console"], "keys");
+        keys(message.keys, ["talk", "voice-mute", "stop", "confirm", "deny", "console"], "keys");
         for (var shortcut of Object.keys(message.keys)) {
             var key = message.keys[shortcut];
             // The core shortcut provider owns normalization and conflicts.
@@ -621,7 +621,7 @@ function accept(line, direction) {
             if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -708,7 +708,7 @@ function accept(line, direction) {
                     || ["pending", "completed", "failed", "unknown", "cancelled"].indexOf(row.outcome) === -1
                     || (["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)
                     || !(row.refusal === null || ["expired", "no-hold", "identity", "source", "early", "voice-physical", "voice-timing"].indexOf(row.refusal) !== -1)
-                    || !(row.cause === null || ["input-silent", "unheard", "key-refused", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
+                    || !(row.cause === null || ["key-refused", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
         }
         break;
     case "input-ready":
@@ -774,8 +774,9 @@ function accept(line, direction) {
         break;
     case "indicator":
         if (direction !== "shell") fail("direction-indicator");
-        keys(message, ["v", "type", "gen", "revision", "shown"], "indicator");
+        keys(message, ["v", "type", "gen", "revision", "shown", "bar"], "indicator");
         if (typeof message.shown !== "boolean") fail("indicator");
+        if (["gone", "present", "listening"].indexOf(message.bar) === -1) fail("bar-indicator");
         break;
     case "model-fallback":
         if (direction !== "daemon") fail("direction-model-fallback");
@@ -814,6 +815,20 @@ function accept(line, direction) {
                 Object.defineProperty(seen, choice.value, { value: true });
             }
         }
+        break;
+    case "echo-cancel":
+        if (direction !== "daemon") fail("direction-echo-cancel");
+        keys(message, ["v", "type", "gen", "revision", "state", "path", "reason"], "echo-cancel");
+        if (["absent", "foreign", "unavailable", "pending", "active"].indexOf(message.state) === -1
+                || !(message.path === "" && message.state === "unavailable"
+                    || directory(message.path) && message.path.length <= 4096)
+                || typeof message.reason !== "string"
+                || (message.state === "active" ? message.reason !== "" : !/^[a-z][a-z-]{0,59}$/.test(message.reason)))
+            fail("echo-cancel");
+        break;
+    case "echo-cancel-refresh":
+        if (direction !== "shell") fail("direction-echo-cancel-refresh");
+        keys(message, ["v", "type", "gen", "revision"], "echo-cancel-refresh");
         break;
     case "homes":
         if (direction !== "daemon") fail("direction-homes");
@@ -889,6 +904,10 @@ function accept(line, direction) {
         keys(message, ["v", "type", "gen", "revision", "reason"], "audio-fault");
         if (typeof message.reason !== "string" || !/^[^\x00-\x1f\x7f]{1,180}$/.test(message.reason))
             fail("audio-fault");
+        break;
+    case "voice-renewal":
+        if (direction !== "daemon") fail("direction-voice-renewal");
+        keys(message, ["v", "type", "gen", "revision"], "voice-renewal");
         break;
     case "transcript":
         if (direction !== "daemon") fail("direction-transcript");

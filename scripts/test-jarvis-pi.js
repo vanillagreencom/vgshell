@@ -77,7 +77,7 @@ world(async () => {
         let transcript;
         const starts = [];
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 8) });
-        const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
+        const ports = { ...unavailable(), transcript() {},
             capture: { open: (e, done) => done(), close: (e, done) => done(), collect: (e, done) => { transcript = done; } },
             brain: { send() {}, cancel: (e, done) => done(), close() {} } };
         const runner = new SessionRunner(Session, ports, { now: () => 0, set: () => ({}), clear() {} }, () => {});
@@ -91,8 +91,8 @@ world(async () => {
         const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
             release: { prepare: () => Promise.resolve([]) } });
-        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
-        runner.dispatch({ type: "indicator", shown: true });
+        runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+        runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" });
         transcript("final", "fixture user");
         const recipients = Policy.recipients({ conversation: "pi-" + serial, profile: "standard", cloudVision: "ask",
@@ -166,6 +166,19 @@ world(async () => {
         .map(name => path.join(directory, name)).filter(file => fs.lstatSync(file).isFile()).map(file => fs.readFileSync(file, "utf8"));
 
     const CASES = {
+        async suspendResume(folder) {
+            scenario({ turns: [[chunk("First."), { stop: "stop" }], [chunk("Second."), { stop: "stop" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("remember this")), [{ kind: "text", text: "First." }, { kind: "done", reason: "stop" }]);
+            const child = program();
+            await w.brain.suspend();
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=pi-suspended" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await drain(w.say("continue")), [{ kind: "text", text: "Second." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(program(), child, "resume keeps the exact native process history");
+            assert.equal(read("pi-calls").filter(call => call.args.includes("--mode")).length, 1);
+            validWrites();
+        },
         // A Jarvis home folder that names its own MCP server reaches no
         // program: Pi runs in its private folder, reads the bridge's entry
         // alone, and no tool but the bridge's starts.
@@ -323,11 +336,15 @@ world(async () => {
             // An assertion below may leave this read pending; its own failure is not the finding.
             rest.catch(() => {});
             let timer;
-            await Promise.race([w.brain.cancel(), new Promise((resolve, reject) => {
+            const cancellation = w.brain.suspend();
+            assert.throws(() => w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=pi-busy" }, "resume waits for Pi to settle the cancelled run");
+            await Promise.race([cancellation, new Promise((resolve, reject) => {
                 timer = setTimeout(() => reject(new assert.AssertionError({ message: "cancel never acknowledged" })), 5000);
             })]).finally(() => clearTimeout(timer));
             assert.equal(received("abort").length, 1);
             await assert.rejects(rest, { message: "jarvis: brain=cancelled" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             assert.deepEqual(await drain(w.say("next")), [{ kind: "text", text: "b" }, { kind: "done", reason: "stop" }]);
             validWrites();
         },
@@ -405,37 +422,40 @@ world(async () => {
             await noProgramOrDir(w.runtime, "close");
             assert.throws(() => w.say("again"), { message: "jarvis: brain=pi-closed" });
         },
-        // The plan's context bound in user turns: past it the chained engine
-        // ends the conversation cleanly, as it does a wire brain's.
+        // The adapter's own bound is distinct from the earlier engine rollover.
         async limit(folder) {
             scenario({ turns: Array.from({ length: 41 }, () => [{ stop: "stop" }]) });
-            const { folder: engineFolder, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
-            const w = make(engineFolder);
-            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
-                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "pi", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" } }) }),
-                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
-                captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: { now: () => 0, set: () => ({}), clear() {} },
-                harness: { bridge: w.bridge, gate: null, env, runtime: () => w.runtime } });
-            owners.unshift(() => engine.close());
-            let plan;
-            // The engine hands Pi the saved model and effort, as it does any sign-in program.
-            assert.doesNotThrow(() => { plan = engine.configure({ brain: "pi-fixture", model: "stub/stub-1", effort: "high" }); },
-                "the engine has the Pi driver");
-            assert.deepEqual(plan, { kind: "ready", cautions: [] });
-            const { gen, turn: { op } } = w.runner.state;
-            // A turn's verdict, or the error the engine threw starting it.
-            const send = text => new Promise(resolve => {
-                try { engine.brain.send({ gen, op, owner: 1, text }, (verdict, detail) => {
-                    if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]);
-                }); }
-                catch (error) { resolve(["threw", error.message]); }
-            });
-            for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
-            assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
+            const w = make(folder, { model: "stub/stub-1", effort: "high" });
+            for (let turn = 0; turn < 40; turn++)
+                assert.deepEqual(await drain(w.say("turn " + turn)), [{ kind: "done", reason: "stop" }]);
+            assert.throws(() => w.say("one more"), { message: "jarvis: brain=context-limit" });
             assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["stub", "stub-1"]], "the saved model");
             assert.deepEqual(received("set_thinking_level").map(m => m.level), ["high"], "the saved effort");
             assert.equal(received("prompt").length, 40);
+        },
+        async engine(folder) {
+            scenario({ turns: [[{ stop: "stop" }]] });
+            Fixture.reset();
+            const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
+            const w = make(copied);
+            const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
+                accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: {
+                    id, provider: "pi", label: "default", source: { kind: "cli", directory: account }, model: "" } }) }),
+                policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail(reason),
+                captionLimit: 4096, dispatch: e => w.runner.dispatch(e),
+                harness: { bridge: w.bridge, env, runtime: () => w.runtime } });
+            owners.unshift(() => engine.close());
+            assert.doesNotThrow(() => assert.deepEqual(engine.configure({ brain: "pi-fixture", model: "stub/stub-1", effort: "high" }),
+                { kind: "ready", cautions: [] }));
+            const { gen, turn: { op }, brain: { op: owner } } = w.runner.state;
+            const callbacks = [];
+            engine.brain.send({ gen, op, owner, text: "engine request" }, (kind, detail) => callbacks.push({ kind, detail }));
+            await until(() => callbacks.some(value => value.kind === "brain-done" || value.kind === "brain-failed"), "the engine answers");
+            assert.equal(callbacks.some(value => value.kind === "brain-failed"), false);
+            assert.deepEqual(received("prompt").map(value => value.message), ["engine request"]);
+            assert.deepEqual(received("set_model").map(value => [value.provider, value.modelId]), [["stub", "stub-1"]]);
+            assert.deepEqual(received("set_thinking_level").map(value => value.level), ["high"]);
+            validWrites();
         },
         // Verify: no tools, no MCP, one prompt after the release record.
         async probe(folder) {
@@ -688,14 +708,14 @@ world(async () => {
             ["command-missing", A, [['? "command-missing" : key[1]', '? key[1] : key[1]']], "absent"],
             ["harness-reason", A, [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|copilot)-"]], "accounts"],
             ["account-row", "AccountProviders.js", [['{ id: "pi", label: "Pi", kind: "cli", command: null, signIn: ["pi", "--no-session", "--no-extensions", "--no-skills",\n        "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-tools", "--no-mcp"] },', ""]], "accounts"],
-            ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "limit"],
+            ["engine-driver", "backend/ChainedEngine.js", [['"pi-rpc": PiHarness, ', ""]], "engine"],
             ["floor", H, [['if (part < floor[i]) fail("update need=" + FLOOR);', ""]], "floor"],
             ["floor-read", H, [["    version(env);\n    let session = null;", "    let session = null;"]], "floor"],
             ["version-scrub", H, [["{ env: childEnvironment(env),\n", "{ env,\n"]], "credential"],
             ["choice-floor", A, [["try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {", "try { } catch (error) {"]], "floor"],
             ["choice-update", A, [["if (/^jarvis: brain=pi-update /.test(error.message)) return", "if (true) return"]], "floor"],
             ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"],
-            ["engine-effort", "backend/ChainedEngine.js", [['effort: chosen.effort,', 'effort: "",']], "limit"]
+            ["engine-effort", "backend/ChainedEngine.js", [['effort: chosen.effort,', 'effort: "",']], "engine"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

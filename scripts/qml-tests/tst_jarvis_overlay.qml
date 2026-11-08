@@ -5,6 +5,7 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
+import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's overlay and the pointer: the passive layer's input region holds
 // the orb's hit square only while the overlay is active, the icon row
@@ -25,13 +26,15 @@ Item {
     QtObject {
         id: service
         property var sessionState: null
+        property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
         property var consoleBox: null
         property string consoleKey: ""
         property string heldKey: ""
-        property var effectiveKeys: ({ stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" })
-        property var shell: ({ status: { values: {} }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
+        property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
+        property var values: ({})
+        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: service.values }, surfaces: { openPage: (page, tab) => { root.pages = root.pages.concat([page + "/" + tab]); return "ok"; } } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) { root.intents = root.intents.concat([name]); }
@@ -43,13 +46,11 @@ Item {
     Bubble { id: bubble; width: root.width; height: root.height; screen: ({ name: "unit" }); service: service }
 
     function session(over) {
-        const s = { gen: 1, check: { kind: "none" }, gate: { kind: "up" }, fault: { kind: "none" }, approval: { kind: "none" },
-            action: { kind: "none" }, playback: { kind: "none" }, speech: { kind: "none" }, turn: { kind: "none" },
-            capture: { kind: "closed" }, mute: { kind: "off" }, voiceMute: { kind: "off" }, engine: { kind: "chained" } };
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" }, barIndicator: { kind: "present", gen: 1 } });
         for (const key in over) s[key] = over[key];
         return s;
     }
-    readonly property var listening: session({ capture: { kind: "open", mode: "hold" } })
+    readonly property var listening: session({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" }, conversation: { kind: "active", purpose: "conversation" } })
 
     UnitCase {
         name: "jarvis-overlay"
@@ -97,21 +98,21 @@ Item {
             root.intents = [];
             root.pages = [];
             service.sessionState = null;
+            service.values = {};
+            service.microphoneMute = { kind: "ready", muted: false };
             away();
             const open = menu();
             if (open !== null) open.close();
             tryCompare(bubble, "iconOpacity", 0, 2000);
         }
 
-        // The idle and the other waiting states take no pointer on the orb;
-        // every active state takes it on the hit square over the orb's
-        // centre.
+        // An open conversation takes the pointer on the orb even between
+        // turns; a closed conversation takes none.
         function test_only_an_active_overlay_takes_the_orb_data() {
             return [
-                { tag: "waiting for the word", state: root.session({ capture: { kind: "open", mode: "armed" } }), takes: false },
+                { tag: "conversation open at rest", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), takes: true },
                 { tag: "getting ready", state: root.session({}), takes: false },
                 { tag: "stopping", state: root.session({ gate: { kind: "down" } }), takes: false },
-                { tag: "muted while listening", state: root.session({ capture: { kind: "open", mode: "hold" }, mute: { kind: "on" } }), takes: false },
                 { tag: "listening", state: root.listening, takes: true },
                 { tag: "thinking", state: root.session({ turn: { kind: "thinking" } }), takes: true },
                 { tag: "acting", state: root.session({ action: { kind: "running" } }), takes: true },
@@ -144,16 +145,16 @@ Item {
             compare(orb().height, 255);
             const centre = orbCentre();
             const row = iconRow().mapToItem(root, 0, 0);
-            compare(row.x, centre.x + root.look.state.armed.radius * 255 / 2);
+            compare(row.x, centre.x + root.look.state.idle.radius * 255 / 2);
         }
 
         // The icon row shows while the pointer rests on the orb in an
         // active state, and goes the look's hold after the pointer leaves;
-        // at motion scale 0 it shows and goes with no fade. Waiting for
-        // the word, a pointer on the orb shows nothing.
+        // at motion scale 0 it shows and goes with no fade. A closed
+        // conversation shows no icons.
         function test_the_icons_show_only_under_the_pointer_data() {
             return [{ tag: "listening", state: root.listening, shows: true },
-                    { tag: "waiting for the word", state: root.session({ capture: { kind: "open", mode: "armed" } }), shows: false }];
+                    { tag: "conversation closed", state: root.session({}), shows: false }];
         }
 
         function test_the_icons_show_only_under_the_pointer(data) {
@@ -218,8 +219,8 @@ Item {
         // intent.
         function test_each_icon_names_and_sends_its_menu_entry_data() {
             return [
-                { tag: "the microphone, on", state: { mute: { kind: "off" } }, intent: "mute", label: "Mute microphone" },
-                { tag: "the microphone, muted", state: { mute: { kind: "on" } }, intent: "mute", label: "Turn on microphone" },
+                { tag: "the microphone, on", state: {}, microphone: false, intent: "microphone-mute", label: "Mute microphone" },
+                { tag: "the microphone, muted", state: {}, microphone: true, intent: "microphone-mute", label: "Unmute microphone" },
                 { tag: "the voice, on", state: { voiceMute: { kind: "off" } }, intent: "voice-mute", label: "Mute Jarvis's voice" },
                 { tag: "the voice, muted", state: { voiceMute: { kind: "on" } }, intent: "voice-mute", label: "Unmute Jarvis's voice" },
                 { tag: "Stop", state: {}, intent: "stop", label: "Stop Jarvis" }
@@ -228,13 +229,14 @@ Item {
 
         function test_each_icon_names_and_sends_its_menu_entry(data) {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            const over = { capture: { kind: "open", mode: "hold" } };
+            const over = { capture: { kind: "open", gen: 1, op: 2, mode: "hold" }, conversation: { kind: "active", purpose: "conversation" } };
             for (const key in data.state) over[key] = data.state[key];
             put(root.session(over));
             const button = icon(data.intent);
             verify(button !== undefined, "the row holds the " + data.intent + " icon");
+            if (data.microphone !== undefined) service.microphoneMute = { kind: "ready", muted: data.microphone };
             compare(button.label, data.label);
-            if (data.state.mute !== undefined && data.state.mute.kind === "on") return;
+            compare(button.checked, data.intent === "microphone-mute" ? data.microphone : data.state.voiceMute !== undefined && data.state.voiceMute.kind === "on");
             const centre = orbCentre();
             mouseMove(root, centre.x, centre.y);
             tryCompare(bubble, "iconOpacity", 1, 100);
@@ -247,10 +249,12 @@ Item {
         // intent or opening Jarvis's Keys section.
         function test_a_right_click_opens_the_jarvis_menu_data() {
             return [
-                { tag: "Mute microphone", index: 0, intents: '["mute"]', pages: "[]" },
-                { tag: "Mute Jarvis's voice", index: 1, intents: '["voice-mute"]', pages: "[]" },
+                { tag: "Mute microphone", index: 1, intents: '["microphone-mute"]', pages: "[]" },
+                { tag: "Mute Jarvis's voice", index: 0, intents: '["voice-mute"]', pages: "[]" },
                 { tag: "Stop Jarvis", index: 2, intents: '["stop"]', pages: "[]" },
-                { tag: "Key hints", index: 3, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
+                { tag: "New conversation", index: 3, intents: '["new-conversation"]', pages: "[]" },
+                { tag: "Hide Jarvis", index: 4, intents: '["hide"]', pages: "[]" },
+                { tag: "Key hints", index: 5, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
             ];
         }
 
@@ -262,11 +266,34 @@ Item {
             verify(open !== null, "the menu is built");
             tryCompare(open, "opened", true);
             compare(bubble.menuOpened, true);
-            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute microphone", "Mute Jarvis's voice", "Stop Jarvis", "Key hints"]));
-            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["mic-off", "volume-x", "square", "keyboard"]));
+            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"]));
+            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["volume-x", "mic", "square", "message-circle-plus", "eye-off", "keyboard"]));
             open.items()[data.index].triggered();
             compare(JSON.stringify(root.intents), data.intents);
             compare(JSON.stringify(root.pages), data.pages);
+        }
+
+        function test_microphone_unavailable_disables_its_icon() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            put(root.listening);
+            service.microphoneMute = { kind: "unavailable" };
+            const centre = orbCentre();
+            mouseMove(root, centre.x, centre.y);
+            tryCompare(bubble, "iconOpacity", 1, 100);
+            const mic = icon("microphone-mute");
+            compare(JSON.stringify(iconRow().children.filter(item => item.entry !== undefined).map(item => item.entry.intent)),
+                '["voice-mute","microphone-mute","stop"]', "voice comes before system microphone");
+            verify(mic.disabledReason !== "");
+            compare(mic.checked, false);
+            mouseClick(mic);
+            compare(root.intents.length, 0, "an unavailable source cannot toggle");
+            service.microphoneMute = { kind: "ready", muted: true };
+            compare(mic.disabledReason, "");
+            compare(mic.checked, true);
+            compare(bubble.active, true, "system mute leaves an open conversation active");
+            compare(bubble.stateText, "Microphone muted");
+            const stateLines = all(bubble, []).filter(item => item.text === "Microphone muted" && bubble.drawn(item));
+            compare(stateLines.length, 1, "the mute reading appears once");
         }
 
         // A right click on a line of text opens it too, and the menu keeps
@@ -285,14 +312,65 @@ Item {
             service.bubbleWanted = true;
         }
 
-        // Waiting for the word, a right click on the orb opens nothing: the
-        // bar widget's menu holds the entries then.
+        // A closed conversation opens no orb menu; the bar menu remains
+        // available.
         function test_a_still_overlay_opens_no_menu() {
-            put(root.session({ capture: { kind: "open", mode: "armed" } }));
+            put(root.session({}));
             const centre = orbCentre();
             mouseClick(root, centre.x, centre.y, Qt.RightButton);
-            wait(50);
+            verify(renderedFrame(root));
             compare(bubble.menuOpened, false);
+        }
+
+        function test_hidden_overlay_has_only_required_content_data() {
+            return [
+                { tag: "listening", regions: { capture: { kind: "open", gen: 1, op: 2, mode: "conversation" } }, required: false },
+                { tag: "speaking with muted voice", regions: { playback: { kind: "playing" } }, required: false },
+                { tag: "speaking with voice", regions: { playback: { kind: "playing" }, voiceMute: { kind: "off" } }, required: false },
+                { tag: "rest", regions: {}, required: false },
+                { tag: "fault", regions: { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, required: true },
+                { tag: "held", regions: { approval: { kind: "held", id: "fixture", gen: 1, digest: "fixture",
+                    purpose: "action", tool: "fixture", text: "Allow fixture?", physical: true } }, required: true }
+            ];
+        }
+        function test_hidden_overlay_has_only_required_content(data) {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            const caption = { gen: 1, role: "assistant", text: "Hidden answer" };
+            // Replacing the var publishes its changed object; a nested write
+            // does not notify bindings: https://doc.qt.io/qt-6/qml-var.html
+            service.values = { transcript: caption };
+            put(root.session({ conversation: { kind: "active", purpose: "conversation" }, voiceMute: { kind: "on" } }));
+            compare(bubble.caption.text, caption.text, "the published caption reaches the overlay");
+            compare(bubble.words, caption.text, "the same caption is eligible while shown");
+            const words = all(bubble, []).filter(item => item instanceof Words);
+            compare(words.length, 1, "read the actual Words view");
+            tryCompare(words[0], "shown", caption.text);
+            verify(words[0].visible, "the shown muted reply draws before Hide");
+            put(root.session(Object.assign({ visibility: { kind: "hidden" }, voiceMute: { kind: "on" },
+                conversation: { kind: "active", purpose: "conversation" } }, data.regions)));
+            compare(orb().visible, false);
+            compare(orb().active, false);
+            compare(bubble.words, "");
+            compare(words[0].text, "", "hidden assistant content never reaches Words");
+            compare(words[0].visible, false);
+            compare(bubble.iconsShown, false);
+            compare(bubble.capturePresented, false, "required text never claims to be the orb indicator");
+            compare(bubble.fieldBoxes.length, data.required ? 1 : 0, "no orb field or halo remains");
+            compare(named("field").visible, data.required);
+            compare(holdsOrb(), false);
+            if (!data.required) {
+                compare(bubble.inputItems.length, 0, "hidden content has no pointer region");
+                return;
+            }
+            verify(bubble.inputItems.length > 0, "required content remains actionable");
+            if (data.tag === "held") {
+                verify(bubble.approvalWhole, "the held question still draws whole");
+                compare(named("overlay").height > 0, true);
+            } else verify(bubble.fault !== null);
+            const show = bubble.menuEntries.find(row => row.intent === "show");
+            verify(show !== undefined && show.disabledReason === "");
+            bubble.runEntry(show);
+            compare(JSON.stringify(root.intents), '["show"]');
         }
     }
 }

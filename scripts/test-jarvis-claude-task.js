@@ -444,21 +444,56 @@ async function inside() {
     async function concurrent(modules) {
         const w = world(modules);
         fs.mkdirSync(w.prompts, { recursive: true });
+        // Race admission across the ceiling, not a fleet of Node startups.
+        // Two free slots and four acknowledged contenders exercise the same
+        // cross-process ceiling as an empty index with MAX_PROMPTS + 2.
+        const seeded = Array.from({ length: modules.Relay.MAX_PROMPTS - 2 }, () =>
+            modules.Relay.ask(w.prompts, "seeded", { kind: "question", tool: null, text: "q" }, Date.now(), 600000));
         const script = `const Relay = require(process.argv[1]);
-            const prompt = Relay.ask(process.argv[2], "concurrent", {kind:"question",tool:null,text:"q"}, Date.now(), 600000);
-            process.stdout.write(JSON.stringify(prompt));`;
-        const jobs = Array.from({ length: modules.Relay.MAX_PROMPTS + 2 }, () => {
-            const child = cp.spawn(process.execPath, ["-e", script, path.join(modules.dir, "TaskRelay.js"), w.prompts], { env });
-            let out = "";
+            process.once("message", () => {
+                try {
+                    const prompt = Relay.ask(process.argv[2], "concurrent", {kind:"question",tool:null,text:"q"}, Date.now(), 600000);
+                    process.stdout.write(JSON.stringify(prompt));
+                } finally { process.disconnect(); }
+            });
+            process.send("ready");`;
+        const jobs = Array.from({ length: 4 }, () => {
+            const child = cp.spawn(process.execPath, ["-e", script, path.join(modules.dir, "TaskRelay.js"), w.prompts],
+                { env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+            let out = "", stderr = "";
             child.stdout.on("data", chunk => { out += chunk; });
-            return once(child, "close").then(([code]) => { assert.equal(code, 0); return JSON.parse(out); });
+            child.stderr.on("data", chunk => { stderr += chunk; });
+            return { child, ready: once(child, "message"), closed: once(child, "close").then(([code, signal]) => ({ code, signal, out, stderr })) };
         });
-        const prompts = (await Promise.all(jobs)).filter(value => value !== null);
-        assert.equal(prompts.length, modules.Relay.MAX_PROMPTS);
-        assert.equal(w.runner.held().length, modules.Relay.MAX_PROMPTS);
-        for (const prompt of prompts) modules.Relay.withdraw(w.prompts, prompt);
-        assert.deepEqual(w.runner.held(), []);
-        w.close();
+        const deadline = setTimeout(() => {
+            for (const { child } of jobs)
+                if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        }, 20000);
+        let completed = false;
+        try {
+            await Promise.all(jobs.map(job => Promise.race([
+                job.ready.then(([message]) => assert.equal(message, "ready")),
+                job.closed.then(result => assert.fail("relay contender ended before ready: " + JSON.stringify(result)))
+            ])));
+            for (const { child } of jobs) child.send("ask");
+            const results = await Promise.all(jobs.map(job => job.closed));
+            const prompts = results.map(result => {
+                assert.deepEqual([result.code, result.signal], [0, null], result.stderr);
+                return JSON.parse(result.out);
+            }).filter(value => value !== null);
+            assert.equal(prompts.length, 2, "only the remaining slots are admitted");
+            assert.equal(w.runner.held().length, modules.Relay.MAX_PROMPTS);
+            for (const prompt of [...seeded, ...prompts]) modules.Relay.withdraw(w.prompts, prompt);
+            assert.deepEqual(w.runner.held(), []);
+            completed = true;
+        } finally {
+            clearTimeout(deadline);
+            for (const { child } of jobs)
+                if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            await Promise.all(jobs.map(job => job.closed));
+            if (completed) w.close();
+            else { w.runner.close(); runners.delete(w.runner); }
+        }
         cases++;
     }
 

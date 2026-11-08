@@ -203,7 +203,10 @@ with tempfile.TemporaryDirectory(prefix="smoke-ipc-") as scratch:
     stub.write_text('''#!/usr/bin/env bash
 set -euo pipefail
 shift 4
+[[ $1 == -- ]] || exit 2
+shift
 printf '%s|%s\\n' "$1" "$2" >>"$CASE_DIR/calls"
+printf '%s\\0' "$@" >"$CASE_DIR/$1.$2.arguments"
 if [[ "$1 $2" == "${CASE_BLOCK:-}" ]]; then
   if [[ ${CASE_DEFER:-no} != yes || -e $CASE_DIR/block ]]; then
     rm -f -- "$CASE_DIR/block"
@@ -218,6 +221,7 @@ case "$1 $2" in
   # Answer after the timer-wiring bound, within the measured default.
   'smoke reply') sleep 0.3; printf 'noise\\nanswer\\n'; exit ;;
   'smoke failure') echo refused; exit 17 ;;
+  'vgs.jarvis invoke') [[ $# == 4 && $3 == show && $4 == "" ]] || exit 2; echo ok; exit ;;
 esac
 exec sleep infinity
 ''')
@@ -303,6 +307,7 @@ fi
         ("cleanup-reply", ":", "smoke", "perScreenLayers", "no"),
         ("reply", 'got="$(ipc smoke reply)"; [[ $got == answer ]]', "smoke", "reply", "no"),
         ("status", 'status=0; got="$(ipc smoke failure)" || status=$?; [[ $status == 17 && $got == refused ]]', "smoke", "failure", "no"),
+        ("literal-show", 'got="$(ipc vgs.jarvis invoke show "")"; [[ $got == ok ]]', "vgs.jarvis", "invoke", "no"),
         ("capture-stage", 'ipc shell setPluginEnabled vgs.capture false || true', "shell", "setPluginEnabled", "yes"),
         ("capture-stage-unavailable", 'ipc shell setPluginEnabled vgs.capture false || true', "shell", "setPluginEnabled", "yes"),
     )
@@ -336,6 +341,9 @@ fi
         assert records == ([expected] if want_timeout == "yes" else []), (name, records)
         calls = (folder / "calls").read_text().splitlines()
         assert calls.count(target + "|" + method) == (2 if method == "perScreenLayers" else 1), (name, calls)
+        if name == "literal-show":
+            assert (folder / "vgs.jarvis.invoke.arguments").read_bytes() == b"vgs.jarvis\0invoke\0show\0\0", \
+                "Show and its empty string argument remain call data"
         if name == "cleanup":
             assert "result failures=1 behaviour=1" in result.stdout, result.stdout
         if name.startswith("capture-stage"):
@@ -417,6 +425,20 @@ printf 'counts=%s,%s,%s\\n' "$failures" "$behaviour_failures" "${#not_measured_r
     for case in cases:
         ipc_case(production, case)
         print("smoke-ipc: bounded-row=" + case[0])
+
+    literal_control = root / "call-data-unseparated.sh"
+    text = production.read_text()
+    needle = 'ipc call -- "$@"'
+    assert text.count(needle) == 1
+    literal_control.write_text(text.replace(needle, 'ipc call "$@"'))
+    try:
+        ipc_case(literal_control, next(case for case in cases if case[0] == "literal-show"))
+    except AssertionError as failure:
+        detail = failure.args[0]
+        assert isinstance(detail, tuple) and detail[1] == 1, failure
+        print("smoke-ipc: control=unseparated-call-data-rejected")
+    else:
+        raise AssertionError("the literal Show call accepted missing argument separation")
 
     # Restore the old bound without removing the answering call. The
     # delayed reply must fail specifically at that call.

@@ -294,31 +294,33 @@ expect_poll "acme.needs leaves the list" False plugin_known acme.needs
 # The offer and composer remain production code. Only daemon ports and Home
 # session reads use the existing offline fixture.
 ad_jarvis_prepared=false
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 ad_jarvis_restore() {
   ipc shell hide window vgs.jarvis >/dev/null || return 1
   ipc shell hide window vgs.agent-debug >/dev/null || return 1
   ipc shell setPluginEnabled vgs.jarvis false >/dev/null || return 1
-  cp -- "$ad_dir/jarvisd-before.js" "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" || return 1
-  cp -- "$ad_dir/engine-before.js" "$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js" || return 1
-  rm -f -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js" || return 1
-  cp -- "$ad_dir/Diagnose-before.js" "$repo/shell/plugins/vgs.agent-debug/Diagnose.js" || return 1
   jarvis_asks_restore || return 1
   user_config_restore "$ad_dir/config-before-jarvis.json" || return 1
   ipc shell reloadConfig >/dev/null || return 1
-  jarvis_restore_requirements || return 1
+  jarvis_restore_requirements "$jarvis_fixture_shim" || return 1
+  row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+  stop_shell || return 1
+  start_shell "$repo" "$smoke_log_dir/agent-debug-jarvis-return.log" || return 1
   ad_jarvis_prepared=false
 }
 cp -- "$home/.config/vgshell/shell.json" "$ad_dir/config-before-jarvis.json"
-cp -- "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" "$ad_dir/jarvisd-before.js"
-cp -- "$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js" "$ad_dir/engine-before.js"
-cp -- "$repo/shell/plugins/vgs.agent-debug/Diagnose.js" "$ad_dir/Diagnose-before.js"
-jarvis_setup_requirements
+jarvis_setup_requirements "$jarvis_fixture_shim"
 jarvis_asks_fixture "$source_repo"
 ad_jarvis_prepared=true
 expect "the handoff selects a private Home" ok ipc shell reloadConfig
-"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js" "$ad_dir/gates" --mapped-indicator
+"$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js" "$ad_dir/gates" --mapped-indicator
+jarvis_fixture_copy jarvis-agent-debug-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 rescan "the offline Jarvis ports are scanned"
 expect "Jarvis enables for the handoff" ok ipc shell setPluginEnabled vgs.jarvis true
+expect "the handoff's offline daemon answers hello" ready jarvis_wait_ready
+printf 'agent-debug-jarvis-startup='
+jarvis_startup
 ad_target() {
   ipc smoke readInstance service vgs.agent-debug targets | py_reply 'import json,sys
 r=next((r for r in json.load(sys.stdin) if r["label"]=="Jarvis"),None)
@@ -343,6 +345,8 @@ ad_exact_draft() {
   expect "the actual Diagnose composer holds the exact facts-only prompt" "$(ad_json_text "$(ad_prompt "$1")")" ad_draft
 }
 expect_poll "Agent Debug discovers the live Jarvis offer" '["handoff:vgs.jarvis/compose", true]' ad_target
+printf 'agent-debug-handoff-offers='
+ipc smoke readInstance service vgs.agent-debug targets
 ad_set agent '"handoff:vgs.jarvis/compose"'
 expect_poll "Jarvis is the saved diagnosis choice" '"handoff:vgs.jarvis/compose"' ipc smoke readInstance service vgs.agent-debug agent
 ad_dispatch ad-jarvis
@@ -353,7 +357,8 @@ expect "the unsent draft closes" ok ipc shell hide window vgs.jarvis
 
 # The same exercised dispatch with changed delivered text. Qt and the
 # scanner read a new published revision from this disposable world tree.
-python3 - "$repo/shell/plugins/vgs.agent-debug/Diagnose.js" <<'PY'
+jarvis_fixture_begin "$sandbox/tree-jarvis-agent-debug-input" "$sandbox/tree-jarvis-agent-debug-input.commands"
+python3 - "$jarvis_fixture_tree/shell/plugins/vgs.agent-debug/Diagnose.js" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
@@ -378,7 +383,7 @@ expect "the changed text actually reached the production composer" \
   "$(ad_json_text "$(ad_prompt ad-jarvis-control)"$'\nchanged delivery')" ad_draft
 expect "the control still starts no conversation" '[]' ad_conversation
 expect "the control console closes" ok ipc shell hide window vgs.jarvis
-cp -- "$ad_dir/Diagnose-before.js" "$repo/shell/plugins/vgs.agent-debug/Diagnose.js"
+jarvis_fixture_begin "$sandbox/tree-jarvis-agent-debug-input" "$sandbox/tree-jarvis-agent-debug-input.commands"
 rescan "the original shared builder is restored"
 expect_poll "the restored service discovers Jarvis" '["handoff:vgs.jarvis/compose", true]' ad_target
 

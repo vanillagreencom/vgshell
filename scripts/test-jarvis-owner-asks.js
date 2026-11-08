@@ -17,6 +17,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(tree, "shell/plugins/vgs.j
 const Conversation = load(path.join(tree, "shell/plugins/vgs.jarvis/Conversation.js"));
 const serviceFile = path.join(tree, "shell/plugins/vgs.jarvis/Service.qml");
 const serviceSource = fs.readFileSync(serviceFile, "utf8");
+const Gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
 const plain = value => JSON.parse(JSON.stringify(value));
 function statusWith(values = {}) {
     const status = { values: {}, isOk: core.statusReplyOk, set(key, value) {
@@ -28,7 +29,7 @@ function statusWith(values = {}) {
     return status;
 }
 function service(source = serviceSource, values = {}, policy = publication) {
-    const names = ["ownerAskOperation", "setOwnerAskOperation", "unconfirmOwnerAsk", "ownerAsksIntent", "publishOwnerAsks", "start", "ended", "broken"];
+    const names = ["ownerAskOperation", "setOwnerAskOperation", "unconfirmOwnerAsk", "ownerAsksIntent", "publishOwnerAsks", "start", "ended", "broken", "publishEchoCancel"];
     const methods = names.map(name => {
         const match = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
         assert.ok(match, "shipped Service method " + name); return match[0];
@@ -37,7 +38,8 @@ function service(source = serviceSource, values = {}, policy = publication) {
     // The Qt Timer surface the copied methods call: start, stop and restart.
     const timer = { start() {}, stop() {}, restart() {} };
     const root = { shell: { status, settings: { home: "" }, manifest: { ...manifest, __revision: "a".repeat(64) } },
-        selectedHome: "", lifetime: { kind: "ready", pendingMute: "none" }, cause: "", locked: false,
+        selectedHome: "", lifetime: { kind: "ready" }, cause: "", locked: false,
+        voiceProvider: "local", echoCancel: null,
         child: { running: true }, childSerial: 1, retries: 0, outputTail: "", errorTail: "",
         helloDeadline: timer, stopDeadline: timer, startWait: timer, retry: { ...timer },
         cancelDictation() {}, shellStatus() { return true; }, publishDaemon() {}, publishSetup() { return true; },
@@ -46,7 +48,7 @@ function service(source = serviceSource, values = {}, policy = publication) {
         send(fields) { sent.push({ fields, operation: plain(status.values.ownerAskAnswer) }); }
     };
     Object.assign(root, vm.runInNewContext("(function() { with(root) { " + methods + "\nreturn {" + names.join(",") + "}; } })()", {
-        root, Protocol, StatusPublication: policy, Conversation, Gate: { startStatus() {}, stoppedNotice() {}, RETRYING_START: "retry" },
+        root, Protocol, StatusPublication: policy, Conversation, Gate,
         console: { warn: message => warnings.push(message) }
     }));
     function callback(name) {
@@ -247,7 +249,7 @@ function client(extra = {}) {
             assert.equal(h.sent.length, 1, "restart never replays an action");
             uncertain = connect();
             await uncertain.owner.setHome(uncertainHome);
-            h.root.lifetime = { kind: "ready", pendingMute: "none" };
+            h.root.lifetime = { kind: "ready" };
             h.root.cause = "";
             assert.equal(h.status.values.ownerAsks.kind, "unavailable");
             control("--mode", uncertainHome, "ready");

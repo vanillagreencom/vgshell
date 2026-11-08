@@ -111,7 +111,6 @@ jarvis-keys
 jarvis-widget
 # After jarvis-widget, which leaves Jarvis disabled on its stock files; it
 # resets Jarvis at its start and end, so no row after it reads its state.
-jarvis-follow-up
 jarvis-desktop
 jarvis-console
 instance-guard

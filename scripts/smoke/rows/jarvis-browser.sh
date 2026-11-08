@@ -3,19 +3,20 @@
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis/browser-status.js scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=("${dictation_absent_errors[@]}")
-browser_reader="$repo/shell/plugins/vgs.jarvis/LocalRuntime.qml"
-browser_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-browser.sh"
-cp -- "$browser_reader" "$sandbox/browser-reader-original"
-cp -- "$browser_tui" "$sandbox/browser-tui-original"
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
+browser_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/LocalRuntime.qml"
+browser_tui="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/setup-browser.sh"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-browser.sh" "$browser_tui"
-jarvis_setup_requirements
-terminal_stand_in
+jarvis_setup_requirements "$jarvis_fixture_shim"
+jarvis_fixture_terminal
 terminal_ready "Jarvis browser setup"
 # A stand-in driver on the sandbox PATH, so every read until the row's end
 # finds agent-browser whatever the host holds. It prints no version, so
 # the scan reads its presence alone; with no readiness marker the daemon
 # offers no browser tool.
-printf '#!/bin/sh\nexit 0\n' >"$shim/agent-browser"; chmod 755 "$shim/agent-browser"
+printf '#!/bin/sh\nexit 0\n' >"$jarvis_fixture_shim/agent-browser"; chmod 755 "$jarvis_fixture_shim/agent-browser"
+jarvis_fixture_copy jarvis-browser-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
@@ -60,7 +61,7 @@ print("matched" if r["value"]==value and r["action"] is None else "pending")
 driver_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.jarvis"][0]; print([r["state"] for r in p["requirements"] if r["name"]=="agent-browser"][0])'; }
 # A stand-in driver that answers `--version` with VERSION.
 driver_version() { # VERSION
-  printf '#!/bin/sh\necho "agent-browser %s"\n' "$1" >"$shim/agent-browser.next" && chmod 755 "$shim/agent-browser.next" && mv -T -- "$shim/agent-browser.next" "$shim/agent-browser"
+  printf '#!/bin/sh\necho "agent-browser %s"\n' "$1" >"$jarvis_fixture_shim/agent-browser.next" && chmod 755 "$jarvis_fixture_shim/agent-browser.next" && mv -T -- "$jarvis_fixture_shim/agent-browser.next" "$jarvis_fixture_shim/agent-browser"
 }
 browser_open() { # manager action or listed launcher entry
   local revision snapshot
@@ -73,7 +74,7 @@ browser_open() { # manager action or listed launcher entry
     expect "the launcher starts its listed browser setup" ok ipc shell openTui vgs.jarvis/setup-browser
   fi
   expect_poll "setup receives the private plugin snapshot and declared argv" \
-    "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis browser" -- "$tui_self" present --presentation full \
+    "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis browser" -- "$jarvis_fixture_tree/bin/vgshell-tui" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-browser --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Set up Jarvis browser" -- tui/setup-browser.sh)" recorded
   expect_run_end "the fixture browser setup terminal ends" vgs.jarvis/setup-browser
@@ -130,9 +131,11 @@ browser_control_count() {
   printf '%s\n' "${output##*$'\n'}"
 }
 expect "removing end refresh breaks its consumer read" 1 browser_control_count browser_refresh_control
-cp -- "$sandbox/browser-reader-original" "$browser_reader"
+jarvis_fixture_begin "$sandbox/tree-jarvis-browser-input" "$sandbox/tree-jarvis-browser-input.commands"
+browser_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 printf 'absent\n' >"$sandbox/jarvis-world/browser-mode"
 jarvis_rescan
+settings_page_open vgs.jarvis
 expect_poll "the restored reader offers setup" matched browser_value absent
 
 python3 - "$browser_reader" <<'PY'
@@ -158,7 +161,9 @@ browser_failure_control() {
    echo "$failures")
 }
 expect "retaining ready after probe failure breaks its consumer read" 1 browser_control_count browser_failure_control
-cp -- "$sandbox/browser-reader-original" "$browser_reader"
+jarvis_fixture_begin "$sandbox/tree-jarvis-browser-input" "$sandbox/tree-jarvis-browser-input.commands"
+browser_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/LocalRuntime.qml"
+settings_page_open vgs.jarvis
 
 python3 - "$browser_reader" <<'PY'
 from pathlib import Path
@@ -183,10 +188,11 @@ browser_scan_control() {
    echo "$failures")
 }
 expect "removing the scan refresh breaks its consumer read" 1 browser_control_count browser_scan_control
-cp -- "$sandbox/browser-reader-original" "$browser_reader"
-cp -- "$sandbox/browser-tui-original" "$browser_tui"
+jarvis_fixture_begin "$sandbox/tree-jarvis-browser-input" "$sandbox/tree-jarvis-browser-input.commands"
+browser_reader="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/LocalRuntime.qml"
 printf 'absent\n' >"$sandbox/jarvis-world/browser-mode"
 jarvis_rescan
+settings_page_open vgs.jarvis
 expect_poll "the restored setup action is offered" matched browser_value absent
 # A driver below the manifest's floor: its row reads Needs an update and
 # takes no press, and the Requirements section reads the driver outdated.
@@ -206,9 +212,9 @@ expect_poll "the Requirements section reads the driver at its floor present" pre
 # Without the stand-in the scan reads the host's PATH again. Only a host
 # without agent-browser shows the missing driver, with no step, and browser
 # setup withheld.
-rm -f -- "${shim:?}/agent-browser"
+rm -f -- "${jarvis_fixture_shim:?}/agent-browser"
 rescan "a rescan after the stand-in driver goes starts"
-if [[ $(shell_resolves agent-browser) == none ]]; then
+if [[ $(jarvis_fixture_resolves agent-browser) == none ]]; then
   expect_poll "a missing browser driver reads Not installed" matched driver_value missing
   expect_poll "a missing browser driver withholds browser setup" matched browser_value withheld
 else
@@ -217,4 +223,6 @@ else
 fi
 settings_page_close vgs.jarvis
 jarvis_disable
-jarvis_restore_requirements
+jarvis_restore_requirements "$jarvis_fixture_shim"
+stop_shell
+start_shell "$repo" "$sandbox/jarvis-browser-stock.log"

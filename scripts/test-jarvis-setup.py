@@ -861,6 +861,47 @@ Path(sys.argv[2]).unlink()
             time.sleep(0.01)
         return holder
 
+    def test_echo_cancel_window_uses_only_the_confirmed_plan_and_control(self):
+        # The shipped window is the subject. Its backend collaborator records
+        # argv and stdin; Audio's suite exercises the actual file installer.
+        _, env = self.tui({"microphone": "physical.mic", "speaker": "physical.speaker"})
+        calls = self.root / "echo-cancel-calls"
+        env["ECHO_CALLS"] = str(calls)
+        helper = self.plugin / "backend/echo-cancel-setup.js"
+        helper.write_text('''"use strict";
+const fs = require("node:fs"), verb = process.argv[2];
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+fs.appendFileSync(process.env.ECHO_CALLS, JSON.stringify({verb, input, tree: process.argv[3]}) + "\\n");
+if (verb === "plan") process.stdout.write(JSON.stringify({microphone: "physical.mic", speaker: "physical.speaker"}) + "\\n");
+else if (!["describe", "install"].includes(verb)) process.exitCode = 2;
+''')
+        script = self.plugin / "tui/setup-echo-cancel.sh"
+        source = script.read_text()
+
+        def run(confirm, text=source):
+            script.write_text(text)
+            calls.unlink(missing_ok=True)
+            result = subprocess.run(["/usr/bin/bash", str(script)],
+                                    env=dict(env, CONFIRM=confirm), capture_output=True,
+                                    text=True, check=False, timeout=30)
+            return result, [json.loads(line) for line in calls.read_text().splitlines()]
+
+        result, recorded = run("1")
+        self.assertEqual(result.returncode, 130, result.stderr)
+        self.assertEqual([row["verb"] for row in recorded], ["plan", "describe"])
+        self.assertEqual(recorded[0]["input"], {"microphone": "physical.mic", "speaker": "physical.speaker"})
+        needle = 'if ! vgs_tui_confirm "Write this echo cancellation setup?"; then'
+        self.assertEqual(source.count(needle), 1)
+        control = source.replace(needle, 'if false && ! vgs_tui_confirm "Write this echo cancellation setup?"; then')
+        _, recorded = run("1", control)
+        with self.assertRaises(AssertionError):
+            self.assertNotIn("install", [row["verb"] for row in recorded])
+        result, recorded = run("0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([row["verb"] for row in recorded], ["plan", "describe", "install"])
+        self.assertEqual(recorded[-1]["input"], recorded[-2]["input"], "the displayed plan is the installed plan")
+        self.assertEqual(self.vgshell_calls(), ["plugin settings vgs.jarvis"] * 3)
+
     def test_tui_and_control(self):
         # Neutral core presentation double. The actual TUI executes the real
         # installer with the tier it is handed, or the setting's, or none for

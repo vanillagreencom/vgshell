@@ -10,7 +10,7 @@ Agent Warden shows whether your AI coding agents stay within their memory and pr
 - A panel that describes the state in one sentence, lists the most serious problems first and shows how close the agents' memory is to the point where they slow down.
 - Open vsys in the panel opens the vsys dashboard.
 - A notification when an agent nears a limit, when agents wait for memory, when the warden cannot apply a limit or cleans up after an agent, and when it stops checking.
-- `SUPER+CTRL+Y` opens and closes the panel. The Keys row on the plugin's Settings page changes it.
+- Click the shield to open and close the panel. Choose a key under Keys on the plugin's Settings page to open it with a key.
 
 ## How it works
 

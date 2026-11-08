@@ -8,7 +8,7 @@ Voice types what you say into the focused field. It uses voxtype to record and r
 
 ## Features
 
-- `SUPER+CTRL+X` starts dictation, and a second press stops it.
+- Choose a Toggle key under Keys on the plugin's Settings page to start and stop dictation with that key.
 - `F9` dictates while you hold it.
 - A tap of Right Alt or Right Ctrl, alone, starts and stops dictation. Right Alt as AltGr types as usual.
 - An orb on screen that moves with your voice while you speak, on a soft dark disc that keeps it visible over any wallpaper.

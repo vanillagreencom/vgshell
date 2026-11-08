@@ -19,6 +19,8 @@ Item {
     Icon { id: themed; name: "check" }
     Icon { id: cross; name: "x"; size: 24; color: "white"; x: 120; y: 10 }
     Icon { id: chevron; name: "chevron-left"; size: 24; color: "white"; x: 160; y: 10 }
+    Icon { id: normalJ; name: "vgs-letter-j"; size: 24; color: "white"; x: 10; y: 60 }
+    Icon { id: hiddenJ; name: "vgs-letter-j-hidden"; size: 24; color: "white"; x: 50; y: 60 }
 
     TestCase {
         name: "icon"
@@ -130,6 +132,28 @@ Item {
             compare(themed.stroke, 3);
             compare(themed.implicitWidth, 20);
             compare(String(themed.color), "#00ff00");
+        }
+
+        function test_hidden_j_dims_only_the_lower_half() {
+            compare(hiddenJ.paths[0], normalJ.paths[0]);
+            compare(hiddenJ.paths[1], normalJ.paths[1]);
+            compare(hiddenJ.painted, normalJ.painted, "the variant retains the exact ink extent");
+            function halves(image, item) {
+                const sums = [0, 0];
+                for (let y = 0; y < item.size; y++)
+                    for (let x = 0; x < item.size; x++)
+                        sums[y < item.size / 2 ? 0 : 1] += image.red(item.x + x, item.y + y);
+                return sums;
+            }
+            let before, held;
+            tryVerify(() => {
+                const image = grabImage(root);
+                before = halves(image, normalJ);
+                held = halves(image, hiddenJ);
+                return before[0] > 0 && before[1] > 0 && held[0] > 0 && held[1] > 0;
+            }, 1000, "both icon halves draw over the same black background");
+            fuzzyCompare(held[0] / before[0], 1, 0.03, "upper half is unchanged");
+            fuzzyCompare(held[1] / before[1], Theme.opacity.disabled, 0.03, "lower half follows the disabled token");
         }
     }
 }

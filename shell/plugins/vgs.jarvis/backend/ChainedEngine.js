@@ -1,7 +1,7 @@
 // One conversation owner: chained speech or duplex delegation to a cloud voice.
 // Session owns identity and deadlines, Audio owns pacing and heard accounting,
 // WireBrain owns history and ToolRouter owns actions. This owner connects them
-// per conversation and keeps the heard prefix that the next turn reports.
+// per live generation and retains a suspended brain for the next Talk.
 // Contract: docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
 "use strict";
 const { Readable, Writable } = require("node:stream");
@@ -68,22 +68,31 @@ const RELEASE_EFFECT = "external";
 // The cause a failed duplex stream's closing release row keeps, by the
 // adapters' keyed fault (Realtime.js, GeminiLive.js); any other fault keeps
 // voice-stopped. Audit.js refuses any other cause.
-const STREAM_CAUSES = Object.freeze({ "live=input-silent": "input-silent", "live=unheard": "unheard", "live=key-refused": "key-refused" });
+const STREAM_CAUSES = Object.freeze({ "live=key-refused": "key-refused" });
 // One local working sound for a still-silent turn, without a speech request.
 const WORKING_AFTER_MS = 1200;
 // Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
 const PROGRESS_AFTER_MS = 4000;
 // The one sentence a voice preview speaks.
 const PREVIEW_LINE = "This is how I sound when I answer you.";
+const HISTORY_TURNS = 40;
 
 function earcon(kind) {
-    const frames = PCM_RATE * (kind === "start" ? 80 : 120) / 1000;
+    const conversation = kind === "start" || kind === "stop";
+    const frames = PCM_RATE * (conversation ? kind === "start" ? 150 : 170 : 120) / 1000;
     const pcm = Buffer.alloc(frames * 2);
     const edge = PCM_RATE * 5 / 1000;
-    const frequency = kind === "start" ? 880 : 440;
+    const from = kind === "start" ? 180 : 255;
+    const to = kind === "start" ? 255 : 180;
     for (let frame = 0; frame < frames; frame++) {
-        const envelope = Math.min(1, frame / edge, (frames - frame - 1) / edge);
-        pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);
+        const position = frame / (frames - 1);
+        // A raised-cosine envelope has no abrupt attack or release. The
+        // integrated pitch glide keeps the phase continuous through it.
+        const envelope = conversation ? Math.sin(Math.PI * position) ** 2
+            : Math.min(1, frame / edge, (frames - frame - 1) / edge);
+        const phase = conversation ? (from * frame + (to - from) * frame * position / 2) / PCM_RATE
+            : 440 * frame / PCM_RATE;
+        pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);
     }
     return pcm;
 }
@@ -194,7 +203,7 @@ function signal() {
  * refused is the identity of the cloud voice key its provider refused, or null.
  */
 function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false }), models = () => ({ kind: "none" }), refused = null) {
-    const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed, refused);
+    const { list = null, ...speech } = selectVoice(settings, accounts, directories, listed, refused);
     const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
         ? unconfigured(settings.dictation) : { kind: "ready" };
     const brain = selectBrain(settings, accounts, models);
@@ -235,15 +244,6 @@ function heldByHome(plan, home) {
     if (cause === null) return { plan, cautions };
     return { plan: { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list, modelLists: plan.modelLists },
         cautions };
-}
-
-// Always mode listens for the wake word on this computer, so it needs a row
-// that spots it locally; any other voice would stream the room to a provider.
-function selectSpeech(settings, accounts, directories, listed, refused) {
-    const speech = selectVoice(settings, accounts, directories, listed, refused);
-    if (settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind === "ready" && speech.wake !== true))
-        return unconfigured("speech=always-local-voice");
-    return speech;
 }
 
 // A stored key's identity: its reference and the stored list's revision
@@ -295,7 +295,7 @@ function selectVoice(settings, accounts, directories, listed, refused) {
 }
 
 /**
- * The ElevenLabs voice: the ready speech row hears the user, wake word and
+ * The ElevenLabs voice: the ready speech row hears the user, captions and
  * turn detection included, and ElevenLabs speaks with the stored key. Its
  * recipients are that row's and ElevenLabs's. LISTED(reference) answers the
  * key's voice list as {voices, known, reading}: voices the offers of the
@@ -407,11 +407,34 @@ function selectBrain(settings, accounts, models) {
  * daemon's shell request port, ShellRequests' send, which a dictation row's
  * utterances record through.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {} }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {}, renewal = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
     let conversation = null;
+    let historyEpoch = null;
+    let savedBrain = null;
+    function closeBrainOwner(owner) {
+        owner.value?.close();
+        owner.value = null;
+        owner.pending?.release();
+        owner.pending = null;
+    }
+    function forgetBrain() {
+        if (savedBrain !== null) closeBrainOwner(savedBrain.owner);
+        savedBrain = null;
+    }
+    function historySelection() {
+        return JSON.stringify([homePath(), policy(), plan.entries.map(entry =>
+            [entry.provider, entry.model, entry.effort, entry.account,
+                entry.key === null ? null : keyIdentity(entry.key)]),
+        plan.speech.id, plan.speech.recipients,
+        plan.speech.key === undefined ? null : keyIdentity(plan.speech.key),
+        plan.speech.spoken === undefined ? null : keyIdentity(plan.speech.spoken.key)]);
+    }
+    // Conversation cues outlive only their playback operation. A stop cue
+    // must never reopen the brain, network transport or microphone.
+    let cue = null;
     let retired = null;
     let closed = false;
     let idleAt = null;
@@ -586,17 +609,35 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function open(gen) {
         if (closed) fail("closed");
         if (plan.kind !== "ready") fail("unconfigured");
+        const selection = historySelection();
+        if (savedBrain !== null && savedBrain.selection !== selection) forgetBrain();
         const facts = policy();
-        const activePlan = { ...plan, brain: plan.entries[0] };
+        const activePlan = { ...plan, brain: savedBrain?.entry ?? plan.entries[0] };
         const recipients = Policy.recipients({ conversation: "jarvis-" + gen, profile: facts.profile,
             cloudVision: facts.cloudVision, brain: activePlan.brain.recipient, speech: activePlan.speech.recipients });
         const net = Net.create(recipients);
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, fleet: "", grants: [], heard: null, relay: null, retried: null, unmatched: null,
+        const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brainOwner: { value: null }, guidance: null, owner: null, fleet: "", grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
-            feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null };
+            collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null,
+            turns: 0, historyLabels: new Set(), resume: null, selection, prior: null, closingPlayback: null };
+        if (savedBrain !== null) {
+            const saved = savedBrain;
+            savedBrain = null;
+            c.brainOwner = saved.owner;
+            c.plan = { ...activePlan, brain: saved.entry };
+            c.entry = saved.index;
+            c.guidance = saved.guidance;
+            c.fleet = saved.fleet;
+            c.prior = saved.context;
+            c.results = saved.results;
+            c.turns = saved.turns;
+            c.historyLabels = saved.labels;
+            c.quiet = saved.quiet;
+            c.resume = saved.brain;
+        }
         try {
             const duplex = duplexOf(plan.speech.id);
             if (duplex !== null) {
@@ -613,7 +654,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 if (plan.speech.spoken !== undefined) c.spoken = ElevenLabs.create({ provider: plan.speech.spoken.provider,
                     net: () => c.net, key: plan.speech.spoken.key, grants: () => c.grants, clock });
             }
-        } catch (error) { net.close(); throw error; }
+        } catch (error) {
+            c.brainOwner.value?.close();
+            c.brainOwner.value = null;
+            net.close();
+            throw error;
+        }
         return c;
     }
     // observe() ends a conversation before any effect of a newer generation.
@@ -625,11 +671,24 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             conversation.speech = daemonOwner(conversation.plan.speech);
         return conversation;
     }
-    // Drop the context, the recipient set and its transport before another
-    // conversation can start. Late cancel acknowledgments wait for closure.
-    function end() {
+    // Release generation-owned resources before another can start. A retained
+    // brain stays suspended until its cancellation acknowledges completion.
+    // REVISIT(D121): Revisit retention when exact native context export/import
+    // becomes available without new persistence or retained generation authority.
+    function end(keepHistory = false) {
         const c = conversation;
         if (c === null) return;
+        const cancelling = c.turn !== null || state().turn.kind === "cancelling" && state().turn.gen === c.gen;
+        // observe runs before SessionRunner consumes playback-flush. Keep the
+        // old voice's account before release, and wait for Audio's close ack.
+        if (state().playback.kind === "flushing" && state().playback.gen === c.gen) {
+            let release;
+            const quiet = new Promise(resolve => { release = resolve; });
+            c.closingPlayback = { turn: c.last, account: cut(c, c.last), release, quiet };
+        }
+        // Cancellation owns tool-result closure before the brain is lent to
+        // another live generation. The suspended MCP bridge admits no calls.
+        if (keepHistory && c.turn !== null) brain.cancel({ gen: c.gen, target: c.turn.op }, () => {});
         conversation = null;
         closeStream(c, null);
         cancelRelease(c);
@@ -641,19 +700,35 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.last !== null) unheard(c, c.last);
         if (c.turn !== null) stop(c.turn);
         if (c.last !== null) c.last.speech?.end();
-        c.feedback?.readable.destroy();
         for (const utterance of [c.collection?.utterance, c.unbound])
             if (utterance) utterance.abort();
-        const brain = c.brain;
-        c.brain = null;
-        const quiet = brain === null ? Promise.resolve() : brain.cancel();
-        brain?.close();
+        const ownedBrain = c.brainOwner.value;
+        let quiet = ownedBrain === null ? c.quiet : keepHistory
+            ? Promise.all([c.quiet, ownedBrain.suspend()]).then(() => undefined) : ownedBrain.cancel();
+        if (keepHistory && cancelling && ownedBrain !== null && !c.brainOwner.pending && c.owner !== null) {
+            let release;
+            const closed = new Promise(resolve => { release = resolve; });
+            const pending = { gen: c.gen, owner: c.owner, release };
+            c.brainOwner.pending = pending;
+            quiet = Promise.race([quiet, closed]).then(() => {
+                if (c.brainOwner.pending === pending) c.brainOwner.pending = null;
+            });
+        }
+        if (c.closingPlayback !== null) quiet = Promise.all([quiet, c.closingPlayback.quiet]).then(() => undefined);
+        if (keepHistory && ownedBrain !== null) {
+            forgetBrain();
+            savedBrain = { brain: ownedBrain, quiet, owner: c.brainOwner, entry: c.plan.brain, index: c.entry, guidance: c.guidance, fleet: c.fleet,
+                context: c.prior ?? c, results: c.results, turns: c.turns, labels: c.historyLabels, selection: c.selection };
+        } else {
+            c.brainOwner.value = null;
+            ownedBrain?.close();
+        }
         if (c.plan.speech.lifetime !== "daemon") c.speech.close();
         c.spoken?.close();
         for (const door of c.retired) door.close();
         c.retired.clear();
         c.net.close();
-        retired = { gen: c.gen, closed: quiet };
+        retired = { gen: c.gen, closed: quiet, context: c };
         // After the teardown this observation runs, not inside it.
         queueMicrotask(reargue);
     }
@@ -782,7 +857,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             record?.cancel();
         }, begin() { record?.begin(); } };
         // Audio's teardown ends the utterance. A conversation that ended
-        // with it, as by mute or stop, aborts the utterance in end().
+        // with it aborts the utterance in end().
         const input = captured(() => utterance.state === "running");
         const { sink, frames } = input;
         utterance.sink = sink;
@@ -867,19 +942,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return utterance;
     }
 
-    // Always mode and the setup check share the daemon-owned local spotter.
-    // Neither starts a conversation or sends audio to a brain.
+    // The explicit setup check uses the daemon-owned keyword detector.
+    // It starts no conversation and sends no audio to a brain.
     function spotting(e) {
-        if (plan.speech?.wake !== true || e.mode !== "check" && plan.kind !== "ready") fail("wake-unavailable");
+        if (plan.speech?.check !== true) fail("check-unavailable");
         const owner = daemonOwner(plan.speech);
         const { sink, frames } = captured(() => true);
-        void owner.spot(frames, { check: e.mode === "check" }).outcome.then(result => {
+        void owner.check(frames).outcome.then(result => {
             if (result.kind === "checked") dispatch({ type: "voice-checked", gen: e.gen, op: e.op, result: result.result });
-            else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
             // Final detector work completes after Audio closes the sink.
-            else if (result.kind === "failed" && e.mode === "check")
+            else if (result.kind === "failed")
                 dispatch({ type: "voice-check-failed", gen: e.gen, op: e.op, reason: keyed(result.error) });
-            else if (result.kind === "failed" && !sink.destroyed) sink.destroy(result.error);
         });
         return sink;
     }
@@ -1101,9 +1174,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         c.late.clear();
         c.results = [];
         c.heard = null;
-        if (c.brain !== null) {
-            const brain = c.brain;
-            c.brain = null;
+        c.historyLabels.clear();
+        c.turns = 0;
+        if (c.brainOwner.value !== null) {
+            const brain = c.brainOwner.value;
+            c.brainOwner.value = null;
             await brain.cancel();
             brain.close();
         }
@@ -1182,9 +1257,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.turn === turn) c.turn = null;
         concluded(c, turn);
         const reason = keyed(error);
-        // The history bound ends the conversation cleanly; any other failure
-        // is a fault.
-        turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });
+        turn.done("brain-failed", { reason });
     }
 
     // The brain's guidance with the home text as it reads now. No hello
@@ -1212,13 +1285,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // Off the runner's drain, the judgement's snapshot can end the
         // conversation at once, its turn stopped with it.
         if (conversation !== c) return false;
-        c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
+        c.brainOwner.value = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
             model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
             account: c.plan.brain.account, gen: c.gen, harness,
             modelFallback: c.entry + 1 === c.plan.entries.length, modelUsed });
         const tools = router.offer();
         c.fleet = fleetRoute(tools);
-        c.brain.start({ instructions: c.guidance.instructions, tools });
+        c.brainOwner.value.start({ instructions: c.guidance.instructions, tools });
         c.owner = owner;
         return true;
     }
@@ -1284,20 +1357,22 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     async function respond(c, turn, request) {
         try {
-            let reply = c.brain.send(request, c.grants);
+            let reply = c.brainOwner.value.send(request, c.grants);
             if (reply.release.needed.some(label => !c.decisions.has(label))) {
                 // send() only prepares a request. Returning its unstarted stream
                 // releases that slot without putting an unsent turn in history.
                 await reply.events.return();
                 await requestRelease(c, turn, reply.release.needed);
                 if (turn.stopped || conversation !== c) return;
-                reply = c.brain.send(request, c.grants);
+                reply = c.brainOwner.value.send(request, c.grants);
             }
             if (reply.release.needed.length !== 0) record(c, turn, reply.release.needed, "withhold");
             if (reply.release.withheld.length !== 0) record(c, turn, reply.release.withheld, "withhold");
-            for (const label of reply.release.labels) turn.labels.add(label);
+            const labels = Policy.labels([...c.historyLabels, ...reply.release.labels]);
+            for (const label of labels) turn.labels.add(label);
+            for (const label of reply.release.labels) c.historyLabels.add(label);
             // History can carry an earlier turn's untrusted content.
-            router.observe(turn, reply.release.labels);
+            router.observe(turn, labels);
             const events = reply.events[Symbol.asyncIterator]();
             const text = Speakable.create(LANGUAGE, { tools: TOOL_NAMES });
             const calls = [];
@@ -1556,7 +1631,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     // Only the brain's own reply has a heard prefix to report.
     function heard(c, turn, text) {
-        if (turn.fast !== undefined) return;
+        // Before respond releases the request, a queued or release-held turn
+        // has no contributing brain labels. Its local acknowledgement is not
+        // a native reply to account for, and must not invent a history label.
+        if (turn.fast !== undefined || turn.labels.size === 0) return;
         c.heard = { turn, labels: [...turn.labels], text };
     }
     // A duplex reply's heard account for an interruption, or null when the
@@ -1626,12 +1704,32 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // A brain keeps the tools it started with, as every driver takes
             // them at start: a turn after the fleet route changed opens a new
             // brain, whose history starts again.
-            if (c.brain !== null && c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet) {
-                c.brain.close();
-                c.brain = null;
+            if (c.brainOwner.value !== null && fleetRoute(router.offer()) !== c.fleet) {
+                closeBrainOwner(c.brainOwner);
                 c.owner = null;
+                c.resume = null;
+                c.historyLabels.clear();
+                c.turns = 0;
+                c.heard = null;
+                c.prior = null;
+                c.results = [];
             }
-            if (c.brain === null) {
+            // REVISIT(D121): Revisit this bound only when the owner changes
+            // history semantics, preserving the attempted next turn.
+            if (c.turns >= HISTORY_TURNS && e.text.trim() !== "") {
+                c.brainOwner.value?.close();
+                c.brainOwner.value = null;
+                c.owner = null;
+                c.turns = 0;
+                c.historyLabels.clear();
+                c.heard = null;
+                c.results = [];
+                dispatch({ type: "conversation-reset", gen: e.gen, op: e.op, reason: "turn-limit", text: e.text });
+            }
+            // A retained brain belongs to this new Session owner only after
+            // its old cancellation settles; c.quiet holds that barrier.
+            if (c.brainOwner.value !== null && c.owner === null) c.owner = e.owner;
+            if (c.brainOwner.value === null) {
                 // The home text is read at each conversation's first turn, so
                 // the user's last edit is the one a brain gets. A text that
                 // outgrew its bound since the setup answer fails this turn.
@@ -1652,19 +1750,48 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);
             progress(c, turn);
             working(c, turn);
-            const items = [];
-            if (c.heard !== null) items.push(heardItem(c.heard));
-            c.heard = null;
-            items.push(...c.results);
-            c.results = [];
-            items.push(Policy.item(e.text, ["speech"]));
             // A replaced duplex delegation waits for the prior adapter's cancellation.
-            void c.quiet.then(() => {
+            void c.quiet.then(async () => {
                 if (!turn.stopped && conversation === c) {
+                    if (c.brainOwner.value === null) {
+                        c.owner = null;
+                        c.resume = null;
+                        c.historyLabels.clear();
+                        c.turns = 0;
+                        c.prior = null;
+                        if (!openBrain(c, e.owner, done)) return;
+                    }
+                    if (c.historyLabels.size !== 0) {
+                        const prior = Policy.item("", [...c.historyLabels]);
+                        const release = Policy.release(prior, c.recipients, c.grants);
+                        if (release.kind === "ask") await requestRelease(c, turn, release.needed);
+                        if (turn.stopped || conversation !== c) return;
+                        if (Policy.release(prior, c.recipients, c.grants).kind !== "send") fail("history-release");
+                    }
+                    // Native adapters retain opaque history rather than
+                    // re-rendering it in reply.release. Restore its authority
+                    // labels before the suspended bridge can admit tools.
+                    if (c.resume !== null) {
+                        router.observe(turn, [...c.historyLabels]);
+                        if (c.brainOwner.value === c.resume) c.resume.resume({ gen: c.gen, recipients: c.recipients, net: c.net });
+                        c.resume = null;
+                    }
+                    if (c.prior !== null) {
+                        c.heard = c.prior.heard;
+                        c.prior.heard = null;
+                        c.prior = null;
+                    }
+                    const items = [];
+                    if (c.heard !== null) items.push(heardItem(c.heard));
+                    c.heard = null;
+                    items.push(...c.results);
+                    c.results = [];
+                    items.push(Policy.item(e.text, ["speech"]));
+                    c.turns++;
                     turn.phase = "streaming";
                     return respond(c, turn, { kind: "user", items });
                 }
-            });
+            }).catch(error => failed(c, turn, error));
         },
         cancel(e, done) {
             const c = conversation;
@@ -1685,7 +1812,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn.phase === "fast" && turn.routing !== null) c.late.set(turn.routing.id, { call: turn.routing, op: turn.op, fast: turn.fast });
             // A queued or relay turn owns no adapter request. Its prior cancellation
             // still blocks the next turn and this cancellation's acknowledgement.
-            const cancelled = c.brain;
+            const cancelled = c.brainOwner.value;
             c.quiet = (turn.phase === "fast" || turn.phase === "queued" || turn.phase === "relay" || cancelled === null ? c.quiet : cancelled.cancel()).then(() => {
                 // A running call's real outcome follows on a later turn,
                 // whichever brain asks next: a fleet-route change may have
@@ -1694,7 +1821,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 if (running !== undefined) c.late.set(running.id, { call: running, op: turn.op });
                 // Every call in history gets an answer, so the next request is
                 // valid; a brain closed since keeps no history.
-                if (routing && cancelled !== null && c.brain === cancelled) cancelled.record({ kind: "tool-results", results: turn.calls.map(call => {
+                if (routing && cancelled !== null && c.brainOwner.value === cancelled) cancelled.record({ kind: "tool-results", results: turn.calls.map(call => {
                     if (turn.answers.has(call.id)) return { id: call.id, ...turn.answers.get(call.id) };
                     return router.interrupted(call, turn.routing === call ? "running" : "not-started");
                 }) });
@@ -1708,10 +1835,19 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         close(e) {
             const c = conversation;
-            if (c === null || c.owner !== e.target || c.brain === null) return;
-            c.brain.close();
-            c.brain = null;
+            const owner = c?.brainOwner ?? savedBrain?.owner;
+            const pending = owner?.pending;
+            if (pending && pending.gen === e.gen && pending.owner === e.target) {
+                closeBrainOwner(owner);
+                if (savedBrain?.owner === owner) savedBrain = null;
+                return;
+            }
+            if (c === null || c.gen !== e.gen || c.owner !== e.target || c.brainOwner.value === null) return;
+            closeBrainOwner(c.brainOwner);
             c.owner = null;
+        },
+        reset() {
+            forgetBrain();
         },
         outcome(value) {
             const c = conversation;
@@ -1743,6 +1879,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const turn = c?.turn;
             if (c === null || c.gen !== value.gen || turn === null || turn.op !== value.op || turn.phase !== "streaming") return;
             callLine(c, turn, tool, value.outcome);
+        },
+        retained(value, labels) {
+            const c = conversation;
+            if (c === null || c.gen !== value.gen || c.turn?.op !== value.op) return;
+            for (const label of labels) {
+                c.historyLabels.add(label);
+                c.turn.labels.add(label);
+            }
         }
     };
 
@@ -1767,8 +1911,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             flush(e, done) {
                 // The report belongs to the turn being flushed. Cue-only
                 // teardown must not mark its later reply as interrupted.
-                const c = conversation;
-                const turn = c?.last;
+                const c = conversation?.gen === e.gen ? conversation : retired?.gen === e.gen ? retired.context : null;
+                const turn = c?.closingPlayback?.turn ?? c?.last;
                 // While a line's stream exists Session's playback is that
                 // line's, handed to Audio or not yet: the flush ends it. Its
                 // report is the line's, so a reply held behind it was heard
@@ -1783,13 +1927,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A duplex reply's account is read here: the speech port's
                 // flush follows this effect and drops it. Until Audio
                 // reports, the reply at the speaker counts as unheard.
-                const account = cut(c, turn);
+                const account = c?.closingPlayback?.account ?? cut(c, turn);
                 if (account !== null) heard(c, turn, account.text(null));
                 return port.flush(e, report => {
-                    if (account !== null && conversation === c && c.last === turn) heard(c, turn, account.text(report));
-                    const own = speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op);
+                    if (account !== null && c.last === turn) heard(c, turn, account.text(report));
+                    const own = speaking && c.live === null && c.last === turn && (report === null || report.source === turn.op);
                     if (own && turn.relay === null) heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));
                     else if (own) unheard(c, turn);
+                    c?.closingPlayback?.release();
                     done(report);
                 });
             }
@@ -1903,7 +2048,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // A failed local catalog or a model no longer offered is read again
         // by the daemon's existing Talk judgement, after the server recovers.
         modelsHeld,
-        checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
+        checkReady: () => plan.speech?.check === true && daemonSpeech?.status().kind === "ready",
         /**
          * A local voice setup run started (RUNNING true) or ended. A start
          * takes Talk down with the cause speech=local-setting-up, so Session
@@ -1933,17 +2078,25 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return setup.released;
         },
         observe(s) {
-            if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
+            const changedHistory = historyEpoch !== null && historyEpoch !== s.history.epoch;
+            historyEpoch = s.history.epoch;
+            if (changedHistory) forgetBrain();
+            if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end(!changedHistory);
             if (conversation?.collection !== null && conversation?.collection !== undefined
                     && !collecting(conversation, conversation.collection)) {
                 conversation.collection.utterance?.abort();
                 conversation.collection = null;
             }
-            if (s.playback.kind === "feedback") {
+            const conversationCue = s.playback.kind === "feedback" && ["start", "stop"].includes(s.playback.cue);
+            if (cue !== null && (!conversationCue || cue.gen !== s.gen || cue.source !== s.playback.source)) {
+                cue.readable.destroy();
+                cue = null;
+            }
+            if (conversationCue && cue === null)
+                cue = { gen: s.gen, source: s.playback.source, readable: Readable.from([earcon(s.playback.cue)],
+                    { objectMode: true, highWaterMark: SPEECH_CHUNKS }) };
+            if (s.playback.kind === "feedback" && !conversationCue) {
                 const c = current(s.gen);
-                if (s.playback.cue === "start" && c.feedback === null)
-                    c.feedback = { source: s.playback.source, readable: Readable.from([earcon("start")],
-                        { objectMode: true, highWaterMark: SPEECH_CHUNKS }) };
                 if (s.playback.cue === "working" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.speech === null) {
                     c.turn.speech = speech(c);
@@ -1952,9 +2105,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 }
                 if (s.playback.cue === "line" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.lineStream === null) lineAdmitted(c, c.turn);
-            } else if (conversation?.feedback !== null && conversation?.feedback !== undefined) {
-                conversation.feedback.readable.destroy();
-                conversation.feedback = null;
             }
             // A line has played once Session's playback is idle again or
             // plays the reply it held; the waiting line then asks for its own.
@@ -2013,7 +2163,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // A live collection adopts the new utterance; otherwise it waits
         // unbound, replacing and abandoning any earlier unbound one.
         captureSink(e) {
-            if (e.mode === "armed" || e.mode === "check") return spotting(e);
+            if (e.mode === "check") return spotting(e);
             const c = current(e.gen);
             if (c.live !== null) return c.live.captureSink(e);
             const utterance = transcription(c, e);
@@ -2042,10 +2192,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             c.unbound = null;
         },
-        // Audio's {readable, spoken}: a start sound and a voice preview are
+        // Audio's {readable, spoken}: conversation cues and a voice preview are
         // not Jarvis's spoken words, so voice mute leaves them audible.
         playbackSource(op) {
-            if (conversation?.feedback?.source === op) return { readable: conversation.feedback.readable, spoken: false };
+            if (cue?.source === op) return { readable: cue.readable, spoken: false };
             if (conversation?.live !== null && conversation?.live !== undefined) return conversation.live.playbackSource(op);
             const turn = conversation?.last;
             if (!turn || turn.op !== op) return null;
@@ -2058,8 +2208,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return { readable: turn.speech.readable, spoken: turn.preview !== true };
         },
         playback, brain,
-        // Session's engine word: a dictation row's recording sounds its own
-        // tones, so Session plays no start sound for it.
+        // Session's engine word chooses its capture and speech paths.
         engine() {
             if (plan.kind === "ready" && duplexOf(plan.speech.id) !== null) return "duplex";
             return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";
@@ -2077,7 +2226,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A failover reopens the session for the conversation, which
                 // speaks no preview a second time.
                 const { preview, ...reopen } = e;
-                const own = { ...events, failed: reason => {
+                const own = { ...events, renewal: () => renewal(c.gen), failed: reason => {
                     if (c.stream?.op === e.op) closeStream(c, reason);
                     events.failed(reason);
                     // A refused key holds Talk with its cause until the key changes.
@@ -2085,6 +2234,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         refusedKey = keyIdentity(c.plan.speech.key);
                         rejudge();
                     }
+                }, interrupted: value => {
+                    const turn = c.last;
+                    if (conversation === c && turn?.delegation === value.id) heard(c, turn, value.text);
                 } };
                 c.liveOpen = { e: reopen, events: own };
                 c.live.port.open(e, own);
@@ -2106,6 +2258,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         close() {
             end();
+            forgetBrain();
+            cue?.readable.destroy();
+            cue = null;
             closed = true;
             cancelModels();
             voiceList.net?.close();

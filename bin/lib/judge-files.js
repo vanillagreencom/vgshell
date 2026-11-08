@@ -83,10 +83,10 @@ function readConfig(logic, file, key) {
 // previous format version reads as this version's. The migrated file
 // reaches the disk only through a caller that writes the value. An absent
 // file answers null.
-function readUserConfig(logic, file, key, packageReviewSettingsSource, shortcutKeyMigrations) {
+function readUserConfig(logic, file, key, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration) {
     const config = readJson(file, key, true);
     if (config === null) return null;
-    const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations);
+    const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations, conversationSettingsMigration);
     if (moved.error) refuse(key + "=malformed path=" + file + " error=" + moved.error, "malformed");
     return judgedConfig(logic, moved.config, file, key);
 }

@@ -1,1 +1,1 @@
-{"input": {"tts": "Please go to workspace three."},"mode": "toggle","confirm": "none","heard": ["workspace","three|3"],"tool": "workspaces.focus","said": ["done"]}
+{"input": {"tts": "Please go to workspace three."},"confirm": "none","heard": ["workspace","three|3"],"tool": "workspaces.focus","said": ["done"]}

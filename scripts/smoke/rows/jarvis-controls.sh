@@ -19,8 +19,10 @@
 # held. With Voice on too, Voice's toggle during a Jarvis recording answers
 # busy and changes neither recording. With both off, no voxtype process
 # runs. Each read polls once per nested IPC round trip.
-# inputs: scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh
 set -euo pipefail
+local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
+jarvis_fixture_begin
 expected_errors+=("${dictation_absent_errors[@]}")
 expected_errors+=("${jarvis_provoked_errors[@]}")
 
@@ -96,10 +98,17 @@ ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did
 ok = ok and daemon.get("lines") == ["Jarvis could not finish starting."] and daemon.get("hint") == action
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and setup.get("hint") == action and "lines" not in setup
-ok = ok and widget.get("tooltip") == "Jarvis did not answer in time" and widget.get("tooltipDetails", [])[:1] == [action + "."]
+ok = ok and widget.get("tooltip") == "Jarvis: Problem" and widget.get("tooltipDetails", [])[:1] == [action]
 ok = ok and not any("hello=timeout" in line for line in widget.get("tooltipDetails", []))
 print("problem-words" if ok else "pending")
 PY
+}
+jarvis_start_exhausted() {
+  # This fixture intentionally spends all six hello deadlines, managed-child
+  # cleanup graces and retry waits, not the ordinary single-answer poll.
+  # The bound is the startup sequence measured in this row's header.
+  local smoke_poll_bound_ms=107750
+  expect_poll "the hello-less daemon reads problem with words" problem-words jarvis_start_problem_words
 }
 
 jarvis_start_retry_words() {
@@ -221,23 +230,23 @@ jarvis_audio_recovered_assertion() {
    echo "$failures")
 }
 
-# The mute the service holds from the daemon's Session state.
-jarvis_mute_held() {
+# The voice mute the service holds from the daemon's Session state.
+jarvis_voice_mute_held() {
   ipc smoke readInstance service vgs.jarvis sessionState | py_reply '
 import json,sys
 s=json.load(sys.stdin)
-print("pending" if s is None else s["mute"]["kind"])
+print("pending" if s is None else s["voiceMute"]["kind"])
 '
 }
 
 # A daemon that writes a warning to stderr and keeps running still takes
-# intents. The mute round trip ends unmuted, so later cases start unmuted.
+# intents. The voice-mute round trip ends unmuted, so later cases start unmuted.
 jarvis_stderr_case() {
   expect_poll "the daemon's warning reaches the log" logged jarvis_logged "jarvis: fixture=warning" "$jarvis_warnings"
-  expect "mute reaches the daemon after its warning" ok ipc vgs.jarvis invoke mute ""
-  expect_poll "the daemon mutes after its warning" on jarvis_mute_held
-  expect "unmute reaches the daemon after its warning" ok ipc vgs.jarvis invoke mute ""
-  expect_poll "the daemon unmutes after its warning" off jarvis_mute_held
+  expect "mute reaches the daemon after its warning" ok ipc vgs.jarvis invoke voice-mute ""
+  expect_poll "the daemon mutes after its warning" on jarvis_voice_mute_held
+  expect "unmute reaches the daemon after its warning" ok ipc vgs.jarvis invoke voice-mute ""
+  expect_poll "the daemon unmutes after its warning" off jarvis_voice_mute_held
   expect "the warning neither restarts nor ends the daemon" ready jarvis_ready 0
 }
 
@@ -359,12 +368,37 @@ expect "the hanging setup-probe fixture disables" ok ipc shell setPluginEnabled 
 rm -f -- "$home/.local/state/vgshell/jarvis/local-ready.json"
 printf 'absent\n' >"$sandbox/jarvis-world/local-mode"
 
-jarvis_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
-jarvis_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
-cp -- "$jarvis_service" "$sandbox/jarvis-service-original"
-cp -- "$jarvis_backend" "$sandbox/jarvis-backend-original"
-jarvis_shell_owner="$repo/shell/plugins/vgs.jarvis/backend/Sandbox.js"
-cp -- "$jarvis_shell_owner" "$sandbox/jarvis-shell-original"
+jarvis_controls_paths() {
+  jarvis_service="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Service.qml"
+  jarvis_backend="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/jarvisd.js"
+  jarvis_shell_owner="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/Sandbox.js"
+  jarvis_engine="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+  jarvis_home_row="$jarvis_fixture_tree/shell/plugins/vgs.launcher/LauncherRow.qml"
+  jarvis_keys="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Keys.qml"
+  jarvis_accounts="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Accounts.qml"
+  jarvis_folders="$jarvis_fixture_tree/bin/lib/account-folders.js"
+  jarvis_voxtype="$jarvis_fixture_shim/voxtype"
+  jarvis_voice_bridge="$jarvis_fixture_shim/voxtype-audio-bridge"
+}
+jarvis_controls_select() { # INPUT
+  jarvis_fixture_begin "$sandbox/tree-$1" "$sandbox/tree-$1.commands"
+  jarvis_controls_paths
+  if [[ $1 == jarvis-controls-folders ]]; then
+    python3 - "$jarvis_accounts" "$jarvis_accounts_fixture_world" "$jarvis_fixture_tree/scripts/fixtures/jarvis/accounts-world.js" <<'PYACCOUNTS'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text()
+assert s.count(sys.argv[2]) == 2
+changed=s.replace(sys.argv[2], sys.argv[3])
+assert changed != s
+p.write_text(changed)
+PYACCOUNTS
+    jarvis_rescan
+  fi
+}
+jarvis_controls_paths
+jarvis_fixture_copy jarvis-controls-stock "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 
 # The disposable service exposes its ordinary launcher capability to the row.
 # Both homes are accepted through the Settings write. No brain turn runs.
@@ -398,7 +432,7 @@ changed=source.replace(needle, fixture+needle)
 assert changed != source
 p.write_text(changed)
 PYHOME
-cp -- "$jarvis_service" "$sandbox/jarvis-home-fixture"
+jarvis_fixture_copy jarvis-controls-homes "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_enable
 jarvis_home_set() { ipc smoke invokeInstance service vgs.jarvis fixtureHomeSet "$1"; }
@@ -459,7 +493,7 @@ rows=[r for r in json.load(sys.stdin) if r.get("parent.kind")=="plugin"]
 valid=all(r["text"]=="" or r["x"]>r["parent.width"]/2 for r in rows)
 print(json.dumps(sorted([[r["parent.label"],r["text"]] for r in rows])) if valid else "misplaced")'
 }
-jarvis_notice_close
+jarvis_notice_close "$jarvis_fixture_shim"
 expect "the launcher enables for Jarvis homes" ok ipc shell setPluginEnabled vgs.launcher true
 expect "the launcher opens Jarvis homes" ok ipc shell summon overlay vgs.launcher '{"menu":"homes"}'
 expect_poll "only the current home has right-edge text" '[["~/Launcher One", "Current"], ["~/Launcher Two", ""]]' jarvis_home_detail
@@ -467,8 +501,6 @@ expect "the launcher searches the current home" ok ipc shell summon overlay vgs.
 expect_poll "search shows no right-edge copy" '[["~/Launcher One", ""]]' jarvis_home_detail
 expect "search keeps its detail line" true ipc smoke readMatchingDescendant overlay vgs.launcher LauncherRow label "~/Launcher One" showsDetail
 expect "the home search hides" ok ipc shell hide overlay vgs.launcher
-jarvis_home_row="$repo/shell/plugins/vgs.launcher/LauncherRow.qml"
-cp -- "$jarvis_home_row" "$sandbox/jarvis-home-row-kept"
 python3 - "$jarvis_home_row" <<'PYROW'
 from pathlib import Path
 import sys
@@ -492,12 +524,13 @@ jarvis_home_detail_control() {
 }
 expect "the previous row fails the right-edge assertion" 1 jarvis_home_detail_control
 expect "the previous row hides" ok ipc shell hide overlay vgs.launcher
-cp -- "$sandbox/jarvis-home-row-kept" "$jarvis_home_row"
+jarvis_controls_select jarvis-controls-homes
 rescan "the right-edge home detail returns"
 expect "the launcher disables after Jarvis homes" ok ipc shell setPluginEnabled vgs.launcher false
 jarvis_disable
 # Each control keeps its handler and removes only its effect.
 for jarvis_home_control in publish write; do
+  jarvis_controls_select jarvis-controls-homes
   python3 - "$jarvis_service" "$jarvis_home_control" <<'PYHOME'
 from pathlib import Path
 import sys
@@ -534,8 +567,8 @@ PYHOME
   expect "the $jarvis_home_control control breaks its consumer assertion" 1 jarvis_home_control_result
   expect "the control clears the home without a brain turn" ok jarvis_home_set ""
   jarvis_disable
-  cp -- "$sandbox/jarvis-home-fixture" "$jarvis_service"
 done
+jarvis_controls_select jarvis-controls-homes
 jarvis_rescan
 jarvis_enable
 expect "the home row leaves no home set" "" jarvis_home_saved
@@ -546,8 +579,6 @@ jarvis_disable
 # same lease: the engine composes the home's layers over the fixture plan's
 # guidance, and the reply reaches the transcript. The fixture's reply gate
 # polls every 10 ms. The home clears before the next scripted row.
-jarvis_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-cp -- "$jarvis_engine" "$sandbox/jarvis-engine-original"
 jarvis_turn_gates="$sandbox/jarvis-home-turn-gates"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_backend" "$jarvis_turn_gates"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_engine"
@@ -566,10 +597,7 @@ expect_poll "the scripted brain replies with a home set" replied jarvis_home_rep
 expect "the turn's home clears" ok jarvis_home_set ""
 expect_poll "no home is held after the turn" "" jarvis_home_held
 jarvis_disable
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
-cp -- "$sandbox/jarvis-engine-original" "$jarvis_engine"
-rm -- "${repo:?}/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # Kernel behavior is exercised through the real tool by the offline shell
@@ -590,10 +618,12 @@ jarvis_shell_assertion() {
    echo "$failures")
 }
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --shell-availability "$jarvis_shell_owner" available
+jarvis_fixture_copy jarvis-controls-shell-available "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_enable
 expect_poll "the service reports a confined shell executor ready" matched jarvis_shell_status ready
 jarvis_disable
+jarvis_controls_select jarvis-controls-shell-available
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
@@ -608,14 +638,13 @@ jarvis_rescan
 jarvis_enable
 expect "removing shell status publication breaks its consumer assertion" 1 jarvis_shell_assertion
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-cp -- "$sandbox/jarvis-shell-original" "$jarvis_shell_owner"
+jarvis_controls_select jarvis-controls-stock
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --shell-availability "$jarvis_shell_owner" unavailable
 jarvis_rescan
 jarvis_enable
 expect_poll "missing confinement exposes the one-click requirement action" matched jarvis_shell_status missing
 jarvis_disable
-cp -- "$sandbox/jarvis-shell-original" "$jarvis_shell_owner"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # Installation completion requests the ordinary core scan. It does not
@@ -660,6 +689,7 @@ jarvis_shell_rescan_assertion() {
 }
 jarvis_shell_put '{"kind":"unavailable","reason":"bwrap-missing"}'
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --shell-state "$jarvis_shell_owner" "$jarvis_backend" "$jarvis_shell_state" "$jarvis_shell_evidence"
+jarvis_fixture_copy jarvis-controls-shell-state "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_enable
 expect_poll "the retained service starts with unavailable confinement" matched jarvis_shell_status missing
@@ -670,7 +700,7 @@ rescan "dependency loss uses the same core rescan"
 expect_poll "dependency loss removes readiness" matched jarvis_shell_status missing
 expect_poll "dependency loss removes both shell offers" matched jarvis_shell_offers unavailable
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_controls_select jarvis-controls-shell-state
 python3 - "$jarvis_service" <<'PYCONTROL'
 from pathlib import Path
 import sys
@@ -688,9 +718,7 @@ jarvis_enable
 expect_poll "the control reaches initial missing readiness" matched jarvis_shell_offers unavailable
 expect "removing later requirement scan delivery breaks recovery" 2 jarvis_shell_rescan_assertion
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
-cp -- "$sandbox/jarvis-shell-original" "$jarvis_shell_owner"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # The control keeps the receive branch but removes its publication. The
@@ -700,7 +728,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });'
+needle='const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state,\n                        brain: message.brain, conversationId: childSerial + ":" + message.state.history.epoch });'
 assert s.count(needle)==1
 changed=s.replace(needle, needle.replace("= StatusPublication.write", "= false ? StatusPublication.write").replace(" });", ' }) : "ok";'))
 assert changed != s
@@ -711,7 +739,7 @@ jarvis_enable
 expect_poll "the control's service holds the Session state it does not publish" held jarvis_session_held unconfigured
 expect "removing Session publication breaks its real consumer assertion" 1 jarvis_session_assertion
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # Feedback sounds: the choice for the manifest's `feedback` sound event,
@@ -771,7 +799,7 @@ path.write_text(source.replace(sys.argv[2], sys.argv[3]))' "$jarvis_service" "$2
   control_output "$sandbox/jarvis-sounds-control-assertions.log"
   jarvis_sounds_back
   jarvis_disable
-  cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+  jarvis_controls_select jarvis-controls-stock
   jarvis_rescan
 }
 jarvis_enable
@@ -802,7 +830,7 @@ jarvis_enable
 expect_poll "the control's service handles the device message it does not publish" handled jarvis_devices_handled
 expect "removing offer publication breaks the real consumer assertion" 1 jarvis_devices_assertion
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # Control: the device lists go out without the system default offer, so
@@ -812,9 +840,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='return [{ label: "System default", value: systemDefault }].concat(devices);'
+needle='return [{ label: "System default", value: systemDefault }].concat(physical);'
 assert s.count(needle)==1
-changed=s.replace(needle, 'return devices;')
+changed=s.replace(needle, 'return physical;')
 assert changed != s
 p.write_text(changed)
 PY
@@ -823,13 +851,14 @@ jarvis_enable
 expect_poll "the control's service handles the device message without a default offer" handled jarvis_devices_handled
 expect "dropping the system default offer breaks the real consumer assertion" 1 jarvis_devices_assertion
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # The fixture holds its later device list until the row has seen the
 # service publish the fault, so the list provably follows the fault.
 jarvis_audio_gate="$sandbox/jarvis-audio-devices-gate"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --audio-fault-devices "$jarvis_backend" "$jarvis_audio_gate"
+jarvis_fixture_copy jarvis-controls-audio "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 rm -f -- "${jarvis_audio_gate:?}"
 jarvis_enable
@@ -841,6 +870,7 @@ expect "a device list after an audio fault clears the audio problem" handled jar
 jarvis_disable
 # Control: only the first device list reports ready, so the later list
 # leaves the fault shown.
+jarvis_controls_select jarvis-controls-audio
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
@@ -861,18 +891,19 @@ expect_poll "the status control handles the later device list" later jarvis_late
 expect "a reading-only ready rule breaks the cleared-fault assertion" 1 jarvis_audio_recovered_assertion
 jarvis_disable
 rm -f -- "${jarvis_audio_gate:?}"
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # A caption for another generation must not replace the current one. Each
 # control keeps its branch and breaks one rule; the same assertion fails.
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --transcripts "$jarvis_backend"
+jarvis_fixture_copy jarvis-controls-transcripts "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_enable
 expect_poll "the service publishes the current generation's caption" current jarvis_transcript
 jarvis_disable
 for jarvis_transcript_control in generation write; do
+  jarvis_controls_select jarvis-controls-transcripts
   python3 - "$jarvis_service" "$jarvis_transcript_control" <<'PY'
 from pathlib import Path
 import sys
@@ -898,10 +929,8 @@ PY
     expect "a $jarvis_transcript_control control breaks the caption assertion" 1 jarvis_transcript_assertion expect_poll
   fi
   jarvis_disable
-  cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-  jarvis_rescan
 done
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 jarvis_drop="$sandbox/jarvis-dropped-first-reply"
@@ -912,7 +941,7 @@ expect "a timeout recovery fails the actual ordinary startup assertion once" 1 j
 expect "the intentional recovery still reaches ready with its explicit allowance" ready jarvis_wait_ready 1
 expect_log "the control retains its real hello timeout log" "$((jarvis_timeouts + 1))" 'jarvis: hello=timeout'
 expect "the first-reply suppression control disables" ok ipc shell setPluginEnabled vgs.jarvis false
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 python3 - "$jarvis_backend" <<'PY'
@@ -932,12 +961,12 @@ notes_on "jarvis hello-less daemon"
 jarvis_unsent_mark="$(jarvis_unsent)" || { fail "the shell log is unreadable before the hello-less daemon"; jarvis_unsent_mark=unread; }
 expect "the hello-less daemon fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the hello-less daemon names the first failed start" retry-words jarvis_start_retry_words
-expect_poll "the hello-less daemon reads problem with words" problem-words jarvis_start_problem_words
+jarvis_start_exhausted
 expect_poll "the hello-less daemon sends one Jarvis notification" '[["Jarvis did not answer in time", "danger", "vgs-letter-j"]]' jarvis_cards
 expect "the hello-less daemon logs no unsent notice" "$jarvis_unsent_mark" jarvis_unsent
 expect "the hello-less daemon service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "jarvis hello-less daemon"
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 jarvis_gate="$sandbox/jarvis-first-reply-gate"
@@ -955,10 +984,12 @@ needle='if (root.cause === "") helloDeadline.start();'
 assert s.count(needle)==1
 p.write_text(s.replace(needle, ""))
 PY
+jarvis_fixture_copy jarvis-controls-lock "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_lock_case real
 # Control: a service that neither resends hello on the startup lock nor
 # drops the reply to the earlier snapshot publishes that stale answer.
+jarvis_controls_select jarvis-controls-lock
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
@@ -973,14 +1004,14 @@ p.write_text(s)
 PY
 jarvis_rescan
 jarvis_lock_case control
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # The permanent stop sends the stopped notice, so a notifications holder
 # draws it; with none, the core logs it unsent and the log checks fail.
 notes_on "jarvis permanent stop"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_backend"
+jarvis_fixture_copy jarvis-controls-floor "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_unsent_mark="$(jarvis_unsent)" || { fail "the shell log is unreadable before the permanent stop"; jarvis_unsent_mark=unread; }
 expect "the unsupported Node fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
@@ -988,6 +1019,7 @@ expect_poll "Node exit 78 is a permanent problem without retries" permanent jarv
 expect_poll "the permanent stop sends one Jarvis notification" '[["Jarvis needs Node 22 or later", "danger", "vgs-letter-j"]]' jarvis_cards
 expect "the permanent stop logs no unsent notice" "$jarvis_unsent_mark" jarvis_unsent
 expect "the unsupported Node service disables" ok ipc shell setPluginEnabled vgs.jarvis false
+jarvis_controls_select jarvis-controls-floor
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
@@ -1002,8 +1034,7 @@ expect "the Node-floor recovery control enables" ok ipc shell setPluginEnabled v
 expect_poll "the missing permanent-exit rule wrongly retries" retried jarvis_permanent
 expect "the recovery control disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "jarvis permanent stop"
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 notes_on "jarvis retries"
@@ -1017,6 +1048,7 @@ notes_off "jarvis retries"
 # Its six-crash observation must not satisfy the five-retry assertion.
 # The copy waits 50 ms before each retry: the count is the rule under
 # control, and the five-retry case above runs under the real backoff.
+jarvis_controls_select jarvis-controls-stock
 python3 - "$jarvis_service" <<'PY'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
@@ -1030,17 +1062,19 @@ jarvis_rescan
 jarvis_enable
 expect "the six-retry control breaks the five-retry assertion" not-problem jarvis_exhaust
 expect "the control disables" ok ipc shell setPluginEnabled vgs.jarvis false
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 
 # A daemon diagnostic goes to the log and ends nothing.
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --stderr-warning "$jarvis_backend"
+jarvis_fixture_copy jarvis-controls-stderr "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 jarvis_warnings="$(jarvis_log_count "jarvis: fixture=warning")"
 jarvis_enable
 jarvis_stderr_case
 jarvis_disable
 # Control: the stderr handler takes each line as the end of communication.
+jarvis_controls_select jarvis-controls-stderr
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
@@ -1055,20 +1089,17 @@ PY
 jarvis_rescan
 jarvis_warnings="$(jarvis_log_count "jarvis: fixture=warning")"
 jarvis_enable
-expect "a warning that sets the cause breaks the delivered-mute assertion" 1 jarvis_stderr_assertion
+expect "a warning that sets the cause breaks the delivered-voice-mute assertion" 1 jarvis_stderr_assertion
 jarvis_disable
-cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
-cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
+jarvis_controls_select jarvis-controls-stock
 jarvis_rescan
 jarvis_enable
 
 # The core's floating terminal receives only the declared script path.
 # Its disposable script is a no-auth fixture, not the real key entry flow.
-jarvis_keys="$repo/shell/plugins/vgs.jarvis/Keys.qml"
-cp -- "$jarvis_keys" "$sandbox/jarvis-keys-original"
-cp -- "$repo/shell/plugins/vgs.jarvis/tui/add-key.sh" "$sandbox/jarvis-add-key-original"
-printf '#!/bin/sh\nexit 0\n' >"$repo/shell/plugins/vgs.jarvis/tui/add-key.sh"
-terminal_stand_in
+printf '#!/bin/sh\nexit 0\n' >"$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/add-key.sh"
+jarvis_fixture_terminal
+jarvis_fixture_copy jarvis-controls-keys "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 terminal_ready "Jarvis Add key"
 jarvis_rescan
 jarvis_listed_key() {
@@ -1088,7 +1119,7 @@ jarvis_open_key() {
   forget_record
   expect "Add key opens by its core TUI key" ok ipc shell openTui vgs.jarvis/add-key
   expect_poll "Add key hands the terminal only its declared script" \
-    "$(words --app-id=org.vgs.tui "--title=VGS · Add Jarvis key" -- "$tui_self" present --presentation full \
+    "$(words --app-id=org.vgs.tui "--title=VGS · Add Jarvis key" -- "$jarvis_fixture_tree/bin/vgshell-tui" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/add-key --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Add Jarvis key" -- tui/add-key.sh)" recorded
   expect_run_end "the fixture Add key terminal ends" vgs.jarvis/add-key
@@ -1151,7 +1182,7 @@ jarvis_failure_control() {
 }
 expect "retaining stale rows breaks the actual whole-probe assertion" 1 jarvis_failure_control
 expect "the control leaves the previous present row" matched jarvis_key_value present
-cp -- "$sandbox/jarvis-keys-original" "$jarvis_keys"
+jarvis_controls_select jarvis-controls-keys
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "restored whole-probe handling publishes present" matched jarvis_key_value present
@@ -1175,18 +1206,15 @@ jarvis_refresh_control() {
    echo "$failures")
 }
 expect "removing the end refresh breaks its actual assertion" 1 jarvis_refresh_control
-cp -- "$sandbox/jarvis-keys-original" "$jarvis_keys"
-cp -- "$sandbox/jarvis-add-key-original" "$repo/shell/plugins/vgs.jarvis/tui/add-key.sh"
+jarvis_controls_select jarvis-controls-stock
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "restored key status contains no secret" matched jarvis_key_value present
 
 # The account probe also runs through J09. The core terminal runs only a
 # no-auth fixture; the actual accounts script has its own private TTY suite.
-jarvis_accounts="$repo/shell/plugins/vgs.jarvis/Accounts.qml"
-cp -- "$jarvis_accounts" "$sandbox/jarvis-accounts-original"
-cp -- "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh" "$sandbox/jarvis-accounts-tui-original"
-cp -- "$repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
+cp -- "$repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$jarvis_fixture_tree/shell/plugins/vgs.jarvis/tui/accounts.sh"
+jarvis_fixture_copy jarvis-controls-accounts "$jarvis_fixture_tree" "$jarvis_fixture_shim"
 jarvis_rescan
 # The search row's tone and whether it offers Accounts, as JSON, with the
 # accounts and choices it publishes beside it emptied or not.
@@ -1209,7 +1237,7 @@ jarvis_open_accounts() {
   forget_record
   expect "Accounts opens through its core TUI key" ok ipc shell openTui vgs.jarvis/accounts
   expect_poll "Accounts hands the terminal only its declared fixture script" \
-    "$(words --app-id=org.vgs.tui "--title=VGS · Jarvis accounts" -- "$tui_self" present --presentation full \
+    "$(words --app-id=org.vgs.tui "--title=VGS · Jarvis accounts" -- "$jarvis_fixture_tree/bin/vgshell-tui" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/accounts --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Jarvis accounts" -- tui/accounts.sh)" recorded
   expect_run_end "the no-auth Accounts terminal ends" vgs.jarvis/accounts
@@ -1242,7 +1270,7 @@ print(len(claude) if sys.argv[2] == "count" else "matched" if len(claude) - len(
 }
 # A real default account is collected before the bounded parent walk,
 # independent of whether that walk reaches any of the fixture's home names.
-jarvis_account_world="$repo/scripts/fixtures/jarvis/accounts-world.js"
+jarvis_account_world="$jarvis_fixture_tree/scripts/fixtures/jarvis/accounts-world.js"
 python3 - "$jarvis_account_world" "$jarvis_accounts" "$source_repo/scripts/fixtures/jarvis/accounts-world.js" <<'PY'
 from pathlib import Path
 import sys
@@ -1268,8 +1296,9 @@ expect "the partial search shows no diagnostic" plain jarvis_status_plain
 # count with this passing discovery so losing even that account fails.
 jarvis_account_kept="$(jarvis_account_labels count)"
 # A copy that drops the folders read once the bound is met.
-jarvis_folders="$repo/bin/lib/account-folders.js"
-cp -- "$jarvis_folders" "$sandbox/jarvis-folders-original"
+jarvis_fixture_copy jarvis-controls-folders "$jarvis_fixture_tree" "$jarvis_fixture_shim"
+jarvis_accounts_fixture_world="$jarvis_account_world"
+jarvis_controls_select jarvis-controls-folders
 python3 - "$jarvis_folders" <<'PY'
 from pathlib import Path
 import sys
@@ -1294,13 +1323,12 @@ jarvis_account_bound_control() {
    echo "$failures")
 }
 expect "dropping the folders read before the bound breaks the folder read" 1 jarvis_account_bound_control
-cp -- "$sandbox/jarvis-folders-original" "$jarvis_folders"
+jarvis_controls_select jarvis-controls-folders
 rm -f -- "${sandbox:?}/jarvis-world/account-labels"
 jarvis_open_accounts
 expect_poll "the restored search's discovery is published" idle jarvis_accounts_reader_idle
 expect_poll "the restored search keeps its folders again" matched jarvis_account_labels
-cp -- "$source_repo/scripts/fixtures/jarvis/accounts-world.js" "$jarvis_account_world"
-cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_controls_select jarvis-controls-accounts
 jarvis_rescan
 # A linked config home is not followed: the search is partial, keeps the
 # home's folders, warns and offers Accounts.
@@ -1353,7 +1381,7 @@ jarvis_account_cause_control() {
    echo "$failures")
 }
 expect "discarding the named helper cause breaks its log assertion" 1 jarvis_account_cause_control
-cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_controls_select jarvis-controls-accounts
 # A copy that forwards the safe cause into the search row: the plain-words
 # read must refuse it.
 python3 - "$jarvis_accounts" <<'PY'
@@ -1377,7 +1405,7 @@ jarvis_account_raw_control() {
    echo "$failures")
 }
 expect "forwarding the cause into status breaks its plain-words assertion" 1 jarvis_account_raw_control
-cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_controls_select jarvis-controls-accounts
 python3 - "$jarvis_accounts" <<'PY'
 from pathlib import Path
 import sys
@@ -1396,7 +1424,7 @@ cause_logged="$(jarvis_log_count "jarvis-accounts: process=start-failed")"
 jarvis_rescan
 expect_poll "a process that cannot start clears its rows" matched jarvis_account_failed
 expect_poll "a process that cannot start logs its own safe cause" logged jarvis_logged "jarvis-accounts: process=start-failed" "$cause_logged"
-cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_controls_select jarvis-controls-accounts
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
 expect_poll "restored reader clears the prior failure" matched jarvis_account_hint signed-in
@@ -1422,7 +1450,7 @@ jarvis_account_failure_control() {
    echo "$failures")
 }
 expect "retaining stale accounts breaks the failed-discovery assertion" 1 jarvis_account_failure_control
-cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_controls_select jarvis-controls-accounts
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
 expect_poll "restored failed-discovery handling reports current accounts" matched jarvis_account_hint signed-in
@@ -1448,7 +1476,7 @@ jarvis_account_refresh_control() {
    echo "$failures")
 }
 expect "keeping stale Accounts discovery after its terminal ends breaks its assertion" 1 jarvis_account_refresh_control
-cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_controls_select jarvis-controls-accounts
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_rescan
 expect_poll "restored account status never claims verified access" matched jarvis_account_hint signed-in
@@ -1480,8 +1508,7 @@ jarvis_account_keys_control() {
    echo "$failures")
 }
 expect "keeping stale Keys presence after Accounts ends breaks its assertion" 1 jarvis_account_keys_control
-cp -- "$sandbox/jarvis-keys-original" "$jarvis_keys"
-cp -- "$sandbox/jarvis-accounts-tui-original" "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
+jarvis_controls_select jarvis-controls-stock
 printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "restored Keys account refresh shows present" matched jarvis_key_value present
@@ -1493,7 +1520,7 @@ jarvis_local="$home/.local/share/vgshell/jarvis/local"
 jarvis_local_marker="$home/.local/state/vgshell/jarvis/local-ready.json"
 jarvis_dictation_words="$sandbox/voxtype-words"
 jarvis_dictation_notes="$sandbox/voxtype-daemon.log"
-jarvis_voxtype="$shim/voxtype"
+jarvis_voxtype="$jarvis_fixture_shim/voxtype"
 mkdir -p -- "$jarvis_local/venv/bin" "$(dirname -- "$jarvis_local_marker")"
 cp -- "$source_repo/scripts/fixtures/jarvis-local-speech/standin.py" "$jarvis_local/venv/bin/python"
 chmod 700 -- "$jarvis_local/venv/bin/python"
@@ -1525,6 +1552,15 @@ jarvis_kill_daemon() {
 # A held Talk recording through the core, from a fresh note log. Talk
 # comes up through jarvis_talk_up_held, 300 ms past Session's tap bound,
 # so the release ends the recording.
+cp -- "$home/.config/vgshell/shell.json" "$sandbox/jarvis-dictation-config-before.json"
+user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json,sys
+value=json.load(open(sys.argv[1]))
+row=next(row for row in value["plugins"] if row["id"]=="vgs.jarvis")
+row["holdToTalk"]=True
+print(json.dumps(value))
+PY
+expect "dictation release cases select Hold to talk" ok ipc shell reloadConfig
 jarvis_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$repo/shell/plugins/vgs.jarvis/Session.js")"
 [[ $jarvis_tap_ms =~ ^[0-9]+$ ]] || fail "Session names no tap bound: '$jarvis_tap_ms'"
 jarvis_dictation_talk() { # LABEL
@@ -1541,7 +1577,7 @@ jarvis_talk_up_held() { # LABEL
   expect "$1: Talk comes up" "" jarvis_intent talk-up
 }
 
-dictation_stand_ins off
+jarvis_fixture_dictation off
 rescan "the shell finds no voxtype for Jarvis's recording"
 jarvis_enable
 expect_poll "without voxtype the core's daemon for Jarvis reads failed" "failed none vgs.jarvis" dictation_lent
@@ -1556,7 +1592,7 @@ printf 'true\n' >"$jarvis_voice_feedback"
 touch -- "$jarvis_voice_installed"
 printf '%s' 'the stand-in heard this' >"$jarvis_dictation_words"
 rm -f -- "${jarvis_dictation_notes:?}"
-dictation_stand_ins on || fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
+jarvis_fixture_dictation on || fail "the shell does not resolve voxtype to the stand-in: $(jarvis_fixture_resolves voxtype)"
 cat >"$jarvis_voxtype" <<EOF_STUB
 #!/usr/bin/env bash
 voice_installed=$(printf %q "$jarvis_voice_installed")
@@ -1571,7 +1607,7 @@ chmod 755 "$jarvis_voxtype"
 # Voice requires voxtype-audio-bridge too; its stand-in prints the bridge's
 # status line and idles until TERM, so enabling Voice beside Jarvis raises
 # no requirement notice of its own.
-jarvis_voice_bridge="$shim/voxtype-audio-bridge"
+jarvis_voice_bridge="$jarvis_fixture_shim/voxtype-audio-bridge"
 cat >"$jarvis_voice_bridge" <<'EOF_BRIDGE'
 #!/usr/bin/env bash
 printf '{"status":"connected"}\n'
@@ -1580,7 +1616,6 @@ while :; do sleep 1; done
 EOF_BRIDGE
 chmod 755 "$jarvis_voice_bridge"
 rescan "the shell finds the voxtype stand-in for Jarvis's recording"
-cp -- "$jarvis_engine" "$sandbox/jarvis-engine-original"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --dictation-brain "$jarvis_engine"
 jarvis_rescan
 jarvis_enable
@@ -1614,7 +1649,8 @@ expect "Voice disables" ok ipc shell setPluginEnabled vgs.voice false
 jarvis_disable
 # Control: a service whose daemon end cancels nothing leaves the recording
 # held after the daemon is killed; the release at disable cancels it.
-cp -- "$jarvis_service" "$sandbox/jarvis-dictation-service"
+jarvis_fixture_copy jarvis-controls-dictation "$jarvis_fixture_tree" "$jarvis_fixture_shim"
+jarvis_controls_select jarvis-controls-dictation
 python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
@@ -1639,14 +1675,15 @@ expect "a service that cancels nothing at the daemon's end leaves the recording 
 expect "the cancel-free service restarts its daemon" ready jarvis_wait_ready 1
 jarvis_disable
 expect_poll "the release cancels the held recording" "- -" jarvis_dictation_recording
-cp -- "$sandbox/jarvis-dictation-service" "$jarvis_service"
-jarvis_rescan
-expect_poll "with Jarvis and Voice off, no voxtype process runs" "daemon=0 follower=0 other=0" dictation_processes all
-cp -- "$sandbox/jarvis-engine-original" "$jarvis_engine"
-rm -- "${repo:?}/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
+expect_poll "with Jarvis and Voice off, no voxtype process runs" "daemon=0 follower=0 other=0" jarvis_fixture_dictation_processes all
 rm -rf -- "${jarvis_local:?}"
 rm -f -- "${jarvis_local_marker:?}" "${jarvis_voxtype:?}" "${jarvis_voice_bridge:?}" "${jarvis_dictation_words:?}" "${jarvis_dictation_notes:?}" "${jarvis_voice_feedback:?}" \
   "$sandbox/voxtype-follow.log" "$sandbox/jarvis-voice-feedback-sets" "$jarvis_voice_installed"
-dictation_stand_ins off
-jarvis_rescan
-jarvis_notice_close
+jarvis_fixture_dictation off
+rescan "the dictation stand-ins are removed"
+user_config_restore "$sandbox/jarvis-dictation-config-before.json"
+expect "restore the talk preference after dictation cases" ok ipc shell reloadConfig
+jarvis_notice_close "$jarvis_fixture_shim"
+row_log_read "$smoke_row_name: fixture shell log" "$instance_log"
+stop_shell
+start_shell "$repo" "$smoke_log_dir/jarvis-controls-stock.log"

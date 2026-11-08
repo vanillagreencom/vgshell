@@ -9,8 +9,12 @@
 // set (scripts/vendor-lucide writes that trailer).
 
 // REVISIT(D111): a symbol goes once Lucide ships its mark.
+var LETTER_J = ["M10 4.5h7 M17 4.5v10a5 5 0 0 1 -10 0", ""];
 var ICONS = {
     // The letter J: a top bar and a stem that hooks left, its ink 10 units
     // wide and 15 tall about the box's centre.
-    "vgs-letter-j": ["M10 4.5h7 M17 4.5v10a5 5 0 0 1 -10 0", ""]
+    "vgs-letter-j": LETTER_J,
+    // Icon owns drawing this held-state variant through the same paths.
+    "vgs-letter-j-hidden": LETTER_J
 };
+var VARIANTS = { "vgs-letter-j-hidden": "lower-disabled" };

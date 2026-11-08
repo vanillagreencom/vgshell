@@ -1824,7 +1824,10 @@ ipc_call_last() {
     printf 'ipc-timeout-latched: target=%s function=%s\n' "$1" "$2" >&2
     return 124
   fi
-  out="$("${shell_env[@]}" timeout --signal=KILL "$ipc_call_bound_s" "$vgshell" ipc call "$@" 2>>"$sandbox/ipc.log")" || status=$?
+  # Quickshell 2b4501a (the engine recipe's pin), src/launch/parsecommand.cpp,
+  # allows sibling IPC subcommands; CLI11 recognizes the literal argument "show"
+  # as metadata inspection. End option/subcommand parsing before call data.
+  out="$("${shell_env[@]}" timeout --signal=KILL "$ipc_call_bound_s" "$vgshell" ipc call -- "$@" 2>>"$sandbox/ipc.log")" || status=$?
   status="${status:-0}"
   if [[ $status -eq 124 || $status -eq 137 ]]; then
     printf -v out 'ipc-timeout: target=%s function=%s bound_s=%s' "$1" "$2" "$ipc_call_bound_s"
@@ -4077,6 +4080,7 @@ smoke_row() { # NAME [DIR]
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started="$(now_ms)" smoke_row_cpu_started="$(cpu_some_us)"
   local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
+  local devices_private_shim=""
   local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_active_jobs smoke_row_source_status=0 smoke_row_abandon_status=0
   local smoke_row_fault="$sandbox/rows/$1.command" smoke_row_faults=() smoke_row_abandon_faults=()
   local smoke_row_command smoke_row_abandon_command smoke_row_top=false

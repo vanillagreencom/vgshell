@@ -10,10 +10,9 @@
 // The theme reaches this table through `palette.accent`, which draws an
 // icon toggle's glyph while it is on, `motion.scale`, which scales every
 // duration here (0 stills the orb and shows the words whole), and its
-// `scheme.mode`, which applies LIGHT. Every ink here is chosen for the
-// dark field the overlay draws behind its content (`field`), in both modes;
-// LIGHT darkens that field under the text and lifts the text inks it
-// names. Text takes its family and size from its qs.Ui Label role; this
+// `scheme.mode`, which applies LIGHT. Dark mode uses light ink over a dark
+// gradient; LIGHT uses dark ink over a white gradient. Text takes its
+// family and size from its qs.Ui Label role; this
 // table hands it its colour and its shadow.
 //
 // Each state is one set of the orb shader's inputs (shaders/particleorb.frag).
@@ -159,6 +158,9 @@ var TOKENS = {
         // 0.1, moves the orb 27% of the way and a loud voice, level 0.5,
         // 82%. Capture and playback share it.
         response: number(3, 0.1, 10),
+        // Light mode gives the coloured inner dots more coverage against
+        // its white field without adding a filled circle.
+        interiorGain: gain(1),
         // One state's change to the next, and the level's rise and fall.
         transition: duration(400),
         attack: duration(70),
@@ -169,7 +171,6 @@ var TOKENS = {
     state: {
         // Waiting for the wake word, possibly all day: a slow drift and one
         // turn in 36 s.
-        armed: state({ brightness: 0.9, frameRate: 30 }),
         // Up with capture closed: the lattice gathers and drifts slower.
         idle: state({ presence: 0.55, brightness: 0.72, flow: 0.04, quarterTurn: 10000, frameRate: 30 }),
         // The silent room drifts a little faster than waiting; the
@@ -224,10 +225,8 @@ var TOKENS = {
         easing: easing("inOutQuad"),
         hold: number(250, 0, 1000)
     },
-    // Each line's ink. The prompt's lines and Jarvis's words keep one ink
-    // in both modes; light mode draws the state line, the fault's action
-    // and its link in LIGHT's inks. The look hands a Label its
-    // colour alone.
+    // Each line's ink; LIGHT supplies the dark inks over its white field.
+    // The look hands a Label its colour alone.
     ink: {
         state: color("#e6e8ee"),
         title: color("#f4f5f8"),
@@ -239,11 +238,10 @@ var TOKENS = {
         payload: color("#f4f5f8"),
         hint: color("#e6e8ee")
     },
-    // Every text item's shadow, as a 0 0 9px CSS text shadow at 15% black:
-    // it lifts the light ink off a light wallpaper (owner, revision 5).
+    // Light text lifts off wallpaper; dark text in LIGHT draws no shadow.
     shadow: {
         color: color("#000000"),
-        opacity: share(0.15),
+        opacity: share(0.1275),
         blur: length(9)
     },
     // The approval prompt's answers in the soft form, the owner's preferred
@@ -276,7 +274,7 @@ var TOKENS = {
             easing: easing("inOutCubic")
         }
     },
-    // The dark field behind the orb and its content, one qs.Ui
+    // The fading field behind the orb and its content, one qs.Ui
     // RadialBackdrop with the eased falloff, which ends at zero with no
     // edge (owner, revision 5): the orb's
     // disc with its halo, the icon row while it shows, and each box of
@@ -289,37 +287,36 @@ var TOKENS = {
         falloff: choice("eased", ["eased", "gaussian"]),
         join: number(0.1, 0, 1),
         blend: number(0.15, 0, 1),
-        // A disc `disc` times the orb's ring at rest, from 34 px inside it
-        // to 93.5 px outside, and a faint halo `halo.ring` times the ring
-        // out, `halo.width` wide, in the state's own palette.
+        // The orb's field starts fading at its centre, with no flat disc.
+        // Its outer reach stays the same; the coloured halo follows the ring.
         orb: {
             disc: number(1.05, 0, 2),
-            peak: share(0.6),
+            peak: share(0.51),
             ink: color("#020308"),
-            inset: length(34),
+            inset: length(93),
             // Numbers, since the judge rounds a length to a whole pixel.
-            fade: number(127.5, 0, 300),
+            fade: number(186.5, 0, 300),
             halo: {
                 strength: share(0.2),
                 width: number(28.9, 0, 100),
                 ring: number(1.04, 0, 2)
             }
         },
-        // The icon row, at the orb's peak with the content's reach. It
+        // The hover field has a shorter reach than the content. It
         // recedes as the row fades: its inset grows by fade × join × -ln
         // of the row's opacity, so the field shrinks into the rest rather
         // than leaving a fainter hole.
         icons: {
-            peak: share(0.6),
+            peak: share(0.459),
             ink: color("#020308"),
             corner: length(14),
-            inset: length(40),
-            fade: length(300)
+            inset: length(13),
+            fade: length(100)
         },
         // Jarvis's words above the orb, and the state line or the held
         // request under it, each the box its column lays out in.
         content: {
-            peak: share(0.5),
+            peak: share(0.425),
             ink: color("#14161b"),
             corner: length(24),
             inset: length(40),
@@ -340,30 +337,59 @@ var TOKENS = {
     }
 };
 
-// Light mode keeps the dark field and darkens it under the content to
-// 0.60 (owner, revision 5), which is also the lowest uniform peak at which
-// every full-opacity line reads 4.5:1 over the "Pink Courtyard" wallpaper,
-// text shadow drawn (owner, option A, Jarvis 1793749544): the path is the
-// lowest, 4.68:1. It draws the state line white: #e6e8ee read 3.93:1 and
-// #f4f5f8 4.41:1 at the lightest neighbouring pixel, #ffffff 4.79:1.
-// Readings: VGS-2210 round 3b-2, the revision 5 contrast method on
-// scripts/qml-unit.sh's software OpenGL, the orb's own dots left out of a
-// line's background as the revision 5 sweep drew without them: one dot of
-// the orb's band beside the question reads 4.28:1 at any field peak.
-// The fault's action and its link draw #e6e8ee: #b9bcc6 with a #9cc3ff
-// link read 3.35:1; the link stays underlined at rest, so colour is not
-// what marks it (docs/architecture/design-system.md § Copy).
-// tst_jarvis_field.qml holds the peak and every light text ink to the
-// measured set.
+// The white light-mode gradient uses dark text, icons and answers. The
+// particle shader still draws only coloured dots, with more inner coverage.
 var LIGHT = {
+    orb: {
+        interiorGain: 1.7
+    },
     field: {
+        orb: {
+            ink: "#ffffff"
+        },
+        icons: {
+            ink: "#ffffff"
+        },
         content: {
-            peak: 0.6
+            // Dark ink needs a brighter composed field on dark wallpaper,
+            // including a held request with no orb contributing behind it.
+            peak: 0.9,
+            ink: "#ffffff"
         }
     },
+    icon: {
+        rest: "#424956",
+        active: "#171c25",
+        ring: "#171c25"
+    },
     ink: {
-        state: "#ffffff",
-        action: "#e6e8ee",
-        link: "#e6e8ee"
+        state: "#262c36",
+        title: "#171c25",
+        action: "#424956",
+        link: "#214b81",
+        words: "#171c25",
+        question: "#171c25",
+        path: "#363d4a",
+        payload: "#262c36",
+        hint: "#424956"
+    },
+    shadow: {
+        opacity: 0
+    },
+    // Older settled caption lines keep their hierarchy without fading dark
+    // ink back into the light field. Reveal and lift timing stay shared.
+    words: {
+        middle: 0.85,
+        oldest: 0.75
+    },
+    answer: {
+        fill: "alpha(#000000, 0.075)",
+        hoverFill: "alpha(#000000, 0.1125)",
+        pressedFill: "alpha(#000000, 0.06)",
+        clear: "alpha(#000000, 0)",
+        ink: "#171c25",
+        hoverInk: "#424956",
+        bareInk: "#262c36",
+        bareHoverInk: "#171c25"
     }
 };

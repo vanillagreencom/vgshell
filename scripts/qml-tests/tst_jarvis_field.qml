@@ -6,6 +6,7 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
 import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
+import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's overlay draws every content item where its field is dark: each
 // line, answer, the words and the icon row sit where the field's alpha is
@@ -26,14 +27,15 @@ Item {
     QtObject {
         id: service
         property var sessionState: null
+        property var microphoneMute: ({ kind: "ready", muted: false })
         property bool bubbleWanted: true
         property string focusedOutput: "unit"
         property var consoleBox: null
         property string consoleKey: ""
         property string heldKey: ""
-        property var effectiveKeys: ({ stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" })
+        property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var values: ({})
-        property var shell: ({ status: { values: service.values }, surfaces: { openPage: () => "ok" } })
+        property var shell: ({ settings: { voiceProvider: "local" }, status: { values: service.values }, surfaces: { openPage: () => "ok" } })
         function attachBubble(item) {}
         function detachBubble(item) {}
         function intent(name) {}
@@ -51,9 +53,7 @@ Item {
     QtObject { id: presentedHost; property bool presented: true; property bool visible: true }
 
     function session(over) {
-        const s = { gen: 1, check: { kind: "none" }, gate: { kind: "up" }, fault: { kind: "none" }, approval: { kind: "none" },
-            action: { kind: "none" }, playback: { kind: "none" }, speech: { kind: "none" }, turn: { kind: "none" },
-            capture: { kind: "closed" }, mute: { kind: "off" }, voiceMute: { kind: "off" }, engine: { kind: "chained" } };
+        const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gen: 1, gate: { kind: "up" } });
         for (const key in over) s[key] = over[key];
         return s;
     }
@@ -227,7 +227,7 @@ Item {
                 { tag: "the widest prompt, light", state: root.held(widest, true), light: true },
                 { tag: "a narrow prompt, dark", state: root.held("Open Firefox?", false), light: false },
                 { tag: "a narrow prompt, light", state: root.held("Open Firefox?", false), light: true },
-                { tag: "listening with its icons, dark", light: false, hover: true, state: root.session({ capture: { kind: "open", mode: "hold" } }) },
+                { tag: "listening with its icons, dark", light: false, hover: true, state: root.session({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" }, conversation: { kind: "active", purpose: "conversation" } }) },
                 { tag: "speaking with its words and icons, light", light: true, hover: true, words: true,
                   state: root.session({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }) }
             ];
@@ -239,68 +239,5 @@ Item {
             judge(data.state, data.light, data.hover === true);
         }
 
-        // In light mode the field under the content peaks at 0.60 and every
-        // line draws an ink measured on it over the "Pink Courtyard"
-        // wallpaper, its text shadow drawn, by the revision 5 method: its
-        // lowest WCAG ratio against the lightest pixel 2-4 px from its
-        // glyphs that the orb does not draw (VGS-2210 round 3b-2, software
-        // OpenGL). 0.60 is the lowest uniform peak at which every line
-        // reads 4.5:1. Each figure is the 0.60 reading.
-        function test_light_text_draws_the_measured_inks_data() {
-            const widest = "Move 3 files to Documents?\n~/Downloads/invoices-october/\ninvoice-1031.pdf, invoice-1017.pdf, invoice-1003.pdf";
-            return [
-                { tag: "the widest prompt", state: root.held(widest, true), inks: [
-                    { text: "Move 3 files to Documents?", ink: "#ffffff" },        // 5.26:1
-                    { text: "~/Downloads/invoices-october/", ink: "#e6e8ee" },     // 4.68:1
-                    { text: "invoice-1031.pdf, invoice-1017.pdf, invoice-1003.pdf", ink: "#f4f5f8" }, // 5.25:1
-                    { text: "Use the button or key to confirm.", ink: "#e6e8ee" }, // 4.84:1
-                    { answer: "Cancel", ink: "#f4f5f8" },                           // 4.97:1
-                    { answer: "Confirm", ink: "#ffffff" }] },                       // 4.83:1
-                { tag: "waiting for the word", state: root.session({ capture: { kind: "open", mode: "armed" } }), inks: [
-                    { text: "Say Hey Jarvis", ink: "#ffffff" }] },                  // 4.79:1
-                { tag: "listening", state: root.session({ capture: { kind: "open", mode: "hold" } }), inks: [
-                    { text: "Listening", ink: "#ffffff" }] },                       // 4.98:1
-                { tag: "speaking with its words", words: true, state: root.session({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }), inks: [
-                    { text: "Speaking", ink: "#ffffff" },                           // 5.02:1
-                    { words: true, ink: "#f4f5f8" }] },                             // 5.07:1, the newest line
-                // The action and its link share one ink; the link keeps its
-                // underline at rest, so colour is not what marks it.
-                { tag: "a fault", state: root.session({ fault: { kind: "error", reason: "brain=exit" } }), inks: [
-                    { action: true, ink: "#e6e8ee" }] }                             // 4.92:1, action and link
-            ];
-        }
-
-        function test_light_text_draws_the_measured_inks(data) {
-            compare(UnitTheme.override({ scheme: { mode: "light" }, motion: { scale: 0 } }), "ok");
-            if (data.words)
-                service.values = { transcript: { role: "assistant", gen: 1, text: "The meeting moved to Thursday at three." } };
-            service.sessionState = data.state;
-            verify(renderedFrame(root), "the overlay lays out");
-            compare(root.look.field.content.peak, 0.6, "the light field's measured peak");
-            const items = all(bubble, []);
-            for (const want of data.inks) {
-                let drawn;
-                if (want.action) {
-                    const action = items.find(item => item.linkBox !== undefined && item.linked && bubble.drawn(item));
-                    verify(action !== undefined, "the fault's action draws its link");
-                    compare(action.standalone, false, "the link sits in running text, underlined at rest");
-                    compare(String(action.linkColor), want.ink, "the fault's link in light mode");
-                    drawn = action.color;
-                } else if (want.answer !== undefined) {
-                    const answer = items.find(item => item.shimmer !== undefined && item.entry === undefined && item.text === want.answer);
-                    verify(answer !== undefined, "the " + want.answer + " answer draws");
-                    drawn = answer.foreground;
-                } else if (want.words) {
-                    const lines = items.filter(item => item.role === "body" && item.text !== "" && bubble.drawn(item) && item.text.indexOf("Thursday") !== -1);
-                    verify(lines.length > 0, "the words draw");
-                    drawn = lines[0].color;
-                } else {
-                    const line = items.find(item => item.text === want.text && item.color !== undefined && bubble.drawn(item));
-                    verify(line !== undefined, want.text + " draws");
-                    drawn = line.color;
-                }
-                compare(String(drawn), want.ink, (want.text || want.answer || "the words") + " in light mode");
-            }
-        }
     }
 }
