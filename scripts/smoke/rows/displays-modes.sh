@@ -6,8 +6,11 @@
 # restores the main output before removing the second, and a reload with
 # the main output alone leaves it on. An sRGB colour rule goes through
 # trial, Keep and reload with no configuration error, and the judge refuses
-# an HDR trial, since the nested panel has no EDID. The row uses WAYLAND-1, whose nested
-# backend takes any mode and integer scale. The unit rows hold Mirror;
+# an HDR trial, since the nested panel has no EDID. WAYLAND-1 advertises
+# 1920x1080@60 on cachy with Hyprland 0.57.1 and aquamarine 0.16.0
+# (VGS-2383-validate-20261108, display-record, 2026-11-08). The production
+# mode judge requires that advertised mode even when the fixture currently
+# runs another size, so trials use it at integer scales. The unit rows hold Mirror;
 # this row exercises independent outputs. Around each
 # rule that turns the main output off the row waits for the shell's bar on
 # it to go and to come back, so no rule turns off an output the shell has
@@ -75,11 +78,14 @@ guard_running() { [[ "$(guard_pid_for "$1")" == absent ]] && echo no || echo yes
 # scale does not say whether a guard restored.
 guard_left() { echo "token=$([[ -e $1 ]] && echo held || echo claimed) log=$([[ -e $1.log ]] && echo written || echo none)"; }
 rule_json() {
-  python3 - "$1" "$2" "$3" <<'PY'
+  python3 - "$1" "$2" "$3" "${4:-}" <<'PY'
 import json, sys
-name, mode, scale = sys.argv[1], sys.argv[2], float(sys.argv[3])
+name, mode, scale, peer = sys.argv[1], sys.argv[2], float(sys.argv[3]), sys.argv[4]
 w, h = map(int, mode.split("x"))
-print(json.dumps({name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": scale, "transform": 0}}))
+rules = {name: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": scale, "transform": 0}}
+if peer:
+    rules[peer] = {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": -w, "y": 0}, "scale": 1, "transform": 0}
+print(json.dumps(rules))
 PY
 }
 position_rule_json() {
@@ -169,16 +175,41 @@ display_record_call mark display-observer-arm "$display_observer_arm" >/dev/null
 
 output="$(first_name)"
 base="$(unscaled_mode_of "$output")"
-trial_mode="$(hidpi_mode_of "$output")"
+trial_mode=1920x1080
 trial_scale=2
-rules="$(rule_json "$output" "$trial_mode" "$trial_scale")"
 position_x="${base%x*}"
 position_y=128
 extra_output=SMOKE-DISPLAYS-MODES
+display_modes_output_owned=false
+shell_bar_on() { local screens; screens="$(bar_screens)" || return; [[ " $screens " == *" $1 "* ]] && echo yes || echo no; }
+display_modes_remove_output() {
+  [[ $display_modes_output_owned == true ]] || return 0
+  if ! create_output_remove "$extra_output"; then
+    fail "the nested compositor removes the second output"
+    return 1
+  fi
+  display_modes_output_owned=false
+  ok "the nested compositor removes the second output"
+  expect_poll "the shell drops its bar on the removed second output" no shell_bar_on "$extra_output"
+}
+display_modes_abandon() {
+  if [[ $display_modes_output_owned == true ]]; then
+    expect "abandon restores $output before removing the second output" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
+    expect_poll "abandon reads $output on before removing the second output" false disabled_of "$output"
+    display_modes_remove_output
+  fi
+  resume_run_base "display modes"
+}
 suspend_run_base "display modes"
+smoke_row_abandon=(display_modes_abandon)
 
 expect "the display starts at scale 1" 1 scale_of "$output"
-expect "the nested compositor adds a monitor for display positions" ok create_output "$extra_output"
+if display_modes_created="$(create_output "$extra_output")"; then
+  display_modes_output_owned=true
+  expect "the nested compositor adds a monitor for display positions" ok printf '%s\n' "$display_modes_created"
+else
+  fail "the nested compositor adds a monitor for display positions: $display_modes_created"
+fi
 expect_poll "vgs.displays still has outputs after the second monitor appears" present outputs_state
 expect_poll "vgs.displays reads the second monitor with a sized mode" present output_present "$extra_output"
 extra_base_position="$(position_of "$extra_output")"
@@ -187,6 +218,10 @@ expect "the second output's position trial starts" ok invoke_displays trialRules
 expect_poll "the second output's position trial reads back ${position_x}x${position_y}" "${position_x}x${position_y}" position_of "$extra_output"
 sleep 16
 expect_poll "the guard reverts the second output's position trial" "$extra_base_position" position_of "$extra_output"
+# Give the judge and compositor the connected layout together. The peer's
+# right edge stays at x=0 across primary scales and fixture restoration;
+# a raw fixture eval would not refresh MonitorState before the next trial.
+rules="$(rule_json "$output" "$trial_mode" "$trial_scale" "$extra_output")"
 expect "the display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 expect "a trial is never copied to the greeter" '{"outputs":{},"primaryOutput":""}' layout_copy_value
@@ -201,16 +236,23 @@ expect "Keep saves the rule" ok invoke_displays keepTrial "{\"token\":\"$token\"
 expect_poll "the layer holds the saved monitor rule" yes layer_has_rule
 layout_kept="$(node -e 'const data={outputs:JSON.parse(process.argv[1]),primaryOutput:""}; process.stdout.write(JSON.stringify(data));' "$rules" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')"
 expect_poll "Keep automatically hands the confirmed saved rule to the greeter" "$layout_kept" layout_copy_value
-python3 - "$user_config" "$output" <<'PY'
+save_primary_output() {
+  python3 - "$user_config" "$output" <<'PY'
 import json, os, sys
 path, primary = sys.argv[1:]
 with open(path) as source:
     config = json.load(source)
-next(row for row in config["plugins"] if row["id"] == "vgs.displays")["primaryOutput"] = primary
+rows = [row for row in config["plugins"] if row["id"] == "vgs.displays"]
+if len(rows) != 1:
+    raise SystemExit("primary-output: displays-plugin=absent-or-ambiguous")
+rows[0]["primaryOutput"] = primary
 with open(path + ".tmp", "w") as target:
     json.dump(config, target)
 os.replace(path + ".tmp", path)
+print("ok")
 PY
+}
+expect "the primary output is saved after Keep" ok save_primary_output
 layout_primary="$(node -e 'const data={outputs:JSON.parse(process.argv[1]),primaryOutput:process.argv[2]}; process.stdout.write(JSON.stringify(data));' "$rules" "$output" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')"
 expect_poll "a primary-only saved change automatically updates the greeter" "$layout_primary" layout_copy_value
 if [[ ${#mode_hold_suspended[@]} -gt 0 ]]; then
@@ -267,7 +309,6 @@ release_mode "display modes control restores $output" "$output" "$base" 1
 # waits it ran 40). The shell builds a bar only on an output it has
 # bound, so the row waits for that bar to go after each rule that turns
 # $output off and for it to come back before the next one.
-shell_bar_on() { local screens; screens="$(bar_screens)" || return; [[ " $screens " == *" $1 "* ]] && echo yes || echo no; }
 display_modes_output_regex_safe() { [[ $output =~ ^[A-Za-z0-9_-]+$ ]] && echo yes || echo no; }
 expect "the output name is regex-safe for the warning excuse" yes display_modes_output_regex_safe
 expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"$output\" which was not previously tracked\\.")
@@ -280,7 +321,7 @@ display_modes_warning_filter_control() {
   if [[ $got == "$extra_line" ]]; then echo only-other; elif [[ -z $got ]]; then echo none; else printf '%s\n' "$got"; fi
 }
 expect "control: the same warning for another monitor still fails the log check" only-other display_modes_warning_filter_control
-off_rules="$(off_rule_json "$output" "$base")"
+off_rules="$(off_rule_json "$output" "$trial_mode")"
 expect "the off trial starts" ok invoke_displays trialRules "$off_rules"
 expect_poll "the off trial turns $output off" true disabled_of "$output"
 expect_poll "the shell drops its bar on $output once it is off" no shell_bar_on "$output"
@@ -301,7 +342,8 @@ expect_poll "the shell drops its bar on $output after the control" no shell_bar_
 expect "the row restores $output after the control while the second output stays on" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
 expect_poll "the primary is on before the second output is removed" false disabled_of "$output"
 expect_poll "the shell holds a bar on $output again after the control" yes shell_bar_on "$output"
-expect "the nested compositor removes the second output" ok hypr output remove "$extra_output"
+display_modes_remove_output
+rules="$(rule_json "$output" "$trial_mode" "$trial_scale")"
 expect "reload with $output alone" ok hypr reload config-only
 expect_poll "$output stays on after a reload with no other output" false disabled_of "$output"
 expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
@@ -312,11 +354,11 @@ expect_poll "Quickshell's focused monitor is $output again after the off steps" 
 
 # Colour: the nested panel has no EDID, so sRGB is the one colour mode it
 # offers. An sRGB rule goes through trial, Keep and reload with no error
-# from Hyprland for its colour fields. The rule takes the output's own
+# from Hyprland for its colour fields. The rule takes the advertised
 # mode at the whole scale whole_scale_mode picks for it. The service holds no panel reading, so a first HDR trial finds the panels
 # unread and asks for them, and the judge then refuses HDR before it
 # reaches Hyprland.
-colour_mode_scale="$(whole_scale_mode "$base")"
+colour_mode_scale="$(whole_scale_mode "$trial_mode")"
 colour_mode="${colour_mode_scale% *}"
 colour_scale="${colour_mode_scale#* }"
 colour_rules="$(colour_rule_json "$output" "$colour_mode" "$colour_scale" srgb)"
@@ -352,7 +394,7 @@ token="$(token_of)"
 expect "Keep saves the rule a later trial runs over" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$rules}"
 expect_poll "the layer holds the saved rule at scale $trial_scale" "$trial_scale" layer_scale_of "$output"
 expect_poll "the saved rule's scale survives its reload" "$trial_scale" scale_of "$output"
-over_rules="$(rule_json "$output" "$base" 1)"
+over_rules="$(rule_json "$output" "$trial_mode" 1)"
 expect "the trial over the saved rule starts" ok invoke_displays trialRules "$over_rules"
 expect_poll "the trial over the saved rule applies scale 1" 1 scale_of "$output"
 sleep 2
