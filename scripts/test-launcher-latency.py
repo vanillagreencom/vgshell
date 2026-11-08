@@ -11,31 +11,28 @@ spec.loader.exec_module(latency)
 
 
 class FirstChangedGlyph(unittest.TestCase):
-    def test_capture_starts_at_the_observed_text_padding(self):
-        field = "[10,20,300,40]"
+    def test_capture_starts_at_the_plain_input_origin(self):
         surface = "[100,200,1755,933]"
-        for padding, expected in (
-                ("24", "134,220 12x40"),
-                ("32", "142,220 12x40"),
-                ("0", "110,220 12x40")):
-            with self.subTest(padding=padding):
-                self.assertEqual(latency.glyph_geometry(field, padding, surface), expected)
+        for field, expected in (
+                ("[10,20,300,40]", "110,220 12x40"),
+                ("[34,20,300,40]", "134,220 12x40"),
+                ("[42,20,300,40]", "142,220 12x40")):
+            with self.subTest(field=field):
+                self.assertEqual(latency.glyph_geometry(field, surface), expected)
 
     def test_missing_or_invalid_text_origin_is_not_a_capture(self):
-        for field, padding, surface in (
-                ("absent", "24", "[0,0,1755,933]"),
-                ("[0,0,300,40]", "undefined", "[0,0,1755,933]"),
-                ("null", "24", "[0,0,1755,933]"),
-                ("[0,0,300,40]", "24", "absent"),
-                ("[0,0,300,40]", "null", "[0,0,1755,933]"),
-                ("[0,0,300,40]", "true", "[0,0,1755,933]"),
-                ("[0,0,300,40]", "NaN", "[0,0,1755,933]"),
-                ("[0,0,300,40]", "-1", "[0,0,1755,933]"),
-                ("[0,0,30,40]", "24", "[0,0,1755,933]"),
-                ("[0,0,300,0]", "24", "[0,0,1755,933]")):
-            with self.subTest(field=field, padding=padding, surface=surface):
+        for field, surface in (
+                ("absent", "[0,0,1755,933]"),
+                ("null", "[0,0,1755,933]"),
+                ("[0,0,300,40]", "absent"),
+                ("[0,null,300,40]", "[0,0,1755,933]"),
+                ("[0,true,300,40]", "[0,0,1755,933]"),
+                ("[0,NaN,300,40]", "[0,0,1755,933]"),
+                ("[0,0,11,40]", "[0,0,1755,933]"),
+                ("[0,0,300,0]", "[0,0,1755,933]")):
+            with self.subTest(field=field, surface=surface):
                 with self.assertRaises(ValueError):
-                    latency.glyph_geometry(field, padding, surface)
+                    latency.glyph_geometry(field, surface)
 
     def test_preceding_queued_frame_is_not_the_response(self):
         blank = bytes([0] * 24)

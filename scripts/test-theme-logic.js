@@ -202,6 +202,8 @@ const DEFAULTS = [
     // knob on it is the white that contrasts with it best.
     ["color.borderControl", "#888888ff"],
     ["checkbox.borderColor", "#888888ff"],
+    ["segmented.border", "#888888ff"],
+    ["tileGroup.border", "#888888ff"],
     ["toggle.off", "#747474ff"],
     ["toggle.knobOff", "#ffffffff"],
     ["toggle.size.sm.width", 28],
@@ -692,7 +694,7 @@ const CATALOG_REFUSED = [
 const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, name, tokens: { scheme: { mode }, palette: Object.assign({}, CATALOG_PALETTE, { accent }) } });
 const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "text.keyHint.color", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
-const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
+const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "segmented.border", "tileGroup.border", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
 const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["kbd.valueForeground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
     ...["normal", "warning", "danger"].map(level => [`badge.unread.tone.${level}.foreground`, `badge.unread.tone.${level}.background`]),
@@ -1761,6 +1763,11 @@ const LED_LINES = [
     {
         file: "shell/plugins/vgs.launcher/ContextMenu.qml", item: "Item", icon: "id: iconBox",
         binding: "y: entryText.y + entryReading.topForLeadingIcon(height, entryText.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
+    {
+        file: "shell/plugins/vgs.launcher/Launcher.qml", item: "SearchGlyph", icon: "id: searchGlyph",
+        binding: "y: headerText.y + headerReading.topForLeadingIcon(height, headerText.y)",
         centred: "anchors.verticalCenter: parent.verticalCenter"
     },
     {

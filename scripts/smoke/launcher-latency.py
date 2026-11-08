@@ -2,7 +2,7 @@
 """Disposable launcher observation and guarded capture controller.
 
 prepare TREE [--slow] instruments only a harness copy. measure KEYBOARD PID
-SOCKET FIELD_JSON LEFT_PADDING_JSON SURFACE_JSON OUTPUT takes twelve separate 50 ms o presses.
+SOCKET FIELD_JSON SURFACE_JSON OUTPUT takes twelve separate 50 ms o presses.
 The first includes provider loading. Later presses retain the provider cache
 but clear the display model. summary.json and per-trial PPM/JSON files retain
 request-to-first-changed-glyph capture-return upper bounds, not presentation.
@@ -156,11 +156,10 @@ def cpu_total(reading):
     return int(re.search(r"^some .* total=(\d+)$", reading["pressure/cpu"], re.M)[1])
 
 
-def glyph_geometry(field_json, padding_json, surface_json):
-    """Map the actual TextField text start, not its leading icon, to the output."""
+def glyph_geometry(field_json, surface_json):
+    """Map the plain TextInput's query origin to the output."""
     try:
         field = json.loads(field_json)
-        padding = json.loads(padding_json)
         surface = json.loads(surface_json)
     except (TypeError, json.JSONDecodeError) as error:
         raise ValueError("capture: unread-text-field-geometry") from error
@@ -168,22 +167,21 @@ def glyph_geometry(field_json, padding_json, surface_json):
             or not isinstance(surface, list) or len(surface) != 4):
         raise ValueError("capture: invalid-text-field-box")
     if any(type(v) not in (int, float) or not math.isfinite(v)
-           for v in [*field, *surface, padding]):
+           for v in [*field, *surface]):
         raise ValueError("capture: invalid-text-field-reading")
-    if (padding < 0 or field[2] < padding + 12 or round(field[3]) < 1
+    if (field[2] < 12 or round(field[3]) < 1
             or surface[2] <= 0 or surface[3] <= 0):
         raise ValueError("capture: text-start-outside-field")
-    # TextField inherits TextInput: leftPadding is reserved before its content,
-    # not an icon-size estimate. Qt reference and Ui.TextField's placeholder.x:
-    # https://doc.qt.io/qt-6/qml-qtquick-textinput.html#leftPadding-prop
-    x = round(surface[0] + field[0] + padding)
+    # Launcher.qml anchors its unpadded TextInput after SearchGlyph; the
+    # field's own origin is the first character, not the magnifier's box.
+    x = round(surface[0] + field[0])
     y = round(surface[1] + field[1])
     return f"{x},{y} 12x{round(field[3])}"
 
 
 def measure(args):
     out = args.output
-    geometry = glyph_geometry(args.field, args.padding, args.surface)
+    geometry = glyph_geometry(args.field, args.surface)
     out.mkdir(exist_ok=False)
     socket = Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"]
     if str(socket) != args.socket or not socket.is_socket():
@@ -323,7 +321,7 @@ def measure(args):
                 raise ValueError("workload: not-ordinary-app-menu")
             trial = {"index": index, "providerCache": "cold" if index == 0 else "warm",
                      "geometry": geometry, "send": send, "holdMs": hold_ms,
-                     "fieldBox": json.loads(args.field), "leftPadding": json.loads(args.padding),
+                     "fieldBox": json.loads(args.field),
                      "surfaceBox": json.loads(args.surface),
                      "firstGlyphAdvance": advance, "glyphColumns": glyph_columns,
                      "keyboard": keyboard, "facts": facts,
@@ -337,7 +335,7 @@ def measure(args):
         summary = {
             "trials": len(trials), "minUpperMs": min(t["upperMs"] for t in trials),
             "geometry": geometry, "fieldBox": json.loads(args.field),
-            "leftPadding": json.loads(args.padding), "surfaceBox": json.loads(args.surface),
+            "surfaceBox": json.loads(args.surface),
             "maxUpperMs": max(t["upperMs"] for t in trials),
             "maxBracketMs": max(t["bracketMs"] for t in trials),
             "maxCaptureMs": max(c["end"] - c["start"] for t in trials for c in t["captures"]),
@@ -371,7 +369,7 @@ def main():
     instrument.add_argument("tree", type=Path)
     instrument.add_argument("--slow", action="store_true")
     capture = commands.add_parser("measure")
-    for name in ("keyboard", "pid", "socket", "field", "padding", "surface"):
+    for name in ("keyboard", "pid", "socket", "field", "surface"):
         capture.add_argument(name)
     capture.add_argument("output", type=Path)
     args = parser.parse_args()

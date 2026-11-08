@@ -109,21 +109,26 @@ Item {
         }
 
         function test_search_rule_and_unchanged_form_decoration_data() {
-            return [{tag: "dark", mode: "dark"}, {tag: "light", mode: "light"}];
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const underline of [true, false])
+                    rows.push({tag: mode + (underline ? " rule" : " no rule"), mode: mode, underline: underline});
+            return rows;
         }
         function test_search_rule_and_unchanged_form_decoration(data) {
             compare(UnitTheme.override({scheme: {mode: data.mode}}), "ok");
             const holder = createTemporaryQmlObject("import QtQuick; Item { width: 360; height: 100 }", root);
             const search = createTemporaryQmlObject('import QtQuick; import qs.Ui; TextField { variant: "search"; placeholderText: "Search"; leadingIcon: "search" }', holder);
+            search.searchUnderline = data.underline;
             const rule = search.background.children[2];
             compare(search.background.color.a, 0);
             compare(search.background.border.width, 0);
             compare(search.background.radius, 0);
-            compare(rule.visible, true);
+            compare(rule.visible, data.underline);
             compare(rule.height, 1);
             compare([rule.x, rule.y, rule.width], [0, search.height - 1, search.width]);
             compare(String(rule.color), String(Qt.color(Theme.textField.borderColor)));
-            compare(search.background.children[3].opacity, 0, "keyboard focus draws only the rule");
+            compare(search.background.children[3].opacity, data.underline ? 0 : 1, "keyboard focus stays visible with or without the rule");
             compare(String(plain.background.color), String(Qt.color(Theme.textField.background)));
             compare(plain.background.border.width, Theme.textField.border);
             compare(plain.background.radius, Theme.textField.radius);
@@ -245,8 +250,11 @@ Item {
             const capCentre = baseline - scene.metrics.capitalHeight / 2;
             const off = (top, centre) => Math.abs(top + mark.height / 2 - centre) * ratio;
             const top = mark.mapToItem(scene.contentItem, 0, 0).y;
+            const textInkTop = baseline + (label.text === "" ? -scene.metrics.capitalHeight : scene.metrics.tightBoundingRect(label.text).y);
+            const iconInkTop = Math.round((xCentre - mark.height / 2) * ratio) / ratio + mark.painted[1];
             const found = [ratio, label.text, off(mark.y, xCentre), Math.abs(top * ratio - Math.round(top * ratio)),
-                off((field.background.height - mark.height) / 2, xCentre), off(Math.round((capCentre - mark.height / 2) * ratio) / ratio, xCentre)];
+                off((field.background.height - mark.height) / 2, xCentre), off(Math.round((capCentre - mark.height / 2) * ratio) / ratio, xCentre),
+                field.contentInkTop, Math.min(textInkTop, iconInkTop)];
             scene.destroy();
             compare(found[0], data.scale, "the window draws at its screen's scale");
             compare(found[1], data.placeholder);
@@ -256,6 +264,7 @@ Item {
             // round to one pixel; at 2x they are a device pixel apart.
             if (data.scale === 2) verify(found[4] > 0.5, "control: the field's centre reads as level");
             verify(found[5] > 0.5, "control: the capital centre reads as level");
+            fuzzyCompare(found[6], found[7], 0.5 / data.scale, "the field publishes the first drawn content, not its transparent top");
         }
 
         function test_leading_icon_and_actions() {

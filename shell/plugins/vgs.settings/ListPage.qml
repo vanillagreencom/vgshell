@@ -139,6 +139,7 @@ FocusScope {
                 TextField {
                     id: search
                     variant: "search"
+                    searchUnderline: false
                     width: parent.width
                     placeholderText: "Search plugins"
                     leadingIcon: "search"

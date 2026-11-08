@@ -15,14 +15,10 @@
 # capture-return upper bounds, including FIFO/helper dispatch, not scanout.
 # CPU/load exclusions use harness.sh's shared 2.8%/1.00-per-core limits;
 # an unread or busy population cannot pass. All raw samples stay retained.
-# Merged TextField remeasurement: launcher-latency.py, observer-merged-field-run-2
-# on the same cachy/engine/compositor, 2026-11-06: twelve normal bounds
-# 36.468–117.167 ms; direct-solver bounds 287.655–382.073 ms, all measured
-# below 1.125% window CPU PSI, load1 <=8.98 and load5 <=7.83.
-# Probe reports leftPadding=24; character rectangles give 8.984375 advance.
-# The discriminator uses its first 8 pixel columns, not the adjacent caret.
-# Normal capture median 16.540 ms, max 24.096 ms; bracket max 39.342 ms,
-# with no capture sleep. The 212 ms ceiling and all old receipts stand.
+# The plain TextInput's box starts at the query, after the separate
+# SearchGlyph. Character rectangles bound the discriminator to the first
+# character's columns, excluding the adjacent caret. The measured ceiling
+# above remains the original plain-input calibration.
 # inputs: shell/plugins/vgs.launcher/Launcher.qml shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.launcher/menu.json shell/plugins/vgs.launcher/Service.qml shell/Commons/Theme.qml scripts/smoke/launcher-latency.py scripts/smoke/shot.sh scripts/smoke/keyboard/keyboard.c scripts/smoke/user-config.sh
 set -euo pipefail
 
@@ -55,7 +51,7 @@ hypr -j getoption input:repeat_delay
 hypr -j getoption input:repeat_rate
 
 launcher_latency_measure() { # normal|slow
-  local kind="$1" socket rect padding surface output
+  local kind="$1" socket rect surface output
   local -a control=()
   [[ $kind != slow ]] || control=(--slow)
   copy_tree "launcher-latency-$kind" || return 1
@@ -69,12 +65,11 @@ launcher_latency_measure() { # normal|slow
   expect_poll "latency $kind window has queued its initial frame" drawn ipc smoke windowDrawn overlay vgs.launcher
   nested_input_check "$sandbox/keyboard" || return 1
   socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
-  rect="$(ipc smoke windowGeometry overlay vgs.launcher TextField "")" || return 1
-  padding="$(ipc smoke readShownDescendant overlay vgs.launcher TextField leftPadding)" || return 1
+  rect="$(ipc smoke windowGeometry overlay vgs.launcher QQuickTextInput "")" || return 1
   surface="$(surface_box vgs:overlay)" || return 1
   output="$smoke_log_dir/launcher-latency-$kind"
   "${shell_env[@]}" python3 "$repo/scripts/smoke/launcher-latency.py" measure \
-    "$sandbox/keyboard" "$shell_qs_pid" "$socket" "$rect" "$padding" "$surface" "$output" || return 1
+    "$sandbox/keyboard" "$shell_qs_pid" "$socket" "$rect" "$surface" "$output" || return 1
   cp -- "$instance_log" "$output/shell.log" || return 1
   cp -- "$sandbox/tree-launcher-latency-$kind/shell/Commons/Theme.qml" "$output/Theme.qml" || return 1
   cp -- "$sandbox/tree-launcher-latency-$kind/shell/plugins/vgs.launcher/Launcher.qml" "$output/Launcher.qml" || return 1

@@ -375,7 +375,7 @@ launcher_sleep_menu
 # the primary selection, and Ctrl+A then Ctrl+C copies the field. The two
 # selections hold different texts, so each reading names its source. The
 # block leaves both selections empty and the pointer where it found it.
-launcher_field() { ipc smoke readShownDescendant overlay vgs.launcher TextField "$1"; }
+launcher_field() { ipc smoke readShownDescendant overlay vgs.launcher QQuickTextInput "$1"; }
 clip_text() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline "$@"; }
 if ! command -v wl-copy >/dev/null || ! command -v wl-paste >/dev/null; then
   fail "launcher: wl-copy or wl-paste is unavailable"
@@ -397,7 +397,7 @@ elif nested_input_check wl-copy; then
   type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
   expect_poll "Ctrl+U empties the search" '""' read_launcher filterText
   "${shell_env[@]}" wl-copy --primary -- "launch probe" >/dev/null 2>&1 </dev/null || fail "setting the primary selection failed"
-  field_box="$(ipc smoke windowGeometry overlay vgs.launcher TextField "")" || field_box=absent
+  field_box="$(ipc smoke windowGeometry overlay vgs.launcher QQuickTextInput "")" || field_box=absent
   expect_cursor "the search field shows the I-beam" text vgs:overlay "$field_box"
   if [[ $field_box == \[* ]] && read -r field_x field_y < <(at_centre vgs:overlay "$field_box"); then
     middle_click "$field_x" "$field_y" || fail "the middle click on the search failed"

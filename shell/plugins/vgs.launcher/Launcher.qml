@@ -946,7 +946,7 @@ Item {
 
     function availableRowsHeight() {
         const top = !requestMode ? centeredTop : (cardTop >= 0 ? cardTop : look.card.margin);
-        const chrome = look.card.padding * 2 + field.implicitHeight + look.card.gap;
+        const chrome = look.card.padding * 2 + look.header.height + look.card.gap;
         let available = height - top - look.card.margin - chrome;
         if (!requestMode) available = Math.min(available, Math.round(height * look.card.tallest) - chrome);
         if (requestMode && requestMaxHeight > 0) available = Math.min(available, requestMaxHeight);
@@ -978,7 +978,7 @@ Item {
 
     readonly property int cardWidth: Math.min(requestMode ? requestWidth : look.card.width, width - 2 * look.card.margin)
     readonly property int visibleRowsHeight: rowListHeight(layoutSerial)
-    readonly property int cardHeight: Math.min(look.card.padding * 2 + field.implicitHeight + (visibleRowsHeight > 0 ? look.card.gap + visibleRowsHeight : 0), height - 2 * look.card.margin)
+    readonly property int cardHeight: Math.min(look.card.padding * 2 + look.header.height + (visibleRowsHeight > 0 ? look.card.gap + visibleRowsHeight : 0), height - 2 * look.card.margin)
     // A picker's first keystroke freezes its top line, so it grows down
     // instead of re-centring; the launcher always sits on its fixed line.
     property int cardTop: -1
@@ -1071,31 +1071,55 @@ Item {
 
             Item {
                 width: parent.width
-                height: field.implicitHeight
+                height: root.look.header.height
 
-                // Open-with names the target instead of showing the query.
-                // Search chrome and its empty placeholder stay shared.
+                SearchGlyph {
+                    id: searchGlyph
+                    look: root.look
+                    anchors.left: parent.left
+                    anchors.leftMargin: root.look.header.glyphInset
+                    y: headerText.y + headerReading.topForLeadingIcon(height, headerText.y)
+                    opacity: root.searching ? root.look.search.active : root.look.search.idle
+                    Behavior on opacity {
+                        Anim { duration: root.look.motion.duration.short4; curve: root.look.motion.curve.standard }
+                    }
+                }
+
+                // The placeholder and the open-with title, drawn while the
+                // field shows no text.
                 Text {
                     id: headerText
-                    visible: root.openWithTarget !== null
                     textFormat: Text.PlainText
                     anchors.left: field.left
-                    anchors.leftMargin: field.leftPadding
                     anchors.right: field.right
-                    anchors.rightMargin: field.rightPadding
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.openWithTarget ? "Open \u201c" + root.openWithTarget.name + "\u201d with\u2026" : ""
+                    text: root.openWithTarget ? "Open \u201c" + root.openWithTarget.name + "\u201d with\u2026"
+                        : root.filterText ? "" : (root.requestMode ? root.prompt : (root.spotlightRoot || !root.items[root.activeMenu] ? "Search" : (root.items[root.activeMenu].title || root.items[root.activeMenu].label)))
                     color: root.look.text.foreground
-                    font: field.font
+                    opacity: root.filterText ? 1 : root.look.text.header.idle
+                    font.family: root.look.font.family.sans
+                    font.pixelSize: root.look.text.header.size
+                    font.letterSpacing: root.look.text.header.letterSpacing
                     style: Text.Raised
                     styleColor: root.look.text.shadow
                     elide: Text.ElideLeft
                 }
 
-                // TextField inherits TextInput, so paste, copy, selection
-                // and caret moves keep Qt's input path:
-                // https://doc.qt.io/qt-6/qml-qtquick-controls-textfield.html
-                // `filterText` stays the
+                // The header line's leading icon reading, which the glyph
+                // takes its top from. It reads the header line, not the
+                // query, so the glyph stays still while the user types; an
+                // empty line reads as mixed case. It draws nothing, and its
+                // font binding replaces Label's role font whole, as
+                // ContextMenu.qml's entryReading does.
+                Ui.Label {
+                    id: headerReading
+                    visible: false
+                    text: headerText.text
+                    font: headerText.font
+                }
+
+                // The search: Qt's own text input, so paste, copy, selection
+                // and caret moves work as in any field. `filterText` stays the
                 // one source the launcher reads. A user edit changes the text
                 // inside the item and leaves this binding in place; only a
                 // QML assignment would break it, and setText ignores an equal
@@ -1103,19 +1127,25 @@ Item {
                 // a loop (qquicktextinput.cpp, Qt 6.11.2). Qt pastes the
                 // primary selection on a middle-button release where the
                 // clipboard supports it, as zwp_primary_selection does.
-                Ui.TextField {
+                // focus-indicator: the launcher's caret and the ListCursor plate show the launcher focus
+                TextInput {
                     id: field
-                    variant: "search"
-                    width: parent.width
-                    leadingIcon: "search"
-                    placeholderText: root.openWithTarget ? "" : (root.requestMode ? root.prompt : (root.spotlightRoot || !root.items[root.activeMenu] ? "Search" : (root.items[root.activeMenu].title || root.items[root.activeMenu].label)))
+                    anchors.left: searchGlyph.right
+                    anchors.leftMargin: root.look.header.textGap
+                    anchors.right: menuButton.visible ? menuButton.left : parent.right
+                    anchors.rightMargin: root.look.header.textInset
+                    anchors.verticalCenter: parent.verticalCenter
                     focus: true
                     clip: true
                     text: root.filterText
                     // The open-with title replaces the query, which stays the search.
-                    color: root.openWithTarget ? "transparent" : root.look.text.foreground
-                    selectionColor: root.openWithTarget ? "transparent" : root.look.caret.halo
-                    selectedTextColor: color
+                    opacity: root.openWithTarget ? 0 : 1
+                    color: root.look.text.foreground
+                    selectionColor: root.look.caret.halo
+                    selectedTextColor: root.look.text.foreground
+                    font.family: root.look.font.family.sans
+                    font.pixelSize: root.look.text.header.size
+                    font.letterSpacing: root.look.text.header.letterSpacing
                     // The launcher draws its own Caret, so the field's stays empty.
                     cursorDelegate: Item {}
                     // Qt's TextInput sets no pointer shape of its own.
@@ -1133,24 +1163,6 @@ Item {
                         root.setFilter(text);
                         caret.nudge();
                     }
-                    actions: [
-                        IconButton {
-                            id: menuButton
-                            look: root.look
-                            label: "Categories"
-                            visible: root.spotlightRoot
-                            checked: root.showCategories
-                            onClicked: root.toggleCategories()
-
-                            MenuGlyph {
-                                anchors.centerIn: parent
-                                look: root.look
-                                open: root.showCategories
-                                color: menuButton.checked ? root.look.palette.accent : root.look.text.foreground
-                                emphasis: menuButton.hovered || root.showCategories ? root.look.menuGlyph.active : root.look.menuGlyph.idle
-                            }
-                        }
-                    ]
                 }
 
                 Caret {
@@ -1159,7 +1171,7 @@ Item {
                     height: Math.round(headerText.font.pixelSize * root.look.caret.height)
                     anchors.verticalCenter: parent.verticalCenter
                     x: root.openWithTarget ? headerText.x + Math.min(headerText.contentWidth, headerText.width) + root.look.caret.gap
-                        : field.x + (root.filterText ? field.cursorRectangle.x + root.look.caret.gap : field.leftPadding - root.look.caret.rest)
+                        : field.x + (root.filterText ? field.cursorRectangle.x + root.look.caret.gap : -root.look.caret.rest)
                     running: root.opened
                     lit: root.searching
                     Behavior on x {
@@ -1167,6 +1179,41 @@ Item {
                     }
                 }
 
+                IconButton {
+                    id: menuButton
+                    look: root.look
+                    label: "Categories"
+                    visible: root.spotlightRoot
+                    anchors.right: parent.right
+                    anchors.rightMargin: root.look.header.buttonInset
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: root.showCategories
+                    onClicked: root.toggleCategories()
+
+                    MenuGlyph {
+                        anchors.centerIn: parent
+                        look: root.look
+                        open: root.showCategories
+                        color: menuButton.checked ? root.look.palette.accent : root.look.text.foreground
+                        emphasis: menuButton.hovered || root.showCategories ? root.look.menuGlyph.active : root.look.menuGlyph.idle
+                    }
+                }
+
+                // The hairline between the field and its results.
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.bottom
+                    anchors.topMargin: card.contentInset
+                    anchors.leftMargin: -root.look.card.padding
+                    anchors.rightMargin: -root.look.card.padding
+                    height: root.look.row.dividerWidth
+                    color: root.look.row.divider
+                    opacity: root.visibleRowsHeight > 0 ? 1 : 0
+                    Behavior on opacity {
+                        Anim { duration: root.look.motion.duration.short4; curve: root.look.motion.curve.standard }
+                    }
+                }
             }
 
             Item {

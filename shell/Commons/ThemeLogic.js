@@ -448,6 +448,8 @@ var BOUNDARY_ROLES = [
     "checkbox.borderColor",
     "radio.borderColor",
     "textField.borderColor",
+    "segmented.border",
+    "tileGroup.border",
     "toggle.off",
     "checkbox.checked",
     "radio.checked",

@@ -142,29 +142,36 @@ FocusScope {
         bodySpacing: 0
 
         header: [
-            TextField {
-                id: search
-                variant: "search"
+            Item {
                 width: layout.contentWidth
-                placeholderText: "Search sections"
-                leadingIcon: "search"
-                focus: true
-                onTextChanged: page.query = text
-                Keys.onPressed: event => {
-                    if (event.key === Qt.Key_Escape && search.text !== "") {
-                        search.clear();
-                        event.accepted = true;
-                        return;
+                implicitHeight: search.implicitHeight - search.contentInkTop
+
+                TextField {
+                    id: search
+                    variant: "search"
+                    x: footer.leftPadding
+                    y: -contentInkTop
+                    width: layout.contentWidth - footer.leftPadding - footer.rightPadding
+                    placeholderText: "Search sections"
+                    leadingIcon: "search"
+                    focus: true
+                    onTextChanged: page.query = text
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Escape && search.text !== "") {
+                            search.clear();
+                            event.accepted = true;
+                            return;
+                        }
+                        // Right past the end of the query enters the selected
+                        // section; it never opens Settings, since an arrow
+                        // runs no action.
+                        if (event.key === Qt.Key_Right && event.modifiers === Qt.NoModifier && search.cursorPosition === search.length) {
+                            if (page.current < page.footerIndex) page.activate(page.current, Qt.TabFocusReason);
+                            event.accepted = true;
+                            return;
+                        }
+                        event.accepted = nav.handle(event);
                     }
-                    // Right past the end of the query enters the selected
-                    // section; it never opens Settings, since an arrow
-                    // runs no action.
-                    if (event.key === Qt.Key_Right && event.modifiers === Qt.NoModifier && search.cursorPosition === search.length) {
-                        if (page.current < page.footerIndex) page.activate(page.current, Qt.TabFocusReason);
-                        event.accepted = true;
-                        return;
-                    }
-                    event.accepted = nav.handle(event);
                 }
             }
         ]
