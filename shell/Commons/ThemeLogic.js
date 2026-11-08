@@ -508,6 +508,7 @@ var READABILITY_NAMES = {
     "checkbox.borderColor": "Checkbox outline", "checkbox.checked": "Selected checkbox",
     "checkbox.mark": "Checkbox mark", "radio.borderColor": "Radio outline", "radio.checked": "Selected radio",
     "textField.borderColor": "Text field outline", "toggle.off": "Switch off track", "toggle.on": "Switch on track",
+    "segmented.border": "Choice outline", "tileGroup.border": "Tile group outline",
     "toggle.knobOff": "Switch off knob", "toggle.knobOn": "Switch on knob",
     "segmented.indicatorColor": "Selected choice mark", "dialog.border": "Dialog outline",
     "dialog.background": "Dialog background", "color.scrim": "the dimmed background",
