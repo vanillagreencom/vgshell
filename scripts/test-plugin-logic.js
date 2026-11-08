@@ -108,7 +108,7 @@ function nmVpnRequirements(ctx, check) {
     check("nmVpn: normalized manifest", result.ok, true);
     if (!result.ok) return;
     check("nmVpn: shared identity", result.manifest.requirements, [{ name: service, title: vpn.label, bus: null,
-        packages: { pacman: "networkmanager-openvpn" }, optional: true, purpose: "Connects VPN profiles", floor: null, onRequest: false }]);
+        packages: { pacman: "networkmanager-openvpn" }, optional: true, purpose: "Connects VPN profiles", floor: null, onRequest: false, drmDriver: null }]);
     for (const [missing, state] of [[[], "present"], [[service], "missing"]]) {
         check("nmVpn: scan reads " + state, ctx.requirementRows(result.manifest, missing, {}).map(row => [row.name, row.state]), [[service, state]]);
     }
@@ -117,6 +117,51 @@ function nmVpnRequirements(ctx, check) {
     check("nmVpn: duplicate across forms", ctx.validateManifest({ ...raw, requirements: [
         { nmVpn: vpn, purpose: "Connects VPN profiles" }, { dbus: { bus: "system", name: service, label: vpn.label }, purpose: "Connects VPN profiles" }
     ] }, "/p").ok, false);
+}
+
+// Both shipped declarations reach the same row and notice judge. Literal
+// command absence remains independent of the DRM discovery answer.
+function drmDriverRequirements(ctx, check) {
+    const found = { primary: { id: "pacman", binary: "pacman" }, overlays: [], sources: [] };
+    for (const id of ["vgs.sysmon", "vgs.jarvis"]) {
+        const raw = JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, id, "manifest.json"), "utf8"));
+        const result = ctx.validateManifest(raw, "/" + id);
+        check("drmDriver: " + id + " manifest admitted", result.ok, true);
+        if (!result.ok) continue;
+        const manifest = result.manifest;
+        const declaration = manifest.requirements.find(row => row.name === "nvidia-smi");
+        check("drmDriver: " + id + " declares conditional optional tool", [declaration.drmDriver, declaration.optional], ["nvidia", true]);
+        for (const [state, missing, wanted] of [
+            ["absent", ["nvidia-smi"], []],
+            ["absent", [], []],
+            ["present", ["nvidia-smi"], [["nvidia-smi", "missing", { manager: "pacman", name: "nvidia-utils" }]]],
+            ["present", [], [["nvidia-smi", "present", { manager: "pacman", name: "nvidia-utils" }]]],
+            ["unknown", ["nvidia-smi"], [["nvidia-smi", "missing", { manager: "pacman", name: "nvidia-utils" }]]],
+            ["unknown", [], [["nvidia-smi", "present", { manager: "pacman", name: "nvidia-utils" }]]]
+        ]) {
+            const facts = { nvidia: state === "unknown" ? { state, reason: "read /sys/class/drm/card0/device/uevent: denied" } : { state } };
+            const before = JSON.stringify(manifest);
+            const owner = ctx.requirementOwner(manifest, facts);
+            const rows = ctx.requirementRows(owner, missing, {}).filter(row => row.name === "nvidia-smi");
+            const picks = ctx.PackageManagers.installGroups(rows, found).picks;
+            check("drmDriver: " + id + " " + state + " missing=" + (missing.length > 0), rows.map((row, i) => [row.name, row.state, picks[i]]), wanted);
+            check("drmDriver: " + id + " keeps source manifest separate", JSON.stringify(manifest), before);
+            check("drmDriver: " + id + " carries discovery " + state, rows.map(row => row.drmDriverFact), state === "absent" ? [] : [facts.nvidia]);
+            const notice = ctx.noticeRequest(owner, missing, {}, "suggested", ["nvidia-smi"]);
+            check("drmDriver: " + id + " suggestion " + state, [notice.answer, notice.commands], state !== "absent" && missing.length > 0 ? ["ok", ["nvidia-smi"]] : ["satisfied", []]);
+            const requested = ctx.noticeRequest(owner, missing, {}, "requested");
+            check("drmDriver: " + id + " requested install " + state, requested.commands.indexOf("nvidia-smi") !== -1, state !== "absent" && missing.length > 0);
+            check("drmDriver: " + id + " undeclared remains refused", ctx.noticeRequest(owner, missing, {}, "suggested", ["not-declared"]).answer.indexOf("reason=undeclared") !== -1, true);
+        }
+        for (const facts of [undefined, {}, { nvidia: null }, { nvidia: { state: "missing" } }, { nvidia: { state: "unknown" } }, { nvidia: { state: "unknown", reason: "" } }, { nvidia: { state: "absent", reason: "read failed" } }]) {
+            let refused = false;
+            try { ctx.requirementOwner(manifest, facts); } catch (_) { refused = true; }
+            check("drmDriver: " + id + " malformed scan facts refuse " + JSON.stringify(facts), refused, true);
+        }
+        let refused = false;
+        try { ctx.requirementRows(manifest, [], {}); } catch (_) { refused = true; }
+        check("drmDriver: " + id + " undecorated conditional owner refuses", refused, true);
+    }
 }
 
 // Every row against one loaded judge, `ctx`, and the configuration judge it
@@ -225,6 +270,7 @@ function suite(ctx, configLogic, check) {
     conversationMigration(configLogic, check);
     unplacedMounts(ctx, check);
     nmVpnRequirements(ctx, check);
+    drmDriverRequirements(ctx, check);
     infoLines(ctx, check);
     // Published state and key-list hints use the same visible words as their
     // declarations; the encoded target does not draw in either view.
@@ -651,6 +697,11 @@ function suite(ctx, configLogic, check) {
         ["a requirement package starting with a dash", { requirements: [{ command: "gum", packages: { pacman: "-Sy" }, purpose: "p" }] }, "requirements.0.packages.pacman must be a package name"],
         ["a requirement package with a space", { requirements: [{ command: "gum", packages: { apt: "gum fzf" }, purpose: "p" }] }, "requirements.0.packages.apt must be a package name"],
         ["requirement optional not a boolean", { requirements: [{ command: "gum", optional: "yes", purpose: "p" }] }, "requirements.0.optional must be a boolean when present"],
+        ["an optional command conditioned on the NVIDIA driver", { requirements: [{ command: "nvidia-smi", optional: true, drmDriver: "nvidia", purpose: "Reads graphics metrics" }] }, null],
+        ["a DRM driver outside the supported condition", { requirements: [{ command: "nvidia-smi", optional: true, drmDriver: "nouveau", purpose: "p" }] }, "requirements.0.drmDriver must be \"nvidia\""],
+        ["a malformed DRM driver condition", { requirements: [{ command: "nvidia-smi", optional: true, drmDriver: null, purpose: "p" }] }, "requirements.0.drmDriver must be \"nvidia\""],
+        ["a required command conditioned on a driver", { requirements: [{ command: "nvidia-smi", drmDriver: "nvidia", purpose: "p" }] }, "requirements.0.drmDriver needs an optional command"],
+        ["a bus name conditioned on a driver", { requirements: [{ dbus: { bus: "system", name: "org.example.Graphics", label: "Graphics" }, optional: true, drmDriver: "nvidia", purpose: "p" }] }, "requirements.0.drmDriver needs an optional command"],
         ["a requirement without a purpose", { requirements: [{ command: "gum" }] }, "requirements.0.purpose must be one printable line of 1 to 120 characters"],
         ["a blank requirement purpose", { requirements: [{ command: "gum", purpose: "  " }] }, "requirements.0.purpose must be one printable line"],
         ["a requirement purpose with a newline", { requirements: [{ command: "gum", purpose: "one\ntwo" }] }, "requirements.0.purpose must be one printable line"],
@@ -1382,7 +1433,7 @@ function suite(ctx, configLogic, check) {
     }
     const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles service" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false }]);
+        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false, drmDriver: null }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false, drmDriver: null }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false, drmDriver: null }]);
     check("validateManifest carries an on-request install as a required entry", ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "on-request", purpose: "Dialogs" }] }), "/p").manifest.requirements.map(r => [r.name, r.optional, r.onRequest]), [["gum", false, true]]);
     check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"], {}).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
     check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
@@ -3500,8 +3551,9 @@ const CONTROLS = [
     ["a floor is three dotted numbers", "!REQUIREMENT_FLOOR.test(requirement.floor)", "false"],
     ["a floor is a string", "typeof requirement.floor !== \"string\" || ", ""],
     ["a floor needs a command", "if (requirement.floor !== undefined && requirement.command === undefined)", "if (false)"],
-    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\", \"install\"];", "\"optional\", \"purpose\", \"install\"];"],
-    ["install is a requirement key", "\"floor\", \"install\"];", "\"floor\"];"],
+    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\", \"install\",", "\"optional\", \"purpose\", \"install\","],
+    ["install is a requirement key", "\"floor\", \"install\",", "\"floor\","],
+    ["an absent DRM driver omits its requirement", "return entry.drmDriverFact.state !== \"absent\";", "return true;", "drmDriver:"],
     ["any install value is accepted", "if (requirement.install !== REQUIREMENT_ON_REQUEST)\n", "if (false)\n"],
     ["an optional requirement may be installed on request", "if (requirement.optional === true)\n                return at + \".install needs a required entry", "if (false)\n                return at + \".install needs a required entry"],
     ["an on-request requirement needs no packages", "if (requirement.packages === undefined)\n                return at + \".install needs packages", "if (false)\n                return at + \".install needs packages"],
@@ -3804,6 +3856,7 @@ try {
                 else if (filter === "underKey:") keySettings(ctx, check);
                 else if (filter === "unplaced mounts:") unplacedMounts(ctx, check);
                 else if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
+                else if (filter === "drmDriver:") drmDriverRequirements(ctx, check);
                 else if (filter === "Open route: acme.open-panel") openRoutes(ctx, check, bundled);
                 else suite(ctx, configLogic, check);
             } catch (e) {

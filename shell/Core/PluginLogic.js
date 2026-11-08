@@ -147,7 +147,7 @@ var IDLE_STAGE_KEYS = ["seconds", "enabled"];
 // saying what it is for, for a command the `floor`, the lowest version
 // the plugin works with, and `install`, how the package recipes carry its
 // package. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "nmVpn", "packages", "optional", "purpose", "floor", "install"];
+var REQUIREMENT_KEYS = ["command", "dbus", "nmVpn", "packages", "optional", "purpose", "floor", "install", "drmDriver"];
 // The one `install` value: the requirement stays required, and its package
 // is an optional dependency of every recipe, which its plugin's
 // Requirements section installs (scripts/check-packaging.js).
@@ -2546,7 +2546,9 @@ function requirementIdentity(requirement, at) {
 // `optional`, when present, is a boolean; `purpose` is one printable line
 // of 1 to REQUIREMENT_PURPOSE_MAX characters that hintFits accepts;
 // `floor`, when present, is a version REQUIREMENT_FLOOR accepts, on a
-// `command` alone, since a service name prints none. `install`, when present,
+// `command` alone, since a service name prints none. `drmDriver` may name
+// "nvidia" on an optional command, conditioned on the scan's DRM driver
+// discovery. `install`, when present,
 // is REQUIREMENT_ON_REQUEST, on a required entry with `packages` and no
 // `floor`: an optional entry's package is an optional dependency already,
 // an entry with no package has none to carry, and a floor is checked at
@@ -2584,6 +2586,12 @@ function requirementsError(requirements) {
         }
         if (requirement.optional !== undefined && typeof requirement.optional !== "boolean")
             return at + ".optional must be a boolean when present";
+        if (requirement.drmDriver !== undefined) {
+            if (requirement.drmDriver !== "nvidia")
+                return at + ".drmDriver must be \"nvidia\" when present";
+            if (requirement.command === undefined || requirement.optional !== true)
+                return at + ".drmDriver needs an optional command";
+        }
         if (typeof requirement.purpose !== "string" || requirement.purpose.trim().length === 0 || Array.from(requirement.purpose).length > REQUIREMENT_PURPOSE_MAX || CONTROL_CHARACTER.test(requirement.purpose))
             return at + ".purpose must be one printable line of 1 to " + REQUIREMENT_PURPOSE_MAX + " characters";
         if (!hintFits(requirement.purpose))
@@ -2609,12 +2617,31 @@ function requirementsError(requirements) {
 // A `requirements` list requirementsError accepted, each entry with every
 // key: `name`, `title`, the command or the service `label` a page lists it
 // by, `bus`, `packages` {}, `optional` false, `floor` null and `onRequest`
-// false when absent.
+// false and `drmDriver` null when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
         var title = entry.command !== undefined ? entry.command : entry.dbus !== undefined ? entry.dbus.label : entry.nmVpn.label;
-        return { name: requirementName(entry), title: title, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST };
+        return { name: requirementName(entry), title: title, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, drmDriver: entry.drmDriver === undefined ? null : entry.drmDriver };
     });
+}
+
+// The derived owner that requirement rows and notices consume. Hardware
+// readings stay outside the source manifest so a new probe rebuilds no
+// plugin. The scanner and CLI pass the same typed DRM facts here.
+function requirementOwner(manifest, drmDrivers) {
+    var owner = Object.assign({}, manifest);
+    owner.requirements = manifest.requirements.map(function (entry) {
+        var row = clone(entry);
+        if (entry.drmDriver === null || entry.drmDriver === undefined) return row;
+        var fact = isPlainObject(drmDrivers) ? drmDrivers[entry.drmDriver] : undefined;
+        if (!isPlainObject(fact) || ["present", "absent", "unknown"].indexOf(fact.state) === -1
+            || Object.keys(fact).some(function (key) { return key !== "state" && (fact.state !== "unknown" || key !== "reason"); })
+            || (fact.state === "unknown" && (typeof fact.reason !== "string" || fact.reason.trim() === "")))
+            throw new Error("requirements: drm-driver=" + entry.drmDriver + " fact=malformed");
+        row.drmDriverFact = clone(fact);
+        return row;
+    });
+    return owner;
 }
 
 // The state, one of REQUIREMENT_STATES, of ENTRY, one normalized
@@ -2675,11 +2702,19 @@ function requirementBadge(state, optional) {
 }
 
 // The rows a plugin's requirements are reported as: each normalized entry
-// of MANIFEST's `requirements`, in order, with `state` as requirementState
+// of MANIFEST's `requirements`, in order, except a driver the completed
+// scan proved absent. An unknown discovery retains the real command state
+// and install offer. Conditional entries come from requirementOwner.
+// Each row has `state` as requirementState
 // reads it from MISSING and VERSIONS and `badge` as requirementBadge draws
 // that state.
 function requirementRows(manifest, missing, versions) {
-    return manifest.requirements.map(function (entry) {
+    return manifest.requirements.filter(function (entry) {
+        if (entry.drmDriver === null || entry.drmDriver === undefined) return true;
+        if (entry.drmDriverFact === undefined)
+            throw new Error("requirements: drm-driver=" + entry.drmDriver + " fact=missing");
+        return entry.drmDriverFact.state !== "absent";
+    }).map(function (entry) {
         var row = clone(entry);
         row.state = requirementState(entry, missing, versions);
         row.badge = requirementBadge(row.state, row.optional);
@@ -2773,6 +2808,14 @@ function noticeOwnerError(owner, owners, enabled) {
 // reason=undeclared` for the first command MANIFEST does not declare, so a
 // notice never names a package its owner did not declare.
 function noticeRequest(manifest, missing, versions, trigger, commands) {
+    if (["offered", "suggested", "chosen"].indexOf(trigger) !== -1) {
+        if (!Array.isArray(commands) || commands.length === 0 || commands.length > NOTICE_OFFER_MAX || !commands.every(function (c) { return typeof c === "string"; }))
+            return { answer: "refused: requirements=malformed", commands: [], required: [] };
+        var declared = manifest.requirements.map(function (row) { return row.name; });
+        var undeclared = commands.filter(function (c) { return declared.indexOf(c) === -1; });
+        if (undeclared.length > 0)
+            return { answer: "refused: requirement=" + tuiLabel(undeclared[0]) + " reason=undeclared", commands: [], required: [] };
+    }
     var rows = requirementRows(manifest, missing, versions);
     var lacking = rows.filter(function (row) { return row.state !== "present"; });
     var listed;
@@ -2787,12 +2830,6 @@ function noticeRequest(manifest, missing, versions, trigger, commands) {
     case "offered":
     case "suggested":
     case "chosen":
-        if (!Array.isArray(commands) || commands.length === 0 || commands.length > NOTICE_OFFER_MAX || !commands.every(function (c) { return typeof c === "string"; }))
-            return { answer: "refused: requirements=malformed", commands: [], required: [] };
-        var declared = rows.map(function (row) { return row.name; });
-        var undeclared = commands.filter(function (c) { return declared.indexOf(c) === -1; });
-        if (undeclared.length > 0)
-            return { answer: "refused: requirement=" + tuiLabel(undeclared[0]) + " reason=undeclared", commands: [], required: [] };
         return noticeListing(rows, commands);
     default:
         throw new Error("notices: trigger " + JSON.stringify(trigger) + " is not one of " + NOTICE_TRIGGERS.join(", "));

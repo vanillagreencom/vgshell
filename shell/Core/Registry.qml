@@ -57,6 +57,9 @@ Singleton {
     // apart from the manifests, so a package
     // installed or removed rebuilds nothing.
     property var missingCommands: Object.create(null)
+    // id -> the scan's driver facts, separate from source revisions and
+    // literal missing commands. Only requirementOwner judges applicability.
+    property var requirementDrivers: Object.create(null)
     // The core's own requirements, config/requirements.json as
     // PluginLogic.normalRequirements returns it, and the commands of it the
     // last scan did not find on PATH; each replaced only when a scan reads
@@ -108,7 +111,7 @@ Singleton {
     readonly property var requirementOwners: {
         const owners = Object.create(null);
         for (const id of Object.keys(manifests))
-            owners[id] = manifests[id];
+            owners[id] = Logic.requirementOwner(manifests[id], requirementDrivers[id]);
         owners[Logic.CORE_OWNER] = Logic.coreOwner(coreRequirements);
         return owners;
     }
@@ -246,6 +249,7 @@ Singleton {
         }
         const next = Object.create(null);
         const nextMissing = Object.create(null);
+        const nextDrivers = Object.create(null);
         const errs = [];
         const cols = [];
         let nextCore = [];
@@ -273,11 +277,18 @@ Singleton {
                 scanError = "scan output does not parse: " + entry.dir + " carries no missing list";
                 return;
             }
+            try {
+                Logic.requirementOwner(r.manifest, entry.drmDrivers);
+            } catch (e) {
+                scanError = "scan output does not parse: " + entry.dir + ": " + e.message;
+                return;
+            }
             r.manifest.__revision = entry.revision;
             r.manifest.__loadUrl = entry.loadUrl;
             r.manifest.__migrate = entry.migrate === true;
             next[r.manifest.id] = r.manifest;
             nextMissing[r.manifest.id] = entry.missing;
+            nextDrivers[r.manifest.id] = entry.drmDrivers;
         }
         for (const e of errs) console.error("plugins: " + e.dir + ": " + e.error);
         const mapChanged = JSON.stringify(next) !== JSON.stringify(root.manifests);
@@ -291,6 +302,7 @@ Singleton {
         // Before the map, so no row reads a new plugin's requirements against
         // the last scan's probe.
         if (JSON.stringify(nextMissing) !== JSON.stringify(root.missingCommands)) root.missingCommands = nextMissing;
+        if (JSON.stringify(nextDrivers) !== JSON.stringify(root.requirementDrivers)) root.requirementDrivers = nextDrivers;
         if (JSON.stringify(nextCore) !== JSON.stringify(root.coreRequirements)) root.coreRequirements = nextCore;
         if (JSON.stringify(nextCoreMissing) !== JSON.stringify(root.coreMissing)) root.coreMissing = nextCoreMissing;
         // The user file names each renamed plugin by its new id before the
@@ -529,7 +541,7 @@ Singleton {
     // Plugin `id`'s requirement rows, each with its state from the last
     // scan: PluginLogic.requirementRows over its judged manifest.
     function requirementsOf(id) {
-        return Logic.requirementRows(manifests[id], Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
+        return Logic.requirementRows(requirementOwners[id], Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
     }
 
     // Where a plugin was found: `bundled` under the shell's own plugins

@@ -27,7 +27,7 @@
   "defaultSection": "right",
   "requirements": [
     {"command": "btop", "packages": {"pacman": "btop", "apt": "btop", "dnf": "btop", "nix": "btop"}, "optional": true, "purpose": "Shows all processes and system readings"},
-    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "purpose": "Reads NVIDIA graphics card use and temperature"}
+    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "drmDriver": "nvidia", "purpose": "Reads NVIDIA graphics card use and temperature"}
   ],
   "settings": {
     "layout": "Stacked",

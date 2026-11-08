@@ -26,7 +26,7 @@ Item {
     property var gpuResult: null
     readonly property string chosenGpu: shell === null ? "" : shell.settings.gpu
     readonly property string cpuTemperaturePath: Logic.selectedCpuTemperature(cpuSensors, shell === null ? "" : shell.settings.cpuSensor)
-    readonly property bool nvidiaPresent: shell !== null && shell.requirements.missing.indexOf("nvidia-smi") === -1
+    readonly property bool nvidiaSmiPresent: shell !== null && shell.requirements.missing.indexOf("nvidia-smi") === -1
 
     function read(path, done) {
         jobs.push({ path: path, done: done });
@@ -89,7 +89,7 @@ Item {
             shell.status.set("cpuSensors", cpuSensors.map(sensor => ({ value: sensor.value, label: sensor.label })));
             devices = Logic.orderGpus(cards);
             publishChoices();
-            if (!nvidiaPresent && devices.some(card => card.driver === "nvidia")) shell.requirements.suggest(["nvidia-smi"]);
+            if (!nvidiaSmiPresent) shell.requirements.suggest(["nvidia-smi"]);
             shell.status.set("graphics", devices.length ? { text: "Available", tone: "ok" } : { text: "Not found", hint: "No supported graphics card found.", tone: "info" });
             discovered = true;
             if (leaseCount > 0) tick();
@@ -191,7 +191,7 @@ Item {
         // A card skipped while asleep stays pending. CPU and memory reads
         // precede this cold discovery, and an inactive card waits for the
         // next timer tick instead of recursively starting another cycle.
-        const pendingCards = devices.filter(card => card.driver === "nvidia" ? nvidiaPresent && !card.inventoryComplete : !card.discoveryComplete);
+        const pendingCards = devices.filter(card => card.driver === "nvidia" ? nvidiaSmiPresent && !card.inventoryComplete : !card.discoveryComplete);
         each(pendingCards, (card, done) => {
             read(card.path + "/power/runtime_status", state => {
                 if (!live()) return;
@@ -221,7 +221,7 @@ Item {
             if (state.trim() === "suspended") { gpuResult = null; sample.gpu.state = "asleep"; publish(sample); return; }
             if (state.trim() !== "active") { gpuResult = null; sample.gpu.state = "unavailable"; publish(sample); return; }
             if (selected.driver === "nvidia") {
-                if (!nvidiaPresent) { sample.gpu.state = "unavailable"; publish(sample); return; }
+                if (!nvidiaSmiPresent) { sample.gpu.state = "unavailable"; publish(sample); return; }
                 if (gpuResult !== null && gpuResult.id === selected.id) Object.assign(sample.gpu, gpuResult);
                 if (!nvidia.running && !queryEnding) startQuery("readings", selected);
                 // NVIDIA completion updates the next tick's snapshot. CPU
