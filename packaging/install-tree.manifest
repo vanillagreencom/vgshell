@@ -320,6 +320,7 @@ f share/vgshell/shell/Ui/icons/Own.js
 f share/vgshell/shell/Ui/layout/AngledCard.qml
 f share/vgshell/shell/Ui/layout/Card.qml
 f share/vgshell/shell/Ui/layout/CardCarousel.qml
+f share/vgshell/shell/Ui/layout/ContentRow.qml
 f share/vgshell/shell/Ui/layout/DeviceList.qml
 f share/vgshell/shell/Ui/layout/DeviceRow.qml
 f share/vgshell/shell/Ui/layout/Disclosure.qml
@@ -331,6 +332,7 @@ f share/vgshell/shell/Ui/layout/ListCursorRow.qml
 f share/vgshell/shell/Ui/layout/ListEntrance.qml
 f share/vgshell/shell/Ui/layout/ListItem.qml
 f share/vgshell/shell/Ui/layout/MessageRow.qml
+f share/vgshell/shell/Ui/layout/NavigationRow.qml
 f share/vgshell/shell/Ui/layout/Pane.qml
 f share/vgshell/shell/Ui/layout/ScrollArea.qml
 f share/vgshell/shell/Ui/layout/ScrollBar.qml
