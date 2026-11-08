@@ -7,7 +7,7 @@ const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
 const caseAt=process.argv.indexOf("--case"),caseName=caseAt<0?null:process.argv[caseAt+1];
-assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control","dependencies","dependency-authority","dependency-control","dependency-official-control","one-review","review-again","one-review-control"].includes(surface));
+assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control","dependencies","dependency-authority","dependency-control","dependency-official-control","one-review","review-again","one-review-control","devel","devel-control"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const writerAt=process.argv.indexOf("--writer-owner"),writerOverride=writerAt<0?null:process.argv[writerAt+1];
@@ -28,7 +28,13 @@ function ownerTree(name,edits=[],{recipes=true}={}){
  const source=ownerOverride?path.resolve(path.dirname(ownerOverride),".."):path.resolve(__dirname,"../../.."),copy=path.join(scratch,"owners",name);
  const copied=new Set(["bin/vgshell-pkg","bin/lib/pkg-review.js","bin/lib/pkg-retry.js",...edits.map(edit=>edit[0])]);
  fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});
- for(const entry of ["shell","config","VERSION","bin/vgshell",...(recipes?["packaging"]:[])])fs.symlinkSync(path.join(source,entry),path.join(copy,entry));
+ const tableEdited=copied.has("shell/Core/PackageManagers.js");
+ for(const entry of [...(tableEdited?[]:["shell"]),"config","VERSION","bin/vgshell",...(recipes?["packaging"]:[])])fs.symlinkSync(path.join(source,entry),path.join(copy,entry));
+ if(tableEdited){
+  fs.mkdirSync(path.join(copy,"shell/Core"),{recursive:true});
+  for(const entry of fs.readdirSync(path.join(source,"shell")))if(entry!=="Core")fs.symlinkSync(path.join(source,"shell",entry),path.join(copy,"shell",entry));
+  for(const entry of fs.readdirSync(path.join(source,"shell/Core")))if(entry!=="PackageManagers.js")fs.symlinkSync(path.join(source,"shell/Core",entry),path.join(copy,"shell/Core",entry));
+ }
  for(const entry of fs.readdirSync(path.join(source,"bin/lib")))if(!copied.has("bin/lib/"+entry))fs.symlinkSync(path.join(source,"bin/lib",entry),path.join(copy,"bin/lib",entry));
  for(const file of copied)fs.copyFileSync(path.join(source,file),path.join(copy,file));
  for(const [file,needle,replacement] of edits){
@@ -46,6 +52,43 @@ function control(name,surface,edits,fails,caseName){
  return r;
 }
 try{
+ if(!only&&(select("control")||surface==="devel-control")){
+  control("devel-old-path","devel",[["shell/Core/PackageManagers.js",
+   '    plan.steps.push([plan.binary].concat(config === undefined ? [] : ["--config", config], build.complete));',
+   '    void build.complete;']],/devel: installed git package remains tracked/,"success");
+ }
+ // The native diagnostic is delivered output: preserve its git failure cause.
+ const lookupDiagnostic="error: failed to lookup: vgshell-git: fatal: unable to access 'https://example.org/vgs.git/': Could not resolve host: example.org";
+ if(!only&&select("devel"))for(const {label,installStatus=0,trackingStatus=0,status=installStatus||trackingStatus,trackingDiagnostic,missingTracking=false,missingResult=false} of [
+  {label:"success"},{label:"install-failed",installStatus:9},{label:"tracking-failed",trackingStatus:8},
+  {label:"lookup-failed",status:1,trackingDiagnostic:lookupDiagnostic,missingTracking:true},
+  {label:"diagnostic-with-entry",status:1,trackingDiagnostic:lookupDiagnostic},
+  {label:"missing-entry",status:1,missingTracking:true},{label:"missing-result",status:1,missingResult:true}
+ ]){
+  if(caseName!==null&&caseName!==label)continue;
+  const w=create(path.join(scratch,"devel-"+label),{choices:["Review","Use Claude Code"]});
+  fs.writeFileSync(path.join(w.root,"aur-pending"),"");fs.writeFileSync(path.join(w.root,"config-corresponds"),"");
+  fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify({pending:["vgshell-git"],buildOrder:{"vgshell-git":"AUR TARGET vgshell-git vgshell-git"}}));
+  fs.writeFileSync(path.join(w.root,"devel-world.json"),JSON.stringify({
+   cachedSources:{"vgshell-git":null},sources:{"vgshell-git":{url:"https://example.org/vgs.git",commit:"new-vgs-commit"}},
+   tracked:{"vgshell-git":{url:"https://example.org/vgs.git",commit:"old-vgs-commit"},"other-git":{url:"https://example.org/other.git",commit:"other-installed-commit"}},
+   installStatus,trackingStatus,trackingDiagnostic,missingTracking,missingResult
+  }));
+  const argv=[process.execPath,path.join(__dirname,"one-review.js"),w.root,ownerOverride||w.owner,"devel"];
+  const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:60000});
+  const results=fs.readFileSync(path.join(w.root,"devel-results.jsonl"),"utf8").trim().split("\n").map(JSON.parse).filter(result=>result.manager==="aur");
+  assert.equal(results[0].status,status,label+": production status: "+r.stdout+r.stderr);
+  assert.equal(r.status,status,label+": "+r.stdout+r.stderr);
+  const calls=w.calls(),completed=calls.filter(c=>c.kind==="devel-completion");
+  assert.equal(completed.length,installStatus?0:status?1:2,label+": tracking only follows successful installs");
+  assert.ok(completed.every(c=>c.config===calls.find(c=>c.kind==="mutation"&&c.name==="paru").args[1]),label+": tracking uses the transaction config");
+  if(trackingDiagnostic)assert.ok((r.stdout+r.stderr).includes(trackingDiagnostic),label+": native lookup cause retained");
+  if(label==="success"){
+   const checkpoints=fs.readFileSync(path.join(w.root,"devel-checkpoints.jsonl"),"utf8").trim().split("\n").map(JSON.parse);
+   assert.deepEqual(checkpoints.map(c=>c.action),["upgrade","reinstall"],"devel: proof after each shared production operation");
+  }
+  console.log("package-devel-proof: "+JSON.stringify({label,status:r.status,completed:completed.length,commands:calls.filter(c=>c.kind==="mutation"||c.kind==="devel-completion").map(c=>c.args)}));
+ }
  if(!only&&(select("control")||surface==="one-review-control")){
   const owner="bin/lib/pkg-review.js";
   control("generated-config","one-review",[[owner,'if (!p.complete) state.unknown.push("pending=config-correspondence");','if (true) state.unknown.push("pending=config-correspondence");']],/clean:/,"clean");

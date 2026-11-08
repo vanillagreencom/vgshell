@@ -457,7 +457,7 @@ control no-sudo-session bin/lib/pkg-run.sh $'if [[ $elevator == sudo ]]; then\n 
 control runs-past-failure bin/lib/pkg-run.sh '[[ $status -eq 0 ]] || exit "$status"' ':' first_failure
 control shell-string bin/lib/pkg-run.sh '  "${step[@]}" || status=$?' '  bash -c "${step[*]}" || status=$?' literal_name
 control bare-command bin/lib/pkg-run.sh '  vgs_tui_commands "${shown% }"' '  vgs_tui_text "${shown% }"' pacman_install
-control caller-directory bin/vgshell-pkg 'stdio: "inherit", cwd: cwd || process.env.HOME || "/" });' 'stdio: "inherit", cwd });' home_directory
+control caller-directory bin/vgshell-pkg 'cwd: cwd || process.env.HOME || "/", env });' 'cwd, env });' home_directory
 control update-keeps-version shell/Core/PackageManagers.js 'update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],' 'update: [["{bin}", "use", "--global", "{names}"]],' update
 control always-elevates bin/vgshell-pkg '    if (!plan.elevate) return null;' '    if (false) return null;' aur_unelevated
 control ignores-configuration bin/vgshell-pkg 'table.elevator(configuredElevator(), onPath)' 'table.elevator(undefined, onPath)' configured
