@@ -18,6 +18,12 @@ A selection with a request emits selection-ended for focus restoration.
 Countdown ticks report remaining seconds; countdown-hidden confirms its UI was
 removed. Until the recorder writes its file, `cancel` or stdin EOF ends it with
 no file; then one `stop` line or stdin EOF sends SIGINT to the owned recorder.
+While a record-portal recorder still waits on the picker, one
+`picked-output NAME` line hands the screen the user picked to Display mode:
+the portal recorder ends before the portal starts a stream, portal-released
+reports it, and the output NAME records as record-output records it, so a
+turned monitor records upright. A pick that meets a written file, or names
+no enabled output, ends with an error and records nothing more.
 A recording emits stopped once the recorder ends, then saved after processing.
 saved carries `actions`, its notification's buttons: one `{id, label, argv}`
 for each program that opens the file and is installed; `default` opens it.
@@ -137,6 +143,8 @@ LOG_TAIL_CHARS = 140
 LOG_TAIL_READ = 4096
 # gpu-screen-recorder's exit status when the user cancels the portal picker.
 PORTAL_CANCELLED = 60
+# The service's stdin line that hands a picked screen to Display mode.
+PICKED_OUTPUT = "picked-output "
 # Seconds between a wait's checks for a recorded SIGTERM or SIGHUP. It adds
 # to release's 4 s bound inside the service's 5 s cleanup grace
 # (docs/architecture/runtime.md § Process).
@@ -590,33 +598,43 @@ class Capture:
             target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)
             if target is None:
                 target, region = "region", f"{width}x{height}+{x}+{y}"
-        if camera is not None:
-            target += "|v4l2:" + camera + WEBCAM
         state = plugin_state(request["stateDir"])
         folder = capture_folder(request["recordFolder"], "VIDEOS", "Screencasts")
         remove_stale_processing(folder)
         path = new_file(folder, "screencast", ".mp4")
-        args = ["gpu-screen-recorder", "-w", target, *(["-region", region] if region else []), *options, *audio, "-o", str(path)]
+        # Only the portal's recorder waits on a picker that can hand over.
+        portal = request["action"] == "record-portal"
         with open_log(state / "recorder.log") as log:
-            try:
-                self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-            except OSError:
-                path.unlink(missing_ok=True)
-                raise
-            # The reserved file starts empty. Publish recording only after the
-            # recorder writes it, so an encoding failure never shows a live
-            # icon. The portal's picker can stay open here, so a second press
-            # or stdin EOF cancels it; a stop that meets a written file stops.
-            line = None
-            while self.recorder.poll() is None and path.stat().st_size == 0:
-                line = self.read_control(0.01)
-                if line is not None:
-                    if line in ("", "cancel") or path.stat().st_size == 0:
-                        self.end_recorder()
-                        path.unlink(missing_ok=True)
-                        emit("cancelled")
-                        return
+            while True:
+                if camera is not None:
+                    target += "|v4l2:" + camera + WEBCAM
+                args = ["gpu-screen-recorder", "-w", target, *(["-region", region] if region else []), *options, *audio, "-o", str(path)]
+                try:
+                    self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                except OSError:
+                    path.unlink(missing_ok=True)
+                    raise
+                # The reserved file starts empty. Publish recording only after the
+                # recorder writes it, so an encoding failure never shows a live
+                # icon. The portal's picker can stay open here, so a second press
+                # or stdin EOF cancels it; a stop that meets a written file stops.
+                line = handed = None
+                while self.recorder.poll() is None and path.stat().st_size == 0:
+                    line = self.read_control(0.01)
+                    if line is not None:
+                        if portal and line.startswith(PICKED_OUTPUT):
+                            handed = line.removeprefix(PICKED_OUTPUT)
+                            break
+                        if line in ("", "cancel") or path.stat().st_size == 0:
+                            self.end_recorder()
+                            path.unlink(missing_ok=True)
+                            emit("cancelled")
+                            return
+                        break
+                if handed is None:
                     break
+                target = self.hand_off(handed, request["outputs"], path)
+                portal = False
             if self.recorder.poll() is not None:
                 path.unlink(missing_ok=True)
                 if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:
@@ -656,6 +674,30 @@ class Capture:
         emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, detail=detail,
              actions=actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser"))))
         self.clipboard_exit(child)
+
+    def hand_off(self, name, outputs, path):
+        """End the portal's recorder and return NAME, the picked output, for
+        record-output's argv.
+
+        The service holds the picker's answer, so the portal starts no stream
+        and the ended recorder leaves no session. gpu-screen-recorder 6.1.6
+        waits for the portal's answer in a loop that reads no stop request
+        (src/dbus.c gsr_dbus_call_screencast_method), so SIGINT would only
+        run out end_recorder's 5 s bound; before that answer it has opened
+        no stream, audio or output (src/recorder/recorder.c setup_phases),
+        so a kill loses nothing. PATH is read after the end, as only an
+        ended recorder can no longer write it: a written file is the
+        portal's recording, which a second recording must not replace.
+        """
+        self.recorder.kill()
+        self.wait(self.recorder)
+        if path.stat().st_size:
+            raise RuntimeError(f"The picked screen was not recorded: the portal recording already started in {path}")
+        if name not in [output["name"] for output in outputs]:
+            path.unlink()
+            raise RuntimeError(f"The picked screen {name!r} is not an enabled display")
+        emit("portal-released")
+        return name
 
     def end_recorder(self):
         """Stop a recorder that never wrote its file; it saves nothing."""

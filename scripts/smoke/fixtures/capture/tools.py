@@ -226,7 +226,7 @@ match tool:
                 target.write_bytes(b"finalized")
             sys.exit(0)
         signal.signal(signal.SIGINT, finish)
-        if config.get("picker"):
+        if config.get("picker") and sys.argv[sys.argv.index("-w") + 1].startswith("portal"):
             # A portal picker stays open until the user answers it.
             (root / "picker-ready").write_text(str(os.getpid()))
         else:

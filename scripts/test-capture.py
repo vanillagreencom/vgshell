@@ -1336,6 +1336,27 @@ def portal_cancel_holds(root, helper):
             and not alive(root, "gpu-screen-recorder"))
 
 
+def handoff_holds(root, helper):
+    """A screen picked while the portal's recorder waits ends that recorder
+    unwritten and records the output with its argv, into the same file."""
+    code, messages, err = worker(root, request(root, "record-portal"), helper, line="picked-output NESTED\n", ready="picker-ready", recording=True)
+    argv = tool_calls(root, "gpu-screen-recorder")
+    portal = (root / "picker-ready").read_text() if (root / "picker-ready").exists() else None
+    files = list((root / "videos").glob("*"))
+    return (code == 0 and [m["event"] for m in messages] == ["portal-released", "recording", "stopped", "saved"]
+            and len(argv) == 2 and option(argv[0], "-w") == "portal"
+            and argv[1] == [arg if i != argv[0].index("-w") + 1 else "NESTED" for i, arg in enumerate(argv[0])]
+            and portal is not None and int(portal) not in alive(root, "gpu-screen-recorder")
+            and [str(path) for path in files] == [messages[-1]["path"]] and files[0].stat().st_size > 0)
+
+
+def handoff_refused(root, helper):
+    """A picked name that is no enabled output records nothing more."""
+    code, messages, err = worker(root, request(root, "record-portal"), helper, line="picked-output portal\n", ready="picker-ready", timeout=5)
+    return (code == 1 and [m["event"] for m in messages] == ["error"] and len(tool_calls(root, "gpu-screen-recorder")) == 1
+            and not list((root / "videos").glob("*")) and not alive(root, "gpu-screen-recorder"))
+
+
 def saved_holds(root, helper, audio="desktop", post=True):
     """Functions 18, 19 and 20: stopped before post-processing, then saved with
     the processed file, its thumbnail and its URI on the clipboard. Recorded
@@ -2022,6 +2043,10 @@ def recording_functions(base, source):
     assert not refused_before_recorder(root, mutated("absent-camera", 'if camera not in cameras:', 'if False:'), {**absent, "recordFolder": str(root / "videos"), "stateDir": str(root / "state")}, "camera-unavailable"), "control did not fail: absent-camera"
     assert portal_cancel_holds(world("portal-cancel", picker=True), HELPER), "portal cancel"
     assert not portal_cancel_holds(world("portal-cancel-control", picker=True), mutated("picker-ignores-cancel", 'if line in ("", "cancel") or path.stat().st_size == 0:', 'if False:')), "control did not fail: picker-ignores-cancel"
+    assert handoff_holds(world("handoff", picker=True), HELPER), "picked screen hand-off"
+    assert handoff_refused(world("handoff-refused", picker=True), HELPER), "picked screen that is no output"
+    assert not handoff_holds(world("handoff-control", picker=True), mutated("handoff-ignored", "if portal and line.startswith(PICKED_OUTPUT):", "if False:")), "control did not fail: handoff-ignored"
+    assert not handoff_refused(world("handoff-refused-control", picker=True), mutated("handoff-any-name", 'if name not in [output["name"] for output in outputs]:', "if False:")), "control did not fail: handoff-any-name"
     for name, audio, post in [("saved", "desktop", True), ("saved-silent", "none", True), ("saved-unprocessed", "desktop", False),
                               ("saved-unprocessed-silent", "none", False)]:
         assert saved_holds(world(name), HELPER, audio, post), name
@@ -2118,7 +2143,7 @@ def recording_functions(base, source):
     control.write_text(script.replace(before, 'tesseract-ocr-$code'))
     assert not language_tui_holds(base, control, "-apt-control"), "control did not fail: tui-apt-underscore"
     return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,webcam-old-place,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
-            "no-audio-sources,no-missing-check,camera-any-format,camera-labels-shared,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
+            "no-audio-sources,no-missing-check,camera-any-format,camera-labels-shared,absent-camera,picker-ignores-cancel,handoff-ignored,handoff-any-name,raw-replaced,kept-processing-output,stopped-after-processing,"
             "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
             "unlocked-processing-output,reaping-handler,untimed-processing-wait,unprefixed-processing-output,live-output-refused,unowned-tool,processed-in-place,"
             "terminated-output-kept,stale-output-unremovable,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed,"
