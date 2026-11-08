@@ -1357,9 +1357,10 @@ function verifySession(gate) {
     // an optional step, the rest as a fault to fix. Each row offers its
     // action, or links the page that fixes it: none is a dead end.
     assert.deepEqual(Object.keys(gate.SESSION_BLOCKS).sort(), Object.keys(SESSION_BLOCK_ACTIONS).sort(), "a row for each block of the contract");
-    for (const [block, action] of Object.entries(SESSION_BLOCK_ACTIONS)) {
-        const value = plain(gate.sessionStart(true, { kind: "blocked", block }));
-        assert.deepEqual([value.tone, offered(value)], [SESSION_INFO_BLOCKS.includes(block) ? "info" : "warning", action], block + ": the tone and the action");
+    for (const [block, action] of Object.entries(SESSION_BLOCK_ACTIONS)) for (const wanted of [true, false]) {
+        const value = plain(gate.sessionStart(wanted, { kind: "blocked", block }));
+        assert.deepEqual([value.tone, offered(value)], [!wanted && SESSION_INFO_BLOCKS.includes(block) ? "info" : "warning", action], block + ": the tone and the action");
+        if (wanted && SESSION_INFO_BLOCKS.includes(block)) assert.notEqual(value.text, gate.SESSION_BLOCKS[block].text, block + ": boot enabled names the block");
         assert.equal(typeof value.text === "string" && value.text !== "" && typeof value.hint === "string" && value.hint !== "", true, block + ": the row has its words");
         if (action === "none") assert.notEqual(pageReference.parse(value.hint).page, "", block + ": the hint links the page that fixes it");
     }
@@ -2598,6 +2599,7 @@ const CONTROLS = [
     ["the no-home hint repeats the Personality badge", "No session can start until [Home folder]", "No session can start without a home folder: choose one in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
     ["the no-home hint has more than one sentence", "No session can start until [Home folder]", "No session can start. Choose a folder in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
     ["a choice not made reads as a fault", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"vgs-package\"];", "var SESSION_CHOICES = [];", "the tone and the action"],
+    ["boot choices read as optional", '!wanted && SESSION_CHOICES.indexOf(result.block)', 'SESSION_CHOICES.indexOf(result.block)', "no-account: the tone and the action"],
     ["a missing package reads optional", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"vgs-package\"];", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"vgs-package\", \"package\"];", "package: the tone and the action"],
     ["a Ready summary ignores the session", "    if (setup.tone !== \"ok\" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;",
         "    return setup;", "one judgement of the session"],
@@ -2723,6 +2725,20 @@ try {
         console.log("test-jarvis-setup-gate: control=home-switch-notice rejected=true");
     }
     const accountsSource = fs.readFileSync(accountsFile, "utf8");
+    const startSource = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
+    for (const [label, needle, replacement, failure] of [
+        ["session-boot-block-log", '            console.warn("jarvis-session: " + current.verb + "=" + ', '            false && console.warn("jarvis-session: " + current.verb + "=" + ', "no-account: boot true log"],
+        ["session-start-diagnosis", 'if (current.verb === "status" && wanted && startFailure !== null', 'if (false && current.verb === "status" && wanted && startFailure !== null', "no-account / stopped status"],
+        ["session-start-diagnosis-clearing", 'if (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped")) startFailure = null;',
+            'if (false && (current.verb !== "status" || (answer.kind === "answer" && answer.state !== "stopped"))) startFailure = null;', "no-account / fresh package block / next stopped"],
+        ["session-boot-choice-clearing", 'if (!wanted) startFailure = null;', 'if (false && !wanted) startFailure = null;', "no-account / boot choice / back on"],
+        ["session-repaired-placement", '(answer.block === "no-account" || answer.block === "not-app")', '(true || answer.block === "no-account" || answer.block === "not-app")', "repair re-probes package"]
+    ]) {
+        assert.equal(startSource.split(needle).length, 2, label + ": the mutation matches once");
+        assert.throws(() => verifySessionAnswers(load(file), startSource.replace(needle, replacement)),
+            error => error instanceof assert.AssertionError && error.message.includes(failure), label + " rejects its planted defect");
+        console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
+    }
     const localRuntimeSource = fs.readFileSync(localRuntimeFile, "utf8");
     {
         // A failed check read as an answer keeps the text the guard reads.
@@ -3349,6 +3365,7 @@ function verifyPathForm(gate) {
     const hint =readiness(gate, { kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
     assert.deepEqual(settingLinks(hint), ["brain"], "Setup AI model hint links the field");
     const source = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
+    verifySessionAnswers(gate, source);
     const publish = source.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
     assert.ok(publish);
     for (const block of ["no-home", "no-account", "not-app"]) {
@@ -3365,6 +3382,76 @@ function verifyPathForm(gate) {
     const record = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart: { unlock: null, steps: [] } };
     vm.runInNewContext("(" + publish[0] + ")", { shell, result: record, offered: true, dismissFailed: true, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
     assert.deepEqual(values.sessionStart.lines, [gate.SESSION_NOT_DISMISSED], "the service's row says Do not resume was not saved");
+}
+
+function verifySessionAnswers(gate, source) {
+    const answered = source.match(/^    function answered\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(answered, "the session answer handler is read");
+    const create = wanted => {
+        const logs = [], calls = [];
+        const context = { output: "", errors: "", exitCode: 0, current: null, wanted,
+            shell: { settings: { home: "~/Jarvis", brain: "", startAtBoot: wanted } }, unapplied: "", result: null, startFailure: null,
+            stepsPending: false, pollSince: 0, repairEndedAt: "2026-11-08T00:00:00Z", judged: "selection", sessionHome: "~/Jarvis",
+            Gate: gate, console: { warn: text => logs.push(text) }, publish: () => {}, takeNext: () => {}, call: (...args) => calls.push(args) };
+        const handle = vm.runInNewContext("(" + answered[0] + ")", context);
+        return { context, logs, calls, drive(verb, value) {
+            context.current = { verb, home: "~/Jarvis" };
+            context.output = JSON.stringify(value);
+            handle();
+            return plain(context.result);
+        } };
+    };
+    const stopped = { kind: "answer", state: "stopped", reason: "never-started", detail: "", names: null };
+    const running = { kind: "answer", state: "running", reason: "existing", detail: "", names: null };
+    const refusal = { kind: "answer", state: "blocked", reason: "trust-required", detail: "Trust this folder", names: null };
+    // The shell log consumes the keyed line, including selection choices.
+    for (const [name, value, block] of [
+        ...SESSION_INFO_BLOCKS.map(block => [block, { kind: "blocked", block }, block]), ["package refusal", refusal, "trust-required"]
+    ]) for (const wanted of [true, false]) {
+        const run = create(wanted);
+        run.drive("build", value);
+        assert.deepEqual(run.logs, wanted ? ["jarvis-session: build=blocked block=" + block] : [], name + ": boot " + wanted + " log");
+    }
+    // Actual action results whose diagnosis a successful stopped status
+    // cannot reconstruct. New actions and authoritative package states
+    // replace the attempt; a failed status probe still shows its own cause.
+    for (const [name, failure] of [["no-account", { kind: "blocked", block: "no-account" }],
+        ["not-app", { kind: "blocked", block: "not-app" }], ["start failed", { kind: "failed" }], ["package refusal", refusal]]) {
+        for (const [transition, verb, next, expectedNext, expectedStopped] of [
+            ["stopped status", "status", stopped, failure, failure],
+            ["fresh unread status", "status", { kind: "blocked", block: "unread" }, { kind: "blocked", block: "unread" }, failure],
+            ["fresh package block", "status", refusal, refusal, stopped],
+            ["live session", "status", running, running, stopped],
+            ["Account selection while stopped", "change", stopped, stopped, stopped],
+            ["new start failure", "start", { kind: "failed" }, { kind: "failed" }, { kind: "failed" }],
+            ["new start running", "start", running, running, stopped]
+        ]) {
+            const run = create(true);
+            run.drive("build", failure);
+            assert.deepEqual(run.drive(verb, next), expectedNext, name + " / " + transition);
+            assert.deepEqual(run.drive("status", stopped), expectedStopped, name + " / " + transition + " / next stopped");
+        }
+        const run = create(true);
+        run.drive("build", failure);
+        const wantedHandler = source.match(/^    onWantedChanged: \{\n([\s\S]*?)^    \}/m);
+        assert.ok(wantedHandler, "the boot-choice handler is read");
+        const changed = vm.runInNewContext("(function () {" + wantedHandler[1] + "})", run.context);
+        for (const wanted of [false, true]) {
+            run.context.wanted = wanted;
+            run.context.shell.settings.startAtBoot = wanted;
+            changed();
+            assert.deepEqual(run.drive("status", stopped), stopped, name + " / boot choice / " + (wanted ? "back on" : "off"));
+        }
+    }
+    // Repair ends through this actual callback. Placement is re-probed,
+    // so a repaired package never retains the old missing-program block.
+    const repair = create(true);
+    repair.drive("build", { kind: "blocked", block: "package" });
+    const repaired = source.match(/^    onRepairEndedAtChanged: ([^\n]+)/m);
+    assert.ok(repaired, "the repair completion handler is read");
+    vm.runInNewContext("(function () {" + repaired[1] + "})", repair.context)();
+    assert.deepEqual(plain(repair.calls), [["status", "~/Jarvis", ["~/Jarvis"]]], "Repair completion asks for status");
+    assert.deepEqual(repair.drive("status", stopped), stopped, "repair re-probes package");
 }
 
 function verifyChipTitles(gate) {

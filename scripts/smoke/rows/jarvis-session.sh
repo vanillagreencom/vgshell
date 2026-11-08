@@ -723,11 +723,11 @@ fi
 session_set '{"startAtBoot": true, "bootSession": null}'
 session_offer_answers
 session_shell_start "$jarvis_fixture_tree" boot-resume
-expect_poll "with Start Jarvis at boot on a shell start asks for one boot resume" "$(session_resume_words boot)" session_calls_settled resume
-expect "the boot resume asks for no start" '[]' session_calls start
-expect "a record resumed at boot offers nothing" null session_offer
-# The resumed session lives: the stand-in's status reads it running restart-resumed.
-rm -f -- "${session_package:?}/scripts/calls.log"
+expect_poll "with Start Jarvis at boot on a shell start asks the package for one resume-mode boot start" "$(session_start_words resume boot)" session_calls_settled start
+expect "the boot start asks for no resume verb" '[]' session_calls resume
+expect "a boot start offers no manual resume" null session_offer
+# The session lives: another build leaves boot deduplication to the package.
+session_answers "running existing" "running existing" "stopping stop-requested"
 session_shell_start "$jarvis_fixture_tree" boot-live
 expect_poll "a shell restart while the resumed session lives asks for one boot start" "$(session_start_words resume boot)" session_calls_settled start
 expect "the restart asks for no second resume" '[]' session_calls resume

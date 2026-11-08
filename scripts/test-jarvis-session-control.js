@@ -361,26 +361,29 @@ function inside() {
         }
         cases++;
     }
-    // At boot with Resume the last session, a record saved before a machine
-    // restart is resumed instead of a start; with Start a new session, or
-    // with no record, the boot starts as before.
+    // The package's status names the recorded selection without a restart
+    // field. Empty Account resumes that selection at boot; an explicit
+    // Account wins, even when it is invalid. The package owns resume/new.
     function bootResume(directory) {
-        const stopped = more => said("stopped", "ended", more);
-        answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming"), start: said("starting", "launching") });
-        helper(directory, ["build", claude, "~/Jarvis", "resume", "on"]);
-        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), ["resume", "--origin", "boot", "--home", folder], status(folder)], "a record resumes");
-        answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming"), start: said("starting", "launching") });
-        helper(directory, ["build", claude, "~/Jarvis", "new", "on"]);
-        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), startWords("new", "boot"), status(folder)], "a new session starts");
-        answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming") });
-        helper(directory, ["build", claude, "~/Jarvis", "resume", "off"]);
-        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder)], "with the boot setting off a build only reads");
-        // A shell restart while the resume runs, or after it, resumes nothing
-        // again: the boot start, which the package handles once a boot.
-        for (const live of [said("starting", "resuming", { restart: record }), said("running", "restart-resumed", { restart: record })]) {
-            answers(folder, { status: live, resume: said("starting", "resuming"), start: said("starting", "launching") });
-            helper(directory, ["build", claude, "~/Jarvis", "resume", "on"]);
-            assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), startWords("resume", "boot"), status(folder)], live.object.reason + ": no second resume");
+        const prior = path.join(home, ".codex-prior");
+        const history = { home: folder, harness: "codex", account: prior };
+        const recordedStart = ["start", "--harness", "codex", "--account", prior, "--mode", "resume", "--origin", "boot", "--home", folder];
+        for (const [name, setting, mode, bootSetting, more, words, block] of [
+            ["empty Account uses history", "", "resume", "on", history, recordedStart],
+            ["selected Account replaces history", claude, "resume", "on", history, startWords("resume", "boot")],
+            ["selected Account with old restart field", claude, "resume", "on", { ...history, restart: record }, startWords("resume", "boot")],
+            ["unresolved Account stays blocked", "cli:" + "0".repeat(32), "resume", "on", history, null, "no-account"],
+            ["non-app Account stays blocked", local, "resume", "on", history, null, "not-app"],
+            ["empty Account without history", "", "resume", "on", {}, null, "no-account"],
+            ["empty Account with no recorded account", "", "resume", "on", { ...history, account: null }, null, "no-account"],
+            ["new mode requires selection", "", "new", "on", history, null, "no-account"],
+            ["selected new mode", claude, "new", "on", history, startWords("new", "boot")],
+            ["boot off only reads", "", "resume", "off", history, null]
+        ]) {
+            answers(folder, { status: said("stopped", "ended", more), start: said("starting", "launching") });
+            const result = helper(directory, ["build", setting, "~/Jarvis", mode, bootSetting]);
+            assert.deepEqual(calls(folder).map(call => call.argv), words === null ? [status(folder)] : [status(folder), words, status(folder)], name + ": argv");
+            assert.deepEqual(block === undefined ? result.kind : result, block === undefined ? "answer" : { kind: "blocked", block }, name + ": result");
         }
         cases++;
     }
@@ -474,9 +477,7 @@ function inside() {
     control("dismiss-by-state", C, " || dismissed.code !== 0 || ", ' || ["blocked", "failed"].includes(dismissed.value.state) || ', dismiss);
     control("dismiss-kept-record", C, " || dismissed.value.restart !== null) return failed;", ") return failed;", dismiss);
     control("dismiss-verb", C, 'const dismissed = await exited(at, ["dismiss"]);', 'const dismissed = await exited(at, ["status"]);', dismiss);
-    control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
-    control("boot-resume-mode", C, 'origin === "boot" && mode === "resume" && now.restart !== null', 'origin === "boot" && now.restart !== null', bootResume);
-    control("boot-resume-live", C, "now.restart !== null && !LIVE.includes(now.state)", "now.restart !== null", bootResume);
+    control("boot-record-account", C, 'origin === "boot" && mode === "resume" && setting === ""', 'false', bootResume);
     control("not-app", C, 'resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app")',
         "{ harness: resolved.provider, directory: String(resolved.source.directory) }", blocks);
     // No control plants a file without its execute bit as a package: the

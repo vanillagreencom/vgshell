@@ -332,15 +332,12 @@ Item {
             compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), data.chips);
             compare(shown(window, RowAction).map(action => action.text), data.actions);
         }
-        // An optional step that is not done reads Optional, in the neutral
-        // tone, before the Done step, offers its action, and gives neither
-        // the list row nor the Setup tab a warning.
-        function test_an_optional_step_reads_optional_with_no_warning() {
+        function test_an_optional_step_keeps_published_warning_without_required_warning() {
             const window = opened(); window.openPlugin("acme.extra", Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
             const steps = shown(window, Field).filter(field => ["Model", "Extra"].indexOf(field.label) !== -1);
             compare(steps.map(field => field.label), ["Extra", "Model"]);
-            compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [["Optional", "neutral"], ["Done", "success"]]);
+            compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [["Not set up", "warning"], ["Done", "success"]]);
             compare(descendants(steps[0]).filter(item => item instanceof RowAction && item.visible).map(action => action.text), ["Add"]);
             compare(chipShown(window, "acme.extra"), false, "the list row draws no warning");
             compare(tabsOf(window).warningTabs, []);

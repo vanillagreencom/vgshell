@@ -162,10 +162,9 @@ setup_voice_left='[["setupModel", [["Done", "success"]], []], ["setupVoice", [["
 setup_ready='[["setupModel", [["Done", "success"]], []], ["setupVoice", [["To do", "warning"]], ["Check microphone"]]]'
 # The Setup rows that break the manifest's steps: a row no step declares,
 # a required step (`setup: true`, or the core's Tools step for the
-# required commands) with a chip other than To do or Done, an
-# optional one (`setup: "optional"`, or the core's Optional tools step for
-# the optional commands) with a warning chip, or Set up local voice
-# offered twice.
+# required commands) with a chip other than To do or Done, or Set up
+# local voice offered twice. Optional steps may publish warnings without
+# making Jarvis not ready.
 setup_once() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
@@ -174,8 +173,7 @@ status=json.load(open(sys.argv[1]))["status"]
 required={k for k,e in status.items() if e.get("setup") is True} | {"required-tools"}
 optional={k for k,e in status.items() if e.get("setup") == "optional"} | {"optional-tools"}
 violations=[r["key"] for r in rows if r["key"] not in required | optional
-    or (r["key"] in required and r["chips"] not in ([["To do","warning"]], [["Done","success"]]))
-    or (r["key"] in optional and any(tone == "warning" for _, tone in r["chips"]))]
+    or (r["key"] in required and r["chips"] not in ([["To do","warning"]], [["Done","success"]]))]
 if sum(b["text"] == "Set up local voice" for r in rows for b in r["buttons"]) > 1: violations.append("setup-local-repeated")
 print(json.dumps(violations) if rows else "absent")
 ' "$repo/shell/plugins/vgs.jarvis/manifest.json"
