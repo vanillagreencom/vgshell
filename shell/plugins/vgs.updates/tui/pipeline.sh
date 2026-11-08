@@ -605,17 +605,28 @@ _updates_orphans() {
   mapfile -t orphans <<<"$out"
   vgs_tui_step "Orphaned packages"
   info="$("$_updates_vgshell" pkg orphan-info "${orphans[@]}")" || return 1
-  node - "$info" <<'JS'
+  out="$(node - "$info" <<'JS'
 const info = JSON.parse(process.argv[2]);
-for (const row of info.packages)
-  console.log("  " + row.name + (row.builds.length ? " (build tool for " + row.builds.join(", ") + ")" : " (unused dependency)"));
-console.log("Source builds can leave build-only tools here. Removing them does not remove a declared runtime dependency; a future build can install them again.");
-console.log("Pacman does not retain build declarations. Other unused dependencies may be build tools from earlier source builds.");
-if (info.unavailable.length)
-  console.log("Some current build declarations could not be read.");
+// REVISIT(D128): declared build tools stay out of the removal offer.
+const kept = info.packages.filter(row => row.builds.length);
+const candidates = info.packages.filter(row => !row.builds.length);
+if (kept.length)
+  console.error("Kept " + kept.length + " build tool(s): " + kept.map(row => row.name + " (build tool for " + row.builds.join(", ") + ")").join("; ") + ".");
+for (const row of candidates)
+  console.error("  " + row.name + (info.unavailable.length ? " (build use unknown)" : " (unused dependency)"));
+if (info.unavailable.length) {
+  const unread = [...new Set(info.unavailable.filter(note => note.includes(":")).map(note => note.split(":")[0]))];
+  console.error("Build declarations could not be read for " + (unread.length ? unread.join(", ") : "some installed packages") + ".");
+}
+console.error("Pacman does not retain build declarations. Other orphaned packages may be build tools from earlier source builds.");
+console.log(candidates.map(row => row.name).join("\n"));
 JS
+  )" || return 1
+  orphans=()
+  if [[ -n $out ]]; then mapfile -t orphans <<<"$out"; fi
+  if [[ ${#orphans[@]} -eq 0 ]]; then return 0; fi
   if [[ $_updates_yes == 1 ]]; then
-    printf 'The unused packages were kept. Open Updates to review them.\n'
+    printf 'The orphaned packages were kept. Open Updates to review them.\n'
     return 0
   fi
   status=0

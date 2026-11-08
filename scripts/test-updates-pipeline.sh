@@ -344,7 +344,12 @@ if [ -e "$FIX/devel-status" ]; then
 fi
 case "$*" in
   *"-Po --rebuild=tree -- vgshell-git") [ ! -e "$FIX/fail-build-order" ] && [ -e "$FIX/build-order" ] || exit 1; cat "$FIX/build-order"; exit 0 ;;
-  *"-Si -- ttfx") printf "Repository : aur\nName : ttfx\nDepends On : None\nMake Deps : ttfx-codegen>=1\nCheck Deps : ttfx-tests\n"; exit 0 ;;
+  *"-Si -- "*)
+    [ -e "$FIX/aur-info" ] || exit 1
+    cat "$FIX/aur-info"
+    [ ! -e "$FIX/aur-info-error" ] || cat "$FIX/aur-info-error" >&2
+    status=0; [ ! -e "$FIX/aur-info-status" ] || read -r status <"$FIX/aur-info-status"
+    exit "$status" ;;
 esac
 [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "${0##*/}" "$@" || exit "$?"
 [ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
@@ -910,20 +915,91 @@ row_orphans() {
   reset_fix
   printf 'cli11\ncmake\nvulkan-headers\nttfx-codegen\nttfx-tests\nother\n' >"$fix/orphans"
   printf 'ttfx\n' >"$fix/foreign"
-  echo 1 >"$fix/answer-orphans"
+  printf 'Repository : aur\nName : ttfx\nDepends On : None\nMake Deps : ttfx-codegen>=1\nCheck Deps : ttfx-tests\n' >"$fix/aur-info"
   pipeline update-source.sh aur
   local name explanation
   while IFS='|' read -r name explanation; do
-    assert "$name has only its declaration-backed explanation" out_has "$name ($explanation)"
+    assert "$name is kept with its declaration-backed explanation" out_has "$name ($explanation)"
   done <<'ROWS'
 cli11|build tool for vgshell-quickshell
 cmake|build tool for vgshell-quickshell
 vulkan-headers|build tool for vgshell-quickshell
 ttfx-codegen|build tool for ttfx
 ttfx-tests|build tool for ttfx
-other|unused dependency
 ROWS
-  assert "the user can keep all explained tools" no_call "vgshell pkg run remove"
+  assert "one line reports the kept build tools" out_has "Kept 5 build tool(s):"
+  assert "complete metadata permits the unused label" out_has "other (unused dependency)"
+  assert "only the remaining candidate is offered" has_call "gum confirm --default=false -- Remove 1 orphaned package(s)?"
+  assert "declared make and check tools never reach removal" has_call "vgshell pkg run remove --manager pacman other"
+
+  printf 'ttfx-codegen\nttfx-tests\n' >"$fix/orphans"
+  pipeline update-source.sh aur
+  assert "an all-tools list asks no removal question" no_call "gum confirm --default=false -- Remove"
+  assert "an all-tools list starts no removal" no_call "vgshell pkg run remove"
+
+  # Home's paru 2.2.0 receipt: a missing foreign name exits 1 while the
+  # other package's complete record remains on stdout (VGS-2373).
+  printf 'ttfx-codegen\nttfx-tests\nother\n' >"$fix/orphans"
+  printf 'ttfx\nunknown\n' >"$fix/foreign"
+  printf "error: package 'unknown' was not found\n" >"$fix/aur-info-error"
+  printf '1\n' >"$fix/aur-info-status"
+  pipeline update-source.sh aur
+  assert "a missing foreign package preserves the known make declaration" out_has "ttfx-codegen (build tool for ttfx)"
+  assert "a missing foreign package preserves the known check declaration" out_has "ttfx-tests (build tool for ttfx)"
+  assert "a partial read names its unread package" out_has "Build declarations could not be read for unknown."
+  assert "a partial read makes no unused-dependency claim" out_lacks "unused dependency"
+  assert "a partial read marks remaining build use unknown" out_has "other (build use unknown)"
+  assert "a partial read removes only the remaining candidate" has_call "vgshell pkg run remove --manager pacman other"
+  assert "foreign metadata uses one collection query" test "$(grep -c -- ' -Si -- ttfx unknown$' "$calls")" == 1
+  cp -- "$fix/aur-info" "$fix/missing-foreign.stdout"
+  cp -- "$fix/aur-info-error" "$fix/missing-foreign.stderr"
+  cp -- "$fix/aur-info-status" "$fix/missing-foreign.exit"
+
+  # These are variations of the same admission contract. Keep the raw
+  # stdout/stderr/exit receipts beside each result for diagnosis.
+  local fault exit_code diagnostic reply_status
+  cp -- "$fix/aur-info" "$fix/aur-info-good"
+  while IFS='|' read -r fault exit_code diagnostic; do
+    cp -- "$fix/aur-info-good" "$fix/aur-info"
+    if [[ $fault == unrelated-output ]]; then
+      { printf 'unrelated output\n'; cat "$fix/aur-info-good"; } >"$fix/aur-info"
+    fi
+    printf '%s\n' "$exit_code" >"$fix/aur-info-status"
+    printf '%s' "$diagnostic" >"$fix/aur-info-error"
+    [[ -z $diagnostic ]] || printf '\n' >>"$fix/aur-info-error"
+    cp -- "$fix/aur-info" "$fix/$fault.stdout"
+    cp -- "$fix/aur-info-error" "$fix/$fault.stderr"
+    cp -- "$fix/aur-info-status" "$fix/$fault.exit"
+    reply_status=0
+    "${base_env[@]}" PATH="$stubs:$tools" CALLS="$calls" FIX="$fix" "$tree/bin/vgshell" pkg orphan-info ttfx-codegen ttfx-tests \
+      >"$fix/$fault.json" 2>"$fix/$fault.err" || reply_status=$?
+    assert "$fault is reported without losing the orphan response" test "$reply_status" == 0
+    assert "$fault grants no build declaration and names unread packages" "$node_bin" - "$fix/$fault.json" <<'JS'
+const assert = require("node:assert/strict");
+const info = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf8"));
+assert.deepEqual(info.packages, [{ name: "ttfx-codegen", builds: [] }, { name: "ttfx-tests", builds: [] }]);
+for (const name of ["ttfx", "unknown"])
+  assert.ok(info.unavailable.some(note => note.startsWith(name + ":")), name);
+JS
+  done <<'ROWS'
+unrelated-error|1|error: connection failed
+unrequested-name|1|error: package 'unrequested' was not found
+wrong-exit|2|error: package 'unknown' was not found
+success-with-stderr|0|error: package 'unknown' was not found
+empty-failure|1|
+unrelated-output|0|
+ROWS
+  if [[ ${QUIET:-0} != 1 ]]; then
+    "$node_bin" - "$fix" <<'JS'
+const fs = require("node:fs"), dir = process.argv[2];
+for (const file of fs.readdirSync(dir).filter(file => file.endsWith(".exit"))) {
+  const prefix = dir + "/" + file.slice(0, -5);
+  console.log("orphan-query-receipt: " + JSON.stringify({ case: file.slice(0, -5),
+    status: Number(fs.readFileSync(prefix + ".exit", "utf8")),
+    stdout: fs.readFileSync(prefix + ".stdout", "utf8"), stderr: fs.readFileSync(prefix + ".stderr", "utf8") }));
+}
+JS
+  fi
 }
 row_yes() {
   reset_fix
@@ -1776,7 +1852,26 @@ control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then
 control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
 control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]' 'if false' row_aur_rebuild_stopped
 control rebuild-after-unrelated-failure '[[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]' 'false' row_aur_rebuild_stopped
-control bare-orphan-list 'console.log("  " + row.name + (row.builds.length ? " (build tool for " + row.builds.join(", ") + ")" : " (unused dependency)"));' 'console.log("  " + row.name);' row_orphans
+control build-tools-offered 'const candidates = info.packages.filter(row => !row.builds.length);' 'const candidates = info.packages;' row_orphans
+# Restore output() at the exact helper query that used to lose every
+# record on exit 1. Exercise the same production owner through the fixture
+# vgshell, with shipped recipe declarations available in its copied tree.
+copy_with orphan-partial-loss "$repo/bin/lib/pkg-review.js" \
+  'const answer = query([found.binary, "--config", config, "-Si", "--", ...foreign]);' \
+  'const answer = { status: 0, stderr: "", stdout: output([found.binary, "--config", config, "-Si", "--", ...foreign]) };'
+orphan_control="$tmp/orphan-control"
+cp -R -- "$tree" "$orphan_control"
+cp -- "$copy" "$orphan_control/bin/lib/pkg-review.js"
+mkdir -p "$orphan_control/packaging"
+cp -R -- "$repo/packaging/arch" "$orphan_control/packaging/"
+cp -- "$tree/bin/review-owner" "$tmp/orphan-review-owner"
+printf '%s\n' "$orphan_control/bin/vgshell-pkg" >"$tree/bin/review-owner"
+red=0
+QUIET=1 row_orphans
+cp -- "$tmp/orphan-review-owner" "$tree/bin/review-owner"
+check "the old partial-output loss fails the foreign metadata row" test "$red" -gt 0
+check "the old loss reaches the known tool with unread build use" out_has "ttfx-codegen (build use unknown)"
+check "the old loss drops the known package's build declaration" out_lacks "ttfx-codegen (build tool for ttfx)"
 control raw-build-output 'vgs_tui_log --build-progress "$_updates_log"' 'vgs_tui_log' row_build_progress
 control generic-build-failure '_updates_cause="${_updates_failed_builds[*]:-The package} could not be built${phase:+: $phase() failed}."' '_updates_cause="A package could not be built."' row_aur_rebuild_stopped
 control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a restart."' '  :' row_reboot_unread

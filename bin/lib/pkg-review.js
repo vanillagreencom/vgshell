@@ -307,10 +307,11 @@ function resolveDependency(entry, config, binary) {
 }
 // pacman v7.1.0 lib/libalpm/be_local.c::_alpm_local_db_write omits make/check
 // dependencies from the installed record. Use the
-// shipped publisher declarations and the helper's current foreign metadata;
-// never hide an orphan on a guessed or hard-coded tool list.
+// shipped publisher declarations and the helper's current foreign metadata
+// to keep declared build tools out of the orphan removal offer.
 function orphanInfo(names) {
     const tools = new Map(), unavailable = [];
+    let foreign = [];
     const add = (entry, owner) => {
         const name = dependencyName(entry);
         tools.set(name, [...new Set([...(tools.get(name) || []), owner])]);
@@ -326,13 +327,24 @@ function orphanInfo(names) {
         const installed = query(["pacman", "--config", config, "-Qmq"]);
         if (installed.error || installed.signal || installed.stderr || ![0, 1].includes(installed.status)
             || (installed.status === 1 && installed.stdout)) throw new Error("foreign=unreadable");
-        const foreign = installed.stdout.trim().split(/\s+/).filter(Boolean);
+        foreign = installed.stdout.trim().split(/\s+/).filter(Boolean);
         if (foreign.some(name => !managers.validName(name))) throw new Error("foreign=malformed");
         // One helper request bounds network/process cost for the installed
         // collection. -Si separates records with their Repository field.
         const metadata = new Map();
         if (foreign.length) {
-            for (const record of output([found.binary, "--config", config, "-Si", "--", ...foreign]).split(/(?=^Repository\s*:)/m).filter(s => s.trim())) {
+            const answer = query([found.binary, "--config", config, "-Si", "--", ...foreign]);
+            // Paru 2.2.0 keeps complete records on stdout when a requested
+            // foreign package is absent from AUR (VGS-2373 home receipt).
+            // Admit only that failure, never a network or truncated read.
+            const missingOnly = answer.status === 1 && answer.stderr
+                && answer.stderr.replace(/\n$/, "").split("\n").every(line => {
+                    const match = /^error: package '([^']+)' was not found$/.exec(line);
+                    return match !== null && foreign.includes(match[1]);
+                });
+            if (answer.error || answer.signal || !((answer.status === 0 && !answer.stderr) || missingOnly))
+                throw new Error("query=" + path.basename(found.binary) + " cause=" + (answer.error?.code || answer.status || answer.signal));
+            for (const record of answer.stdout.split(/(?=^Repository\s*:)/m).filter(s => s.trim())) {
                 const name = /^Name\s*:\s*(\S+)\s*$/m.exec(record)?.[1];
                 if (!foreign.includes(name) || metadata.has(name)) throw new Error("foreign=metadata-collection");
                 metadata.set(name, record);
@@ -345,7 +357,10 @@ function orphanInfo(names) {
                 for (const field of ["Make Deps", "Check Deps"]) for (const entry of fields.get(field)) add(entry, name);
             } catch (e) { unavailable.push(name + ":" + e.message); }
         }
-    } catch (e) { unavailable.push(e.message); }
+    } catch (e) {
+        unavailable.push(e.message);
+        for (const name of foreign) unavailable.push(name + ":foreign=metadata-unreadable");
+    }
     return { packages: names.map(name => ({ name, builds: tools.get(name) || [] })), unavailable };
 }
 // Read-only evidence, never authority to mutate or to skip package tests.

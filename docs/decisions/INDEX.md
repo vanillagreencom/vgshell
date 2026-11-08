@@ -109,6 +109,8 @@
 
 | 2026-11-06 | D127 | [VGS-2190](https://linear.app/vanillagreen/issue/VGS-2190) | A plugin may name a fixed handoff target when the user's action has exactly one meaningful receiver; Local Sync picks the Automations sync-job and Agent Debug Diagnose targets by key, and a `handoffs` entry may declare `"kind": "action"` for a receiver that opens its plugin's own draft | Add, Remove and Send to agent each have one receiver, so a user-chosen target would only keep them off until setup (D075); conversation target lists skip kind `action` | A second plugin needs a fixed target with more than one meaningful receiver, or the core gains a typed route for these calls | Active | [Full](D127-fixed-handoff-target.md) |
 
+| 2026-11-08 | D128 | [VGS-2373](https://linear.app/vanillagreen/issue/VGS-2373/update-orphans-keep-build-tools-of-installed-packages-and-read-every) | Keep declared make and check tools of installed packages out of orphan removal; partial reads name unread packages and make no unused-dependency claim | The owner wants build tools retained rather than removed and installed again at the next build, across consumers without fixed ignore lists or install-reason changes | Metadata reliably distinguishes build tools no longer needed, or the owner requests their removal | Active | [Full](D128-keep-declared-build-tools.md) |
+
 ---
 
 ## Format Reference
