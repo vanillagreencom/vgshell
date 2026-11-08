@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Real executor and action judge in J09, using schema-shaped vendor replies.
+// Real browser/guidance owners and action judge in J09. Main request
+// answers use lane-mail's public envelope (lane-mail lm_envelope/lm_objects),
+// an injected child port and clock; no session, notification or cloud call.
 "use strict";
-const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
+const { assert, fs, path, tree, world, mutant, pluginCopy } = require("./fixtures/jarvis/policy.js");
 const { daemonStandins, daemonLease, daemonStartup, mode, update, calls } = require("./fixtures/jarvis/browser.js");
 const cp = require("node:child_process");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
@@ -272,6 +274,286 @@ world(async () => {
         lease.close();
     }
     await setupAfterStart(Browser);
+
+    // ComputerHelp is Browser.install's shared guidance owner. Its request
+    // reader has one clock and one child port, independent of conversations.
+    const Help = require(path.join(backend, "ComputerHelp.js"));
+    const TaskVoice = require(path.join(backend, "TaskVoice.js"));
+    const { load } = require("../bin/lib/qml-library.js");
+    const Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+    function mailWorld(implementation) {
+        const folder = fs.mkdtempSync(path.join(process.env.HOME, "request-home-"));
+        const tool = path.join(folder, ".agents/skills/mailbox/scripts/lane-mail");
+        fs.mkdirSync(path.dirname(tool), { recursive: true });
+        fs.mkdirSync(path.join(folder, ".git"));
+        fs.writeFileSync(tool, "#!/bin/sh\nexit 1\n", { mode: 0o700 });
+        const timers = new Map(), over = [], sent = [], delivered = [], logs = [], runs = [];
+        let next = 0, duplicate = false, corrupt = false, hold = false, chosen = folder, main = true, onSend = () => {};
+        const clock = { now: () => 0, set: (fn, ms) => { timers.set(fn, ms); return fn; }, clear: fn => timers.delete(fn) };
+        const exited = stdout => ({ kind: "exited", code: 0, stdout, stderr: "" });
+        const owner = implementation.create(undefined, null, () => chosen,
+            { PATH: process.env.PATH, HOME: process.env.HOME, OPENAI_API_KEY: "not-in-child" }, () => main,
+            { answer: item => delivered.push(item), log: line => logs.push(line), clock,
+                async run(file, argv, options) {
+                    assert.equal(file, "setpriv");
+                    assert.deepEqual(argv.slice(0, 4), ["--pdeathsig", "KILL", "--", tool]);
+                    assert.deepEqual(options.env, { LC_ALL: "C.UTF-8", GIT_CEILING_DIRECTORIES: path.dirname(folder),
+                        PATH: process.env.PATH, HOME: process.env.HOME });
+                    assert.equal(options.group, true);
+                    assert.equal(options.cwd, folder);
+                    assert.ok(argv.includes("--root") && !argv.includes("--mark-read"));
+                    runs.push({ argv, options });
+                    const box = argv[argv.indexOf("--box") + 1];
+                    if (argv[4] === "send") {
+                        assert.ok(fs.readFileSync(argv[argv.indexOf("--file") + 1], "utf8").startsWith("Request"));
+                        if (duplicate) return { kind: "exited", code: 1, stdout: "", stderr: "lane-mail: duplicate id=" + sent.at(-1) + "\n" };
+                        const id = "request-" + ++next;
+                        sent.push(id);
+                        onSend(id);
+                        return exited("lane-mail: sent item=overseer id=" + id + " bytes=7 monitor=unread\n");
+                    }
+                    assert.equal(argv[4], "events");
+                    if (box === "to-lane") return exited("count=" + sent.length + " first=" + (sent[0] ?? "") + "\n"
+                        + sent.map(id => JSON.stringify({ id })).join("\n") + "\n");
+                    assert.equal(box, "to-overseer");
+                    const after = Number(argv[argv.indexOf("--after") + 1]);
+                    if (hold && after !== Number.MAX_SAFE_INTEGER)
+                        return new Promise(resolve => options.signal.addEventListener("abort",
+                            () => resolve({ kind: "stopped", reason: "cancelled", stdout: "", stderr: "" }), { once: true }));
+                    const rows = over.map((row, i) => ({ ...row, box, line: i + 1, count: over.length }))
+                        .filter(row => row.line > after);
+                    return exited("count=" + over.length + " first=" + (over[0]?.id ?? "") + "\n"
+                        + rows.map(row => JSON.stringify(row)).join("\n") + (rows.length ? "\n" : "")
+                        + (corrupt ? "not-json\n" : ""));
+                } });
+        return { owner, timers, over, delivered, logs, runs, sent,
+            request: () => new Promise(resolve => owner.start({ id: "fleet.request", args: { text: "Request " + next } }, resolve)),
+            notice(ref, text, extra = {}) {
+                over.push({ id: "notice-" + (over.length + 1), kind: "notice", at: "2026-11-06T19:30:00Z",
+                    from: "overseer", to: "owner", ref, text, ...extra });
+            },
+            duplicate() { duplicate = true; }, corrupt(value) { corrupt = value; }, hold() { hold = true; },
+            onSend(fn) { onSend = fn; },
+            change(edge) { if (edge === "home") chosen = null; else main = false; owner.sync(); },
+            async tick() {
+                assert.equal(timers.size, 1, "only unanswered requests keep a reader timer");
+                const fn = timers.keys().next().value;
+                timers.delete(fn);
+                fn();
+                await flush();
+            } };
+    }
+    async function mainSnapshot(implementation) {
+        const h = mailWorld(implementation);
+        try {
+            assert.equal(h.timers.size, 0, "no reader before a request");
+            // A fast Jarvis session can answer before the send's receipt.
+            h.onSend(id => {
+                h.notice("someone-else", "Unrelated answer.");
+                h.notice(id, "Still working.", { progress: true });
+                h.notice(id, "The requested change is ready.");
+                h.notice(id, "A repeated final answer.");
+            });
+            assert.equal((await h.request()).outcome, "completed");
+            h.onSend(id => h.notice(id, "The second request is ready."));
+            assert.equal((await h.request()).outcome, "completed");
+            await h.tick();
+            assert.deepEqual(h.delivered, [
+                { content: "The requested change is ready.", labels: ["agent"] },
+                { content: "The second request is ready.", labels: ["agent"] }
+            ],
+                "one final owner answer per request, not progress or another request");
+            assert.equal(h.timers.size, 0, "answered requests stop reading");
+            h.duplicate();
+            assert.equal((await h.request()).outcome, "completed");
+            assert.equal(h.delivered.length, 2, "a duplicate send receipt does not reopen an answered request");
+            assert.equal(h.timers.size, 0);
+        } finally { h.owner.close(); }
+    }
+    await mainSnapshot(Help);
+
+    async function readerLifetime() {
+        for (const edge of ["close", "home", "main"]) {
+            const h = mailWorld(Help);
+            await h.request();
+            h.hold();
+            await h.tick();
+            const child = h.runs.at(-1);
+            if (edge === "close") h.owner.close(); else h.change(edge);
+            await flush();
+            assert.equal(child.options.signal.aborted, true, edge + " ends the pending reader child");
+            assert.equal(h.timers.size, 0, edge + " ends its timer");
+            assert.deepEqual(h.delivered, [], edge + " delivers no late answer");
+            h.owner.close();
+        }
+        const h = mailWorld(Help);
+        try {
+            await h.request();
+            h.notice(h.sent[0], "Read after recovery.");
+            h.corrupt(true);
+            await h.tick();
+            assert.equal(h.delivered.length, 0, "an incomplete snapshot releases nothing");
+            assert.equal(h.logs.length, 1, "the failed read is reported");
+            h.corrupt(false);
+            await h.tick();
+            assert.deepEqual(h.delivered, [{ content: "Read after recovery.", labels: ["agent"] }],
+                "a failed read spends no cursor");
+            assert.equal(h.timers.size, 0);
+        } finally { h.owner.close(); }
+    }
+    await readerLifetime();
+
+    function idleState() {
+        const s = Session.initial();
+        s.gen = 1; s.gate = { kind: "up" }; s.conversation = { kind: "active" };
+        return s;
+    }
+    async function answerChannels() {
+        const body = "The change is ready. The private answer is complete.";
+        const notice = ["Jarvis Voice", "Jarvis answered your request"];
+        for (const channel of ["idle", "busy", "closed", "changed", "withheld"]) {
+            const s = idleState(), spoken = [], notes = [], deferred = [];
+            if (channel === "closed") s.conversation = { kind: "ended" };
+            if (["busy", "changed"].includes(channel)) s.turn = { kind: "thinking" };
+            const voice = TaskVoice.create({ session: Session, state: () => s, dispatch: e => spoken.push(e),
+                notify: (title, text) => { notes.push([title, text]); return Promise.resolve({ kind: "exited", code: 0 }); },
+                log() {}, defer: fn => deferred.push(fn) });
+            try {
+                voice.answer(Policy.item(body, ["agent", "file"]));
+                if (channel === "busy") {
+                    assert.equal(deferred.length, 0, "another turn keeps the answer queued");
+                    s.turn = { kind: "none" }; voice.session();
+                }
+                if (channel === "changed") {
+                    s.gen++; s.turn = { kind: "none" }; voice.session();
+                }
+                for (const fn of deferred.splice(0)) fn();
+                if (channel === "withheld") {
+                    const event = spoken[0];
+                    voice.withheld(s.gen, event.text, null);
+                    voice.withheld(s.gen, event.text, null);
+                }
+                await flush();
+                assert.deepEqual(notes, ["closed", "changed", "withheld"].includes(channel) ? [notice] : [], channel);
+                if (!["closed", "changed"].includes(channel)) {
+                    assert.equal(spoken.length, 1, channel + " dispatches one relay");
+                    assert.equal(spoken[0].text, "Jarvis answered: " + body, "the short answer is the spoken result");
+                    assert.deepEqual(spoken[0].labels, ["file", "agent"], "a summary keeps every contributing label");
+                } else assert.equal(spoken.length, 0, channel + " never opens a conversation");
+            } finally { voice.close(); }
+        }
+        const s = idleState(), events = [];
+        const voice = TaskVoice.create({ session: Session, state: () => s, dispatch: e => events.push(e),
+            notify() { assert.fail("a speakable summary does not notify"); }, log() {} });
+        try {
+            voice.answer(Policy.item("The repair is complete. " + "More detail follows. ".repeat(100) + "UNSPOKEN_TAIL", ["agent"]));
+            await flush();
+            assert.equal(events.length, 1);
+            assert.ok(events[0].text.startsWith("Jarvis's answer, in brief: The repair is complete."));
+            assert.ok(events[0].text.length <= 850 && !events[0].text.includes("UNSPOKEN_TAIL"), "long answers take an opening summary");
+            assert.deepEqual(events[0].labels, ["agent"]);
+        } finally { voice.close(); }
+    }
+    await answerChannels();
+
+    // Prompt ownership outlives its playback. A main answer must not make
+    // the next words look like a follow-up while a task still consumes them.
+    async function answerWaitsForPrompt() {
+        for (const ending of ["answered", "closed"]) {
+            const s = idleState(), spoken = [], notes = [], deferred = [];
+            const prompt = { task: "task-1", id: "prompt-1", kind: "permission", tool: "Bash", text: "Run the task command." };
+            const voice = TaskVoice.create({ session: Session, state: () => s, dispatch: e => spoken.push(e),
+                notify: (title, text) => { notes.push([title, text]); return Promise.resolve({ kind: "exited", code: 0 }); },
+                log() {}, defer: fn => deferred.push(fn) });
+            try {
+                voice.prompts([prompt]);
+                deferred.shift()();
+                assert.equal(spoken[0].ask.prompt, prompt.id, "the task prompt was spoken and owns the next words");
+                assert.equal(Session.relayRefusal(s), null, "Session alone considers the pause idle");
+                voice.answer(Policy.item("The main request is complete.", ["agent"]));
+                voice.session();
+                assert.equal(deferred.length, 0, "a held prompt prevents scheduling an independent answer");
+                assert.equal(spoken.length, 1, "no main answer speaks while the task owns the next utterance");
+                if (ending === "answered") {
+                    voice.prompts([]);
+                    assert.equal(deferred.length, 1, "removing the answered prompt resumes the queued answer");
+                    deferred.shift()();
+                    assert.equal(spoken.length, 2);
+                    assert.equal(spoken[1].ask, null);
+                    assert.equal(spoken[1].text, "Jarvis answered: The main request is complete.");
+                } else {
+                    s.conversation = { kind: "ended" };
+                    voice.session();
+                    assert.equal(spoken.length, 1, "closing the conversation does not speak the queued answer");
+                }
+                await flush();
+                assert.deepEqual(notes, ending === "closed"
+                    ? [["Jarvis Voice", "Jarvis answered your request"]] : []);
+            } finally { voice.close(); }
+        }
+    }
+    await answerWaitsForPrompt();
+
+    // Execute the labelled relay through Session and the real engine release
+    // gate. This hold-only speech port consumes text but synthesizes no audio.
+    // A remote recipient must ask before the port sees the answer.
+    async function answerRelease() {
+        const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "answer-release-"));
+        const speechFile = path.join(root, "speech.js");
+        fs.writeFileSync(speechFile, `"use strict";
+module.exports = { spoken: [], select() {
+    return { kind: "ready", recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture",
+        origin: "http://192.0.2.1:9" }], voices: [{ value: "fixture" }], open: () => ({
+        close() {}, async *speak(items) { for await (const item of items) module.exports.spoken.push(item.content); }
+    }) };
+} };
+`);
+        try {
+            await pluginCopy(path.join(backend, "ChainedEngine.js"), [
+                ["const SPEECH = Object.freeze({ local: LocalSpeech.row });",
+                    "const SPEECH = Object.freeze({ scripted: require(" + JSON.stringify(speechFile) + ") });"]
+            ], async folder => {
+                const Engine = require(path.join(folder, "backend/ChainedEngine.js"));
+                const Voice = require(path.join(folder, "backend/TaskVoice.js"));
+                const Audit = require(path.join(folder, "backend/Audit.js"));
+                const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 10, 6) });
+                let s = idleState(), engine;
+                const notes = [], faults = [];
+                const dispatch = event => {
+                    const reduced = Session.reduce(s, { ...event, at: 0 });
+                    s = reduced.state;
+                    for (const e of reduced.effects) if (e.kind === "brain-send") engine.brain.send(e, () => {});
+                };
+                const voice = Voice.create({ session: Session, state: () => s, dispatch,
+                    notify: (title, text) => { notes.push([title, text]); return Promise.resolve({ kind: "exited", code: 0 }); }, log() {} });
+                engine = Engine.create({ session: Session, state: () => s, dispatch, audit, router: {},
+                    accounts: () => ({ choose: id => ({ kind: "accepted", account: { id, provider: "ollama", label: "local",
+                        source: { kind: "local", origin: "http://127.0.0.1:11434" }, model: "fixture-model" } }) }),
+                    policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: value => faults.push(value), captionLimit: 8192,
+                    tasks: { withheld: (...args) => voice.withheld(...args) } });
+                try {
+                    const configured = engine.configure({ mode: "hold", sounds: false, brain: "fixture", fallbacks: [], microphone: "", speaker: "" });
+                    assert.equal(configured.kind, "ready");
+                    voice.answer(Policy.item("Private cloud answer.", ["agent"]));
+                    await flush();
+                    assert.equal(s.approval.kind, "held", "agent text reaches Policy.release, not the desktop exemption");
+                    assert.equal(s.approval.purpose, "release");
+                    assert.deepEqual(require(speechFile).spoken, [], "no cloud speech before release");
+                    engine.release.ended(s.approval);
+                    await flush();
+                    assert.deepEqual(notes, [["Jarvis Voice", "Jarvis answered your request"]], "a refused release exposes no answer on the card");
+                    assert.deepEqual(require(speechFile).spoken, []);
+                    assert.deepEqual(faults, []);
+                } finally { engine.close(); voice.close(); audit.close(); }
+            });
+        } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    }
+    await answerRelease();
+    await mutant(path.join(backend, "ComputerHelp.js"), "request-answer-once", 'item.kind = "answered";',
+        'if (false) item.kind = "answered";', mainSnapshot);
+    console.log("case=main-request-answers passed control=request-answer-once detected");
+
     await daemonStartup(file);
     let controls = 0;
     for (const ending of ["eof", "signal"]) {
@@ -453,6 +735,6 @@ world(async () => {
         'if (state.conversation.kind === "ended") clear();', implementation => lifecycle(implementation, "generation"));
     await control("conversation-close", 'if (generation !== state.gen || state.conversation.kind === "ended") clear();',
         'if (generation !== state.gen) clear();', implementation => lifecycle(implementation, "end"));
-    await control("lease-close", 'close() { closed = true; if (probe !== null) probe.kill("SIGKILL"); clear(); }', 'close() { closed = true; if (probe !== null) probe.kill("SIGKILL"); }', implementation => lifecycle(implementation, "lease"));
+    await control("lease-close", 'close() { closed = true; guidance.close(); if (probe !== null) probe.kill("SIGKILL"); clear(); }', 'close() { closed = true; guidance.close(); if (probe !== null) probe.kill("SIGKILL"); }', implementation => lifecycle(implementation, "lease"));
     console.log("test-jarvis-browser: ok cases=" + (cases.length + 6 + refusals.length + silences.length) + " controls=" + controls);
 }, daemonStandins);

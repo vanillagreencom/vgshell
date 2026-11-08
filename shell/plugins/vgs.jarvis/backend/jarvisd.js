@@ -758,6 +758,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             write({ v: 1, type: "input-ready", gen: runner.state.gen, revision: context.revision, commands: record.commands });
                     });
                     browser = Browser.install({ router, environment: process.env, main: () => context.settings.mainHost === "",
+                        answer: item => voice.answer(item), log: line => process.stderr.write(line + "\n"),
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     satellite = Satellite.create({ environment: process.env, acceptReach: Protocol.mainReach,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,

@@ -313,7 +313,7 @@ function create({ environment, commandMs = COMMAND_MS, log = null }) {
  * from; main() answers whether this computer runs the main Jarvis, the one
  * place fleet.request hands a request to (ComputerHelp.create).
  */
-function install({ router, environment, home = () => null, main = () => true }) {
+function install({ router, environment, home = () => null, main = () => true, answer = null, log = () => {} }) {
     let registered = false;
     let current = null;
     let generation = null;
@@ -339,7 +339,7 @@ function install({ router, environment, home = () => null, main = () => true }) 
         start(call, done) {
             try { done({ outcome: "completed", content: owner().guidance() }); }
             catch (error) { done({ outcome: "failed", content: error.message }); }
-        } }, home, environment, main);
+        } }, home, environment, main, { answer, log });
     router.register("guidance", guidance);
     function register() {
         if (registered || closed) return;
@@ -375,13 +375,14 @@ function install({ router, environment, home = () => null, main = () => true }) 
     prepare();
     return Object.freeze({
         sync(state) {
+            guidance.sync();
             const changed = generation !== state.gen || ended;
             if (generation !== state.gen || state.conversation.kind === "ended") clear();
             generation = state.gen;
             ended = state.conversation.kind === "ended";
             if (changed && !ended) prepare();
         },
-        close() { closed = true; if (probe !== null) probe.kill("SIGKILL"); clear(); }
+        close() { closed = true; guidance.close(); if (probe !== null) probe.kill("SIGKILL"); clear(); }
     });
 }
 module.exports = { create, install, status, vendorLine };

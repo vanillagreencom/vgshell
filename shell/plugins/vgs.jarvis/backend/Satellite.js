@@ -291,7 +291,7 @@ function create({ home, mainHost, environment, publish, acceptReach, log, clock 
         if (result.kind !== "exited")
             return { outcome: "unknown", content: "Unknown: the forward ended before the Jarvis package answered, so the request may be in this computer's outbox or not." };
         if (result.code === 0)
-            return { outcome: "completed", content: "Completed: the request reached your main Jarvis. Its answer comes in your Slack channel." };
+            return { outcome: "completed", content: "Completed: the request reached Jarvis main." };
         if (result.code === 75) {
             // A queued entry stays queued whatever its cause, and the
             // package's watch loop sends every queued entry again on each

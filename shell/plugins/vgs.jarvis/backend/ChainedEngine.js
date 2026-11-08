@@ -1673,7 +1673,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             if (e.relay !== undefined) {
                 const turn = relayTurn(c, e, done, { ask: e.relay.ask, line: e.relay.ask === null ? e.relay.text : null, done: false });
-                void relayLine(c, turn, e.relay.text, e.relay.ask === null ? ["desktop"] : ["agent"]);
+                void relayLine(c, turn, e.relay.text, e.relay.labels);
                 return;
             }
             if (c.relay !== null && e.text.trim() !== "") {

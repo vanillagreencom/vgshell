@@ -1062,7 +1062,7 @@ world(async () => {
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
-        ["help-home-browser", ["Browser.js", "        } }, home, environment, main);\n", "        } }, undefined, environment, main);\n"]]]) {
+        ["help-home-browser", ["Browser.js", "        } }, home, environment, main, { answer, log });\n", "        } }, undefined, environment, main, { answer, log });\n"]]]) {
         const dropped = await daemon(control, [edit]);
         assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
         controls++;
@@ -1079,7 +1079,7 @@ world(async () => {
     cases++;
     for (const [control, edit] of [
         ["fleet-gate-daemon", ["jarvisd.js", 'environment: process.env, main: () => context.settings.mainHost === "",', "environment: process.env,"]],
-        ["fleet-gate-browser", ["Browser.js", "        } }, home, environment, main);\n", "        } }, home, environment);\n"]]]) {
+        ["fleet-gate-browser", ["Browser.js", "        } }, home, environment, main, { answer, log });\n", "        } }, home, environment, undefined, { answer, log });\n"]]]) {
         const dropped = await daemon(control, [edit], "~/fleet-home", null, "cachy");
         assert.throws(() => fleetWithheld(dropped), assert.AssertionError, control + " control turns red");
         controls++;

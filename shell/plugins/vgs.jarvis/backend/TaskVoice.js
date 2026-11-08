@@ -1,13 +1,18 @@
-// What Jarvis says about a coding task, and where it says it. The judges
-// turn a held hook prompt, a change in a task's derived state and the
-// user's spoken answer into fixed sentences and typed answers; no model
-// writes them, and the brain never sees a held prompt or its answer. The
-// owner delivers each sentence once: spoken in an open chained conversation
-// at its next idle moment, else as a desktop notification (plan § 4.4).
+// One delivery owner for fixed coding-task lines and labelled answers from
+// Jarvis's session. It speaks at an open chained conversation's next idle
+// moment, else notifies. Task prompts never reach the brain, and a request
+// answer's notification never carries the answer's text.
 // A turn end is never a finished task: "done" is only the agent's report.
 "use strict";
+const Policy = require("./Policy.js");
+const Speakable = require("./Speakable.js");
+const Tools = require("./Tools.js");
 
 const TITLE = "Coding task";
+const ANSWER_NOTICE = Object.freeze({ title: "Jarvis Voice", body: "Jarvis answered your request" });
+// Chosen spoken length, not a latency budget. Longer answers take an
+// extractive opening summary, retaining every source label through release.
+const ANSWER_CHARS = 800;
 // TaskRelay's bound on a reply's text.
 const MAX_REPLY = 4096;
 const CONTROL = /[\x00-\x09\x0b-\x1f\x7f]/g;
@@ -20,6 +25,24 @@ const WAITING = "The coding agent stopped and is waiting.";
 const ASKS = 2;
 
 function fail(reason) { throw new Error("jarvis: task-voice=" + reason); }
+
+function answerLine(item) {
+    const flat = item.content.replace(CONTROL, " ").trim();
+    const long = flat.length > ANSWER_CHARS;
+    let text = flat;
+    if (long) {
+        const head = flat.slice(0, ANSWER_CHARS);
+        const sentences = [...head.matchAll(/[.!?](?=\s)/g)];
+        const end = sentences.at(-1)?.index;
+        text = end === undefined ? head.slice(0, head.lastIndexOf(" ") > 0 ? head.lastIndexOf(" ") : head.length) + "…"
+            : head.slice(0, end + 1);
+    }
+    // The session's answer is agent text, not a fixed task prompt: code,
+    // tables and tool status do not become spoken instructions.
+    const speech = Speakable.create("en", { tools: Object.keys(Tools.TABLE) });
+    const words = [...speech.push(text), ...speech.finish()].join(" ");
+    return words === "" ? null : Policy.summary((long ? "Jarvis's answer, in brief: " : "Jarvis answered: ") + words, [item]);
+}
 
 // The agent's text as one sentence of Jarvis's line.
 function quoted(text) {
@@ -160,7 +183,8 @@ const key = prompt => prompt.task + "/" + prompt.id;
  * whose words went to the brain after one re-ask with released(gen, ask);
  * and a line kept from speech or cut off with withheld(gen, text, ask), which
  * notifies it: a prompt's card is its notification line, any other line's
- * card is its text.
+ * card is its text. answer(item) takes a labelled Jarvis session answer;
+ * its card is always ANSWER_NOTICE, even when release or playback stops it.
  */
 function create({ session, state, dispatch, notify, log, defer = queueMicrotask }) {
     // Per task, the facts of the view last seen; null before the first observation.
@@ -178,11 +202,14 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
     let closed = false;
     let notifying = Promise.resolve();
     const abort = new AbortController();
+    // Session admits one relay at a time. Its withheld/unheard callback
+    // identifies that line by generation and text, including after stop.
+    let delivered = null;
 
-    function send(text) {
+    function send(text, title = TITLE) {
         notifying = notifying.then(async () => {
             if (closed) return;
-            const run = notify(TITLE, text, abort.signal);
+            const run = notify(title, text, abort.signal);
             if (run === null) {
                 if (!missing) log("jarvis: task-voice=notify-missing");
                 missing = true;
@@ -195,20 +222,29 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
             if (!closed) log("jarvis: task-voice=notify-failed cause=" + (error.code || "error"));
         });
     }
+    const sendItem = item => send(item.notice === undefined ? item.text : item.notice.body,
+        item.notice === undefined ? TITLE : item.notice.title);
 
     const open = refusal => refusal === null || refusal === "busy";
     const entry = name => asked.prompts.get(name) ?? { count: 0, open: false };
-    function unasked() {
+    // A spoken task prompt can still own the next utterance while Session
+    // is idle. Independent answers wait until that ownership ends.
+    function availablePrompts() {
         if (held.some(prompt => entry(key(prompt)).open)) return null;
+        return held;
+    }
+    function unasked() {
+        if (availablePrompts() === null) return null;
         return held.find(prompt => entry(key(prompt)).count < ASKS) ?? null;
     }
+    const queued = () => queue.length > 0 && (queue[0].notice === undefined || availablePrompts() !== null);
 
     function pump() {
         if (closed) return;
         const s = state();
         const refusal = session.relayRefusal(s);
         if (!open(refusal)) {
-            for (const item of queue.splice(0)) send(item.text);
+            for (const item of queue.splice(0)) sendItem(item);
             for (const prompt of held) {
                 if (told.has(key(prompt))) continue;
                 told.add(key(prompt));
@@ -217,10 +253,10 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
             return;
         }
         // A line whose conversation ended unspoken is told the other way.
-        for (const item of queue) if (item.gen !== s.gen) send(item.text);
+        for (const item of queue) if (item.gen !== s.gen) sendItem(item);
         queue = queue.filter(item => item.gen === s.gen);
         if (asked.gen !== s.gen) asked = { gen: s.gen, prompts: new Map() };
-        if (refusal === null && !scheduled && (queue.length > 0 || unasked() !== null)) {
+        if (refusal === null && !scheduled && (queued() || unasked() !== null)) {
             scheduled = true;
             defer(speak);
         }
@@ -234,17 +270,30 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         const s = state();
         if (session.relayRefusal(s) !== null || asked.gen !== s.gen) return;
         if (queue.length > 0) {
-            dispatch({ type: "relay", text: queue.shift().text, ask: null });
+            if (!queued()) return;
+            const item = queue.shift();
+            delivered = { ...item, notified: false };
+            dispatch({ type: "relay", text: item.text, labels: item.labels, ask: null });
             return;
         }
         const prompt = unasked();
         if (prompt === null) return;
         asked.prompts.set(key(prompt), { count: entry(key(prompt)).count + 1, open: true });
         told.add(key(prompt));
-        dispatch({ type: "relay", text: promptLine(prompt, "voice"), ask: { task: prompt.task, prompt: prompt.id, kind: prompt.kind } });
+        delivered = null;
+        dispatch({ type: "relay", text: promptLine(prompt, "voice"), labels: ["agent"],
+            ask: { task: prompt.task, prompt: prompt.id, kind: prompt.kind } });
     }
 
     return Object.freeze({
+        answer(item) {
+            if (closed) return;
+            const labelled = Policy.item(item.content, item.labels);
+            const spoken = answerLine(labelled);
+            if (spoken === null) { send(ANSWER_NOTICE.body, ANSWER_NOTICE.title); return; }
+            queue.push({ text: spoken.content, labels: spoken.labels, notice: ANSWER_NOTICE, gen: state().gen });
+            pump();
+        },
         observe(views) {
             if (closed) return;
             const facts = new Map(views.map(view => [view.id, { state: view.state, wait: view.wait, outcome: view.outcome }]));
@@ -252,7 +301,7 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
                 const gen = state().gen;
                 for (const [id, view] of facts) {
                     const text = outcomeLine(seen.get(id) ?? null, view);
-                    if (text !== null) queue.push({ text, gen });
+                    if (text !== null) queue.push({ text, labels: ["desktop"], gen });
                 }
             }
             seen = facts;
@@ -281,6 +330,11 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
             if (closed) return;
             // A prompt the release gate keeps from this conversation is not asked in it again.
             if (ask === null) {
+                if (delivered !== null && delivered.gen === gen && delivered.text === text && delivered.notice !== undefined) {
+                    if (!delivered.notified) sendItem(delivered);
+                    delivered.notified = true;
+                    return;
+                }
                 send(text);
                 return;
             }
@@ -293,6 +347,7 @@ function create({ session, state, dispatch, notify, log, defer = queueMicrotask 
         close() {
             closed = true;
             queue = [];
+            delivered = null;
             abort.abort();
         }
     });

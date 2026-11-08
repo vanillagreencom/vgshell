@@ -20,7 +20,8 @@ const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // The files a control copies: the engine copy's four and their consumers.
 const ENGINE = ["Tasks.js", "task-event", "TaskRelay.js", "claude-hook"];
-const SOURCES = ENGINE.concat(["TaskRunner.js", "AgentProfiles.js", "task-run.py", "TaskVoice.js"]);
+const SOURCES = ENGINE.concat(["TaskRunner.js", "AgentProfiles.js", "task-run.py", "TaskVoice.js",
+    "Policy.js", "Tools.js", "Speakable.js", "SpeechLanguage.js", "Redact.js"]);
 const EVENTS = ["Notification", "PermissionRequest", "SessionEnd", "Stop", "StopFailure", "UserPromptSubmit"];
 // Hook timeouts in seconds: a held event's is the 600 s window plus 60.
 const TIMEOUTS = { UserPromptSubmit: 30, Notification: 30, PermissionRequest: 660, Stop: 660, StopFailure: 30, SessionEnd: 10 };

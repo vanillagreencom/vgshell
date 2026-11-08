@@ -791,7 +791,7 @@ function reduce(state, e) {
             throw new Error("jarvis: session=relay");
         if (relayRefusal(s) !== null) { stale(s); break; }
         s.conversation = { kind: "active", purpose: s.conversation.purpose };
-        think(s, effects, { relay: { text: e.text, ask: e.ask } }, e.at);
+        think(s, effects, { relay: { text: e.text, ask: e.ask, labels: e.labels } }, e.at);
         break;
     // A transcription that fails after its capture closed still owns the turn.
     case "collect-failed":

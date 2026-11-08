@@ -40,6 +40,33 @@ const REFUSAL = /^lane-mail: ([a-z][a-z0-9-]{0,59})=/;
 // and HOME, which git and workflow-state read. No key or other daemon
 // variable reaches it.
 const MAIL_ENVIRONMENT = ["PATH", "HOME"];
+// Chosen read interval while an unanswered voice request exists, not a latency budget.
+const ANSWER_MS = 5000;
+// Recovery bound for requests a session never answers, and lane-mail's
+// one-minute duplicate-send window (lane-mail usage, Receipt).
+const REQUESTS = 128;
+const DUPLICATE_MS = 60000;
+const CLOCK = { now: Date.now, set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
+
+// lane-mail usage, Events and Envelope: logical numbers survive compaction.
+// Read the entire snapshot before advancing any request's cursor.
+function events(result) {
+    if (result.kind !== "exited" || result.code !== 0) throw new Error("events-unread");
+    const lines = result.stdout.trimEnd().split("\n");
+    const header = /^count=(\d+) first=([A-Za-z0-9._-]*)$/.exec(lines.shift());
+    if (header === null || !Number.isSafeInteger(Number(header[1]))) throw new Error("events-header");
+    const count = Number(header[1]);
+    let previous = 0;
+    const rows = lines.map(line => {
+        const row = JSON.parse(line);
+        if (row === null || typeof row !== "object" || row.box !== "to-overseer" || row.count !== count
+                || !Number.isSafeInteger(row.line) || row.line <= previous || row.line > count)
+            throw new Error("events-row");
+        previous = row.line;
+        return row;
+    });
+    return { count, first: header[2], rows };
+}
 /**
  * create(root, browser, home, environment, main) builds the guidance executor.
  * home() answers the home folder's path, or null while none is usable;
@@ -47,8 +74,31 @@ const MAIL_ENVIRONMENT = ["PATH", "HOME"];
  * answers whether this computer runs the main Jarvis, Main Jarvis host
  * empty, whose session alone takes a fleet request (a satellite forwards
  * instead, Satellite.js, or not at all while its forward is unavailable).
+ * answer(item), when provided, receives the first final owner notice for
+ * each request, labelled as agent output. Browser owns sync and close;
+ * neither a conversation end nor a new generation abandons a request.
  */
-function create(root = ROOT, browser = null, home = () => null, environment = {}, main = () => true) {
+function create(root = ROOT, browser = null, home = () => null, environment = {}, main = () => true,
+    { answer = null, log = () => {}, clock = CLOCK, run = Child.run } = {}) {
+    let closed = false;
+    let timer = null;
+    let reading = null;
+    let folderRead = null;
+    let reader = new AbortController();
+    const lifetime = new AbortController();
+    // Answered ids remain only for the mail tool's duplicate window. Their
+    // text is never retained here. Waiting requests own the one reader.
+    const requests = new Map();
+    const waiting = () => [...requests.values()].filter(item => item.kind === "waiting");
+    function sync() {
+        if (folderRead === null || main() && home() === folderRead) return;
+        if (timer !== null) clock.clear(timer);
+        timer = null;
+        requests.clear();
+        folderRead = null;
+        reader.abort();
+        reader = new AbortController();
+    }
     const shipped = Tools.HELP_TOPICS.filter(topic => {
         try { return fs.lstatSync(path.join(root, topic + ".md")).isFile(); }
         catch (error) { if (error.code === "ENOENT") return false; throw error; }
@@ -67,11 +117,63 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     // argv alone, no shell, in the home, where lane-mail finds its
     // repository. The git ceiling keeps that search in the home, whatever
     // repository holds the folder above it.
-    function mail(tool, folder, args) {
+    function mail(tool, folder, args, signal = lifetime.signal) {
         const env = { LC_ALL: "C.UTF-8", GIT_CEILING_DIRECTORIES: path.dirname(folder) };
         for (const name of MAIL_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];
-        return Child.run("setpriv", ["--pdeathsig", "KILL", "--", tool, ...args, "--item", "overseer", "--root", folder],
-            { env, cwd: folder, limit: MAIL_BYTES, deadline: MAIL_MS, group: true });
+        return run("setpriv", ["--pdeathsig", "KILL", "--", tool, ...args, "--item", "overseer", "--root", folder],
+            { env, cwd: folder, limit: MAIL_BYTES, deadline: MAIL_MS, group: true, signal });
+    }
+    function later() {
+        if (!closed && timer === null && waiting().length !== 0)
+            timer = clock.set(() => { timer = null; void readAnswers(); }, ANSWER_MS);
+    }
+    async function readAnswers() {
+        sync();
+        if (closed || reading !== null || waiting().length === 0) return;
+        const own = reader;
+        const pending = waiting();
+        const folder = folderRead;
+        reading = (async () => {
+            const tool = Home.mailTool(folder);
+            if (tool === null) throw new Error("mail-tool-absent");
+            const snapshot = events(await mail(tool, folder, ["events", "--box", "to-overseer", "--after",
+                String(Math.min(...pending.map(item => item.after)))], own.signal));
+            sync();
+            if (closed || own !== reader) return;
+            if (pending.some(item => item.first !== snapshot.first && !(item.after === 0 && item.first === "")
+                    || item.after > snapshot.count)) {
+                requests.clear();
+                throw new Error("mailbox-replaced");
+            }
+            for (const row of snapshot.rows) {
+                const item = pending.find(item => item.id === row.ref && row.line > item.after);
+                // --progress is not the final answer. The first final owner
+                // notice closes this request, not another request's notice.
+                if (item === undefined || item.kind !== "waiting" || row.kind !== "notice" || row.to !== "owner"
+                        || row.progress === true || typeof row.text !== "string" || row.text.trim() === "") continue;
+                item.kind = "answered";
+                item.until = clock.now() + DUPLICATE_MS;
+                answer({ content: row.text, labels: ["agent"] });
+            }
+            for (const item of pending) if (item.kind === "waiting") {
+                item.after = snapshot.count;
+                item.first = snapshot.first;
+            }
+        })().catch(error => {
+            if (!closed && own === reader) log("jarvis: request-answer=" + (error.message.startsWith("events-")
+                || ["mail-tool-absent", "mailbox-replaced"].includes(error.message) ? error.message : "read-failed"));
+        }).finally(() => { reading = null; later(); });
+        await reading;
+    }
+    function watch(id, checkpoint, folder) {
+        sync();
+        if (closed || !main() || home() !== folder) return;
+        folderRead = folder;
+        const existing = requests.get(id);
+        if (existing === undefined)
+            requests.set(id, { kind: "waiting", id, after: checkpoint.count, first: checkpoint.first });
+        else if (existing.kind === "answered") existing.until = clock.now() + DUPLICATE_MS;
+        later();
     }
     // The cause of a run that refused before it appended anything: its
     // keyed first stderr line, else OTHER.
@@ -86,6 +188,8 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     // append is failed; one that may have appended and did not read back is
     // unknown.
     async function request(text) {
+        if (closed) return failed("closed");
+        sync();
         // A request held while the user named a main goes nowhere: the
         // satellite's route is fleet.forward.
         if (!main()) return failed("satellite");
@@ -96,6 +200,14 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         const counted = await mail(tool, folder, ["events", "--box", "to-lane", "--after", PAST_EVERY_LINE]);
         const header = counted.kind === "exited" && counted.code === 0 ? HEADER.exec(counted.stdout) : null;
         if (header === null) return failed(refusal(counted, "mailbox-unread"));
+        let checkpoint = null;
+        if (answer !== null) {
+            for (const [id, item] of requests) if (item.kind === "answered" && item.until <= clock.now()) requests.delete(id);
+            if (requests.size >= REQUESTS) return failed("requests-full");
+            try { checkpoint = events(await mail(tool, folder, ["events", "--box", "to-overseer", "--after", PAST_EVERY_LINE])); }
+            catch { return failed("answers-unread"); }
+        }
+        if (closed || !main() || home() !== folder) return failed("home-changed");
         const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-jarvis-request-"));
         let sent;
         try {
@@ -117,6 +229,8 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         // exit, or an exit 0 with none, may have appended.
         else if (sent.kind !== "exited" || sent.code !== 0 || id === undefined)
             return { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt, so the request may be in the Jarvis session's mailbox or not." };
+        // A duplicate may already have its answer before this checkpoint.
+        if (checkpoint !== null) watch(id, duplicate === undefined ? checkpoint : { ...checkpoint, count: 0 }, folder);
         const back = await mail(tool, folder, ["events", "--box", "to-lane", "--after", after]);
         const rows = back.kind === "exited" && back.code === 0 ? back.stdout.split("\n").slice(1) : [];
         const found = rows.some(line => {
@@ -126,7 +240,17 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
             ? { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row " + id + ". The session acts on it when it next reads its mail." }
             : { outcome: "unknown", content: "Unknown: lane-mail sent the request as row " + id + ", but the row did not read back from the Jarvis session's mailbox." };
     }
-    return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 3 * MAIL_MS + 1000), cancellable: false,
+    return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 4 * MAIL_MS + 1000), cancellable: false,
+        sync,
+        close() {
+            closed = true;
+            if (timer !== null) clock.clear(timer);
+            timer = null;
+            requests.clear();
+            reader.abort();
+            lifetime.abort();
+            return reading;
+        },
         // Read at each offer: the user adds a skill without a restart.
         topics: () => shipped.concat(skills(home())),
         // And the mail tool and the Jarvis session's mailbox at each offer:
