@@ -108,7 +108,7 @@
         "video": {
           "type": "enum",
           "label": "Video",
-          "info": "Graphics card uses less power and works on AMD and Intel graphics. Processor works on every computer.",
+          "info": "Sets how this computer decodes the picture it receives. The other computer picks its own encoder. Graphics card uses less power and works on AMD and Intel graphics. Processor works on every computer.",
           "options": [
             { "value": "auto", "label": "Automatic" },
             { "value": "gpu", "label": "Graphics card" },
