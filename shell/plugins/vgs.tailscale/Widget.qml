@@ -35,7 +35,13 @@ BarWidget {
         tooltipDetails: widget.badge.detail === "" ? [] : [widget.badge.detail]
         onClicked: {
             const reply = widget.shell.surfaces.toggle("panel", "{}", widget);
-            if (reply !== "ok") console.warn("tailscale widget: panel " + reply);
+            if (reply !== "ok") {
+                console.warn("tailscale widget: panel " + reply);
+                // Plugins.route can refuse restart=owed before the body
+                // takes a lease. The refused click still asks for fresh status.
+                const fresh = widget.shell.ipc.call("refresh", "");
+                if (fresh !== "ok") console.warn("tailscale widget: refresh " + fresh);
+            }
         }
     }
 }

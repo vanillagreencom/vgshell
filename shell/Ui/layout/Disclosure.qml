@@ -24,6 +24,8 @@ Column {
     property alias text: row.text
     property alias secondary: row.secondary
     property alias iconName: row.iconName
+    // A shared corner count over the icon, "" for none; it takes no row room.
+    property string iconCount: ""
     property alias trailing: extra.data
     property bool expanded: false
     property bool expandable: true
@@ -44,6 +46,17 @@ Column {
         Keys.onSpacePressed: if (root.expandable) root.expanded = !root.expanded
         Keys.onRightPressed: if (root.expandable) root.expanded = true
         Keys.onLeftPressed: if (root.expandable) root.expanded = false
+        iconOverlay: Loader {
+            active: root.iconName !== "" && root.iconCount !== ""
+            x: parent.width - width / 2
+            y: -height / 2
+            sourceComponent: Badge {
+                variant: "unread"
+                size: "corner"
+                text: root.iconCount
+                border.color: Theme.surface.level.base.background
+            }
+        }
         trailing: [
             Row {
                 id: extra

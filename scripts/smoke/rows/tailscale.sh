@@ -1071,7 +1071,7 @@ expect_poll "the service publishes the two devices connected in" '["read", 2, ["
 expect_poll "the widget draws 2 on its corner" '"2"' tailscale_badge
 expect "the widget's name says who is connected" '"Tailscale, 2 devices connected to this one"' ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem label
 expect "the flyout opens on the devices connected in" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
-expect_poll "the flyout's row reads the two devices and their kinds" "$(words "Connected to this device" "2 devices · SSH, Tailscale, port 8080")" tailscale_drawn panel Disclosure tailscale-inbound
+expect_poll "the flyout's row reads the two devices and their kinds" "$(words "2" "Connected to this device" "2 devices · SSH, Tailscale, port 8080")" tailscale_drawn panel Disclosure tailscale-inbound
 expect "the flyout closes after the devices connected in" ok ipc shell hide panel vgs.tailscale
 cp -- "$tailscale_fixtures/outbound.ss" "$tailscale_dir/ss.table"
 expect "a refresh reads outbound connections alone" ok tailscale_refresh

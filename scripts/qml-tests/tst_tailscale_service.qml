@@ -3,6 +3,7 @@ import QtTest
 import Quickshell.Io
 import qs.Core
 import "../../shell/plugins/vgs.tailscale" as Tailscale
+import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 
 // Drives the production service and its Process boundaries. The elevated
 // transaction's recovery itself is proved by test-vgshell-system.sh.
@@ -106,9 +107,14 @@ Item {
             status(); accounts();
             verify(!service.checkingSetup);
         }
-        function test_open_during_reads_waits_for_subsequent_reads_even_if_unchanged() {
-            service.refresh();
+        function test_lease_during_reads_waits_for_subsequent_reads_even_if_unchanged_data() {
+            return [{ tag: "open", open: true }, { tag: "close", open: false }];
+        }
+        function test_lease_during_reads_waits_for_subsequent_reads_even_if_unchanged(data) {
             service.lease(JSON.stringify({ id: "view", open: true }));
+            fresh();
+            service.refresh();
+            service.lease(JSON.stringify({ id: "view", open: data.open }));
             status(); accounts(); setup();
             verify(service.checkingSetup);
             status(); accounts();
@@ -425,6 +431,37 @@ Item {
             sockets()[0].finish(0, 0, "LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nESTAB 0 0 100.64.0.1:22 100.64.0.3:51514\n", "");
             compare(service.poll.flight, false, "the socket read ends the poll");
             compare(JSON.stringify([root.writes.inbound.state, root.writes.inbound.count, root.writes.inbound.rows.map(row => row.id)]), JSON.stringify(["read", 1, ["nPEER"]]));
+        }
+        function test_open_refresh_close_holds_count_until_a_read_proves_departure_data() {
+            return [
+                { tag: "failed ss", code: 1, text: "", statusFailed: false },
+                { tag: "rejected ss", code: 0, text: "UNCONN 0 0 0.0.0.0:68 0.0.0.0:*\n", statusFailed: false },
+                { tag: "unavailable status", code: 1, text: "", statusFailed: true }
+            ];
+        }
+        function test_open_refresh_close_holds_count_until_a_read_proves_departure(data) {
+            const table = "LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nESTAB 0 0 100.64.0.1:22 100.64.0.3:51514\n";
+            pollTunnel();
+            sockets()[0].finish(0, 0, table, "");
+            compare([service.pollInterval, Logic.inboundBadge(root.writes.inbound).count], [30000, "1"]);
+            compare(service.lease('{"id":"flyout","open":true}'), "ok");
+            compare([ProcessRegistry.runningWithVerb("status").length, service.pollInterval], [1, 3000], "opening starts a fresh read at the open cadence");
+            service.refresh();
+            if (data.statusFailed) statusAs("", "fixture unavailable");
+            else {
+                process("status").finish(0, 0, tunnel, "");
+                sockets()[0].finish(data.code, 0, data.text, "fixture ss");
+            }
+            compare(root.writes.inbound.state, "unread");
+            compare(Logic.inboundBadge(root.writes.inbound).count, "1");
+            compare(service.lease('{"id":"flyout","open":false}'), "ok");
+            compare([service.pollInterval, Logic.inboundBadge(root.writes.inbound).count], [30000, "1"]);
+            process("status").finish(0, 0, tunnel, "");
+            sockets()[0].finish(0, 0, table, "");
+            compare(Logic.inboundBadge(root.writes.inbound).count, "1", "the queued refresh reads the peer again");
+            pollTunnel();
+            sockets()[0].finish(0, 0, "", "");
+            compare(Logic.inboundBadge(root.writes.inbound).count, "", "a successful empty read proves departure");
         }
         // expected-log: tailscale: poll killed after 10000 ms kills=1 -- the deadline the case fires
         function test_the_deadline_ends_the_socket_read() {
