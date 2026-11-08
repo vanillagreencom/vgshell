@@ -63,40 +63,38 @@ case "$kind" in
     # shellcheck source=SCRIPTDIR/pkg-review-settings.sh
     source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/pkg-review-settings.sh"
     vgs_pkg_review_settings "$1" inline ;;
-  # REVIEWABLE, unreviewable when no listed package has evidence an agent
-  # can read, as for a package VGS publishes.
-  offer) # SELECTED PACKAGES REVIEWABLE
-    vgs_tui_step 'Review third-party packages' >&2
+  offer) # SELECTED PACKAGES
+    vgs_tui_step 'Review AUR packages' >&2
+    vgs_tui_text 'An AI agent reads the AUR build recipes for risks before installation.' >&2
     vgs_tui_text "${2:-Package source information is unavailable.}" >&2
-    [[ ${3:-} == unreviewable ]] || vgs_tui_text 'An AI agent can check these packages before installation.' >&2
     vgs_pkg_review_choose 'Review before installation?' --selected "$1" -- Review 'Install without review' ;;
   # A saved "Install without review" answers the offer, so nothing is asked.
   saved-decline) # PACKAGES
-    vgs_tui_step 'Review third-party packages' >&2
+    vgs_tui_step 'Review AUR packages' >&2
     vgs_tui_text "${1:-Package source information is unavailable.}" >&2
     vgs_tui_text 'Your saved choice installs these packages without a review.' >&2 ;;
-  # PACKAGES, the offer's package line, when the agent choice does not
-  # follow the offer that shows it.
-  agent) # LABEL [PACKAGES]
+  agent) # LABEL
     vgs_tui_step 'Choose the review agent' >&2
-    [[ -z ${2:-} ]] || vgs_tui_text "$2" >&2
-    vgs_tui_text 'The agent reads package sources as your user. Installation follows your review choices.' >&2
+    vgs_tui_text 'The agent reads build files as your user. Installation follows your review choices.' >&2
     vgs_pkg_review_choose 'Review agent' --selected "Use $1" -- "Use $1" Customize Back ;;
+  result)
+    vgs_tui_step 'Review result' >&2
+    vgs_tui_text "$1" >&2 ;;
   # The result opens a block of its own: it may follow the agent's output.
   unavailable)
     vgs_tui_step 'Review result' >&2
-    vgs_tui_warn 'The package review is unavailable or incomplete.' >&2
-    vgs_tui_text "Review could not finish: $1" >&2
+    vgs_tui_warn 'The AUR package review could not finish.' >&2
+    vgs_tui_text "$1" >&2
     if [[ ${2:-} == retry ]]; then
       vgs_tui_text 'No returns to the review choices. Yes continues without a review. Stop ends this update.' >&2
       vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes Stop
     else
+      vgs_tui_text 'No stops this command. Yes continues without a review.' >&2
       vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes
     fi ;;
   limit)
     vgs_tui_text 'AUR builds may add dependencies that cannot be reviewed before the build.' >&2 ;;
   concern)
-    vgs_tui_step 'Review result' >&2
     vgs_tui_warn "$1" >&2
     vgs_pkg_review_choose "Install $2 despite the review result?" --selected Skip -- Skip 'Install anyway' ;;
   # A build whose own tests alone failed (PackageReview.classifyInstallFailure):

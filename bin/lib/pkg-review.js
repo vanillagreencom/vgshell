@@ -374,7 +374,7 @@ function gather(request) {
             const m = /^(\S+) (\S+) (\S+)(?: \[.*\])?$/.exec(line);
             if (!m || !order.includes(m[1])) throw new Error("origin=malformed-index");
             return { repository: m[1], name: m[2], version: m[3] };
-        });
+        }).sort((a, b) => order.indexOf(a.repository) - order.indexOf(b.repository));
         repositoryData = { config, order, rows };
         return repositoryData;
     }
@@ -396,7 +396,7 @@ function gather(request) {
             if (request.mode === "upgrade" && action === "upgrade") {
                 const p = pending(group, config, found.binary);
                 binding.pending = p.packages;
-                if (!p.complete) state.unknown.push("pending=config-correspondence");
+                if (!p.complete && group.manager === "aur") state.unknown.push("pending=config-correspondence");
                 targets = p.packages.map(item => ({ target: item.name, old: item.old, next: item.new, origin: p.origin }));
             } else targets = [...group.names, ...group.installs].map(n => ({ target: n, old: null, next: null }));
             step.binding = binding;
@@ -416,17 +416,19 @@ function gather(request) {
                 if (target.neededBy !== undefined) { origin = target.origin; viaAur = target.viaAur; }
                 else if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
                 else if (target.origin === "aur" && matches.length > 0) { state.unknown.push("origin=aur-repository-collision name=" + name); origin = "unknown"; }
-                else if (matches.length === 1) origin = matches[0].repository;
-                else if (matches.length > 1) { state.unknown.push("origin=ambiguous name=" + name); origin = "unknown"; }
+                // pacman v7.1.0 lib/libalpm/sync.c::alpm_sync_get_new_version
+                // takes the first sync database containing the package:
+                // https://gitlab.archlinux.org/pacman/pacman/-/blob/v7.1.0/lib/libalpm/sync.c#L64-67
+                else if (matches.length) origin = matches[0].repository;
                 else if (group.manager === "aur" || request.mode === "bootstrap") {
                     const info = infoFor(name);
                     const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
                     if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
                     origin = "aur"; viaAur = true;
-                } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
+                } else origin = "unknown";
                 binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })),
                     ...(target.neededBy === undefined ? {} : { entry: target.entry, neededBy: target.neededBy, aur: viaAur }) });
-                if (judge.officialRepository(origin)) continue;
+                if (!viaAur) continue;
                 if (target.neededBy !== undefined) {
                     if (!Object.hasOwn(state.dependents, name)) state.dependents[name] = [];
                     if (!state.dependents[name].includes(target.neededBy)) state.dependents[name].push(target.neededBy);
@@ -451,20 +453,9 @@ function gather(request) {
                     }
                     continue;
                 }
-                state.lines.push(viaAur ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
-                if (!viaAur && origin !== "unknown") {
-                    const servers = output(["pacman-conf", "--config", config, "--repo", origin, "Server"]).trim().split("\n").filter(Boolean);
-                    if (!servers.length) throw new Error("origin=server-unreadable name=" + name);
-                    for (const server of servers) {
-                        const url = new URL(server); url.username = ""; url.password = "";
-                        state.lines.push(`server ${origin} ${url.toString()}`);
-                    }
-                    const signature = output(["pacman-conf", "--config", config, "--repo", origin, "SigLevel"]).trim().replace(/\s+/g, " ");
-                    if (!signature) throw new Error("origin=signature-unreadable name=" + name);
-                    state.lines.push(`siglevel ${origin} ${signature}`);
-                }
+                state.lines.push(`aur ${name} ${target.old || "?"} ${target.next || "?"}`);
             }
-        } catch (e) { step.binding = null; state.unknown.push(e.message); }
+        } catch (e) { step.binding = null; if (group.manager === "aur" || request.mode === "bootstrap") state.unknown.push(e.message); }
     }
     if (request.customAurArgv !== null) {
         try {
@@ -531,10 +522,11 @@ function recipesIdentity(dir) {
             if (row.isDirectory()) { if (row.name !== ".git") read(file); }
             else if (row.isFile()) {
                 bytes += fs.statSync(file).size;
-                if (entries.length >= 4096 || bytes > 64 * MAX_DATA) throw new Error("recipe=bound");
+                if (entries.length >= 4096 || bytes > 64 * MAX_DATA) throw new Error("The AUR build recipes exceed the review's file or size limit.");
                 entries.push(identity(file));
             }
-            else throw new Error("recipe=not-regular");
+            else throw new Error("The AUR recipe file " + JSON.stringify(path.relative(dir, file)) + " is "
+                + (row.isSymbolicLink() ? "a symbolic link" : "not a regular file") + ", so it cannot be reviewed safely.");
         }
     }
     read(dir);
@@ -564,6 +556,25 @@ async function review(request, storage) {
     finally { process.umask(previous); }
 }
 async function reviewRequest(request, storage) {
+    function failedRead(note) {
+        if (note.startsWith("The ")) return note;
+        const name = /(?:^| )name=(\S+)/.exec(note)?.[1];
+        const subject = name ? " for " + name : "";
+        const kind = note.split(" ")[0];
+        if (kind === "origin=aur-repository-collision") return name + " appears in both the AUR update and a package repository.";
+        if (kind.startsWith("query=")) return "The " + kind.slice(6) + " package query failed.";
+        if (kind.startsWith("agent=")) return "No review agent is available. Choose an installed agent or customize the review command.";
+        if (kind.startsWith("fetch=")) return "The AUR build files could not be downloaded" + subject + ".";
+        if (kind.startsWith("origin=")) return "The AUR package source could not be confirmed" + subject + ".";
+        if (kind.startsWith("install=") || kind.startsWith("identity=")) return "An AUR install script could not be read safely" + subject + ".";
+        if (kind.startsWith("vgs-packages=")) return "VGS's own package names could not be read.";
+        if (kind.startsWith("pending=")) return "The pending AUR update list could not be confirmed for this package configuration.";
+        if (kind.startsWith("dependency=")) return "An AUR package's required dependency could not be resolved.";
+        if (kind.startsWith("custom-command=")) return "The custom AUR command cannot be matched to the reviewed package plan.";
+        if (kind.startsWith("config=")) return "The AUR helper's package configuration could not be read safely.";
+        if (kind === "review=nothing-reviewable") return "No AUR build recipe is available to review.";
+        return "Some AUR build information could not be read safely.";
+    }
     const error = requestError(request);
     if (error) refuse("review=request error=" + error);
     if (process.env.VGS_TUI_SUDO_SESSION && fs.existsSync("/proc/" + process.env.VGS_TUI_SUDO_SESSION)) refuse("review=outer-credential-session");
@@ -573,10 +584,9 @@ async function reviewRequest(request, storage) {
     const thirdParty = state.packages.filter(p => !p.published), published = state.packages.filter(p => p.published).map(p => p.name);
     if (thirdParty.length || state.unknown.length) {
         const known = thirdParty.map(p => p.name);
-        const requested = request.groups.flatMap(g => g.names.concat(g.installs)).concat(request.rebuild);
-        const listed = known.concat(requested.filter(n => !known.includes(n.split("/").pop())), published);
-        const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable")
-            + (published.length ? "\nNot reviewed: " + published.join(", ") + ", published by VGS. The build may add packages that cannot be reviewed in advance." : "");
+        const unresolved = state.steps.filter(step => step.manager === "aur" && step.binding === null).flatMap(step => step.names.concat(step.installs));
+        const packageList = "AUR packages: " + ([...new Set(known.concat(unresolved))].join(", ") || "package list unavailable")
+            + (published.length ? "\n\nSkipped: " + published.join(", ") + ", VGS's own " + (published.length === 1 ? "package." : "packages.") : "");
         // With no package to review, Review asks no agent: the
         // unavailable-evidence question follows at once.
         const reviewable = thirdParty.length > 0;
@@ -591,14 +601,14 @@ async function reviewRequest(request, storage) {
         reviewChoice: for (;;) {
             if (choice === null) {
                 const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
-                choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList, reviewable ? "reviewable" : "unreviewable");
+                choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList);
             }
             if (choice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: choice.status };
             if (choice.value === "Review" && reviewable) {
                 for (;;) {
                     const plan = judge.reviewPlan(settings, foundAgents(settings));
                     if (!["agent", "command"].includes(plan.state)) break;
-                    const agentChoice = await ui("agent", plan.label, packageList);
+                    const agentChoice = await ui("agent", plan.label);
                     if (agentChoice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: agentChoice.status };
                     if (agentChoice.value === "Back") { choice = null; break; }
                     if (agentChoice.value === "Use " + plan.label) break;
@@ -634,7 +644,7 @@ async function reviewRequest(request, storage) {
                         if (shownFetch.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownFetch.status };
                         const r = await interactive(fetch, { cwd: path.join(dir, "build") });
                         if (r.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[r.signal] };
-                        if (r.error || r.status !== 0) throw new Error("fetch=failed");
+                        if (r.error || r.status !== 0) throw new Error("fetch=failed name=" + pkg.name);
                         try { risks.push(...installEvidence(dir, pkg, state)); }
                         catch (e) { state.unknown.push(e.message); risks.push({ name: pkg.name, concern: "The install script could not be verified." }); }
                     }
@@ -645,25 +655,35 @@ async function reviewRequest(request, storage) {
                     if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
                     const run = await interactive(plan.command.concat(prompt), { cwd: agentHome() });
                     if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
-                    if (run.error || run.status !== 0) throw new Error("The review agent failed: agent=failed status=" + run.status + " cause=" + (run.error || "exit"));
+                    if (run.error || run.status !== 0) throw new Error("The review agent failed before it completed the review.");
                     let text;
                     try { text = privateFile(path.join(dir, "verdict")); }
                     catch (e) {
                         const cause = e.code === "ENOENT" ? "missing" : e instanceof files.Refusal || e.code === "ELOOP" ? "unsafe" : "unreadable";
-                        throw new Error("The agent's verdict is " + cause + ": verdict=" + cause + " cause=" + (e.code || e.message));
+                        throw new Error("The agent's verdict is " + cause + ".");
                     }
                     verdict = judge.parseVerdict(text, known);
-                    if (!verdict.ok) throw new Error("The agent's verdict is malformed: verdict=malformed");
+                    if (!verdict.ok) throw new Error("The agent's verdict is malformed.");
                     result.reviewed = known;
                 } catch (e) { state.unknown.push(e.message); }
                 const failures = evidenceFailures(state.unknown);
+                const concerns = new Map();
+                for (const flag of [...(verdict?.ok ? verdict.flags : []), ...risks]) concerns.set(flag.name, [...(concerns.get(flag.name) || []), flag.concern]);
+                const clean = verdict?.ok ? known.filter(name => !concerns.has(name)) : [];
+                const summary = [clean.length ? "No concerns found: " + clean.join(", ") + "." : "",
+                    concerns.size ? "Needs your decision: " + [...concerns.keys()].join(", ") + "." : "",
+                    failures.length ? "Could not finish: " + [...new Set(failures.map(failedRead))].join(" ") : ""].filter(Boolean).join("\n");
+                if (verdict?.ok && !failures.length) {
+                    const shown = await ui("result", summary);
+                    if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
+                }
                 if (verdict?.ok && failures.length < state.unknown.length) {
                     const shown = await ui("limit");
                     if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
                 }
                 if (verdict === null || !verdict.ok || failures.length) {
                     result.coverage = "unknown";
-                    const answer = await ui("unavailable", failures.join("\n"), "retry");
+                    const answer = await ui("unavailable", summary, "retry");
                     if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
                     if (answer.value === "No") {
                         if (!reviewable || !["agent", "command"].includes(plan.state)) choice = null;
@@ -672,8 +692,6 @@ async function reviewRequest(request, storage) {
                     if (answer.value === "Stop") return { ...result, decision: "stop" };
                     if (answer.value !== "Yes") refuse("review=choice-invalid");
                 }
-                const concerns = new Map();
-                for (const flag of [...(verdict?.ok ? verdict.flags : []), ...risks]) concerns.set(flag.name, [...(concerns.get(flag.name) || []), flag.concern]);
                 for (const [name, concernsForName] of concerns) {
                     const answer = await ui("concern", concernsForName.join("\n"), name);
                     if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
@@ -690,7 +708,7 @@ async function reviewRequest(request, storage) {
     if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {
         if (result.skipped.length) return { ...result, decision: "stop", coverage: "unknown" };
         if (result.coverage === "declined") {
-            const answer = await ui("unavailable", "custom-command=unknown");
+            const answer = await ui("unavailable", failedRead("custom-command=unknown"));
             if (answer.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: answer.status };
             if (answer.value === "No") return { ...result, decision: "stop", coverage: "unknown" };
             if (answer.value !== "Yes") refuse("review=choice-invalid");

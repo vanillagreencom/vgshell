@@ -98,7 +98,6 @@ function verify(logic) {
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
   same(logic.reviewPlan({agent:"claude"},["claude"]).command,["claude","--model","opus","--effort","medium","--permission-mode","default"]);
   same(logic.reviewPlan({agent:"codex"},["codex"]).command,["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"]);
-  for(const [repo,official] of [["core",true],["extra",true],["multilib",true],["cachyos",true],["cachyos-extra",true],["chaotic-aur",false],["core-testing",false]])assert.equal(logic.officialRepository(repo),official);
   // [name, verdict text, the packages reviewed, the judgement]
   const verdictRows = [
     ["clean", "verdict clean\n", ["a"], { ok: true, verdict: "clean", flags: [] }],

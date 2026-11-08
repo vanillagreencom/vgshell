@@ -14,14 +14,14 @@ if(change==="config-link"||change==="config-link-changed"){fs.renameSync(linkedC
 const request={version:1,mode:"upgrade",action:"upgrade",groups:[{manager:"pacman",names:[],installs:[],ignored:["input-ignore"],config},{manager:"aur",names:[],installs:[],ignored:[],config:other}],sources:["pacman","aur"],rebuild:["aurpkg"],config:other,customAurArgv:null};
 const engine=change.startsWith("engine-");
 if(engine){request.groups=request.groups.filter(g=>g.manager==="aur");request.sources=["aur"];request.rebuild=["vgshell-git"];}
-fs.writeFileSync(path.join(root,"aur-pending"),"");
-if(change==="after-system-candidate")fs.unlinkSync(path.join(root,"aur-pending"));
 const sequential=change.startsWith("after-system-");
 if(sequential)request.rebuild=[];
+// The named helper rebuild binds a repository candidate while foreign
+// supplies actual AUR evidence for the same decision.
+if(change==="after-system-candidate")request.rebuild=["widget"];
 if(change.startsWith("after-system-recognized-"))request.customAurArgv=["paru","-Sua"];
 if(change.startsWith("after-system-custom-"))request.customAurArgv=["paru","--devel"];
 if(change==="recipe")request.rebuild=["foreign"];
-if(change==="origin-read-failed")fs.writeFileSync(path.join(root,"server-empty"),"");
 if(change==="custom-origin-read-failed"){
  fs.writeFileSync(path.join(root,"query-failed"),"");
  request.customAurArgv=["paru","--devel"];
@@ -36,6 +36,7 @@ let args=["run","upgrade","--manager",manager,"--review-receipt",reply.receipt,"
 const replace=(needle,value)=>{const at=args.indexOf(needle);if(at<0)throw Error(needle);args[at]=value;};
 if(sequential){
  if(run(["run","upgrade","--manager","pacman","--review-receipt",reply.receipt,"--config",config,"--ignore","input-ignore"])!==0)process.exit(86);
+ if(change==="after-system-candidate"){args[1]="reinstall";args.push("widget");}
  if(change.startsWith("after-system-custom-"))args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];
 }
 const changed=sequential?change.replace(/^after-system-(?:recognized-|custom-)?/,""):change;
@@ -52,7 +53,7 @@ if(engine){
 }
 switch(changed){
  case"engine-drop":case"engine-new":case"engine-origin":case"engine-official":break;
- case"none":case"config-link":case"origin-read-failed":break;
+ case"none":case"config-link":break;
  case"custom-origin-read-failed":args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];break;
  case"config-link-changed":fs.copyFileSync(linkedConfig,linkedConfig+".new");fs.appendFileSync(linkedConfig+".new","# changed\n");fs.unlinkSync(linkedConfig);fs.symlinkSync(linkedConfig+".new",linkedConfig);break;
  case"outer":env.VGS_TUI_SUDO_SESSION=String(process.pid);break;

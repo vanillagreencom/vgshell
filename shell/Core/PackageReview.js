@@ -11,14 +11,6 @@ var REVIEW_AGENTS = [
     { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }
 ];
 
-// The distribution's own pacman repositories on Arch and CachyOS. A
-// package pending from any other repository is reviewed.
-var OFFICIAL_REPOSITORY = /^(core|extra|multilib|cachyos.*)$/;
-
-function officialRepository(name) {
-    return OFFICIAL_REPOSITORY.test(String(name));
-}
-
 // The `key = value` lines of a .SRCINFO, each { key, value } in file order;
 // any other line is none.
 function srcinfoFields(text) {

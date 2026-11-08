@@ -12,7 +12,8 @@ while(args[0]?.startsWith("--")){
  if(key==="--owner")owner=value;else if(key==="--proof")proof=value;else if(key==="--route")route=value;else if(key==="--surface")surface=value;else throw Error(key);
 }
 assert.ok(["all","success","failures"].includes(surface));
-const review=route!=="self-repair";
+const action=args[0]==="run"?args[1]:args[0],at=args.indexOf("--manager"),manager=at<0?null:args[at+1];
+const review=manager==="aur"&&route!=="self-repair";
 const root=fs.mkdtempSync(path.join(os.tmpdir(),"package-route-"));
 try{
  const w=create(root,{choices:review?["Install without review"]:[]});
@@ -35,7 +36,6 @@ try{
  // route's first target offers the one retry, Stop selected, only where the
  // route builds an AUR recipe; an ordinary failure offers none. Stop keeps
  // the failure's status for the route's own handling.
- const action=args[0]==="run"?args[1]:args[0],at=args.indexOf("--manager"),manager=at<0?null:args[at+1];
  const builds=manager==="aur"&&["install","reinstall","update"].includes(action);
  const target=args.slice(at<0?(args[0]==="run"?2:1):at+2).find(a=>!a.startsWith("--"));
  const failures=[];

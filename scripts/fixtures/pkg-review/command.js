@@ -7,13 +7,9 @@ const name=path.basename(process.argv[1]),args=process.argv.slice(2),originalArg
 const log=(kind,extra={})=>fs.appendFileSync(path.join(root,"calls.jsonl"),JSON.stringify({kind,name,args:originalArgs,...extra})+"\n");
 if(name==="gum"){
  if(args[0]==="choose"){
-  let choices=JSON.parse(fs.readFileSync(path.join(root,"choices.json"))),choice=choices.shift();
+  const choices=JSON.parse(fs.readFileSync(path.join(root,"choices.json"))),choice=choices.shift();
   fs.writeFileSync(path.join(root,"choices.json"),JSON.stringify(choices));
   const offered=args.slice(args.indexOf("--")+1),at=args.indexOf("--selected"),selected=at<0?offered[0]:args[at+1];
-  if(choice==="continue-then-decline"){
-   choice=offered.includes("Yes")?"Yes":"Install without review";
-   choices.unshift("continue-then-decline");fs.writeFileSync(path.join(root,"choices.json"),JSON.stringify(choices));
-  }
   log("offer",{offered,selected,choice,selectedIndex:offered.indexOf(selected),choiceIndex:offered.indexOf(choice)});
   // gum 2.0.2's choose: Ctrl-C exits 130 and Esc 1.
   if(choice==="cancel")process.exit(130);
@@ -41,6 +37,9 @@ function build(){
 }
 const configAt=args.indexOf("--config"),effectiveConfig=configAt<0?"/etc/pacman.conf":args[configAt+1];if(configAt>=0)args.splice(configAt,2);
 const dependencyFile=path.join(root,"dependency-world.json"),dependencies=fs.existsSync(dependencyFile)?JSON.parse(fs.readFileSync(dependencyFile)):{};
+// Canned package answers include only declared entries, even for names
+// such as __proto__ that also exist on Object.prototype.
+const named=(table,key)=>table&&Object.hasOwn(table,key)?table[key]:undefined;
 // Paru v2.1.0, 70f66dc9: install.rs:179-209 snapshots cached .SRCINFO
 // before download; devel.rs:503-525 reads its git sources; install.rs:815-822
 // removes a base with none. gendb (devel.rs:121-126,153-161,204-210) reads
@@ -55,14 +54,14 @@ function devel(gendb){
   log("devel-completion",{config:effectiveConfig});
   if(state.trackingStatus)process.exit(state.trackingStatus);
   if(state.trackingDiagnostic)process.stderr.write(state.trackingDiagnostic+"\n");
-  for(const [base,source] of Object.entries(state.sources))if(!state.tracked[base]&&source&&!state.missingTracking)state.tracked[base]=source;
+  for(const [base,source] of Object.entries(state.sources))if(!named(state.tracked,base)&&source&&!state.missingTracking)state.tracked[base]=source;
  }else{
   if(state.installStatus)process.exit(state.installStatus);
   const targets=args.includes("-Sua")?[].concat(dependencies.pending||[]):args.slice(args.indexOf("--")+1);
   for(const base of targets){
-   if(state.cachedSources[base])state.tracked[base]=state.cachedSources[base];
+   if(named(state.cachedSources,base))state.tracked[base]=named(state.cachedSources,base);
    else delete state.tracked[base];
-   state.cachedSources[base]=state.sources[base];
+   state.cachedSources[base]=named(state.sources,base);
   }
  }
  const dir=path.join(process.env.XDG_STATE_HOME,"paru");fs.mkdirSync(dir,{recursive:true});
@@ -72,7 +71,7 @@ function devel(gendb){
 if(name==="paru"&&args.includes("--gendb")){devel(true);process.exit(0);}
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
- if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":""));
+ if(args.includes("--repo-list"))console.log([...fs.readFileSync(path.join(root,"included.conf"),"utf8").matchAll(/^\[([^\]]+)\]/gm)].map(row=>row[1]).concat(fs.existsSync(path.join(root,"repo-aur"))?["aur"]:[]).join("\n"));
  else if(args.includes("Server")&&!fs.existsSync(path.join(root,"server-empty")))console.log("https://user:secret@packages.example.org/$repo/$arch");
  else if(args.includes("SigLevel"))console.log("Required DatabaseOptional");
  else if(args.includes("DBPath"))console.log(effectiveConfig==="/etc/pacman.conf"&&!fs.existsSync(path.join(root,"config-corresponds"))?"/var/lib/pacman/":path.join(root,"db"));
@@ -80,7 +79,8 @@ if(name==="pacman-conf"){
  process.exit(0);
 }
 if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){
- const target=args.includes("-Qua")&&fs.existsSync(path.join(root,"aur-pending"))?(dependencies.pending||"foreign"):"widget";
+ // AUR-only queries need an AUR target; collisions declare pending explicitly.
+ const target=args.includes("-Qua")?(Object.hasOwn(dependencies,"pending")?dependencies.pending:"foreign"):"widget";
  for(const pkg of Array.isArray(target)?target:[target])console.log((fs.existsSync(path.join(root,"pending-name-changed"))?"another":pkg)+" "+(fs.existsSync(path.join(root,"pending-old-changed"))?"0":"1")+" -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);
 }
 if(name==="pacman"||name==="paru"||name==="yay"){
@@ -89,14 +89,14 @@ if(name==="pacman"||name==="paru"||name==="yay"){
   if(missing.length)console.log(missing.join("\n"));process.exit(missing.length?127:0);
  }
  if(args.includes("-Sddp")){
-  const entry=args.at(-1),row=dependencies.satisfiers?.[entry];
+  const entry=args.at(-1),row=named(dependencies.satisfiers,entry);
   if(row?.error){process.stderr.write(row.error);process.exit(1);}
   if(row!==undefined){process.stdout.write(row+"\n");process.exit(0);}
   process.stderr.write("error: target not found: "+entry+"\n");process.exit(1);
  }
  if(args.includes("-Po")){
   if(dependencies.buildOrder){
-   const order=dependencies.buildOrder[args.at(-1)]||dependencies.buildOrder.upgrade;
+   const order=named(dependencies.buildOrder,args.at(-1))||named(dependencies.buildOrder,"upgrade");
    if(typeof order==="string")console.log(order);
    else{
     if(order.stdout)process.stdout.write(order.stdout);
@@ -106,7 +106,7 @@ if(name==="pacman"||name==="paru"||name==="yay"){
    }
    process.exit(0);
   }
-  const row=dependencies.order?.[args.at(-1)];
+  const row=named(dependencies.order,args.at(-1));
   if(row===undefined){console.log("MISSING "+args.at(-1));process.exit(1);}
   console.log(row);process.exit(0);
  }
@@ -114,7 +114,7 @@ if(name==="pacman"||name==="paru"||name==="yay"){
  if(args.includes("-Si")){
   const pkg=args.at(-1);if(fs.existsSync(path.join(root,"info-failed"))||/[<>=]/.test(pkg))process.exit(1);
   console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":pkg));
-  const fields=dependencies.info?.[pkg]||{};
+  const fields=named(dependencies.info,pkg)||{};
   for(const key of ["Depends On","Make Deps","Check Deps"])if(fields[key]!==null)console.log(key+" : "+(fields[key]||"None"));
   process.exit(0);
  }
@@ -168,13 +168,14 @@ if(name==="claude"||name==="codex"){
  if(fs.existsSync(path.join(root,"agent-failed-once"))&&name==="claude")process.exit(4);
  if(fs.existsSync(path.join(root,"agent-failed")))process.exit(4);const prompt=args.at(-1),match=/The review directory is `([^`]+)`/.exec(prompt);
  if(!match)throw new Error("fixture missing review directory");
- console.log("Reviewing package origin and build files as your user.");
+ console.log("Reading AUR build recipes as your user.");
  if(!fs.existsSync(path.join(root,"agent-no-verdict"))){
   const flagged=fs.existsSync(path.join(root,"agent-concern"));
-  fs.writeFileSync(path.join(match[1],"verdict"),dependencies.flag?"verdict flagged\nflag "+dependencies.flag+" Further verification required.\n":fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag widget A source requires further verification.\n":"verdict clean\n",{mode:0o600});
+  const first=fs.readFileSync(path.join(match[1],"packages.txt"),"utf8").split("\n").find(line=>line.startsWith("aur "))?.split(" ")[1];
+  fs.writeFileSync(path.join(match[1],"verdict"),dependencies.flag?"verdict flagged\nflag "+dependencies.flag+" Further verification required.\n":fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag "+first+" A source requires further verification.\n":"verdict clean\n",{mode:0o600});
   if(fs.existsSync(path.join(root,"agent-unsafe")))fs.chmodSync(path.join(match[1],"verdict"),0o644);
   if(fs.existsSync(path.join(root,"agent-unreadable")))fs.chmodSync(path.join(match[1],"verdict"),0o000);
-  console.log(flagged?"Review complete: one concern requires your choice.":"Review complete: no concern in the listed packages.");
+  console.log("The review is done. Exit the agent to see the summary and installation choices.");
  }
  process.exit(0);
 }

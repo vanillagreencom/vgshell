@@ -22,6 +22,8 @@ try{
  const reply=JSON.parse(fs.readFileSync(result));
  fs.writeFileSync(path.join(root,"one-review-result.json"),JSON.stringify(reply));
  if(reply.decision!=="proceed")process.exit(0);
+ const decision=JSON.parse(fs.readFileSync(path.join(env.VGS_PACKAGE_TRANSACTION,reply.receipt)));
+ fs.writeFileSync(path.join(root,"one-review-origins.json"),JSON.stringify(decision.state.steps.flatMap(step=>step.binding?.origins||[])));
  if(scenario==="receipt-format"){
   const record=JSON.parse(fs.readFileSync(path.join(env.VGS_PACKAGE_TRANSACTION,reply.receipt)));
   assert.equal(record.version,1,"receipt-format: receipt version");

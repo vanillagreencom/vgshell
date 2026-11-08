@@ -1,6 +1,6 @@
-# Review third-party packages
+# Review AUR packages
 
-Review packages from outside the distribution's official repositories for supply-chain risk before VGS installs them. Work fast. Batch your commands and keep your output short.
+Review AUR build recipes for supply-chain risk before VGS installs them. Work fast. Batch your commands and keep your output short.
 
 ## Safety
 
@@ -15,9 +15,6 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
 - `packages.txt` lists what to review, one item per line:
   - `helper <command>`: the AUR helper of this system, paru or yay.
   - `aur <package> <installed version> <new version>`: a package from the Arch User Repository. `?` is a version the update does not know.
-  - `repo <repository> <package> <installed version> <new version>`: a package from a pacman repository that is not official.
-  - `server <repository> <url>`: one server of that repository.
-  - `siglevel <repository> <level>`: the signature level pacman applies to it.
   - `install <package> <state>`: how the update changes the AUR package's install script against the installed package's: `none` (the update has no install script), `new` (the installed package has none), `unchanged`, `changed`, or `unread` (the update could not find or read the script).
   - `unknown <cause>`: evidence the update could not establish. `dependencies=unresolved name=<package>` is the fixed limit that an AUR build may add dependencies no review can know before the build. It does not mean the listed package's review failed. Review the gathered package files normally; that limit alone needs no flag. Other causes name failed evidence reads, which the installer shows before asking whether to continue without a review.
 - `build/<folder>/` holds each AUR package's build files, which the update fetched for you. The folder is the package base, which for a split package differs from the package's name.
@@ -31,7 +28,7 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
    - a `source=()` entry from an unexpected or unofficial domain, or a download from an arbitrary host;
    - an obfuscated or encoded payload, a download piped to a shell, or base64 decoded into a shell;
    - an install script judged only by its change, by its `install` line in `packages.txt`:
-     - for `unchanged`, do not flag the script, and say "Install script unchanged" in the package's line;
+     - for `unchanged`, do not flag the script;
      - for `changed`, read `install/<package>.diff` and flag only privileged or destructive work, a setuid or setgid bit or a write outside the build directory that the change adds or alters;
      - for `new` or `unread`, review the whole script the package's `.SRCINFO` names.
 
@@ -41,14 +38,13 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
 
    A version, `pkgver` or checksum bump and an ordinary build change are not concerns.
 
-3. A repository package has no build file to read, so review its origin: whether each server belongs to the project the repository is named for, whether its signature level requires a signature, and whether the package is one that repository is known to publish.
-4. Write `verdict` in the review directory, in exactly this form, and nothing else:
+3. Write `verdict` in the review directory, in exactly this form, and nothing else:
    - line 1 is `verdict clean` when no package has a real risk, else `verdict flagged`;
    - after a `verdict flagged` line, one line `flag <package> <concern>` per package with a real risk, the package named as `packages.txt` names it and the concern in one plain sentence.
 
    Flag a package you cannot verify. A package you do not flag installs.
 
-5. Show one line per package with what you found. Then tell the user: "The review is done. Exit the agent to return to the package installer."
+4. Tell the user: "The review is done. Exit the agent to see the summary and installation choices." VGS displays one summary grouped by verdict. Do not repeat the package list or print a result for each package.
 
 ## User questions
 
