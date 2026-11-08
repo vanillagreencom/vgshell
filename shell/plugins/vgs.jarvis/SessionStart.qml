@@ -172,10 +172,12 @@ Item {
         }
         // A block to fix or a failure keeps its keyed cause in the log, as
         // the helper wrote it (session-control.js `jarvis: session-<verb>=`).
-        // A block that waits on the user's choice is no fault to log.
-        if ((answer.kind === "blocked" && Gate.SESSION_CHOICES.indexOf(answer.block) === -1) || answer.kind === "failed"
+        // A choice blocking an enabled boot start needs the same diagnosis.
+        const bootBlocked = current.verb === "build" && wanted && answer.kind === "answer" && answer.state === "blocked";
+        const block = answer.kind === "blocked" ? answer.block : bootBlocked ? answer.reason : null;
+        if ((block !== null && ((current.verb === "build" && wanted) || Gate.SESSION_CHOICES.indexOf(block) === -1)) || answer.kind === "failed"
                 || (answer.kind === "answer" && answer.state === "failed"))
-            console.warn("jarvis-session: " + current.verb + "=" + (answer.kind === "blocked" ? "blocked block=" + answer.block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
+            console.warn("jarvis-session: " + current.verb + "=" + (block !== null ? "blocked block=" + block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
                 + (errors === "" ? "" : " cause=" + errors.split("\n")[0].slice(0, 180)));
         let again = false;
         if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;

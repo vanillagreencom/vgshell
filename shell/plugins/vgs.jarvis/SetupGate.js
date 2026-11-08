@@ -809,8 +809,8 @@ var SESSION_BLOCKS = {
 };
 // The blocks that wait only on a choice the user has not made yet, or that
 // the home cannot offer: the session is optional (Start Jarvis at boot is
-// off at first), so these read in the info tone; the other blocks are
-// faults to fix, which the bar names (sessionSummary).
+// off at first), so these read in the info tone while boot start is off;
+// boot start on makes every block a warning to fix (sessionSummary).
 var SESSION_CHOICES = ["no-account", "not-app", "no-home", "vgs-package"];
 var SESSION_FAILED = "Jarvis did not start";
 // PluginLogic STATUS_HINT_MAX, the longest hint a status row takes.
@@ -984,7 +984,8 @@ function sessionStart(wanted, result, offered, notDismissed) {
     if (result.kind === "blocked") {
         if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
         var block = SESSION_BLOCKS[result.block];
-        var blocked = { tone: SESSION_CHOICES.indexOf(result.block) !== -1 ? "info" : "warning", text: block.text, hint: block.hint };
+        var blocked = { tone: !wanted && SESSION_CHOICES.indexOf(result.block) !== -1 ? "info" : "warning",
+            text: wanted ? "Cannot start" : block.text, hint: block.hint };
         if (block.action !== undefined) blocked.action = block.action;
         return blocked;
     }

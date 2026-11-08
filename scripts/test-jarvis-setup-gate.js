@@ -1357,9 +1357,10 @@ function verifySession(gate) {
     // an optional step, the rest as a fault to fix. Each row offers its
     // action, or links the page that fixes it: none is a dead end.
     assert.deepEqual(Object.keys(gate.SESSION_BLOCKS).sort(), Object.keys(SESSION_BLOCK_ACTIONS).sort(), "a row for each block of the contract");
-    for (const [block, action] of Object.entries(SESSION_BLOCK_ACTIONS)) {
-        const value = plain(gate.sessionStart(true, { kind: "blocked", block }));
-        assert.deepEqual([value.tone, offered(value)], [SESSION_INFO_BLOCKS.includes(block) ? "info" : "warning", action], block + ": the tone and the action");
+    for (const [block, action] of Object.entries(SESSION_BLOCK_ACTIONS)) for (const wanted of [true, false]) {
+        const value = plain(gate.sessionStart(wanted, { kind: "blocked", block }));
+        assert.deepEqual([value.tone, offered(value)], [!wanted && SESSION_INFO_BLOCKS.includes(block) ? "info" : "warning", action], block + ": the tone and the action");
+        if (wanted && SESSION_INFO_BLOCKS.includes(block)) assert.notEqual(value.text, gate.SESSION_BLOCKS[block].text, block + ": boot enabled names the block");
         assert.equal(typeof value.text === "string" && value.text !== "" && typeof value.hint === "string" && value.hint !== "", true, block + ": the row has its words");
         if (action === "none") assert.notEqual(pageReference.parse(value.hint).page, "", block + ": the hint links the page that fixes it");
     }
@@ -3349,6 +3350,21 @@ function verifyPathForm(gate) {
     const hint =readiness(gate, { kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
     assert.deepEqual(settingLinks(hint), ["brain"], "Setup AI model hint links the field");
     const source = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
+    const answered = source.match(/^    function answered\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(answered, "the session answer handler is read");
+    // The shell log consumes this keyed line. Run the actual answer handler
+    // for selection blocks and package blocks with boot on and off.
+    for (const [name, result, block] of [
+        ...SESSION_INFO_BLOCKS.map(block => [block, { kind: "blocked", block }, block]),
+        ["package refusal", { kind: "answer", state: "blocked", reason: "trust-required" }, "trust-required"]
+    ]) for (const wanted of [true, false]) {
+        const logs = [];
+        const context = { output: JSON.stringify(result), errors: "", exitCode: 0, current: { verb: "build", home: "~/Jarvis" },
+            wanted, shell: { settings: { home: "~/Jarvis" } }, unapplied: "", result: null, stepsPending: false, pollSince: 0,
+            Gate: gate, console: { warn: text => logs.push(text) }, publish: () => {}, takeNext: () => {} };
+        vm.runInNewContext("(" + answered[0] + ")", context)();
+        assert.deepEqual(logs, wanted ? ["jarvis-session: build=blocked block=" + block] : [], name + ": boot " + wanted + " log");
+    }
     const publish = source.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
     assert.ok(publish);
     for (const block of ["no-home", "no-account", "not-app"]) {

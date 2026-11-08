@@ -9,11 +9,10 @@
 //   status HOME                      reads the session; starts nothing
 //   build ACCOUNT HOME MODE BOOT     the service's build: `start --origin
 //                                    app-on` after the app's Off, else
-//                                    while BOOT is "on" `resume --origin
-//                                    boot` when MODE is "resume", no
-//                                    session lives and the package holds a
-//                                    record saved before a machine
-//                                    restart, else `start --origin boot`;
+//                                    while BOOT is "on" `start --origin
+//                                    boot`; MODE "resume" with ACCOUNT
+//                                    empty uses the record's harness and
+//                                    account;
 //                                    else a status read
 //   start ACCOUNT HOME MODE          `start --origin manual`
 //   resume HOME                      `resume --origin manual`: the record
@@ -287,11 +286,12 @@ async function main() {
     // turned Jarvis on again.
     const origin = verb === "start" ? "manual" : now.state === "off" ? "app-on" : boot === "on" ? "boot" : null;
     if (origin === null) return answer(now);
-    // The record names the app of each session it resumes, so a resume
-    // takes no account. A session that lives, a resume's among them, is not
-    // resumed again; the package handles `start --origin boot` once a boot.
-    if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);
-    const who = account(setting);
+    // An explicit selection wins over history; the package's start judges
+    // whether that selection can resume. With no selection, boot resume
+    // uses the record's app and account (jarvis-session start --help).
+    const who = origin === "boot" && mode === "resume" && setting === ""
+            && now.harness !== null && now.harness !== "" && now.account !== null && now.account !== ""
+        ? { harness: now.harness, directory: now.account } : account(setting);
     if (who.kind !== "blocked") return start(at, who, mode, origin);
     // A session that lives, one started by hand among them, stays shown.
     return LIVE.includes(now.state) ? { ...await answer(now), unapplied: who.block } : who;
