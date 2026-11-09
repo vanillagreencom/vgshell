@@ -228,7 +228,13 @@ function registryOf(entries) {
         const r = logic.validateManifest(raw, entry.dir);
         if (!r.ok || plugins.has(r.manifest.id)) continue;
         if (!Array.isArray(entry.missing)) refuse("scan=malformed dir=" + entry.dir + " reason=missing-list");
-        plugins.set(r.manifest.id, { manifest: r.manifest, missing: entry.missing });
+        let manifest;
+        try {
+            manifest = logic.requirementOwner(r.manifest, entry.drmDrivers);
+        } catch (e) {
+            refuse("scan=malformed dir=" + entry.dir + " reason=" + e.message);
+        }
+        plugins.set(manifest.id, { manifest, missing: entry.missing });
     }
     return plugins;
 }

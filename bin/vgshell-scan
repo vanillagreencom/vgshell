@@ -6,6 +6,7 @@ either the manifest text with the source revision, or the read error.
 Validation is not done here: the shell's PluginLogic.js is the one judge of
 a manifest, and this script only reads bytes, probes PATH for command
 requirements, probes D-Bus names and reads NetworkManager VPN plugin files.
+Conditional command requirements also read the DRM cards' driver fields.
 
   vgshell-scan [--require-base] [--core FILE] [--snapshot-dir ROOT [--retain REVISION]...] BASE...
   vgshell-scan --watch-core DIR
@@ -27,6 +28,15 @@ when the text is not a JSON object with a `requirements` list. The scan
 probes each command once and each bus once, however many plugins declare
 them, and judges nothing: PluginLogic.js decides whether an entry is well
 formed, and a refused manifest's list is never read (D035).
+
+An entry declaring `drmDriver: "nvidia"` also carries `drmDrivers`, with
+`nvidia` mapped to `{state: "present"|"absent"|"unknown"}`. The reader of
+`/sys/class/drm/cardN/device/uevent` runs once per scan. An exact
+`DRIVER=nvidia` establishes presence; only complete enumeration and reads
+establish absence. An incomplete discovery with no match reports unknown
+with `reason`, the failed operation and path, and logs that cause once.
+Registry and the CLI's shared requirement judge consume this independent
+fact; it never changes literal command absence in `missing`.
 
 --core names the core's own requirements file, config/requirements.json,
 whose requirements the scan probes the same way, sharing each command and
@@ -101,6 +111,7 @@ sys.dont_write_bytecode = True
 import dbus_wire  # noqa: E402
 
 NM_VPN_DIRECTORIES = ("/usr/lib/NetworkManager/VPN", "/etc/NetworkManager/VPN")
+DRM_DIRECTORY = "/sys/class/drm"
 
 
 def nm_vpn_services():
@@ -244,7 +255,7 @@ def requirement_entries(text, core=False):
         dbus = entry.get("dbus")
         nm_vpn = entry.get("nmVpn")
         if isinstance(command, str):
-            out.append({"name": command, "bus": None})
+            out.append({"name": command, "bus": None, "drmDriver": entry.get("drmDriver")})
         elif isinstance(dbus, dict) and dbus.get("bus") in ("system", "session") and isinstance(dbus.get("name"), str):
             out.append({"name": dbus["name"], "bus": dbus["bus"]})
         elif isinstance(nm_vpn, dict) and isinstance(nm_vpn.get("service"), str):
@@ -283,6 +294,45 @@ def missing_requirements(text, probed, bus_cache, core=False):
     return missing
 
 
+def nvidia_drm_driver():
+    """Read the same uevent driver field sysmon uses to select its cards.
+    A found match proves presence even when another card cannot be read.
+    Optional hardware advice stays available on an unknown reading, so a
+    failed discovery must not refuse unrelated plugins or certify absence."""
+    reason = None
+    try:
+        names = os.listdir(DRM_DIRECTORY)
+    except OSError as exc:
+        names = []
+        reason = f"cannot list {DRM_DIRECTORY}: {exc}"
+    for name in sorted(names):
+        if not name.startswith("card") or not name[4:].isdigit():
+            continue
+        path = os.path.join(DRM_DIRECTORY, name, "device", "uevent")
+        try:
+            with open(path, encoding="utf-8") as source:
+                lines = source.read().splitlines()
+        except (OSError, UnicodeError) as exc:
+            if reason is None:
+                reason = f"cannot read {path}: {exc}"
+            continue
+        if "DRIVER=nvidia" in lines:
+            return {"state": "present"}
+    if reason is not None:
+        print(f"vgshell-scan: drm-driver=nvidia probe=unavailable cause={reason}", file=sys.stderr)
+        return {"state": "unknown", "reason": reason}
+    return {"state": "absent"}
+
+
+def requirement_drm_drivers(text, probed, core=False):
+    if not any(entry.get("drmDriver") == "nvidia" for entry in requirement_entries(text, core)):
+        return {}
+    key = ("drmDrivers",)
+    if key not in probed:
+        probed[key] = nvidia_drm_driver()
+    return {"nvidia": probed[key]}
+
+
 def scan_core(path, out, probed, bus_cache):
     try:
         with open(path, "rb") as fh:
@@ -293,7 +343,11 @@ def scan_core(path, out, probed, bus_cache):
     except UnicodeDecodeError as exc:
         out.append({"dir": path, "path": path, "error": f"core requirements are not UTF-8: {exc.reason} at byte {exc.start}"})
         return
-    out.append({"core": path, "text": text, "missing": missing_requirements(text, probed, bus_cache, core=True)})
+    entry = {"core": path, "text": text, "missing": missing_requirements(text, probed, bus_cache, core=True)}
+    drm_drivers = requirement_drm_drivers(text, probed, core=True)
+    if drm_drivers:
+        entry["drmDrivers"] = drm_drivers
+    out.append(entry)
 
 
 def scan_base(base, out, require_base, snapshot_dir, probed, bus_cache):
@@ -344,6 +398,9 @@ def scan_base(base, out, require_base, snapshot_dir, probed, bus_cache):
             out.append({"dir": plugin_dir, "path": manifest, "error": f"manifest is not UTF-8: {exc.reason} at byte {exc.start}"})
             continue
         entry = {"dir": plugin_dir, "text": text, "revision": source_revision(files), "missing": missing_requirements(text, probed, bus_cache)}
+        drm_drivers = requirement_drm_drivers(text, probed)
+        if drm_drivers:
+            entry["drmDrivers"] = drm_drivers
         if any(path == "migrate" and executable for path, executable, _ in files):
             entry["migrate"] = True
         if snapshot_dir:

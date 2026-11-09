@@ -10,6 +10,7 @@ Item {
     width: 400
     height: 200
     property var publications: []
+    property var suggestions: []
     Component {
         id: serviceComponent
         Sysmon.Service {
@@ -33,9 +34,9 @@ Item {
         property var fixtureFiles: ({})
         property var listedPaths: []
         function init() {
-            root.publications = []; paths = []; cpuReads = 0;
+            root.publications = []; root.suggestions = []; paths = []; cpuReads = 0;
             directories = {}; fixtureFiles = {}; listedPaths = [];
-            const scope = { settings: { gpu: "", cpuSensor: "automatic", refreshSeconds: 10 }, requirements: { missing: [] },
+            const scope = { settings: { gpu: "", cpuSensor: "automatic", refreshSeconds: 10 }, requirements: { missing: [], suggest: function (commands) { root.suggestions.push(commands); return "satisfied"; } },
                 status: { isOk: PluginLogic.statusReplyOk, set: function (key, value) { root.publications = root.publications.concat([{ key: key, value: value }]); return "ok"; } } };
             service = createTemporaryObject(serviceComponent, root, { registered: true, shell: scope });
             verify(service !== null);
@@ -180,6 +181,20 @@ Item {
             const before = readingsCount();
             process.finish(0, 0, "0, 00000000:01:00.0, Fixture GPU, 25, 100, 1000, 54\n");
             compare(readingsCount(), before);
+        }
+        function test_missing_nvidia_command_uses_shared_requirements_data() {
+            return [{ tag: "no-nvidia-driver", driver: "amdgpu" }, { tag: "nvidia-driver", driver: "nvidia" }];
+        }
+        function test_missing_nvidia_command_uses_shared_requirements(data) {
+            service.shell = Object.assign({}, service.shell, { requirements: Object.assign({}, service.shell.requirements, { missing: ["nvidia-smi"] }) });
+            directories = { "/sys/class/drm": ["/sys/class/drm/card0"] };
+            fixtureFiles["/sys/class/drm/card0/device/uevent"] = "DRIVER=" + data.driver + "\nPCI_SLOT_NAME=0000:01:00.0\n";
+            service.discover(); drain("active");
+            compare(JSON.stringify(root.suggestions), JSON.stringify([["nvidia-smi"]]), "the requirement owner decides hardware applicability");
+            compare(service.nvidiaSmiPresent, false, "hardware applicability never changes executable availability");
+            open([card(data.driver)]); drain("active");
+            compare(process.running, false, "an absent executable never starts a query");
+            if (data.driver === "nvidia") compare(service.readings.gpu.state, "unavailable");
         }
         function test_suspended_discovery_completes_after_wake_data() {
             return [{ tag: "amd", driver: "amdgpu", expectedState: "ready", expectedFirst: "0000:01:00.0" },

@@ -78,7 +78,7 @@
     {"command": "voxtype", "packages": {"aur": "voxtype-bin"}, "optional": true, "purpose": "Turns what you say into text for the local voice"},
     {"command": "uv", "packages": {"pacman": "uv", "dnf": "uv", "mise": "uv", "nix": "uv"}, "optional": true, "purpose": "Installs the local voice when you set it up"},
     {"command": "curl", "packages": {"pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl"}, "optional": true, "purpose": "Downloads the local voice models when you set up the local voice"},
-    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "purpose": "Checks that the Large local voice model can use your NVIDIA graphics card"},
+    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "drmDriver": "nvidia", "purpose": "Checks that the Large local voice model can use your NVIDIA graphics card"},
     {"command": "ss", "packages": {"pacman": "iproute2", "apt": "iproute2", "dnf": "iproute", "nix": "iproute2"}, "optional": false, "purpose": "Finds the AI model servers that run on this computer"},
     {"command": "gio", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "optional": false, "purpose": "Opens a file or web link for Jarvis with its default application"},
     {"command": "claude", "packages": {"aur": "claude-code", "mise": "claude", "nix": "claude-code"}, "optional": true, "purpose": "Signs in to Claude Code and runs its account as the AI model"},

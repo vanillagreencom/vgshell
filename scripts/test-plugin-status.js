@@ -436,7 +436,7 @@ function suite(ctx, check) {
     // Settings uses this actual Jarvis declaration. Only stand-in PATH entries
     // are probed; no executable, installer or authentication prompt runs.
     const jarvisRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"));
-    const jarvis = ctx.validateManifest(jarvisRaw, "/jarvis").manifest;
+    const jarvis = ctx.requirementOwner(ctx.validateManifest(jarvisRaw, "/jarvis").manifest, { nvidia: { state: "present" } });
     const jarvisService = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Service.qml"), "utf8");
     const jarvisNone = /const offers = \[\{ label: "None", value: "([^"]*)" \}\]\.concat\(homes\);/.exec(jarvisService)?.[1] ?? null;
     const voiceValues = { setupVoice: { tone: "warning", text: "To do", action: "setup" } };

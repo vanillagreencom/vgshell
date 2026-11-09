@@ -27,10 +27,16 @@ Singleton {
     readonly property string sourceDir: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell-sources-" + Quickshell.processId
     readonly property string coreRequirementsFile: Quickshell.shellDir + "/../config/requirements.json"
 
-    // id -> validated manifest, a prototype-free object replaced whole on
-    // every scan whose result differs, so bindings re-evaluate once. Each
-    // carries `__revision` and `__loadUrl` from the scan.
-    property var manifests: Object.create(null)
+    // QML bindings react to property changes, so related scan inputs must
+    // publish in one assignment (Quickshell 0.3.1 QML language guide:
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language/).
+    property var publishedScan: ({
+        manifests: Object.create(null),
+        requirementDrivers: Object.create(null)
+    })
+    // id -> validated manifest, carrying `__revision` and `__loadUrl`.
+    // A hardware-only scan keeps this map's identity and rebuilds nothing.
+    property var manifests: publishedScan.manifests
     // The enabled manifests' effective Hyprland data, shared by the
     // generated layer and each instance's read-only shortcut provider.
     readonly property var hyprlandSections: {
@@ -106,9 +112,10 @@ Singleton {
     // judged manifest and the core's
     // owner, PluginLogic.coreOwner; and each owner's missing commands.
     readonly property var requirementOwners: {
+        const scan = publishedScan;
         const owners = Object.create(null);
-        for (const id of Object.keys(manifests))
-            owners[id] = manifests[id];
+        for (const id of Object.keys(scan.manifests))
+            owners[id] = Logic.requirementOwner(scan.manifests[id], scan.requirementDrivers[id]);
         owners[Logic.CORE_OWNER] = Logic.coreOwner(coreRequirements);
         return owners;
     }
@@ -246,6 +253,7 @@ Singleton {
         }
         const next = Object.create(null);
         const nextMissing = Object.create(null);
+        const nextDrivers = Object.create(null);
         const errs = [];
         const cols = [];
         let nextCore = [];
@@ -273,14 +281,22 @@ Singleton {
                 scanError = "scan output does not parse: " + entry.dir + " carries no missing list";
                 return;
             }
+            try {
+                Logic.requirementOwner(r.manifest, entry.drmDrivers);
+            } catch (e) {
+                scanError = "scan output does not parse: " + entry.dir + ": " + e.message;
+                return;
+            }
             r.manifest.__revision = entry.revision;
             r.manifest.__loadUrl = entry.loadUrl;
             r.manifest.__migrate = entry.migrate === true;
             next[r.manifest.id] = r.manifest;
             nextMissing[r.manifest.id] = entry.missing;
+            nextDrivers[r.manifest.id] = entry.drmDrivers;
         }
         for (const e of errs) console.error("plugins: " + e.dir + ": " + e.error);
-        const mapChanged = JSON.stringify(next) !== JSON.stringify(root.manifests);
+        const current = root.publishedScan;
+        const mapChanged = JSON.stringify(next) !== JSON.stringify(current.manifests);
         const holdMap = root.scanned && root.coreChanged;
         const isChanged = mapChanged && !holdMap;
         if (JSON.stringify(cols) !== JSON.stringify(root.collisions))
@@ -298,7 +314,17 @@ Singleton {
         // presence read them, and would build a plugin its user disabled
         // under a former id, or place a second widget for it.
         if (isChanged) renameUserFile(next);
-        if (isChanged) root.manifests = next;
+        // A held source map must keep its own facts: the next scan may
+        // have removed an id or changed its conditional requirements.
+        // Equal source maps can take fresh hardware facts without changing
+        // the manifest identity that hosts and plugin instances follow.
+        if (!holdMap || !mapChanged) {
+            if (isChanged || JSON.stringify(nextDrivers) !== JSON.stringify(current.requirementDrivers))
+                root.publishedScan = {
+                    manifests: isChanged ? next : current.manifests,
+                    requirementDrivers: nextDrivers
+                };
+        }
         // `scanned` gates every slot key, so it moves after the map.
         root.scanned = true;
         Plugins.startMigrations();
@@ -527,9 +553,11 @@ Singleton {
     }
 
     // Plugin `id`'s requirement rows, each with its state from the last
-    // scan: PluginLogic.requirementRows over its judged manifest.
+    // scan. A manifest publication may request rows before the derived
+    // requirementOwners binding recomputes, so use the same judge directly.
     function requirementsOf(id) {
-        return Logic.requirementRows(manifests[id], Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
+        const scan = publishedScan;
+        return Logic.requirementRows(Logic.requirementOwner(scan.manifests[id], scan.requirementDrivers[id]), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
     }
 
     // Where a plugin was found: `bundled` under the shell's own plugins
@@ -562,6 +590,7 @@ Singleton {
     // reads it, and status writes come every few seconds: managerRows
     // joins the status on read.
     readonly property var managerListing: {
+        const current = publishedScan.manifests;
         const config = Config.effective;
         const descriptions = Capabilities.shortcutDescriptions;
         const failures = Plugins.failedBuilds;
@@ -569,8 +598,8 @@ Singleton {
         const menuConflicts = menu.conflicts;
         const idleProblems = Capabilities.idleProblems;
         const holder = panesHolderId();
-        return Object.keys(manifests).sort().map(id => {
-            const m = manifests[id];
+        return Object.keys(current).sort().map(id => {
+            const m = current[id];
             const errors = [];
             const refusal = buildRefusal(id);
             if (refusal.startsWith("refused: capability=") || refusal.startsWith("refused: hyprland.monitors=")) errors.push(refusal);
@@ -644,22 +673,23 @@ Singleton {
     }
 
     function listJson() {
-        const rows = Object.keys(manifests).sort().map(id => ({
+        const current = publishedScan.manifests;
+        const rows = Object.keys(current).sort().map(id => ({
             id: id,
-            version: manifests[id].version,
-            kinds: manifests[id].kinds,
+            version: current[id].version,
+            kinds: current[id].kinds,
             enabled: isEnabled(id),
-            placed: Logic.isPlaced(Config.effective, manifests[id]),
-            dir: manifests[id].__sourceDir,
-            revision: manifests[id].__revision,
+            placed: Logic.isPlaced(Config.effective, current[id]),
+            dir: current[id].__sourceDir,
+            revision: current[id].__revision,
             requirements: requirementsOf(id)
         }));
         // Before the first scan no id is known, so none is reported unknown.
-        const unknown = scanned ? Logic.unknownIds(Config.effective, manifests) : [];
+        const unknown = scanned ? Logic.unknownIds(Config.effective, current) : [];
         const watchError = coreWatchError === "" ? [] : [{ dir: Quickshell.shellDir, error: coreWatchError }];
         const extra = hyprlandProblems.map(p => ({ dir: p.dir, error: p.error }))
-            .concat(menu.conflicts.map(c => ({ dir: manifests[c.plugin].__sourceDir, error: menuConflictText(c) })))
-            .concat(Capabilities.idleProblems.map(p => ({ dir: manifests[p.plugin].__sourceDir, error: p.error })));
+            .concat(menu.conflicts.map(c => ({ dir: current[c.plugin].__sourceDir, error: menuConflictText(c) })))
+            .concat(Capabilities.idleProblems.map(p => ({ dir: current[p.plugin].__sourceDir, error: p.error })));
         return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
     }
 

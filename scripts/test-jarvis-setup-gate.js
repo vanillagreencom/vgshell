@@ -1812,7 +1812,7 @@ function verifyHomeActions(gate, source) {
             voiceProvider: shell.settings.voiceProvider, accountReader: { modelAccess: { kind: "checking" } }, localRuntime: { setupCause: "", republish: () => true }, localTier: TIER_IDLE,
             voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })(
             { kind: "answered", causes: ["speech=local-not-ready"] });
-        const requirements = judge.requirementRows(manifest, missing, {});
+        const requirements = judge.requirementRows(judge.requirementOwner(manifest, { nvidia: { state: "present" } }), missing, {});
         const row = settingsRows(settings.setupSections(judge.listedTuis(manifest), judge.statusRows(manifest, values), requirements, jarvisOn))
             .find(item => item.key === "setupVoice");
         assert.equal(row.button?.kind, expected, label + ": the Voice step keeps a usable route");

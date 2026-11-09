@@ -31,7 +31,9 @@ permissions bind; under euid 0 the script reports status=not-measured and
 exits 77 instead of passing vacuously."""
 import importlib.machinery
 import importlib.util
+import contextlib
 import fcntl
+import io
 import json
 import os
 import pathlib
@@ -335,6 +337,64 @@ def scanner_module(script):
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+def drm_driver_rows(script=SCAN, quiet=False):
+    """Read real fixture uevents through the scanner's production scan path.
+    The shared command probe remains independent of the driver reading."""
+    rows = [
+        ("NVIDIA driver", {"card0/device/uevent": "DRIVER=nvidia\n"}, "present", None),
+        ("other drivers", {"card0/device/uevent": "DRIVER=i915\n", "card1/device/uevent": "DRIVER=amdgpu\n"}, "absent", None),
+        ("empty completed enumeration", {}, "absent", None),
+        ("manufacturer alone is not the driver", {"card0/device/uevent": "PCI_ID=10DE:2684\nDRIVER=nouveau\n"}, "absent", None),
+        ("connectors are not cards", {"card0-DP-1/device/uevent": "DRIVER=nvidia\n", "card0/device/uevent": "DRIVER=i915\n"}, "absent", None),
+        ("all card numbers are read", {"card0/device/uevent": "DRIVER=i915\n", "card12/device/uevent": "DRIVER=nvidia\n"}, "present", None),
+        ("unreadable root", {}, "unknown", "."),
+        ("partial card read", {"card0/device/uevent": "DRIVER=nvidia\n", "card1/device/uevent": "DRIVER=i915\n"}, "unknown", "card0/device/uevent"),
+        ("NVIDIA match after unreadable card", {"card0/device/uevent": "DRIVER=i915\n", "card1/device/uevent": "DRIVER=nvidia\n"}, "present", "card0/device/uevent"),
+        ("vanished card input", {"card0/device/other": "", "card1/device/uevent": "DRIVER=i915\n"}, "unknown", None),
+        ("invalid UTF-8 card input", {"card0/device/uevent": b"\xff", "card1/device/uevent": "DRIVER=i915\n"}, "unknown", None),
+    ]
+    results = []
+    for name, files, state, unreadable in rows:
+        with tempfile.TemporaryDirectory() as tmp:
+            module = scanner_module(script)
+            root = os.path.join(tmp, "drm")
+            os.mkdir(root)
+            optional = {"command": "nvidia-smi", "optional": True, "drmDriver": "nvidia", "purpose": "GPU readings"}
+            manifests = {owner: {"id": "acme." + owner, "requirements": [optional]} for owner in ("a", "b")}
+            manifests["plain"] = {"id": "acme.plain", "requirements": [requirement("nvidia-smi")]}
+            plant(tmp, {
+                **{"plugins/" + owner + "/manifest.json": json.dumps(manifest) for owner, manifest in manifests.items()},
+                **{"drm/" + path: value for path, value in files.items()},
+            })
+            os.mkdir(os.path.join(tmp, "stubs"))
+            out = []
+            stderr = io.StringIO()
+            try:
+                if unreadable is not None:
+                    os.chmod(root if unreadable == "." else os.path.join(root, unreadable), 0o000)
+                with mock.patch.object(module, "DRM_DIRECTORY", root), \
+                        mock.patch.dict(os.environ, {"PATH": os.path.join(tmp, "stubs")}), \
+                        mock.patch.object(module.os, "listdir", wraps=os.listdir) as listed, \
+                        contextlib.redirect_stderr(stderr):
+                    module.scan_base(os.path.join(tmp, "plugins"), out, False, None, {}, {})
+            finally:
+                if unreadable is not None:
+                    os.chmod(root if unreadable == "." else os.path.join(root, unreadable), 0o755)
+            entries = {os.path.basename(entry["dir"]): entry for entry in out}
+            facts = [entries[owner].get("drmDrivers", {}).get("nvidia") for owner in ("a", "b")]
+            good = set(entries) == set(manifests) and all(isinstance(fact, dict) and fact.get("state") == state for fact in facts) and facts[0] == facts[1]
+            if state == "unknown":
+                failed_path = os.path.join(root, "card0", "device", "uevent") if unreadable != "." else root
+                good = good and all(isinstance(fact.get("reason"), str) and failed_path in fact["reason"] for fact in facts)
+                good = good and stderr.getvalue().count("drm-driver=nvidia probe=unavailable cause=") == 1
+            else:
+                good = good and facts == [{"state": state}] * 2 and stderr.getvalue() == ""
+            good = good and all(entry.get("missing") == ["nvidia-smi"] for entry in entries.values())
+            good = good and "drmDrivers" not in entries["plain"] and listed.call_args_list.count(mock.call(root)) == 1
+            results.append(good if quiet else report("drm driver: " + name, good, str(out) + stderr.getvalue()))
+    return results
 
 
 def listing_lifetime_rows(script=SCAN, quiet=False):
@@ -1048,6 +1108,9 @@ def main():
     results.append(mutant_control("migration entry discovery", 'entry["migrate"] = True', 'pass', migration_rows))
     results += probe_rows()
     results.append(probe_control())
+    results += drm_driver_rows()
+    results.append(mutant_control("the DRM rows reject the original scan without driver facts",
+                                  'return {"nvidia": probed[key]}', 'return {}', drm_driver_rows))
     results += nm_vpn_rows()
     results.append(mutant_control("the VPN rows reject treating a missing plugin as present",
                                   'present = name in probed[("nmVpn",)]', 'present = True', nm_vpn_rows))
