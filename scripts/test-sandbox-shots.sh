@@ -1868,6 +1868,114 @@ for (( i = 0; i < ${#tailscale_stop_controls[@]}; i += 4 )); do
   if tailscale_stop_cases "$tailscale_stop_mutant" "${tailscale_stop_controls[i]}"; then fail "control: $label stayed green"; else ok "control: $label"; fi
 done
 
+# Drive the real scene_capture and its capture_shot_* helpers, with
+# harness.sh's own expect, over a stand-in of the core's Capture state:
+# setPluginPlaced on a disabled plugin answers PluginLogic.placedRefusal's
+# `reason=disabled` refusal, and enabling an unplaced bar widget places it
+# (PluginLogic.withEnabled). The model answers at once, so expect_poll
+# takes one reading. RUN `scene` drives scene_capture from START, which
+# ends with Capture as it found it, and a refused placement fails once
+# and takes no frame. RUN `return` drives capture_shot_return from START
+# back to END, as the notification scene's teardown does after leaving
+# Capture off and placed.
+capture_scene_case() { # SCRIPT RUN START FAILURES END FRAMES
+  local script="$1" run="$2" found="$3" dir got status=0 want_failures="$4" want_end="$5" frames="$6" e p
+  dir="$(mktemp -d "$tmp/capture-scene.XXXXXX")" || return 1
+  python3 - "$script" "$repo/scripts/smoke/harness.sh" "$dir/scene.sh" <<'PY' || return 1
+import re, sys
+text, harness = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+def function(name, source):
+    at = re.search(r'^' + re.escape(name) + r'\(\) \{', source, re.M)
+    assert at, 'capture-scene-extraction:' + name
+    end = source.index('\n', at.start()) if source[:source.index('\n', at.start())].endswith('}') else source.index('\n}\n', at.start()) + 2
+    return source[at.start():end]
+names = ['scene_capture'] + sorted(set(re.findall(r'^(capture_shot_[a-z_]+)\(\) \{', text, re.M)))
+blocks = [function(n, harness) for n in ('reader_stderr', 'expect', 'py_reply')] + [function(n, text) for n in names]
+open(sys.argv[3], 'w').write('\n'.join(blocks) + '\n')
+PY
+  printf '%s\n' "${found% *}" >"$dir/enabled"
+  printf '%s\n' "${found#* }" >"$dir/placed"
+  printf '0\n' >"$dir/tab"
+  : >"$dir/frames"
+  read -r e p <<<"$want_end"
+  env -i PATH="$PATH" "$BASH" -c '
+    set -euo pipefail
+    dir="$1" run="$2" end="$3"
+    sandbox="$dir" failures=0 row_class=behaviour shell_class=quickshell settings_kind=window
+    ok() { :; }
+    fail() { failures=$((failures + 1)); printf "FAIL %s\n" "$*"; }
+    take() { printf "%s\n" "$1" >>"$dir/frames"; }
+    jarvis_anchor_shot() { take "$1"; }
+    expect_poll() { expect "$@"; }
+    ipc() {
+      case "$1 $2" in
+        "shell listPlugins") printf "{\"plugins\": [{\"id\": \"vgs.capture\", \"enabled\": %s, \"placed\": %s}]}\n" "$(<"$dir/enabled")" "$(<"$dir/placed")" ;;
+        "shell setPluginPlaced")
+          if [[ $(<"$dir/enabled") == false ]]; then echo "refused: placed=$3 reason=disabled"; else printf "%s\n" "$4" >"$dir/placed"; echo ok; fi ;;
+        "shell setPluginEnabled")
+          printf "%s\n" "$4" >"$dir/enabled"
+          [[ $4 == false ]] || printf "true\n" >"$dir/placed"
+          echo ok ;;
+        "shell hide"|"shell summon"|"smoke invokeInstance") echo ok ;;
+        "smoke readInstance"|"smoke readDescendant") echo false ;;
+        "smoke readShownDescendant") if [[ ${!#} == currentIndex ]]; then cat -- "$dir/tab"; else echo true; fi ;;
+        *) echo "unmodelled: $*"; return 1 ;;
+      esac
+    }
+    record_exists() { if [[ $(<"$dir/enabled") == true ]]; then echo True; else echo False; fi; }
+    type_keys() { if [[ $* == "-k Right" ]]; then echo $(( $(<"$dir/tab") + 1 )) >"$dir/tab"; fi; }
+    active_window() { printf "[\"%s\", \"Capture\"]\n" "$shell_class"; }
+    bar_key() { echo bar; }
+    settings_count() { echo 1; }
+    settings_page() { echo "\"vgs.capture\""; }
+    settings_tab() { echo 0; }
+    park_pointer() { :; }; click_centre() { :; }; settings_tab_click() { :; }; settings_close() { :; }
+    source "$dir/scene.sh"
+    if [[ $run == scene ]]; then scene_capture dark; else capture_shot_return "$end"; fi
+    printf "failures=%s\n" "$failures"
+  ' _ "$dir" "$run" "${e^} ${p^}" </dev/null >"$dir/out" 2>"$dir/err" || status=$?
+  [[ $status -eq 0 && ! -s $dir/err ]] || { sed 's/^/        /' -- "$dir/out" "$dir/err"; return 1; }
+  [[ $(tail -n 1 -- "$dir/out") == "failures=$want_failures" ]] || { sed 's/^/        /' -- "$dir/out"; return 1; }
+  got="$(<"$dir/enabled") $(<"$dir/placed")" || { printf '        the model state is unreadable\n'; return 1; }
+  [[ $got == "$want_end" ]] || { printf '        ended %s want %s\n' "$got" "$want_end"; return 1; }
+  case $frames in
+    none) [[ ! -s $dir/frames ]] ;;
+    widget) grep -qx -- 'capture-dark-widget' "$dir/frames" ;;
+  esac || { printf '        frames %s want %s\n' "$(tr '\n' ' ' <"$dir/frames")" "$frames"; return 1; }
+}
+capture_scene_cases() { # SCRIPT [RUN:START]
+  local run start failures_want end frames
+  while IFS='|' read -r run start failures_want end frames; do
+    [[ -z ${2:-} || $run:$start == "$2" ]] || continue
+    capture_scene_case "$1" "$run" "$start" "$failures_want" "$end" "$frames" || { printf '        case %s from %s\n' "$run" "$start"; return 1; }
+  done <<'CAPTURE_SCENE_CASES'
+scene|true false|0|true false|widget
+scene|true true|0|true true|widget
+scene|false false|1|false false|none
+return|false true|0|true false|none
+return|false true|0|false false|none
+CAPTURE_SCENE_CASES
+}
+if capture_scene_cases "$repo/scripts/sandbox-shots.sh"; then
+  ok "scene_capture returns Capture as it found it, and a refused placement fails once with no frame"
+else
+  fail "scene_capture found-state contract"
+fi
+capture_scene_controls=(
+  'scene:false false' 'a refused placement that does not end the scene takes frames' 'capture_shot_set "Capture is placed for its widget image" Placed vgs.capture true || { capture_shot_return "$found"; return; }' 'capture_shot_set "Capture is placed for its widget image" Placed vgs.capture true || true'
+  'scene:true false' 'a scene that does not return its placement leaves the widget on the bar' '  settings_close
+  capture_shot_return "$found"
+}' '  settings_close
+}'
+  'return:false true' 'an off Capture is not enabled before its placement returns' '  if [[ ${now% *} == False ]]; then' '  if false; then'
+)
+for (( i = 0; i < ${#capture_scene_controls[@]}; i += 4 )); do
+  label="${capture_scene_controls[i + 1]}"
+  capture_scene_mutant="$tmp/capture-scene-mutant.sh"
+  mutate "$repo/scripts/sandbox-shots.sh" "${capture_scene_controls[i + 2]}" "${capture_scene_controls[i + 3]}" "$capture_scene_mutant" || { fail "control: $label could not be planted"; continue; }
+  if capture_scene_cases "$capture_scene_mutant" "${capture_scene_controls[i]}" >/dev/null; then fail "control: $label stayed green"; else ok "control: $label"; fi
+done
+
 # Run the System scene's geometry wait against a compositor fixture. A
 # queued layer reload reads the active Lua configuration after both readers
 # agree, before capture. A stale service or unapplied rule prevents capture.

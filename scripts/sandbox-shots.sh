@@ -3331,11 +3331,47 @@ scene_panels() { # MODE
   scene_themes_panel "$1"
 }
 
+# Capture's enablement and placement, `ENABLED PLACED` as listPlugins
+# reads them, or `absent`.
+capture_shot_state() { ipc shell listPlugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.capture"]; print(*([r[0]["enabled"], r[0]["placed"]] if r else ["absent"]))'; }
+capture_shot_known() { [[ $1 == "True True" || $1 == "True False" || $1 == "False True" || $1 == "False False" ]]; }
+# capture_shot_set LABEL VERB ID VALUE: setPlugin<VERB> must answer ok;
+# any other answer, a refusal among them, is LABEL's one failure and
+# returns 1 so the scene ends before its next shot.
+capture_shot_set() { # LABEL VERB ID VALUE
+  local before="$failures"
+  expect "$1" ok ipc shell "setPlugin$2" "$3" "$4"
+  [[ $failures == "$before" ]]
+}
+# capture_shot_return FOUND: Capture back to FOUND, as capture_shot_state
+# read it when the scene started. The core refuses to place or unplace a
+# disabled widget (PluginLogic.placedRefusal), and enabling an unplaced
+# one places it (PluginLogic.withEnabled), so placement is set while
+# Capture is enabled and an off Capture is turned off last.
+capture_shot_return() { # FOUND
+  local enabled="${1% *}" placed="${1#* }" now
+  now="$(capture_shot_state)" || { fail "Capture's state is unreadable at its scene's end: $now"; return; }
+  [[ $now != "$1" ]] || return 0
+  if [[ ${now% *} == False ]]; then
+    capture_shot_set "Capture enables to return to its found state" Enabled vgs.capture true || return 0
+    expect_poll "Capture is built to return to its found state" True record_exists vgs.capture
+  fi
+  expect "Capture's widget returns to its found placement" ok ipc shell setPluginPlaced vgs.capture "${placed,,}"
+  if [[ $enabled == False ]]; then
+    expect "Capture returns to off" ok ipc shell setPluginEnabled vgs.capture false
+    expect_poll "Capture's workers end as it returns to off" False record_exists vgs.capture
+  fi
+  expect_poll "Capture reads as its scene found it" "$1" capture_shot_state
+}
+
 # Capture's idle widget, options window in each mode and Settings page
 # Recording section.
 # No action or recorder is started.
 scene_capture() { # MODE
-  expect "Capture is placed for its widget image" ok ipc shell setPluginPlaced vgs.capture true
+  local found
+  found="$(capture_shot_state)" || found="unreadable: $found"
+  capture_shot_known "$found" || { fail "Capture's state is unreadable before its scene: $found"; return; }
+  capture_shot_set "Capture is placed for its widget image" Placed vgs.capture true || { capture_shot_return "$found"; return; }
   expect_poll "Capture's widget is built for its image" false ipc smoke readInstance "$(bar_key)" vgs.capture recording
   park_pointer
   take "capture-$1-widget"
@@ -3365,6 +3401,7 @@ scene_capture() { # MODE
   expect_poll "the Capture page shows Settings" 0 settings_tab
   jarvis_anchor_shot "capture-settings-$1-recording" SectionHeader Recording
   settings_close
+  capture_shot_return "$found"
 }
 
 # Remote desktop over stand-ins of its own, built as the remote-desktop
@@ -3451,15 +3488,44 @@ scene_remote-desktop() { # MODE
   device_reply_clear systemctl
 }
 
+# capture_notice_end STATE CAPTURE_FOUND NOTES_FOUND: the notification
+# scene's teardown, run however the scene ended once its tools were
+# swapped in. Capture stops over its confined tools before they leave
+# PATH, then returns to CAPTURE_FOUND and Notifications to NOTES_FOUND.
+capture_notice_end() { # STATE CAPTURE_FOUND NOTES_FOUND
+  local tool result
+  expect "Capture stops after its notification scene" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "Capture releases its notification scene workers" False record_exists vgs.capture
+  if result="$(notes dismiss-all)"; then
+    case $result in ok|none) ;; *) fail "dismissing scene notifications answered $result" ;; esac
+  else
+    fail "scene notifications could not close"
+  fi
+  expect "scene history is cleared" ok notes clear-history
+  for tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+    rm -- "$shim/$tool"
+    if [[ -e $1/shims/$tool ]]; then mv -- "$1/shims/$tool" "$shim/$tool"; fi
+  done
+  if [[ $3 == False ]]; then
+    expect "Notifications returns to off after Capture's notification scene" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "the notification service ends after Capture's notification scene" False record_exists vgs.notifications
+  fi
+  capture_shot_return "$2"
+}
+
 # The shipped Capture producer, with the existing confined tool fixture.
 # --rev exports only product sources; this scene and its readers stay current.
 scene_capture-notifications() { # MODE
-  local mode="$1" real_grim state tool sequence index label program pair expected path at result notify_before held_before
+  local mode="$1" real_grim state tool sequence index label program pair expected path at result notify_before held_before capture_found notes_found
   local -a labels=()
   state="$sandbox/capture-notifications-$mode"
-  expect "Capture stops before its notification fixture" ok ipc shell setPluginEnabled vgs.capture false
-  expect_poll "Capture releases its earlier workers" False record_exists vgs.capture
+  capture_found="$(capture_shot_state)" || capture_found="unreadable: $capture_found"
+  capture_shot_known "$capture_found" || { fail "Capture's state is unreadable before its notification scene: $capture_found"; return; }
+  notes_found="$(plugin_enabled vgs.notifications)" || notes_found="unreadable: $notes_found"
+  [[ $notes_found == True || $notes_found == False ]] || { fail "vgs.notifications' enablement is unreadable before Capture's notification scene: $notes_found"; return; }
   real_grim="$(command -v grim)" || { fail "Capture's nested grim is missing"; return; }
+  capture_shot_set "Capture stops before its notification fixture" Enabled vgs.capture false || { capture_shot_return "$capture_found"; return; }
+  expect_poll "Capture releases its earlier workers" False record_exists vgs.capture
   mkdir -p -- "$state/shims"
   python3 - "$checkout/scripts/test-capture.py" "$state" "$real_grim" "$nested_socket" "$rt_dir" <<'PY'
 import importlib.util,sys
@@ -3474,9 +3540,9 @@ PY
   done
   source "$checkout/scripts/smoke/fixtures/capture/notifications.sh"
   capture_notice_tools "$state"
-  expect "notifications enable for Capture's live actions" ok ipc shell setPluginEnabled vgs.notifications true
+  capture_shot_set "notifications enable for Capture's live actions" Enabled vgs.notifications true || { capture_notice_end "$state" "$capture_found" "$notes_found"; return; }
   expect_poll "the notification service is built" True record_exists vgs.notifications
-  expect "Capture enables over its confined tools" ok ipc shell setPluginEnabled vgs.capture true
+  capture_shot_set "Capture enables over its confined tools" Enabled vgs.capture true || { capture_notice_end "$state" "$capture_found" "$notes_found"; return; }
   expect_poll "Capture's fixture service is built" True record_exists vgs.capture
   for tool in viewer editor; do
     expect "Capture uses its $tool stand-in" ok ipc vgs.capture invoke setting "$(python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":sys.argv[2]}))' "$tool" "$capture_open/$tool %f")"
@@ -3488,8 +3554,8 @@ PY
   expect_poll "the private notification observer is ready" True capture_notice_monitor_ready
   expected='[]'
   for sequence in open-first edit-first; do
-    result="$(notes dismiss-all)" || { fail "earlier fixture notifications could not close"; return; }
-    case $result in ok|none) ;; *) fail "dismissing earlier fixture notifications answered $result"; return ;; esac
+    result="$(notes dismiss-all)" || { fail "earlier fixture notifications could not close"; break; }
+    case $result in ok|none) ;; *) fail "dismissing earlier fixture notifications answered $result"; break ;; esac
     expect "earlier fixture history clears" ok notes clear-history
     notify_before="$(capture_notice_notify_count)"
     held_before="$(capture_notice_held)"
@@ -3552,15 +3618,7 @@ PY
       take_posed "capture-notifications-$mode-$sequence-dismissed"
     fi
   done
-  expect "Capture stops after its notification scene" ok ipc shell setPluginEnabled vgs.capture false
-  expect_poll "Capture releases its notification scene workers" False record_exists vgs.capture
-  result="$(notes dismiss-all)" || { fail "scene notifications could not close"; return; }
-  case $result in ok|none) ;; *) fail "dismissing scene notifications answered $result"; return ;; esac
-  expect "scene history is cleared" ok notes clear-history
-  for tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
-    rm -- "$shim/$tool"
-    if [[ -e $state/shims/$tool ]]; then mv -- "$state/shims/$tool" "$shim/$tool"; fi
-  done
+  capture_notice_end "$state" "$capture_found" "$notes_found"
 }
 
 # AI Usage's dropdown from its widget, at rest, then scrolled halfway down
