@@ -14,7 +14,7 @@ Store mutations hold the store lock. The first read converts version 1 definitio
 
 The pending marker retains the original due time and the runner's process-start and boot identity. Cancel, Edit, Disable and Remove cancel a waiting attempt before changing its definition; they do not stop an admitted command. Scheduled waits retain the latest-unhandled-occurrence rule. Manual waits end on connectivity or cancellation.
 
-`outcomeOf` defines the narrow `network-dns` skip: a scheduled network-dependent command fails by itself within the DNS window, reports a recognized name-resolution error and follows a successful newest ended run. A first run, cleared history, a previous skip or failure, a manual run, a timeout or a signal keeps its normal outcome. Use that judge for both history and notification decisions.
+`outcomeOf` defines the narrow resolver skips. A resolver failure is a scheduled network-dependent command that fails by itself within the DNS window and reports a recognized name-resolution error. After a successful newest ended run, it is skipped as `network-dns`, since FULL can be stale just after a resume. After anything else, the runner asks NetworkManager to re-check connectivity, and the failure is skipped as `network-offline` only when that reading is NONE, PORTAL or LIMITED. FULL, UNKNOWN, a refused re-check or an unreadable reading keeps the failure, so one name that fails while the internet works still alerts. A manual run, a timeout or a signal keeps its normal outcome. Use that judge for both history and notification decisions.
 
 ## Notifications
 

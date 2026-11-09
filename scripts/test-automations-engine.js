@@ -79,7 +79,11 @@ function write(file, text, mode) {
 // bound when it reads `hang`, as a system bus slow to answer just after a
 // resume leaves it; its wait for StateChanged reads the State, then appends
 // its --timeout word to $STUB/nm-waits and returns when $STUB/nm changes,
-// as the signal would, or after its timeout with no output; crontab
+// as the signal would, or after its timeout with no output; its
+// CheckConnectivity call appends a line to $STUB/nm-checks and finds the
+// state $STUB/nm-check holds, writing it to $STUB/nm and answering it, or
+// the unchanged $STUB/nm without that file, and refuses as busctl does a
+// failed call when the file reads `refuse`; crontab
 // keeps the table in $STUB/crontab; loginctl answers $STUB/linger.
 const STUBS = {
     systemctl: `#!/usr/bin/env bash
@@ -123,6 +127,13 @@ case "$*" in
       sleep 0.05
     done
     exit 0 ;;
+  "--system --json=short call --timeout=25 $nm CheckConnectivity")
+    echo check >>"$STUB/nm-checks"
+    if [[ -f $STUB/nm-check ]]; then
+      [[ $(<"$STUB/nm-check") == refuse ]] && { echo "Call failed: Access denied" >&2; exit 1; }
+      cp "$STUB/nm-check" "$STUB/nm"
+    fi
+    printf '{"type":"u","data":[%s]}\\n' "$(<"$STUB/nm")"; exit 0 ;;
   "--user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetId") v=$(<"$STUB/bus") ;;
   "--user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetNameOwner s org.freedesktop.Notifications") v=$(<"$STUB/owner") ;;
   *) echo "busctl stand-in: unexpected $*" >&2; exit 2 ;;
@@ -725,28 +736,68 @@ const CASES = {
         }
     },
 
-    "a scheduled network run that cannot resolve a name just after a success skips once"(engine) {
-        const unresolved = "echo \"fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com\" >&2; exit 128";
-        const { w, id, due } = networkWorld(engine, { value: "4", command: unresolved });
-        const day = 86400000;
+    "a scheduled network run whose one name does not resolve with the internet up skips once after a success"(engine) {
+        const { w, id, due } = networkWorld(engine, { value: "4", command: UNRESOLVED });
         const streak = path.join(w.home, ".local/state/vgshell/automations/streak", id + ".json");
-        const latest = () => runFiles(w).filter(n => n.endsWith(".ended.json")).map(n => JSON.parse(fs.readFileSync(path.join(w.runs, n), "utf8"))).sort((a, b) => b.startedAt - a.startedAt)[0];
-        plant(w, id, due - day);
+        plant(w, id, due - DAY);
         const first = cli(w, engine, ["run", "--scheduled", id]);
-        same([first.status, latest().outcome, latest().reason, latest().exitCode], [0, "skipped", "network-dns", 128], first.stderr);
-        assert.equal(Logic.recordError(latest(), "ended"), "");
-        same([calls(w, "notify-send"), fs.existsSync(streak)], [[], false], "a DNS skip after a success sends nothing and opens no streak");
-        // The name never resolves: every later run fails and alerts.
+        same([first.status, latestEnded(w).outcome, latestEnded(w).reason, latestEnded(w).exitCode], [0, "skipped", "network-dns", 128], first.stderr);
+        assert.equal(Logic.recordError(latestEnded(w), "ended"), "");
+        same([calls(w, "notify-send"), fs.existsSync(streak), checks(w)], [[], false, 0], "a DNS skip after a success sends nothing, opens no streak and needs no re-check");
+        // NetworkManager re-checks FULL after each later failure.
         for (const k of [1, 2]) {
-            clockAt(w, due + k * day + 5 * 60000, 0);
+            clockAt(w, due + k * DAY + 5 * 60000, 0);
             const again = cli(w, engine, ["run", "--scheduled", id]);
-            same([again.status, latest().outcome, latest().reason], [1, "failed", ""], "DNS failure " + (k + 1) + " in a row fails");
+            same([again.status, latestEnded(w).outcome, latestEnded(w).reason, checks(w)], [1, "failed", "", k], "DNS failure " + (k + 1) + " in a row fails");
+            same(journalNetwork(again.stderr).map(out => [out.operation, out.category, out.connectivity]), [["get-property", "connectivity", 4], ["get-property", "connectivity", 4]], "the admission read and the re-check's read");
         }
         same(calls(w, "notify-send").map(c => c.slice(-1)[0].split("\n")[0]), ["fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", "Failed 2 times since Sat 31 Oct 2026 09:05"], "each failure alerts");
         const other = networkWorld(engine, { value: "4", command: "echo 'rsync: Permission denied' >&2; exit 23" });
-        plant(other.w, other.id, other.due - day);
+        plant(other.w, other.id, other.due - DAY);
         const failed = cli(other.w, engine, ["run", "--scheduled", other.id]);
-        same([failed.status, calls(other.w, "notify-send").length], [1, 1], "another failure after a success stays failed");
+        same([failed.status, calls(other.w, "notify-send").length, checks(other.w)], [1, 1, 0], "another failure after a success stays failed with no re-check");
+    },
+
+    "scheduled network runs that cannot resolve a name with no internet skip whatever ran before"(engine) {
+        // [the run before, how the world makes it, its history row]. Each
+        // later run is admitted on the cached FULL; the re-check after its
+        // failure finds NONE, and the next run's admission finds FULL again.
+        for (const [before, make, earlier] of [
+            ["none", () => {}, []],
+            ["an offline skip", (w, id, due) => plant(w, id, due - DAY, false, { trigger: "scheduled", slot: due - DAY, outcome: "skipped", reason: "network-offline-late", exitCode: null, durationMs: 0, endedAt: due - DAY }), [["skipped", "network-offline-late"]]],
+            ["a failure", (w, id) => assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 1, "the failure before, with the internet up"), [["failed", ""]]]
+        ]) {
+            const { w, id, due } = networkWorld(engine, { value: "4", command: UNRESOLVED });
+            const streak = path.join(w.home, ".local/state/vgshell/automations/streak", id + ".json");
+            make(w, id, due);
+            const streakBefore = fs.existsSync(streak) ? fs.readFileSync(streak, "utf8") : null;
+            const sent = calls(w, "notify-send").length;
+            write(path.join(w.stub, "nm-check"), "1");
+            const skippedRuns = [];
+            for (const k of [1, 2]) {
+                clockAt(w, due + k * DAY + 5 * 60000, 0);
+                write(path.join(w.stub, "nm"), "4");
+                const out = cli(w, engine, ["run", "--scheduled", id]);
+                same([out.status, latestEnded(w).outcome, latestEnded(w).reason, latestEnded(w).exitCode], [0, "skipped", "network-offline", 128], "run " + k + " after " + before + ": " + out.stderr);
+                assert.equal(Logic.recordError(latestEnded(w), "ended"), "");
+                same(journalNetwork(out.stderr).map(n => [n.operation, n.category, n.connectivity]), [["get-property", "connectivity", 4], ["get-property", "connectivity", 1]], "admitted on FULL, re-checked to NONE");
+                skippedRuns.push(latestEnded(w).run);
+            }
+            same([calls(w, "notify-send").length, fs.existsSync(streak) ? fs.readFileSync(streak, "utf8") : null], [sent, streakBefore], "no notice and the streak unchanged after " + before);
+            const hist = cli(w, engine, ["history", id, "--json"]);
+            assert.equal(hist.status, 0, hist.stderr);
+            const rows = JSON.parse(hist.stdout).rows;
+            same(rows.slice(0, 2).map(row => [row.run, row.outcome, row.reason]), skippedRuns.reverse().map(run => [run, "skipped", "network-offline"]), "history lists both skips after " + before);
+            same(rows.slice(2).map(row => [row.outcome, row.reason]), earlier, "history keeps the run before: " + before);
+        }
+        // A refused re-check is no reading: the run stays failed and the
+        // journal names the call's refusal.
+        const { w, id, due } = networkWorld(engine, { value: "4", command: UNRESOLVED });
+        write(path.join(w.stub, "nm-check"), "refuse");
+        clockAt(w, due + 5 * 60000, 0);
+        const out = cli(w, engine, ["run", "--scheduled", id]);
+        same([out.status, latestEnded(w).outcome, calls(w, "notify-send").length], [1, "failed", 1], out.stderr);
+        same(journalNetwork(out.stderr).map(n => [n.operation, n.category, n.exit]), [["get-property", "connectivity", 0], ["call", "exit", 1]], "the refused re-check in the journal");
     },
 
     "edit disable remove and explicit Cancel invalidate only waiting attempts"(engine) {
@@ -1137,16 +1188,31 @@ function holdLock(w, lock) {
 
 // An ended run of automation ID that started at MS, with its transcript;
 // with `open`, only its started record.
-function plant(w, id, ms, open) {
+// An ended run of `id` at `ms` that succeeded, or with `fields` in place;
+// a started one alone when `open`.
+function plant(w, id, ms, open, fields) {
     const run = ms + "-" + (worlds * 100 + runFiles(w).length);
     const transcript = path.join(w.runs, Logic.runFile(id, run, "log"));
     const rec = { version: 1, automation: id, run: run, name: id, command: "true", directory: w.home, trigger: "manual", slot: null, startedAt: ms, transcript: transcript };
     write(transcript, "# planted\n");
     if (open) return write(path.join(w.runs, Logic.runFile(id, run, "started")), JSON.stringify(rec));
-    write(path.join(w.runs, Logic.runFile(id, run, "ended")), JSON.stringify(Object.assign(rec, { endedAt: ms + 1, durationMs: 1, outcome: "succeeded", exitCode: 0, signal: null, reason: "", transcriptBytes: 10, truncated: false, snippet: "" })));
+    write(path.join(w.runs, Logic.runFile(id, run, "ended")), JSON.stringify(Object.assign(rec, { endedAt: ms + 1, durationMs: 1, outcome: "succeeded", exitCode: 0, signal: null, reason: "", transcriptBytes: 10, truncated: false, snippet: "" }, fields || {})));
 }
 
 const NETWORK_DUE = Date.parse("2026-10-30T09:00:00Z");
+const DAY = 86400000;
+const UNRESOLVED = "echo \"fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com\" >&2; exit 128";
+
+// The automation's newest ended run.
+function latestEnded(w) {
+    return runFiles(w).filter(n => n.endsWith(".ended.json")).map(n => JSON.parse(fs.readFileSync(path.join(w.runs, n), "utf8"))).sort((a, b) => b.startedAt - a.startedAt)[0];
+}
+
+// The CheckConnectivity calls the busctl stand-in answered.
+function checks(w) {
+    const file = path.join(w.stub, "nm-checks");
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length : 0;
+}
 function networkWorld(engine, options) {
     const opts = Object.assign({ value: "1", catchUp: false, minutely: false, command: "echo done" }, options);
     const w = world({ nowMs: NETWORK_DUE + 5 * 60000, systemd: opts.systemd || "up", stubs: opts.value === null ? FORBIDDEN.filter(name => name !== "busctl") : FORBIDDEN });
@@ -1199,8 +1265,11 @@ function runnerExit(child) {
 // The runner journal's stable machine line keeps operation causes apart
 // from the UI's plain pending diagnostic and command notifications.
 function networkLogs(child) {
-    return fs.readFileSync(child.logFile, "utf8").split("\n").slice(0, -1)
-        .filter(line => line.startsWith("automations: network="))
+    return journalNetwork(fs.readFileSync(child.logFile, "utf8").split("\n").slice(0, -1).join("\n"));
+}
+
+function journalNetwork(text) {
+    return String(text).split("\n").filter(line => line.startsWith("automations: network="))
         .map(line => JSON.parse(line.slice("automations: network=".length)));
 }
 
@@ -1272,9 +1341,11 @@ const CONTROLS = [
     ["cron lines run the scheduled trigger", "under cron a catch-up automation runs a missed occurrence at startup", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"scheduled\"), runnerEnvironment)", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"manual\"), runnerEnvironment)"],
     ["a crontab without a table reads empty", "without a systemd user manager sync keeps a crontab block", "if (out.status === 1 && /^no crontab for /.test(firstLine(out.stderr))) return \"\";", ""],
     ["a late skip ends its unit clean", "offline lateness skips neutrally or catches up the latest once", "log(\"skipped=\" + id + \" reason=\" + (answer.reason || \"cancelled\"));", "process.exit(1);"],
-    ["the runner judges a DNS failure", "a scheduled network run that cannot resolve a name just after a success skips once", "requiresNetwork: automation.requiresNetwork === true,", "requiresNetwork: false,"],
-    ["a DNS skip ends its unit clean", "a scheduled network run that cannot resolve a name just after a success skips once", "outcome === \"succeeded\" || outcome === \"skipped\" ? 0 : 1", "outcome === \"succeeded\" ? 0 : 1"],
-    ["the judge reads the previous run", "a scheduled network run that cannot resolve a name just after a success skips once", "previous: previousEnded(id) }", "previous: null }"],
+    ["the runner judges a DNS failure", "a scheduled network run whose one name does not resolve with the internet up skips once after a success", "requiresNetwork: automation.requiresNetwork === true,", "requiresNetwork: false,"],
+    ["a DNS skip ends its unit clean", "a scheduled network run whose one name does not resolve with the internet up skips once after a success", "outcome === \"succeeded\" || outcome === \"skipped\" ? 0 : 1", "outcome === \"succeeded\" ? 0 : 1"],
+    ["the judge reads the previous run", "a scheduled network run whose one name does not resolve with the internet up skips once after a success", "previous: previousEnded(id),", "previous: null,"],
+    ["the judge reads connectivity after the command", "scheduled network runs that cannot resolve a name with no internet skip whatever ran before", "connectivity: () => recheckConnectivity(id, env) }", "connectivity: () => null }"],
+    ["the runner re-checks before it reads", "scheduled network runs that cannot resolve a name with no internet skip whatever ran before", "const check = Connectivity.networkCall(env, \"call\", ", "const check = { category: \"completed\" } || Connectivity.networkCall(env, \"call\", "],
     ["no scheduler refuses", "with neither scheduler sync refuses", "if (chosen === \"none\") refuse(\"scheduler=none\", \"neither a systemd user manager nor crontab answered\");", ""]
 ];
 

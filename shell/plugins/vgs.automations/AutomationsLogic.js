@@ -1045,32 +1045,44 @@ var NETWORK_DNS_WINDOW_MS = 60000;
 // gai_strerror(EAI_AGAIN).
 var NETWORK_DNS_PHRASES = ["Could not resolve host: ", "Could not resolve hostname ", "Temporary failure in name resolution"];
 
+// The Connectivity readings that prove the host has no internet: NONE,
+// PORTAL and LIMITED. UNKNOWN may mean checks are disabled and proves no
+// outage. https://networkmanager.dev/docs/api/latest/nm-dbus-types.html
+var NM_CONNECTIVITY_OFFLINE = [1, 2, 3];
+
 // A run's outcome and reason from how its command ended: `failed-start`
 // when it never ran, `timeout` when the runner's timer killed it,
 // `succeeded` on exit 0, else `failed`, each with the ending's reason.
-// `context` is { trigger, requiresNetwork, snippet, durationMs, previous },
-// `previous` the automation's newest ended run before this one, or null.
-// A failure is `skipped` with reason `network-dns` only when the
-// automation needs the network, the trigger is scheduled (a person at Run
-// now or Test run keeps the failure to act on), the command exited
-// non-zero by itself within NETWORK_DNS_WINDOW_MS of its start, a line of
-// its snippet names one of NETWORK_DNS_PHRASES, and the automation's
-// newest ended run succeeded. A name that never resolves therefore fails
-// from its second run on, every run after; a first run, a run whose
-// history was cleared or pruned, and a run after any skip or failure keep
-// the failure.
+// `context` is { trigger, requiresNetwork, snippet, durationMs, previous,
+// connectivity }: `previous` the automation's newest ended run before this
+// one, or null, and `connectivity` a function that re-checks NetworkManager
+// and returns its Connectivity reading, or null when unreadable. A
+// resolver failure is a failure of an automation that needs the network,
+// on the scheduled trigger (a person at Run now or Test run keeps the
+// failure to act on), whose command exited non-zero by itself within
+// NETWORK_DNS_WINDOW_MS of its start with a snippet line naming one of
+// NETWORK_DNS_PHRASES. A resolver failure is `skipped`: `network-dns` when
+// the newest ended run succeeded, since FULL can be stale just after a
+// resume, else `network-offline` when the re-check reads a value in
+// NM_CONNECTIVITY_OFFLINE. Only that second case calls `connectivity`, at
+// most once. With FULL, UNKNOWN or no reading the failure stands, so a
+// name that never resolves while the internet works alerts on every run
+// but the one after a success.
 function outcomeOf(ending, context) {
     if (ending.started !== true) return { outcome: "failed-start", reason: ending.reason };
     if (ending.timedOut === true) return { outcome: "timeout", reason: ending.reason };
     if (ending.exitCode === 0 && ending.signal === null) return { outcome: "succeeded", reason: ending.reason };
-    var previous = context.previous;
-    var dns = context.requiresNetwork === true && context.trigger === "scheduled"
+    var failed = { outcome: "failed", reason: ending.reason };
+    var resolver = context.requiresNetwork === true && context.trigger === "scheduled"
         && ending.signal === null && ending.exitCode !== null && context.durationMs <= NETWORK_DNS_WINDOW_MS
         && String(context.snippet).split("\n").some(function (line) {
             return NETWORK_DNS_PHRASES.some(function (phrase) { return line.indexOf(phrase) !== -1; });
-        })
-        && previous !== null && previous.outcome === "succeeded";
-    return dns ? { outcome: "skipped", reason: "network-dns" } : { outcome: "failed", reason: ending.reason };
+        });
+    if (!resolver) return failed;
+    var previous = context.previous;
+    if (previous !== null && previous.outcome === "succeeded") return { outcome: "skipped", reason: "network-dns" };
+    var reading = context.connectivity();
+    return NM_CONNECTIVITY_OFFLINE.indexOf(reading) !== -1 ? { outcome: "skipped", reason: "network-offline" } : failed;
 }
 
 // The error notification's snippet: the last stderr lines, or the last
@@ -1218,6 +1230,7 @@ function failureText(reason) {
 // "" for a reason with nothing to add to Skipped.
 var SKIP_TEXT = {
     "network-offline-late": "No internet connection",
+    "network-offline": "No internet connection",
     "network-dns": "Network not ready yet",
     "cancelled-before-start": "Cancelled before start"
 };

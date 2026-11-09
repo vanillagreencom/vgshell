@@ -369,35 +369,45 @@ function verify(logic) {
         { outcome: "failed-start", reason: "shell=unknown" }, { outcome: "timeout", reason: "timeout=5s" },
         { outcome: "succeeded", reason: "" }, { outcome: "failed", reason: "" }, { outcome: "failed", reason: "" }]);
     // A scheduled network command that failed on name resolution just
-    // after its start is skipped for the network: [label, ending change,
-    // context change, outcome].
+    // after its start: [label, ending change, context change, the skip
+    // reason or failed]. The judge may read connectivity only where a row
+    // gives a reading; the context's own reader refuses.
     const dnsExit = { started: true, timedOut: false, exitCode: 128, signal: null, reason: "" };
-    const dnsContext = { trigger: "scheduled", requiresNetwork: true, snippet: "Cloning\nfatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", durationMs: 800, previous: { outcome: "succeeded", reason: "" } };
+    const unread = () => { throw new Error("connectivity read for a run that cannot skip on it"); };
+    const reads = value => () => value;
+    const afterSuccess = { outcome: "succeeded", reason: "" };
+    const afterDns = { outcome: "skipped", reason: "network-dns" };
+    const dnsContext = { trigger: "scheduled", requiresNetwork: true, snippet: "Cloning\nfatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", durationMs: 800, previous: afterSuccess, connectivity: unread };
+    // The gates that keep the failure, each held on both of the judge's
+    // branches: after a success, which skips with no reading, and after a
+    // DNS skip, which reads. [label, ending change, context change].
+    const gates = [
+        ["a manual trigger", {}, { trigger: "manual" }],
+        ["no network requirement", {}, { requiresNetwork: false }],
+        ["past the window", {}, { durationMs: 60001 }],
+        ["a signal", { exitCode: null, signal: "SIGTERM" }, {}],
+        ["another failure", {}, { snippet: "rsync: Permission denied" }]
+    ];
     for (const [label, ending, context, outcome] of [
-        ["curl and git", {}, {}, "skipped"],
-        ["OpenSSH", {}, { snippet: "ssh: Could not resolve hostname github.com: Name or service not known\nfatal: Could not read from remote repository." }, "skipped"],
-        ["glibc", {}, { snippet: "ping: github.com: Temporary failure in name resolution" }, "skipped"],
-        ["at the window's end", {}, { durationMs: 60000 }, "skipped"],
-        ["a manual trigger", {}, { trigger: "manual" }, "failed"],
-        ["no network requirement", {}, { requiresNetwork: false }, "failed"],
-        ["past the window", {}, { durationMs: 60001 }, "failed"],
-        ["a signal", { exitCode: null, signal: "SIGTERM" }, {}, "failed"],
-        ["another failure", {}, { snippet: "rsync: Permission denied" }, "failed"],
-        ["a second DNS failure in a row", {}, { previous: { outcome: "skipped", reason: "network-dns" } }, "failed"],
-        ["a first run or cleared history", {}, { previous: null }, "failed"],
-        ["after a failure", {}, { previous: { outcome: "failed", reason: "" } }, "failed"],
-        ["after an offline skip", {}, { previous: { outcome: "skipped", reason: "network-offline-late" } }, "failed"]
-    ]) same(logic.outcomeOf(Object.assign({}, dnsExit, ending), Object.assign({}, dnsContext, context)),
-        outcome === "skipped" ? { outcome: "skipped", reason: "network-dns" } : { outcome: "failed", reason: "" }, "a DNS failure: " + label);
-    // A name that never resolves, after a success: each run's result is the
-    // next run's previous.
-    const sequence = [];
-    for (let k = 0, previous = { outcome: "succeeded", reason: "" }; k < 6; k++) {
-        previous = logic.outcomeOf(dnsExit, Object.assign({}, dnsContext, { previous }));
-        sequence.push(previous.outcome);
-    }
-    same(sequence, ["skipped", "failed", "failed", "failed", "failed", "failed"], "a name that never resolves fails from its second run on");
-    same(logic.outcomeOf(Object.assign({}, dnsExit, { timedOut: true, exitCode: null, signal: "SIGTERM", reason: "timeout=5s" }), dnsContext), { outcome: "timeout", reason: "timeout=5s" }, "a DNS failure: a timeout");
+        ["curl and git", {}, {}, "network-dns"],
+        ["OpenSSH", {}, { snippet: "ssh: Could not resolve hostname github.com: Name or service not known\nfatal: Could not read from remote repository." }, "network-dns"],
+        ["glibc", {}, { snippet: "ping: github.com: Temporary failure in name resolution" }, "network-dns"],
+        ["at the window's end", {}, { durationMs: 60000 }, "network-dns"],
+        ["no internet after a DNS skip", {}, { previous: afterDns, connectivity: reads(1) }, "network-offline"],
+        ["a captive portal on a first run", {}, { previous: null, connectivity: reads(2) }, "network-offline"],
+        ["limited after a failure", {}, { previous: { outcome: "failed", reason: "" }, connectivity: reads(3) }, "network-offline"],
+        ["no internet after an offline skip", {}, { previous: { outcome: "skipped", reason: "network-offline-late" }, connectivity: reads(1) }, "network-offline"],
+        ["the internet up after a DNS skip", {}, { previous: afterDns, connectivity: reads(4) }, "failed"],
+        ["the internet up on a first run", {}, { previous: null, connectivity: reads(4) }, "failed"],
+        ["the internet up after a failure", {}, { previous: { outcome: "failed", reason: "" }, connectivity: reads(4) }, "failed"],
+        ["UNKNOWN after a failure", {}, { previous: { outcome: "failed", reason: "" }, connectivity: reads(0) }, "failed"],
+        ["no reading after an offline skip", {}, { previous: { outcome: "skipped", reason: "network-offline" }, connectivity: reads(null) }, "failed"]
+    ].concat(...gates.map(([label, ending, context]) => [afterSuccess, afterDns].map(previous =>
+        [label + " after " + previous.outcome, ending, Object.assign({}, context, { previous }), "failed"])))
+    ) same(logic.outcomeOf(Object.assign({}, dnsExit, ending), Object.assign({}, dnsContext, context)),
+        outcome === "failed" ? { outcome: "failed", reason: "" } : { outcome: "skipped", reason: outcome }, "a DNS failure: " + label);
+    for (const previous of [afterSuccess, afterDns])
+        same(logic.outcomeOf(Object.assign({}, dnsExit, { timedOut: true, exitCode: null, signal: "SIGTERM", reason: "timeout=5s" }), Object.assign({}, dnsContext, { previous })), { outcome: "timeout", reason: "timeout=5s" }, "a DNS failure: a timeout after " + previous.outcome);
     same(logic.snippetOf(["one", "", "two", "three", "four", "five", "six  "], ["out"]), "two\nthree\nfour\nfive\nsix", "the last five stderr lines");
     same(logic.snippetOf([], ["", "only stdout"]), "only stdout", "stdout when stderr is empty");
     same(logic.snippetOf(["x".repeat(500)], []).length, 400, "a snippet is capped");
@@ -579,7 +589,7 @@ function verify(logic) {
     same(logic.notificationFor("end", automation({}), skipped, priorStreak), null, "a skip sends no alert");
     same(logic.notificationFor("end", automation({ notifyEveryRun: true }), skipped, priorStreak), { summary: "Back up skipped", body: "Network not ready yet", urgency: "low", icon: "circle-minus", tone: "info", click: "open", open: "/r/s.log" }, "under notifyEveryRun a skip ends its start notice");
     same(logic.streakAfter(skipped, priorStreak, null), priorStreak);
-    same(["network-offline-late", "network-dns", "cancelled-before-start", "unknown"].map(logic.skipText), ["No internet connection", "Network not ready yet", "Cancelled before start", ""]);
+    same(["network-offline-late", "network-offline", "network-dns", "cancelled-before-start", "unknown"].map(logic.skipText), ["No internet connection", "No internet connection", "Network not ready yet", "Cancelled before start", ""]);
 
     // List rows, status and the refresh.
     const listed = logic.listRows({ version: 2, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
@@ -935,8 +945,10 @@ const CONTROLS = [
     ["a DNS skip needs the command's own exit", "ending.signal === null && ending.exitCode !== null", "true"],
     ["a DNS skip ends within its window", "context.durationMs <= NETWORK_DNS_WINDOW_MS", "true"],
     ["a DNS skip names a resolver failure", "return NETWORK_DNS_PHRASES.some(", "return true || NETWORK_DNS_PHRASES.some("],
-    ["a DNS skip needs a run before it", "&& previous !== null && previous.outcome === \"succeeded\"", ""],
-    ["a DNS skip follows a success alone", "previous.outcome === \"succeeded\";", "previous.outcome !== \"failed\";"],
+    ["a resume skip needs a resolver failure", "    if (!resolver) return failed;\n", "    if (context.previous !== null && context.previous.outcome === \"succeeded\") return { outcome: \"skipped\", reason: \"network-dns\" };\n    if (!resolver) return failed;\n"],
+    ["a resume skip follows a success alone", "previous.outcome === \"succeeded\") return", "previous.outcome !== \"failed\") return"],
+    ["a skip after a non-success reads connectivity", "var reading = context.connectivity();", "var reading = null;"],
+    ["a skip after a non-success needs no internet", "NM_CONNECTIVITY_OFFLINE.indexOf(reading) !== -1 ?", "reading !== null ?"],
     ["a skipped command ends its start notice", "if (event !== \"end\" || automation.notifyEveryRun !== true) return null;", "return null;"],
     ["a skip names its reason", "return hasOwn(SKIP_TEXT, reason) ? SKIP_TEXT[reason] : \"\";", "return \"\";"],
     ["a list row's last run keeps its reason", "reason: last.reason, ", ""]

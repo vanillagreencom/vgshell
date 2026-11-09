@@ -1068,6 +1068,27 @@ function waitForNetwork(env, connectivity, waitedMs) {
     return outcome;
 }
 
+// NetworkManager's Connectivity after it re-checks, or null when the
+// re-check or the read fails; the journal gets each outcome in the wait's
+// network= form. The property can be up to [connectivity] interval old,
+// 300 s by default; CheckConnectivity refreshes it, waiting at most the
+// [connectivity] timeout, 20 s by default, before reading LIMITED
+// (NetworkManager.conf(5), NetworkManager 1.58.1). busctl's call bound
+// sits above that, and the child's bound ends a busctl that outlasts its
+// own. A user unit may call it: VGS-2392's run on cachy, 2026-11-08.
+const NM_CHECK_SECONDS = 25;
+function recheckConnectivity(id, env) {
+    const report = outcome => log("network=" + JSON.stringify(Object.assign({ id: id }, outcome)));
+    const check = Connectivity.networkCall(env, "call", ["--timeout=" + NM_CHECK_SECONDS, "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "CheckConnectivity"], NM_CHECK_SECONDS * 1000 + 1000).outcome;
+    if (check.category !== "completed") {
+        report(check);
+        return null;
+    }
+    const reading = Connectivity.readConnectivity(env);
+    report(reading.outcome);
+    return reading.connectivity;
+}
+
 // The automation a run whose store was refused reports under: its id as
 // its name, errors only.
 function standIn(id) {
@@ -1120,7 +1141,7 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
         const endedAt = Math.max(Date.now(), startedAt);
         const snippet = Logic.snippetOf(stderrLines, stdoutLines);
         const { outcome, reason } = Logic.outcomeOf(ending, { trigger: trigger, requiresNetwork: automation.requiresNetwork === true,
-            snippet: snippet, durationMs: endedAt - startedAt, previous: previousEnded(id) });
+            snippet: snippet, durationMs: endedAt - startedAt, previous: previousEnded(id), connectivity: () => recheckConnectivity(id, env) });
         const footer = [
             "ended: " + new Date(endedAt).toString(),
             "outcome: " + outcome + (ending.exitCode !== null ? " exit=" + ending.exitCode : "") + (ending.signal !== null ? " signal=" + ending.signal : "") + (reason !== "" ? " reason=" + reason : ""),
