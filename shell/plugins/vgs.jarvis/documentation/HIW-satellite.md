@@ -1,0 +1,36 @@
+# How does a Jarvis satellite reach Jarvis main?
+
+Jarvis main is the computer that runs Jarvis, the long-running session. A Jarvis satellite is a computer that runs only Jarvis Voice. On a satellite, Jarvis Voice does local work itself and forwards work that needs Jarvis to Jarvis main, each time after you confirm it. Main Jarvis host on Settings says which computer is Jarvis main.
+
+```mermaid
+flowchart LR
+    You[You] -->|ask on the satellite| Voice[Jarvis Voice]
+    Voice -->|does local work| Satellite[This computer]
+    Voice -->|forwards after you confirm| Package[Jarvis package on this computer]
+    Package -->|delivers or keeps trying| Main[Jarvis on Jarvis main]
+    Main -->|answers| Slack[Your Slack channel]
+```
+
+## Choosing Jarvis main
+
+Main Jarvis host is under Home on Settings. On Jarvis main, choose This computer. On every other computer, enter Jarvis main's name as your network knows it, such as `cachy`. When the Jarvis home on Jarvis main has a different path, add a colon and that path after the name.
+
+VGS hands this setting to the Jarvis package in your Jarvis home, so a satellite needs a Jarvis home that the Jarvis package set up. The Console shows whether Jarvis main is reachable, or what keeps a forward from working and where to fix it.
+
+## The forward
+
+On a satellite, Jarvis Voice still does local work itself: windows, applications, files, the screen, the private browser and coding tasks, which run on the satellite in its task terminal. [What can Jarvis Voice's AI model read and do?](HIW-ai-model.md) explains that work.
+
+Work that needs Jarvis goes to Jarvis main. A request to your agent fleet or about one of your accounts is one example. Jarvis Voice shows the request's text and asks you to confirm the forward, every time, by voice or on screen. It then hands the text to the Jarvis package and says "Forwarding to your main Jarvis". The forward carries your request's words only. It does not say who spoke, and your confirmation approves the forward alone, not any action on Jarvis main.
+
+## Delivery and the answer
+
+When the package delivers the request, Jarvis Voice says it reached Jarvis main. When the package cannot deliver it yet, the request waits in this computer's outbox, and the Jarvis package keeps sending it while its session runs. Jarvis Voice says the request is queued and not delivered yet, with the cause of the last attempt when the package gives one.
+
+Jarvis on Jarvis main acts on the request under its own rules. The request and Jarvis main's answer appear in your Slack channel. [How do requests and decisions reach Jarvis?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-messages.md#a-second-machine) explains a second machine from the Jarvis package's side.
+
+## Related pages
+
+- [How does Jarvis Voice work with Jarvis?](HIW-jarvis-voice.md)
+- [How does Jarvis start when I sign in?](HIW-startup.md)
+- [What leaves my computer when I use Jarvis Voice?](HIW-what-leaves.md)

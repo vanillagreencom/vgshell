@@ -19,15 +19,22 @@ Jarvis is a voice assistant for your desktop. Talk or type to the AI model you c
 - Use a private browser that asks before it submits.
 - Read conversations, coding tasks and refused actions in the Console.
 - Share your instructions, skills and memory notes with every answering AI model.
-- Start or resume your Jarvis session and send it confirmed agent fleet requests. On another computer, forward them to your main Jarvis.
+- Start or resume Jarvis, your long-running session, and hand it work that needs it after you confirm. On a Jarvis satellite, forward that work to Jarvis main.
 - Keep provider keys in your desktop keyring.
 - Mute Jarvis's voice and read its replies on screen.
 
 ## How it works
 
-Jarvis uses your chosen voice provider to hear you and speak the answer. The AI model reads your instructions, skills and memory notes from your Home folder. Jarvis checks actions before it runs them. Agent fleet requests go to your Jarvis session after you confirm them.
+This plugin is Jarvis Voice, the voice session on your computer. Each conversation asks the AI model you choose, which reads your Jarvis home and acts on this computer after its action check. Work that needs Jarvis, your long-running session, goes to Jarvis on Jarvis main, or by a forward from a Jarvis satellite.
 
-Your request goes to the AI model you choose, over the network when that model runs elsewhere. Local voice keeps speech on your computer. OpenAI Realtime sends speech to OpenAI; Gemini Live sends speech to Google. With ElevenLabs, Local voice hears you on your computer, and ElevenLabs receives the reply text to turn into speech. ElevenLabs may keep request history and use data for model training. To stop new data being used for training, open Terms and privacy → Data use in your account ([ElevenLabs help](https://elevenlabs.io/docs/help-center/legal/is-my-data-used-to-improve-eleven-labs-ai-models)).
+| Your question | Read |
+|---|---|
+| How does Jarvis Voice work with Jarvis? | [Jarvis Voice](documentation/HIW-jarvis-voice.md) |
+| What can Jarvis Voice's AI model read and do? | [AI model](documentation/HIW-ai-model.md) |
+| How long does Jarvis Voice remember a conversation? | [Conversations](documentation/HIW-conversations.md) |
+| How does Jarvis start when I sign in? | [Startup](documentation/HIW-startup.md) |
+| How does a Jarvis satellite reach Jarvis main? | [Satellite](documentation/HIW-satellite.md) |
+| What leaves my computer when I use Jarvis Voice? | [What leaves](documentation/HIW-what-leaves.md) |
 
 ## Setup
 
@@ -45,9 +52,9 @@ Under the Talk key on Settings, Hold to talk starts unchecked. Press Talk to ope
 
 Screen to cloud chooses Ask, Allow or Never for sending screen images or text outside your computer. Private windows chooses which windows Jarvis paints black before it sends a screenshot. Titles do not reliably identify private browsing.
 
-Home folder holds your instructions, skills and notes. On Setup, use Edit beside Personality to change your instructions. Start or resume your Jarvis session from its Setup row; voice and chat work without that session. Start Jarvis at boot and Session at boot choose whether and how it starts when you sign in.
+Home folder is your Jarvis home, which holds your instructions, skills and notes. On Setup, use Edit beside Personality to change your instructions. Start or resume Jarvis from the Jarvis session row on Setup; voice and chat work without Jarvis. Start Jarvis at boot and Session at boot choose whether and how it starts when you sign in.
 
-For agent fleet requests, use Install mail tool on the Agent fleet step. Set Main Jarvis host to This computer where your main Jarvis runs, and to that computer's network name everywhere else. Requests sent to that computer need your confirmation; its answers come in your Slack channel.
+For agent fleet requests, use Install mail tool on the Agent fleet step. Set Main Jarvis host to This computer on Jarvis main, the computer that runs Jarvis, and to Jarvis main's network name on each Jarvis satellite. Requests forwarded to Jarvis main need your confirmation; its answers come in your Slack channel.
 
 Use Optional tools on Setup for missing tools. With GitHub Copilot, turn Copilot Memory off in [GitHub Copilot settings](https://github.com/settings/copilot/features); Details links to that account setting too. Local voice uses the system default microphone, which you can change under Sound in System Settings. Set feedback tones under Sounds in that window.
 
