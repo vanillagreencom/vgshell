@@ -2014,6 +2014,12 @@ function verifyTmuxPalette(template, render = selectionRender) {
             const key = `${mode}-theme-${name}`, actual = fields.get(key) ?? null, expected = `colour${slot.slice("color".length)}`;
             if (actual !== expected) failures.push({ package: pkg.name, key, role: `terminal.${slot}`, actual, expected });
         }
+        // The session label wears the active pane border's normal-case colour.
+        const activeBorder = /^set -g pane-active-border-style "#\{\?pane_in_mode,fg=[^,]+,#\{\?synchronize-panes,fg=[^,]+,fg=([^,}]+)\}\}"$/m.exec(output);
+        assert.ok(activeBorder, pkg.name + "/active border normal case");
+        const label = tmuxStyle(output, "status-left-style").fg ?? null;
+        if (label !== activeBorder[1])
+            failures.push({ package: pkg.name, key: "status-left-style", role: "pane-active-border-style", actual: label, expected: activeBorder[1] });
         const page = tmuxStyle(output, "status-style");
         assert.deepEqual(page, { bg: "default", fg: "default" }, pkg.name + "/client page and text");
         for (const option of ["message-style", "menu-style", "popup-style"]) {
@@ -2077,10 +2083,26 @@ try {
             return true;
         });
     }
+    // The warning label VGS-2199 shipped, amber beside vgs's rose border.
+    const accentLabel = 'set -g status-left-style "fg=@{palette.accent},reverse,bold"\n';
+    assert.equal(tmuxPaletteTemplate.split(accentLabel).length, 2);
+    const warningLabel = tmuxPaletteTemplate.replace(accentLabel, 'set -g status-left-style "fg=@{color.warning},reverse,bold"\n');
+    assert.notEqual(warningLabel, tmuxPaletteTemplate);
+    const warningFile = path.join(tmuxPaletteScratch, "warning-label.conf");
+    fs.writeFileSync(warningFile, warningLabel, { flag: "wx" });
+    assert.throws(() => verifyTmuxPalette(fs.readFileSync(warningFile, "utf8")), error => {
+        if (error.code !== "ERR_ASSERTION" || !Array.isArray(error.actual)) return false;
+        const row = error.actual.find(row => row.package === "vgs" && row.key === "status-left-style");
+        if (row === undefined) return false;
+        assert.deepEqual([row.actual, row.expected], ["colour3", "colour1"]);
+        console.log("test-theme-render: tmux-palette-control " + JSON.stringify({ fault: "warning-label", rejected: true,
+            packages: error.actual.filter(row => row.key === "status-left-style").length, failure: row }));
+        return true;
+    });
 } finally {
     fs.rmSync(tmuxPaletteScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: tmux-palette packages=${selectionPackages.length} modes=dark,light controls=today,missing-black`);
+console.log(`test-theme-render: tmux-palette packages=${selectionPackages.length} modes=dark,light controls=today,missing-black,warning-label`);
 
 function verifySelection(pkg, shipped, template) {
     const rendered = selectionRender.renderTarget(logic, TOKENS, selectionTarget.target,
@@ -3014,7 +3036,7 @@ function verifyAppStyles(render, changedTemplates = {}) {
         const right = tmuxStyle(rendered.tmux, "status-right-style");
         assert.deepEqual(right, { fg: inactive.fg, ...(inactive.dim ? { dim: true } : {}) }, name + "/right content shares the inactive window style");
         if (name === "vgs") {
-            assert.deepEqual(session, { fg: "colour3", reverse: true, bold: true }, name + "/session uses client amber slot");
+            assert.deepEqual(session, { fg: "colour1", reverse: true, bold: true }, name + "/session uses the active border's client rose slot");
             assert.deepEqual(active, { bg: "default", fg: "colour4", bold: true }, name + "/current window uses client blue slot");
         }
         const slotColor = (value, role = "fg") => {
@@ -3837,7 +3859,7 @@ console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length}
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
     ["muted right content", 'set -g status-right-style "fg=@{tmux.inactive_foreground}"', '# set -g status-right-style "fg=@{tmux.inactive_foreground}"\nset -gqu status-right-style'],
-    ["session uses reverse", 'set -g status-left-style "fg=@{color.warning},reverse,bold"', 'set -g status-left-style "fg=@{color.warning},bold"'],
+    ["session uses reverse", 'set -g status-left-style "fg=@{palette.accent},reverse,bold"', 'set -g status-left-style "fg=@{palette.accent},bold"'],
     ["terminal page", 'set -g status-style "bg=@{color.background}', 'set -g status-style "bg=@{palette.accent}'],
     ["active tab remains unfilled", 'set -g window-status-current-style "bg=@{color.background}', 'set -g window-status-current-style "bg=@{palette.accent}'],
     ["unreadable menu text", 'set -gq menu-style "bg=@{color.surfaceRaised},fg=@{color.text}"', 'set -gq menu-style "bg=@{palette.accent},fg=@{palette.accent}"']

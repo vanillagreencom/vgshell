@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- With the VGS theme, the tmux status line draws the theme preview's colours: an orange session label, grey inactive windows and right-side status, and a blue current window. With any theme, grey muted text in tmux stays grey wherever the terminal palette has a readable grey that is dimmer than the text and apart from it, instead of taking a nearby colour.
+- In every theme, the tmux session label takes the active pane border's colour: the readable terminal palette colour nearest in hue to the theme's main colour, which the bar's active desk draws. With the VGS theme, the session label and the active border are the terminal's red, inactive windows and right-side status are grey, and the current window is blue. tmux draws these from your terminal's own palette, so a session over SSH shows them too. With any theme, grey muted text in tmux stays grey wherever the terminal palette has a readable grey that is dimmer than the text and apart from it, instead of taking a nearby colour.
 
 - When an app asks to share your screen, VGS's own picker opens, with no setup step. VGS sets it up when Capture starts, keeps every other line of your screen sharing settings, and waits while an app shares your screen, since setup restarts screen sharing. Turning Capture off gives screen sharing its own picker back once no app shares your screen, and a notification says so when it cannot. The picker's preview stays in place while its list scrolls, and the row you select scrolls into view under it.
 
