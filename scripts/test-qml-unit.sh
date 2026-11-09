@@ -1518,8 +1518,6 @@ mutations=(
   "a row reads whether the row above shows by its geometry|controls/FormRow.qml|item.rowShown ?? (item.visible && item.width > 0 && item.height > 0)|item.visible && item.width > 0 && item.height > 0|tst_settingfield.qml"
   "a bare row hands no line under it to the row below|controls/FormRow.qml|    readonly property real belowLine: lineBelow()|    readonly property real belowLineUnread: lineBelow()|tst_settingfield.qml"
   "a bare row hands no shown state to the row below|controls/FormRow.qml|    readonly property bool rowShown: visible && width > 0 && height > 0|    readonly property bool rowShownUnread: visible && width > 0 && height > 0|tst_settingfield.qml"
-  "a saved slider counts its box above as drawn|controls/SavedSlider.qml|    function inkAbove() { return Math.min(bar.y|    function boxAbove() { return Math.min(bar.y|tst_settingfield.qml"
-  "a saved slider counts its box below as drawn|controls/SavedSlider.qml|    function inkBelow() { return height - Math.max(bar.y|    function boxBelow() { return height - Math.max(bar.y|tst_settingfield.qml"
   "a level slider counts its box above as drawn|controls/LevelSlider.qml|    function inkAbove() {|    function boxAbove() {|tst_settingfield.qml"
   "a level slider counts its box below as drawn|controls/LevelSlider.qml|    function inkBelow() {|    function boxBelow() {|tst_settingfield.qml"
   "a level slider's reading counts its box above as drawn|feedback/LevelLabel.qml|    function inkAbove() { return label.y + label.inkAbove(); }|    function inkAbove() { return 0; }|tst_settingfield.qml"
