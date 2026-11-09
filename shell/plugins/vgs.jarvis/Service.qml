@@ -71,6 +71,42 @@ Item {
     property bool echoRefreshPending: false
     property var sessionState: null
     property var conversationLog: []
+    // Jarvis's reply card under the bar J on the focused output, which the
+    // widget's ReplyCard draws from the `replyCard` status: what it shows
+    // (WidgetView.replyCard) until `replyCard.duration` after its answer
+    // settles, held while the pointer is on it (`reply-hover`). The service
+    // owns it, so the card's click and the console shortcut open the
+    // console at the same answer (summonConsole).
+    readonly property var replyWanted: shell === null || sessionState === null ? null
+        : View.replyCard(conversationLog, sessionState, childSerial + ":" + sessionState.history.epoch)
+    property string replyDismissed: ""
+    property bool replyHovered: false
+    readonly property var replyShown: replyWanted !== null && replyWanted.key !== replyDismissed
+        ? Object.assign({ output: focusedOutput }, replyWanted) : null
+    readonly property string replyKey: replyShown === null ? "" : replyShown.key + ":" + replyShown.settled + ":" + replyShown.output
+    onReplyKeyChanged: {
+        // A card that left under the pointer hears no leave.
+        if (replyShown === null) replyHovered = false;
+        replyHoldUpdate();
+        if (shell === null) return;
+        const reply = StatusPublication.write(shell.status, "replyCard", replyShown);
+        if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+    }
+    onReplyHoveredChanged: replyHoldUpdate()
+    // A new answer, its settling and the pointer's leaving each start the
+    // whole hold again.
+    function replyHoldUpdate() {
+        if (replyShown !== null && replyShown.settled && !replyHovered) replyHold.restart();
+        else replyHold.stop();
+    }
+    Timer {
+        id: replyHold
+        interval: Theme.replyCard.duration
+        onTriggered: if (root.replyShown !== null) root.replyDismissed = root.replyShown.key
+    }
+    // A fault the card shows on the J's output: the overlay's hidden-orb
+    // fault line steps aside while it shows (owner, VGS-2339).
+    readonly property bool replyFaultCarded: replyShown !== null && replyShown.fault && barIndicator !== "gone"
     // Survives daemon restarts and new conversations within this service.
     property var modelNotices: new Set()
     property var setupAnswer: ({ kind: "checking" })
@@ -117,7 +153,7 @@ Item {
     readonly property string focusedOutput: Hyprland.focusedMonitor === null ? "" : Hyprland.focusedMonitor.name
     readonly property bool bubbleWanted: !lockObservation() && lifetime.kind === "ready" && cause === ""
         && sessionState !== null && Session.indicatorWanted(sessionState)
-        && (sessionState.visibility.kind !== "hidden" || sessionState.approval.kind === "held" || sessionState.fault.kind !== "none")
+        && (sessionState.visibility.kind !== "hidden" || sessionState.approval.kind === "held" || sessionState.fault.kind !== "none" && !replyFaultCarded)
     readonly property bool indicatorPresented: bubbles.some(item => item !== null && item.capturePresented)
     // Only the core bar host publishes these completed frames. Placement,
     // existence and widget-originated IPC are not presentation evidence.
@@ -224,6 +260,8 @@ Item {
             shell.ipc.handle("local-setup", step => localSetup(step));
             // The bar widget's click opens the console, as the Console key does.
             shell.ipc.handle("console", () => { summonConsole(); return "ok"; });
+            // The reply card reports the pointer on it, which holds it.
+            shell.ipc.handle("reply-hover", text => { replyHovered = text === "true"; return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
             shell.ipc.handle("new-conversation", () => newConversation());
@@ -642,7 +680,12 @@ Item {
 
     function summonConsole() {
         if (shell === null) return;
-        const reply = shell.surfaces.summon("window", "{}");
+        // While the reply card shows an answer, the console opens at it,
+        // and the card hides.
+        const card = replyShown;
+        const payload = card !== null && card.answer !== null ? JSON.stringify({ answer: card.answer }) : "{}";
+        if (card !== null) replyDismissed = card.key;
+        const reply = shell.surfaces.summon("window", payload);
         if (reply !== "ok") console.warn("jarvis: console " + reply);
     }
 

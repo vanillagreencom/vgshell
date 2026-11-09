@@ -12,13 +12,47 @@ import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 // they need is laid out; a caption that grows inside its last drawn word
 // keeps its words, and one that changes an earlier word starts over;
 // motion scale 0 shows the text whole; each line draws over the look's
-// text shadow.
+// text shadow. Words takes plain values: the bubble's are its look's, as
+// `words` below is handed them; the reply card's are the theme's, as
+// `cardWords` is: each line in its own ink at full opacity, at the left
+// edge, through no shadow layer.
 Item {
     id: root
     width: 400
     height: 200
 
-    Words { id: words; width: 380; look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT) }
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    Words {
+        id: words
+        width: 380
+        window: root.look.words.lines
+        stepDuration: root.look.words.step
+        fadeDuration: root.look.words.fade
+        liftDuration: root.look.words.lift
+        newestInk: root.look.ink.words
+        middleInk: root.look.ink.words
+        oldestInk: root.look.ink.words
+        newestOpacity: root.look.words.newest
+        middleOpacity: root.look.words.middle
+        oldestOpacity: root.look.words.oldest
+        shadow: root.look.shadow
+    }
+    Words {
+        id: cardWords
+        y: 100
+        width: 300
+        window: 4
+        stepDuration: Theme.motion.reveal.step
+        fadeDuration: Theme.motion.duration.normal
+        liftDuration: Theme.motion.duration.slow
+        newestInk: Theme.color.text
+        middleInk: Theme.color.textMuted
+        oldestInk: Theme.color.textMuted
+        newestOpacity: 1
+        middleOpacity: 1
+        oldestOpacity: 1
+        horizontalAlignment: Text.AlignLeft
+    }
 
     TestCase {
         name: "jarvis-words"
@@ -27,11 +61,12 @@ Item {
         function init() {
             UnitTheme.reset();
             words.text = "";
+            cardWords.text = "";
         }
 
         // The drawn lines, top to bottom, each as its plain text.
-        function drawn() {
-            return words.children.filter(child => child.line !== undefined && child.visible)
+        function drawn(view) {
+            return (view || words).children.filter(child => child.line !== undefined && child.visible)
                 .sort((a, b) => a.y - b.y);
         }
         function textOf(slot) {
@@ -52,11 +87,11 @@ Item {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             words.text = text;
             tryVerify(() => words.settled && words.count === 81, 1000);
-            verify(words.lineCount > words.look.words.lines, "the caption is longer than the window: " + words.lineCount);
-            verify(words.start > 0 && words.lines.length <= words.look.words.lines + 1,
+            verify(words.lineCount > root.look.words.lines, "the caption is longer than the window: " + words.lineCount);
+            verify(words.start > 0 && words.lines.length <= root.look.words.lines + 1,
                 "only the tail is laid out: start=" + words.start + " lines=" + words.lines.length);
             const shown = drawn();
-            compare(shown.length, words.look.words.lines);
+            compare(shown.length, root.look.words.lines);
             const bottom = shown[shown.length - 1];
             compare(bottom.y + bottom.height, words.implicitHeight, "the newest line sits at the bottom");
             verify(textOf(bottom).endsWith("end"), "the bottom line ends the caption: " + textOf(bottom));
@@ -81,10 +116,28 @@ Item {
                 verify(slot.layer.enabled, "the line draws through a layer");
                 const effect = effects.find(found => found.source !== null && found.source !== undefined && found.source.sourceItem === slot);
                 verify(effect !== undefined, "an effect draws the line");
-                compare(String(effect.shadowColor), String(Qt.color(words.look.shadow.color)));
-                compare(effect.shadowOpacity, words.look.shadow.opacity);
-                compare(effect.blurMax, words.look.shadow.blur);
+                compare(String(effect.shadowColor), String(Qt.color(root.look.shadow.color)));
+                compare(effect.shadowOpacity, root.look.shadow.opacity);
+                compare(effect.blurMax, root.look.shadow.blur);
             }
+        }
+
+        // The card's words: the newest line in the text ink, the older in
+        // the muted ink, every line opaque, starting at the left edge, and
+        // no line drawn through a shadow layer.
+        function test_the_cards_theme_values_draw_each_line() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            cardWords.text = Array(20).fill("scripted reply").join(" ");
+            tryVerify(() => cardWords.settled, 1000);
+            const shown = drawn(cardWords);
+            compare(shown.length, 4);
+            for (const slot of shown) {
+                compare(slot.opacity, 1, "every line is opaque");
+                compare(slot.layer.enabled, false, "no line blurs a shadow");
+                compare(slot.children[0].x, 0, "each line starts at the left edge");
+            }
+            compare(String(shown[3].ink), String(Qt.color(Theme.color.text)), "the newest line draws in the text ink");
+            for (const slot of shown.slice(0, 3)) compare(String(slot.ink), String(Qt.color(Theme.color.textMuted)), "an older line draws muted");
         }
 
         function test_motion_scale_zero_shows_the_text_whole() {

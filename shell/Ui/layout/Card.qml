@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Ui
 
 // A raised block for one of several repeated groups, such as one account
 // among a panel's accounts, so each group reads apart from the next. Its
@@ -7,19 +8,39 @@ import qs.Commons
 // outline in `card.border` on `card.background`, and a rounded corner moves
 // them in until they clear it (Inset.clearing). It takes its parent's width;
 // a caller spaces the cards themselves, as a Pane body does by `stack.group`.
+// A `floating` card stands alone in its own popup over the desktop, as
+// Jarvis's reply card does: it draws its ground through GlassSurface with
+// `standard`, a floating surface's token group, the popover's unless
+// handed, solid wherever glass is on so its text reads over any backdrop,
+// and keeps the card's padding, gap and clearing.
 Rectangle {
     id: root
 
     default property alias content: column.data
     readonly property real contentInset: clearingInset.inset
+    property bool floating: false
+    property var standard: Theme.popover
 
     width: parent ? parent.width : implicitWidth
     implicitWidth: column.implicitWidth + 2 * contentInset
     implicitHeight: column.implicitHeight + 2 * contentInset
-    color: Theme.card.background
+    color: floating ? "transparent" : Theme.card.background
     border.color: Theme.card.border
-    border.width: Theme.card.borderWidth
-    radius: Theme.card.radius
+    border.width: floating ? 0 : Theme.card.borderWidth
+    radius: floating && ground.item !== null ? ground.item.corner : Theme.card.radius
+
+    // Built only for a floating card: a card in a panel draws no glass.
+    Loader {
+        id: ground
+        active: root.floating
+        z: -1
+        anchors.fill: parent
+        sourceComponent: GlassSurface {
+            standard: root.standard
+            elevation: "tight"
+            solidOnly: true
+        }
+    }
 
     ClearingInset {
         id: clearingInset

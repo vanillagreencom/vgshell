@@ -179,6 +179,33 @@ function verify(view) {
         ["detail", { detail: "idle" }, /detail=/],
         ["microphone", up({}, { microphoneMute: { kind: "ready" } }), /microphoneMute=/]
     ]) assert.throws(() => view.view(values, null), error => pattern.test(error.message), label);
+    verifyReplyCard(view);
+}
+// The reply card under the J (VGS-2339): while Jarvis Voice is muted or the
+// orb is hidden, a fault, or the newest row of the current conversation
+// when it is Jarvis's; a new answer is a new key; the answer settles once
+// Jarvis neither thinks nor speaks.
+function verifyReplyCard(view) {
+    const row = (role, at, session = "1:0") => ({ gen: 1, role, text: role + " " + at, stage: "final", at, session, startedAt: 10 });
+    const log = [row("user", 10), row("assistant", 20)];
+    const muted = { voiceMute: { kind: "on" } };
+    const hidden = { visibility: { kind: "hidden" } };
+    const speaking = { playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } };
+    const fault = { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } };
+    const card = (regions, rows = log, session = "1:0") => view.replyCard(rows, detail(regions).state, session);
+    assert.equal(card({}), null, "voice on and orb shown: no card");
+    assert.deepEqual(card(muted), { key: "1:20", answer: { gen: 1, at: 20 }, fault: false, settled: true }, "muted: the newest answer");
+    assert.deepEqual(card(hidden), { key: "1:20", answer: { gen: 1, at: 20 }, fault: false, settled: true }, "orb hidden: the newest answer");
+    assert.deepEqual(card({ ...muted, ...hidden }), card(muted), "muted and hidden: the same card");
+    assert.equal(card(muted, [row("assistant", 5), row("user", 30)]), null, "the user's words after an answer show no card");
+    assert.equal(card(muted, log, "2:0"), null, "another conversation's rows show no card");
+    assert.equal(card(muted, null), null, "no conversation log shows no card");
+    assert.equal(card(muted, log.concat([row("assistant", 40)])).key, "1:40", "a newer answer replaces the card");
+    assert.equal(card({ ...hidden, ...speaking }).settled, false, "an answer still spoken is not settled");
+    assert.equal(card({ ...muted, ...THINKING }).settled, false, "an answer while Jarvis thinks again is not settled");
+    assert.deepEqual(card({ ...hidden, ...fault }), { key: "fault:0:brain=stream-error", answer: null, fault: true, settled: true },
+        "a fault reads on the card with no answer to open at");
+    assert.equal(card(fault), null, "a fault with the voice on and the orb shown is the overlay's");
 }
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
 verify(load(path.join(dir, "WidgetView.js")));
@@ -223,6 +250,12 @@ const controls = [
     ["menu accepts missing source", 'micMuted === null ? "Connect a microphone or choose one in Sound" : ""', '""'],
     ["prompt loses file path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: ""'],
     ["report hint shape unchecked", 'if (value.hint !== undefined && typeof value.hint !== "string") refuse(name, value);', ''],
+    ["reply card while the voice is on and the orb shows", 'if (state.voiceMute.kind !== "on" && state.visibility.kind !== "hidden") return null;', ''],
+    ["reply card for another conversation", 'return row.session === session;', 'return true;'],
+    ["reply card for the user's words", 'if (last === null || last.role !== "assistant") return null;', 'if (last === null) return null;'],
+    ["reply card keeps the first answer", 'return { key: last.gen + ":" + last.at,', 'return { key: String(last.gen),'],
+    ["reply card settles while Jarvis speaks", 'settled: phase !== "speaking" && phase !== "thinking"', 'settled: true'],
+    ["reply card opens a fault's console", 'answer: null, fault: true, settled: true', 'answer: { gen: state.gen, at: 0 }, fault: true, settled: true'],
 ];
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-widget-control-"));
 try {
@@ -380,6 +413,40 @@ approvalFrames(bubble);
 // QML fixtures and the nested row still owe the real render/wire proof.
 const barHostFile = path.join(__dirname, "../shell/Hosts/BarHost.qml");
 const barHost = fs.readFileSync(barHostFile, "utf8");
+// The bar host publishes each bar widget's declared cover, as Jarvis's reply
+// card declares its box under the J: on the output, `x` across it and `top`
+// and `bottom` counted down from the bar's bottom edge; an empty cover, a
+// hidden widget, another kind or an unmapped bar publishes none.
+function barCovers(source) {
+    const found = [...source.matchAll(/^            function observeCovers\(\) \{\n[\s\S]*?^            \}/gm)];
+    assert.equal(found.length, 1, "observeCovers: one shipped host reader");
+    const screen = { name: "DP-1" };
+    const widget = (cover, extra = {}) => ({ x: 1500, y: 0, width: 40, height: 28, visible: true, parent: { x: 0 }, cover, ...extra });
+    const card = { x: -320, y: 32, width: 360, height: 120 };
+    const empty = { x: 0, y: 0, width: 0, height: 0 };
+    const ctx = vm.createContext({ windowTransform: null, visible: true, backingWindowVisible: true, screen, height: 28,
+        host: { screenPresent: true, screen, hostKey: "bar:DP-1" }, itemRect: item => ({ x: item.x, y: item.y }),
+        Plugins: { built: { "bar:DP-1": [
+            { origin: "core", kind: "bar-widget", instance: widget(card) },
+            { origin: "core", kind: "bar-widget", instance: widget(empty) },
+            { origin: "core", kind: "bar-widget", instance: widget(card, { visible: false }) },
+            { origin: "plugin", kind: "bar-widget", instance: widget(card) },
+            { origin: "core", kind: "panel", instance: widget(card) }
+        ] } } });
+    const observe = vm.runInContext("(" + found[0][0] + ")", ctx);
+    assert.deepEqual(copy(observe()), [{ output: "DP-1", x: 1180, width: 360, top: 4, bottom: 124 }]);
+    ctx.visible = false;
+    assert.deepEqual(copy(observe()), [], "an unmapped bar publishes no cover");
+}
+barCovers(barHost);
+for (const [label, needle, replacement] of [
+    ["covers counted from the bar's top", "top: at.y + cover.y - height, bottom: at.y + cover.y + cover.height - height", "top: at.y + cover.y, bottom: at.y + cover.y + cover.height"],
+    ["covers of an unmapped bar", "if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];\n                const out = [];\n                for (const row of Plugins.built[host.hostKey] || []) {\n                    if (row.origin !== \"core\" || row.kind !== \"bar-widget\") continue;\n                    const widget = row.instance;\n                    const cover", "const out = [];\n                for (const row of Plugins.built[host.hostKey] || []) {\n                    if (row.origin !== \"core\" || row.kind !== \"bar-widget\") continue;\n                    const widget = row.instance;\n                    const cover"],
+    ["covers of a hidden widget", "if (!(cover.width > 0 && cover.height > 0) || !widget.visible) continue;", "if (!(cover.width > 0 && cover.height > 0)) continue;"]
+]) {
+    assert.equal(barHost.split(needle).length, 2, label + ": one cover control target");
+    assert.throws(() => barCovers(barHost.replace(needle, replacement)), assert.AssertionError, label);
+}
 function barFrames(source) {
     const later = [], publications = [];
     const ctx = vm.createContext({ frameEpoch: 0, frames: [], synchronizedFrame: null, candidates: [],

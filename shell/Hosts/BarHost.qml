@@ -60,13 +60,18 @@ Item {
             readonly property var candidates: observeItems()
             readonly property string candidateKey: JSON.stringify(candidates)
             onCandidateKeyChanged: invalidateFrame()
+            readonly property var covers: observeCovers()
+            onCoversChanged: Layers.setBarCovers(observationHost, covers)
             onVisibleChanged: invalidateFrame()
             onBackingWindowVisibleChanged: invalidateFrame()
             Component.onCompleted: {
                 observationHost = host.hostKey;
                 widgetSetChanged();
             }
-            Component.onDestruction: invalidateFrame()
+            Component.onDestruction: {
+                invalidateFrame();
+                Layers.setBarCovers(observationHost, []);
+            }
 
             function invalidateFrame() {
                 frameEpoch++;
@@ -118,6 +123,27 @@ Item {
                     const dot = item.stateDotItem;
                     out.push({ plugin: row.id, revision: row.revision, output: screen.name,
                         key: widget.presentationKey, dot: dot !== null && whole(dot, item) ? item.stateDot : "" });
+                }
+                return out;
+            }
+
+            // Each widget's declared cover, placed on the output from the
+            // widget's box in this window, which spans the output from its
+            // top edge (anchors above), and counted down from its bottom.
+            // itemRect records no dependency; read the geometry it uses.
+            function observeCovers() {
+                const transform = windowTransform;
+                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
+                const out = [];
+                for (const row of Plugins.built[host.hostKey] || []) {
+                    if (row.origin !== "core" || row.kind !== "bar-widget") continue;
+                    const widget = row.instance;
+                    const cover = widget.cover;
+                    if (!(cover.width > 0 && cover.height > 0) || !widget.visible) continue;
+                    void [widget.x, widget.y, widget.width, widget.parent === null ? 0 : widget.parent.x];
+                    const at = itemRect(widget);
+                    out.push({ output: screen.name, x: at.x + cover.x, width: cover.width,
+                        top: at.y + cover.y - height, bottom: at.y + cover.y + cover.height - height });
                 }
                 return out;
             }

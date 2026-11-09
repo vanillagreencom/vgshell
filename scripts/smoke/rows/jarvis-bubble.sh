@@ -1205,7 +1205,10 @@ jarvis_key_stop_assertion
 jarvis_bubble_begin
 jarvis_key_gate device-lost
 expect_poll "hidden device loss enters the real retry fault" retrying jarvis_key_state fault
-expect_poll "the hidden fault keeps its required text and field" required jarvis_bubble_hidden required
+# The reply card under the J shows the fault first, and the overlay's
+# hidden-orb fault line steps aside until the card's hold ends (VGS-2339).
+expect_poll "the reply card holds the hidden fault, so the overlay stays quiet" quiet jarvis_bubble_hidden quiet
+expect_poll "the hidden fault keeps its required text and field once the card hides" required jarvis_bubble_hidden required
 jarvis_bubble_before="$(jarvis_key_received count)"
 jarvis_bubble_menu_choose "Show Jarvis" Label role bodyStrong || fail "the hidden fault's menu Show is delivered"
 expect_poll "Show from the required fault restores the orb choice" shown jarvis_key_state visibility

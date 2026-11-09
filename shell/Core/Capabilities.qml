@@ -239,7 +239,8 @@ Singleton {
         }),
         layers: ctx => ({
             show: component => Layers.show(ctx, component),
-            get barIndicators() { return Layers.barIndicators(ctx); }
+            get barIndicators() { return Layers.barIndicators(ctx); },
+            get barCovers() { return Layers.barCovers(ctx); }
         }),
         // `act` runs the calling plugin's own status action, judged and run
         // as the manager's act is for that plugin; a key of another plugin

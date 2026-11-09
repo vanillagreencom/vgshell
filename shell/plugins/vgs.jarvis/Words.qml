@@ -3,14 +3,16 @@ import qs.Ui
 
 // Jarvis's words while its voice is muted, above the orb: the newest line
 // at the bottom and at most `words.lines` lines, each older line fainter.
-// Words appear one each `words.step` until they catch up with `text`, the
-// newest fading in over `words.fade`; a new line moves the lines up over
-// `words.lift` while the line leaving the top fades out. Each is a Qt
+// Words appear one each `stepDuration` until they catch up with `text`,
+// the newest fading in over `fadeDuration`; a new line moves the lines up
+// over `liftDuration` while the line leaving the top fades out. Each is a Qt
 // animation that ends once the words catch up, never a ticking driver, and
 // at motion scale 0 every duration is 0, so the text appears whole. It
-// draws only, in the look its bubble hands it, each line over the look's
-// text shadow: a 0-offset blur of the line's layer, which Qt draws again
-// only while that line changes, so a lift or a still line redraws no blur.
+// draws only, in the values its owner hands it: the bubble hands its
+// look's, the reply card under the bar J the theme's. Each line draws over
+// the handed text shadow, when there is one: a 0-offset blur of the line's
+// layer, which Qt draws again only while that line changes, so a lift or a
+// still line redraws no blur.
 //
 // A caption that grows, as a duplex voice's does chunk by chunk, keeps the
 // words drawn: it extends them when every drawn word but the last is the
@@ -25,7 +27,22 @@ import qs.Ui
 Item {
     id: root
 
-    required property var look
+    // How many lines show, the pace, and each line's ink and opacity: the
+    // newest line's, the oldest shown line's, and the others'.
+    required property int window
+    required property int stepDuration
+    required property int fadeDuration
+    required property int liftDuration
+    required property color newestInk
+    required property color middleInk
+    required property color oldestInk
+    required property real newestOpacity
+    required property real middleOpacity
+    required property real oldestOpacity
+    // The text shadow under each line, { color, opacity, blur }, or null
+    // for none.
+    property var shadow: null
+    property int horizontalAlignment: Text.AlignHCenter
     property string text: ""
     readonly property var list: text.trim() === "" ? [] : text.trim().split(/\s+/)
     property real progress: 0
@@ -35,8 +52,6 @@ Item {
     // The newest word's opacity while it fades in.
     property real newest: 1
     property real lift: 0
-    // How many lines the window shows.
-    readonly property int window: look.words.lines
     readonly property real lineBox: probe.lineBox
     // The laid-out tail, oldest first, each { from, head, last }: a line's
     // first word in `list`, its words but the last, and its last word. It
@@ -103,7 +118,7 @@ Item {
         }
         relayout();
         reveal.to = list.length;
-        reveal.duration = Math.max(0, list.length - progress) * look.words.step;
+        reveal.duration = Math.max(0, list.length - progress) * stepDuration;
         reveal.start();
     }
     onCountChanged: {
@@ -115,8 +130,8 @@ Item {
     onWidthChanged: relayout()
 
     NumberAnimation { id: reveal; target: root; property: "progress" }
-    NumberAnimation { id: fade; target: root; property: "newest"; from: 0; to: 1; duration: root.look.words.fade }
-    NumberAnimation { id: rise; target: root; property: "lift"; to: 0; duration: root.look.words.lift }
+    NumberAnimation { id: fade; target: root; property: "newest"; from: 0; to: 1; duration: root.fadeDuration }
+    NumberAnimation { id: rise; target: root; property: "lift"; to: 0; duration: root.liftDuration }
 
     // The body role's font and line box, which every line draws in.
     Label {
@@ -147,18 +162,19 @@ Item {
             height: root.lineBox
             y: (root.window - 1 - index) * root.lineBox + root.lift
             visible: line !== null && (index < root.window || root.lift > 0)
-            layer.enabled: true
-            layer.effect: TextShadow { shadow: root.look.shadow }
-            opacity: index === 0 ? root.look.words.newest
-                : index === root.window ? root.look.words.oldest * root.lift / Math.max(1, root.lineBox)
-                : index === root.window - 1 ? root.look.words.oldest : root.look.words.middle
+            readonly property color ink: index === 0 ? root.newestInk : index >= root.window - 1 ? root.oldestInk : root.middleInk
+            layer.enabled: root.shadow !== null
+            layer.effect: TextShadow { shadow: root.shadow }
+            opacity: index === 0 ? root.newestOpacity
+                : index === root.window ? root.oldestOpacity * root.lift / Math.max(1, root.lineBox)
+                : index === root.window - 1 ? root.oldestOpacity : root.middleOpacity
             Row {
-                x: Math.max(0, (slot.width - width) / 2)
+                x: root.horizontalAlignment === Text.AlignLeft ? 0 : Math.max(0, (slot.width - width) / 2)
                 spacing: space.advanceWidth
                 Label {
                     visible: text !== ""
                     role: "body"
-                    color: root.look.ink.words
+                    color: slot.ink
                     textFormat: Text.PlainText
                     text: slot.line === null ? "" : slot.line.head
                 }
@@ -166,7 +182,7 @@ Item {
                 // which fades in on its own.
                 Label {
                     role: "body"
-                    color: root.look.ink.words
+                    color: slot.ink
                     textFormat: Text.PlainText
                     opacity: slot.index === 0 ? root.newest : 1
                     text: slot.line === null ? "" : slot.line.last

@@ -32,6 +32,29 @@ Singleton {
         barFrames = next;
     }
 
+    // The boxes bar widgets draw below their bar, written only by BarHost:
+    // host key -> [{ output, x, width, top, bottom }]. `x` and `width` are
+    // in the output's logical pixels; `top` and `bottom` count down from
+    // the bar's bottom edge, where the passive layers on that output start
+    // under the bar's exclusive zone.
+    property var barCoverRows: ({})
+
+    function setBarCovers(host, rows) {
+        if (JSON.stringify(barCoverRows[host] || []) === JSON.stringify(rows)) return;
+        const next = Object.assign({}, barCoverRows);
+        if (rows.length === 0) delete next[host];
+        else next[host] = rows;
+        barCoverRows = next;
+    }
+
+    // Every bar's covers, whichever plugin draws them, so a passive layer
+    // stands clear of them without reading that plugin.
+    function barCovers(ctx) {
+        if (!ctx.active) return Object.freeze([]);
+        return Object.freeze(Object.values(barCoverRows).reduce((all, hostRows) => all.concat(hostRows), [])
+            .map(row => Object.freeze(Object.assign({}, row))));
+    }
+
     function barIndicators(ctx) {
         if (!ctx.active) return Object.freeze([]);
         // QML's array API has no flat; concatenate the host-owned row lists.

@@ -124,6 +124,8 @@ Singleton {
     readonly property var select: published.select
     readonly property var osd: published.osd
     readonly property var saveBar: published.saveBar
+    readonly property var replyCard: published.replyCard
+    readonly property var messageRow: published.messageRow
     readonly property var dialog: published.dialog
     readonly property var angledCard: published.angledCard
     readonly property var carousel: published.carousel

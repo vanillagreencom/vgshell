@@ -22,6 +22,9 @@ Item {
     // Where every screen's stack sits, the `position` setting: one of the
     // schema's options, top or bottom, then -left, -center or -right.
     readonly property string position: shell === null ? "" : shell.settings.position
+    // The boxes bar widgets draw below their bar, such as Jarvis's reply
+    // card under its J, which a top stack stands clear of (Stack.qml).
+    readonly property var barCovers: shell === null ? [] : shell.layers.barCovers
     // The notifications' own VGlass choice, the `glass` setting, which every
     // toast hands its glass, and the state it comes to under the user's
     // Appearance values, which every toast's motion and the timers below

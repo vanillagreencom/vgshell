@@ -108,9 +108,13 @@ function ports(root, engine, state) {
                         text, tool: call === null ? "fixture" : call.id, timeoutMs: 30000, cancellable: false });
                 });
                 if (chained) { engine.brain.send(e, done); return; }
+                // A reply-text file names the reply's words, and a fail-brain
+                // file fails the turn as a wire brain's stream error does.
                 wait("brain", () => {
                     record("brain-callback", e);
-                    done("transcript", { role: "assistant", text: "scripted utterance", stage: "partial", rev: 1 });
+                    if (fs.existsSync(path.join(root, "fail-brain"))) { done("brain-failed", { reason: "brain=stream-error" }); return; }
+                    const words = path.join(root, "reply-text");
+                    done("transcript", { role: "assistant", text: fs.existsSync(words) ? fs.readFileSync(words, "utf8").trim() : "scripted utterance", stage: "partial", rev: 1 });
                     done("play", { interruptible: true }); done("brain-done");
                 });
             },

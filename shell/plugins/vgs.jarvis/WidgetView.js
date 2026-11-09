@@ -365,3 +365,21 @@ function stateView(values, voice) {
     default: refuse("phase", detail.phase);
     }
 }
+
+// What Jarvis's reply card under the bar J shows (Service.qml), or null. While Jarvis Voice is muted or the orb is hidden: a fault, or
+// the newest row of conversation SESSION when it is Jarvis's. `key` names
+// one card, so a new answer replaces the text; `answer` is the row the
+// console opens at, null for a fault; `settled` is whether the answer has
+// stopped arriving, when the card's hide time may start.
+function replyCard(log, state, session) {
+    if (state === null || !Array.isArray(log)) return null;
+    if (state.voiceMute.kind !== "on" && state.visibility.kind !== "hidden") return null;
+    var phase = Session.phaseOf(state);
+    if (phase === "error")
+        return { key: "fault:" + state.gen + ":" + state.fault.reason, answer: null, fault: true, settled: true };
+    var rows = log.filter(function (row) { return row.session === session; });
+    var last = rows.length === 0 ? null : rows[rows.length - 1];
+    if (last === null || last.role !== "assistant") return null;
+    return { key: last.gen + ":" + last.at, answer: { gen: last.gen, at: last.at }, fault: false,
+        settled: phase !== "speaking" && phase !== "thinking" };
+}

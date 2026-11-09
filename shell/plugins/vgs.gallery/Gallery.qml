@@ -452,6 +452,25 @@ Item {
                         stateText: "Snoozed"
                         bodyText: "Returns tomorrow at 9:00 am."
                     }
+                    MessageRow {
+                        width: parent.width
+                        sender: "Jarvis"
+                        timeText: "just now"
+                        avatarIcon: "vgs-letter-j"
+                        bodyText: "Three things changed this week. The bar shows a Jarvis icon that tells you when Jarvis listens, works or has a problem, and you can hide the orb from its menu. The console has a History tab for past conversations, tasks and problems."
+                        bodyLines: 2
+                        cutHint: "Click to read the full answer"
+                        marked: true
+                    }
+                    MessageRow {
+                        width: parent.width
+                        sender: "Jarvis"
+                        avatarIcon: "vgs-letter-j"
+                        stateText: "Speaking"
+                        bodyComponent: Component {
+                            Label { width: parent ? parent.width : 0; role: "body"; text: "The words as Jarvis speaks them"; wrapMode: Text.Wrap }
+                        }
+                    }
                     ResultsFilter {
                         property string focusExample: "Results filter"
                         property bool focusPreview: true
@@ -833,6 +852,12 @@ Item {
                     Label { role: "hint"; text: "ana@example.com · Pro" }
                     ProgressBar { width: parent.width; value: 0.42 }
                     Label { role: "hint"; text: "Resets in 2 h 10 min" }
+                }
+                Card {
+                    width: parent.width
+                    floating: true
+                    Label { role: "label"; text: "Floating card" }
+                    Label { role: "hint"; text: "Stands alone over the desktop, on the popover's ground" }
                 }
 
                 }
