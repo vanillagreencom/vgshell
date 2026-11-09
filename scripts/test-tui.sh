@@ -364,11 +364,12 @@ else
 fi
 
 # A key typed before an opener stays queued for the next question, whose
-# answer it reaches; the screen keeps the typed key's echo.
+# answer it reaches; the screen keeps the typed key's echo. The window
+# stops probing once it found that queued input.
 typeahead_row() {
-  screen_run "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; await; vgs_tui_step Next; a="$(vgs_tui_input --value v)"; printf %s "$a" >"$LOG.answer"')" \
+  screen_run "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; await; vgs_tui_step Next; cp -- "$VGS_TUI_MARK" "$LOG.mark"; a="$(vgs_tui_input --value v)"; printf %s "$a" >"$LOG.answer"')" \
     wait=Pick keys=Enter held keys=xy go wait=vxy keys=Enter
-  [[ $(cat "$tmp/screen.log.answer" 2>/dev/null) == vxy ]]
+  [[ $(cat "$tmp/screen.log.answer" 2>/dev/null) == vxy && $(cat "$tmp/screen.log.mark" 2>/dev/null) == silent ]]
 }
 check "a key typed before a block reaches the next question" typeahead_row
 # An opener whose stream is no terminal, as a log capture's, draws the row
@@ -388,10 +389,16 @@ check "a block with no terminal draws the blank row and empties the mark" test "
 # ends well inside 15 s, a bound on a hang and not a timing; and the
 # terminal's settings are as they were.
 silent_row() {
-  local query_count normalized query_read_status=0 output_read_status=0
+  local query_count normalized input query_read_status=0 output_read_status=0
+  # Keep stdin open without bytes: /dev/null makes script inject Ctrl-D,
+  # which is queued input rather than a silent terminal.
+  mkfifo "$tmp/silent-input" || return 1
+  exec {input}<>"$tmp/silent-input" || return 1
+  rm -- "$tmp/silent-input" || return 1
   status=0
   "${lib_env[@]}" VGS_TUI_MARK="$tmp/silent-mark" timeout 15 script -qec "$(printf '%q ' "$BASH" -c "source $(printf '%q' "$LIB"); printf '3 0 0\n' >\"\$VGS_TUI_MARK\"; before=\"\$(stty -g </dev/tty)\"; vgs_tui_step Next; for q in 1 2 3; do vgs_tui_confirm Q; done; vgs_tui_step Next; [[ \$(stty -g </dev/tty) == \"\$before\" ]] && echo restored")" /dev/null \
-    </dev/null >"$tmp/out" 2>&1 || status=$?
+    <&"$input" {input}>&- >"$tmp/out" 2>&1 || status=$?
+  exec {input}>&-
   query_count="$(grep -o $'\e\\[6n' "$tmp/out" | wc -l)" || query_read_status=$?
   normalized="$(tr -d '\r' <"$tmp/out" | sed -e $'s/\e\\[[0123456789;?]*[a-zA-Z]//g')" || output_read_status=$?
   if [[ $status == 0 && "$query_count" == 1 &&
@@ -1330,6 +1337,8 @@ control short-read '+ 1000000 ))' '+ 300000 ))'
 check "the short-read mutant, the first build's 0.3 s read, fails the late answer row" test "$(late_row && echo green || echo red)" == red
 control typeahead-read '  if read -r -t 0 <&"$tty"; then' '  if false; then'
 check "the typeahead-read mutant fails the typed key row" test "$(typeahead_row && echo green || echo red)" == red
+control typeahead-forgotten 'then stty "$saved" <&"$tty"; exit 3; fi' 'then stty "$saved" <&"$tty"; exit 1; fi'
+check "the typeahead-forgotten mutant fails the typed key row" test "$(typeahead_row && echo green || echo red)" == red
 control probes-capture ' && -t 1 ]]' ' ]]'
 check "the probes-capture mutant fails the captured block row" test "$(captured_row && echo green || echo red)" == red
 LIB="$lib"

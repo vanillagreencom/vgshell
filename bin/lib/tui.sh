@@ -108,9 +108,10 @@
 # The opener draws the one row, asking nothing it can tell first, with no
 # mark, with no terminal or a stream that is none, as a captured log, with
 # a key already typed, which stays queued for the next question, after a
-# resize, and in a window whose terminal did not answer: the mark then
-# reads `silent`, and nothing in that window asks again. A key typed in the
-# milliseconds the answer takes is read with the answer and dropped; the
+# resize, and in a window that skipped a query for a queued key or whose
+# terminal did not answer: the mark then reads `silent`, and nothing in
+# that window asks again. A key typed in the milliseconds the answer takes
+# is read with the answer and dropped; the
 # answer itself never reaches a later reader, unless it comes after 1 s.
 
 # Character classes spelled out: a range such as [a-z] follows the collation
@@ -156,8 +157,8 @@ _vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }
 _vgs_tui_terminal() { # KEY
   _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "This task needs a terminal. Open it again from VGS."
 }
-# Prints `ROW COL ROWS COLS`, asked of /dev/tty; fails, asking nothing,
-# while a key waits, and exits 3 when the terminal has not answered within
+# Prints `ROW COL ROWS COLS`, asked of /dev/tty; exits 3, asking nothing,
+# while a key waits, or when the terminal has not answered within
 # 1 s. It reads until the device attributes answer's final `c`, past a
 # typed `c` and past a slow start, so the answers it is owed never reach a
 # later reader, a closing prompt's key, sudo or pacman, and a typed `R`
@@ -176,7 +177,7 @@ _vgs_tui_cursor() (
   stty -echo -icanon <&"$tty" || exit 1
   # Only once the line discipline stops collecting a line does a key typed
   # without Enter count as waiting.
-  if read -r -t 0 <&"$tty"; then stty "$saved" <&"$tty"; exit 1; fi
+  if read -r -t 0 <&"$tty"; then stty "$saved" <&"$tty"; exit 3; fi
   printf '\033[6n\033[c' >&"$tty"
   end=$(( ${EPOCHREALTIME/[.,]/} + 1000000 ))
   until [[ $reply =~ $_vgs_tui_attributes ]]; do
