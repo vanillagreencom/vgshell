@@ -417,14 +417,24 @@ function verifyPairing(logic) {
     same([r.state.phase, r.effects], ["pairing", []], "a Pair that answered while a prompt is open keeps pairing");
     s = r.state;
     r = step(s, { type: "prompts", open: 0 });
-    same([r.state.phase, r.effects], ["settling", ["arm-settle"]], "the prompt answered, the pairing settles");
+    same([r.state.phase, r.effects], ["settling", ["arm-clock"]], "the prompt answered, the pairing settles");
     s = r.state;
     r = step(s, { type: "prompts", open: 1 });
-    same([r.state.phase, r.effects], ["pairing", ["disarm-settle"]], "a new prompt while settling keeps pairing");
+    same([r.state.phase, r.effects], ["pairing", ["disarm-clock"]], "a new prompt while settling keeps pairing");
     s = step(r.state, { type: "prompts", open: 0 }).state;
     r = step(s, { type: "paired" });
-    same([r.state.phase, r.effects], ["done", ["disarm-settle", "release-lease", "trust-connect"]], "a paired device is trusted and connected and the lease released");
-    same(step(r.state, { type: "settled" }).state.phase, "done", "a late settle changes nothing once done");
+    same([r.state.phase, r.effects], ["done", ["release-lease", "trust-connect", "arm-clock"]], "a paired device is trusted and connected and the lease released");
+    const done = r.state;
+    assert.equal(logic.pairText(done), "Paired with Phone", "a done pairing shows its line");
+    r = step(done, { type: "elapsed" });
+    same([r.state, r.effects, logic.pairText(r.state)], [logic.pairIdle(), [], ""], "a done line clears once its time passed");
+    r = step(done, { type: "start", address: "BB", name: "Mouse" });
+    same([r.state.phase, r.state.name, r.effects], ["leasing", "Mouse", ["disarm-clock", "begin-lease"]], "a start over a result line drops its clock");
+    same(step(r.state, { type: "elapsed" }).state, r.state, "an elapse while leasing changes nothing");
+    const wait = phase => logic.pairWaitMs(Object.assign(logic.pairIdle(), { phase }));
+    for (const phase of ["settling", "done", "failed"]) assert.ok(Number.isFinite(wait(phase)) && wait(phase) > 0, "the clock waits a set time in " + phase);
+    assert.ok(wait("failed") >= wait("done"), "a failed line shows no shorter than a done line");
+    assert.throws(() => wait("pairing"), /pair phase/, "no clock waits while pairing");
     same(step(logic.pairIdle(), { type: "paired" }).effects, [], "a device paired with no pairing running does nothing");
 
     const fail = (events, reason, effects) => {
@@ -436,11 +446,13 @@ function verifyPairing(logic) {
         }
         same([state.phase, state.reason, last.effects], ["failed", reason, effects], "pairing fails as " + reason);
         assert.ok(logic.pairText(state).length > 0, "a failure tells the user: " + reason);
+        last = step(state, { type: "elapsed" });
+        same([last.state, last.effects, logic.pairText(last.state)], [logic.pairIdle(), [], ""], "a failed line clears once its time passed: " + reason);
     };
-    fail([{ type: "lease", state: "refused" }], "agent-busy", ["release-lease"]);
-    fail([{ type: "lease", state: "ready" }, { type: "pair-ended", open: 0 }, { type: "settled" }], "not-paired", ["release-lease"]);
-    fail([{ type: "lease", state: "ready" }, { type: "cancel" }], "canceled", ["disarm-settle", "cancel-pair", "release-lease"]);
-    fail([{ type: "lease", state: "ready" }, { type: "gone" }], "gone", ["disarm-settle", "release-lease"]);
+    fail([{ type: "lease", state: "refused" }], "agent-busy", ["release-lease", "arm-clock"]);
+    fail([{ type: "lease", state: "ready" }, { type: "pair-ended", open: 0 }, { type: "elapsed" }], "not-paired", ["release-lease", "arm-clock"]);
+    fail([{ type: "lease", state: "ready" }, { type: "cancel" }], "canceled", ["cancel-pair", "release-lease", "arm-clock"]);
+    fail([{ type: "lease", state: "ready" }, { type: "gone" }], "gone", ["release-lease", "arm-clock"]);
     same(step(logic.pairIdle(), { type: "cancel" }).effects, [], "a cancel with no pairing does nothing");
     assert.equal(logic.pairText(logic.pairIdle()), "", "no pairing, no line");
     assert.equal(logic.pairActive(logic.pairIdle()), false, "an idle pairing is not active");
@@ -620,6 +632,22 @@ function verifyDevices(logic) {
     row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0, false).mine[0];
     same([attempts, row.secondary, row.busy, row.failed, logic.mineAction(row)],
         [{}, "Not connected", false, false, { text: "Connect" }], "a later drop by itself is not a failed connect");
+
+    // A page pairing's follow-up connect, pressed and settled as Pane.qml
+    // runs it through DeviceSections.press.
+    d = speaker();
+    action = logic.pairFollowUp(d.state);
+    attempts = action === null ? {} : logic.attemptPressed({}, address, action);
+    d.state = "Connecting";
+    attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
+    d.state = "Disconnected";
+    attempts = logic.settleAttempts(attempts, logic.stateMap([d], stateOf));
+    row = logic.deviceRows([d], stateOf, attempts, { mine: [], nearby: [] }, 0, false).mine[0];
+    same([row.secondary, row.failed, logic.mineAction(row), logic.failureText(row.text)],
+        ["Not connected", true, { text: "Retry" }, name + " did not answer. Check that it is on, nearby and not connected to another device."],
+        "a page pairing's connect that fails shows the row's failure sentence");
+    same(["Disconnected", "Connecting", "Connected", "Disconnecting"].map(logic.pairFollowUp), ["connect", null, null, null],
+        "a pairing's follow-up connects only a device that reads Disconnected");
 
     same(logic.stateMap([device("A", "A", { state: "Connected" }), device("B", "B", { state: "Disconnecting" })], stateOf),
         { A: "Connected", B: "Disconnecting" }, "stateMap names every device state");
@@ -829,9 +857,12 @@ const controls = [
     ["any radio's soft block counts", 'soft = soft || row.soft === "blocked";', 'soft = row.soft === "blocked";', "rfkill: a block on any of two radios"],
     ["only Bluetooth radios count", 'row.type !== "bluetooth"', "false", "rfkill: another radio type is not Bluetooth"],
     ["a failed rfkill read is no reading", 'if (code !== 0) return { state: "failed", reason: "exit=" + code };', "", "rfkill: a failed run"],
-    ["an ended Pair with no prompt settles", 'return { state: pairWith(state, { phase: "settling", ended: true }), effects: ["arm-settle"] };', "return { state: pairWith(state, { ended: true }), effects: [] };", "pairing fails as not-paired"],
+    ["an ended Pair with no prompt settles", 'return { state: pairWith(state, { phase: "settling", ended: true }), effects: ["arm-clock"] };', "return { state: pairWith(state, { ended: true }), effects: [] };", "pairing fails as not-paired"],
     ["an open prompt keeps the pairing", "if (event.open > 0) return { state: pairWith(state, { ended: true }), effects: [] };", "", "a Pair that answered while a prompt is open keeps pairing"],
-    ["a paired device is trusted and connected", 'effects: ["disarm-settle", "release-lease", "trust-connect"]', 'effects: ["disarm-settle", "release-lease"]', "a paired device is trusted and connected"],
+    ["a paired device is trusted and connected", 'effects: ["release-lease", "trust-connect", "arm-clock"]', 'effects: ["release-lease", "arm-clock"]', "a paired device is trusted and connected"],
+    ["a result line clears once its time passed", 'if (state.phase === "done" || state.phase === "failed") return { state: pairIdle(), effects: [] };', "", "a done line clears once its time passed"],
+    ["a failed line clears too", 'state.phase === "done" || state.phase === "failed"', 'state.phase === "done"', "a failed line clears once its time passed"],
+    ["a result line arms its clock", 'effects: ["cancel-pair", "release-lease", "arm-clock"]', 'effects: ["cancel-pair", "release-lease"]', "pairing fails as canceled"],
     ["a refused agent lease fails the pairing", 'if (event.state === "refused")', "if (false)", "pairing fails as agent-busy"],
     ["one pairing at a time keeps its name", "        if (pairActive(state)) return { state: state, effects: [] };\n        return { state: { phase: \"leasing\"", "        return { state: { phase: \"leasing\"", "a second pairing keeps the first, its device and its name"],
     ["a paired event needs a pairing", "        if (!pairActive(state)) return { state: state, effects: [] };\n        return { state: pairWith(state, { phase: \"done\" })", "        return { state: pairWith(state, { phase: \"done\" })", "a device paired with no pairing running does nothing"],
@@ -861,6 +892,7 @@ const controls = [
     ["today's toggle with no state read", 'case "Connecting":\n    case "Disconnecting": return null;', 'case "Connecting": return "connect";\n    case "Disconnecting": return null;', "a press while Connecting changes nothing"],
     ["the working state", 'if (state === "Connecting") return "Connecting…";', 'if (false) return "Connecting…";', "Connect shows the working state at once"],
     ["the failure from a timed-out connect", 'if (keep && old === "pending" && state === "Disconnected") next = "failed";', 'if (false) next = "failed";', "a failed connect shows Retry and one failure sentence"],
+    ["today's pairing records no connect", 'function pairFollowUp(state) { return pressAction(state) === "connect" ? "connect" : null; }', "function pairFollowUp(state) { return null; }", "a page pairing's connect that fails shows the row's failure sentence"],
     ["Pair hides while another device pairs", "return pairing || row.pairing ? null", "return row.pairing ? null", "Pair hides while any pairing runs"],
     ["the bar hides with Hide when off while off", "!(hideWhenOff && !power.on)", "true", "bar: off with Hide when off"],
     ["the bar shows connected only while on", "var linked = power.on && connected > 0;", "var linked = connected > 0;", "bar: off with devices still listed connected"],

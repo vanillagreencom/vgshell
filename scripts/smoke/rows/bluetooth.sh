@@ -23,7 +23,11 @@
 # through the System window's Bluetooth section each call Device1.Pair once
 # with the agent's lease taken and released: a confirm prompt answered yes
 # from the keyboard, a code to type dismissed once paired, and a PIN typed
-# into the dialog that survives a later line of bluetoothctl's output;
+# into the dialog that survives a later line of bluetoothctl's output,
+# whose follow-up connect fails as a row's Connect does, with the row's
+# one failure sentence that Retry clears, and whose result line clears on
+# the section's clock (BluetoothLogic.js, PAIR_DONE_SHOWN_MS) without
+# moving the row controls below it;
 # Disconnect and Connect clicks move the headphones; a failed Connect shows
 # Connecting… with the busy spinner and then one failure sentence, and
 # Retry connects it again; and a keyboard path from SUPER+COMMA turns
@@ -33,10 +37,12 @@
 # closes.
 #
 # The controls: one copy of the plugin whose discovery tick writes no stop,
-# a plain lease counter, and whose pairing never calls Pair. The counter
+# a plain lease counter, whose pairing never calls Pair, and whose pairing
+# line gives back its room when it clears. The counter
 # leaves the late-confirmed start running for 5 s, past the 1 s tick's
 # three attempts and as long as a positive poll waits; the copy's pairing
-# reaches done with the mock's Pair count at 0. A second copy, whose
+# reaches done with the mock's Pair count at 0, and its line's clear moves
+# the first Disconnect. A second copy, whose
 # service lists no adapter, is the fixture of the stopped service: with the
 # systemctl stand-in answering that bluetooth.service is loaded and not
 # running, its section reads the service off, a click on Turn on the
@@ -407,6 +413,12 @@ bt_publication_count() { ipc smoke bluetoothObservation | py_reply 'import json,
 bt_focused_keys() { ipc smoke bluetoothObservation | py_reply 'import json,sys; d=json.load(sys.stdin)["current"]; print(json.dumps([d["focusedKey"],d["focusedRowKey"]]))'; }
 bt_closed_rule() { ipc smoke bluetoothTimerState | py_reply 'import json,sys; print("kept" if json.load(sys.stdin)==[False] else "rejected")'; }
 bt_phase() { ipc smoke readDescendant window "${1:-vgs.bluetooth}" Pairing current | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
+bt_line() { ipc smoke readDescendant window "${1:-vgs.bluetooth}" Pairing text; }
+# The window box of the section's first Disconnect, the first row of My
+# Devices, below the pairing's line.
+bt_rect() { ipc smoke windowGeometry window "${1:-vgs.bluetooth}" RowAction Disconnect; }
+# `moved` when that box differs from BOX, else `still`.
+bt_moved() { local now; now="$(bt_rect "${2:-vgs.bluetooth}")" || return; [[ $now != "$1" ]] && echo moved || echo still; }
 bt_prompt() { ipc smoke readDescendant window "${2:-vgs.bluetooth}" Prompt "$1"; }
 bt_field() { ipc smoke readDescendant window vgs.bluetooth TextField text; }
 bt_focus() { ipc smoke focused window "${1:-vgs.bluetooth}" | py_reply 'import json,sys; r=json.load(sys.stdin); print(r[1] if isinstance(r, list) else r)'; }
@@ -917,6 +929,8 @@ bt_main() {
   # the prompt is open, and Return sends it.
   bt_transcript "$bt_pin_prompt" "{\"wait\": \"bt-pin-typed\"}, {\"out\": \"\\r\\u001b[K[CHG] Device $bt_speaker RSSI: -60\\n\\r\\u001b[1;39m\\u001b[1;39m[agent] Enter PIN code: \\u001b[0m\\u001b[0m\"}, {\"in\": \"0000\"}, {\"pair\": \"$bt_speaker\"}, {\"out\": \"0000\\n\"}"
   agent_before="$(bt_count bluetoothctl)" || { fail "bluetooth: the bluetoothctl stand-in's calls are unreadable"; return 0; }
+  expect "the speaker's Connect fails as an unanswering speaker's does" installed bt_connect_answer "$bt_speaker" fail
+  expected_errors+=('Failed to connect to device .*br-connection-page-timeout')
   expect "a deep link pairs the speaker" ok ipc shell summon window vgs.system "{\"pane\":\"vgs.bluetooth\",\"pair\":\"$bt_speaker\"}"
   expect_poll "the Dialog asks for the PIN" '"pin"' bt_prompt kind
   expect_poll "the PIN field holds the keyboard" PIN bt_focus
@@ -929,6 +943,16 @@ bt_main() {
   type_keys -k Return || fail "typing Return on the PIN prompt failed"
   expect_poll "Return sends the PIN, and the pairing releases the agent's lease" "[$bt_default, \"0000\", $bt_off, \"EOF\"]" bt_agent_stdin "$agent_before"
   expect_poll "the third pairing ends done" done bt_phase
+  local bt_held
+  bt_held="$(bt_rect)" || fail "the first Disconnect's box is unreadable"
+  expect "the third pairing's line shows while the first Disconnect is read" '"Paired with Smoke Speaker"' bt_line
+  expect_poll "the pairing's failed connect shows the row's one failure sentence" '["Smoke Speaker did not answer. Check that it is on, nearby and not connected to another device."]' bt_failures
+  expect "the speaker's Connect accepts again" installed bt_connect_answer "$bt_speaker" accept
+  click_in "window:System Settings" window vgs.bluetooth RowAction Retry || fail "the click on the speaker's Retry failed"
+  expect_poll "Retry connects the paired speaker" "True" bt_device "$bt_speaker" Connected
+  expect_poll "Retry clears the speaker's failure sentence" '[]' bt_failures
+  expect_poll "the third pairing's result line clears once its time passed" '""' bt_line
+  expect "the line's timed clear moves no row control" "$bt_held" bt_rect
   device_transcript -
 
   # Connect and disconnect by pointer.
@@ -940,7 +964,6 @@ bt_main() {
   click_in "window:System Settings" window vgs.bluetooth RowAction Disconnect || fail "the click on Disconnect before a failed connect failed"
   expect_poll "Disconnect leaves the headphones not connected before the failed connect" "False" bt_device "$bt_headphones" Connected
   expect "the headphones' Connect fails as an unanswering speaker's does" installed bt_connect_answer "$bt_headphones" fail
-  expected_errors+=('Failed to connect to device .*br-connection-page-timeout')
   click_in "window:System Settings" window vgs.bluetooth RowAction Connect || fail "the click on the failing Connect failed"
   expect_poll "Connect shows the working state at once" '"Connecting…"' bt_secondary "$bt_headphones"
   expect_poll "Connect shows the busy spinner at once" True bt_busy_spinner "Smoke Headphones"
@@ -969,6 +992,7 @@ json.dump(doc, open(path, "w"))
 for name, old, new in (
     ("BluetoothLogic.js", 'return { state: withState(state, { attempts: state.attempts + 1 }), effects: ["stop"] };', "return { state: state, effects: [] };"),
     ("Pairing.qml", "if (target !== null) target.pair();", "if (target !== null) {}"),
+    ("PairLine.qml", "visible: slot > 0", 'visible: line.text !== ""'),
 ):
     file = os.path.join(root, name)
     text = open(file).read()
@@ -996,6 +1020,10 @@ PY
   expect_poll "control: the copy's Dialog holds the keyboard" Pair bt_focus acme.bluetooth-mutant
   type_keys -k Return || fail "typing Return on the copy's confirm prompt failed"
   expect_poll "control: the copy's pairing ends done" done bt_phase acme.bluetooth-mutant
+  bt_held="$(bt_rect acme.bluetooth-mutant)" || fail "control: the copy's first Disconnect's box is unreadable"
+  expect "control: the copy's line shows while its first Disconnect is read" '"Paired with Smoke Pad"' bt_line acme.bluetooth-mutant
+  expect_poll "control: the copy's line clears" '""' bt_line acme.bluetooth-mutant
+  expect "control: a line that gives back its room moves the row controls" moved bt_moved "$bt_held" acme.bluetooth-mutant
   expect "control: a section that never calls Pair leaves the mock's Pair count at 0" 0 bt_calls Pair "$(bt_path "$bt_pad")"
   device_transcript -
   expect "hiding the System window after the controls is allowed" ok ipc shell hide window vgs.system

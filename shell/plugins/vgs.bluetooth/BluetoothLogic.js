@@ -32,6 +32,19 @@ var DISCOVERY_STOP_ATTEMPTS = 3;
 // (g_dbus_emit_property_changed queues the change), so the two can arrive
 // in either order.
 var PAIR_SETTLE_MS = 2000;
+// How long a pairing's result line shows before the pairing goes back to
+// idle and the line clears: the device's row is the lasting status, and a
+// line that stays reads as the current state. A failed line holds twice as
+// long because it is up to three times the words and names the next step.
+// No failure stays for a retry: every retry is the row's Pair action, which
+// stays while the device is listed, and no failed line holds anything the
+// retry needs. Both are several times the reading time of their longest
+// line at 238 words a minute, the mean silent reading rate in Brysbaert,
+// "How many words do we read per minute?", Journal of Memory and Language
+// 109 (2019): about 1.3 s for the 5 words of "Paired with MX Master 4" and
+// 4 s for the 16 words of its not-paired line.
+var PAIR_DONE_SHOWN_MS = 5000;
+var PAIR_FAILED_SHOWN_MS = 10000;
 // BlueZ's longest name, 248 bytes (Core Specification, Vol 3, Part C,
 // 3.2.2).
 var ALIAS_MAX_BYTES = 248;
@@ -384,10 +397,24 @@ function discoveryTeardown(state, ctx) {
 // gone). `name` is the device's name when the pairing started; `ended`
 // records that Pair answered. Every step answers { state, effects },
 // effects run in order, each one of "begin-lease", "pair", "cancel-pair",
-// "release-lease", "trust-connect", "arm-settle" and "disarm-settle".
+// "release-lease", "trust-connect", "arm-clock" and "disarm-clock". The one
+// clock waits pairWaitMs of the state the step answered; settling, done and
+// failed each arm it on entry, and its elapse ends that phase.
 function pairIdle() { return { phase: "idle", address: "", name: "", ended: false, reason: "" }; }
 
 function pairActive(state) { return state.phase === "leasing" || state.phase === "pairing" || state.phase === "settling"; }
+
+// How long the clock waits in STATE's phase, the phase an "arm-clock"
+// effect enters.
+function pairWaitMs(state) {
+    switch (state.phase) {
+    case "settling": return PAIR_SETTLE_MS;
+    case "done": return PAIR_DONE_SHOWN_MS;
+    case "failed": return PAIR_FAILED_SHOWN_MS;
+    default:
+        throw new Error("bluetooth: pair phase " + JSON.stringify(state.phase) + " is not one of settling, done, failed");
+    }
+}
 
 function pairWith(state, changes) {
     var out = { phase: state.phase, address: state.address, name: state.name, ended: state.ended, reason: state.reason };
@@ -402,42 +429,44 @@ function pairWith(state, changes) {
 //                                     prompts still open
 //   { type: "paired" }                the device reads paired
 //   { type: "prompts", open }         how many agent prompts are open
-//   { type: "settled" }               PAIR_SETTLE_MS passed while settling
+//   { type: "elapsed" }               the clock's pairWaitMs passed
 //   { type: "cancel" }                the user canceled, or BlueZ did
 //   { type: "gone" }                  the device left the list
-// A start while a pairing runs changes nothing, its name included.
+// A start while a pairing runs changes nothing, its name included; a start
+// over a result line drops the line's clock.
 function pairStep(state, event) {
     switch (event.type) {
     case "start":
         if (pairActive(state)) return { state: state, effects: [] };
-        return { state: { phase: "leasing", address: event.address, name: event.name, ended: false, reason: "" }, effects: ["begin-lease"] };
+        return { state: { phase: "leasing", address: event.address, name: event.name, ended: false, reason: "" }, effects: state.phase === "idle" ? ["begin-lease"] : ["disarm-clock", "begin-lease"] };
     case "lease":
         if (state.phase !== "leasing") return { state: state, effects: [] };
         if (event.state === "ready") return { state: pairWith(state, { phase: "pairing" }), effects: ["pair"] };
-        if (event.state === "refused") return { state: pairWith(state, { phase: "failed", reason: "agent-busy" }), effects: ["release-lease"] };
+        if (event.state === "refused") return { state: pairWith(state, { phase: "failed", reason: "agent-busy" }), effects: ["release-lease", "arm-clock"] };
         return { state: state, effects: [] };
     case "pair-ended":
         if (state.phase !== "pairing") return { state: state, effects: [] };
         if (event.open > 0) return { state: pairWith(state, { ended: true }), effects: [] };
-        return { state: pairWith(state, { phase: "settling", ended: true }), effects: ["arm-settle"] };
+        return { state: pairWith(state, { phase: "settling", ended: true }), effects: ["arm-clock"] };
     case "prompts":
-        if (state.phase === "settling" && event.open > 0) return { state: pairWith(state, { phase: "pairing" }), effects: ["disarm-settle"] };
-        if (state.phase === "pairing" && state.ended && event.open === 0) return { state: pairWith(state, { phase: "settling" }), effects: ["arm-settle"] };
+        if (state.phase === "settling" && event.open > 0) return { state: pairWith(state, { phase: "pairing" }), effects: ["disarm-clock"] };
+        if (state.phase === "pairing" && state.ended && event.open === 0) return { state: pairWith(state, { phase: "settling" }), effects: ["arm-clock"] };
         return { state: state, effects: [] };
     case "paired":
         if (!pairActive(state)) return { state: state, effects: [] };
-        return { state: pairWith(state, { phase: "done" }), effects: ["disarm-settle", "release-lease", "trust-connect"] };
-    case "settled":
-        if (state.phase !== "settling") return { state: state, effects: [] };
-        return { state: pairWith(state, { phase: "failed", reason: "not-paired" }), effects: ["release-lease"] };
+        return { state: pairWith(state, { phase: "done" }), effects: ["release-lease", "trust-connect", "arm-clock"] };
+    case "elapsed":
+        if (state.phase === "settling") return { state: pairWith(state, { phase: "failed", reason: "not-paired" }), effects: ["release-lease", "arm-clock"] };
+        if (state.phase === "done" || state.phase === "failed") return { state: pairIdle(), effects: [] };
+        return { state: state, effects: [] };
     case "cancel":
         if (!pairActive(state)) return { state: state, effects: [] };
-        return { state: pairWith(state, { phase: "failed", reason: "canceled" }), effects: ["disarm-settle", "cancel-pair", "release-lease"] };
+        return { state: pairWith(state, { phase: "failed", reason: "canceled" }), effects: ["cancel-pair", "release-lease", "arm-clock"] };
     case "gone":
         if (!pairActive(state)) return { state: state, effects: [] };
-        return { state: pairWith(state, { phase: "failed", reason: "gone" }), effects: ["disarm-settle", "release-lease"] };
+        return { state: pairWith(state, { phase: "failed", reason: "gone" }), effects: ["release-lease", "arm-clock"] };
     default:
-        throw new Error("bluetooth: pair event " + JSON.stringify(event.type) + " is not one of start, lease, pair-ended, prompts, paired, settled, cancel, gone");
+        throw new Error("bluetooth: pair event " + JSON.stringify(event.type) + " is not one of start, lease, pair-ended, prompts, paired, elapsed, cancel, gone");
     }
 }
 
@@ -748,6 +777,11 @@ function pressAction(state) {
         throw new Error("bluetooth: device state " + JSON.stringify(state) + " is not one of Disconnected, Connected, Disconnecting, Connecting");
     }
 }
+
+// The press a page pairing sends once its device reads paired: Connect for
+// a device that reads Disconnected, else none. It is sent and recorded as a
+// row's Connect is, so settleAttempts shows a connect that fails.
+function pairFollowUp(state) { return pressAction(state) === "connect" ? "connect" : null; }
 
 function own(map, key) { return Object.prototype.hasOwnProperty.call(map, key); }
 

@@ -417,6 +417,7 @@ f share/vgshell/shell/plugins/vgs.bar/manifest.json
 f share/vgshell/shell/plugins/vgs.bluetooth/BluetoothLogic.js
 f share/vgshell/shell/plugins/vgs.bluetooth/DeviceSections.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/DiscoveryLease.qml
+f share/vgshell/shell/plugins/vgs.bluetooth/PairLine.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Pairing.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Pane.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Panel.qml

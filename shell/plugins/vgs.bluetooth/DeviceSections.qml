@@ -12,7 +12,8 @@ import "BluetoothLogic.js" as Logic
 // owner through `pairRequested`, hidden while `pairBusy` holds. With
 // `manage`, My Devices offers Rename, which asks the owner through
 // `renameRequested`, Trust or Don't trust, and Forget, which Delete runs
-// too. Both lists show only while Bluetooth is on.
+// too. A page pairing's follow-up connect (`connectPaired`) is pressed and
+// recorded as a row's Connect is. Both lists show only while Bluetooth is on.
 Column {
     id: root
 
@@ -105,8 +106,16 @@ Column {
 
     function toggle(address) {
         const device = deviceFor(address);
-        if (device === null) return;
-        const action = Logic.pressAction(stateOf(device));
+        if (device !== null) press(device, address, Logic.pressAction(stateOf(device)));
+    }
+
+    // A page pairing's follow-up once its device reads paired.
+    function connectPaired(address) {
+        const device = deviceFor(address);
+        if (device !== null) press(device, address, Logic.pairFollowUp(stateOf(device)));
+    }
+
+    function press(device, address, action) {
         if (action === null) return;
         device.connected = action === "connect";
         // Quickshell 0.3.1 sets Connecting or Disconnecting during this write.

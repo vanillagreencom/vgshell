@@ -123,6 +123,7 @@ FocusScope {
     Pairing {
         id: pairing
         shell: root.shell
+        onConnectRequested: address => sections.connectPaired(address)
     }
 
     Column {
@@ -188,16 +189,14 @@ FocusScope {
             }
         }
 
-        Label {
+        PairLine {
             width: parent.width
-            visible: text !== ""
-            role: "body"
             text: pairing.text
-            color: pairing.current.phase === "failed" ? Theme.color.danger : Theme.color.text
-            wrapMode: Text.Wrap
+            failed: pairing.current.phase === "failed"
         }
 
         DeviceSections {
+            id: sections
             width: parent.width
             opened: root.opened
             powerOn: root.powerOn

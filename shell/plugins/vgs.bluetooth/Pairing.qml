@@ -7,8 +7,12 @@ import "BluetoothLogic.js" as Logic
 // through the core's pairing agent, capability `bluetoothAgent`.
 // BluetoothLogic.pairStep decides each step; this runs them. It holds the
 // agent lease while a pairing runs, calls Pair once the lease reads ready,
-// and trusts and connects the device once it reads paired. A code to type on the device is
+// and trusts the device once it reads paired, then asks for its connect
+// through `connectRequested`, which the pane runs as a row's Connect so a
+// connect that fails shows the row's failure. A code to type on the device is
 // dismissed when the pairing ends, and the lease goes with the instance.
+// One clock runs the waits pairStep arms: the settle after Pair answers,
+// then how long the result line shows.
 //
 // It also answers the agent's prompts, the first it lists, which come from
 // a pairing or, while Discoverable holds a lease, from another device:
@@ -35,6 +39,8 @@ Item {
     readonly property bool targetGone: current.address !== "" && target === null
 
     visible: false
+
+    signal connectRequested(string address)
 
     // Pair ADDRESS; a pairing already running keeps running, with its name.
     function start(address) {
@@ -84,17 +90,18 @@ Item {
             case "trust-connect":
                 if (target !== null) {
                     target.trusted = true;
-                    if (!target.connected) target.connect();
+                    root.connectRequested(current.address);
                 }
                 break;
-            case "arm-settle":
-                settle.restart();
+            case "arm-clock":
+                clock.interval = Logic.pairWaitMs(current);
+                clock.restart();
                 break;
-            case "disarm-settle":
-                settle.stop();
+            case "disarm-clock":
+                clock.stop();
                 break;
             default:
-                throw new Error("bluetooth: pair effect " + JSON.stringify(effect) + " is not one of begin-lease, pair, cancel-pair, release-lease, trust-connect, arm-settle, disarm-settle");
+                throw new Error("bluetooth: pair effect " + JSON.stringify(effect) + " is not one of begin-lease, pair, cancel-pair, release-lease, trust-connect, arm-clock, disarm-clock");
             }
         }
         if (current.phase === "failed" && step.effects.length > 0) console.warn("bluetooth: pair " + current.address + " reason=" + current.reason);
@@ -121,9 +128,8 @@ Item {
     Component.onDestruction: if (lease !== null) lease.release()
 
     Timer {
-        id: settle
-        interval: Logic.PAIR_SETTLE_MS
+        id: clock
         repeat: false
-        onTriggered: root.run(Logic.pairStep(root.current, { type: "settled" }))
+        onTriggered: root.run(Logic.pairStep(root.current, { type: "elapsed" }))
     }
 }
