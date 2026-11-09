@@ -130,20 +130,25 @@ function normalizePkg(probe) {
 }
 
 // The steps `vgshell self status` names an update by, each with the reasons
-// it may carry: `self`, `rebuild` and `install-helper` run, and `none` runs
-// nothing, with the reason when VGS is behind.
-var SELF_STEPS = { self: [null], rebuild: [null], "install-helper": [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
+// it may carry: `self`, `rebuild`, `install-helper` and `aur-upgrade` run,
+// and `none` runs nothing, with the reason when VGS is behind.
+var SELF_STEPS = { self: [null], rebuild: [null], "install-helper": [null], "aur-upgrade": [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
 
 // The VGS row from `vgshell self status --json` and FAILED, the
 // rebuild-failed.json record a failed vgshell-git rebuild of
 // tui/pipeline.sh left, or null. VGS counts one update only when its step
-// runs. Its `note` is one of:
+// runs and no other row counts it: `aur-upgrade`'s vgshell-git is in the
+// AUR row's list, so that row counts it. Its `note` is one of:
 //   { kind: "installHelper" }   install paru before rebuilding VGS
+//   { kind: "aurUpgrade" }      the AUR row lists the update, and the VGS
+//                                row's Update installs it
 //   { kind: "reason", reason }   behind, and the step is `none` for REASON
 //   { kind: "rebuildFailed", conflict }
 //                                the rebuild of this same installed version
 //                                failed: still behind with step `rebuild`
-//                                and FAILED names the status's `current`
+//                                or `aur-upgrade`, whose Update of VGS
+//                                alone runs that rebuild, and FAILED names
+//                                the status's `current`
 // A record for another version or step is stale and ignored: a rebuilt or
 // current package drops it.
 function normalizeSelf(probe, checkedAt, failed) {
@@ -154,14 +159,15 @@ function normalizeSelf(probe, checkedAt, failed) {
     if (row.error !== null && row.error !== undefined) return sourceRow("vgs", null, [], checkedAt, row.error);
     if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return sourceRow("vgs", null, [], checkedAt, "unparseable self step");
     var behind = row.behind === true;
-    var runs = behind && row.step !== "none";
+    var counted = behind && row.step !== "none" && row.step !== "aur-upgrade";
     var packages = behind ? [{ name: row.package || "vgs", old: row.current === undefined ? null : row.current, new: row.latest === undefined ? null : row.latest }] : [];
     var note = null;
     if (behind && row.step === "install-helper") note = { kind: "installHelper" };
-    else if (behind && row.reason !== null) note = { kind: "reason", reason: row.reason };
-    else if (behind && row.step === "rebuild" && isPlainObject(failed) && failed.current === row.current)
+    else if (behind && (row.step === "rebuild" || row.step === "aur-upgrade") && isPlainObject(failed) && failed.current === row.current)
         note = { kind: "rebuildFailed", conflict: failed.conflict };
-    return sourceRow("vgs", runs ? 1 : 0, packages, checkedAt, null, note);
+    else if (behind && row.step === "aur-upgrade") note = { kind: "aurUpgrade" };
+    else if (behind && row.reason !== null) note = { kind: "reason", reason: row.reason };
+    return sourceRow("vgs", counted ? 1 : 0, packages, checkedAt, null, note);
 }
 
 // An installed directory VGS does not manage (a copied, linked or
@@ -839,8 +845,13 @@ function rowReading(row) {
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
             return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
-        case "rebuildFailed": return { secondary: "The last update failed", badge: "Update failed", badgeTone: "danger", updatable: row.count > 0, detail: rebuildFailedText(note) };
-        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, reason, rebuildFailed");
+        // The AUR row counts this update, so this row counts none and
+        // still offers its own Update.
+        case "aurUpgrade": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: true, detail: "The AUR updates include this version. Select Update to install it." };
+        // The retry is the same Update: `rebuild` counts 1, and
+        // `aur-upgrade` counts 0 because the AUR row counts its package.
+        case "rebuildFailed": return { secondary: "The last update failed", badge: "Update failed", badgeTone: "danger", updatable: true, detail: rebuildFailedText(note) };
+        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, aurUpgrade, reason, rebuildFailed");
         }
     }
     return { secondary: row.count === 0 ? "Up to date" : countText(row.count, "update"), badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };
@@ -851,8 +862,8 @@ function rowReading(row) {
 // detail, lines, more }. `detail` is rowReading's, `lines` the packages
 // the shared status lists, `more` the `+N more` it omitted, "" for none. A
 // source with an error keeps its row and names the error; only a source
-// with a count above zero offers its own Update, so the VGS row offers it
-// only for a step that runs.
+// with a count above zero offers its own Update, and the VGS row offers it
+// for a step that runs, also `aur-upgrade`, whose update the AUR row counts.
 function windowRows(values) {
     var sources = sourcesOf(values);
     var rows = [];

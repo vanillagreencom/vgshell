@@ -343,8 +343,8 @@ while IFS='|' read -r helper pending aur expected reason error; do
     check "$pending facts emits no protocol refusal" test ! -s "$tmp/facts.err"
   fi
 done <<'ROWS'
-paru|vgshell-git||none|package-manager|null
-paru|vgshell-git|paru -Sua|none|package-manager|null
+paru|vgshell-git||aur-upgrade|null|null
+paru|vgshell-git|paru -Sua|aur-upgrade|null|null
 both|vgshell-git|yay -Sua|rebuild|null|null
 paru|vgshell-git|paru -Sua --devel|rebuild|null|null
 paru|kendex-git||rebuild|null|null

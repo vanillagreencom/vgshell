@@ -613,11 +613,12 @@ function aurDevelUpdate(pkg) {
 
 // What an Update runs for an install that is behind: `self` is `vgshell
 // self update`, `install-helper` installs paru before that rebuild,
-// `rebuild` the AUR helper's rebuild of vgshell-git, and
+// `rebuild` the AUR helper's rebuild of vgshell-git, `aur-upgrade` names
+// paru's tracked devel vgshell-git, which an AUR upgrade in the same run
+// builds and an Update of VGS alone rebuilds, and
 // `none` names the reason VGS runs nothing: an AUR package with no helper
 // to update it, a package the system's packages update (the AUR helper's
-// upgrade for a tracked devel package or the AUR release package, the
-// primary manager's elsewhere),
+// upgrade for the AUR release package, the primary manager's elsewhere),
 // and a Nix tree its flake updates.
 function update(method, pkg, manager, helper) {
     if (method === "checkout" || method === "curl") return { step: "self", reason: null };
@@ -626,7 +627,7 @@ function update(method, pkg, manager, helper) {
     if (manager === AUR_PRIMARY && pkg === "vgshell-git" && helper === null) return { step: "install-helper", reason: null };
     if (manager === AUR_PRIMARY && helper === null) return { step: "none", reason: "no-aur-helper" };
     if (manager === AUR_PRIMARY && pkg === "vgshell-git") {
-        if (helper === "paru" && aurDevelUpdate(pkg)) return { step: "none", reason: "package-manager" };
+        if (helper === "paru" && aurDevelUpdate(pkg)) return { step: "aur-upgrade", reason: null };
         return { step: "rebuild", reason: null };
     }
     return { step: "none", reason: "package-manager" };

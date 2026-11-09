@@ -280,12 +280,16 @@
 # compares VERSION, or the vgshell package's version, with the newest
 # release's. Each GitHub API read takes at most 10 s. It prints
 # `version=... method=... [package=...] current=... latest=...
-# behind=true|false step=self|rebuild|none [reason=...]`, or with --json one
+# behind=true|false step=self|rebuild|install-helper|aur-upgrade|none
+# [reason=...]`, or with --json one
 # line `{ version, method, package, current, latest, behind, step, reason,
 # error }`. `step` is what an update runs: `self` (`vgshell self update`,
 # for a checkout or a curl install that is behind), `rebuild` (the AUR
-# helper `vgshell pkg detect` finds rebuilds a vgshell-git that is behind)
-# or `none`. `reason` names why a tree that is behind takes `none`:
+# helper `vgshell pkg detect` finds rebuilds a vgshell-git that is behind),
+# `install-helper` (paru is installed before that rebuild), `aur-upgrade`
+# (paru's AUR upgrade lists the vgshell-git that is behind: an AUR upgrade
+# builds it, and an update of VGS alone rebuilds it) or `none`. `reason`
+# names why a tree that is behind takes `none`:
 # `no-aur-helper` (a package from the AUR, vgshell or vgshell-git under
 # pacman, with no AUR helper), `package-manager` (the package updates with
 # the system's packages: the AUR helper's upgrade for the AUR's vgshell, the

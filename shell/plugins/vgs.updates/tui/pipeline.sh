@@ -44,10 +44,11 @@
 #      the `aurCommand` setting's words, else `vgshell pkg run upgrade
 #      --manager aur`, then `<helper> -S vgshell-git` when the status names
 #      the step `rebuild`, installing paru from its AUR recipe first for
-#      `install-helper`. When self status selects `none` with the reason
-#      `package-manager` for paru's tracked devel vgshell-git, the AUR
-#      upgrade builds it and no separate rebuild runs. With Devel off,
-#      no tracked devel update, or yay, status selects the separate rebuild.
+#      `install-helper`. When self status selects `aur-upgrade` for paru's
+#      tracked devel vgshell-git, the AUR upgrade builds it and no separate
+#      rebuild runs; a run without the AUR step, an Update of VGS alone,
+#      rebuilds it. With Devel off, no tracked devel update, or yay, status
+#      selects the separate rebuild.
 #      A rebuild removes the record
 #      $(updates_state_dir)/rebuild-failed.json before it runs and, when it
 #      fails, writes it: `{ current, helper, exit, conflict }`, the package
@@ -856,25 +857,6 @@ _updates_main() {
         error) _updates_diagnostic "VGS: $value"; vgs_tui_warn "Could not check VGS for updates." ;;
       esac
     done <<<"$facts"
-    # The status and this run each read `vgshell pkg detect`; use this
-    # run's helper state before choosing whether installation is needed.
-    if [[ $vgs_step == rebuild && -z $aur_binary ]]; then vgs_step=install-helper; fi
-    if [[ $vgs_step == install-helper && -n $aur_binary ]]; then vgs_step=rebuild; fi
-    # With no AUR helper, the `aurCommand` words run the AUR step (aur_here),
-    # and they update the release `vgshell` package from the AUR, as
-    # UpdatesLogic.publishedNote tells the Updates window. `vgshell-git`
-    # installs its helper first: its rebuild runs `<helper> -S vgshell-git`.
-    if [[ $vgs_step:$vgs_reason == none:no-aur-helper && $vgs_package == vgshell && $aur_here == 1 ]]; then vgs_reason=package-manager; fi
-    case "$vgs_step:$vgs_reason" in
-      self:) plan+=("VGS: update VGS") ;;
-      rebuild:) plan+=("VGS: rebuild the VGS package after AUR updates") ;;
-      install-helper:) plan+=("VGS: install paru, then rebuild the VGS package") ;;
-      none:no-aur-helper) plan+=("VGS: the $vgs_package package is behind, and no AUR helper is here to update it") ;;
-      none:package-manager) plan+=("VGS: the $vgs_package package updates with its package manager") ;;
-      none:nix) plan+=("VGS: its flake updates it") ;;
-      none:) plan+=("VGS: current") ;;
-      *) plan+=("VGS: could not check for an update") ;;
-    esac
   fi
   for id in "${run[@]}"; do
     case "$id" in
@@ -900,6 +882,33 @@ _updates_main() {
     fi
   done
   run=("${kept[@]}")
+  if _updates_in vgs "${run[@]}"; then
+    # paru's tracked devel vgshell-git (`aur-upgrade`) builds in this run's
+    # AUR upgrade when the AUR step runs, so VGS runs no step of its own.
+    # A run without that step, an Update of VGS alone, rebuilds it.
+    if [[ $vgs_step == aur-upgrade ]] && ! _updates_in aur "${run[@]}"; then vgs_step=rebuild; fi
+    # The status and this run each read `vgshell pkg detect`; use this
+    # run's helper state before choosing whether installation is needed.
+    if [[ $vgs_step == rebuild && -z $aur_binary ]]; then vgs_step=install-helper; fi
+    if [[ $vgs_step == install-helper && -n $aur_binary ]]; then vgs_step=rebuild; fi
+    # With no AUR helper, the `aurCommand` words run the AUR step (aur_here),
+    # and they update the release `vgshell` package from the AUR, as
+    # UpdatesLogic.publishedNote tells the Updates window. `vgshell-git`
+    # installs its helper first: its rebuild runs `<helper> -S vgshell-git`.
+    if [[ $vgs_step:$vgs_reason == none:no-aur-helper && $vgs_package == vgshell && $aur_here == 1 ]]; then vgs_reason=package-manager; fi
+    case "$vgs_step:$vgs_reason" in
+      self:) label="VGS: update VGS" ;;
+      rebuild:) label="VGS: rebuild the VGS package after AUR updates" ;;
+      install-helper:) label="VGS: install paru, then rebuild the VGS package" ;;
+      aur-upgrade:) label="VGS: the AUR updates install the new VGS package" ;;
+      none:no-aur-helper) label="VGS: the $vgs_package package is behind, and no AUR helper is here to update it" ;;
+      none:package-manager) label="VGS: the $vgs_package package updates with its package manager" ;;
+      none:nix) label="VGS: its flake updates it" ;;
+      none:) label="VGS: current" ;;
+      *) label="VGS: could not check for an update" ;;
+    esac
+    plan=("$label" "${plan[@]}")
+  fi
   if [[ ${#aur_command[@]} -gt 0 ]] && _updates_in aur "${run[@]}"; then plan+=("AUR: install updates after system updates"); fi
   if _updates_in plugins "${run[@]}"; then
     _updates_outdated plugin plugins

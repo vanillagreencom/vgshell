@@ -1365,7 +1365,9 @@ row_vgs_git() {
 }
 # Execute the status owner and its package checker over the same stub paru
 # the AUR upgrade reaches. The public normalization/count is also production
-# code. The control below restores the old decision, not a deleted call.
+# code. The controls below restore old decisions, not deleted calls. Each
+# status the VGS row offers Update for is run alone first, as that Update
+# runs it; devel_alone_builds keeps the last such run's build count.
 row_vgs_devel() {
   local pending aur expected count source_status="${SELF_JUDGE:-$tree/bin/lib/self.js}"
   while IFS='|' read -r pending aur expected count; do
@@ -1397,8 +1399,11 @@ const probe = name => ({status: 0, stdout: fs.readFileSync(fix + "/" + name, "ut
 const snapshot = logic.normalizeSnapshot({pkg: probe("check-aur.json"), self: probe("self.json"),
     plugins: {status: 0, stdout: "[]"}, themes: {status: 0, stdout: "[]"}}, 0);
 assert.equal(logic.pendingCount(snapshot), Number(count));
-assert.equal(logic.publishValues(snapshot, false, 0, 1, null, aur).pending, Number(count));
+const values = logic.publishValues(snapshot, false, 0, 1, null, aur);
+assert.equal(values.pending, Number(count));
 const status = JSON.parse(probe("self.json").stdout);
+// The VGS row offers its own Update for every status that names a step.
+assert.equal(logic.windowRows(values).find(row => row.source === "vgs").updatable, expected !== "unknown");
 if (expected === "unknown") {
     assert.equal(status.behind, null);
     assert.equal(status.step, null);
@@ -1408,10 +1413,19 @@ if (expected === "unknown") {
     assert.equal(status.error, "aur-check=exit=1 stderr=" + cause);
     assert.equal(snapshot.sources.find(row => row.source === "vgs").count, null);
 } else {
-    assert.equal(status.step, expected === "aur" ? "none" : "rebuild");
+    assert.equal(status.step, expected === "aur" ? "aur-upgrade" : "rebuild");
     assert.equal(status.error, null);
 }
 JS
+    if [[ $expected != unknown ]]; then
+      pipeline update-source.sh vgs
+      devel_alone_builds="$(grep -c '^build vgshell-git$' "$calls" || :)"
+      assert "$pending aur=${aur:-automatic} Update of VGS alone exits 0" test "$status" == 0
+      assert "$pending aur=${aur:-automatic} Update of VGS alone builds VGS once" test "$devel_alone_builds" == 1
+      assert "$pending aur=${aur:-automatic} Update of VGS alone runs the VGS rebuild" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
+      assert "$pending aur=${aur:-automatic} Update of VGS alone runs no AUR upgrade" no_call "vgshell pkg run upgrade --manager aur"
+      rm -f -- "${fix:?}/owner-asked"
+    fi
     pipeline update.sh
     assert "$pending aur=${aur:-automatic} exits 0" test "$status" == 0
     local builds=0
@@ -1419,6 +1433,7 @@ JS
     assert "$pending aur=${aur:-automatic} builds VGS $builds times" test "$(grep -c '^build vgshell-git$' "$calls" || :)" == "$builds"
     if [[ $expected == aur ]]; then
       assert "tracked devel update has no separate rebuild" no_call "vgshell pkg run reinstall --manager aur"
+      assert "tracked devel update plans the AUR upgrade for VGS" out_has "VGS: the AUR updates install the new VGS package"
     elif [[ $expected == unknown ]]; then
       assert "$pending advisory failure skips the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur"
       assert "$pending advisory failure warns without a protocol failure" out_has "Could not check VGS for updates."
@@ -1792,6 +1807,12 @@ red=0
 SELF_JUDGE="$devel_control/bin/lib/self.js" QUIET=1 row_vgs_devel
 check "the old devel rebuild decision fails the single-build row" test "$red" -gt 0
 check "the old devel rebuild decision reaches two builds" test "$(grep -c '^build vgshell-git$' "$calls")" == 2
+copy_with devel-no-update "$tree/bin/lib/self.js" 'return { step: "aur-upgrade", reason: null };' 'return { step: "none", reason: "package-manager" };'
+cp -- "$copy" "$devel_control/bin/lib/self.js"
+red=0
+SELF_JUDGE="$devel_control/bin/lib/self.js" QUIET=1 row_vgs_devel
+check "the old step none fails the VGS row's own Update" test "$red" -gt 0
+check "the old step none builds nothing when VGS updates alone" test "$devel_alone_builds" == 0
 copy_with devel-command-ignored "$tree/bin/lib/self.js" 'if (words.length > 0 && require("./pkg-review.js").customMode(words) !== "table") return false;' 'if (false && words.length > 0 && require("./pkg-review.js").customMode(words) !== "table") return false;'
 cp -- "$copy" "$devel_control/bin/lib/self.js"
 red=0

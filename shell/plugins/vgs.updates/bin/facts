@@ -18,7 +18,7 @@
 //   facts <loader> self             `vgshell self status --json`
 //       `error <refusal>` when the status names one; else `package <name>`
 //       when a package owns the tree, `current <version>`, `step
-//       self|rebuild|install-helper|none` and `reason <reason>` when a step of none
+//       self|rebuild|install-helper|aur-upgrade|none` and `reason <reason>` when a step of none
 //       names one
 //   facts <loader> owner            `vgshell pkg owner <path>`
 //       `version <version>`
