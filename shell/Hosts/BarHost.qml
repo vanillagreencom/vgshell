@@ -144,6 +144,8 @@ Item {
             function observeCovers() {
                 const out = [];
                 for (const row of mappedWidgetRows()) {
+                    // A malformed widget can be published before createWidget rejects it.
+                    if (!(row.instance instanceof BarWidget)) continue;
                     const cover = row.instance.cover;
                     if (!(cover.width > 0 && cover.height > 0)) continue;
                     out.push({ output: screen.name, x: cover.x, width: cover.width,

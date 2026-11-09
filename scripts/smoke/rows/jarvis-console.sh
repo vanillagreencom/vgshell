@@ -347,9 +347,9 @@ python3 - "$jarvis_console_service" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
-needle='    function summonConsole() {\n        if (shell === null) return;\n        const reply = shell.surfaces.summon("window", "{}");'
+needle='const reply = shell.surfaces.summon("window", payload);'
 assert s.count(needle)==1
-changed=s.replace(needle, '    function summonConsole() {\n        if (shell === null) return;\n        const reply = "ok";')
+changed=s.replace(needle, 'const reply = "ok";')
 assert changed!=s
 p.write_text(changed)
 PY

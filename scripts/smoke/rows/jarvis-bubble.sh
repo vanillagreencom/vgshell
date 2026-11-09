@@ -1257,7 +1257,7 @@ jarvis_disable
 for jarvis_bubble_mutant in geometry console console-close focus words role lines head generation look approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_select
   jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Bubble.qml"
-  if [[ $jarvis_bubble_mutant == lines || $jarvis_bubble_mutant == head ]]; then
+  if [[ $jarvis_bubble_mutant == head ]]; then
     jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Words.qml"
   fi
   [[ $jarvis_bubble_mutant != look ]] || jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/ParticleOrb.qml"
@@ -1278,7 +1278,7 @@ needle,replacement={
     "focus": ("screen.name === service.focusedOutput", "true"),
     "words": ('caption !== null && caption.role', "false && caption.role"),
     "role": ('&& caption.role === "assistant" &&', "&&"),
-    "lines": ("readonly property int window: look.words.lines", "readonly property int window: look.words.lines + 1"),
+    "lines": ("window: root.look.words.lines", "window: root.look.words.lines + 1"),
     "head": ("y: (root.window - 1 - index) * root.lineBox + root.lift", "y: index * root.lineBox + root.lift"),
     "generation": ("caption.gen === state.gen", "true"),
     "look": ("readonly property var tone: look.state[phase]", "readonly property var tone: look.state.idle"),
