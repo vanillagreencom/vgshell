@@ -9,17 +9,16 @@ import qs.Ui
 // them in until they clear it (Inset.clearing). It takes its parent's width;
 // a caller spaces the cards themselves, as a Pane body does by `stack.group`.
 // A `floating` card stands alone in its own popup over the desktop, as
-// Jarvis's reply card does: it draws its ground through GlassSurface with
-// `standard`, a floating surface's token group, the popover's unless
-// handed, solid wherever glass is on so its text reads over any backdrop,
-// and keeps the card's padding, gap and clearing.
+// Jarvis's reply card does in a PassivePopup: it draws its ground through
+// GlassSurface in the popover's token group, solid wherever glass is on so
+// its text reads over any backdrop, with no outline of its own, and keeps
+// the card's padding, gap and clearing.
 Rectangle {
     id: root
 
     default property alias content: column.data
     readonly property real contentInset: clearingInset.inset
     property bool floating: false
-    property var standard: Theme.popover
 
     width: parent ? parent.width : implicitWidth
     implicitWidth: column.implicitWidth + 2 * contentInset
@@ -36,7 +35,7 @@ Rectangle {
         z: -1
         anchors.fill: parent
         sourceComponent: GlassSurface {
-            standard: root.standard
+            standard: Theme.popover
             elevation: "tight"
             solidOnly: true
         }

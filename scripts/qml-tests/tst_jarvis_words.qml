@@ -13,9 +13,8 @@ import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 // keeps its words, and one that changes an earlier word starts over;
 // motion scale 0 shows the text whole; each line draws over the look's
 // text shadow. Words takes plain values: the bubble's are its look's, as
-// `words` below is handed them; the reply card's are the theme's, as
-// `cardWords` is: each line in its own ink at full opacity, at the left
-// edge, through no shadow layer.
+// `words` below is handed them; tst_jarvis_reply_card.qml reads the reply
+// card's real Words and tst_jarvis_overlay.qml the bubble's.
 Item {
     id: root
     width: 400
@@ -30,28 +29,11 @@ Item {
         fadeDuration: root.look.words.fade
         liftDuration: root.look.words.lift
         newestInk: root.look.ink.words
-        middleInk: root.look.ink.words
-        oldestInk: root.look.ink.words
+        olderInk: root.look.ink.words
         newestOpacity: root.look.words.newest
         middleOpacity: root.look.words.middle
         oldestOpacity: root.look.words.oldest
         shadow: root.look.shadow
-    }
-    Words {
-        id: cardWords
-        y: 100
-        width: 300
-        window: 4
-        stepDuration: Theme.motion.reveal.step
-        fadeDuration: Theme.motion.duration.normal
-        liftDuration: Theme.motion.duration.slow
-        newestInk: Theme.color.text
-        middleInk: Theme.color.textMuted
-        oldestInk: Theme.color.textMuted
-        newestOpacity: 1
-        middleOpacity: 1
-        oldestOpacity: 1
-        horizontalAlignment: Text.AlignLeft
     }
 
     TestCase {
@@ -61,12 +43,11 @@ Item {
         function init() {
             UnitTheme.reset();
             words.text = "";
-            cardWords.text = "";
         }
 
         // The drawn lines, top to bottom, each as its plain text.
-        function drawn(view) {
-            return (view || words).children.filter(child => child.line !== undefined && child.visible)
+        function drawn() {
+            return words.children.filter(child => child.line !== undefined && child.visible)
                 .sort((a, b) => a.y - b.y);
         }
         function textOf(slot) {
@@ -120,24 +101,6 @@ Item {
                 compare(effect.shadowOpacity, root.look.shadow.opacity);
                 compare(effect.blurMax, root.look.shadow.blur);
             }
-        }
-
-        // The card's words: the newest line in the text ink, the older in
-        // the muted ink, every line opaque, starting at the left edge, and
-        // no line drawn through a shadow layer.
-        function test_the_cards_theme_values_draw_each_line() {
-            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            cardWords.text = Array(20).fill("scripted reply").join(" ");
-            tryVerify(() => cardWords.settled, 1000);
-            const shown = drawn(cardWords);
-            compare(shown.length, 4);
-            for (const slot of shown) {
-                compare(slot.opacity, 1, "every line is opaque");
-                compare(slot.layer.enabled, false, "no line blurs a shadow");
-                compare(slot.children[0].x, 0, "each line starts at the left edge");
-            }
-            compare(String(shown[3].ink), String(Qt.color(Theme.color.text)), "the newest line draws in the text ink");
-            for (const slot of shown.slice(0, 3)) compare(String(slot.ink), String(Qt.color(Theme.color.textMuted)), "an older line draws muted");
         }
 
         function test_motion_scale_zero_shows_the_text_whole() {

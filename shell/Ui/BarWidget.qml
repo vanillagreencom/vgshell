@@ -56,9 +56,10 @@ Item {
     // declaration requests observation, never grants presentation itself.
     property Item presentationItem: null
     property string presentationKey: ""
-    // A box this widget draws below the bar in its own popup, in its own
-    // coordinates, while that popup shows; empty otherwise. The bar host
-    // publishes it (Layers.barCovers), so a passive layer stands clear.
+    // A box this widget draws below the bar in a popup, in the bar's window
+    // coordinates, as a PassivePopup's `placedBox`, while that popup shows;
+    // empty otherwise. The bar host publishes it (Layers.barCovers), so a
+    // passive layer stands clear.
     property rect cover: Qt.rect(0, 0, 0, 0)
     // A saved widget can become unplaced without being destroyed. Close
     // its frame UI before any menu action can use the withdrawn locator.

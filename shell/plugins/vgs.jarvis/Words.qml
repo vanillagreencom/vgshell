@@ -27,15 +27,15 @@ import qs.Ui
 Item {
     id: root
 
-    // How many lines show, the pace, and each line's ink and opacity: the
-    // newest line's, the oldest shown line's, and the others'.
+    // How many lines show, the pace, the newest line's ink and every older
+    // line's, and each line's opacity: the newest line's, the oldest shown
+    // line's, and the others'.
     required property int window
     required property int stepDuration
     required property int fadeDuration
     required property int liftDuration
     required property color newestInk
-    required property color middleInk
-    required property color oldestInk
+    required property color olderInk
     required property real newestOpacity
     required property real middleOpacity
     required property real oldestOpacity
@@ -162,7 +162,7 @@ Item {
             height: root.lineBox
             y: (root.window - 1 - index) * root.lineBox + root.lift
             visible: line !== null && (index < root.window || root.lift > 0)
-            readonly property color ink: index === 0 ? root.newestInk : index >= root.window - 1 ? root.oldestInk : root.middleInk
+            readonly property color ink: index === 0 ? root.newestInk : root.olderInk
             layer.enabled: root.shadow !== null
             layer.effect: TextShadow { shadow: root.shadow }
             opacity: index === 0 ? root.newestOpacity

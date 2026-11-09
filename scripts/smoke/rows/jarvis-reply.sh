@@ -12,7 +12,8 @@
 # is reached. No latency ceiling is measured: card and state reads poll once
 # per nested IPC round trip and fixture gates at 10 ms, and the hold check
 # waits the card's own replyCard.duration, read from the theme, plus one
-# second.
+# second. The row shortens the card's hold to 2000 ms in the sandbox's theme
+# file, as rows/bluetooth.sh slows its flyout, and restores it at its end.
 # inputs: shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/ReplyCard.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/backend/* scripts/fixtures/jarvis/* scripts/smoke/rows/jarvis.sh scripts/smoke/user-config.sh shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Hosts/BarHost.qml shell/Ui/BarWidget.qml shell/plugins/vgs.notifications/manifest.json shell/plugins/vgs.notifications/Service.qml shell/plugins/vgs.notifications/Stack.qml
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
@@ -33,6 +34,12 @@ jarvis_enable
 # Jarvis enabled on the fixture tree: the configuration the toast step
 # returns to.
 cp -- "$reply_config" "$sandbox/jarvis-reply-config-enabled.json"
+reply_theme="$home/.config/vgshell/theme.json"
+reply_theme_saved=false
+if [[ -f $reply_theme ]]; then cp -- "$reply_theme" "$sandbox/jarvis-reply-theme.json"; reply_theme_saved=true; fi
+printf '%s\n' '{"schemaVersion":1,"name":"reply-hold","tokens":{"replyCard":{"duration":2000}}}' >"$reply_theme.next"
+mv -T -- "$reply_theme.next" "$reply_theme"
+expect_poll "the card's hold shortens to 2000 ms for the row" 2000 ipc smoke themeValue replyCard.duration
 
 reply_short="Your next meeting is the design review at 3 PM in room 4."
 reply_long="Three things changed this week. The bar shows a Jarvis icon that tells you when Jarvis listens, works or has a problem, and you can hide the orb from its menu. The console has a History tab for past conversations, tasks and problems."
@@ -108,26 +115,40 @@ expect_poll "a new answer replaces the card's text" "answer:$reply_long" reply_d
 # Auto-hide: no sooner than the theme's hold after the answer settles.
 reply_hold_ms="$(ipc smoke themeValue replyCard.duration)" || reply_hold_ms=unread
 [[ $reply_hold_ms =~ ^[0-9]+$ ]] || { fail "the card's hold is unreadable: $reply_hold_ms"; reply_hold_ms=0; }
-reply_settle
+# The hold starts once the answer settles, which follows the played gate,
+# so a stamp before the gate undercounts it by no more than the timer's own
+# slack, 5% for Qt's default coarse timer.
 reply_settled_at="$(now_ms)"
+reply_settle
 expect "the card stays as its answer settles" "answer:$reply_long" reply_drawn
 expect_poll "the card hides after its hold" hidden reply_drawn
 reply_hidden_after=$(( $(now_ms) - reply_settled_at ))
 expect "the card hid no sooner than its ${reply_hold_ms} ms hold" true \
-  python3 -c 'import sys; print(str(int(sys.argv[1]) >= int(sys.argv[2]) - 200).lower())' "$reply_hidden_after" "$reply_hold_ms"
+  python3 -c 'import sys; print(str(int(sys.argv[1]) >= int(sys.argv[2]) * 0.95).lower())' "$reply_hidden_after" "$reply_hold_ms"
 
 # Hover-hold: the pointer on the card holds it past its hold; leaving lets it go.
 reply_ask "Is the build green?" "The build is green. Every check passed."
 expect_poll "the next answer shows on the card" "answer:The build is green. Every check passed." reply_drawn
-reply_settle
+# The pointer reaches the card before its answer settles, so the hold
+# never starts under it.
 read -r reply_x reply_y < <(reply_card_point) || fail "the card has no point under the J"
 hover "$reply_x" "$reply_y" || fail "the pointer reaches the card"
 expect_poll "the card reports the pointer on it" true ipc smoke readDescendant "$reply_key" vgs.jarvis ReplyCard hovered
 expect_poll "the service holds the card under the pointer" true ipc smoke readInstance service vgs.jarvis replyHovered
+reply_settle
 sleep "$(( (reply_hold_ms + 1000) / 1000 )).$(printf '%03d' $(( (reply_hold_ms + 1000) % 1000 )))"
 expect "the pointer holds the card past its hold" "answer:The build is green. Every check passed." reply_drawn
 reply_leave
 expect_poll "the card hides after the pointer leaves" hidden reply_drawn
+
+# A pointer claim with no card showing holds nothing, so the next card's
+# hold still runs.
+expect "the service answers a claim with no card showing" ok ipc vgs.jarvis invoke reply-hover true
+expect "a claim with no card showing holds nothing" false ipc smoke readInstance service vgs.jarvis replyHovered
+reply_ask "Is the review done?" "The review is done."
+expect_poll "the answer after the stray claim shows on the card" "answer:The review is done." reply_drawn
+reply_settle
+expect_poll "the card after the stray claim hides after its hold" hidden reply_drawn
 
 # Click to the console: at the card's answer, marked; the card hides.
 reply_ask "Where is the design review?" "The design review is in room 4."
@@ -218,6 +239,7 @@ expect_poll "the card hides after its hold" hidden reply_drawn
 expect_poll "the overlay's hidden-orb fault line returns once the card hides" 1 reply_fault_lines
 
 jarvis_disable
+if [[ $reply_theme_saved == true ]]; then cp -- "$sandbox/jarvis-reply-theme.json" "$reply_theme"; else rm -f -- "${reply_theme:?}"; fi
 rm -f -- "${home:?}/.local/state/vgshell/jarvis/voice-mute.json" "${home:?}/.local/state/vgshell/jarvis/hidden.json"
 user_config_restore "$sandbox/jarvis-reply-config-before.json"
 expect "the reply row's configuration reloads" ok ipc shell reloadConfig

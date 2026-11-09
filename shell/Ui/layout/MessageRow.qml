@@ -12,9 +12,9 @@ import qs.Ui
 // `bodyLines` cuts the body at that many lines with an ellipsis (0 keeps
 // it whole); `bodyTruncated` says it was cut, and then `cutHint`, when
 // set, says under it how to read the rest. `bodyComponent` draws an item
-// in the body's place, such as Jarvis's words as it speaks them; `bodyItem`
-// is that item. `marked` stands the row on the `messageRow.mark` plate,
-// its whole box, fading in and out over `motion.duration.slow`.
+// in the body's place, such as Jarvis's words as it speaks them. `marked`
+// stands the row on the `messageRow.mark` plate, its whole box, fading in
+// and out over `motion.duration.slow`.
 Item {
     id: root
 
@@ -32,7 +32,6 @@ Item {
     property int bodyLines: 0
     readonly property bool bodyTruncated: bodyLabel.truncated
     property Component bodyComponent: null
-    readonly property Item bodyItem: bodySlot.item
     property string cutHint: ""
     property bool marked: false
     readonly property Item linkControl: sourceLink

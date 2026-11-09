@@ -90,8 +90,7 @@ BarWidget {
         onClicked: root.openConsole()
     }
 
-    cover: reply.drawing ? Qt.rect(item.x + item.width - reply.cardWidth, item.y + item.height + Theme.popover.gap,
-        reply.cardWidth, reply.cardHeight) : Qt.rect(0, 0, 0, 0)
+    cover: reply.placedBox
 
     ReplyCard {
         id: reply

@@ -667,6 +667,20 @@ Item {
                             MenuItem { text: "Quit"; iconName: "power"; enabled: false }
                         }
                     }
+                    ToggleButton {
+                        id: passiveButton
+                        text: "Show a passive popup"
+                        iconName: "message-square"
+                        PassivePopup {
+                            shown: passiveButton.checked
+                            width: Theme.size.panel.sm
+                            Card {
+                                floating: true
+                                width: parent.width
+                                Label { width: parent.width; role: "body"; wrapMode: Text.Wrap; text: "This shows below the button and takes no keyboard." }
+                            }
+                        }
+                    }
                 }
                 Label { role: "hint"; color: Theme.color.textMuted; text: "A plugin tells you something through a system notification, which Notifications draws."; width: parent.width; wrapMode: Text.Wrap }
                 Label { role: "hint"; color: Theme.color.textMuted; text: "VGS has no toast of its own."; width: parent.width; wrapMode: Text.Wrap }

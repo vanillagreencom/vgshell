@@ -182,30 +182,54 @@ function verify(view) {
     verifyReplyCard(view);
 }
 // The reply card under the J (VGS-2339): while Jarvis Voice is muted or the
-// orb is hidden, a fault, or the newest row of the current conversation
-// when it is Jarvis's; a new answer is a new key; the answer settles once
-// Jarvis neither thinks nor speaks.
+// orb is hidden, a fault in its plain words, or the newest row of the
+// current conversation when it is Jarvis's, as the words Jarvis speaks while
+// the voice speaks them; a new answer is a new key; the answer settles only
+// once the turn has finished, a running tool and a held request included.
 function verifyReplyCard(view) {
     const row = (role, at, session = "1:0") => ({ gen: 1, role, text: role + " " + at, stage: "final", at, session, startedAt: 10 });
     const log = [row("user", 10), row("assistant", 20)];
     const muted = { voiceMute: { kind: "on" } };
     const hidden = { visibility: { kind: "hidden" } };
     const speaking = { playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } };
+    const tool = { ...THINKING, action: { kind: "running", gen: 1, op: 7, tool: "shell", brain: 4, limit: { kind: "expired" }, cancellation: { kind: "available" } } };
+    const held = { ...THINKING, approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null,
+        physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } };
     const fault = { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } };
-    const card = (regions, rows = log, session = "1:0") => view.replyCard(rows, detail(regions).state, session);
+    const spoken = { gen: 1, role: "assistant", text: "assistant 20" };
+    const card = (regions, rows = log, session = "1:0", caption = null) => view.replyCard(rows, detail(regions).state, session, caption, null);
+    const answer = (settled = true, mode = "answer") => ({ key: "1:20", answer: { gen: 1, at: 20 }, mode, fault: null, settled });
     assert.equal(card({}), null, "voice on and orb shown: no card");
-    assert.deepEqual(card(muted), { key: "1:20", answer: { gen: 1, at: 20 }, fault: false, settled: true }, "muted: the newest answer");
-    assert.deepEqual(card(hidden), { key: "1:20", answer: { gen: 1, at: 20 }, fault: false, settled: true }, "orb hidden: the newest answer");
+    assert.deepEqual(card(muted), answer(), "muted: the newest answer");
+    assert.deepEqual(card(hidden), answer(), "orb hidden: the newest answer");
     assert.deepEqual(card({ ...muted, ...hidden }), card(muted), "muted and hidden: the same card");
     assert.equal(card(muted, [row("assistant", 5), row("user", 30)]), null, "the user's words after an answer show no card");
     assert.equal(card(muted, log, "2:0"), null, "another conversation's rows show no card");
     assert.equal(card(muted, null), null, "no conversation log shows no card");
     assert.equal(card(muted, log.concat([row("assistant", 40)])).key, "1:40", "a newer answer replaces the card");
-    assert.equal(card({ ...hidden, ...speaking }).settled, false, "an answer still spoken is not settled");
-    assert.equal(card({ ...muted, ...THINKING }).settled, false, "an answer while Jarvis thinks again is not settled");
-    assert.deepEqual(card({ ...hidden, ...fault }), { key: "fault:0:brain=stream-error", answer: null, fault: true, settled: true },
-        "a fault reads on the card with no answer to open at");
+    assert.deepEqual(card({ ...hidden, ...speaking }, log, "1:0", spoken), answer(false, "follow"),
+        "the orb hidden and the voice speaking: the words as Jarvis speaks them, not settled");
+    assert.deepEqual(card({ ...muted, ...hidden, ...speaking }, log, "1:0", spoken), answer(false),
+        "a muted voice speaks no words to follow: the answer, not settled");
+    assert.deepEqual(card({ ...hidden, ...speaking }, log, "1:0", { ...spoken, gen: 2 }), answer(false),
+        "another generation's caption is not this answer's words");
+    // A partial answer, then a tool or a held request that outlasts the
+    // hold, then the final words of the same row: the card is never settled
+    // until the turn ends, so its hold never starts and the final words show.
+    for (const [label, waiting] of [["a running tool", tool], ["a held request", held], ["thinking again", THINKING]]) {
+        assert.deepEqual(card({ ...muted, ...waiting }), answer(false), label + " keeps the partial answer unsettled");
+        assert.deepEqual(card(muted), answer(), label + " ended: the same row settles and shows");
+    }
+    assert.deepEqual(card({ ...hidden, ...fault }), { key: "fault:0:brain=stream-error", answer: null, mode: "fault",
+        fault: { title: "The AI model did not answer", action: view.faultText(fault.fault, detail(fault).state.engine.kind, null).action }, settled: true },
+        "a fault reads on the card in its plain words with no answer to open at");
     assert.equal(card(fault), null, "a fault with the voice on and the orb shown is the overlay's");
+    // One answer identity, which the card and the console both read.
+    assert.equal(view.isAnswer(row("assistant", 20), { gen: 1, at: 20 }), true);
+    assert.equal(view.isAnswer(row("user", 20), { gen: 1, at: 20 }), false, "the user's words are no answer");
+    assert.equal(view.isAnswer(row("assistant", 21), { gen: 1, at: 20 }), false, "another row is not the answer");
+    assert.equal(view.isAnswer({ ...row("assistant", 20), gen: 2 }, { gen: 1, at: 20 }), false, "another generation's row is not the answer");
+    assert.equal(view.isAnswer(row("assistant", 20), null), false, "no answer names no row");
 }
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
 verify(load(path.join(dir, "WidgetView.js")));
@@ -250,12 +274,17 @@ const controls = [
     ["menu accepts missing source", 'micMuted === null ? "Connect a microphone or choose one in Sound" : ""', '""'],
     ["prompt loses file path", 'path: filePrompt && lines.length > 1 ? lines[1] : ""', 'path: ""'],
     ["report hint shape unchecked", 'if (value.hint !== undefined && typeof value.hint !== "string") refuse(name, value);', ''],
-    ["reply card while the voice is on and the orb shows", 'if (state.voiceMute.kind !== "on" && state.visibility.kind !== "hidden") return null;', ''],
+    ["reply card while the voice is on and the orb shows", 'if (!muted && state.visibility.kind !== "hidden") return null;', ''],
     ["reply card for another conversation", 'return row.session === session;', 'return true;'],
     ["reply card for the user's words", 'if (last === null || last.role !== "assistant") return null;', 'if (last === null) return null;'],
     ["reply card keeps the first answer", 'return { key: last.gen + ":" + last.at,', 'return { key: String(last.gen),'],
-    ["reply card settles while Jarvis speaks", 'settled: phase !== "speaking" && phase !== "thinking"', 'settled: true'],
-    ["reply card opens a fault's console", 'answer: null, fault: true, settled: true', 'answer: { gen: state.gen, at: 0 }, fault: true, settled: true'],
+    ["reply card settles inside a thinking turn", 'return state.turn.kind !== "thinking" && state.turn.kind !== "cancelling" && ', 'return '],
+    ["reply card settles while Jarvis speaks", ' && Session.phaseOf(state) !== "speaking";', ';'],
+    ["reply card follows a muted voice", 'var speaking = !muted && phase === "speaking"', 'var speaking = phase === "speaking"'],
+    ["reply card never follows the voice", 'mode: speaking ? "follow" : "answer"', 'mode: "answer"'],
+    ["reply card opens a fault's console", 'answer: null, mode: "fault"', 'answer: { gen: state.gen, at: 0 }, mode: "fault"'],
+    ["reply card answers the user's words", 'return answer !== null && row.role === "assistant" && ', 'return answer !== null && '],
+    ["reply card answers another generation", 'row.gen === answer.gen && row.at === answer.at', 'row.at === answer.at'],
 ];
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-widget-control-"));
 try {
@@ -413,36 +442,37 @@ approvalFrames(bubble);
 // QML fixtures and the nested row still owe the real render/wire proof.
 const barHostFile = path.join(__dirname, "../shell/Hosts/BarHost.qml");
 const barHost = fs.readFileSync(barHostFile, "utf8");
-// The bar host publishes each bar widget's declared cover, as Jarvis's reply
-// card declares its box under the J: on the output, `x` across it and `top`
-// and `bottom` counted down from the bar's bottom edge; an empty cover, a
-// hidden widget, another kind or an unmapped bar publishes none.
+// The bar host publishes each bar widget's declared cover, the box its
+// popup takes in the bar's window, as Jarvis's reply card declares its
+// PassivePopup's placed box: on the output, `x` across it and `top` and
+// `bottom` counted down from the bar's bottom edge; an empty cover, another
+// kind, another origin or an unmapped bar publishes none.
 function barCovers(source) {
-    const found = [...source.matchAll(/^            function observeCovers\(\) \{\n[\s\S]*?^            \}/gm)];
-    assert.equal(found.length, 1, "observeCovers: one shipped host reader");
+    const ctx = vm.createContext({ visible: true, backingWindowVisible: true, height: 28 });
+    for (const name of ["widgetRows", "mappedWidgetRows", "observeCovers"]) {
+        const found = [...source.matchAll(new RegExp("^            function " + name + "\\(\\) \\{\\n[\\s\\S]*?^            \\}", "gm"))];
+        assert.equal(found.length, 1, name + ": one shipped host reader");
+        ctx[name] = vm.runInContext("(" + found[0][0] + ")", ctx);
+    }
     const screen = { name: "DP-1" };
-    const widget = (cover, extra = {}) => ({ x: 1500, y: 0, width: 40, height: 28, visible: true, parent: { x: 0 }, cover, ...extra });
-    const card = { x: -320, y: 32, width: 360, height: 120 };
+    const card = { x: 1180, y: 32, width: 360, height: 120 };
     const empty = { x: 0, y: 0, width: 0, height: 0 };
-    const ctx = vm.createContext({ windowTransform: null, visible: true, backingWindowVisible: true, screen, height: 28,
-        host: { screenPresent: true, screen, hostKey: "bar:DP-1" }, itemRect: item => ({ x: item.x, y: item.y }),
+    Object.assign(ctx, { screen, host: { screenPresent: true, screen, hostKey: "bar:DP-1" },
         Plugins: { built: { "bar:DP-1": [
-            { origin: "core", kind: "bar-widget", instance: widget(card) },
-            { origin: "core", kind: "bar-widget", instance: widget(empty) },
-            { origin: "core", kind: "bar-widget", instance: widget(card, { visible: false }) },
-            { origin: "plugin", kind: "bar-widget", instance: widget(card) },
-            { origin: "core", kind: "panel", instance: widget(card) }
+            { origin: "core", kind: "bar-widget", instance: { cover: card } },
+            { origin: "core", kind: "bar-widget", instance: { cover: empty } },
+            { origin: "plugin", kind: "bar-widget", instance: { cover: card } },
+            { origin: "core", kind: "panel", instance: { cover: card } }
         ] } } });
-    const observe = vm.runInContext("(" + found[0][0] + ")", ctx);
-    assert.deepEqual(copy(observe()), [{ output: "DP-1", x: 1180, width: 360, top: 4, bottom: 124 }]);
+    assert.deepEqual(copy(ctx.observeCovers()), [{ output: "DP-1", x: 1180, width: 360, top: 4, bottom: 124 }]);
     ctx.visible = false;
-    assert.deepEqual(copy(observe()), [], "an unmapped bar publishes no cover");
+    assert.deepEqual(copy(ctx.observeCovers()), [], "an unmapped bar publishes no cover");
 }
 barCovers(barHost);
 for (const [label, needle, replacement] of [
-    ["covers counted from the bar's top", "top: at.y + cover.y - height, bottom: at.y + cover.y + cover.height - height", "top: at.y + cover.y, bottom: at.y + cover.y + cover.height"],
-    ["covers of an unmapped bar", "if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];\n                const out = [];\n                for (const row of Plugins.built[host.hostKey] || []) {\n                    if (row.origin !== \"core\" || row.kind !== \"bar-widget\") continue;\n                    const widget = row.instance;\n                    const cover", "const out = [];\n                for (const row of Plugins.built[host.hostKey] || []) {\n                    if (row.origin !== \"core\" || row.kind !== \"bar-widget\") continue;\n                    const widget = row.instance;\n                    const cover"],
-    ["covers of a hidden widget", "if (!(cover.width > 0 && cover.height > 0) || !widget.visible) continue;", "if (!(cover.width > 0 && cover.height > 0)) continue;"]
+    ["covers counted from the bar's top", "top: cover.y - height, bottom: cover.y + cover.height - height", "top: cover.y, bottom: cover.y + cover.height"],
+    ["covers of an unmapped bar", "if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];\n                return widgetRows();", "return widgetRows();"],
+    ["covers of every widget kind", 'filter(row => row.origin === "core" && row.kind === "bar-widget")', "filter(row => true)"]
 ]) {
     assert.equal(barHost.split(needle).length, 2, label + ": one cover control target");
     assert.throws(() => barCovers(barHost.replace(needle, replacement)), assert.AssertionError, label);
@@ -538,10 +568,13 @@ for (const [needle, replacement] of [
             { plugin: "fixture.indicator", revision: "a", output: "two", key: "7:present", dot: "" }],
         empty: []
     };
+    const helper = [...source.matchAll(/^    function allRows\(table\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(helper.length, 1, "one host-table reader");
     const ctx = vm.createContext({ barFrames: records });
     // The nested QML run has no Array.flat. Exercise the shipped reader with
     // that API absent rather than borrowing Node's larger array API.
     vm.runInContext("Array.prototype.flat = undefined;", ctx);
+    ctx.allRows = vm.runInContext("(" + helper[0][0] + ")", ctx);
     const read = vm.runInContext("(" + found[0][0] + ")", ctx);
     const consumer = { active: true, id: "fixture.indicator", manifest: { __revision: "a" } };
     const rows = read(consumer);

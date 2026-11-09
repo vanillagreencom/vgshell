@@ -292,8 +292,7 @@ Item {
             fadeDuration: root.look.words.fade
             liftDuration: root.look.words.lift
             newestInk: root.look.ink.words
-            middleInk: root.look.ink.words
-            oldestInk: root.look.ink.words
+            olderInk: root.look.ink.words
             newestOpacity: root.look.words.newest
             middleOpacity: root.look.words.middle
             oldestOpacity: root.look.words.oldest

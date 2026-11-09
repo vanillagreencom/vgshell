@@ -98,9 +98,9 @@ Item {
         }
 
         function test_a_body_component_draws_in_the_bodys_place() {
-            verify(slotted.bodyItem !== null, "the row builds its body item");
-            compare(slotted.bodyItem.objectName, "slotItem");
-            compare(slotted.bodyItem.mapToItem(slotted, 0, 0).x, 6 + 24 + 12);
+            const item = allChildren(slotted).find(child => child.objectName === "slotItem");
+            verify(item !== undefined, "the row builds its body item");
+            compare(item.mapToItem(slotted, 0, 0).x, 6 + 24 + 12);
             verify(slotted.implicitHeight >= 40, "the row's height holds its body item");
         }
 

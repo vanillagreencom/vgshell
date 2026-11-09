@@ -78,12 +78,16 @@ Item {
     // owns it, so the card's click and the console shortcut open the
     // console at the same answer (summonConsole).
     readonly property var replyWanted: shell === null || sessionState === null ? null
-        : View.replyCard(conversationLog, sessionState, childSerial + ":" + sessionState.history.epoch)
+        : View.replyCard(conversationLog, sessionState, childSerial + ":" + sessionState.history.epoch,
+            replyCaption, Providers.cloudVoice(shell.settings.voiceProvider))
+    // The caption the transcript status holds, kept here so the card's
+    // decision reads no status it writes beside.
+    property var replyCaption: null
     property string replyDismissed: ""
     property bool replyHovered: false
     readonly property var replyShown: replyWanted !== null && replyWanted.key !== replyDismissed
         ? Object.assign({ output: focusedOutput }, replyWanted) : null
-    readonly property string replyKey: replyShown === null ? "" : replyShown.key + ":" + replyShown.settled + ":" + replyShown.output
+    readonly property string replyKey: replyShown === null ? "" : replyShown.key + ":" + replyShown.mode + ":" + replyShown.settled + ":" + replyShown.output
     onReplyKeyChanged: {
         // A card that left under the pointer hears no leave.
         if (replyShown === null) replyHovered = false;
@@ -106,7 +110,7 @@ Item {
     }
     // A fault the card shows on the J's output: the overlay's hidden-orb
     // fault line steps aside while it shows (owner, VGS-2339).
-    readonly property bool replyFaultCarded: replyShown !== null && replyShown.fault && barIndicator !== "gone"
+    readonly property bool replyFaultCarded: replyShown !== null && replyShown.mode === "fault" && barIndicator !== "gone"
     // Survives daemon restarts and new conversations within this service.
     property var modelNotices: new Set()
     property var setupAnswer: ({ kind: "checking" })
@@ -260,8 +264,9 @@ Item {
             shell.ipc.handle("local-setup", step => localSetup(step));
             // The bar widget's click opens the console, as the Console key does.
             shell.ipc.handle("console", () => { summonConsole(); return "ok"; });
-            // The reply card reports the pointer on it, which holds it.
-            shell.ipc.handle("reply-hover", text => { replyHovered = text === "true"; return "ok"; });
+            // The reply card reports the pointer on it, which holds it; a
+            // claim with no card showing holds nothing.
+            shell.ipc.handle("reply-hover", text => { replyHovered = text === "true" && replyShown !== null; return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
             shell.ipc.handle("new-conversation", () => newConversation());
@@ -476,6 +481,7 @@ Item {
         if (!shell.status.isOk(inbox)) throw new Error("jarvis: " + inbox);
         const silent = StatusPublication.write(shell.status, "transcript", null);
         if (!shell.status.isOk(silent)) throw new Error("jarvis: " + silent);
+        replyCaption = null;
         conversationLog = Conversation.start();
         const emptyConversation = StatusPublication.write(shell.status, "conversation", conversationLog);
         if (!shell.status.isOk(emptyConversation)) throw new Error("jarvis: " + emptyConversation);
@@ -1471,6 +1477,7 @@ Item {
                             text: message.text, stage: message.stage, rev: message.rev });
                         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                         if (reply !== "ok") return;
+                        replyCaption = { gen: message.gen, role: message.role, text: message.text };
                         const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage,
                             at: Date.now(), session: childSerial + ":" + sessionState.history.epoch };
                         conversationLog = Conversation.update(conversationLog, segment);

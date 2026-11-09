@@ -232,42 +232,51 @@ FocusScope {
         askProblem = "";
         refreshAsks();
         Qt.callLater(() => root.composerFocus.forceActiveFocus());
-        // An open from Jarvis's reply card names its answer: the console
-        // puts that row's top under the top fade band, as far as the end
-        // allows, and marks it for `messageRow.markHold`. A row no longer
-        // in the conversation opens at the end.
-        markedAnswer = payload.answer === undefined ? null : payload.answer;
-        answerPending = markedAnswer !== null;
-        if (answerPending) Qt.callLater(scrollToAnswer);
-        else Qt.callLater(followEnd);
+        // An open from Jarvis's reply card names its answer.
+        placeAt(payload.answer === undefined ? null : payload.answer);
+        Qt.callLater(() => root.keepPlace("open"));
     }
+    // Where the transcript view stands: "end", at its newest row; "pending",
+    // at the answer an open from Jarvis's reply card named, which waits for
+    // its row's and the view's first height, since a new console opens before
+    // its window maps; "held", that answer's top under the top fade band, as
+    // far as the end allows, marked for `messageRow.markHold`, and placed
+    // again as the window settles its height. keepPlace() puts the view
+    // there on each change that can move it.
+    property string placement: "end"
     property var markedAnswer: null
-    // A new console opens before its window maps and its rows take their
-    // height, so the answer waits for its row's and the view's first height.
-    property bool answerPending: false
-    Timer { id: markTimer; interval: Theme.messageRow.markHold; onTriggered: root.markedAnswer = null }
-    function markedIndex() {
-        if (markedAnswer === null) return -1;
-        return transcriptRows.findIndex(row => row.role === "assistant" && row.gen === markedAnswer.gen && row.at === markedAnswer.at);
+    Timer { id: markTimer; interval: Theme.messageRow.markHold; onTriggered: root.placeAt(null) }
+    function placeAt(answer) {
+        markedAnswer = answer;
+        placement = answer === null ? "end" : "pending";
+        if (answer === null) markTimer.stop();
     }
-    function scrollToAnswer() {
-        if (!answerPending) return;
-        const index = markedIndex();
-        const item = index < 0 ? null : transcriptList.itemAt(index);
-        const view = layout.scrollArea;
-        if (item === null) { answerPending = false; markedAnswer = null; followEnd(); return; }
-        if (!(view.height > 0) || !(item.height > 0)) return;
-        answerPending = false;
-        markTimer.restart();
-        placeAnswer();
+    function answerItem() {
+        const index = markedAnswer === null ? -1 : transcriptRows.findIndex(row => WidgetView.isAnswer(row, markedAnswer));
+        return index < 0 ? null : transcriptList.itemAt(index);
     }
-    // The window settles its height after its first frames; while the mark
-    // shows, each new height places the answer again.
-    function placeAnswer() {
-        const index = markedIndex();
-        const item = index < 0 ? null : transcriptList.itemAt(index);
-        if (item === null) return;
+    // TRIGGER is what moved: "open", "tab", "rows", "content" or "view".
+    // At the end, a content change follows only a view already at its end,
+    // and a view change moves nothing.
+    function keepPlace(trigger) {
+        if (tab !== 0) return;
+        if (placement === "end") {
+            if (trigger === "view" || trigger === "content" && !atEnd) return;
+            followEnd();
+            return;
+        }
+        const item = answerItem();
         const view = layout.scrollArea;
+        if (item === null) {
+            placeAt(null);
+            followEnd();
+            return;
+        }
+        if (placement === "pending") {
+            if (!(view.height > 0) || !(item.height > 0)) return;
+            placement = "held";
+            markTimer.restart();
+        }
         const at = item.mapToItem(view.contentItem, 0, 0);
         const top = at.y - view.clipPadding - view.fadeExtent;
         view.contentY = Math.max(0, Math.min(view.contentHeight - view.height, top));
@@ -294,7 +303,7 @@ FocusScope {
         layout.scrollArea.contentY = 0;
         const control = tab === 0 ? composerFocus : tab === 1 ? asksBody : historySearch;
         control.forceActiveFocus(consoleTabs.activeFocus ? consoleTabs.focusReason : Qt.TabFocusReason);
-        if (tab === 0 && markedAnswer === null) Qt.callLater(followEnd);
+        Qt.callLater(() => root.keepPlace("tab"));
     }
 
     // Handle Backtab and Tab with Shift before the control's native traversal.
@@ -504,7 +513,7 @@ FocusScope {
         view.contentY = Math.max(0, view.contentHeight - view.height);
     }
 
-    onTranscriptRowsChanged: if (tab === 0 && markedAnswer === null) Qt.callLater(followEnd)
+    onTranscriptRowsChanged: Qt.callLater(() => root.keepPlace("rows"))
     // A view at its end stays there while rows and memory cards lay out, so
     // the newest card shows whole; a view the user scrolled up stays put.
     property bool atEnd: true
@@ -514,15 +523,8 @@ FocusScope {
             const view = layout.scrollArea;
             root.atEnd = view.contentY >= view.contentHeight - view.height - 1;
         }
-        function onContentHeightChanged() {
-            if (root.answerPending) Qt.callLater(root.scrollToAnswer);
-            else if (markTimer.running) Qt.callLater(root.placeAnswer);
-            else if (root.tab === 0 && root.atEnd && root.markedAnswer === null) Qt.callLater(root.followEnd);
-        }
-        function onHeightChanged() {
-            if (root.answerPending) Qt.callLater(root.scrollToAnswer);
-            else if (markTimer.running) Qt.callLater(root.placeAnswer);
-        }
+        function onContentHeightChanged() { Qt.callLater(() => root.keepPlace("content")); }
+        function onHeightChanged() { Qt.callLater(() => root.keepPlace("view")); }
     }
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: Math.floor(OverlayState.windowRoom(screen).height)
@@ -621,9 +623,8 @@ FocusScope {
                 model: root.transcriptRows
                 MessageRow {
                     required property var modelData
-                    required property int index
                     width: layout.contentWidth
-                    marked: root.markedAnswer !== null && !root.answerPending && index === root.markedIndex()
+                    marked: root.placement === "held" && WidgetView.isAnswer(modelData, root.markedAnswer)
                     sender: root.speaker(modelData.role)
                     timeText: modelData.at === undefined ? "Listening" : root.when(modelData.at)
                     initials: modelData.role === "user" ? "Y" : ""

@@ -24,13 +24,22 @@ Singleton {
     // the real widget's owner/revision, output, request key and drawn dot.
     property var barFrames: ({})
 
-    function setBarFrame(host, rows) {
-        if (JSON.stringify(barFrames[host] || []) === JSON.stringify(rows)) return;
-        const next = Object.assign({}, barFrames);
+    // TABLE, a host-keyed table of row lists, with HOST's rows replaced by
+    // ROWS, or TABLE itself when they are unchanged, so no binding hears an
+    // equal table.
+    function withHostRows(table, host, rows) {
+        if (JSON.stringify(table[host] || []) === JSON.stringify(rows)) return table;
+        const next = Object.assign({}, table);
         if (rows.length === 0) delete next[host];
         else next[host] = rows;
-        barFrames = next;
+        return next;
     }
+    // Every host's rows of TABLE in one list. QML's array API has no flat.
+    function allRows(table) {
+        return Object.values(table).reduce((all, hostRows) => all.concat(hostRows), []);
+    }
+
+    function setBarFrame(host, rows) { barFrames = withHostRows(barFrames, host, rows); }
 
     // The boxes bar widgets draw below their bar, written only by BarHost:
     // host key -> [{ output, x, width, top, bottom }]. `x` and `width` are
@@ -39,27 +48,18 @@ Singleton {
     // under the bar's exclusive zone.
     property var barCoverRows: ({})
 
-    function setBarCovers(host, rows) {
-        if (JSON.stringify(barCoverRows[host] || []) === JSON.stringify(rows)) return;
-        const next = Object.assign({}, barCoverRows);
-        if (rows.length === 0) delete next[host];
-        else next[host] = rows;
-        barCoverRows = next;
-    }
+    function setBarCovers(host, rows) { barCoverRows = withHostRows(barCoverRows, host, rows); }
 
     // Every bar's covers, whichever plugin draws them, so a passive layer
     // stands clear of them without reading that plugin.
     function barCovers(ctx) {
         if (!ctx.active) return Object.freeze([]);
-        return Object.freeze(Object.values(barCoverRows).reduce((all, hostRows) => all.concat(hostRows), [])
-            .map(row => Object.freeze(Object.assign({}, row))));
+        return Object.freeze(allRows(barCoverRows).map(row => Object.freeze(Object.assign({}, row))));
     }
 
     function barIndicators(ctx) {
         if (!ctx.active) return Object.freeze([]);
-        // QML's array API has no flat; concatenate the host-owned row lists.
-        const rows = Object.values(barFrames).reduce((all, hostRows) => all.concat(hostRows), []);
-        return Object.freeze(rows.filter(row =>
+        return Object.freeze(allRows(barFrames).filter(row =>
             row.plugin === ctx.id && row.revision === ctx.manifest.__revision).map(row =>
                 Object.freeze({ output: row.output, key: row.key, dot: row.dot })));
     }

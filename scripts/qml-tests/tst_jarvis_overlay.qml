@@ -344,6 +344,16 @@ Item {
             compare(bubble.words, caption.text, "the same caption is eligible while shown");
             const words = all(bubble, []).filter(item => item instanceof Words);
             compare(words.length, 1, "read the actual Words view");
+            // The bubble hands Words its look's values, as Words takes no look.
+            const look = bubble.look;
+            compare([words[0].window, words[0].stepDuration, words[0].fadeDuration, words[0].liftDuration],
+                [look.words.lines, look.words.step, look.words.fade, look.words.lift], "the look's window and pace");
+            compare([words[0].newestOpacity, words[0].middleOpacity, words[0].oldestOpacity],
+                [look.words.newest, look.words.middle, look.words.oldest], "the look's line opacities");
+            compare([String(words[0].newestInk), String(words[0].olderInk)],
+                [String(Qt.color(look.ink.words)), String(Qt.color(look.ink.words))], "the look's words ink");
+            compare(words[0].shadow, look.shadow, "the look's text shadow");
+            compare(words[0].horizontalAlignment, Text.AlignHCenter, "centred lines");
             tryCompare(words[0], "shown", caption.text);
             verify(words[0].visible, "the shown muted reply draws before Hide");
             put(root.session(Object.assign({ visibility: { kind: "hidden" }, voiceMute: { kind: "on" },

@@ -78,9 +78,20 @@ Item {
                 Layers.setBarFrame(observationHost, []);
             }
 
+            // The rows of Plugins.built for the core's bar widgets on this bar.
+            function widgetRows() {
+                return (Plugins.built[host.hostKey] || []).filter(row => row.origin === "core" && row.kind === "bar-widget");
+            }
+
+            // Those rows while this bar is mapped on its own screen; none
+            // otherwise, so nothing is observed on an unmapped bar.
+            function mappedWidgetRows() {
+                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
+                return widgetRows();
+            }
+
             function widgetSetChanged() {
-                const current = (Plugins.built[host.hostKey] || [])
-                    .filter(row => row.origin === "core" && row.kind === "bar-widget").map(row => row.instance);
+                const current = widgetRows().map(row => row.instance);
                 if (current.length === observedWidgets.length && current.every((item, i) => item === observedWidgets[i])) return;
                 observedWidgets = current;
                 invalidateFrame();
@@ -113,10 +124,8 @@ Item {
 
             function observeItems() {
                 const transform = windowTransform;
-                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
                 const out = [];
-                for (const row of Plugins.built[host.hostKey] || []) {
-                    if (row.origin !== "core" || row.kind !== "bar-widget") continue;
+                for (const row of mappedWidgetRows()) {
                     const widget = row.instance;
                     const item = widget.presentationItem;
                     if (!(item instanceof BarItem) || !whole(item, widget) || widget.presentationKey === "") continue;
@@ -127,23 +136,18 @@ Item {
                 return out;
             }
 
-            // Each widget's declared cover, placed on the output from the
-            // widget's box in this window, which spans the output from its
-            // top edge (anchors above), and counted down from its bottom.
-            // itemRect records no dependency; read the geometry it uses.
+            // Each widget's declared cover, a box in this window, which
+            // spans its output from the output's top edge (anchors above):
+            // `x` across the output, `top` and `bottom` counted down from
+            // this bar's bottom edge. The popup that draws the box follows its
+            // anchor and empties the box as it closes (PassivePopup).
             function observeCovers() {
-                const transform = windowTransform;
-                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
                 const out = [];
-                for (const row of Plugins.built[host.hostKey] || []) {
-                    if (row.origin !== "core" || row.kind !== "bar-widget") continue;
-                    const widget = row.instance;
-                    const cover = widget.cover;
-                    if (!(cover.width > 0 && cover.height > 0) || !widget.visible) continue;
-                    void [widget.x, widget.y, widget.width, widget.parent === null ? 0 : widget.parent.x];
-                    const at = itemRect(widget);
-                    out.push({ output: screen.name, x: at.x + cover.x, width: cover.width,
-                        top: at.y + cover.y - height, bottom: at.y + cover.y + cover.height - height });
+                for (const row of mappedWidgetRows()) {
+                    const cover = row.instance.cover;
+                    if (!(cover.width > 0 && cover.height > 0)) continue;
+                    out.push({ output: screen.name, x: cover.x, width: cover.width,
+                        top: cover.y - height, bottom: cover.y + cover.height - height });
                 }
                 return out;
             }
