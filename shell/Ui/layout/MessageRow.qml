@@ -7,7 +7,8 @@ import qs.Ui
 // source link stands apart from the small secondary buttons that answer it.
 // Buttons take { id, label, disabledReason }; each keeps the shared reason,
 // keyboard and focus behavior. The row itself takes no click or focus.
-// The avatar and text stand `messageRow.paddingX` in from each side.
+// The avatar and text stand `messageRow.paddingX` in from each side and
+// `messageRow.paddingY` from the top and bottom.
 // `bodyLines` cuts the body at that many lines with an ellipsis (0 keeps
 // it whole); `bodyTruncated` says it was cut, and then `cutHint`, when
 // set, says under it how to read the rest. `bodyComponent` draws an item
@@ -36,7 +37,7 @@ Item {
     property bool marked: false
     readonly property Item linkControl: sourceLink
     readonly property real avatarSize: Theme.size.control.sm
-    readonly property real paddingY: Theme.stack.inline
+    readonly property real paddingY: Theme.messageRow.paddingY
     readonly property real paddingX: Theme.messageRow.paddingX
     readonly property real contentX: paddingX + avatarSize + Theme.stack.group
 

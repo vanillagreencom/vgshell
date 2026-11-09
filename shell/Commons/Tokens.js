@@ -1020,12 +1020,14 @@ var TOKENS = {
         duration: number(6000, 0, 60000)
     },
 
-    // A message row keeps its avatar and text `paddingX` in from each side,
-    // marked or not, so its mark moves nothing. A marked row, such as the
+    // A message row keeps its avatar and text `paddingX` in from each side
+    // and `paddingY` from its top and bottom, marked or not, so its mark
+    // moves nothing and clears every edge. A marked row, such as the
     // answer a console opens at, stands on `mark` for `markHold`
     // milliseconds, a count that motion does not scale, then fades.
     messageRow: {
         paddingX: length("{space.sm}"),
+        paddingY: length("{stack.inline}"),
         mark: color("{listItem.selected}"),
         markHold: number(2000, 0, 60000)
     },

@@ -5,7 +5,8 @@ import qs.Ui
 import qs.Unit
 
 // MessageRow's reply-card inputs (VGS-2339): its avatar and text stand
-// `messageRow.paddingX`, 6, in from each side, marked or not; `bodyLines`
+// `messageRow.paddingX`, 6, in from each side and `messageRow.paddingY`,
+// 8, from the top and bottom, marked or not; `bodyLines`
 // cuts the body at that many lines and `bodyTruncated` says so, and only a
 // cut body shows `cutHint`, in the text column under the body;
 // `bodyComponent` draws its item in the body's place; `marked` stands the
@@ -63,6 +64,16 @@ Item {
             const body = labelOf(row, "A short answer.");
             compare(body.mapToItem(row, 0, 0).x, 6 + 24 + 12);
             compare(body.mapToItem(row, 0, 0).x + body.width, 300 - 6);
+        }
+
+        function test_the_avatar_and_text_stand_in_from_top_and_bottom() {
+            const avatar = allChildren(row).find(child => child.people !== undefined);
+            const body = labelOf(row, "A short answer.");
+            compare(avatar.y, 8);
+            compare(row.height - body.mapToItem(row, 0, body.height).y, 8, "the body ends paddingY above the row's bottom");
+            compare(UnitTheme.override({ messageRow: { paddingY: 12 } }), "ok");
+            compare(avatar.y, 12, "the top padding is the messageRow token's");
+            compare(row.height - body.mapToItem(row, 0, body.height).y, 12, "the bottom padding is the messageRow token's");
         }
 
         function test_a_cut_body_says_so_under_it() {

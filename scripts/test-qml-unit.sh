@@ -99,6 +99,7 @@ mutations=(
   "a message row's avatar touches its edge|layout/MessageRow.qml|        x: root.paddingX"$'\n'"        y: root.paddingY|        x: 0"$'\n'"        y: root.paddingY|tst_message_row.qml"
   "a message row's text reaches its right edge|layout/MessageRow.qml|width: Math.max(0, root.width - x - root.paddingX)|width: Math.max(0, root.width - x)|tst_message_row.qml"
   "a message row's text ignores its padding|layout/MessageRow.qml|readonly property real contentX: paddingX + avatarSize|readonly property real contentX: avatarSize|tst_message_row.qml"
+  "a message row's top and bottom padding ignore their token|layout/MessageRow.qml|readonly property real paddingY: Theme.messageRow.paddingY|readonly property real paddingY: Theme.stack.inline|tst_message_row.qml"
   "a cut message body keeps every line|layout/MessageRow.qml|maximumLineCount: root.bodyLines > 0 ? root.bodyLines : undefined|maximumLineCount: undefined|tst_message_row.qml"
   "a cut message body hides its hint|layout/MessageRow.qml|visible: root.bodyTruncated && root.cutHint !== \"\"|visible: false|tst_message_row.qml"
   "a whole message body shows the cut hint|layout/MessageRow.qml|visible: root.bodyTruncated && root.cutHint !== \"\"|visible: root.cutHint !== \"\"|tst_message_row.qml"
