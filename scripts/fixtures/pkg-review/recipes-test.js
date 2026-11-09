@@ -27,7 +27,7 @@
 // must fail at the row the plant names.
 "use strict";
 const assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path"), cp = require("node:child_process"), crypto = require("node:crypto");
-const { create } = require("./world.js");
+const { create, cacheRecipe } = require("./world.js");
 const q = s => "'" + String(s).replaceAll("'", "'\\''") + "'";
 
 if (process.argv[2] === "--inner") {
@@ -66,6 +66,16 @@ const PLANTED = [
         expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) },
     { name: "cached-folder-symlink", fixture: "build-change-cached", plant: "cache-folder-symlink",
         expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) },
+    { name: "cached-tracked-parent-symlink", fixture: "build-change-cached", plant: "cache-parent-symlink",
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) },
+    { name: "cached-build-output", fixture: "cached-malicious-unchanged", plant: "cache-build-output",
+        expect: () => ({ recipe: "unchanged", failures: [] }) },
+    { name: "cached-index-unreadable", fixture: "build-change-cached", plant: "cache-index-unreadable",
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unreadable name=" + meta.pkgbase] }) },
+    { name: "cached-tracked-file-missing", fixture: "local-launcher-checksum", plant: "cache-source-missing",
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unreadable name=" + meta.pkgbase] }) },
+    { name: "cached-non-git-folder", fixture: "build-change-cached", plant: "cache-non-git",
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unreadable name=" + meta.pkgbase] }) },
     { name: "local-source-only", fixture: "local-launcher-checksum", plant: "source-only",
         expect: () => ({ recipe: "changed", failures: [], diffFiles: ["obsolete.sh", "proton-mail.sh"] }) },
     { name: "empty-source-added", fixture: "cached-malicious-unchanged", plant: "empty-added",
@@ -81,7 +91,7 @@ const PLANTED = [
 // owner's result. PLANT, when set, is the one defect its world carries.
 function reviewed(label, fixture, plant, stop) {
     const out = path.join(scratch, label);
-    if (["source-only", "empty-added"].includes(plant)) {
+    if (["source-only", "empty-added", "empty-removed", "cache-parent-symlink"].includes(plant)) {
         const copy = path.join(out, "fixture");
         fs.cpSync(fixture, copy, { recursive: true });
         fixture = copy;
@@ -98,9 +108,15 @@ function reviewed(label, fixture, plant, stop) {
                 }
             }
             fs.writeFileSync(path.join(copy, "cached/obsolete.sh"), "#!/usr/bin/bash\nprintf '%s\\n' obsolete\n");
-        } else {
+        } else if (plant === "empty-added") {
             fs.mkdirSync(path.join(copy, "build/sources"));
             fs.writeFileSync(path.join(copy, "build/sources/marker"), "");
+        } else if (plant === "empty-removed") {
+            fs.mkdirSync(path.join(copy, "cached/sources"));
+            fs.writeFileSync(path.join(copy, "cached/sources/marker"), "");
+        } else {
+            fs.mkdirSync(path.join(copy, "cached/src"));
+            fs.writeFileSync(path.join(copy, "cached/src/recipe.patch"), "a tracked recipe source\n");
         }
     }
     const meta = JSON.parse(fs.readFileSync(path.join(fixture, "fixture.json"), "utf8"));
@@ -113,11 +129,10 @@ function reviewed(label, fixture, plant, stop) {
         fs.mkdirSync(local, { recursive: true });
         fs.copyFileSync(path.join(fixture, "installed.install"), path.join(local, "install"));
     }
-    if (fs.existsSync(path.join(fixture, "cached"))) {
+    const clone = cacheRecipe(w, fixture, meta.pkgbase);
+    if (clone !== null) {
         // paru v2.1.0's default clone directory, $HOME/.cache/paru/clone:
         // the world sets HOME and no XDG_CACHE_HOME.
-        const clone = path.join(w.env.HOME, ".cache/paru/clone", meta.pkgbase);
-        fs.cpSync(path.join(fixture, "cached"), clone, { recursive: true });
         if (["cache-symlink", "cache-source-symlink"].includes(plant)) {
             const file = plant === "cache-symlink" ? "PKGBUILD" : "proton-mail.sh";
             fs.renameSync(path.join(clone, file), path.join(w.root, "linked-source"));
@@ -125,11 +140,25 @@ function reviewed(label, fixture, plant, stop) {
         } else if (plant === "cache-folder-symlink") {
             fs.renameSync(clone, path.join(w.root, "linked-clone"));
             fs.symlinkSync(path.join(w.root, "linked-clone"), clone);
-        } else if (plant === "empty-removed") {
-            fs.mkdirSync(path.join(clone, "sources"));
-            fs.writeFileSync(path.join(clone, "sources/marker"), "");
+        } else if (plant === "cache-parent-symlink") {
+            fs.renameSync(path.join(clone, "src"), path.join(w.root, "linked-sources"));
+            fs.symlinkSync(path.join(w.root, "linked-sources"), path.join(clone, "src"));
+        } else if (plant === "cache-build-output") {
+            // makepkg retains downloaded archives, packages and source links.
+            // These are untracked build output, planted after index creation.
+            const fd = fs.openSync(path.join(clone, "download.tar.zst"), "w");
+            try { fs.ftruncateSync(fd, 32 * 1024 * 1024); } finally { fs.closeSync(fd); }
+            fs.writeFileSync(path.join(clone, "makepkg.log"), "ordinary build output\n");
+            fs.mkdirSync(path.join(clone, "src"));
+            fs.symlinkSync(path.join(w.root, "absent-source"), path.join(clone, "src/source"));
+            fs.symlinkSync(path.join(w.root, "absent-package"), path.join(clone, "pkg"));
+        } else if (plant === "cache-index-unreadable") {
+            fs.writeFileSync(path.join(clone, ".git/index"), "not a Git index\n");
+        } else if (plant === "cache-source-missing") {
+            fs.unlinkSync(path.join(clone, "proton-mail.sh"));
+        } else if (plant === "cache-non-git") {
+            fs.rmSync(path.join(clone, ".git"), { recursive: true });
         } else if (plant === "helper-metadata") {
-            fs.mkdirSync(path.join(clone, ".git"));
             fs.symlinkSync(path.join(w.root, "absent-metadata"), path.join(clone, ".git/ignored"));
         }
     } else assert.equal(plant, undefined, label + ": a planted cache needs a cached fixture");

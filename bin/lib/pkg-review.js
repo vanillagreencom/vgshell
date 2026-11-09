@@ -552,8 +552,32 @@ function cachedRecipe(binary, base) {
 // the whole fetched folder against the helper's cached copy. Local source
 // files can carry a payload without changing the PKGBUILD. Snapshot every
 // regular file except helper metadata before diffing; never execute it.
+function cachedRecipeFiles(dir) {
+    // The clone is also makepkg's build directory. Paru v2.1.0 install.rs
+    // builds there and clean.rs separates artifacts with Git; yay v12.5.0's
+    // manual likewise says its build directory retains sources and packages.
+    // Git's index owns recipe membership, including cached-only recipe files.
+    const git = path.join(dir, ".git"), index = path.join(git, "index");
+    if (!fs.lstatSync(dir).isDirectory() || !fs.lstatSync(git).isDirectory() || !fs.lstatSync(index).isFile())
+        throw Object.assign(new Error("the cached recipe is not a regular Git checkout"), { code: "RECIPE_UNSAFE" });
+    const r = query(["git", "--no-optional-locks", "-C", dir, "--git-dir", git, "--work-tree", dir,
+        "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "ls-files", "--cached", "-z", "--"],
+        { GIT_INDEX_FILE: index, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "0" });
+    if (r.error || r.status !== 0 || !r.stdout.endsWith("\0")) throw new Error("the cached recipe index could not be read");
+    const files = new Set(), parents = new Set();
+    for (const name of r.stdout.slice(0, -1).split("\0")) {
+        const parts = name.split("/");
+        if (parts.some(part => !part || part === "." || part === ".." || part === ".git") || path.isAbsolute(name))
+            throw Object.assign(new Error("the cached recipe index names an unsafe path"), { code: "RECIPE_UNSAFE" });
+        files.add(name);
+        if (files.size > 4096) throw Object.assign(new Error("the cached recipe index exceeds the file limit"), { code: "RECIPE_TOO_LARGE" });
+        for (let i = 1; i < parts.length; i++) parents.add(parts.slice(0, i).join("/"));
+    }
+    return { files, parents };
+}
 function recipeContents(dir, kind, base) {
     try {
+        const selected = kind === "cache" ? cachedRecipeFiles(dir) : null;
         const entries = recipeFiles(dir, file => {
             const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
             try {
@@ -564,7 +588,7 @@ function recipeContents(dir, kind, base) {
                     throw Object.assign(new Error("recipe file exceeds the read limit"), { code: "RECIPE_TOO_LARGE" });
                 return [name, fs.readFileSync(fd)];
             } finally { fs.closeSync(fd); }
-        });
+        }, selected);
         const contents = new Map(entries);
         if (!contents.has("PKGBUILD")) throw new Error("the recipe folder has no PKGBUILD");
         return contents;
@@ -616,25 +640,34 @@ function recipeEvidence(dir, pkg, state, compared) {
         state.lines.push(`recipe ${base} ${recipeState}`);
     } finally { fs.rmSync(before, { force: true }); fs.rmSync(after, { force: true }); }
 }
-function recipeFiles(dir, readFile) {
+function recipeFiles(dir, readFile, selected = null) {
     const entries = [];
+    const found = new Set();
     let bytes = 0;
     function read(at) {
         if (!fs.lstatSync(at).isDirectory()) throw Object.assign(new Error("The AUR recipe folder is not a directory."), { code: "RECIPE_UNSAFE" });
         for (const row of fs.readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
             if (row.name === ".git") continue;
             const file = path.join(at, row.name);
+            const name = path.relative(dir, file);
+            // Ignore build artifacts before stat, traversal or size accounting.
+            // A selected parent still has to be a real directory at every level.
+            if (selected && !selected.files.has(name) && !selected.parents.has(name)) continue;
+            if (selected && ((selected.parents.has(name) && !row.isDirectory()) || (selected.files.has(name) && !row.isFile())))
+                throw Object.assign(new Error("a tracked recipe path is not its regular file or directory"), { code: "RECIPE_UNSAFE" });
             if (row.isDirectory()) read(file);
             else if (row.isFile()) {
                 bytes += fs.statSync(file).size;
                 if (entries.length >= 4096 || bytes > 64 * MAX_DATA) throw Object.assign(new Error("The AUR build recipes exceed the review's file or size limit."), { code: "RECIPE_TOO_LARGE" });
                 entries.push(readFile(file));
+                found.add(name);
             }
             else throw Object.assign(new Error("The AUR recipe file " + JSON.stringify(path.relative(dir, file)) + " is "
                 + (row.isSymbolicLink() ? "a symbolic link" : "not a regular file") + ", so it cannot be reviewed safely."), { code: "RECIPE_UNSAFE" });
         }
     }
     read(dir);
+    if (selected && found.size !== selected.files.size) throw new Error("the cached recipe index names missing files");
     return entries;
 }
 function recipesIdentity(dir) {
