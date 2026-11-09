@@ -12,7 +12,7 @@
 # control, in another copy, parents the Scrim back to the body, so it
 # leaves the dropdown's header and footer undimmed and a click on the
 # Wi-Fi switch turns Wi-Fi off.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh bin/lib/dbus_wire.py
+# inputs: scripts/smoke/user-config.sh scripts/smoke/network-dns.sh bin/vgshell-system shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('NetworkBody[.]qml.*(Unable to assign [[]undefined[]] to QString|TypeError: Cannot read property .width. of null)' 'plugins: hidden by a higher-precedence plugin with the same id: vgs[.]network')
 devices_ready network || return 0
@@ -259,6 +259,8 @@ net_dialog_follows() {
 }
 net_unit $'LoadState=loaded\nActiveState=active'
 net_permission yes
+source "$repo/scripts/smoke/network-dns.sh"
+network_dns_setup
 rescan "the private sharing commands are discovered"
 expect "Network enables over the private mock" ok ipc shell setPluginEnabled vgs.network true
 expect_poll "Network's service is built" True record_exists vgs.network
@@ -275,6 +277,261 @@ expect "the network pane opens in System" ok ipc shell summon window vgs.system 
 expect_poll "Network's pane is mounted" shown net_shown window
 expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstance window vgs.network payload
 expect_poll "the pane owns one scan lease" '{"leases":1,"device":"wlan0","scanning":true}' ipc smoke networkScan
+
+# The table reads the actual core probe -> service status -> shared Select
+# path. The terminal stands in for every requested system operation.
+net_dns_undo_offer() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; value=json.load(sys.stdin).get("dnsDefault"); print("unreported" if value is None else value.get("action", "inactive"))'; }
+net_dns_core_state() { ipc smoke readInstance service vgs.network dnsSteps | py_reply 'import json,sys; print(json.load(sys.stdin)["dns-cloudflare"]["state"])'; }
+net_dns_configuration_managed() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(str(json.load(sys.stdin)["network"]["dns"].get("configurationManaged",False)).lower())'; }
+while IFS='|' read -r net_dns_case net_dns_want; do
+  network_dns_refresh "$net_dns_case"
+  expect_poll "DNS $net_dns_case: the probe selects the field and its availability" "$net_dns_want" network_dns_reading
+  case "$net_dns_case" in
+    cloudflare|google|custom) net_dns_undo_want="$net_dns_case" ;;
+    *) net_dns_undo_want=inactive ;;
+  esac
+  expect_poll "DNS $net_dns_case: undo is offered only for a ready provider" "$net_dns_undo_want" net_dns_undo_offer
+  case "$net_dns_case" in nixos-*) net_dns_managed_want=true ;; *) net_dns_managed_want=false ;; esac
+  expect_poll "DNS $net_dns_case: configuration ownership follows the core reading" "$net_dns_managed_want" net_dns_configuration_managed
+done <<'DNSREADINGS'
+default|["default", "default", 2, false, false]
+cloudflare|["ready", "cloudflare", 0, false, false]
+google|["ready", "google", 1, false, false]
+custom|["ready", "custom", 3, false, false]
+foreign|["foreign", "", -1, false, true]
+partial|["partial", "", -1, false, true]
+unknown|["unavailable", "", -1, true, true]
+denied|["unavailable", "", -1, true, true]
+absent|["unavailable", "", -1, true, true]
+nixos-default|["default", "default", 2, false, true]
+nixos-foreign|["foreign", "", -1, false, true]
+pending|["pending", "", -1, true, true]
+DNSREADINGS
+terminal_stand_in
+terminal_ready "network DNS"
+net_dns_choose() { # CURRENT_TEXT INDEX
+  expect "DNS choice: the field scrolls into view" scrolled net_dns_reveal "$1" || return 1
+  click_in 'window:System Settings' window vgs.network Select "$1" || return
+  expect_poll "DNS choice: the provider list opens before its choice keys" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen || return 1
+  type_keys -k Home || return
+  local i
+  for ((i = 0; i < $2; i++)); do type_keys -k Down || return; done
+  type_keys -k Return
+}
+net_dns_reveal() { ipc smoke revealText window vgs.system Select "$1" | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
+# A following Tab acknowledgement proves the preceding keys were handled
+# in order. status.act synchronously adds an accepted TUI to pending before
+# returning (TuiRunner.start). Holding the stand-in keeps any accepted run
+# busy, even before its asynchronous terminal record appears.
+net_dns_focus() { ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider activeFocus; }
+net_dns_no_run() { printf '%s/%s\n' "$(key_idle core/system)" "$(recorded)"; }
+net_dns_arrow_input() {
+  expect "DNS navigation: the field scrolls into view" scrolled net_dns_reveal 'Network default' || return 1
+  click_in 'window:System Settings' window vgs.network Select 'Network default' || return
+  expect_poll "DNS navigation: the list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen || return 1
+  type_keys -k Escape || return
+  expect_poll "DNS navigation: the list closes" false ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen || return 1
+  expect_poll "DNS navigation: the field holds the arrow input" true net_dns_focus || return 1
+  type_keys -k Down -k Tab || return
+  expect_poll "DNS navigation: Tab after the arrow leaves the field" false net_dns_focus
+}
+network_dns_refresh default
+expect_poll "DNS navigation: the field reads network default" '["default", "default", 2, false, false]' network_dns_reading
+forget_record
+hold_runs
+net_dns_arrow_input || fail "DNS navigation: the input was not acknowledged"
+expect "DNS navigation: an arrow preserves the probe's selection" '["default", "default", 2, false, false]' network_dns_reading
+expect "DNS navigation: an arrow starts no system operation" idle/absent net_dns_no_run
+release_runs
+while IFS='|' read -r net_dns_provider net_dns_index net_dns_text; do
+  network_dns_refresh default
+  expect_poll "DNS $net_dns_provider: the default field is ready" '["default", "default", 2, false, false]' network_dns_reading
+  forget_record
+  hold_runs
+  net_dns_choose 'Network default' "$net_dns_index" || fail "DNS $net_dns_provider: the choice failed"
+  expect_poll "DNS $net_dns_provider: the provider requests its core apply argv" "$(core_words core/system 'System setup' org.vgs.tui system apply "dns-$net_dns_provider")" recorded
+  release_runs
+  expect_run_end "DNS $net_dns_provider: the stand-in apply ends" core/system
+  network_dns_refresh "$net_dns_provider"
+  expect_poll "DNS $net_dns_provider: the ready provider is selected" "[\"ready\", \"$net_dns_provider\", $net_dns_index, false, false]" network_dns_reading
+  forget_record
+  hold_runs
+  net_dns_choose "$net_dns_text" 2 || fail "DNS $net_dns_provider: default choice failed"
+  expect_poll "DNS $net_dns_provider: default requests the ready row's core undo argv" "$(core_words core/system 'System setup' org.vgs.tui system undo "dns-$net_dns_provider")" recorded
+  release_runs
+  expect_run_end "DNS $net_dns_provider: the stand-in undo ends" core/system
+done <<'DNSACTIONS'
+cloudflare|0|Cloudflare
+google|1|Google
+custom|3|Your own servers
+DNSACTIONS
+# Non-ready readings offer guidance and never request an undo. On NixOS,
+# setup prints configuration instructions and creates no VGS DNS record.
+net_dns_default_notice() { ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
+while IFS='|' read -r net_dns_case net_dns_want; do
+  expect "DNS $net_dns_case: default guidance starts with a fresh pane" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+  network_dns_refresh "$net_dns_case"
+  expect_poll "DNS $net_dns_case: default guidance reads the non-ready choice" "$net_dns_want" network_dns_reading
+  forget_record
+  hold_runs
+  net_dns_choose '' 2 || fail "DNS $net_dns_case: choosing default failed"
+  expect_poll "DNS $net_dns_case: default explains its next step" true net_dns_default_notice
+  type_keys -k Tab
+  expect_poll "DNS $net_dns_case: Tab acknowledges the default choice" false net_dns_focus
+  expect "DNS $net_dns_case: a non-ready default starts no system operation" idle/absent net_dns_no_run
+  release_runs
+done <<'DNSDEFAULTS'
+foreign|["foreign", "", -1, false, true]
+partial|["partial", "", -1, false, true]
+nixos-foreign|["foreign", "", -1, false, true]
+DNSDEFAULTS
+network_dns_refresh custom
+expect_poll "DNS custom: the current custom choice is ready" '["ready", "custom", 3, false, false]' network_dns_reading
+forget_record
+hold_runs
+net_dns_choose 'Your own servers' 3 || fail "DNS custom: choosing it again failed"
+expect_poll "DNS custom: choosing it again asks for servers in the core terminal" "$(core_words core/system 'System setup' org.vgs.tui system apply dns-custom)" recorded
+release_runs
+expect_run_end "DNS custom: the stand-in edit ends" core/system
+network_dns_refresh unknown
+expect_poll "DNS unknown: the choice is locked with a reason" '["unavailable", "", -1, true, true]' network_dns_reading
+forget_record
+hold_runs
+expect "DNS unknown: the disabled field scrolls into view" scrolled net_dns_reveal ''
+click_in 'window:System Settings' window vgs.network Select '' || fail "DNS unknown: the disabled field was not found"
+if expect_poll "DNS unknown: the disabled field holds the key input" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider activeFocus; then
+  type_keys -k Return -k Home -k Return -k Tab
+  expect_poll "DNS unknown: Tab after the disabled keys leaves the field" false net_dns_focus
+fi
+expect "DNS unknown: the disabled control starts no terminal" idle/absent net_dns_no_run
+release_runs
+
+# Suppress classification and publish an invalid inactive action in a
+# disposable plugin copy. The field and undo-offer assertions must each fail.
+network_dns_refresh cloudflare
+expect_poll "the DNS control starts with a reported undo offer" cloudflare net_dns_undo_offer
+network_dns_set unknown
+net_dns_copy="$home/.config/vgshell/plugins/vgs.network"
+mkdir -p -- "$net_dns_copy"
+cp -R -- "$repo/shell/plugins/vgs.network/." "$net_dns_copy/"
+python3 - "$net_dns_copy/Service.qml" <<'PYDNSCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);text=p.read_text();needle='    function dnsReading() {\n'
+inactive='        if (dns.disabledReason === "" && dns.ready !== "") dnsDefault.action = dns.ready;'
+warning='if (!shell.status.isOk(reply)) console.warn("network status: " + reply);'
+assert text.count(needle)==1 and text.count(inactive)==1 and text.count(warning)==1
+text=text.replace(needle,needle+'        return { kind: "default", provider: "default", ready: "", hint: "", disabledReason: "" };\n')
+text=text.replace(inactive,inactive+'\n        dnsDefault.action = false;')
+# Only this expected refusal is quiet, so the status assertion, rather
+# than a neighbouring log assertion, must reject the invalid publication.
+text=text.replace(warning,'if (writes[i][0] !== "dnsDefault") { '+warning+' }')
+p.write_text(text)
+PYDNSCONTROL
+rescan "the DNS classification control is discovered"
+expect "the DNS control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+network_dns_refresh unknown
+expect_poll "the DNS control still receives the unknown core probe" unknown net_dns_core_state
+expect_poll "the DNS classification control draws" '["default", "default", 2, false, false]' network_dns_reading
+net_dns_control() { (failures=0 behaviour_failures=0; expect "DNS unknown: the choice is locked with a reason" '["unavailable", "", -1, true, true]' network_dns_reading >"$sandbox/network-dns-control.log"; echo "$failures"); }
+expect "control: losing the probe classification fails the field assertion" 1 net_dns_control
+control_output "$sandbox/network-dns-control.log"
+net_dns_inactive_control() { (failures=0 behaviour_failures=0; expect "DNS unknown: undo is offered only for a ready provider" inactive net_dns_undo_offer >"$sandbox/network-dns-inactive-control.log"; echo "$failures"); }
+expect "control: an invalid inactive action fails the undo-offer assertion" 1 net_dns_inactive_control
+control_output "$sandbox/network-dns-inactive-control.log"
+cp -- "$repo/shell/plugins/vgs.network/Service.qml" "$net_dns_copy/Service.qml"
+python3 - "$net_dns_copy/NetworkBody.qml" <<'PYDNSACTIONCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);text=p.read_text();needle='const key = provider === "default" ? "dnsDefault" : "dns" + provider;'
+assert text.count(needle)==1
+p.write_text(text.replace(needle,'const key = "dnscustom";'))
+PYDNSACTIONCONTROL
+rescan "the DNS action control is discovered"
+expect "the DNS action control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+network_dns_refresh default
+expect_poll "the DNS action control is ready" '["default", "default", 2, false, false]' network_dns_reading
+forget_record
+hold_runs
+net_dns_choose 'Network default' 0 || fail "DNS action control: the choice failed"
+expect_poll "control: the wrong DNS route reaches the terminal" "$(core_words core/system 'System setup' org.vgs.tui system apply dns-custom)" recorded
+net_dns_action_control() { (failures=0 behaviour_failures=0; expect "DNS cloudflare: the provider requests its core apply argv" "$(core_words core/system 'System setup' org.vgs.tui system apply dns-cloudflare)" recorded >"$sandbox/network-dns-action-control.log"; echo "$failures"); }
+expect "control: the wrong DNS route fails the argv assertion" 1 net_dns_action_control
+control_output "$sandbox/network-dns-action-control.log"
+release_runs
+expect_run_end "the DNS action control's stand-in ends" core/system
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_dns_copy/NetworkBody.qml"
+python3 - "$net_dns_copy/NetworkBody.qml" <<'PYDNSARROWCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text()
+needle='if (listOpen) root.chooseDns(root.dnsChoices[index].value);'
+assert text.count(needle)==1
+p.write_text(text.replace(needle,'root.chooseDns(root.dnsChoices[index].value);'))
+PYDNSARROWCONTROL
+rescan "the closed-list DNS arrow control is discovered"
+expect "the DNS arrow control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+network_dns_refresh default
+expect_poll "the DNS arrow control is ready" '["default", "default", 2, false, false]' network_dns_reading
+forget_record
+hold_runs
+net_dns_arrow_input || fail "DNS arrow control: the input was not acknowledged"
+expect_poll "control: the closed arrow requests a core operation" busy key_idle core/system
+expect_poll "control: the closed arrow reaches the terminal" "$(core_words core/system 'System setup' org.vgs.tui system apply dns-custom)" recorded
+net_dns_arrow_control() { (failures=0 behaviour_failures=0; expect "DNS navigation: an arrow starts no system operation" idle/absent net_dns_no_run >"$sandbox/network-dns-arrow-control.log"; echo "$failures"); }
+expect "control: dropping the open-list guard fails the arrow assertion" 1 net_dns_arrow_control
+control_output "$sandbox/network-dns-arrow-control.log"
+release_runs
+expect_run_end "the DNS arrow control's stand-in ends" core/system
+cp -- "$repo/shell/plugins/vgs.network/NetworkBody.qml" "$net_dns_copy/NetworkBody.qml"
+python3 - "$net_dns_copy/Service.qml" <<'PYDNSNIXCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text()
+needle='["ready", "needed", "nixos"].includes(step.state)'
+assert text.count(needle)==1
+p.write_text(text.replace(needle,'["ready", "needed"].includes(step.state)'))
+PYDNSNIXCONTROL
+rescan "the NixOS DNS admission control is discovered"
+expect "the NixOS DNS control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+network_dns_refresh nixos-default
+expect_poll "the NixOS control receives the actual converted core state" nixos net_dns_core_state
+expect_poll "the NixOS admission control draws its refusal" '["unavailable", "", -1, true, true]' network_dns_reading
+net_dns_nix_control() { (failures=0 behaviour_failures=0; expect "DNS nixos-default: the probe selects the field and its availability" '["default", "default", 2, false, true]' network_dns_reading >"$sandbox/network-dns-nixos-control.log"; echo "$failures"); }
+expect "control: rejecting NixOS fails the field assertion" 1 net_dns_nix_control
+control_output "$sandbox/network-dns-nixos-control.log"
+cp -- "$repo/shell/plugins/vgs.network/Service.qml" "$net_dns_copy/Service.qml"
+python3 - "$net_dns_copy/Service.qml" <<'PYDNSMANAGEDCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text()
+needle='const configurationManaged = steps.some(step => step.state === "nixos");'
+assert text.count(needle)==1
+p.write_text(text.replace(needle,'const configurationManaged = false;'))
+PYDNSMANAGEDCONTROL
+rescan "the NixOS DNS configuration-ownership control is discovered"
+expect "the NixOS configuration-ownership control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+network_dns_refresh nixos-foreign
+expect_poll "the configuration-ownership control receives the converted core state" nixos net_dns_core_state
+expect_poll "the configuration-ownership control drops the typed ownership" false net_dns_configuration_managed
+net_dns_managed_control() { (failures=0 behaviour_failures=0; expect "DNS nixos-foreign: configuration ownership follows the core reading" true net_dns_configuration_managed >"$sandbox/network-dns-managed-control.log"; echo "$failures"); }
+expect "control: losing configuration ownership fails the typed reading assertion" 1 net_dns_managed_control
+control_output "$sandbox/network-dns-managed-control.log"
+rm -rf -- "${net_dns_copy:?}"
+network_dns_refresh pending
+expect_poll "the pre-report control starts from the pending reading" '["pending", "", -1, true, true]' network_dns_reading
+python3 - "$network_dns_pending_copy/Service.qml" <<'PYDNSWAITCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text()
+needle='kind: "pending", provider: "", ready: "", hint: ""'
+assert text.count(needle)==1
+p.write_text(text.replace(needle,'kind: "unavailable", provider: "", ready: "", hint: ""'))
+PYDNSWAITCONTROL
+rescan "the pre-report failure classification control is discovered"
+expect "the pre-report failure control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+expect_poll "the pre-report failure control draws" '["unavailable", "", -1, true, true]' network_dns_reading
+net_dns_wait_control() { (failures=0 behaviour_failures=0; expect "DNS pending: the probe selects the field and its availability" '["pending", "", -1, true, true]' network_dns_reading >"$sandbox/network-dns-pending-control.log"; echo "$failures"); }
+expect "control: treating a pending report as failure fails the field assertion" 1 net_dns_wait_control
+control_output "$sandbox/network-dns-pending-control.log"
+network_dns_restore
+rescan "the shipped DNS plugin and probes are restored"
+expect "the network pane reopens after DNS controls" ok ipc shell summon window vgs.system '{"pane":"vgs.network","source":"smoke"}'
+expect_poll "the network pane is mounted after DNS controls" shown net_shown window
 net_join_result() {
   local reply
   reply="$(ipc smoke readDescendant window vgs.network NetworkJoin result)" || return

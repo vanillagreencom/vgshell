@@ -3107,7 +3107,7 @@ sandbox_vgshell() {
   return 1
 }
 terminal_stand_in() { : >"$world/terminal-restored"; }
-voice_setup_launcher_ready() { :; }
+capture_terminal_ready() { :; }
 settings_setup() {
   ! cmp -s -- "$world/original-gum" "$shim/gum" || return 1
   : >"$world/wrapper-reached"
@@ -3329,7 +3329,7 @@ record_exists() { :; }
 close_notices() { :; }
 sandbox_vgshell() { [[ $1 == theme && $2 == apply ]]; judge apply "$3"; }
 terminal_stand_in() { :; }
-voice_setup_launcher_ready() { :; }
+capture_terminal_ready() { :; }
 settings_count() { echo 1; }
 settings_setup() {
   [[ $(ipc smoke themeName) == "$want" ]] || return 99

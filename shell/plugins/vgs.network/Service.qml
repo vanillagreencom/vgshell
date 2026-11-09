@@ -76,12 +76,46 @@ Item {
     readonly property int leaseCount: Object.keys(leases).length
     readonly property bool portalAvailable: portalConnectionKey !== "" && state === "portal"
     readonly property bool nmcliPresent: shell !== null && shell.requirements.missing.indexOf("nmcli") === -1
+    readonly property var dnsSteps: shell === null ? ({}) : shell.system.state
+    readonly property var dns: dnsReading()
+
+    function dnsReading() {
+        const providers = ["cloudflare", "google", "custom"];
+        const steps = providers.map(provider => dnsSteps["dns-" + provider]);
+        // SystemSteps has no readings before its first report.
+        if (steps.some(step => step === undefined))
+            return { kind: "pending", provider: "", ready: "", hint: "", disabledReason: "The DNS provider is being read. Wait for the network services to answer." };
+        const unavailable = steps.find(step => !["ready", "needed", "nixos"].includes(step.state));
+        if (unavailable !== undefined) {
+            const reason = unavailable.reason;
+            const causes = {
+                "resolved-inactive": "The system resolver is stopped. Start it before choosing a DNS provider.",
+                "resolv-conf-not-stub": "Address lookups bypass the system resolver. Connect them to it before choosing a DNS provider.",
+                "foreign-dropin": "The resolver has settings made outside VGS. Remove those settings before choosing a DNS provider.",
+                "networkmanager-missing": "NetworkManager is not installed. Install it before choosing a DNS provider.",
+                "networkmanager-inactive": "NetworkManager is stopped. Start it before choosing a DNS provider.",
+                "no-profile": "No Wi-Fi or Ethernet network is saved. Connect to a network before choosing a DNS provider."
+            };
+            return { kind: "unavailable", provider: "", ready: "", hint: "", disabledReason: causes[reason] || "The DNS provider could not be read. Check the network services and try again." };
+        }
+        // probe_all preserves the reason when needed becomes nixos. The
+        // same status actions open core configuration guidance there.
+        const configurationManaged = steps.some(step => step.state === "nixos");
+        const guidance = configurationManaged ? "NixOS manages these settings. Choose a provider to see its system configuration instructions." : "";
+        const ready = steps.findIndex(step => step.state === "ready");
+        if (ready >= 0) return { kind: "ready", provider: providers[ready], ready: providers[ready], configurationManaged: configurationManaged, hint: guidance, disabledReason: "" };
+        if (steps.some(step => step.reason === "foreign"))
+            return { kind: "foreign", provider: "", ready: "", configurationManaged: configurationManaged, hint: ["DNS servers are set outside VGS", guidance].filter(Boolean).join(". "), disabledReason: "" };
+        if (steps.some(step => step.reason === "partial"))
+            return { kind: "partial", provider: "", ready: "", configurationManaged: configurationManaged, hint: ["The previous choice does not cover every saved network. Choose a provider to apply it again.", guidance].filter(Boolean).join(" "), disabledReason: "" };
+        return { kind: "default", provider: "default", ready: "", configurationManaged: configurationManaged, hint: guidance, disabledReason: "" };
+    }
     readonly property var snapshot: ({ state: state, access: access, text: Logic.summary({ state: state, wifi: wifiRows, ethernet: wiredRows }),
         wifi: wifiRows, ethernet: wiredRows, wifiEnabled: Networking.wifiEnabled,
         wifiHardwareEnabled: Networking.wifiHardwareEnabled, hasWifi: wifiDevice !== null,
         wifiAutoconnect: wifiDevice ? wifiDevice.autoconnect : false, wifiInterface: wifiDevice ? wifiDevice.name : "",
         writable: Logic.writable(state), portalAvailable: portalAvailable,
-        action: action, prompt: prompt, problem: problem || connectivityProblem, detail: detail })
+        action: action, prompt: prompt, problem: problem || connectivityProblem, detail: detail, dns: dns })
 
     // nmcli waits for a fresh result; only its current link may publish.
     // https://networkmanager.dev/docs/api/latest/nmcli.html#networking
@@ -184,6 +218,12 @@ Item {
             ["connection", { tone: state === "connected" ? "ok" : Logic.writable(state) ? "info" : "warning", text: Logic.stateText(state) }],
             ["detailsTool", { tone: nmcliPresent ? "ok" : "info", text: nmcliPresent ? "Available" : "Connection details need the details tool." }]
         ];
+        for (const provider of ["cloudflare", "google", "custom"]) {
+            writes.push(["dns" + provider, { tone: "info", text: "DNS provider", action: dns.disabledReason === "" && (dns.provider !== provider || provider === "custom") }]);
+        }
+        const dnsDefault = { tone: "info", text: "Network default" };
+        if (dns.disabledReason === "" && dns.ready !== "") dnsDefault.action = dns.ready;
+        writes.push(["dnsDefault", dnsDefault]);
         for (let i = 0; i < writes.length; i++) {
             const reply = shell.status.set(writes[i][0], writes[i][1]);
             if (!shell.status.isOk(reply)) console.warn("network status: " + reply);
@@ -413,6 +453,7 @@ Item {
 
     function refresh() {
         if (shell === null) return "unavailable";
+        shell.system.refresh();
         checkConnectivity();
         if (!serviceProbe.running && shell.requirements.missing.indexOf("systemctl") === -1) serviceProbe.running = true;
         if (!nmcliPresent) access = "unavailable";

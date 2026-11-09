@@ -5637,7 +5637,7 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
     clone_tui_requirements || fail "the clone setup's requirement stand-ins are not written"
   fi
   tree_rescan "the clone voice stand-ins are scanned"
-  ! clone_ships || voice_setup_launcher_ready
+  ! clone_ships || capture_terminal_ready
   ! clone_ships || clone_setting false
   jarvis_voice_page "beside a ready Large local voice"
   if ! clone_ships; then
@@ -6125,7 +6125,7 @@ exec "$display_client" "$kitty" --config "$config" --class "$app_id" --title "$t
 EOF
   } >"$tui_terminal"
   chmod 755 "$tui_terminal"
-  voice_setup_launcher_ready
+  capture_terminal_ready
   expect "the setup Settings window opens" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the setup Settings window maps" 1 settings_count
   if [[ $phase == before ]]; then
@@ -6278,7 +6278,7 @@ EOF
     voice_setup_page "Voice's page with Set up offered" "voice-setup-$1-page-needed" "Setup needed"
   fi
   terminal_stand_in
-  voice_setup_launcher_ready
+  capture_terminal_ready
   before="$(voice_setup_run)" || before=unread
   : >"$voice_model_installed"
   voice_setup_press "the Voice setup run"
@@ -6468,12 +6468,12 @@ voice_setup_silence() { notes status | py_reply 'import json,sys; print(str(json
 # xdg-terminal-exec left it missing at the shell's start, and one request
 # then answers launcher-missing, launches nothing and probes again, now
 # against the stand-in.
-voice_setup_launcher() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["tui"]["launcher"])'; }
-voice_setup_launcher_ready() {
-  if [[ $(voice_setup_launcher) == missing ]]; then
+capture_terminal_launcher() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["tui"]["launcher"])'; }
+capture_terminal_ready() {
+  if [[ $(capture_terminal_launcher) == missing ]]; then
     expect "a request before the stand-in's probe answers launcher-missing" "refused: tui=core/doctor reason=launcher-missing" ipc shell openTui core/doctor
   fi
-  expect_poll "the launcher state is present for the Voice setup run" present voice_setup_launcher
+  expect_poll "the launcher state is present for the capture run" present capture_terminal_launcher
 }
 
 # Voice's Settings page beside a voxtype daemon the shell did not start,
@@ -6539,7 +6539,7 @@ scene_voice-elsewhere() { # MODE
   if [[ $stops == true ]]; then
     voice_setup_key=vgs.voice/stop-other
     terminal_stand_in
-    voice_setup_launcher_ready
+    capture_terminal_ready
     before="$(voice_setup_run)" || before=unread
     voice_setup_press "the Stop the other voxtype run"
     expect_poll "the Stop the other voxtype run ends with code 0" 0 voice_setup_code "$before"
@@ -7756,6 +7756,8 @@ PY
 
 scene_network() { # MODE
   devices_ready network-shot || return 0
+  source "$checkout/scripts/smoke/network-dns.sh"
+  network_dns_setup
   device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service
   device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
   expect "the network shot has a saved fake profile" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" prepare
@@ -7768,6 +7770,69 @@ scene_network() { # MODE
   expect_poll "Network's pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
   park_pointer
   take "network-$1-pane"
+  local dns_case dns_want dns_notice
+  while IFS='|' read -r dns_case dns_want; do
+    if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"'; then
+      network_dns_refresh "$dns_case"
+      expect_poll "DNS $dns_case: the captured probe selects the shared field" "$dns_want" network_dns_reading
+      ipc smoke revealText window vgs.system Field 'DNS provider' >/dev/null || fail "DNS $dns_case: the field did not scroll into view"
+    else
+      # The before revision has no DNS field. Frame the same bottom part
+      # of Network, where the field is added above the Bar section.
+      ipc smoke revealText window vgs.system Field 'Show disconnected icon' >/dev/null || fail "DNS before: Network's last field did not scroll into view"
+    fi
+    park_pointer
+    take "network-$1-dns-$dns_case"
+    # Every probe reading has the same before view, with no DNS field.
+    # One observed frame is the baseline for all of its after readings.
+    tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"' || break
+  done <<'DNSCAPTURES'
+default|["default", "default", 2, false, false]
+cloudflare|["ready", "cloudflare", 0, false, false]
+google|["ready", "google", 1, false, false]
+custom|["ready", "custom", 3, false, false]
+foreign|["foreign", "", -1, false, true]
+partial|["partial", "", -1, false, true]
+unknown|["unavailable", "", -1, true, true]
+denied|["unavailable", "", -1, true, true]
+absent|["unavailable", "", -1, true, true]
+nixos-default|["default", "default", 2, false, true]
+nixos-foreign|["foreign", "", -1, false, true]
+pending|["pending", "", -1, true, true]
+DNSCAPTURES
+  if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"'; then
+    network_dns_refresh default
+    expect_poll "DNS choices: network default is selected" '["default", "default", 2, false, false]' network_dns_reading
+    ipc smoke revealText window vgs.system Field 'DNS provider' >/dev/null || fail "DNS choices: the field did not scroll into view"
+    click_in 'window:System Settings' window vgs.network Select 'Network default' || fail "DNS choices: the list did not open"
+    expect_poll "DNS choices: the list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen
+    park_pointer
+    take_posed "network-$1-dns-choices"
+    type_keys -k Escape
+    # The default choice on an unmatched reading explains the required
+    # next step. Its notice is above the field, so capture it separately.
+    # Even a regressed choice reaches only the stand-in terminal.
+    terminal_stand_in
+    capture_terminal_ready
+    # The Linux notices show identical text. Place NixOS guidance between
+    # them so each capture follows a visible change.
+    for dns_case in foreign nixos-foreign partial; do
+      expect "DNS $dns_case: the notice starts with a fresh pane" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+      network_dns_refresh "$dns_case"
+      if [[ $dns_case == *foreign ]]; then dns_want='["foreign", "", -1, false, true]'; else dns_want='["partial", "", -1, false, true]'; fi
+      expect_poll "DNS $dns_case: the notice starts from an unmatched reading" "$dns_want" network_dns_reading
+      ipc smoke revealText window vgs.system Field 'DNS provider' >/dev/null || fail "DNS $dns_case: the field did not scroll into view"
+      click_in 'window:System Settings' window vgs.network Select '' || fail "DNS $dns_case: the list did not open"
+      expect_poll "DNS $dns_case: the notice choice list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen
+      type_keys -k Home -k Down -k Down -k Return
+      expect_poll "DNS $dns_case: the default choice has an explanation" true network_shot_dns_problem
+      dns_notice="$(ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+      ipc smoke revealText window vgs.system LinkText "$dns_notice" >/dev/null || fail "DNS $dns_case: the notice did not scroll into view"
+      park_pointer
+      take "network-$1-dns-$dns_case-default-notice"
+    done
+  fi
+  expect "Network's pane resets after DNS shots" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
   expect "Other Network is revealed for its form shot" scrolled network_shot_other_reveal
   click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "Other Network did not open for its shot"
   expect_poll "the hidden PSK form takes focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
@@ -7830,6 +7895,7 @@ scene_network() { # MODE
   expect "Network disables after its shot" ok ipc shell setPluginEnabled vgs.network false
   device_reply_clear nmcli
   device_reply_clear systemctl
+  network_dns_restore
 }
 backend_widget_shots() { # NAME MODE
   park_pointer
@@ -8848,6 +8914,7 @@ network_shot_panel() {
 }
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
+network_shot_dns_problem() { ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
 network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 network_shot_action() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["action"]["kind"])'; }
 network_shot_prompt() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(bool(json.load(sys.stdin)["network"]["prompt"]))'; }
