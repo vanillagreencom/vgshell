@@ -11,7 +11,12 @@ import qs.Commons
 Item {
     id: root
     property var shell: null
-    ShareSession { id: shareSession; shell: root.shell }
+    ShareSession {
+        id: shareSession
+        shell: root.shell
+        handOff: (id, output) => root.handOff(id, output)
+        onBegun: requestId => root.claimShare(requestId)
+    }
     property bool registered: false
     property string phase: "idle"
     property string action: ""
@@ -260,6 +265,9 @@ Item {
             publish();
             return "refused: capture=worker-unavailable";
         }
+        // A list crosses createObject's initial properties as something
+        // else, so the job takes it after creation.
+        job.outputNames = request.outputs.map(item => item.name);
         jobs = jobs.concat([job]);
         activeJob = job;
         job.armed = true;
@@ -268,9 +276,34 @@ Item {
         return "ok";
     }
 
+    // The first share request that opens while a Picker recording waits is
+    // its recorder's own; one that opened before the job is another app's.
+    // A job claims one request, so it takes at most one hand-off.
+    function claimShare(id) {
+        const job = activeJob;
+        if (job !== null && job.actionName === "record-portal" && phase === "capturing" && job.shareId === "") job.shareId = id;
+    }
+
+    // A Picker recording whose recorder has not started takes a screen the
+    // user picks in its own request, and records that output with
+    // gpu-screen-recorder's own capture, as Display mode does: the portal
+    // tags a 90 or 270 degree output's upright frame as turned (VGS-2242).
+    // The name is judged against the outputs the worker launched with, the
+    // ones it accepts, so a newer monitor goes through the portal as
+    // before, and only a known name reaches the line-framed stdin.
+    function handOff(id, output) {
+        const job = activeJob;
+        if (job === null || job.shareId !== id || phase !== "capturing" || job.outputNames.indexOf(output) < 0) return false;
+        job.write("picked-output " + output + "\n");
+        return true;
+    }
+
     function finishAction(job) {
         thaw(job);
         if (activeJob !== job) return;
+        // Every end of the job, before or without portal-released, cancels
+        // the request it holds.
+        if (job.shareId !== "") shareSession.cancelHandOff(job.shareId);
         activeJob = null;
         clearCountdown();
         phase = "idle";
@@ -361,6 +394,9 @@ Item {
             break;
         case "thaw":
             thaw(job);
+            break;
+        case "portal-released":
+            if (job.shareId !== "") shareSession.cancelHandOff(job.shareId);
             break;
         case "countdown":
             clearCountdown();
@@ -560,6 +596,10 @@ Item {
             property bool freezeCursor: false
             property bool armed: false
             property string terminalEvent: ""
+            // The share request its recorder opened, "" before one opens.
+            property string shareId: ""
+            // The outputs the worker launched with.
+            property var outputNames: []
             property var completion: null
             stdinEnabled: true
             stdout: SplitParser { onRead: line => root.accept(worker, line) }

@@ -11,7 +11,17 @@ Item {
     id: root
     property var shell: null
     property bool registered: false
+    // null, or the request in its phase: pending while the user picks;
+    // selected with the choice the picker reads next; handed while a
+    // Picker recording records the chosen screen itself, the picker kept
+    // waiting until the service cancels it.
     property var session: null
+    // Set by the service: handOff(id, output) takes a screen choice of
+    // request ID for its waiting Picker recording, true when it took it.
+    property var handOff: null
+    // A request opened: the service binds it to a Picker recording that
+    // waits for its own.
+    signal begun(string requestId)
     // Whether the probe that runs, and the one queued behind it, may go on
     // to a configure: a share-begin's probe only reads.
     property bool setUpAfterProbe: false
@@ -88,12 +98,13 @@ Item {
         shell.surfaces.hide("window");
         const reply = shell.surfaces.summon("window", JSON.stringify(request));
         if (reply !== "ok") { deadline.stop(); session = null; return reply; }
+        begun(request.id);
         return "ok";
     }
 
     function result(id) {
         if (session === null || session.request.id !== id) return "cancelled";
-        if (session.phase === "pending") return "pending";
+        if (session.phase === "pending" || session.phase === "handed") return "pending";
         const answer = session.phase === "selected" ? JSON.stringify({ choice: session.choice }) : "cancelled";
         session = null;
         deadline.stop();
@@ -116,9 +127,17 @@ Item {
         const answer = JSON.parse(arg);
         if (session === null || session.phase !== "pending" || session.request.id !== answer.id) return "refused: share=request-ended";
         // The executable owns the xdph grammar and validates this typed choice.
-        session = { phase: "selected", request: session.request, choice: answer.choice };
+        const handed = answer.choice !== null && typeof answer.choice === "object" && answer.choice.type === "screen" && handOff(answer.id, answer.choice.output);
+        session = handed ? { phase: "handed", request: session.request } : { phase: "selected", request: session.request, choice: answer.choice };
         shell.surfaces.hide("window");
         return "ok";
+    }
+
+    // The service calls it once its Picker recording no longer needs
+    // request ID: the picker answers cancelled, so xdph starts no stream.
+    // The window was hidden at the choice and may show the options since.
+    function cancelHandOff(id) {
+        if (session !== null && session.request.id === id && session.phase === "handed") cancel(id, false);
     }
 
     Process {

@@ -187,6 +187,9 @@ power
 power-menu
 capture
 share-picker
+# After share-picker, over the same portal stack; it reads no state another
+# row leaves.
+picked-screen
 screen-freeze
 # After capture, before tui-guard: its Sign in reaches the stand-in
 # terminal, and it reads no state another row leaves.
