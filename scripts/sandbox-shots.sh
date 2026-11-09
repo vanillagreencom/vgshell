@@ -7698,7 +7698,7 @@ scene_network() { # MODE
   expect_poll "Network's pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
   park_pointer
   take "network-$1-pane"
-  local dns_case dns_want
+  local dns_case dns_want dns_notice
   while IFS='|' read -r dns_case dns_want; do
     if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"'; then
       network_dns_refresh "$dns_case"
@@ -7724,6 +7724,13 @@ partial|["partial", "", -1, false, true]
 unknown|["unavailable", "", -1, true, true]
 denied|["unavailable", "", -1, true, true]
 absent|["unavailable", "", -1, true, true]
+nixos-default|["default", "default", 2, false, true]
+nixos-cloudflare|["ready", "cloudflare", 0, false, true]
+nixos-google|["ready", "google", 1, false, true]
+nixos-custom|["ready", "custom", 3, false, true]
+nixos-foreign|["foreign", "", -1, false, true]
+nixos-partial|["partial", "", -1, false, true]
+pending|["pending", "", -1, true, true]
 DNSCAPTURES
   if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"'; then
     network_dns_refresh default
@@ -7733,6 +7740,26 @@ DNSCAPTURES
     park_pointer
     take_posed "network-$1-dns-choices"
     type_keys -k Escape
+    # The default choice on an unmatched reading explains the required
+    # next step. Its notice is above the field, so capture it separately.
+    # Even a regressed choice reaches only the stand-in terminal.
+    terminal_stand_in
+    terminal_ready "network DNS notice shots"
+    for dns_case in foreign partial nixos-foreign nixos-partial; do
+      expect "DNS $dns_case: the notice starts with a fresh pane" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+      network_dns_refresh "$dns_case"
+      if [[ $dns_case == *foreign ]]; then dns_want='["foreign", "", -1, false, true]'; else dns_want='["partial", "", -1, false, true]'; fi
+      expect_poll "DNS $dns_case: the notice starts from an unmatched reading" "$dns_want" network_dns_reading
+      ipc smoke revealText window vgs.system Field 'DNS provider' >/dev/null || fail "DNS $dns_case: the field did not scroll into view"
+      click_in 'window:System Settings' window vgs.network Select '' || fail "DNS $dns_case: the list did not open"
+      expect_poll "DNS $dns_case: the notice choice list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen
+      type_keys -k Home -k Down -k Down -k Return
+      expect_poll "DNS $dns_case: the default choice has an explanation" true network_shot_dns_problem
+      dns_notice="$(ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+      ipc smoke revealText window vgs.system LinkText "$dns_notice" >/dev/null || fail "DNS $dns_case: the notice did not scroll into view"
+      park_pointer
+      take "network-$1-dns-$dns_case-default-notice"
+    done
   fi
   expect "Network's pane resets after DNS shots" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
   expect "Other Network is revealed for its form shot" scrolled network_shot_other_reveal
@@ -8816,6 +8843,7 @@ network_shot_panel() {
 }
 network_shot_details() { ipc smoke networkDetails window | py_reply 'import json,sys; s=sys.stdin.read(); print(s.startswith("{") and len(json.loads(s)["rows"]) > 0)'; }
 network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody rows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["security"],r["known"]] for r in json.load(sys.stdin)]))'; }
+network_shot_dns_problem() { ipc smoke readMatchingDescendant window vgs.network LinkText objectName network-problem text | py_reply 'import json,sys; print(str(bool(json.load(sys.stdin))).lower())'; }
 network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 network_shot_action() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["action"]["kind"])'; }
 network_shot_prompt() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(bool(json.load(sys.stdin)["network"]["prompt"]))'; }

@@ -42,7 +42,7 @@ FocusScope {
     readonly property bool detailsReady: shell !== null && !shell.requirements.missing.includes("nmcli")
     readonly property var network: values.network || ({ wifi: [], ethernet: [], state: "unavailable", action: { kind: "idle" }, prompt: null, detail: { state: "idle", rows: [] } })
     readonly property var rows: network.wifi || []
-    readonly property var dns: network.dns || ({ kind: "unavailable", provider: "", ready: "", hint: "", disabledReason: "The DNS provider is being read. Wait for the network services to answer." })
+    readonly property var dns: network.dns || ({ kind: "pending", provider: "", ready: "", hint: "", disabledReason: "The DNS provider is being read. Wait for the network services to answer." })
     readonly property var dnsChoices: [
         { value: "cloudflare", label: "Cloudflare" },
         { value: "google", label: "Google" },
@@ -146,7 +146,7 @@ FocusScope {
         if (shell === null || dns.disabledReason !== "") return;
         if (provider === dns.provider && provider !== "custom") return;
         if (provider === "default" && dns.ready === "") {
-            if (dns.provider !== "default") localProblem = "VGS has no DNS choice to undo. Choose a provider first.";
+            if (dns.provider !== "default") localProblem = "Choose a provider and finish its setup first. Then choose Network default to restore the servers VGS replaced.";
             return;
         }
         const key = provider === "default" ? "dnsDefault" : "dns" + provider;
@@ -537,7 +537,7 @@ FocusScope {
                     model: root.dnsChoices
                     textRole: "label"
                     currentIndex: root.dnsChoices.findIndex(choice => choice.value === root.dns.provider)
-                    placeholderText: root.dns.kind === "unavailable" ? "Not available" : root.dns.kind === "partial" ? "Partly applied" : "Set outside VGS"
+                    placeholderText: root.dns.kind === "pending" ? "Being read" : root.dns.kind === "unavailable" ? "Not available" : root.dns.kind === "partial" ? "Partly applied" : "Set outside VGS"
                     disabledReason: root.dns.disabledReason
                     onActivated: index => {
                         currentIndex = Qt.binding(() => root.dnsChoices.findIndex(choice => choice.value === root.dns.provider));

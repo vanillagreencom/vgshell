@@ -82,9 +82,12 @@ Item {
     function dnsReading() {
         const providers = ["cloudflare", "google", "custom"];
         const steps = providers.map(provider => dnsSteps["dns-" + provider]);
-        const unavailable = steps.find(step => step === undefined || !["ready", "needed"].includes(step.state));
-        if (steps.some(step => step === undefined) || unavailable !== undefined) {
-            const reason = unavailable === undefined ? "pending" : unavailable.reason;
+        // SystemSteps has no readings before its first report.
+        if (steps.some(step => step === undefined))
+            return { kind: "pending", provider: "", ready: "", hint: "", disabledReason: "The DNS provider is being read. Wait for the network services to answer." };
+        const unavailable = steps.find(step => !["ready", "needed", "nixos"].includes(step.state));
+        if (unavailable !== undefined) {
+            const reason = unavailable.reason;
             const causes = {
                 "resolved-inactive": "The system resolver is stopped. Start it before choosing a DNS provider.",
                 "resolv-conf-not-stub": "Address lookups bypass the system resolver. Connect them to it before choosing a DNS provider.",
@@ -95,13 +98,16 @@ Item {
             };
             return { kind: "unavailable", provider: "", ready: "", hint: "", disabledReason: causes[reason] || "The DNS provider could not be read. Check the network services and try again." };
         }
+        // probe_all preserves the reason when needed becomes nixos. The
+        // same status actions open core configuration guidance there.
+        const guidance = steps.some(step => step.state === "nixos") ? "NixOS manages these settings. Choose a provider to see its system configuration instructions." : "";
         const ready = steps.findIndex(step => step.state === "ready");
-        if (ready >= 0) return { kind: "ready", provider: providers[ready], ready: providers[ready], hint: "", disabledReason: "" };
+        if (ready >= 0) return { kind: "ready", provider: providers[ready], ready: providers[ready], hint: guidance, disabledReason: "" };
         if (steps.some(step => step.reason === "foreign"))
-            return { kind: "foreign", provider: "", ready: "", hint: "DNS servers are set outside VGS", disabledReason: "" };
+            return { kind: "foreign", provider: "", ready: "", hint: ["DNS servers are set outside VGS", guidance].filter(Boolean).join(". "), disabledReason: "" };
         if (steps.some(step => step.reason === "partial"))
-            return { kind: "partial", provider: "", ready: "", hint: "The previous choice does not cover every saved network. Choose a provider to apply it again.", disabledReason: "" };
-        return { kind: "default", provider: "default", ready: "", hint: "", disabledReason: "" };
+            return { kind: "partial", provider: "", ready: "", hint: ["The previous choice does not cover every saved network. Choose a provider to apply it again.", guidance].filter(Boolean).join(" "), disabledReason: "" };
+        return { kind: "default", provider: "default", ready: "", hint: guidance, disabledReason: "" };
     }
     readonly property var snapshot: ({ state: state, access: access, text: Logic.summary({ state: state, wifi: wifiRows, ethernet: wiredRows }),
         wifi: wifiRows, ethernet: wiredRows, wifiEnabled: Networking.wifiEnabled,
