@@ -468,7 +468,11 @@ const barHost = fs.readFileSync(barHostFile, "utf8");
 // `bottom` counted down from the bar's bottom edge; an empty cover, another
 // kind, another origin or an unmapped bar publishes none.
 function barCovers(source) {
-    const ctx = vm.createContext({ visible: true, backingWindowVisible: true, height: 28 });
+    // Only Qt type identity is a stand-in; the shipped host still judges covers.
+    class BarWidget {
+        constructor(cover) { this.cover = cover; }
+    }
+    const ctx = vm.createContext({ BarWidget, visible: true, backingWindowVisible: true, height: 28 });
     for (const name of ["widgetRows", "mappedWidgetRows", "observeCovers"]) {
         const found = [...source.matchAll(new RegExp("^            function " + name + "\\(\\) \\{\\n[\\s\\S]*?^            \\}", "gm"))];
         assert.equal(found.length, 1, name + ": one shipped host reader");
@@ -479,23 +483,25 @@ function barCovers(source) {
     const empty = { x: 0, y: 0, width: 0, height: 0 };
     Object.assign(ctx, { screen, host: { screenPresent: true, screen, hostKey: "bar:DP-1" },
         Plugins: { built: { "bar:DP-1": [
-            { origin: "core", kind: "bar-widget", instance: { cover: card } },
-            { origin: "core", kind: "bar-widget", instance: { cover: empty } },
-            { origin: "plugin", kind: "bar-widget", instance: { cover: card } },
-            { origin: "core", kind: "panel", instance: { cover: card } }
+            { origin: "core", kind: "bar-widget", instance: {} },
+            { origin: "core", kind: "bar-widget", instance: new BarWidget(card) },
+            { origin: "core", kind: "bar-widget", instance: new BarWidget(empty) },
+            { origin: "plugin", kind: "bar-widget", instance: new BarWidget(card) },
+            { origin: "core", kind: "panel", instance: new BarWidget(card) }
         ] } } });
     assert.deepEqual(copy(ctx.observeCovers()), [{ output: "DP-1", x: 1180, width: 360, top: 4, bottom: 124 }]);
     ctx.visible = false;
     assert.deepEqual(copy(ctx.observeCovers()), [], "an unmapped bar publishes no cover");
 }
 barCovers(barHost);
-for (const [label, needle, replacement] of [
+for (const [label, needle, replacement, error = assert.AssertionError] of [
+    ["covers of a malformed widget", "if (!(row.instance instanceof BarWidget)) continue;", "", { name: "TypeError" }],
     ["covers counted from the bar's top", "top: cover.y - height, bottom: cover.y + cover.height - height", "top: cover.y, bottom: cover.y + cover.height"],
     ["covers of an unmapped bar", "if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];\n                return widgetRows();", "return widgetRows();"],
     ["covers of every widget kind", 'filter(row => row.origin === "core" && row.kind === "bar-widget")', "filter(row => true)"]
 ]) {
     assert.equal(barHost.split(needle).length, 2, label + ": one cover control target");
-    assert.throws(() => barCovers(barHost.replace(needle, replacement)), assert.AssertionError, label);
+    assert.throws(() => barCovers(barHost.replace(needle, replacement)), error, label);
 }
 function barFrames(source) {
     const later = [], publications = [];

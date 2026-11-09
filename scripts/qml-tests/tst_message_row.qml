@@ -44,6 +44,9 @@ Item {
             row.bodyLines = 0;
             row.marked = false;
             row.bodyText = "A short answer.";
+            // Resetting a long body leaves the content Column's layout pending.
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
+            verify(waitForPolish(scene.Window.window));
         }
 
         function allChildren(item) {
