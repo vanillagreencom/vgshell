@@ -13,7 +13,11 @@ Item {
     required property var service
     readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     readonly property bool inputAll: false
-    readonly property var inputItems: [column]
+    // The open inbox lists every toast, so the stack draws none and takes
+    // no input under it; its cards stay built and show again as they were
+    // when it closes.
+    readonly property bool underInbox: service !== null && service.panelOpen
+    readonly property var inputItems: underInbox ? [] : [column]
     readonly property string position: service !== null ? service.position : ""
     readonly property bool fromBottom: position.startsWith("bottom")
     readonly property string side: position.endsWith("-left") ? "left" : position.endsWith("-right") ? "right" : "center"
@@ -33,6 +37,7 @@ Item {
 
     ColumnLayout {
         id: column
+        visible: !stack.underInbox
         x: stack.side === "left" ? stack.sideInset
             : stack.side === "right" ? stack.width - width - stack.sideInset
             : Math.round((stack.width - width) / 2)

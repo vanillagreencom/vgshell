@@ -2295,7 +2295,11 @@ expect_poll "the inbox lists every kept notification" "$kept" panel_count
 expect_poll "the inbox panel surface opens" 1 layer_count vgs:panel
 notify smoke-app 0 "While open" "" '[]' '{"urgency": <byte 0>}' 0 >/dev/null
 expect_poll "a toast arriving with the panel open is listed" True has_row live "While open"
-expect_poll "the toast layer stays hidden while the panel is open" 0 layer_count vgs:layer
+# The stack builds the card and draws nothing under the open inbox.
+toast_card_drawn() { ipc smoke layerItems vgs.notifications CardSlot summary,visible | py_reply 'import json,sys
+v=next((v for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), None)
+print("absent" if v is None else "drawn" if v["visible"] else "hidden")' "$1"; }
+expect_poll "the toast stays hidden while the panel is open" hidden toast_card_drawn "While open"
 expect_poll "its clock does not run while the panel is open" paused clock_state "While open"
 click_pill "Mark all read" || fail "the click on Mark all read failed"
 expect_poll "Mark all read closes the panel" '""' read_notes panelMode

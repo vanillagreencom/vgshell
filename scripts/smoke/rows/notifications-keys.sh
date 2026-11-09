@@ -4,6 +4,20 @@
 # the open inbox closed it (SummonLayer's catcher) and after an Escape
 # closed it. "Open" is the summon host's panel layer mapped and drawn at
 # its size, "closed" no panel layer and no panel instance.
+# The same five presses alternate the inbox with an urgent notification
+# on screen, the pointer resting on its toast and a window holding the
+# keyboard, and each open inbox is still open once it has read Hyprland's
+# event socket up to a marker posted after the open. After each close the
+# toast's card is drawn again at rest, and the socket, read to a marker
+# posted after the close, shows its layer neither closed nor opened since
+# the press that opened the inbox, so its card was not built again and its
+# entrance did not play again (LayerHost.qml builds a layer's content as
+# the surface is made, CardSlot.qml plays the entrance as a card is built).
+# Their control is the source before VGS-2389, which took the toast layer
+# away as the inbox opened: the layer's unmap, while it held the pointer,
+# gave the keyboard to the window (Hyprland v0.57.1
+# CLayerSurface::onUnmap), the inbox closed itself before it mapped, and
+# the close built the toast again.
 # Controls: with Hyprland's default `input:resolve_binds_by_sym`, false,
 # wtype's keys reach no bind and a press leaves the inbox closed, which
 # is how the same presses read on a live session with that default, so
@@ -787,6 +801,102 @@ expect_poll "Escape closes the inbox" closed inbox_shown
 nk_presses "after Escape"
 type_keys -k Escape || fail "sending the last Escape to the inbox failed"
 expect_poll "the last Escape closes the inbox" closed inbox_shown
+
+# An urgent notification, which stays on screen, with the pointer resting
+# on its toast and a window holding the keyboard (VGS-2389). Every line of
+# Hyprland's event socket goes to nk_events as it arrives. A marker is a
+# custom>>LABEL line Hyprland posts for hl.dsp.event, with no other effect
+# (v0.57.1 Actions::event); the socket keeps Hyprland's order, so a reader
+# that has the marker has every event posted before it.
+nk_urgent="Pull dev repos failed"
+nk_events="$sandbox/notifications-keys-events.log"
+spawn "$nk_events" python3 -u -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+buf = b""
+while True:
+    data = s.recv(4096)
+    if not data: break
+    buf += data
+    while b"\n" in buf:
+        line, buf = buf.split(b"\n", 1)
+        print(line.decode(errors="replace"), flush=True)
+' "$rt_dir/hypr/$signature/.socket2.sock"
+nk_events_pid="$spawn_pid"
+nk_mark() { hypr dispatch "hl.dsp.event(\"$1\")"; }
+nk_events_have() { grep -qxF -- "custom>>$1" "$nk_events" && echo marked || echo unmarked; }
+# The open panel's last event read, which Panel.qml keeps as previousEvent.
+nk_panel_has() {
+  ipc smoke readInstance panel vgs.notifications previousEvent | py_reply 'import json,sys
+e=json.load(sys.stdin)
+print("marked" if isinstance(e, dict) and e.get("name") == "custom" and e.get("data") == sys.argv[1] else json.dumps(e))' "$1"
+}
+# The toast layer's own events from marker FROM to marker TO: `none`, the
+# events, or `unmarked` when the record lacks either marker.
+nk_toast_events() { # FROM TO
+  local events
+  [[ $(nk_events_have "$1") == marked && $(nk_events_have "$2") == marked ]] || { echo unmarked; return; }
+  events="$(sed -n "/^custom>>$1\$/,/^custom>>$2\$/p" -- "$nk_events" | grep -E '^(open|close)layer>>vgs:layer$' | paste -sd ' ')" || true
+  echo "${events:-none}"
+}
+nk_toast_drawn() { ipc smoke layerItemsWith vgs.notifications CardSlot summary "$nk_urgent"; }
+# The toast's card at the end of its entrance: no drop, no squash, the
+# capsule stretched whole (CardSlot.qml).
+nk_toast_at_rest() {
+  ipc smoke layerItems vgs.notifications CardSlot summary,drop,squash,stretch | py_reply 'import json,sys
+v=next((v for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), None)
+print("absent" if v is None else "rest" if (v["drop"], v["squash"], v["stretch"]) == (0, 0, 1) else json.dumps(v))' "$nk_urgent"
+}
+nk_urgent_presses() {
+  local n
+  for n in 1 2 3 4 5; do
+    if (( n % 2 )); then
+      rest_on_card "$nk_urgent" || fail "urgent toast: the pointer never rested on the toast before press $n"
+      expect "urgent toast: the marker before press $n is posted" ok nk_mark "nk-press-$n"
+      nk_press || fail "urgent toast: press $n failed"
+      expect_poll "urgent toast: press $n opens the inbox" open inbox_shown
+      expect "urgent toast: the marker after the open of press $n is posted" ok nk_mark "nk-opened-$n"
+      expect_poll "urgent toast: the inbox of press $n has read the event socket to its marker" marked nk_panel_has "nk-opened-$n"
+      expect "urgent toast: the inbox of press $n stays open" open inbox_shown
+    else
+      nk_press || fail "urgent toast: press $n failed"
+      expect_poll "urgent toast: press $n closes the inbox" closed inbox_shown
+      expect_poll "urgent toast: the toast is drawn again after press $n" 1 nk_toast_drawn
+      expect "urgent toast: the marker after the close of press $n is posted" ok nk_mark "nk-closed-$n"
+      expect_poll "urgent toast: the event record has the marker after the close of press $n" marked nk_events_have "nk-closed-$n"
+      expect "urgent toast: the toast layer stays mapped from press $((n - 1)) through the close of press $n" none nk_toast_events "nk-press-$((n - 1))" "nk-closed-$n"
+      expect "urgent toast: the toast shows again after press $n with no entrance motion" rest nk_toast_at_rest
+    fi
+  done
+}
+notes dismiss-all >/dev/null # `none` once every toast's clock ran out
+expect_poll "no toast shows before the urgent toast" 0 note_status onScreen
+expect "the key rows' event record has its start marker" ok nk_mark nk-start
+expect_poll "the key rows' event record reads the socket" marked nk_events_have nk-start
+nk_window_log="$sandbox/notifications-keys-window.log"
+if open_toplevel "$nk_window_log" smoke.notifications-keys-window "Notifications key window"; then
+  nk_window_pid="$toplevel_pid"
+  expect_poll "the key window has the keyboard" '["smoke.notifications-keys-window", "Notifications key window"]' active_window
+  notify Automations 0 "$nk_urgent" "fatal: unable to access" '[]' '{"urgency": <byte 2>, "x-vgs-icon": <"circle-x">, "x-vgs-tone": <"danger">}' 0 >/dev/null
+  expect_poll "the urgent toast shows" True has_row live "$nk_urgent"
+  expect_poll "the urgent toast's card is drawn" 1 nk_toast_drawn
+  nk_urgent_presses
+  type_keys -k Escape || fail "sending Escape to the urgent toast's inbox failed"
+  expect_poll "Escape closes the urgent toast's inbox" closed inbox_shown
+  # A pointer left on the stack would hold the clock of the toast that
+  # comes next under it.
+  if read -r nk_w nk_h _ < <(monitor_size); then
+    hover "$((nk_w - 5))" "$((nk_h - 5))" || fail "moving the pointer off the urgent toast failed"
+  else
+    fail "the monitor size is unreadable after the urgent toast"
+  fi
+  notes dismiss-all >/dev/null
+  close_toplevel "$nk_window_pid" "the key window exits"
+else
+  fail "the key window maps"
+fi
+kill -TERM -- "$nk_events_pid" 2>/dev/null || true
 
 # The panel lists every kept notification, so the history is emptied
 # first and the long inbox lists its forty cards alone.
