@@ -1,36 +1,24 @@
 #!/usr/bin/env bash
-# Controls for `vgshell power`, bin/vgshell-power: the ask on vgs.jarvis's
-# `power` handler of the shell the instance lock names, and the systemctl
-# call that follows unless the answer is `held`; suspend and hibernate,
-# which run systemctl with no ask; logout through loginctl; switch-user,
+# Controls for `vgshell power`, bin/vgshell-power: suspend, hibernate,
+# reboot and poweroff through systemctl; logout through loginctl; switch-user,
 # which locks through the `vgshell lock` beside the route and then asks
-# LightDM's seat over gdbus. A stub qs, first on the suite's PATH, records
-# the argv of its call and answers STUB_REPLY with STUB_STATUS;
-# STUB_CLIENT_FAILURE answers that line and exit 0, as Quickshell 0.3.1's
-# client answers a failure of its own, such as a disabled vgs.jarvis. Stub
-# systemctl, loginctl and gdbus, first on PATH too, record their argv and
+# LightDM's seat over gdbus. Stub systemctl, loginctl and gdbus, first on
+# PATH, record their argv and
 # act on nothing; the suite refuses to run any row while one of them
 # resolves anywhere else. The switch-user rows run a copy of the route
 # beside a stand-in `vgshell` that records its argv and locks nothing. The
-# instance lock names this suite's own pid, a live process that is no shell.
+# suite reaches no live shell or session.
 set -euo pipefail
 
 # shellcheck source=scripts/vgshell-rows.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
-cat >"$tmp/qs" <<'SH'
-#!/usr/bin/env bash
-if [[ -n ${STUB_CLIENT_FAILURE:-} ]]; then printf '%s\n' "$STUB_CLIENT_FAILURE"; exit 0; fi
-printf '%s\n' "$*" >"$STUB_ARGS"
-printf '%s\n' "${STUB_REPLY:-ok}"
-exit "${STUB_STATUS:-0}"
-SH
 cat >"$tmp/systemctl" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >>$(printf %q "$tmp/systemctl.calls")
 exit "\${STUB_SYSTEMCTL_STATUS:-0}"
 SH
-chmod 755 "$tmp/qs" "$tmp/systemctl"
+chmod 755 "$tmp/systemctl"
 cat >"$tmp/loginctl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$STUB_LOGIN_CALLS"
@@ -59,9 +47,6 @@ for tool in systemctl loginctl gdbus; do
   fi
 done
 
-rt="$tmp/rt-power"
-mkdir -p "$rt"
-printf '%s\n' "$$" >"$rt/vgshell.lock"
 cfg="$tmp/cfg-power"
 
 # The systemctl argv lines the last row recorded, one per line.
@@ -75,33 +60,26 @@ power_row() {
   shift 4
   while [[ $# -gt 0 && $1 != -- ]]; do args+=("$1"); shift; done
   [[ $# -eq 0 ]] || shift
-  rm -f -- "${tmp:?}/systemctl.calls" "${tmp:?}/args"
+  rm -f -- "${tmp:?}/systemctl.calls"
   inst_env=("$@")
-  inst "$name" "$cfg" "${RT:-$rt}" "$want_exit" "" "$want_err" power "${args[@]}"
+  inst "$name" "$cfg" "$rt_empty" "$want_exit" "" "$want_err" power "${args[@]}"
   inst_env=()
   check "$name: systemctl [$want_calls]" test "$(calls)" == "$want_calls"
 }
 
-power_row "held runs nothing" 0 "" "" reboot -- STUB_REPLY=held
-check "the ask reaches vgs.jarvis's power handler in the shell the instance lock names" test "$(<"$tmp/args")" == "ipc --pid $$ call vgs.jarvis invoke power reboot"
-power_row "proceed reboots" 0 "" reboot reboot -- STUB_REPLY=proceed
-power_row "proceed shuts down" 0 "" poweroff poweroff -- STUB_REPLY=proceed
-power_row "a refusal reboots" 0 "" reboot reboot -- STUB_REPLY="refused: power=reboot"
-RT="$tmp/rt-none" power_row "no shell reboots" 0 "" reboot reboot
-power_row "a disabled vgs.jarvis reboots" 0 "" reboot reboot -- STUB_CLIENT_FAILURE="Target not found."
-power_row "a failed reboot reports systemctl's status" 5 "" reboot reboot -- STUB_REPLY=proceed STUB_SYSTEMCTL_STATUS=5
-power_row "a failed shutdown reports systemctl's status" 5 "" poweroff poweroff -- STUB_REPLY=proceed STUB_SYSTEMCTL_STATUS=5
+power_row "reboot runs systemctl" 0 "" reboot reboot
+power_row "poweroff runs systemctl" 0 "" poweroff poweroff
+power_row "a failed reboot reports systemctl's status" 5 "" reboot reboot -- STUB_SYSTEMCTL_STATUS=5
+power_row "a failed shutdown reports systemctl's status" 5 "" poweroff poweroff -- STUB_SYSTEMCTL_STATUS=5
 power_row "another verb is refused" 2 "vgshell: refused: power=halt" "" halt
 power_row "no verb is refused" 2 "vgshell: refused: power=missing" ""
 power_row "a second argument is refused" 2 "vgshell: refused: argument=now" "" reboot now
 power_row "a second argument after suspend is refused" 2 "vgshell: refused: argument=now" "" suspend now
 power_row "a second argument after switch-user is refused" 2 "vgshell: refused: argument=now" "" switch-user now -- XDG_SEAT_PATH=/org/freedesktop/DisplayManager/Seat0
 
-# Suspend and hibernate run systemctl with no ask, even while a shell runs:
-# the stub qs leaves no args file when nothing called it.
+# Suspend and hibernate keep their systemctl routes and error statuses.
 for verb in suspend hibernate; do
-  power_row "$verb runs systemctl" 0 "" "$verb" "$verb" -- STUB_REPLY=held
-  check "$verb asks no one" test ! -e "$tmp/args"
+  power_row "$verb runs systemctl" 0 "" "$verb" "$verb"
   power_row "a failed $verb reports systemctl's status" 6 "" "$verb" "$verb" -- STUB_SYSTEMCTL_STATUS=6
 done
 
@@ -188,29 +166,6 @@ if logout_case "$tmp/control-menu/menu.json" 1 0 0 0 "show-user $UID --property=
 else
   ok "control: today's empty-session menu fails explicit graphical-session logout"
 fi
-
-# Must-fail control on a copy of bin/: a copy whose ask ends the script on a
-# failed call runs no systemctl when no shell answers.
-tree_copy="$tmp/control-unanswered"
-mkdir -p "$tree_copy"
-cp -R -- "$repo/bin" "$tree_copy/"
-copy_with unanswered "$repo/bin/vgshell-power" ' 2>/dev/null)" || true' ' 2>/dev/null)"'
-cp -- "$copy" "$tree_copy/bin/vgshell-power"
-rm -f -- "${tmp:?}/systemctl.calls"
-status=0
-"${base_env[@]}" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$tmp/rt-none" "$tree_copy/bin/vgshell" power reboot </dev/null >/dev/null 2>&1 || status=$?
-if [[ $status != 0 || $(calls) != reboot ]]; then ok "control: a copy that stops on a failed ask restarts nothing with no shell"; else fail "control: the unanswered copy passed the no-shell row"; fi
-
-# Must-fail control on a copy of bin/: a copy whose suspend falls through to
-# the Jarvis ask asks the running shell.
-tree_copy="$tmp/control-suspend-ask"
-mkdir -p "$tree_copy"
-cp -R -- "$repo/bin" "$tree_copy/"
-copy_with suspend-ask "$repo/bin/vgshell-power" '  suspend|hibernate)' '  suspend-unmatched|hibernate-unmatched)'
-cp -- "$copy" "$tree_copy/bin/vgshell-power"
-rm -f -- "${tmp:?}/args" "${tmp:?}/systemctl.calls"
-"${base_env[@]}" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt" STUB_ARGS="$tmp/args" "$tree_copy/bin/vgshell" power suspend </dev/null >/dev/null 2>&1 || true
-if [[ -e $tmp/args ]]; then ok "control: a copy whose suspend asks Jarvis fails the asks-no-one row"; else fail "control: the asking copy passed the suspend asks-no-one row"; fi
 
 # Must-fail control on a copy of the route: a copy that switches without
 # locking fails both the lock-then-greeter row and the failed-lock row.

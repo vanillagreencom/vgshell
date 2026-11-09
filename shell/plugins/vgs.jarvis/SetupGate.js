@@ -836,7 +836,6 @@ var SESSION_ROWS = {
     "running new-history-gone": { tone: "ok", text: "Running", hint: "A new session continued your saved work because the saved conversation is unavailable" },
     "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account" },
     "running resumed": { tone: "ok", text: "Running", names: true },
-    "running restart-resumed": { tone: "ok", text: "Running", names: true },
     "running new-requested": { tone: "ok", text: "Running", names: true },
     "running existing": { tone: "ok", text: "Running", names: true },
     "handing-over succession": { tone: "info", text: "Handing over", hint: "Jarvis is moving its saved work to a new session" },
@@ -853,17 +852,6 @@ var SESSION_ROWS = {
 };
 // The setting's two session choices; the first is what the unset value means.
 var SESSION_MODES = [{ label: "Resume the last session", value: "resume" }, { label: "Start a new session", value: "new" }];
-// The row while the package holds a session saved before a machine restart
-// that the user can resume by hand (sessionOffer).
-var SESSION_RESUME = { tone: "info", text: "Saved before the restart", hint: "Resume Jarvis from before the restart", action: "resume" };
-// The row's line while the offer stands after the package did not answer
-// Do not resume (`dismiss`): the record and the offer stay. A line draws as
-// a badge, which cuts a long one, so it names the fact alone.
-var SESSION_NOT_DISMISSED = "Do not resume was not saved";
-// The states in which the Resume offer stands: no session runs, and none
-// is turned off, stopping or blocked.
-var SESSION_OFFERED = ["stopped", "failed"];
-
 // "HH:MM", the local time of ISO, an ISO 8601 time session-control.js
 // accepted, as the lock screen's clock writes it.
 function sessionClock(iso) {
@@ -872,46 +860,7 @@ function sessionClock(iso) {
     return two(at.getHours()) + ":" + two(at.getMinutes());
 }
 
-// The reasons of a live session that is the resume of the record saved
-// before a machine restart, which only the package's resume worker writes:
-// `resuming` until the delegate step's outcome is written, then
-// `restart-resumed`. A session `start` started beside the record carries
-// neither: `resumed` is a start in mode resume that found its saved
-// conversation, and says nothing of the record.
-var SESSION_RESUME_REASONS = ["resuming", "restart-resumed"];
-
-// Whether RESULT reads a live session that is its record's resume.
-function sessionResumeLive(result) {
-    return result !== null && result.kind === "answer" && result.restart !== undefined
-        && sessionLive(result.state) && SESSION_RESUME_REASONS.indexOf(result.reason) !== -1;
-}
-
-// Whether the resume of RESULT's record saved before a machine restart
-// started: the live session is that resume (sessionResumeLive), or no
-// session lives and a step is past pending, a resume that ended. A session
-// that lives beside the record is not its resume, whatever its steps read,
-// and a resume the package refused or that ended before its first step
-// leaves every step pending. The one answer the offer, the steps the
-// console shows and the reads of a resume's steps take.
-function sessionResumeStarted(result) {
-    if (result === null || result.kind !== "answer" || result.restart === undefined) return false;
-    if (sessionLive(result.state)) return sessionResumeLive(result);
-    return result.restart.steps.some(function (step) { return step.outcome !== "pending"; });
-}
-
-// Whether RESULT, session-control.js's answer, offers the Resume of the
-// session saved before a machine restart. WANTED is Start Jarvis at boot,
-// whose boot build resumes it by itself; ASKED is true while a Resume or a
-// Do not resume asked for has no answer yet. Do not resume drops the
-// record in the package, so no later answer carries it. The offer ends once the record's resume started, a resume
-// that failed among them: its steps then show in its place. A resume that
-// never started offers again.
-function sessionOffer(wanted, result, asked) {
-    return !wanted && !asked && result !== null && result.kind === "answer" && result.restart !== undefined
-        && SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);
-}
-
-// The words of a running session the row and the bar's tooltip show:
+// The model and start time the running session's row shows:
 // { model, since } of RESULT, each null where the package gives none or no
 // session lives, `since` as sessionClock writes it.
 function sessionRunning(result) {
@@ -920,66 +869,11 @@ function sessionRunning(result) {
         since: live && result.since !== undefined ? sessionClock(result.since) : null };
 }
 
-// The console and bar reading of the session (status `jarvisSession`), null
-// before the first answer: { model, since } as sessionRunning gives them,
-// `offer` null or { unlock } while sessionOffer holds, `steps`, the
-// record's steps while the live session is its resume (sessionResumeLive)
-// or once a resume ended (sessionResumeStarted), else none, and
-// `checkedAt`. A resume that ended reaches no step still pending: such a
-// step reads failed with no cause, not resumed. CHECKED
-// is null while the service reads pending steps, else the ISO time of its
-// last read: the pending steps then drop, since nothing reads them any
-// more, and `checkedAt` is that read's "HH:MM"; else it is null.
-function sessionRecord(wanted, result, asked, checked) {
-    if (result === null || result.kind !== "answer") return null;
-    var running = sessionRunning(result);
-    var offer = sessionOffer(wanted, result, asked);
-    var steps = sessionResumeLive(result) ? result.restart.steps : !sessionResumeStarted(result) ? []
-        : result.restart.steps.map(function (step) {
-            return step.outcome === "pending" ? { kind: step.kind, name: step.name, outcome: "failed", cause: null } : step;
-        });
-    var stale = checked !== null && sessionStepsPending(result);
-    if (stale) steps = steps.filter(function (step) { return step.outcome !== "pending"; });
-    return { model: running.model, since: running.since, offer: offer ? { unlock: result.restart.unlock } : null,
-        steps: steps, checkedAt: stale ? sessionClock(checked) : null };
-}
-
-// Whether the live session is RESULT's record's resume
-// (sessionResumeLive) with a step it has not reached: the steps the
-// service reads again. A resume that ended reaches no further step.
-function sessionStepsPending(result) {
-    return sessionResumeLive(result)
-        && result.restart.steps.some(function (step) { return step.outcome === "pending"; });
-}
-
-var SESSION_STEP_NAMES = {
-    "delegate": function () { return "the Jarvis session"; },
-    "overseer": function (name) { return "the agent fleet for project " + name; },
-    "lane": function (name) { return "coding task " + name; }
-};
-
-// sessionRecord owns which steps belong to the resume and whether a
-// pending step can still run. The console only words that judged reading.
-function sessionStepLine(step) {
-    var name = SESSION_STEP_NAMES[step.kind](step.name);
-    if (step.outcome === "pending") return "Waiting to resume " + name + ".";
-    if (step.outcome === "resumed") return "Resumed " + name + ".";
-    return "Could not resume " + name + (step.cause === null || step.cause === "" ? "." : ": " + sentence(step.cause));
-}
-
-function sessionCheckedLine(checkedAt) {
-    return "Jarvis stopped checking the resume at " + checkedAt
-        + ". Open [Settings > Jarvis](page:vgs.jarvis/Setup/sessionStart) to check it again.";
-}
-
 // The row for RESULT, backend/session-control.js's answer, null before the
 // first one and { kind: "failed" } where the helper gave none. WANTED is
 // the Start Jarvis at boot setting, which words only a session that does
-// not run: a live session reads as it is, whatever the setting. OFFERED
-// is sessionOffer's answer: the row then offers the Resume. NOT_DISMISSED
-// is true once the package did not answer the last Do not resume: while
-// the offer stands, the row says so in a line.
-function sessionStart(wanted, result, offered, notDismissed) {
+// not run: a live session reads as it is, whatever the setting.
+function sessionStart(wanted, result) {
     if (result === null) return { hidden: true };
     if (result.kind === "blocked") {
         if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
@@ -994,8 +888,7 @@ function sessionStart(wanted, result, offered, notDismissed) {
     var row = SESSION_ROWS[result.state + " " + result.reason];
     if (row === undefined) return failure;
     var value;
-    if (offered === true) value = Object.assign({}, SESSION_RESUME);
-    else if (row.wanted) value = wanted ? { tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }
+    if (row.wanted) value = wanted ? { tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }
         : { tone: "info", text: "Not started", hint: "Start Jarvis to continue your work", action: "start" };
     else {
         var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)
@@ -1012,7 +905,6 @@ function sessionStart(wanted, result, offered, notDismissed) {
     if (running.since !== null) lines.push("Running since " + running.since);
     // The selection that failed its check, beside the session that stays.
     if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied].hint);
-    if (offered === true && notDismissed === true) lines.push(SESSION_NOT_DISMISSED);
     if (lines.length > 0) value.lines = lines;
     return value;
 }

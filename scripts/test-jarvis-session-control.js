@@ -278,35 +278,25 @@ function inside() {
         cases++;
     }
 
-    // A running session's model and start time, and the record saved before
-    // a machine restart, pass on as the package gives them; a field it
-    // does not give, or gives as null, stays absent.
-    const record = { unlock: "1password", steps: [
-        { kind: "delegate", name: "jarvis", outcome: "resumed", cause: null },
-        { kind: "overseer", name: "vgshell", outcome: "failed", cause: "The app asked for a sign-in." },
-        { kind: "lane", name: "VGS-1", outcome: "pending", cause: null }] };
+    // A running session's model and start time pass on as the package
+    // gives them; a field it does not give, or gives as null, stays absent.
     function fields(directory) {
         const since = "2026-10-17T11:02:00-07:00";
-        answers(folder, { status: said("running", "existing", { home: folder, harness: "claude", account, model: "claude-fable-5-1", since, restart: record }) });
+        answers(folder, { status: said("running", "existing", { home: folder, harness: "claude", account, model: "claude-fable-5-1", since }) });
         const given = helper(directory, ["status", "~/Jarvis"]);
-        assert.deepEqual([given.model, given.since, given.restart], ["claude-fable-5-1", since, record], "the fields pass on");
-        for (const more of [{}, { model: null, since: null, restart: null }]) {
+        assert.deepEqual([given.model, given.since], ["claude-fable-5-1", since], "the fields pass on");
+        for (const more of [{}, { model: null, since: null }]) {
             answers(folder, { status: said("running", "existing", more) });
             const none = helper(directory, ["status", "~/Jarvis"]);
-            assert.deepEqual(["model", "since", "restart"].filter(field => Object.hasOwn(none, field)), [], "absent or null stays absent");
+            assert.deepEqual(["model", "since"].filter(field => Object.hasOwn(none, field)), [], "absent or null stays absent");
         }
         cases++;
     }
     // A field outside the contract makes the whole answer outside it.
     function fieldsOutside(directory) {
-        const step = more => ({ restart: { unlock: null, steps: [{ kind: "lane", name: "VGS-1", outcome: "pending", cause: null, ...more }] } });
         const rows = [
             ["model-empty", { model: "" }], ["model-long", { model: "m".repeat(101) }], ["model-control", { model: "a\u0007" }],
-            ["since-not-iso", { since: "11:02" }], ["since-no-zone", { since: "2026-10-17T11:02:00" }], ["since-number", { since: 1 }],
-            ["unlock", { restart: { unlock: "keyring", steps: [] } }], ["steps-missing", { restart: { unlock: null } }],
-            ["steps-many", { restart: { unlock: null, steps: Array(33).fill({ kind: "lane", name: "x", outcome: "pending", cause: null }) } }],
-            ["step-kind", step({ kind: "task" })], ["step-name", step({ name: "" })], ["step-outcome", step({ outcome: "done" })],
-            ["step-cause-control", step({ cause: "a\nb" })], ["step-cause-number", step({ cause: 1 })], ["unlock-number", { restart: { unlock: 1, steps: [] } }]
+            ["since-not-iso", { since: "11:02" }], ["since-no-zone", { since: "2026-10-17T11:02:00" }], ["since-number", { since: 1 }]
         ];
         for (const [name, more] of rows) {
             answers(folder, { status: said("running", "existing", more) });
@@ -315,54 +305,10 @@ function inside() {
         }
         answers(folder, { status: said("running", "existing", { model: "m".repeat(100), since: "2026-10-17T18:02:00.5Z" }) });
         assert.equal(helper(directory, ["status", "~/Jarvis"]).kind, "answer", "the longest model and a UTC time are inside");
-        // A nested field the package does not give is null, as a top-level
-        // one is: a record with no `unlock`, a step with no `cause`.
-        answers(folder, { status: said("stopped", "ended", { restart: { steps: [{ kind: "lane", name: "x", outcome: "pending" }] } }) });
-        assert.deepEqual(helper(directory, ["status", "~/Jarvis"]).restart, { unlock: null, steps: [{ kind: "lane", name: "x", outcome: "pending", cause: null }] },
-            "an absent unlock and cause read as null");
         cases++;
     }
-    // The Resume: one `resume --origin manual` in the home, then a status
-    // read; it names no account.
-    function resume(directory) {
-        answers(folder, { resume: said("starting", "resuming"), status: said("starting", "resuming", { restart: record }) });
-        const result = helper(directory, ["resume", "~/Jarvis"]);
-        assert.deepEqual([result.state, result.reason, result.restart], ["starting", "resuming", record]);
-        assert.deepEqual(calls(folder).map(call => call.argv), [["resume", "--origin", "manual", "--home", folder], status(folder)]);
-        cases++;
-    }
-    // Do not resume: one `dismiss` in the home, whose answer, the session
-    // without its record, is the session; a package that refuses the verb,
-    // as one without `dismiss` does, is a failed call.
-    function dismiss(directory) {
-        answers(folder, { dismiss: said("stopped", "ended"), status: said("stopped", "ended", { restart: record }) });
-        const result = helper(directory, ["dismiss", "~/Jarvis"]);
-        assert.deepEqual([result.kind, result.state, result.reason, Object.hasOwn(result, "restart")], ["answer", "stopped", "ended", false]);
-        assert.deepEqual(calls(folder).map(call => call.argv), [["dismiss", "--home", folder]]);
-        // A dismiss after a failed start: exit 0 answers the session, failed
-        // as the start left it, with the record dropped.
-        answers(folder, { dismiss: said("failed", "launch-failed"), status: said("failed", "launch-failed", { restart: record }) });
-        const afterFailedStart = helper(directory, ["dismiss", "~/Jarvis"]);
-        assert.deepEqual([afterFailedStart.kind, afterFailedStart.state, Object.hasOwn(afterFailedStart, "restart")], ["answer", "failed", false],
-            "a dismiss after a failed start is saved");
-        // The package's refusals, exit 1 with its contract object, and an
-        // unknown verb, exit 2: each keeps the record.
-        for (const [label, refusal] of [
-            ["an unknown verb", undefined],
-            ["a record it cannot read", { exit: 1, object: { state: "blocked", reason: "record-unreadable" } }],
-            ["a failed state", { exit: 1, object: { state: "failed", reason: "launch-failed", restart: record } }],
-            ["a refusal that keeps the record", { exit: 1, object: { state: "stopped", reason: "ended", restart: record } }],
-            // Raw, since the stand-in refuses to write an exit 0 dismiss
-            // that keeps the record: a package outside its contract.
-            ["an exit 0 answer that keeps the record", { exit: 0, raw: JSON.stringify({ v: 1, state: "stopped", reason: "ended", home: null, harness: null,
-                account: null, detail: "", restart: record }) + "\n" }]]) {
-            answers(folder, { status: said("stopped", "ended", { restart: record }), ...(refusal === undefined ? {} : { dismiss: refusal }) });
-            assert.deepEqual(helper(directory, ["dismiss", "~/Jarvis"]), { kind: "failed" }, label + ": a dismiss not done");
-        }
-        cases++;
-    }
-    // The package's status names the recorded selection without a restart
-    // field. Empty Account resumes that selection at boot; an explicit
+    // The package's status names the recorded selection.
+    // Empty Account resumes that selection at boot; an explicit
     // Account wins, even when it is invalid. The package owns resume/new.
     function bootResume(directory) {
         const prior = path.join(home, ".codex-prior");
@@ -371,7 +317,6 @@ function inside() {
         for (const [name, setting, mode, bootSetting, more, words, block] of [
             ["empty Account uses history", "", "resume", "on", history, recordedStart],
             ["selected Account replaces history", claude, "resume", "on", history, startWords("resume", "boot")],
-            ["selected Account with old restart field", claude, "resume", "on", { ...history, restart: record }, startWords("resume", "boot")],
             ["unresolved Account stays blocked", "cli:" + "0".repeat(32), "resume", "on", history, null, "no-account"],
             ["non-app Account stays blocked", local, "resume", "on", history, null, "not-app"],
             ["empty Account without history", "", "resume", "on", {}, null, "no-account"],
@@ -388,7 +333,7 @@ function inside() {
         cases++;
     }
 
-    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, causes, names, outside, fields, fieldsOutside, resume, dismiss, bootResume };
+    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, causes, names, outside, fields, fieldsOutside, bootResume };
     const only = process.argv[3];
     if (only !== undefined) {
         assert.ok(Object.hasOwn(checks, only), "no check " + only);
@@ -467,16 +412,9 @@ function inside() {
     control("package-owner", S, 'owner === "kendex" ? "package" : "vgs-package"', '"package"', causes);
     control("account-label", C, "account: await label(value.harness, value.account)", "account: value.account", names);
     control("home-folder", S, "folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()", "folder === null", blocks);
-    control("fields-pass-on", C, '...Object.fromEntries(["model", "since", "restart"]', '...Object.fromEntries([]', fields);
+    control("fields-pass-on", C, '...Object.fromEntries(["model", "since"]', '...Object.fromEntries([]', fields);
     control("model-checked", C, "if (model !== null && !named(model)) return null;", "", fieldsOutside);
-    control("nested-absent-refused", C, 'const cause = given(step, "cause");', "const cause = step.cause;", fieldsOutside);
     control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);
-    control("step-checked", C, "|| !OUTCOMES.includes(step.outcome)", "", fieldsOutside);
-    control("resume-origin", C, 'launch(at, ["resume", "--origin", "manual"])', 'launch(at, ["resume", "--origin", "boot"])', resume);
-    control("dismiss-exit-code", C, " || dismissed.code !== 0 || ", " || ", dismiss);
-    control("dismiss-by-state", C, " || dismissed.code !== 0 || ", ' || ["blocked", "failed"].includes(dismissed.value.state) || ', dismiss);
-    control("dismiss-kept-record", C, " || dismissed.value.restart !== null) return failed;", ") return failed;", dismiss);
-    control("dismiss-verb", C, 'const dismissed = await exited(at, ["dismiss"]);', 'const dismissed = await exited(at, ["status"]);', dismiss);
     control("boot-record-account", C, 'origin === "boot" && mode === "resume" && setting === ""', 'false', bootResume);
     control("not-app", C, 'resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app")',
         "{ harness: resolved.provider, directory: String(resolved.source.directory) }", blocks);

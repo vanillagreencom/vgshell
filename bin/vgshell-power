@@ -6,21 +6,14 @@
 #       logout terminates logind's primary graphical session explicitly;
 #       suspend and hibernate run systemctl at once, which asks logind, so
 #       its inhibitors and vgs.lock's delay inhibitor apply; reboot and
-#       poweroff ask vgs.jarvis's `power` handler first and, unless it
-#       answers `held`, run systemctl at once; switch-user locks the session
+#       poweroff run systemctl at once; switch-user locks the session
 #       through `vgshell lock`, then asks LightDM's seat for its greeter
 #
 # The one route of the power menu's actions, the launcher's System Log out,
 # Reboot and Shut down rows and the Updates run's Reboot answer. The
 # launcher's Sleep rows and sleep after idle stay on vgs.power's own logind
 # request.
-# vgs.jarvis answers `held` only while a Jarvis session lives; it then runs
-# systemctl itself, after the session saved or at its bound
-# (shell/plugins/vgs.jarvis/PowerWait.qml). Any other answer, no answer
-# within 5 s, no running shell or a disabled vgs.jarvis lets the restart go
-# at once, so no shell state can hold a restart. Suspend and hibernate lose
-# no work, so they ask no one. It prints nothing; a failed step's own
-# stderr and exit status are the report.
+# It prints nothing; a failed step's own stderr and exit status are the report.
 #
 # Refusals, one keyed line on stderr, nothing run:
 #   vgshell: refused: power=<arg>             exit 2; not one of the six verbs
@@ -78,11 +71,4 @@ case $1 in
     exec gdbus call --system --dest org.freedesktop.DisplayManager --object-path "$XDG_SEAT_PATH" --method org.freedesktop.DisplayManager.Seat.SwitchToGreeter >/dev/null
     ;;
 esac
-# The reply is a line `vgshell ipc` prints; its own refusals, such as no
-# running shell, go to the discarded stderr and print no `held`. Read whole
-# before it is judged: a pipe into `grep -q` could end the call early.
-reply="$(timeout 5 "$vgshell" ipc call vgs.jarvis invoke power "$1" 2>/dev/null)" || true
-if grep -qx held <<<"$reply"; then
-  exit 0
-fi
 exec systemctl "$1"

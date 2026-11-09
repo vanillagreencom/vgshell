@@ -15,25 +15,17 @@
 //                                    account;
 //                                    else a status read
 //   start ACCOUNT HOME MODE          `start --origin manual`
-//   resume HOME                      `resume --origin manual`: the record
-//                                    saved before a machine restart
-//   dismiss HOME                     `dismiss`: the package drops that
-//                                    record and answers the session as
-//                                    `status` does; a refusal (exit 1),
-//                                    an answer that keeps the record or
-//                                    no answer is `failed`
 //   change OLD ACCOUNT HOME MODE     a changed account or home: while a
 //                                    session lives in OLD, checks the new
 //                                    selection, stops the old session and
 //                                    starts the new one; else a status read
 //   stop HOME [app-off]              `stop`, with the app's Off recorded
-// The package's `prepare` before a machine restart is power-wait.js's call.
 // Each verb prints one JSON line and exits 0:
 //   { kind: "answer", state, reason, detail, names: { home, account } }
 //     the package's answer, names those of the recorded session or null:
 //     `home` as ~/path, `account` as the Jarvis page labels it, its
 //     provider and sign-in email (Accounts.js accountLabel), read now;
-//     `model`, `since` and `restart` are added as the package gives them
+//     `model` and `since` are added as the package gives them
 //     (accepted); `unapplied`, a block, is added when the selection failed
 //     its check and the session that lives stays as it is
 //   { kind: "blocked", block }  "no-account", "not-app", "no-home",
@@ -54,7 +46,7 @@ const path = require("node:path");
 
 // The contract's closed table: each state with its reasons.
 const STATES = Object.freeze({
-    running: ["resumed", "restart-resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
+    running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
     starting: ["launching", "resuming"],
     "handing-over": ["succession"],
     stopping: ["stop-requested"],
@@ -73,46 +65,20 @@ const OUTPUT_BYTES = 16384;
 // What that page draws as one line (SettingValues.CONTROL_OR_SEPARATOR).
 const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const DETAIL_MAX = 200;
-// The optional fields of a running session and of the record saved before
-// a machine restart. A model or a step's name draws as one line with its
-// label in a status line or the bar's tooltip (PluginLogic
-// STATUS_TEXT_MAX); a step's cause is a line as `detail` is.
+// A model draws as one line with its label in a status line or the bar's
+// tooltip (PluginLogic STATUS_TEXT_MAX).
 const NAME_MAX = 100;
-const STEPS_MAX = 32;
 // `since` names an instant: a time with no offset or Z could be any zone's.
 // A value outside these forms puts the whole answer outside the contract,
 // as any other field does: the package then is not one VGS was written for.
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
-const UNLOCKS = [null, "1password"];
-const STEP_KINDS = ["delegate", "overseer", "lane"];
-const OUTCOMES = ["pending", "resumed", "failed"];
 
 const line = (text, max) => typeof text === "string" && text.length <= max && !UNPRINTABLE.test(text);
 const named = text => line(text, NAME_MAX) && text !== "";
 
 // OBJECT's FIELD, null where the package does not give it: an optional
-// field may be absent or null alike, at any depth.
+// field may be absent or null alike.
 const given = (object, field) => object[field] === undefined ? null : object[field];
-
-/**
- * RECORD, the `restart` field of an answer, as the plain record VGS
- * passes on, or undefined when it is outside the contract: `unlock` null
- * or "1password", and each step its kind, name, outcome and cause, the
- * cause null or a line. An absent `unlock` or `cause` is null.
- */
-function restartOf(record) {
-    if (record === null || typeof record !== "object" || Array.isArray(record) || !UNLOCKS.includes(given(record, "unlock"))
-            || !Array.isArray(record.steps) || record.steps.length > STEPS_MAX) return undefined;
-    const steps = [];
-    for (const step of record.steps) {
-        if (step === null || typeof step !== "object" || Array.isArray(step) || !STEP_KINDS.includes(step.kind) || !named(step.name)
-                || !OUTCOMES.includes(step.outcome)) return undefined;
-        const cause = given(step, "cause");
-        if (cause !== null && !line(cause, DETAIL_MAX)) return undefined;
-        steps.push({ kind: step.kind, name: step.name, outcome: step.outcome, cause });
-    }
-    return { unlock: given(record, "unlock"), steps };
-}
 
 /** The contract's one object from a run's stdout, or null for anything else. */
 function accepted(text) {
@@ -128,14 +94,12 @@ function accepted(text) {
     const since = given(value, "since");
     if (model !== null && !named(model)) return null;
     if (since !== null && !(typeof since === "string" && ISO.test(since) && Number.isFinite(Date.parse(since)))) return null;
-    const restart = given(value, "restart") === null ? null : restartOf(value.restart);
-    if (restart === undefined) return null;
-    return { ...value, model, since, restart };
+    return { ...value, model, since };
 }
 
 async function main() {
     const [flag, tree, verb, ...args] = process.argv.slice(2);
-    const shapes = { status: 1, build: 4, start: 3, resume: 1, dismiss: 1, change: 4, stop: [1, 2] };
+    const shapes = { status: 1, build: 4, start: 3, change: 4, stop: [1, 2] };
     if (flag !== "--tree" || !path.isAbsolute(tree || "") || !Object.hasOwn(shapes, verb)
             || ![].concat(shapes[verb]).includes(args.length)
             || (verb === "build" && !["on", "off"].includes(args[3]))
@@ -169,7 +133,7 @@ async function main() {
     const answer = async value => ({ kind: "answer", state: value.state, reason: value.reason, detail: value.detail,
         names: value.home === null || value.harness === null || value.account === null ? null
             : { home: short(value.home), account: await label(value.harness, value.account) },
-        ...Object.fromEntries(["model", "since", "restart"].filter(field => value[field] !== null).map(field => [field, value[field]])) });
+        ...Object.fromEntries(["model", "since"].filter(field => value[field] !== null).map(field => [field, value[field]])) });
 
     // The home folder a setting names with its session command, or a block.
     const place = setting => SessionCommand.place(setting, user);
@@ -179,12 +143,12 @@ async function main() {
         if (resolved === null) return blocked("no-account");
         return resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app");
     }
-    // One run of the command by argument list in its home: { code, value },
-    // the exit status, 0 or 1, and the contract's object, else null, whose
-    // cause goes to stderr as its keyed line. The bound ends the run
-    // itself: a program the command started can hold its output open past
+    // One run of the command by argument list in its home: the contract's
+    // object for exit 0 or 1, else null, whose cause goes to stderr as its
+    // keyed line. The bound ends the run itself: a program the command
+    // started can hold its output open past
     // the command's own end, and `close` waits for that.
-    function exited(at, words) {
+    function run(at, words) {
         return new Promise(resolve => {
             const child = cp.spawn(at.command, words.concat(["--home", at.folder]), { cwd: at.folder, env: environment, stdio: ["ignore", "pipe", "ignore"] });
             let out = "";
@@ -209,18 +173,16 @@ async function main() {
             child.on("error", () => outside("spawn"));
             child.on("close", (code, signal) => {
                 const value = signal === null && (code === 0 || code === 1) ? accepted(out) : null;
-                if (value !== null) end({ code, value });
+                if (value !== null) end(value);
                 else outside(signal !== null ? "signal" : code !== 0 && code !== 1 ? "exit=" + code : "unaccepted");
             });
         });
     }
-    // The contract's object of one run, exit 0 and exit 1 alike, else null.
-    const run = async (at, words) => (await exited(at, words))?.value ?? null;
     const failed = { kind: "failed" };
     // The session as the command reads it now; a status outside the
     // contract reads `unread`.
     const read = async at => await run(at, ["status"]) ?? blocked("unread");
-    // A `start` or `resume`, WORDS, then the session as it is after it. A
+    // A `start`, WORDS, then the session as it is after it. A
     // refusal's own object is the answer.
     async function launch(at, words) {
         const started = await run(at, words);
@@ -241,21 +203,6 @@ async function main() {
     if (verb === "status") {
         const at = place(args[0]);
         return at.kind === "blocked" ? at : shown(await read(at));
-    }
-    if (verb === "resume") {
-        const at = place(args[0]);
-        return at.kind === "blocked" ? at : launch(at, ["resume", "--origin", "manual"]);
-    }
-    if (verb === "dismiss") {
-        const at = place(args[0]);
-        if (at.kind === "blocked") return at;
-        const dismissed = await exited(at, ["dismiss"]);
-        // The package refuses with exit 1 and its contract object (session.py
-        // main), and an unknown verb exits 2. Exit 0 answers the session as
-        // `status` does, a `failed` one from an earlier start included, and
-        // carries no record once the record is dropped.
-        if (dismissed === null || dismissed.code !== 0 || dismissed.value.restart !== null) return failed;
-        return answer(dismissed.value);
     }
     if (verb === "change") {
         const [old, setting, home, mode] = args;

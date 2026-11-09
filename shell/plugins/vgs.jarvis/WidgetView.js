@@ -326,15 +326,6 @@ function view(values, voice) {
         out.icon = "vgs-letter-j-hidden";
         out.tooltip += " (hidden)";
     }
-    var session = values.jarvisSession;
-    out.click = "console";
-    if (session !== undefined && session !== null) {
-        if (typeof session !== "object" || !hasOwn(session, "offer")
-                || session.offer !== null && (typeof session.offer !== "object" || Array.isArray(session.offer))) refuse("jarvisSession", session);
-        if (session.offer !== null) {
-            out.click = "resume";
-        }
-    }
     return out;
 }
 

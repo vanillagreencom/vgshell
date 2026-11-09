@@ -1291,7 +1291,7 @@ function verifyTiers(gate) {
 // setting, only a session that does not run offers Start, only a failure
 // offers Retry, and an answer outside the contract is a failure.
 const SESSION_CONTRACT = {
-    running: ["resumed", "restart-resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
+    running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
     starting: ["launching", "resuming"], "handing-over": ["succession"], stopping: ["stop-requested"],
     stopped: ["never-started", "stopped", "ended"], off: ["app-off"],
     blocked: ["app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing", "trust-required"],
@@ -1336,7 +1336,7 @@ function verifySession(gate) {
                         label + ": the boot setting changes no row of a session that is not stopped");
                 if (["failed"].includes(state) || reason === "sign-in-required" || reason === "trust-required")
                     assert.equal(value.hint, "The package's line.", label + ": the package's own line is shown");
-                if (["resumed", "restart-resumed", "existing", "new-requested"].includes(reason))
+                if (["resumed", "existing", "new-requested"].includes(reason))
                     assert.equal(value.hint.includes(names.home) && value.hint.includes(names.account), true, label + ": the recorded home and account are named");
             }
     assert.equal(offered(plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "existing", detail: "", names: null }))), "none",
@@ -1377,8 +1377,8 @@ function verifySession(gate) {
     const kept = plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names, unapplied: "not-app" }));
     assert.deepEqual([kept.text === plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names })).text,
         Array.isArray(kept.lines) && kept.lines.length === 1 && offered(kept)], [true, "none"], "a selection that failed its check shows beside the session that stays");
-    // A running session's model and start time draw as the row's lines and
-    // the widget's reading, only while it lives and as the package gives them.
+    // A running session's model and start time draw as the row's lines,
+    // only while it lives and as the package gives them.
     const since = "2026-10-17T11:02:00" + offset(new Date(2026, 9, 17, 11, 2));
     const running = { kind: "answer", state: "running", reason: "existing", detail: "", names, model: "claude-fable-5-1", since };
     const shownRunning = plain(gate.sessionStart(true, running));
@@ -1387,80 +1387,6 @@ function verifySession(gate) {
     assert.equal(plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "existing", detail: "", names })).lines, undefined,
         "no field, no line");
     assert.equal(plain(gate.sessionStart(true, { ...running, state: "stopped", reason: "ended" })).lines, undefined, "a session that does not live shows neither");
-    assert.deepEqual(plain(gate.sessionRecord(true, running, false, null)), { model: "claude-fable-5-1", since: "11:02", offer: null, steps: [], checkedAt: null },
-        "the widget's reading");
-    assert.equal(gate.sessionRecord(true, null, false, null), null, "no reading before the first answer");
-    assert.equal(gate.sessionRecord(true, { kind: "failed" }, false, null), null, "no reading of a failed call");
-    // The record saved before a machine restart: the Resume offer stands
-    // while no session runs, the boot setting is off and the user did not
-    // put it aside; the row then offers Resume.
-    const pending = { kind: "lane", name: "VGS-1", outcome: "pending", cause: null };
-    const restart = { unlock: "1password", steps: [{ kind: "delegate", name: "jarvis", outcome: "pending", cause: null }, pending] };
-    const saved = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart };
-    const resuming = { ...saved, state: "starting", reason: "resuming" };
-    // The resume ran its first step and the session lives.
-    const resumedDelegate = { kind: "delegate", name: "jarvis", outcome: "resumed", cause: null };
-    const resumedRunning = { ...saved, state: "running", reason: "restart-resumed", restart: { unlock: "1password", steps: [resumedDelegate, pending] } };
-    // A resume that ended after its last step failed.
-    const ended = { ...saved, restart: { unlock: "1password", steps: [{ ...pending, outcome: "failed", cause: "The app asked for a sign-in." }] } };
-    // A resume that failed at its first step, the session left failed.
-    const failedDelegate = { kind: "delegate", name: "jarvis", outcome: "failed", cause: "The app asked for a sign-in." };
-    const failedResume = { ...saved, state: "failed", reason: "launch-failed", detail: "The app asked for a sign-in.",
-        restart: { unlock: "1password", steps: [failedDelegate, pending] } };
-    // A session a Start or a boot with Start a new session started beside
-    // the record: no resume of it started, whatever the record's steps read.
-    const beside = { ...saved, state: "running", reason: "existing" };
-    const startingBeside = { ...saved, state: "starting", reason: "launching" };
-    const failedRecord = { unlock: "1password", steps: [failedDelegate, { kind: "overseer", name: "vgshell", outcome: "pending", cause: null }] };
-    for (const [label, wanted, result, aside, offers] of [
-        ["a stopped session", false, saved, false, true], ["a failed start", false, { ...saved, state: "failed", reason: "launch-failed" }, false, true],
-        ["a resume that ended before its first step", false, { ...saved, reason: "stopped" }, false, true],
-        ["the boot setting on", true, saved, false, false], ["an ask in flight", false, saved, true, false],
-        ["a live session", false, resuming, false, false], ["a session beside the record", false, beside, false, false],
-        ["a session starting beside the record", false, startingBeside, false, false],
-        ["a resume that failed at its first step", false, failedResume, false, false], ["a resume that ended after a step", false, ended, false, false],
-        ["an app Off", false, { ...saved, state: "off", reason: "app-off" }, false, false], ["no record", false, { ...saved, restart: undefined }, false, false]]) {
-        assert.equal(gate.sessionOffer(wanted, result, aside), offers, label + ": the offer");
-        const row = plain(gate.sessionStart(wanted, result, gate.sessionOffer(wanted, result, aside)));
-        assert.equal(offered(row) === "resume:resume-session", offers, label + ": the row offers Resume");
-        assert.deepEqual(plain(gate.sessionRecord(wanted, result, aside, null)).offer, offers ? { unlock: "1password" } : null, label + ": the widget's offer");
-    }
-    // A Do not resume the package did not answer: while the offer stands
-    // the row says the choice was not saved; the offer is the package's.
-    for (const [label, result, shown, notDismissed, lines] of [
-        ["a Do not resume the package did not answer", saved, true, true, [gate.SESSION_NOT_DISMISSED]],
-        ["a Do not resume the package answered", saved, true, false, undefined],
-        ["a Do not resume not answered once the offer ended", beside, false, true, undefined]]) {
-        const row = plain(gate.sessionStart(false, result, shown, notDismissed));
-        assert.deepEqual([row.lines, offered(row) === "resume:resume-session"], [lines, shown], label + ": the row");
-        if (lines !== undefined) assert.equal(judge.statusWrite(manifest, {}, "sessionStart", row).ok, true, label + ": the manifest judge accepts the row");
-    }
-    // The steps show once the resume started, and the service reads them
-    // again while the resume runs with a step pending. Once no session
-    // lives, a step still pending reads failed with no cause: not resumed.
-    const notResumed = { ...pending, outcome: "failed", cause: null };
-    for (const [label, result, steps, reads] of [
-        ["a record no resume reached", saved, [], false], ["a failed start", { ...saved, state: "failed", reason: "launch-failed" }, [], false],
-        ["a session beside the record", beside, [], false], ["a session starting beside the record", startingBeside, [], false],
-        ["a Start beside a failed resume, starting", { ...startingBeside, restart: failedRecord }, [], false],
-        ["a Start beside a failed resume, running", { ...beside, restart: failedRecord }, [], false],
-        ["a Start in mode resume beside a failed resume", { ...beside, reason: "resumed", restart: failedRecord }, [], false],
-        ["a resume that starts", resuming, restart.steps, true],
-        ["running restart-resumed with the delegate pending", { ...resumedRunning, restart }, restart.steps, true],
-        ["a resume past its first step", resumedRunning, resumedRunning.restart.steps, true],
-        ["a resume that ended after a step", ended, ended.restart.steps, false],
-        ["a resume that failed at its first step", failedResume, [failedDelegate, notResumed], false]]) {
-        assert.deepEqual([plain(gate.sessionRecord(false, result, false, null)).steps, gate.sessionStepsPending(result)], [steps, reads],
-            label + ": the steps and reads");
-    }
-    assert.equal(gate.sessionStepsPending(null), false, "no answer: no reads");
-    // Once those reads stop, the pending steps give way to when they were read.
-    const lastRead = "2026-10-17T11:12:00" + offset(new Date(2026, 9, 17, 11, 12));
-    const stale = plain(gate.sessionRecord(false, resumedRunning, false, lastRead));
-    assert.deepEqual([stale.steps, stale.checkedAt], [[resumedDelegate], "11:12"], "the reads stopped: no pending step, the last read's time");
-    assert.equal(plain(gate.sessionRecord(true, ended, false, lastRead)).checkedAt, null, "no step pending: no time");
-    assert.equal(judge.statusWrite(manifest, {}, "jarvisSession", plain(gate.sessionRecord(false, resuming, false, null))).ok, true, "the manifest judge accepts the reading");
-    assert.equal(judge.statusWrite(manifest, {}, "jarvisSession", stale).ok, true, "the manifest judge accepts a reading whose reads stopped");
     assert.equal(manifest.settings.startAtBoot, false, "the setting is off at first");
     for (const [wanted, values] of [[false, []], [true, ["", "new"]]]) {
         const offers = plain(gate.sessionModes(wanted));
@@ -2572,27 +2498,13 @@ const CONTROLS = [
     ["a failure offers no Retry", '"failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }', '"failed launch-failed": { tone: "danger", text: "Not started", detail: true }', "the action the row offers"],
     ["a missing tmux offers a step", '"blocked tmux-missing": { tone:',
         '"blocked tmux-missing": { action: "retry", tone:', "the action the row offers"],
-    ["the boot setting hides a running session", '    else if (row.wanted) value = wanted ?', '    else if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
+    ["the boot setting hides a running session", '    if (row.wanted) value = wanted ?', '    if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
     ["an answer outside the contract reads as a state", "    if (row === undefined) return failure;", '    if (row === undefined) return { tone: "ok", text: "Running", hint: "Planted." };', "outside the contract"],
     ["the package's failure line is dropped", 'var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)', "var hint = row.detail ? SESSION_FAILED", "the package's own line is shown"],
     ["the unapplied selection is not shown", "    if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied].hint);", "", "a selection that failed its check"],
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
     ["the model line is dropped", 'if (running.model !== null) lines.push("Model: " + running.model);', "", "the model and since lines"],
     ["a stopped session shows its model", 'var live = result !== null && result.kind === "answer" && sessionLive(result.state);', 'var live = result !== null && result.kind === "answer";', "a session that does not live shows neither"],
-    ["the offer ignores the boot setting", "return !wanted && !asked && result !== null", "return !asked && result !== null", "the boot setting on: the offer"],
-    ["the offer ignores an ask in flight", "return !wanted && !asked && result !== null", "return !wanted && result !== null", "an ask in flight: the offer"],
-    ["the row offers no Resume", "if (offered === true) value = Object.assign({}, SESSION_RESUME);", "if (false) value = null;", "the row offers Resume"],
-    ["a resume that failed is offered again", "SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);", "SESSION_OFFERED.indexOf(result.state) !== -1;", "a resume that failed at its first step: the offer"],
-    ["a session beside the record is its resume", "    if (sessionLive(result.state)) return sessionResumeLive(result);", "    if (sessionLive(result.state)) return true;", "a session beside the record: the steps and reads"],
-    ["a starting session is the resume", "&& sessionLive(result.state) && SESSION_RESUME_REASONS.indexOf(result.reason) !== -1;",
-        '&& sessionLive(result.state) && (SESSION_RESUME_REASONS.indexOf(result.reason) !== -1 || result.state === "starting");', "a session starting beside the record: the steps and reads"],
-    ["a Start beside a failed resume reads its steps", "    if (sessionLive(result.state)) return sessionResumeLive(result);\n", "", "a Start beside a failed resume, starting: the steps and reads"],
-    ["running restart-resumed is not the resume", 'var SESSION_RESUME_REASONS = ["resuming", "restart-resumed"];', 'var SESSION_RESUME_REASONS = ["resuming"];', "running restart-resumed with the delegate pending: the steps and reads"],
-    ["a start in mode resume is the resume", 'var SESSION_RESUME_REASONS = ["resuming", "restart-resumed"];', 'var SESSION_RESUME_REASONS = ["resuming", "restart-resumed", "resumed"];', "a Start in mode resume beside a failed resume: the steps and reads"],
-    ["a resume that ended is read again", "    return sessionResumeLive(result)\n", "    return sessionResumeStarted(result)\n", "a resume that failed at its first step: the steps and reads"],
-    ["an ended resume's pending steps read waiting", 'outcome: "failed", cause: null } : step;', "outcome: step.outcome, cause: step.cause } : step;", "a resume that failed at its first step: the steps and reads"],
-    ["a Do not resume not answered says nothing", "    if (offered === true && notDismissed === true) lines.push(SESSION_NOT_DISMISSED);", "", "a Do not resume the package did not answer: the row"],
-    ["stale pending steps stay", "    if (stale) steps = steps.filter(", "    if (false) steps = steps.filter(", "the reads stopped"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
     ["the no-home hint names its Settings path", "No session can start until [Home folder](page:vgs.jarvis/Settings/home)", "No session can start until [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)", "no-home: the hint is one sentence that links the Home folder field"],
@@ -3372,16 +3284,10 @@ function verifyPathForm(gate) {
         const values = {};
         const result = { kind: "answer", state: "running", reason: "resumed", detail: "", names: null, unapplied: block };
         const shell = { manifest, settings: { startAtBoot: true }, status: { isOk: judge.statusReplyOk, set: (key, value) => { values[key] = plain(value); return "ok"; } } };
-        vm.runInNewContext("(" + publish[0] + ")", { shell, result, offered: false, dismissFailed: false, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
+        vm.runInNewContext("(" + publish[0] + ")", { shell, result, Gate: gate, PageReference: pageReference })();
         assert.deepEqual(values.sessionStart.lines, [pageReference.plain(gate.SESSION_BLOCKS[block].hint)], block + ": unapplied badges draw the reference's words");
         assert.equal(pageReference.parse(gate.sessionStart(true, { kind: "blocked", block }).hint).page, "vgs.jarvis", block + ": the blocked hint keeps its link");
     }
-    // The service hands the row a Do not resume the package did not answer.
-    const values = {};
-    const shell = { manifest, settings: { startAtBoot: false }, status: { isOk: judge.statusReplyOk, set: (key, value) => { values[key] = plain(value); return "ok"; } } };
-    const record = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart: { unlock: null, steps: [] } };
-    vm.runInNewContext("(" + publish[0] + ")", { shell, result: record, offered: true, dismissFailed: true, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
-    assert.deepEqual(values.sessionStart.lines, [gate.SESSION_NOT_DISMISSED], "the service's row says Do not resume was not saved");
 }
 
 function verifySessionAnswers(gate, source) {
@@ -3391,7 +3297,7 @@ function verifySessionAnswers(gate, source) {
         const logs = [], calls = [];
         const context = { output: "", errors: "", exitCode: 0, current: null, wanted,
             shell: { settings: { home: "~/Jarvis", brain: "", startAtBoot: wanted } }, unapplied: "", result: null, startFailure: null,
-            stepsPending: false, pollSince: 0, repairEndedAt: "2026-11-08T00:00:00Z", judged: "selection", sessionHome: "~/Jarvis",
+            repairEndedAt: "2026-11-08T00:00:00Z", judged: "selection", sessionHome: "~/Jarvis",
             Gate: gate, console: { warn: text => logs.push(text) }, publish: () => {}, takeNext: () => {}, call: (...args) => calls.push(args) };
         const handle = vm.runInNewContext("(" + answered[0] + ")", context);
         return { context, logs, calls, drive(verb, value) {

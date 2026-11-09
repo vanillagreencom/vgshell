@@ -782,7 +782,7 @@ cases=(
   "jarvis-live-schema|scripts/fixtures/jarvis-live/realtime.schema.json|offline|node scripts/check-jarvis-words.js"$'\n'"$jarvis_live_plan"
   "jarvis-rollover-import-closure|shell/plugins/vgs.jarvis/backend/VoiceRollover.js|cli|$jarvis_rollover_consumers"
   "jarvis-echo-import-closure|shell/plugins/vgs.jarvis/backend/EchoCancel.js|cli|$jarvis_echo_consumers"
-  "jarvis-live-input|shell/plugins/vgs.jarvis/backend/Realtime.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-session-control.js\nnode scripts/test-jarvis-power-wait.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-live-input|shell/plugins/vgs.jarvis/backend/Realtime.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-session-control.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-websocket-fixture|scripts/fixtures/jarvis/websocket.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-live.js\n'"$jarvis_daemon_plan"
   "jarvis-session-cli|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows"$'node scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "schema-check-suite|scripts/test-schema-check.js|offline|node scripts/test-schema-check.js"$'\n'"$repo_plan"
@@ -931,7 +931,7 @@ session_input = (file.startswith("shell/plugins/vgs.jarvis/backend/")
                              "bin/lib/account-folders.js", "scripts/lib/jarvis-env.sh"})
 if area in ["cli", "offline", "all"] and session not in lines and session_input:
     lines.insert(lines.index(repair if repair in lines else home) + 1, session)
-# The owner-ask package boundary sits between session-control and power-wait.
+# The owner-ask package boundary follows session-control.
 asks = "node scripts/test-jarvis-owner-asks.js"
 asks_input = file in {
     "shell/plugins/vgs.jarvis/backend/OwnerAsks.js", "shell/plugins/vgs.jarvis/backend/SessionCommand.js",
@@ -958,10 +958,6 @@ if area in ["cli", "offline", "all"] and asks not in lines and asks_input:
                 break
         else:
             lines.append(asks)
-# The power wait suite's row follows the session control row, with the same inputs.
-power = "node scripts/test-jarvis-power-wait.js"
-if area in ["cli", "offline", "all"] and power not in lines and session_input:
-    lines.insert(lines.index(asks if asks in lines else session) + 1, power)
 # The satellite suite's row follows the router row; its inputs are its row's.
 satellite = "node scripts/test-jarvis-satellite.js"
 satellite_inputs = ["shell/plugins/vgs.jarvis/backend/Satellite.js", "shell/plugins/vgs.jarvis/backend/Child.js",

@@ -1,8 +1,6 @@
 "use strict";
-// The Jarvis package's session command in a home folder, as the shell's two
-// callers run it: session-control.js, which starts, stops and reads the
-// session, and power-wait.js, which asks it to save before a restart. A
-// caller runs Core.use(tree) before it loads this file, as Home.js needs.
+// The Jarvis package's session command in a home folder. A caller runs
+// Core.use(tree) before it loads this file, as Home.js needs.
 const fs = require("node:fs");
 const Home = require("./Home.js");
 

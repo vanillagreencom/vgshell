@@ -39,7 +39,7 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 
 The orb at the bottom of the screen shows while a conversation is open. Its menu and the J's right-click menu let you mute Jarvis's voice, change the system microphone mute, stop current work or open Key hints. Muting the voice leaves replies on screen. Muting the system microphone silences it for other applications too; Talk still opens a conversation.
 
-Click the J in the bar to open the Console. When it offers Resume, that click resumes the saved session instead; dismiss the offer from its menu if you do not want it. Change shortcuts under Keys on Settings. Turning Enabled off stops Jarvis and its session.
+Click the J in the bar to open the Console. Change shortcuts under Keys on Settings. Turning Enabled off stops Jarvis and its session.
 
 Under the Talk key on Settings, Hold to talk starts unchecked. Press Talk to open the conversation and press it again to close. With Hold to talk checked, hold Talk while you speak; releasing closes the microphone and Jarvis replies while the orb stays. A short tap with no words closes the conversation. Stop interrupts a reply or task and keeps the conversation open.
 

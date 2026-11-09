@@ -303,14 +303,10 @@ Item {
                 current.microphoneMute = { kind: "ready", muted: !muted };
                 const changed = root.ready({ voiceMute: { kind: "on" }, visibility: { kind: "hidden" } });
                 changed.microphoneMute = { kind: "ready", muted: !muted };
-                const offered = Object.assign({}, current,
-                    { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [], checkedAt: null } });
                 const actions = ["Mute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Hide Jarvis", "Key hints"];
                 const rows = [
                     { tag: "same labels", values: current, actions: actions },
-                    { tag: "changed labels", values: changed, actions: ["Unmute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Show Jarvis", "Key hints"] },
-                    { tag: "growth", values: offered, actions: actions.concat(["Do not resume"]) },
-                    { tag: "shrink", values: current, actions: actions }
+                    { tag: "changed labels", values: changed, actions: ["Unmute Jarvis's voice", label, "Stop Jarvis", "New conversation", "Show Jarvis", "Key hints"] }
                 ];
                 for (const row of rows) {
                     widget.shell = root.shellWith(row.values);
@@ -376,22 +372,6 @@ Item {
             mouseClick(hide);
             compare(root.calls.length, 0);
             menu.close();
-        }
-
-        // While the Resume offer stands, a click asks for the resume once and
-        // the right-click menu offers Do not resume; without it, neither.
-        function test_a_click_on_the_offer_resumes_once() {
-            verify(widget.frameActions.every(row => row.label !== "Do not resume"), "no Do not resume without the offer");
-            widget.shell = root.shellWith(Object.assign(root.ready({}),
-                { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [], checkedAt: null } }));
-            mouseClick(button());
-            compare(JSON.stringify(root.calls), '[["resume-session",""]]');
-            const dismiss = widget.frameActions.filter(row => row.label === "Do not resume");
-            compare(dismiss.length, 1);
-            dismiss[0].action();
-            widget.shell = root.shellWith(root.ready({}));
-            tryVerify(() => root.calls.length === 2);
-            compare(JSON.stringify(root.calls), '[["resume-session",""],["dismiss-resume",""]]');
         }
 
         function test_space_return_and_enter_each_call_console_once() {

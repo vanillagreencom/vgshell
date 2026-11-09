@@ -42,7 +42,7 @@ Independent stage watches give every ordering a defined result without plugin de
 - Default idle sleep to Never. Suspend and hibernate only through logind so block and lock-delay inhibitors apply. Offer sleep methods only while logind answers yes. `scripts/test-power-logic.js` checks the method judge; `scripts/smoke/rows/power.sh` checks requests.
 - Keep explicit launcher Sleep, the sleep shortcut and idle sleep on `vgs.power`'s noninteractive request owner. Explicit Sleep requests Suspend independently of the saved idle action. `scripts/smoke/rows/launcher.sh` checks the launcher route.
 - Run power-menu actions, launcher Log out, Reboot and Shut down, and Updates Reboot through `bin/vgshell-power`'s fixed verbs. Offer only available actions and retain the continuous confirmation hold. `scripts/test-vgshell-power.sh` and `scripts/test-power-logic.js` check routing and admission; the code owns the verb set and hold duration.
-- Keep suspend and hibernate on logind's systemctl route without a Jarvis question. Reboot and poweroff ask Jarvis first. Lock before asking LightDM to switch user; a failed lock permits no switch. `scripts/test-vgshell-power.sh` checks ordering.
+- Keep suspend and hibernate on logind's systemctl route. Lock before asking LightDM to switch user; a failed lock permits no switch. `scripts/test-vgshell-power.sh` checks ordering.
 - Never test with a real suspend or hibernate request. Nested rows use the shared logind stand-in. Review holds this host-safety boundary.
 
 ### Keys, wake and storage

@@ -10,14 +10,12 @@ import "Session.js" as Session
 // ready, listening, working, speaking, muted and problem. The tooltip
 // names the current status. A click,
 // Space (which the button turns into a click), Return and keypad Enter
-// call the service's `console` IPC handler, which opens the console; while
-// the Resume offer stands (WidgetView `click`) they call `resume-session`
-// instead. The right-click menu adds the Jarvis menu the overlay's right
+// call the service's `console` IPC handler, which opens the console.
+// The right-click menu adds the Jarvis menu the overlay's right
 // click opens too (WidgetView.menuEntries): the microphone's and the
 // voice's mute, Stop and Key hints, each intent sent through the service's
 // IPC handler of its name and Key hints opening its page through
-// shell.surfaces.openPage, as the overlay's menu does, and Do not resume
-// while the offer stands. It is one BarItem.
+// shell.surfaces.openPage, as the overlay's menu does. It is one BarItem.
 BarWidget {
     id: root
 
@@ -42,7 +40,6 @@ BarWidget {
     presentationKey: detail === null ? "" : detail.state.gen + ":" + (view.state === "listening" ? "listening" : "present")
     frameActions: View.menuEntries(root.microphoneMuted, root.voiceMuted, root.hidden,
         Session.hideRefusal(detail === null ? null : detail.state))
-        .concat(view.click === "resume" ? [{ label: "Do not resume", icon: "x", intent: "dismiss-resume" }] : [])
         .map(entry => {
             const action = entry.intent !== undefined ? () => root.offer(entry.intent)
                 : () => root.shell.surfaces.openPage(entry.page, entry.tab);
@@ -68,9 +65,8 @@ BarWidget {
         return reply;
     }
 
-    // NAME, the service's handler of a Jarvis menu entry's intent, or its
-    // resume-session or dismiss-resume handler while the Resume offer
-    // stands; answers the handler's reply.
+    // NAME, the service's handler of a Jarvis menu entry's intent;
+    // answers the handler's reply.
     function offer(name) {
         const reply = shell.ipc.call(name, "");
         if (reply !== "ok") console.warn("jarvis widget: " + name + " " + reply);
@@ -88,6 +84,6 @@ BarWidget {
         tooltip: root.view.tooltip
         tooltipDetails: root.view.tooltipDetails
         onTooltipPageActivated: (page, tab) => root.frame.openPage(page, tab)
-        onClicked: root.view.click === "resume" ? root.offer("resume-session") : root.openConsole()
+        onClicked: root.openConsole()
     }
 }

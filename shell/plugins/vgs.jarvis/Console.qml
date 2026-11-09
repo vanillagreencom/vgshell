@@ -195,13 +195,6 @@ FocusScope {
     readonly property string stopKey: shell === null || shell.shortcut.keys.stop === undefined || shell.shortcut.keys.stop === null ? "" : shell.shortcut.keys.stop
     readonly property var conversation: Array.isArray(values.conversation) ? values.conversation : []
     readonly property var memoryInbox: Array.isArray(values.memoryInbox) ? values.memoryInbox : []
-    // SessionStart publishes the canonical resume reading independently of
-    // conversation readiness. Complete outcomes wrap in the scroll body;
-    // the state-only bar and bounded Setup badges cannot carry these lines.
-    readonly property var sessionReading: values.jarvisSession === undefined ? null : values.jarvisSession
-    readonly property var sessionLines: sessionReading === null ? [] : sessionReading.steps.map(Gate.sessionStepLine)
-    readonly property string sessionCheckedText: sessionReading === null || sessionReading.checkedAt === null ? ""
-        : Gate.sessionCheckedLine(sessionReading.checkedAt)
     readonly property string livePartial: state !== null && state.turn.kind === "collecting" ? state.turn.partial : ""
     readonly property var transcriptRows: rows()
     readonly property string hint: problem !== "" ? problem : refusalText(refusal)
@@ -576,38 +569,6 @@ FocusScope {
             visible: root.tab === 0
             width: layout.contentWidth
             spacing: Theme.stack.row
-
-            Section {
-                objectName: "sessionResume"
-                visible: root.sessionLines.length > 0 || root.sessionCheckedText !== ""
-                width: layout.contentWidth
-                title: "Session resume"
-                Repeater {
-                    model: root.sessionLines
-                    Label {
-                        required property var modelData
-                        objectName: "sessionResumeLine"
-                        // Repeater teardown can detach a delegate before
-                        // deleting it. Keep geometry on the owning layout.
-                        // qml-smoke run 20261107T024427Z, Console.qml:596;
-                        // https://doc.qt.io/qt-6/qml-qtquick-repeater.html#count-prop
-                        width: layout.contentWidth
-                        role: "body"
-                        text: modelData
-                        textFormat: Text.PlainText
-                        wrapMode: Text.Wrap
-                    }
-                }
-                LinkText {
-                    objectName: "sessionResumeChecked"
-                    visible: text !== ""
-                    width: parent.width
-                    role: "hint"
-                    text: root.sessionCheckedText
-                    wrapMode: Text.Wrap
-                    onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
-                }
-            }
 
             Repeater {
                 model: root.transcriptRows

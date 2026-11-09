@@ -1704,6 +1704,5 @@ Item {
     }
     // The Setup summary names a session that cannot start.
     Jarvis.SessionStart { id: sessionStart; shell: root.shell; onResultChanged: root.publishShellSetup() }
-    Jarvis.PowerWait { shell: root.shell; session: sessionStart; focusedOutput: root.focusedOutput }
     Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }
 }

@@ -117,12 +117,6 @@ function verify(view) {
     assert.ok(pageReference.plain(home.tooltipDetails.join(" ")).includes("skills folder"), "the second target retains its words");
     const summary = SetupGate.sessionSummary({ tone: "ok", text: "Ready" }, { tone: "warning", text: "Cannot start" });
     assert.equal(view.view(up({}, { setup: summary }), null).state, "ready", "optional session never blocks Talk");
-    const record = { model: "fixture-model", since: "11:02", offer: { unlock: "1password" }, steps: [], checkedAt: null };
-    const resumed = view.view(up({}, { jarvisSession: record }), null);
-    assert.equal(resumed.click, "resume");
-    assert.equal(resumed.tooltip, "Jarvis: Ready", "the offer changes the click, not the state title");
-    record.offer = null;
-    assert.deepEqual(copy(view.view(up({}, { jarvisSession: record }), null).tooltipDetails), [], "session model and start time are not bar details");
     const defaults = Object.fromEntries(manifest.hyprland.binds.map(bind => [bind.shortcut, bind.key]));
     assert.deepEqual(copy(view.spelledKeys(defaults, ShortcutLabels.keyCaps)), KEYS);
     assert.deepEqual(copy(view.spelledKeys(null, ShortcutLabels.keyCaps)), UNBOUND);
@@ -183,8 +177,7 @@ function verify(view) {
         ["hint", { daemon: { tone: "info", text: "Starting", hint: [] } }, /daemon=/],
         ["audio", { audio: { tone: "warning", text: "Devices" } }, /audio=/],
         ["detail", { detail: "idle" }, /detail=/],
-        ["microphone", up({}, { microphoneMute: { kind: "ready" } }), /microphoneMute=/],
-        ["session reading", up({}, { jarvisSession: "x" }), /jarvisSession=/]
+        ["microphone", up({}, { microphoneMute: { kind: "ready" } }), /microphoneMute=/]
     ]) assert.throws(() => view.view(values, null), error => pattern.test(error.message), label);
 }
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
