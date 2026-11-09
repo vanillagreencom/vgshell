@@ -820,7 +820,7 @@ function runnerFunction(source, header) {
 // Execute the shipped launcher and core request methods together. tmux and
 // terminal are files in this suite's private PATH. Ancestry is synthetic;
 // neither ps nor a compositor nor an ssh session starts in this proof.
-function sshSuite(source, compositorSource, logic, check) {
+function sshSuite(source, compositorSource, summonHostSource, logic, check) {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tui-ssh-"));
     try {
         const stubs = path.join(scratch, "bin");
@@ -882,12 +882,13 @@ function sshSuite(source, compositorSource, logic, check) {
                 vm.runInContext(nativeHandler[1], popup);
             }
             const screen = { name: "DP-1" };
+            // The flyout is a summoned panel, the QML host's required kind.
             const host = vm.createContext({
-                PluginLogic: logic, openIds: row.popup ? ["acme.flyout"] : [],
+                kind: "panel", PluginLogic: logic, openIds: row.popup ? ["acme.flyout"] : [],
                 instances: { "acme.flyout": {} }, requests: { "acme.flyout": { anchored: true, screen } },
                 closers: { "acme.flyout": popup.requestDismiss }, drop: () => { throw new Error("anchored popup bypassed normal hide"); }
             });
-            vm.runInContext(["hide(id)", "yieldToWindow(screen)"].map(header => runnerFunction(SUMMON_HOST, header)).join(""), host);
+            vm.runInContext(["hide(id)", "yieldToWindow(screen)"].map(header => runnerFunction(summonHostSource, header)).join(""), host);
             let releaseLayer = null;
             const compositor = vm.createContext({
                 Dispatch: load(path.join(CORE, "Dispatch.js")), Hyprland: { usingLua: true },
@@ -977,8 +978,8 @@ function sshSuite(source, compositorSource, logic, check) {
         fs.rmSync(scratch, { recursive: true, force: true });
     }
 }
-sshSuite(RUNNER, COMPOSITOR, load(LOGIC), report);
-for (const [name, source, needle, replacement, target] of [
+sshSuite(RUNNER, COMPOSITOR, SUMMON_HOST, load(LOGIC), report);
+for (const [name, source, needle, replacement, target, reddens] of [
     ["reuse focuses before success", RUNNER, "reader.running = true;", 'root.sshFocusEnded(done, null, "");', "runner"],
     ["focus requires truthful release and active readback", COMPOSITOR,
         'done(Dispatch.focusWindowState(text, address, namespaces.concat(root.keyboardLayers.map(layer => layer.namespace)),\n                    Quickshell.processId, unobservableGrab || OverlayState.grabs > 0));',
@@ -988,13 +989,18 @@ for (const [name, source, needle, replacement, target] of [
         "if (true)", "runner"],
     ["focus refusal survives caller disposal", RUNNER, 'Notifier.send({ id: "core" }, "VGS", {',
         '((ctx, app, options, hub) => "ok")({ id: "core" }, "VGS", {', "runner"],
+    ["a window yield hides an anchored popup", SUMMON_HOST, "(request.anchored || request.screen === screen)",
+        "(!request.anchored && request.screen === screen)", "summon host",
+        ["popup native hide before focus cannot prove release", "popup disposal preserves failure notification"]],
 ]) {
     report("control: " + name + " needle", source.split(needle).length - 1, 1);
-    let red = 0;
+    const red = [];
     sshSuite(target === "runner" ? source.replace(needle, replacement) : RUNNER,
         target === "compositor" ? source.replace(needle, replacement) : COMPOSITOR,
-        load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
-    report("control: " + name + " detects the defect", red > 0, true);
+        target === "summon host" ? source.replace(needle, replacement) : SUMMON_HOST,
+        load(LOGIC), (row, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red.push(row); });
+    report("control: " + name + " detects the defect", red.length > 0, true);
+    if (reddens) report("control: " + name + " fails its rows", red, reddens.map(row => "TuiRunner ssh integrated: " + row));
 }
 
 // The caller delegates all typed SSH failures to the shared reply owner;
@@ -1089,7 +1095,7 @@ function requestSuite(source, logic, check) {
     const judged = (raw, revision) => {
         const result = logic.validateManifest(raw, "/q");
         if (!result.ok) throw new Error("request fixture refused: " + result.error);
-        return Object.assign({ __revision: revision }, result.manifest);
+        return Object.assign({ __revision: revision }, logic.requirementOwner(result.manifest, { nvidia: { state: "present" } }));
     };
     const needingRaw = Object.assign(manifestWith({
         sync: { script: "tui/sync.sh", title: "Sync", requires: ["acme-sync"] },
