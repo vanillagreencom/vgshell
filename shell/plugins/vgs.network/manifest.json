@@ -28,6 +28,7 @@
     "requirements",
     "system"
   ],
+  "capabilityKinds": { "system": ["service"] },
   "systemSteps": ["dns-cloudflare", "dns-google", "dns-custom"],
   "defaultSection": "right",
   "pane": {

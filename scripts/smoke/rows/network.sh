@@ -280,9 +280,16 @@ expect_poll "the pane owns one scan lease" '{"leases":1,"device":"wlan0","scanni
 
 # The table reads the actual core probe -> service status -> shared Select
 # path. The terminal stands in for every requested system operation.
+net_dns_undo_offer() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; value=json.load(sys.stdin).get("dnsDefault"); print("unreported" if value is None else value.get("action", "inactive"))'; }
+net_dns_core_state() { ipc smoke readInstance service vgs.network dnsSteps | py_reply 'import json,sys; print(json.load(sys.stdin)["dns-cloudflare"]["state"])'; }
 while IFS='|' read -r net_dns_case net_dns_want; do
   network_dns_refresh "$net_dns_case"
   expect_poll "DNS $net_dns_case: the probe selects the field and its availability" "$net_dns_want" network_dns_reading
+  case "$net_dns_case" in
+    cloudflare|google|custom) net_dns_undo_want="$net_dns_case" ;;
+    *) net_dns_undo_want=inactive ;;
+  esac
+  expect_poll "DNS $net_dns_case: undo is offered only for a ready provider" "$net_dns_undo_want" net_dns_undo_offer
 done <<'DNSREADINGS'
 default|["default", "default", 2, false, false]
 cloudflare|["ready", "cloudflare", 0, false, false]
@@ -297,8 +304,9 @@ DNSREADINGS
 terminal_stand_in
 terminal_ready "network DNS"
 net_dns_choose() { # CURRENT_TEXT INDEX
-  expect "DNS choice: the field scrolls into view" scrolled network_dns_reveal "$1"
+  expect "DNS choice: the field scrolls into view" scrolled net_dns_reveal "$1" || return 1
   click_in 'window:System Settings' window vgs.network Select "$1" || return
+  expect_poll "DNS choice: the provider list opens before its choice keys" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen || return 1
   type_keys -k Home || return
   local i
   for ((i = 0; i < $2; i++)); do type_keys -k Down || return; done
@@ -349,26 +357,43 @@ expect_poll "DNS unknown: the choice is locked with a reason" '["unavailable", "
 forget_record
 expect "DNS unknown: the disabled field scrolls into view" scrolled net_dns_reveal ''
 click_in 'window:System Settings' window vgs.network Select '' || fail "DNS unknown: the disabled field was not found"
-type_keys -k Return -k Home -k Return
+if expect_poll "DNS unknown: the disabled field holds the key input" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider activeFocus; then
+  type_keys -k Return -k Home -k Return
+fi
 expect "DNS unknown: the disabled control starts no terminal" absent recorded
 
-# Suppress classification in a disposable plugin copy. The same field
-# reading assertion must fail, so a copied model cannot satisfy the row.
+# Suppress classification and publish an invalid inactive action in a
+# disposable plugin copy. The field and undo-offer assertions must each fail.
+network_dns_refresh cloudflare
+expect_poll "the DNS control starts with a reported undo offer" cloudflare net_dns_undo_offer
+network_dns_set unknown
 net_dns_copy="$home/.config/vgshell/plugins/vgs.network"
 mkdir -p -- "$net_dns_copy"
 cp -R -- "$repo/shell/plugins/vgs.network/." "$net_dns_copy/"
 python3 - "$net_dns_copy/Service.qml" <<'PYDNSCONTROL'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]);text=p.read_text();needle='    function dnsReading() {\n'
-assert text.count(needle)==1
-p.write_text(text.replace(needle,needle+'        return { kind: "default", provider: "default", ready: "", hint: "", disabledReason: "" };\n'))
+inactive='        if (dns.disabledReason === "" && dns.ready !== "") dnsDefault.action = dns.ready;'
+warning='if (!shell.status.isOk(reply)) console.warn("network status: " + reply);'
+assert text.count(needle)==1 and text.count(inactive)==1 and text.count(warning)==1
+text=text.replace(needle,needle+'        return { kind: "default", provider: "default", ready: "", hint: "", disabledReason: "" };\n')
+text=text.replace(inactive,inactive+'\n        dnsDefault.action = false;')
+# Only this expected refusal is quiet, so the status assertion, rather
+# than a neighbouring log assertion, must reject the invalid publication.
+text=text.replace(warning,'if (writes[i][0] !== "dnsDefault") { '+warning+' }')
+p.write_text(text)
 PYDNSCONTROL
 rescan "the DNS classification control is discovered"
 expect "the DNS control pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
+network_dns_refresh unknown
+expect_poll "the DNS control still receives the unknown core probe" unknown net_dns_core_state
 expect_poll "the DNS classification control draws" '["default", "default", 2, false, false]' network_dns_reading
 net_dns_control() { (failures=0 behaviour_failures=0; expect "DNS unknown: the choice is locked with a reason" '["unavailable", "", -1, true, true]' network_dns_reading >"$sandbox/network-dns-control.log"; echo "$failures"); }
 expect "control: losing the probe classification fails the field assertion" 1 net_dns_control
 control_output "$sandbox/network-dns-control.log"
+net_dns_inactive_control() { (failures=0 behaviour_failures=0; expect "DNS unknown: undo is offered only for a ready provider" inactive net_dns_undo_offer >"$sandbox/network-dns-inactive-control.log"; echo "$failures"); }
+expect "control: an invalid inactive action fails the undo-offer assertion" 1 net_dns_inactive_control
+control_output "$sandbox/network-dns-inactive-control.log"
 cp -- "$repo/shell/plugins/vgs.network/Service.qml" "$net_dns_copy/Service.qml"
 python3 - "$net_dns_copy/NetworkBody.qml" <<'PYDNSACTIONCONTROL'
 import pathlib,sys

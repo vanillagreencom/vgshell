@@ -214,7 +214,9 @@ Item {
         for (const provider of ["cloudflare", "google", "custom"]) {
             writes.push(["dns" + provider, { tone: "info", text: "DNS provider", action: dns.disabledReason === "" && (dns.provider !== provider || provider === "custom") }]);
         }
-        writes.push(["dnsDefault", { tone: "info", text: "Network default", action: dns.disabledReason === "" && dns.ready !== "" ? dns.ready : false }]);
+        const dnsDefault = { tone: "info", text: "Network default" };
+        if (dns.disabledReason === "" && dns.ready !== "") dnsDefault.action = dns.ready;
+        writes.push(["dnsDefault", dnsDefault]);
         for (let i = 0; i < writes.length; i++) {
             const reply = shell.status.set(writes[i][0], writes[i][1]);
             if (!shell.status.isOk(reply)) console.warn("network status: " + reply);
