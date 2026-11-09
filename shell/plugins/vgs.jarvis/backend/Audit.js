@@ -16,6 +16,28 @@ const effects = ["read", "reversible", "input", "persistent", "exec", "external"
 // Why a duplex voice stream failed, as ChainedEngine closes its release
 // rows: the provider refused the key, or another fault stopped the stream.
 const STREAM_CAUSES = ["key-refused", "voice-stopped"];
+// Vision, Screen and the router's rejudge produce these keys. Child failure
+// detail can contain screen text or private paths, so only its command and
+// fixed end category enter the audit.
+const VISION_REASONS = ["outside-turn", "ocr-unavailable", "screenshot-limit", "hyprland-read",
+    "monitor-shape", "monitor-absent", "window-absent", "window-shape", "window-hidden", "private-window",
+    "window-off-screen", "region-off-screen", "image-empty", "image-size", "mask-failed", "image-bytes",
+    "area-cancelled", "area-shape", "screen-changed", "cancelled", "cleanup", "executor-failed",
+    "session-locked", "policy-profile", "turn-taint", "policy-changed", "stale-turn"];
+const VISION_COMMAND = /^(grim|magick|slurp|tesseract)-(exit=[0-9]{1,3}|signal|cancelled|timeout|output-limit|spawn|input)$/;
+
+function visionReason(content) {
+    if (content === "executor-failed") return content;
+    let value;
+    try { value = JSON.parse(content); } catch { fail("reason"); }
+    if (value === null || typeof value !== "object") fail("reason");
+    if (value.command === undefined) return value.reason;
+    if (!["grim", "magick", "slurp", "tesseract"].includes(value.command)) fail("reason");
+    const end = value.reason !== undefined ? value.reason
+        : Number.isInteger(value.code) && value.code >= 0 && value.code <= 255 ? "exit=" + value.code
+        : value.code === undefined && typeof value.signal === "string" ? "signal" : null;
+    return value.command + "-" + end;
+}
 
 function fail(code) {
     const error = new Error("jarvis: audit=" + code);
@@ -75,6 +97,10 @@ function eventRecord(event, time) {
         "early", "voice-physical", "voice-timing"].includes(event.refusal))) fail("refusal");
     // A stream's cause is one of these keys, never the fault's own text.
     if (event.cause !== undefined && (kind !== "release" || outcome !== "failed" || !STREAM_CAUSES.includes(event.cause))) fail("cause");
+    const reason = event.failure === undefined ? event.reason : visionReason(event.failure);
+    if ((event.failure !== undefined || reason !== undefined) && (kind !== "action" || outcome !== "failed"
+            || !Object.hasOwn(Tools.TABLE, tool) || Tools.TABLE[tool].executor !== "vision"
+            || typeof reason !== "string" || !(VISION_REASONS.includes(reason) || VISION_COMMAND.test(reason)))) fail("reason");
     // An action the local matcher proposed, not a brain (Tools.match).
     if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");
     return { time, kind, gen, op,
@@ -82,6 +108,7 @@ function eventRecord(event, time) {
         args: Redact.argumentsFor(kind, tool, event.args), effect, decision, confirmed, outcome,
         ...(event.refusal === undefined ? {} : { refusal: event.refusal }),
         ...(event.cause === undefined ? {} : { cause: event.cause }),
+        ...(reason === undefined ? {} : { reason }),
         ...(event.proposer === undefined ? {} : { proposer: event.proposer }),
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }

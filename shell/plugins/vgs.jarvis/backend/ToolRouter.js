@@ -96,9 +96,11 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
     // A capture's facts (target box, size, hash) enter the audit; its image never does.
     function record(value, decision, outcome) {
         const capture = value.answer?.capture;
+        const failure = outcome === "failed" && Tools.TABLE[value.call.id]?.executor === "vision" ? value.answer?.content : undefined;
         return audit.record({ kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: value.decision?.effect ?? null,
             decision, confirmed: value.confirmed ?? "none", outcome, ...proposer(value),
+            ...(failure === undefined ? {} : { failure }),
             ...(capture === undefined ? {} : { capture }) });
     }
 

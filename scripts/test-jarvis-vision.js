@@ -568,12 +568,12 @@ async function main() {
         }],
         ["failures", async folder => {
             const clients = [plain("0xb2", [150, 40], [100, 80]), secret("0xa1", [20, 30], [100, 50])];
-            for (const [name, people, modes, content] of [
+            for (const [name, people, modes, content, reason = name] of [
                 ["grim-exit", clients, { grim: { code: 1, stderr: "failed to create display\n" } },
-                    JSON.stringify({ kind: "failed", command: "grim", code: 1, detail: "failed to create display" })],
+                    JSON.stringify({ kind: "failed", command: "grim", code: 1, detail: "failed to create display" }), "grim-exit=1"],
                 ["image-size", clients, { grim: { size: [100, 100] } }, refusal("image-size")],
                 ["magick-exit", clients, { magick: { code: 1, stderr: "magick: fixture failure\n" } },
-                    JSON.stringify({ kind: "failed", command: "magick", code: 1, detail: "magick: fixture failure" })],
+                    JSON.stringify({ kind: "failed", command: "magick", code: 1, detail: "magick: fixture failure" }), "magick-exit=1"],
                 ["mask-failed", clients, { magick: { garbage: true } }, refusal("mask-failed")],
                 ["image-bytes", [clients[0]], { grim: { pad: 4 * 1024 * 1024 } }, refusal("image-bytes")]
             ]) {
@@ -581,6 +581,10 @@ async function main() {
                 await within(folder, {}, async w => {
                     const value = await w.send("vision.screen");
                     assert.deepEqual([value.outcome, value.item.content, value.image === undefined], ["failed", content, true], name);
+                    const logged = w.audited();
+                    assert.equal(logged.records.at(-1).reason, reason, name + ": the audit names the executor failure");
+                    assert.equal(logged.text.includes("detail"), false, name + ": executor detail never enters the audit");
+                    assert.equal(logged.records.at(-2).reason, undefined, name + ": no failure before execution");
                     assert.deepEqual(left(), [], name);
                 });
             }
@@ -608,6 +612,7 @@ async function main() {
                 await within(folder, {}, async w => {
                     const value = await w.send("vision.screen");
                     assert.deepEqual([value.outcome, value.item.content], ["failed", "executor-failed"]);
+                    assert.equal(w.audited().records.at(-1).reason, "executor-failed");
                 });
             } finally { process.stderr.write = write; }
             assert.deepEqual(written, ["jarvis: vision=internal cause=ENOENT\n"], "the daemon log names the cause");
@@ -618,6 +623,7 @@ async function main() {
                 const value = await w.send("vision.screen");
                 assert.deepEqual([value.outcome, value.item.content], ["failed", JSON.stringify({ kind: "failed",
                     reason: "hyprland-read", detail: "Hyprland state could not be read: hyprctl exit=1." })]);
+                assert.equal(w.audited().records.at(-1).reason, "hyprland-read");
                 assert.equal(calls("grim").length, 0);
             });
         }],
@@ -735,7 +741,8 @@ async function main() {
         ["Vision.js", "stale-sweep", "fs.rmSync(directory, { recursive: true, force: true });\n    const running", "const running", "lifetime"],
         ["Tools.js", "label-dropped", "\"vision.screen\": { sentence: \"Read the screen\", effect: \"read\", executor: \"vision\", command: \"grim\", schema: {}, source: \"screen\" }",
             "\"vision.screen\": { sentence: \"Read the screen\", effect: \"read\", executor: \"vision\", command: \"grim\", schema: {} }", "release"],
-        ["ToolRouter.js", "image-dropped", "results: [{ id: value.request, item, ...(image === undefined ? {}", "results: [{ id: value.request, item, ...(true ? {}", "masks"]
+        ["ToolRouter.js", "image-dropped", "results: [{ id: value.request, item, ...(image === undefined ? {}", "results: [{ id: value.request, item, ...(true ? {}", "masks"],
+        ["ToolRouter.js", "failure-reason-dropped", "...(failure === undefined ? {} : { failure }),", "", "failures"]
     ];
     for (const [name, check] of cases) { await check(backend); console.log("case=" + name + " passed"); }
     for (const [source, name, needle, replacement, row, bound] of CONTROLS) {

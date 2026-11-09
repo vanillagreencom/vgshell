@@ -4,6 +4,7 @@
 const { assert, fs, path, tree, world, mutant, fsFault } = require("./fixtures/jarvis/policy.js");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Audit.js");
 const Audit = require(file);
+const Desktop = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Desktop.js"));
 const RedactFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Redact.js");
 const PrivateFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Private.js");
 
@@ -438,6 +439,40 @@ world(() => {
     // A vision capture's facts: numbers and a digest, never image bytes.
     const capture = { box: [0, 0, 320, 200], scale: 1.25, width: 400, height: 250, bytes: 1024, sha256: "0a".repeat(32), masks: 2 };
     const vision = { ...event, tool: "vision.screen", args: {}, effect: "read", outcome: "completed", capture };
+    // Only the vision result's fixed diagnostic key survives. Its free text,
+    // private command detail and arbitrary supplied keys cannot enter a row.
+    function checkVisionReason(logic) {
+        const root = state();
+        const failed = { ...event, tool: "vision.screen", args: {}, effect: "read", outcome: "failed" };
+        const call = { id: "vision.screen", args: {} };
+        withWriter(logic, { state: root }, writer => {
+            for (const [failure, reason] of [
+                [JSON.stringify({ kind: "failed", reason: "hyprland-read", detail: "PRIVATE-SCREEN-TEXT" }), "hyprland-read"],
+                [Desktop.failure(call, "grim", { kind: "stopped", reason: "timeout" }).content, "grim-timeout"],
+                [Desktop.failure(call, "grim", { kind: "exited", code: 1, stderr: "PRIVATE-SCREEN-TEXT" }).content, "grim-exit=1"],
+                ...["grim", "magick", "slurp", "tesseract"].map(command =>
+                    [Desktop.failure(call, command, { kind: "exited", code: null, signal: "SIGTERM" }).content, command + "-signal"]),
+                [Desktop.failure(call, "grim", { kind: "error", reason: "spawn", error: "PRIVATE-SCREEN-TEXT" }).content, "grim-spawn"]
+            ]) {
+                assert.equal(writer.record({ ...failed, failure }).kind, "recorded");
+                assert.equal(records(root).at(-1).reason, reason);
+            }
+            for (const [name, change] of [
+                ["unknown reason", { failure: '{"kind":"failed","reason":"PRIVATE-SCREEN-TEXT"}' }],
+                ["unknown command", { failure: '{"kind":"failed","command":"PRIVATE-SCREEN-TEXT","code":1}' }],
+                ["unstructured result", { failure: "PRIVATE-SCREEN-TEXT" }],
+                ["empty result", { failure: "{}" }],
+                ["completed result", { outcome: "completed", failure: '{"reason":"image-size"}' }],
+                ["other executor", { tool: "files.read", failure: '{"reason":"image-size"}' }],
+                ["unjudged stored reason", { reason: "PRIVATE-SCREEN-TEXT" }]
+            ]) assert.deepEqual(writer.record({ ...failed, ...change }), { kind: "refuse", reason: "audit-write", cause: "reason" }, name);
+            const stored = fs.readFileSync(path.join(root, "audit", "2026-09-30.jsonl"), "utf8");
+            for (const privateText of ["PRIVATE-SCREEN-TEXT", "SIGTERM"])
+                assert.equal(stored.includes(privateText), false);
+        });
+        withWriter(logic, { state: root }, writer => assert.doesNotThrow(() => writer.failures(), "stored vision reasons pass the same judge"));
+    }
+    checkVisionReason(Audit);
     function checkCapture(logic) {
         const root = state();
         withWriter(logic, { state: root }, writer => {
@@ -538,6 +573,8 @@ world(() => {
         ["cause judged", 'if (event.cause !== undefined && (kind !== "release" || outcome !== "failed" || !STREAM_CAUSES.includes(event.cause))) fail("cause");', "", checkCause],
         ["cause scope", 'kind !== "release" || outcome !== "failed" || !STREAM_CAUSES', "!STREAM_CAUSES", checkCause],
         ["cause listed", "cause: record.cause ?? null }", "cause: null }", checkFailures],
+        ["vision signal producer shape", 'value.code === undefined && typeof value.signal === "string"',
+            'value.code === null && typeof value.signal === "string"', checkVisionReason],
         ["capture keys", 'Object.keys(capture).sort().join(",") !== "box,bytes,height,masks,scale,sha256,width"', "false", checkCapture],
         ["capture scope", 'if (kind !== "action" || !Object.hasOwn(Tools.TABLE, tool) || Tools.TABLE[tool].executor !== "vision"', "if (false", checkCapture],
         ["capture digest", "!/^[0-9a-f]{64}$/.test(capture.sha256)", "false", checkCapture],
