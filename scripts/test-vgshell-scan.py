@@ -23,7 +23,18 @@ owner's grace; their control runs a copy that starts each read in its own
 session with a parent-death signal alone and requires the fork to survive. The core watch rows run --watch-core with bounded
 pipe reads and prove edits to core files and new directories produce one
 changed revision while the top-level plugins directory is neither watched
-nor hashed. The URL rows publish a snapshot under a root whose
+nor hashed; each runs with a pacman-conf stand-in naming a private package
+database that holds no lock. The transaction rows hold that database's
+lock across a core edit made by one rename, and require one pending line at
+once, nothing more while the lock stays, then the revision of the tree as
+the transaction left it; a held transaction that leaves the tree as armed
+must lift the hold with the armed revision and keep watching. Further rows
+remove the lock between the watcher's read and its watch, end a same-file
+reinstall between the watcher's hash and its lock read, run with no
+pacman-conf, a failing one or an unreadable lock, and require the revision
+at once. Their controls ignore the lock, skip the read after the watch,
+hold on an unreadable lock, print no pending line, report the hash taken
+before the lock read and keep the hold after a reinstall. The URL rows publish a snapshot under a root whose
 path needs quoting, and run a scan in a child interpreter that reports
 whether urllib.request was imported; their controls quote nothing and spell
 the URL through pathlib's as_uri. Permission rows need a uid that
@@ -38,6 +49,7 @@ import json
 import os
 import pathlib
 import select
+import shlex
 import signal
 import shutil
 import subprocess
@@ -588,8 +600,30 @@ WATCH_TREE = {"shell/shell.qml": "ShellRoot {}", "shell/Ui/Card.qml": "Item {}\n
               "shell/plugins/a/manifest.json": MANIFEST, "shell/plugins/a/Widget.qml": "Item {}\n"}
 
 
-def start_watch(source, script=SCAN):
-    return subprocess.Popen([sys.executable, script, "--watch-core", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=ENV)
+# pacman-conf stand-ins, by the answer each gives to `pacman-conf DBPath`.
+PACMAN_CONF = {
+    "database": "#!/bin/sh\nprintf '%s/\\n' {database}\n",
+    "failing": "#!/bin/sh\necho 'error: config file /etc/pacman.conf could not be read: No such file or directory' >&2\nexit 1\n",
+}
+
+
+def watch_env(tmp, conf="database"):
+    """The environment of a watcher in TMP: a PATH of one stand-in
+    directory, holding the pacman-conf CONF names, or none when CONF is
+    None. The database stand-in names TMP/db, which holds no lock."""
+    stubs = os.path.join(tmp, "stubs")
+    os.makedirs(stubs)
+    os.makedirs(os.path.join(tmp, "db"))
+    if conf is not None:
+        path = os.path.join(stubs, "pacman-conf")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(PACMAN_CONF[conf].replace("{database}", shlex.quote(os.path.join(tmp, "db"))))
+        os.chmod(path, 0o755)
+    return {"PATH": stubs, "LC_ALL": "C"}
+
+
+def start_watch(source, script, env):
+    return subprocess.Popen([sys.executable, script, "--watch-core", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
 
 
 def kill_process(proc):
@@ -631,9 +665,10 @@ def wait_success(proc, timeout=2):
 
 
 def fresh_revision(source, script):
-    proc = start_watch(source, script)
-    revision = read_revision(proc)
-    kill_process(proc)
+    with tempfile.TemporaryDirectory() as tmp:
+        proc = start_watch(source, script, watch_env(tmp))
+        revision = read_revision(proc)
+        kill_process(proc)
     return revision
 
 
@@ -648,7 +683,7 @@ def watch_rows(script=SCAN, quiet=False):
     with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
-        proc = start_watch(source, script)
+        proc = start_watch(source, script, watch_env(tmp))
         armed = read_revision(proc)
         append_text(os.path.join(source, "Ui", "Card.qml"), "Item { property int edited: 1 }\n")
         changed = read_revision(proc)
@@ -657,7 +692,7 @@ def watch_rows(script=SCAN, quiet=False):
     with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
-        proc = start_watch(source, script)
+        proc = start_watch(source, script, watch_env(tmp))
         armed = read_revision(proc)
         os.makedirs(os.path.join(source, "New"))
         with open(os.path.join(source, "New", "Type.qml"), "w", encoding="utf-8") as fh:
@@ -673,7 +708,7 @@ def watch_rows(script=SCAN, quiet=False):
     with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
-        proc = start_watch(source, script)
+        proc = start_watch(source, script, watch_env(tmp))
         armed = read_revision(proc)
         os.remove(os.path.join(source, "Ui", "Card.qml"))
         changed = read_revision(proc)
@@ -682,7 +717,7 @@ def watch_rows(script=SCAN, quiet=False):
     with tempfile.TemporaryDirectory() as tmp:
         plant(tmp, WATCH_TREE)
         source = os.path.join(tmp, "shell")
-        proc = start_watch(source, script)
+        proc = start_watch(source, script, watch_env(tmp))
         armed = read_revision(proc)
         append_text(os.path.join(source, "plugins", "a", "Widget.qml"), "Item { property int pluginOnly: 1 }\n")
         append_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
@@ -700,6 +735,254 @@ def watch_rows(script=SCAN, quiet=False):
         good = proc.returncode == 1 and proc.stdout == "" and proc.stderr.startswith("vgshell-scan: core-watch=failed")
         results.append(good if quiet else report("an absent core watch directory fails with a stable key", good, f" (exit={proc.returncode})\n{proc.stderr}"))
     return results
+
+
+def watches_inode(pid, path):
+    """Whether process PID holds an inotify watch on PATH's inode. The
+    kernel prints each watch in /proc/PID/fdinfo as `inotify wd:%x ino:%lx
+    sdev:%x` (fs/notify/fdinfo.c). sdev is the superblock's device, which
+    on btrfs differs from the subvolume's st_dev (Linux 7.3.3 run in
+    VGS-2359), so the inode alone is matched: every watch a row's watcher
+    holds is on one temporary tree."""
+    ino = f" ino:{os.stat(path).st_ino:x} "
+    try:
+        names = os.listdir(f"/proc/{pid}/fdinfo")
+    except OSError:
+        return False
+    for name in names:
+        try:
+            with open(f"/proc/{pid}/fdinfo/{name}", encoding="ascii") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            continue
+        if any(line.startswith("inotify ") and ino in line for line in lines):
+            return True
+    return False
+
+
+def read_entry(proc, timeout=2):
+    """The next line the watcher prints, parsed, or None, killing it, when
+    none comes by TIMEOUT."""
+    if select.select([proc.stdout], [], [], timeout)[0]:
+        line = proc.stdout.readline()
+        if line != "":
+            try:
+                return json.loads(line)
+            except ValueError:
+                return None
+    kill_process(proc)
+    return None
+
+
+def replace_text(path, text):
+    """PATH's bytes become TEXT through one rename from beside the watched
+    tree, one inotify event, as pacman's own extraction raises: no trailing
+    event can wake a watcher that wrongly waits."""
+    scratch = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(path))), "replace.tmp")
+    with open(scratch, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(scratch, path)
+
+
+def gone_by(path, timeout=2):
+    """True once PATH no longer exists, the probe's acknowledgement."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not os.path.lexists(path):
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def tree_revision(script, edit):
+    """The revision of WATCH_TREE with Card.qml's bytes EDIT, or as planted
+    with None."""
+    with tempfile.TemporaryDirectory() as tmp:
+        plant(tmp, WATCH_TREE)
+        if edit is not None:
+            with open(os.path.join(tmp, "shell", "Ui", "Card.qml"), "w", encoding="utf-8") as fh:
+                fh.write(edit)
+        return fresh_revision(os.path.join(tmp, "shell"), script)
+
+
+# The watch is the watcher's acknowledgement that it saw the change and the
+# lock. This real-clock window covers only a watcher that would print after
+# arming it; the order before the watch needs no window.
+HELD_QUIET_SECONDS = 0.2
+
+# Runs the watcher in a child interpreter with one seam patched. VANISH
+# removes the package lock just before the watcher watches the lock's
+# directory: a transaction that ends between the watcher's first read of
+# the lock and its watch. REINSTALL puts Card.qml's planted bytes back and
+# removes the lock as the watcher asks for the lock's path: a transaction
+# that reinstalls the same files and ends after the watcher's hash and
+# before its read of the lock.
+PROBE = """
+import importlib.machinery, importlib.util, os, sys
+script, source, lock, seam, planted = sys.argv[1:]
+loader = importlib.machinery.SourceFileLoader("vgshell_scan_under_test", script)
+spec = importlib.util.spec_from_loader("vgshell_scan_under_test", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+add = module.inotify_add
+def add_after_unlock(libc, ctypes, fd, path, *rest):
+    if path == os.path.dirname(lock) and os.path.lexists(lock):
+        os.unlink(lock)
+    return add(libc, ctypes, fd, path, *rest)
+lock_path = module.package_lock_path
+def path_after_reinstall():
+    os.replace(planted, os.path.join(source, "Ui", "Card.qml"))
+    os.unlink(lock)
+    return lock_path()
+if seam == "vanish":
+    module.inotify_add = add_after_unlock
+else:
+    module.package_lock_path = path_after_reinstall
+sys.exit(module.watch_core(source))
+"""
+
+# rows printed at once: name, pacman-conf stand-in (None: none on PATH),
+# mode of the package database directory (None: unchanged), and the start
+# of the one stderr line the watcher must print ("" for none). Mode 0o400
+# leaves the directory readable, so its watch arms, but not searchable, so
+# the lock cannot be read.
+AT_ONCE_ROWS = [
+    ("with no pacman-conf on PATH a core change is printed at once", None, None, ""),
+    ("a failing pacman-conf prints a core change at once with its cause", "failing", None, "vgshell-scan: package-lock=unread cause=exit=1"),
+    ("an unreadable package lock prints a core change at once with its cause", "database", 0o400, "vgshell-scan: package-lock=unread cause=stat="),
+]
+
+
+def locked_tree(tmp, conf="database"):
+    """(source, env, database, lock) of WATCH_TREE planted in TMP with the
+    package lock held."""
+    plant(tmp, WATCH_TREE)
+    env = watch_env(tmp, conf)
+    database = os.path.join(tmp, "db")
+    lock = os.path.join(database, "db.lck")
+    with open(lock, "x", encoding="ascii"):
+        pass
+    return os.path.join(tmp, "shell"), env, database, lock
+
+
+def transaction_rows(script=SCAN, quiet=False):
+    results = []
+
+    def row(name, good, detail):
+        results.append(good if quiet else report(name, good, detail))
+
+    planted = WATCH_TREE["shell/Ui/Card.qml"]
+    core_edit = planted + "Item { property int core: 1 }\n"
+    later_edit = core_edit + "Item { property int later: 1 }\n"
+    reinstalled_later = planted + "Item { property int later: 1 }\n"
+    armed_want = tree_revision(script, None)
+    core_want = tree_revision(script, core_edit)
+    later_want = tree_revision(script, later_edit)
+    reinstalled_want = tree_revision(script, reinstalled_later)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source, env, database, lock = locked_tree(tmp)
+        card = os.path.join(source, "Ui", "Card.qml")
+        proc = start_watch(source, script, env)
+        armed = read_revision(proc)
+        replace_text(card, core_edit)
+        first = read_entry(proc)
+        watching = watches_inode(proc.pid, database)
+        replace_text(card, later_edit)
+        silent = not select.select([proc.stdout], [], [], HELD_QUIET_SECONDS)[0]
+        os.remove(lock)
+        last = read_entry(proc)
+        good = (armed == armed_want and first == {"revision": core_want, "pending": True} and watching and silent
+                and last == {"revision": later_want} and wait_success(proc))
+        row("a core change under a held package lock is printed pending at once and settled after the lock goes, as the transaction left it",
+            good, f" (first={first} watching={watching} silent={silent} last={last} want={later_want})")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source, env, database, lock = locked_tree(tmp)
+        card = os.path.join(source, "Ui", "Card.qml")
+        proc = start_watch(source, script, env)
+        armed = read_revision(proc)
+        replace_text(card, core_edit)
+        first = read_entry(proc)
+        replace_text(card, planted)
+        os.remove(lock)
+        settled = read_entry(proc)
+        replace_text(card, reinstalled_later)
+        last = read_entry(proc)
+        good = (armed == armed_want and first == {"revision": core_want, "pending": True} and settled == {"revision": armed_want}
+                and last == {"revision": reinstalled_want} and wait_success(proc))
+        row("a held transaction that leaves the core as armed lifts the hold and the watch goes on", good,
+            f" (first={first} settled={settled} last={last})")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source, env, database, lock = locked_tree(tmp)
+        proc = subprocess.Popen([sys.executable, "-I", "-c", PROBE, script, source, lock, "vanish", ""],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        armed = read_revision(proc)
+        replace_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
+        last = read_entry(proc)
+        good = armed == armed_want and last == {"revision": core_want} and not os.path.lexists(lock) and wait_success(proc)
+        row("a package lock removed before its watch is armed lets the change print", good, f" (armed={armed} last={last})")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source, env, database, lock = locked_tree(tmp)
+        restore = os.path.join(tmp, "planted.tmp")
+        with open(restore, "w", encoding="utf-8") as fh:
+            fh.write(planted)
+        proc = subprocess.Popen([sys.executable, "-I", "-c", PROBE, script, source, lock, "reinstall", restore],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        armed = read_revision(proc)
+        replace_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
+        reinstalled = gone_by(lock)
+        replace_text(os.path.join(source, "Ui", "Card.qml"), reinstalled_later)
+        last = read_entry(proc)
+        good = armed == armed_want and reinstalled and last == {"revision": reinstalled_want} and wait_success(proc)
+        row("a transaction that ends between the watcher's hash and its lock read is reported as it left the core", good,
+            f" (reinstalled={reinstalled} last={last} want={reinstalled_want})")
+
+    for name, conf, mode, want_stderr in AT_ONCE_ROWS:
+        with tempfile.TemporaryDirectory() as tmp:
+            source, env, database, lock = locked_tree(tmp, conf)
+            try:
+                if mode is not None:
+                    os.chmod(database, mode)
+                proc = start_watch(source, script, env)
+                armed = read_revision(proc)
+                replace_text(os.path.join(source, "Ui", "Card.qml"), core_edit)
+                last = read_entry(proc)
+                exited = wait_success(proc)
+                stderr = proc.stderr.read()
+            finally:
+                os.chmod(database, 0o755)
+            lines = stderr.splitlines()
+            stderr_good = lines == [] if want_stderr == "" else len(lines) == 1 and lines[0].startswith(want_stderr)
+            good = armed == armed_want and last == {"revision": core_want} and exited and stderr_good
+            row(name, good, f" (armed={armed} last={last})\n{stderr}")
+    return results
+
+
+def transaction_controls():
+    """The transaction rows fail on a watcher that never asks for the lock,
+    one that skips the read after arming the lock's watch, one that holds
+    on a lock it cannot read, one that prints no pending line, one that
+    reports the hash taken before the lock read, and one that leaves the
+    hold on after a transaction that left the core as armed."""
+    return [
+        mutant_control("the transaction rows fail on a watcher that ignores the package lock",
+                       'program = shutil.which("pacman-conf")', "program = None", transaction_rows),
+        mutant_control("the transaction rows fail on a watcher that does not read the lock again after arming its watch",
+                       "        watched = True\n        if not package_lock_present(lock):\n            return False, watched\n", "        watched = True\n", transaction_rows),
+        mutant_control("the transaction rows fail on a watcher that holds on an unreadable lock",
+                       '        package_lock_unread(f"stat={exc.strerror} path={lock}")\n        return None\n',
+                       '        package_lock_unread(f"stat={exc.strerror} path={lock}")\n        return True\n', transaction_rows),
+        mutant_control("the transaction rows fail on a watcher that prints no pending line under a held lock",
+                       'print(json.dumps({"revision": changed, "pending": True}), flush=True)', "pass", transaction_rows),
+        mutant_control("the transaction rows fail on a watcher that reports the hash taken before its lock read",
+                       "                try:\n                    changed, removed = armed_core_revision(directory, armed_paths)\n                except OSError:\n                    continue\n                if not removed and changed == armed:\n                    pending = core_settled_as_armed(armed, pending)\n                    continue\n",
+                       "", transaction_rows),
+        mutant_control("the transaction rows fail on a watcher that keeps the hold after a transaction left the core as armed",
+                       '    if pending:\n        print(json.dumps({"revision": armed}), flush=True)\n', "", transaction_rows),
+    ]
 
 
 def watch_controls():
@@ -1120,6 +1403,8 @@ def main():
     results.append(core_control())
     results += watch_rows()
     results += watch_controls()
+    results += transaction_rows()
+    results += transaction_controls()
     results += version_rows()
     results += version_controls()
     results += version_lifetime_rows()

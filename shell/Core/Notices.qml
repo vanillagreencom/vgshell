@@ -247,6 +247,10 @@ Singleton {
             if (Registry.coreChanged) root.restartOwed();
         }
 
+        function onCorePendingChanged() {
+            if (Registry.coreChanged) root.restartOwed();
+        }
+
         function onScanFinished() {
             root.settle();
             root.runDue(false, Registry.requirementsRevision);
@@ -603,8 +607,10 @@ Singleton {
 
     // The notice logs only when it changes from closed to owed, so Not now
     // can close it until the next refused first build raises it again.
+    // While pacman's transaction is open it waits: the end of the
+    // transaction raises it, through onCorePendingChanged.
     function restartOwed() {
-        if (restart) return;
+        if (restart || Registry.corePending) return;
         restart = true;
         console.info("notices: restart=owed");
     }

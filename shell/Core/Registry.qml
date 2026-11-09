@@ -105,6 +105,11 @@ Singleton {
     // The engine keeps the types it read at its start, so a plugin a later
     // scan publishes can name one this process does not have.
     readonly property bool coreChanged: startCoreRevision !== "" && coreRevision !== startCoreRevision
+    // Whether the change came while pacman still holds its database lock.
+    // The holds apply at once; only the restart notice waits for the
+    // transaction to end, since a surface drawn mid-transaction can open a
+    // bundled font pacman has not finished writing.
+    property bool corePending: false
     // The watcher is the only owner of the core revision. If it cannot
     // judge, builds stay ungated and the listing reports why.
     property string coreWatchError: ""
@@ -361,10 +366,22 @@ Singleton {
             coreWatchFailed("output carries no revision");
             return;
         }
+        if (entry.pending !== undefined && entry.pending !== true) {
+            coreWatchFailed("output carries pending=" + JSON.stringify(entry.pending));
+            return;
+        }
+        const pending = entry.pending === true;
+        // Pending is set before the revision and cleared after it, so the
+        // notice never reads a changed core as settled for one binding turn.
+        if (pending && !corePending) {
+            corePending = true;
+            console.info("plugins: core=pending");
+        }
         // Set coreRevision first so the initial watch line cannot make
         // coreChanged true for one binding turn.
         coreRevision = entry.revision;
         if (startCoreRevision === "") startCoreRevision = entry.revision;
+        if (!pending) corePending = false;
     }
 
     function coreWatchFailed(error) {
@@ -431,7 +448,13 @@ Singleton {
         onExited: (code, status) => { coreWatch.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            if (root.coreChanged) return;
+            // A change reported without reading pacman's lock says why on
+            // stderr and exits 0.
+            if (root.coreChanged) {
+                for (const line of coreWatchErrors.text.split("\n"))
+                    if (line !== "") console.warn("plugins: " + line);
+                return;
+            }
             if (coreWatch.completion === null)
                 root.coreWatchFailed("vgshell-scan did not start");
             else if (coreWatch.completion.code !== 0 || coreWatch.completion.status !== 0)
