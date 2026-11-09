@@ -4,7 +4,7 @@
   "name": "AI Usage",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Show how much of your Claude Code, Codex and Copilot plan limits you have used.",
+  "description": "Show your Claude Code, Codex and Copilot plan use.",
   "license": "MIT",
   "icon": "gauge",
   "kinds": ["service", "bar-widget", "panel"],

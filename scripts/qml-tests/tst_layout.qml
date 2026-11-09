@@ -7,7 +7,8 @@ import qs.Unit
 // ScrollArea, Tabs, ListItem, SectionHeader, Surface and Divider: the
 // scroll area's content height follows its children and its bar shows on
 // overflow, a click opens a tab, a list item highlights and clicks and
-// draws its lines as plain text, a list item that takes no click draws no
+// draws its lines as plain text and keeps its height under a long
+// secondary line, a list item that takes no click draws no
 // hover or press and shows no hand while its trailing action keeps its
 // own, a section header draws its eyebrow inside
 // its padding, a surface draws its level and logs an unknown one, and a
@@ -383,6 +384,17 @@ Item {
             const single = Qt.createQmlObject("import qs.Ui\nListItem { text: \"One line\"; width: 200 }", root);
             compare(single.height, Theme.listItem.height, "a row without one takes the one-line height");
             single.destroy();
+        }
+
+        // A list of rows whose secondary lines differ in length stays even:
+        // the secondary line elides on one line.
+        function test_list_item_keeps_its_height_under_a_long_secondary_line() {
+            const long = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Weather\"; iconName: \"cloud\"; width: 200; secondary: \"Show the weather where you are, with the temperature, the wind and the chance of rain\" }", root);
+            const short = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Clock\"; iconName: \"clock\"; width: 200; secondary: \"Show the time\" }", root);
+            compare(long.height, short.height, "a long secondary line keeps the row's height");
+            compare(long.height, Theme.listItem.twoLineHeight);
+            long.destroy();
+            short.destroy();
         }
 
         // A row's text comes from outside the shell, such as a device name

@@ -27,7 +27,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -201,6 +201,11 @@
 # notify-send and sent to the sandbox's notification server as it was
 # written: its toast under the pointer, so its actions show, its Inbox row
 # selected, and that row with the arrow key on its first action.
+# add-widget, taken only when named, is the bar's Add widget chooser at
+# rest with AI Usage on and off the bar, with its rows' readings in
+# add-widget-<mode>-rows.json, with the keyboard moved to its first row,
+# and after a mouse click on AI Usage's Add, the saved configuration
+# restored after the shot;
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
@@ -618,7 +623,7 @@ while [[ $# -gt 0 ]]; do
     restart-owed) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -700,6 +705,9 @@ launcher_entry_item=false
 tree_has shell/plugins/vgs.launcher/Widget.qml "BarItem {" && launcher_entry_item=true
 has_clear_search=false
 tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_search=true
+# The Plugins list's rows are NavigationRows, or ListItems in an older tree.
+list_row=ListItem
+tree_has shell/plugins/vgs.settings/ListPage.qml "NavigationRow {" && list_row=NavigationRow
 # A tree whose plugin page has two pages draws Status and Requirements on
 # Details; page_details moves the open page there, and an older tree's one
 # page needs no move.
@@ -803,6 +811,7 @@ scene_ships() {
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     ai-usage|ai-usage-states) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
+    add-widget) ships_plugin vgs.bar && [[ -f $tree/shell/plugins/vgs.bar/AddWidget.qml ]] ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
     displays-primary|displays-override) ships_plugin vgs.system vgs.displays ;;
@@ -1298,6 +1307,29 @@ gallery_menu_first() { # MODE
   park_pointer
 }
 
+# The gallery's Lists section, which lies past gallery_pages, one shot per
+# page as the pages above take them, then its KeyNav list focus example
+# holding the keyboard. Both preview focus, so the pointer is parked and
+# the chrome posed.
+gallery_lists() { # MODE
+  local span top bottom at cy ch h y page=1
+  span="$(ipc smoke sectionSpan "$gallery_kind" vgs.gallery Lists)"
+  [[ $span == \[* ]] || { fail "the gallery Lists section could not be read: $span"; return; }
+  read -r top bottom _ _ < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$span")
+  y=$top
+  park_pointer
+  while :; do
+    at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
+    [[ $at == \[* ]] || { fail "the gallery did not scroll to its Lists section: ${at:-no reply}"; return; }
+    read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
+    take_posed "gallery-$1-lists-p$page"
+    (( cy + h < bottom && cy + h < ch )) || break
+    y=$(( cy + h - 40 )); page=$(( page + 1 ))
+  done
+  expect "the gallery's KeyNav list takes focus" focused ipc smoke focusExample "$gallery_kind" vgs.gallery "KeyNav list"
+  take_posed "gallery-$1-keynav-list"
+}
+
 # One shot per page of the gallery's scrolling list, a page's height less
 # 40 px apart so each page repeats the last lines of the one before, up to
 # gallery_pages pages.
@@ -1337,6 +1369,7 @@ scene_gallery() { # MODE
     ipc smoke titledPaneScrollEnd "$gallery_kind" vgs.gallery >/dev/null || fail "the Gallery's final row was not reached"
     take_posed "gallery-$1-last-row"
   fi
+  gallery_lists "$1"
   gallery_error_focus "$1"
   gallery_menu_first "$1"
   if [[ $title_inventory == true ]]; then
@@ -1649,7 +1682,7 @@ scene_settings() { # MODE
   take "settings-$1-list"
   # The pointer resting on a row the selection is not on: the list's one
   # hover (docs/architecture/design-system.md § Motion).
-  hover_on "the pointer rests on the Plugins list's Bluetooth row" "$settings_kind" vgs.settings ListItem Bluetooth "$settings_surface" && take_posed "settings-$1-list-hover"
+  hover_on "the pointer rests on the Plugins list's Bluetooth row" "$settings_kind" vgs.settings "$list_row" Bluetooth "$settings_surface" && take_posed "settings-$1-list-hover"
   park_pointer
   ipc smoke invokeInstance "$settings_kind" vgs.settings open '{}' >/dev/null || fail "the Settings search did not regain focus"
   # A search nothing matches: the empty state and its way back.
@@ -2391,7 +2424,7 @@ setup_tab_prepare() {
   for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
   close_notices
 }
-setup_tab_mark() { ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings ListItem "$1" "$2" "$3" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+setup_tab_mark() { ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings "$list_row" "$1" "$2" "$3" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 setup_tab_marks() { printf '%s %s\n' "$(setup_tab_mark "$1" Badge "Setup needed")" "$(setup_tab_mark "$1" IconButton "Open setup")"; }
 setup_tab_tip() { ipc smoke itemValues "$settings_kind" vgs.settings Tooltip opened | py_reply 'import json,sys; print(any(v["opened"] is True for v in json.load(sys.stdin)))'; }
 setup_tab_page() { # ID
@@ -2418,7 +2451,7 @@ scene_setup-tab() { # MODE
   expect "the Settings window's root takes the focus for the list image" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
   take "setup-tab-$1-list"
   if "$optional_icon"; then
-    rect="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings ListItem 'Acme Sync' IconButton 'Open setup')" || rect=""
+    rect="$(ipc smoke scopedWindowGeometry "$settings_kind" vgs.settings "$list_row" 'Acme Sync' IconButton 'Open setup')" || rect=""
     if [[ $rect == \[* ]] && read -r x y < <(at_centre "$settings_surface" "$rect") && hover "$((x - 6))" "$y" && hover "$x" "$y"; then
       expect_poll "the optional-tool icon's tooltip opens" True setup_tab_tip
       take_posed "setup-tab-$1-list-tooltip"
@@ -3704,6 +3737,44 @@ scene_ai-usage-states() { # MODE
   take "ai-usage-states-$1-panel"
   usage_shot_close "over the planted states"
   usage_shot_hidden '[]'
+}
+
+# The Add widget chooser as the empty bar's menu summons it, at the left
+# of the first output, with AI Usage, a plugin with other kinds, on and
+# off the bar, so its row offers Add. The saved configuration comes back
+# after the shot.
+scene_add-widget() { # MODE
+  local saved="$sandbox/add-widget-scene-$1.json" x y
+  cp -- "$home/.config/vgshell/shell.json" "$saved"
+  expect "AI Usage is on for the chooser" ok ipc shell setPluginEnabled vgs.ai-usage true
+  expect "AI Usage is off the bar for the chooser" ok ipc shell setPluginPlaced vgs.ai-usage false
+  expect "the chooser summons" ok ipc shell summon window vgs.bar "{\"screen\":\"$(first_name)\",\"x\":40}"
+  expect_poll "the chooser is a Bar window" 1 window_count Bar
+  take "add-widget-$1-open"
+  # The rows' readings beside the shot: each row's action, height and
+  # whether a line elides.
+  ipc smoke chooserRows >"$SHOT_DIR/add-widget-$1-rows.json" || fail "the chooser's rows are unreadable"
+  # The keyboard follows the pointer, which a plain shot parks off the
+  # window, so the key shot keeps the pointer on the title it clicked.
+  if read -r x y < <(window_point window:Bar window vgs.bar Label "Add widget") && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the chooser holds the keyboard" true ipc smoke activeFocusIn window vgs.bar
+    type_keys -k Down || fail "Down in the chooser failed"
+    take_posed "add-widget-$1-key"
+  else
+    fail "the click on the chooser's title failed"
+  fi
+  # After the click the pointer rests on the title, inside the window, so
+  # the window keeps the keyboard and the button shows no hover.
+  if read -r x y < <(window_point window:Bar window vgs.bar Button Add) && hover "$((x - 1))" "$y" && click "$x" "$y" \
+    && read -r x y < <(window_point window:Bar window vgs.bar Label "Add widget") && hover "$x" "$y"; then
+    take_posed "add-widget-$1-click"
+  else
+    fail "the click on the chooser's first Add failed"
+  fi
+  expect "the chooser hides" ok ipc shell hide window vgs.bar
+  expect_poll "the chooser is gone" 0 window_count Bar
+  cp -- "$saved" "$home/.config/vgshell/shell.json"
+  expect "the saved configuration reloads after the chooser" ok ipc shell reloadConfig
 }
 
 # The production traffic views over a fixture service in the sandbox copy.

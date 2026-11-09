@@ -1,8 +1,13 @@
 # The real empty-bar menu opens the existing bar plugin's chooser window.
 # A newly discovered fixture appears without a hand-kept inventory. Add
 # inserts once at the clicked section's edge, preserves the rest of the
-# persisted configuration and replaces Add with On bar. Names and a grey
-# disabled row open the existing separate Plugins window on Settings.
+# persisted configuration and turns into Remove, which takes the widget
+# off the bar and keeps a plugin with other kinds on. A mouse click leaves
+# no focus ring. Remove turns a widget-only plugin off, which insertWidget
+# then refuses, and the chooser's Add turns it back on and places it in
+# one write. A plugin with other kinds that is off offers Settings, which
+# opens the existing separate Plugins window on its page. Every row is one
+# height.
 # No latency budget: waits poll reported state at the harness interval.
 # The control removes the widget filter's result in a disposable tree;
 # the same inventory reader must then reject the missing fixture.
@@ -10,15 +15,16 @@
 # context. Each same-title sibling can retake native keyboard focus. Its
 # control restores window preference in a disposable tree.
 # A place-then-move chooser control must fail the ordinary one-write judge.
-# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/AddWidget.qml shell/plugins/vgs.bar/Calendar.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/Registry.qml scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/AddWidget.qml shell/Ui/layout/ContentRow.qml shell/Ui/layout/ListItem.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml shell/Ui/foundation/KeyNav.qml shell/plugins/vgs.bar/Calendar.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/Registry.qml scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 aw_saved="$sandbox/add-widget-saved.json"
 cp -- "$home/.config/vgshell/shell.json" "$aw_saved"
 aw_fixture="$home/.config/vgshell/plugins/acme.add-widget"
-mkdir -- "$aw_fixture"
+aw_lone="$home/.config/vgshell/plugins/acme.add-only"
+mkdir -- "$aw_fixture" "$aw_lone"
 aw_cleanup() {
-  rm -rf -- "$aw_fixture"
+  rm -rf -- "$aw_fixture" "$aw_lone"
   cp -- "$aw_saved" "$home/.config/vgshell/shell.json"
   expect "the original user configuration reloads" ok ipc shell reloadConfig
   rescan "the private chooser fixture leaves the registry"
@@ -33,10 +39,23 @@ m.update(id="acme.add-widget", name="A widget to add", kinds=["bar-widget", "ser
 m["entryPoints"]["service"] = "Widget.qml"
 p.write_text(json.dumps(m))
 PY
+cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$aw_lone/"
+python3 - "$aw_lone/manifest.json" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+m = json.loads(p.read_text())
+assert m["kinds"] == ["bar-widget"]
+m.update(id="acme.add-only", name="A lone widget")
+p.write_text(json.dumps(m))
+PY
 rescan "the newly installed widget enters the existing registry"
 expect "the new fixture is enabled" ok ipc shell setPluginEnabled acme.add-widget true
 expect "the multi-kind fixture starts unplaced but enabled" ok ipc shell setPluginPlaced acme.add-widget false
-aw_placed() { ipc shell listPlugins | py_reply 'import json,sys; rows=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.add-widget"]; print(rows[0]["placed"] if len(rows)==1 else "absent")'; }
+# FIELD of plugin ID as the shell lists it.
+aw_listed() { ipc shell listPlugins | py_reply 'import json,sys; rows=[p for p in json.load(sys.stdin)["plugins"] if p["id"]==sys.argv[1]]; print(rows[0][sys.argv[2]] if len(rows)==1 else "absent")' "$1" "$2"; }
+# Whether plugin ID, acme.add-widget when none is named, is placed or on.
+aw_placed() { aw_listed "${1:-acme.add-widget}" placed; }
+aw_enabled() { aw_listed "${1:-acme.add-widget}" enabled; }
 expect_poll "the fixture is unplaced" False aw_placed
 
 aw_read() { ipc smoke readInstance window vgs.bar "$1"; }
@@ -72,7 +91,7 @@ aw_open() {
 aw_payload() {
   aw_read payload | py_reply 'import json,sys; p=json.load(sys.stdin); print(p=={"screen":sys.argv[1].split(":",1)[1],"x":int(sys.argv[2])})' "$1" "$2"
 }
-# The current fixture's actual Add control, chips and boxes.
+# The current fixture's row action, chips and boxes.
 aw_row() {
   ipc smoke chooserRows | py_reply 'import json,sys
 rows=[r for r in json.load(sys.stdin) if r["id"]==sys.argv[1]]
@@ -85,6 +104,10 @@ aw_click() {
   read -r x y < <(at_centre window:Bar "$box") || return 1
   click "$x" "$y"
 }
+# Whether the chooser's focused control shows keyboard focus and its ring.
+aw_ring() { ipc smoke focused window vgs.bar | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r[2], r[3]]))'; }
+# Whether every row of the chooser is one height.
+aw_even() { ipc smoke chooserRows | py_reply 'import json,sys; h={r["row"][3] for r in json.load(sys.stdin)}; print(len(h)==1)'; }
 aw_persisted() {
   python3 -c 'import json,sys
 before=json.load(open(sys.argv[1])); after=json.load(open(sys.argv[2])); section=sys.argv[3]
@@ -123,21 +146,47 @@ expect_poll "the generic Open chooser is gone" 0 window_count Bar
 
 for aw_section in left center right; do
   aw_open "$aw_section"
-  expect "an unplaced enabled widget offers Add" true aw_row acme.add-widget add
+  expect "an unplaced enabled widget offers Add" '"add"' aw_row acme.add-widget action
   cp -- "$home/.config/vgshell/shell.json" "$sandbox/add-widget-before-add.json"
   expect "the Add commit observer starts empty" 0 ipc smoke chooserCount true
   aw_click acme.add-widget button
   expect_poll "Add inserts at the clicked $aw_section edge and preserves the saved file" True aw_persisted "$aw_section"
   expect "Add commits exactly one configuration update" single aw_one_write
-  expect_poll "a placed widget no longer offers Add" false aw_row acme.add-widget add
-  expect "the placed widget shows On bar" '["On bar"]' aw_row acme.add-widget chips
+  expect_poll "a placed widget offers Remove" '"remove"' aw_row acme.add-widget action
+  expect "the placed widget shows no chip" '[]' aw_row acme.add-widget chips
+  expect "a click on Add leaves no focus ring" '[false, false]' aw_ring
   expect "the duplicate observer starts empty" 0 ipc smoke chooserCount true
   expect "the delivered manager refuses duplicate insertion" "refused: placed=acme.add-widget reason=placed" ipc smoke chooserInsert acme.add-widget "$(first_name)" 20
   expect "the refused duplicate commits nothing" 0 ipc smoke chooserCount false
+  aw_click acme.add-widget button
+  expect_poll "Remove takes the widget off the bar for the next section" False aw_placed
+  expect "Remove keeps a plugin with other kinds on" True aw_enabled
+  expect_poll "the unplaced widget offers Add again" '"add"' aw_row acme.add-widget action
+  expect "a click on Remove leaves no focus ring" '[false, false]' aw_ring
   expect "the chooser closes" ok ipc shell hide window vgs.bar
   expect_poll "the chooser window is gone" 0 window_count Bar
-  expect "the fixture is hidden for the next section" ok ipc shell setPluginPlaced acme.add-widget false
 done
+
+# A widget-only plugin: Remove turns it off, which the delivered manager's
+# insertWidget then refuses, and the chooser's Add turns it back on and
+# places it, in one write.
+expect "the widget-only fixture is enabled" ok ipc shell setPluginEnabled acme.add-only true
+expect_poll "the enabled widget-only fixture is placed" True aw_placed acme.add-only
+aw_open left
+expect "every chooser row is one height" True aw_even
+expect "the placed widget-only fixture offers Remove" '"remove"' aw_row acme.add-only action
+aw_click acme.add-only button
+expect_poll "Remove takes the widget-only fixture off the bar" False aw_placed acme.add-only
+expect_poll "an unplaced widget-only plugin reads off" False aw_enabled acme.add-only
+expect "the delivered manager still refuses a widget-only plugin that is off" "refused: placed=acme.add-only reason=disabled" ipc smoke chooserInsert acme.add-only "$(first_name)" 20
+expect_poll "the widget-only fixture that is off offers Add" '"add"' aw_row acme.add-only action
+expect "the turn-on observer starts empty" 0 ipc smoke chooserCount true
+aw_click acme.add-only button
+expect_poll "Add turns the widget-only fixture back on" True aw_enabled acme.add-only
+expect_poll "Add places the widget-only fixture" True aw_placed acme.add-only
+expect "Add turns it on in one configuration update" single aw_one_write
+expect "the chooser closes after the widget-only rows" ok ipc shell hide window vgs.bar
+expect_poll "the widget-only chooser is gone" 0 window_count Bar
 
 # The real manager places in the fixture's default center, then moves to
 # left. Both persisted changes reach the same observer the Add check uses.
@@ -159,22 +208,18 @@ expect "the chooser closes after the multi-write control" ok ipc shell hide wind
 expect_poll "the multi-write chooser is gone" 0 window_count Bar
 
 aw_open left
-aw_click acme.add-widget name
-expect_poll "the separate Plugins window opens" 1 window_count Plugins
-expect_poll "the manager shows that plugin's Settings page" '"acme.add-widget"' ipc smoke readInstance window vgs.settings page
-expect "the chooser remains open beside Plugins" 1 window_count Bar
-expect "Plugins closes after the name route" ok ipc shell hide window vgs.settings
 expect "the fixture is disabled without removing its inventory row" ok ipc shell setPluginEnabled acme.add-widget false
-expect_poll "the disabled widget has no Add action" false aw_row acme.add-widget add
-expect "the disabled row shows its shared reason chip" '["Plugin disabled"]' aw_row acme.add-widget chips
+expect_poll "a disabled plugin with other kinds offers Settings" '"settings"' aw_row acme.add-widget action
+expect "the disabled row shows no chip" '[]' aw_row acme.add-widget chips
 expect "the disabled observer starts empty" 0 ipc smoke chooserCount true
 expect "the delivered manager refuses a disabled widget" "refused: placed=acme.add-widget reason=disabled" ipc smoke chooserInsert acme.add-widget "$(first_name)" 20
 expect "the delivered manager refuses a non-widget" "refused: placed=vgs.bar reason=no-bar-widget" ipc smoke chooserInsert vgs.bar "$(first_name)" 20
 expect "refused rows commit nothing" 0 ipc smoke chooserCount false
-aw_click acme.add-widget row
-expect_poll "clicking the grey row opens Plugins" 1 window_count Plugins
-expect_poll "the disabled row opens its own Settings page" '"acme.add-widget"' ipc smoke readInstance window vgs.settings page
-expect "Plugins closes after the disabled route" ok ipc shell hide window vgs.settings
+aw_click acme.add-widget button
+expect_poll "Settings opens the separate Plugins window" 1 window_count Plugins
+expect_poll "the manager shows that plugin's Settings page" '"acme.add-widget"' ipc smoke readInstance window vgs.settings page
+expect "the chooser remains open beside Plugins" 1 window_count Bar
+expect "Plugins closes after the Settings route" ok ipc shell hide window vgs.settings
 mkdir -p -- "$sandbox/tree-add-widget-inventory/shell/plugins/vgs.bar"
 cp -- "$repo/shell/plugins/vgs.bar/AddWidget.qml" "$sandbox/tree-add-widget-inventory/shell/plugins/vgs.bar/AddWidget.qml"
 if edit_tree add-widget-inventory shell/plugins/vgs.bar/AddWidget.qml \

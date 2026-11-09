@@ -279,7 +279,7 @@ expect_poll "Escape closes the entry action list" false gallery_actions_select l
 expect "the press chose nothing" '"Puck"' gallery_actions_select currentText
 gallery_tab_tour() {
   local required focus label seen_json
-  required='["Button primary","Button secondary","Button tertiary","Button ghost","Button danger","ToggleButton","IconButton","BarItem","Switch","Checkbox","SegmentedControl","Select","TextField","Slider","TitleButton","RowAction","Tabs","Disclosure","DeviceRow","CardCarousel","KeyNav list","Dialog accept action"]'
+  required='["Button primary","Button secondary","Button tertiary","Button ghost","Button danger","ToggleButton","IconButton","BarItem","Switch","Checkbox","SegmentedControl","Select","TextField","Slider","TitleButton","RowAction","ContentRow action","Tabs","Disclosure","DeviceRow","CardCarousel","KeyNav list","Dialog accept action"]'
   seen_json='[]'
   [[ $(ipc smoke focusExample window vgs.gallery "Button primary") == focused ]] || { echo "focus-start-failed"; return 1; }
   for _ in $(seq 1 220); do

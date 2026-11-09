@@ -63,6 +63,8 @@ SurfaceHeight 1.0 layout/SurfaceHeight.qml
 Tabs 1.0 layout/Tabs.qml
 TabPages 1.0 layout/TabPages.qml
 ListItem 1.0 layout/ListItem.qml
+ContentRow 1.0 layout/ContentRow.qml
+NavigationRow 1.0 layout/NavigationRow.qml
 DeviceRow 1.0 layout/DeviceRow.qml
 DeviceList 1.0 layout/DeviceList.qml
 ListCursor 1.0 layout/ListCursor.qml

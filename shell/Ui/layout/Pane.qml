@@ -37,7 +37,12 @@ import qs.Ui
 // full-screen surface over a scrim, which draws no container and so has
 // no corner for its content to clear. The viewport reaches the
 // focus ring's room past the content's left, top and bottom edges, so a
-// ring drawn around a row on an edge is never clipped.
+// ring drawn around a row on an edge is never clipped. A fitted pane
+// whose body is only evenly pitched rows, such as a list of ContentRows,
+// sets `bodyRowHeight` to their height: at its cap the body then ends
+// half-way through a row, so the next row's title lies under the bottom
+// fade, the only cue that the list goes on; a cap between two rows
+// shows a list that looks complete.
 Item {
     id: root
 
@@ -46,6 +51,9 @@ Item {
     property real cornerRadius: radiusOf(container)
     property bool fitToContent: false
     property real maximumHeight: 0
+    // The height of each row of a body made only of evenly pitched rows,
+    // spaced `bodySpacing` apart, or 0 for any other body.
+    property real bodyRowHeight: 0
     property real gap: container === "window" ? Theme.stack.section : Theme.stack.group
     property real bodySpacing: container === "window" ? Theme.stack.page : Theme.stack.group
     property string title: ""
@@ -123,7 +131,7 @@ Item {
     readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? (bodyContentHeight > 0 ? bodyGap : headerBodyGap) : 0
     readonly property real footerGap: footerHeight > 0 && bodyContentHeight > 0 ? Math.max(gap, stickyGap) : 0
     readonly property real uncappedHeight: 2 * contentInset + headerHeight + headerGap + bodyContentHeight + footerGap + footerHeight
-    readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight) : uncappedHeight
+    readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight - rowCut) : uncappedHeight
     // The height the box lays out in: a fitted pane's capped height, or
     // less when its host gives it less, such as a popup held inside a
     // short output; the body then scrolls and the footer stays inside.
@@ -137,6 +145,17 @@ Item {
     readonly property real bodyRoom: {
         const limit = fitToContent ? (maximumHeight > 0 ? maximumHeight : Infinity) : height;
         return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? bodyGap : 0) - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));
+    }
+    // What the cap takes off evenly pitched rows that overflow the body's
+    // room at the cap, so the body shows whole rows and half of the next.
+    // It reads no height: a window host sizes itself from `cappedHeight`.
+    readonly property real rowCut: {
+        if (bodyRowHeight <= 0 || maximumHeight <= 0) return 0;
+        const room = maximumHeight - (uncappedHeight - bodyContentHeight);
+        if (bodyContentHeight <= room) return 0;
+        const pitch = bodyRowHeight + bodySpacing;
+        const rows = Math.floor((room - bodyRowHeight / 2) / pitch);
+        return rows < 1 ? 0 : room - (rows * pitch + bodyRowHeight / 2);
     }
     readonly property alias scrollArea: scroll
 

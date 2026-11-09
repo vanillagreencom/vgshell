@@ -89,7 +89,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 |---|---|
 | [Agent Debug](shell/plugins/vgs.agent-debug/README.md) | Offers Diagnose when a program crashes or a VGS setup task fails. Diagnose opens the agent you choose with the facts of the failure. |
 | [Agent Warden](shell/plugins/vgs.agent-warden/README.md) | Keep your AI agents within their memory and process limits. |
-| [AI Usage](shell/plugins/vgs.ai-usage/README.md) | Show how much of your Claude Code, Codex and Copilot plan limits you have used. |
+| [AI Usage](shell/plugins/vgs.ai-usage/README.md) | Show your Claude Code, Codex and Copilot plan use. |
 | [Automations](shell/plugins/vgs.automations/README.md) | Run your commands on a schedule. |
 | [Bar](shell/plugins/vgs.bar/README.md) | Workspaces, clock and plugin buttons on each screen. |
 | [Bluetooth](shell/plugins/vgs.bluetooth/README.md) | Pair and connect your Bluetooth devices. |
@@ -99,13 +99,13 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Displays](shell/plugins/vgs.displays/README.md) | Set each display's mode, scale, orientation and brightness. |
 | [Fonts](shell/plugins/vgs.fonts/README.md) | Set the font of the shell and of your terminals. |
 | [VGS Components](shell/plugins/vgs.gallery/README.md) | Preview VGS controls in the current theme. |
-| [Google Drive](shell/plugins/vgs.google-drive/README.md) | Keep folders on this computer in step with Google Drive. Moves, renames and removals follow changes on either side. |
+| [Google Drive](shell/plugins/vgs.google-drive/README.md) | Keep folders in step with Google Drive. |
 | [Login screen](shell/plugins/vgs.greeter/README.md) | Log in on a screen in your VGS theme. |
-| [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. Turning Jarvis off ends the session and prevents automatic starts. |
+| [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. |
 | [Keyboard](shell/plugins/vgs.keyboard/README.md) | Choose input sources and key repeat. |
 | [Key Hints](shell/plugins/vgs.keyhints/README.md) | See and change every shortcut VGS adds. |
 | [Launcher](shell/plugins/vgs.launcher/README.md) | Find and open apps, files and system actions. |
-| [Local Sync](shell/plugins/vgs.local-sync/README.md) | Shows the rsync and unison jobs on this computer, and moves in the bar while one copies. |
+| [Local Sync](shell/plugins/vgs.local-sync/README.md) | Show the rsync and unison jobs on this computer. |
 | [Lock](shell/plugins/vgs.lock/README.md) | Lock your screen. |
 | [Motion](shell/plugins/vgs.motion/README.md) | Set how the shell and your windows move. |
 | [Mouse](shell/plugins/vgs.mouse/README.md) | Set pointer and touchpad behavior. |
@@ -113,9 +113,9 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Notifications](shell/plugins/vgs.notifications/README.md) | Read and silence your notifications. |
 | [Packages](shell/plugins/vgs.packages/README.md) | Choose update options and how an AI agent reviews packages before installation. |
 | [Polkit](shell/plugins/vgs.polkit/README.md) | Enter your password when an app needs administrator access. |
-| [Power](shell/plugins/vgs.power/README.md) | Show battery level, choose the power profile, see what happens while you are away and open the power menu. |
+| [Power](shell/plugins/vgs.power/README.md) | Show battery, set the power profile and open the power menu. |
 | [Printers](shell/plugins/vgs.printers/README.md) | Add, choose and remove your printers. |
-| [Remote desktop](shell/plugins/vgs.remote-desktop/README.md) | Use your other computers from this one, and see when someone uses this one. |
+| [Remote desktop](shell/plugins/vgs.remote-desktop/README.md) | Use your other computers from this one. |
 | [Scratchpads](shell/plugins/vgs.scratchpads/README.md) | Show and hide an app with one key. |
 | [Screensaver](shell/plugins/vgs.screensaver/README.md) | Show animated text art when the desktop is inactive. |
 | [Plugins](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |
@@ -124,13 +124,13 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Passwordless Sudo](shell/plugins/vgs.sudo/README.md) | Turn passwordless sudo on and off from the bar. |
 | [System Monitor](shell/plugins/vgs.sysmon/README.md) | See CPU, memory and graphics card use. |
 | [System Settings](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |
-| [Tailscale](shell/plugins/vgs.tailscale/README.md) | Connect this computer to your tailnet and choose an exit node. |
+| [Tailscale](shell/plugins/vgs.tailscale/README.md) | Connect to your tailnet and choose an exit node. |
 | [Themes](shell/plugins/vgs.themes/README.md) | Choose themes and wallpapers. |
 | [Network Traffic](shell/plugins/vgs.traffic/README.md) | See network speed and traffic per app. |
 | [Tray](shell/plugins/vgs.tray/README.md) | Show the tray icons of your apps in the bar, with their menus. |
 | [UI](shell/plugins/vgs.ui/README.md) | Set the corner radius of buttons and inputs. |
 | [Updates](shell/plugins/vgs.updates/README.md) | Update your system, VGS, plugins, themes and tools. |
-| [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field and see the recording state in the bar. |
+| [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field. |
 | [VPN](shell/plugins/vgs.vpn/README.md) | Connect your saved VPN and WireGuard profiles. |
 | [Web Apps](shell/plugins/vgs.webapps/README.md) | Turn a website into an app with its own window. |
 | [Windows](shell/plugins/vgs.windows/README.md) | Set the corners and borders of windows and flyouts, and VGlass. |

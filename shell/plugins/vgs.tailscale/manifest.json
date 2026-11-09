@@ -4,7 +4,7 @@
   "name": "Tailscale",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Connect this computer to your tailnet and choose an exit node.",
+  "description": "Connect to your tailnet and choose an exit node.",
   "license": "MIT",
   "icon": "route",
   "kinds": [

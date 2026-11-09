@@ -88,7 +88,7 @@ DRAG_VIEWS = frozenset(("Flickable", "ListView", "GridView", "TableView", "TreeV
 OWN_PARENT = re.compile(r"(?:^|[;\n])\s*parent\s*:")
 # The rows of a list: the template's delegate and the qs.Ui rows, whose
 # list draws its hover through its ListCursor.
-LIST_ROWS = frozenset(("ItemDelegate", "ListItem", "MenuItem", "Disclosure"))
+LIST_ROWS = frozenset(("ItemDelegate", "ListItem", "ContentRow", "NavigationRow", "MenuItem", "Disclosure"))
 COLOUR_BINDING = re.compile(r"(?:^|[;\n])\s*((?:[A-Za-z_]\w*\.)?color\s*:[^;\n]*)")
 HOVER_STATE = re.compile(r"\b(?:hovered|containsMouse)\b")
 

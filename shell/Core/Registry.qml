@@ -624,6 +624,7 @@ Singleton {
                 license: m.license === undefined ? "" : m.license,
                 icon: Logic.pluginIcon(m),
                 kinds: m.kinds,
+                enablement: Logic.enablementRule(m),
                 capabilities: m.capabilities,
                 source: sourceOf(m),
                 readme: readmeOf(id),

@@ -44,7 +44,7 @@
 # output draws through each change with slowed window animations; the same
 # change sent as two requests, the control, draws a frame with the top
 # moved.
-# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js bin/lib/dbus_wire.py
+# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js bin/lib/dbus_wire.py shell/Ui/layout/NavigationRow.qml
 set -euo pipefail
 leak_plugin_setup acme.status false acme.probe true acme.bare true vgs.themes true || { fail "settings: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
@@ -1451,7 +1451,7 @@ for setup_id in vgs.jarvis vgs.google-drive vgs.voice; do
   expect "the window opens $setup_id's page for its tabs" ok ipc smoke invokeInstance window vgs.settings openPlugin "$setup_id"
   expect_poll "$setup_id has its required Setup tab" '["Settings", "Setup", "Details"]' page_tabs
 done
-bare_mark() { ipc smoke scopedWindowGeometry window vgs.settings ListItem Bare "$1" "$2" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
+bare_mark() { ipc smoke scopedWindowGeometry window vgs.settings NavigationRow Bare "$1" "$2" | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }
 bare_marks() { printf '%s %s\n' "$(bare_mark Badge "Setup needed")" "$(bare_mark IconButton "Open setup")"; }
 bare_requirement() { settings_rows | py_reply 'import json,sys; r=[q["state"] for p in json.load(sys.stdin) if p["id"] == "acme.bare" for q in p["requirements"] if q["name"] == "vgs-smoke-absent"]; print(r[0] if r else "unlisted")'; }
 bare_list() {
@@ -1461,8 +1461,9 @@ bare_list() {
 bare_manifest="$home/.config/vgshell/plugins/acme.bare/manifest.json"
 [[ -f $bare_manifest ]] || fail "the bare fixture's manifest is absent"
 bare_list
+expect_poll "the fixture's list row resolves by its chevron" drawn bare_mark Icon chevron-right
 expect_poll "a missing optional tool draws no list mark" "absent absent" bare_marks
-settings_click ListItem Bare || fail "the click on the fixture failed"
+settings_click NavigationRow Bare || fail "the click on the fixture failed"
 expect_poll "the row opens the fixture" '"acme.bare"' settings_page
 expect_poll "no required work opens Settings" Settings settings_tab_text
 expect "the present required shell tool keeps Setup" '["Settings", "Setup", "Details"]' page_tabs
@@ -1485,7 +1486,7 @@ rescan "the fixture now requires its missing tool"
 expect_poll "the required tool is missing" missing bare_requirement
 bare_list
 expect_poll "required work draws Setup needed with no optional icon" "drawn absent" bare_marks
-settings_click ListItem Bare || fail "the click on required work failed"
+settings_click NavigationRow Bare || fail "the click on required work failed"
 expect_poll "required work opens Setup" Setup settings_tab_text
 expect_poll "the Setup tab has its required warning" '["Setup"]' ipc smoke readDescendant window vgs.settings TabPages warningTabs
 printf '#!/bin/sh\nexit 0\n' >"$shim/vgs-smoke-absent"
@@ -1501,6 +1502,7 @@ cp -- "$sandbox/bare-setup-manifest" "$bare_manifest"
 rescan "the fixture restores its optional tool"
 expect_poll "the restored optional tool is missing" missing bare_requirement
 bare_list
+expect_poll "the restored fixture's list row resolves by its chevron" drawn bare_mark Icon chevron-right
 expect_poll "the restored optional tool marks nothing" "absent absent" bare_marks
 expect "the window opens the status fixture's page again" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect "disabling the status fixture from its page is allowed" ok ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["acme.status", false]}'

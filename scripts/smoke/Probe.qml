@@ -2003,13 +2003,14 @@ Scope {
                 const required = [
                     "Button primary", "Button secondary", "Button tertiary", "Button ghost", "Button danger",
                     "IconButton", "ToggleButton", "BarItem", "Switch", "Checkbox", "Radio",
-                    "SegmentedControl", "TileGroup", "Select", "TextField", "ShortcutField", "Slider", "TitleButton", "RowAction",
+                    "SegmentedControl", "TileGroup", "Select", "TextField", "ShortcutField", "Slider", "TitleButton", "RowAction", "ContentRow action",
                     "Tabs", "Disclosure", "DeviceRow", "Dialog accept action", "CardCarousel", "KeyCaps", "KeyNav list"
                 ];
                 const previewRequired = {
                     "Button primary": true, "Button secondary": true, "Button tertiary": true, "Button ghost": true, "Button danger": true,
                     "IconButton": true, "ToggleButton": true, "BarItem": true, "Switch": true, "Checkbox": true, "Radio": true,
-                    "SegmentedControl": true, "TileGroup": true, "Select": true, "TextField": true, "ShortcutField": true, "Slider": true, "TitleButton": true, "RowAction": true
+                    "SegmentedControl": true, "TileGroup": true, "Select": true, "TextField": true, "ShortcutField": true, "Slider": true, "TitleButton": true, "RowAction": true,
+                    "ContentRow action": true
                 };
                 const found = {};
                 for (const child of root.descendants(item.examples)) {
@@ -2942,12 +2943,14 @@ Scope {
         function chooserRows(): string {
             const item = root.instance("window", "vgs.bar");
             if (item === null) return "absent";
-            return root.json(root.descendants(item).filter(child => child.nameLink !== undefined && child.addButton !== undefined).map(row => ({
+            // `action` is the row's typed action, `add`, `remove` or
+            // `settings`; `truncated` whether a shown line of the row elides.
+            return root.json(root.descendants(item).filter(child => child.actionButton !== undefined && child.rowAction !== undefined).map(row => ({
                 id: row.modelData.id, enabled: row.modelData.enabled, placed: row.modelData.placed,
-                add: row.addButton.visible,
+                action: row.rowAction, secondary: row.secondary,
                 chips: root.descendants(row).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => badge.text),
-                row: JSON.parse(root.geometry(row)), name: JSON.parse(root.geometry(row.nameLink)),
-                button: JSON.parse(root.geometry(row.addButton))
+                truncated: root.descendants(row).some(child => root.typeName(child) === "Label" && child.visible && child.truncated === true),
+                row: JSON.parse(root.geometry(row)), button: JSON.parse(root.geometry(row.actionButton))
             })));
         }
         function chooserInsert(id: string, screen: string, x: real): string {

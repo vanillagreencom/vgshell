@@ -5,6 +5,14 @@ import qs.Ui
 
 // The existing window host owns the toplevel and Escape. Keep the manager
 // join in this one binding, only for the lifetime of the summoned chooser.
+// One ContentRow per widget, its one small button the row's action
+// (`actionOf`): Remove takes a placed widget off the bar, Add puts an
+// unplaced one at the clicked point, or turns a widget-only plugin back on,
+// which places it in its default section, and Settings opens the page
+// where a plugin with other kinds is turned on. The list holds the keys:
+// arrows move to a row's button with keyboard focus, and Return or Space
+// presses it. A click focuses the button with the mouse reason, so it
+// draws no focus ring.
 FocusScope {
     id: root
 
@@ -12,20 +20,43 @@ FocusScope {
     property var payload: ({})
     readonly property var plugins: shell === null ? [] : shell.manager.plugins
     readonly property var widgets: plugins.filter(plugin => plugin.kinds.indexOf("bar-widget") !== -1)
-    property int current: 0
+    // The selected row: the one whose button holds the list's focus, -1
+    // while none does. Opening clears it, so the list holds the keys and
+    // Return presses no action that changes the bar. Derived from focus,
+    // it follows the focused button through a re-summon or a row's
+    // removal.
+    readonly property int current: {
+        for (let i = 0; i < rows.count; i++) {
+            const row = rows.itemAt(i);
+            if (row !== null && row.actionButton.focus) return i;
+        }
+        return -1;
+    }
     property string notice: ""
-    readonly property Item initialFocus: rows.itemAt(current) !== null ? rows.itemAt(current).nameLink : root
+    readonly property Item initialFocus: root
 
     implicitWidth: Theme.size.window.width
-    implicitHeight: Math.min(layout.uncappedHeight, Theme.size.panel.maxHeight)
+    implicitHeight: layout.implicitHeight
     focus: true
 
     function open(payloadJson) {
         payload = JSON.parse(payloadJson);
         notice = "";
-        plate.disarm();
+        // A re-summon finds the scope's focus on the button last focused,
+        // such as one just clicked, and the host's focus on the scope would
+        // hand it back.
+        for (let i = 0; i < rows.count; i++) rows.itemAt(i).actionButton.focus = false;
     }
     function close() {}
+
+    // The one owner of a row's action. A plugin whose only kind is
+    // bar-widget is off while unplaced (PluginLogic.enablementRule
+    // "widget"), so Add turns it back on; insertWidget refuses a disabled
+    // plugin for every other caller.
+    function actionOf(plugin) {
+        if (plugin.enabled) return plugin.placed ? "remove" : "add";
+        return plugin.enablement === "widget" ? "add" : "settings";
+    }
 
     function addWidget(id) {
         const reply = shell.manager.insertWidget(id, payload.screen, payload.x);
@@ -34,61 +65,50 @@ FocusScope {
         return reply;
     }
 
-    function openSettings(id) {
-        const reply = shell.surfaces.openPage(id, "Settings");
+    function act(plugin) {
+        const action = actionOf(plugin);
+        if (action === "settings") {
+            // The core logs a refused openPage itself.
+            const reply = shell.surfaces.openPage(plugin.id, "Settings");
+            notice = Reply.line(reply);
+            return reply;
+        }
+        if (action === "add" && plugin.enabled) return addWidget(plugin.id);
+        const reply = action === "remove" ? shell.manager.setPlaced(plugin.id, false) : shell.manager.setEnabled(plugin.id, true);
         notice = Reply.line(reply);
+        if (!Reply.isOk(reply)) console.warn("vgs.bar: " + action + " widget " + reply);
         return reply;
     }
 
     function focusRow(index) {
-        current = index;
         const row = rows.itemAt(index);
-        if (row !== null) row.nameLink.forceActiveFocus(Qt.TabFocusReason);
-    }
-    onWidgetsChanged: {
-        plate.rebuilt();
-        current = Math.max(0, Math.min(current, widgets.length - 1));
+        if (row !== null) row.actionButton.forceActiveFocus(Qt.TabFocusReason);
     }
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
 
-    ListCursor {
-        id: plate
-        parent: layout.scrollArea.contentItem
-    }
     KeyNav {
         id: nav
         count: root.widgets.length
         currentIndex: root.current
-        crossAxis: true
-        cursor: plate
         flickable: layout.scrollArea
         viewHeight: layout.scrollArea.height
         rowHeight: Theme.listItem.twoLineHeight
         itemAt: index => rows.itemAt(index)
         labelAt: index => root.widgets[index].name
         onMoved: index => root.focusRow(index)
-        onActivated: index => root.openSettings(root.widgets[index].id)
-        onCrossed: delta => {
-            const row = rows.itemAt(root.current);
-            if (row !== null)
-                (delta > 0 && row.addButton.visible ? row.addButton : row.nameLink).forceActiveFocus(Qt.TabFocusReason);
-        }
+        onActivated: index => root.act(root.widgets[index])
     }
 
     Pane {
         id: layout
         anchors.fill: parent
         container: "window"
+        fitToContent: true
+        maximumHeight: Theme.size.panel.maxHeight
+        bodyRowHeight: Theme.listItem.twoLineHeight
         title: "Add widget"
         bodySpacing: 0
         subtitle: [
-            Label {
-                width: layout.contentWidth
-                role: "hint"
-                text: "Choose a widget. Select its name to open Settings."
-                visible: root.widgets.length > 0
-                wrapMode: Text.Wrap
-            },
             Label {
                 width: layout.contentWidth
                 visible: root.notice !== ""
@@ -110,97 +130,37 @@ FocusScope {
                 values: root.widgets
                 objectProp: "id"
             }
-            ListItem {
+            ContentRow {
                 id: entry
                 required property var modelData
                 required property int index
-                readonly property bool pluginOff: !modelData.enabled
-                readonly property alias nameLink: name
-                readonly property alias addButton: add
+                // `add`, `remove` or `settings`.
+                readonly property string rowAction: root.actionOf(modelData)
+                readonly property alias actionButton: button
                 width: layout.contentWidth
+                iconName: modelData.icon
                 text: modelData.name
-                secondary: pluginOff ? `Enable in [Settings](page:${modelData.id}/Settings) to add this widget` : modelData.description
-                clickable: pluginOff
-                cursor: plate
-                highlighted: index === root.current && entry.activeFocus
-                onClicked: root.openSettings(modelData.id)
-
-                contentItem: Item {
-                    implicitHeight: Math.max(lines.implicitHeight, actions.height, leading.height)
-                    Icon {
-                        id: leading
-                        name: entry.modelData.icon
-                        size: Theme.icon.size.md
-                        color: Theme.color.textMuted
-                        anchors.verticalCenter: lines.verticalCenter
-                    }
-                    Column {
-                        id: lines
-                        x: leading.width + Theme.listItem.iconGap
-                        width: Math.max(0, parent.width - x - actions.width - Theme.listItem.gap)
+                secondary: rowAction === "settings" ? "Turn this plugin on to add its widget" : modelData.description
+                trailing: [
+                    Button {
+                        id: button
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.row.lineGap
-                        LinkText {
-                            id: name
-                            width: Math.min(implicitWidth, parent.width)
-                            role: "item"
-                            text: entry.modelData.name
-                            link: text
-                            linkColor: entry.pluginOff ? Theme.color.textMuted : Theme.color.accent
-                            activeFocusOnTab: entry.index === root.current
-                            Keys.onPressed: event => { event.accepted = nav.handle(event); }
-                            onActiveFocusChanged: if (activeFocus) {
-                                root.current = entry.index;
-                                nav.reveal(entry.index);
-                            }
-                            onActivated: root.openSettings(entry.modelData.id)
-                        }
-                        LinkText {
-                            width: parent.width
-                            role: "itemHint"
-                            text: entry.secondary
-                            color: entry.pluginOff ? Theme.color.textMuted : Theme.text.itemHint.color
-                            wrapMode: Text.Wrap
-                            // keyboard-path: the selected row's Return opens the same Settings page
-                            activeFocusOnTab: false
-                            onActiveFocusChanged: if (activeFocus) root.current = entry.index
-                            onPageActivated: (page, tab) => {
-                                root.notice = Reply.line(root.shell.surfaces.openPage(page, tab));
-                            }
-                        }
+                        size: "sm"
+                        variant: "secondary"
+                        text: entry.rowAction === "remove" ? "Remove" : entry.rowAction === "add" ? "Add" : "Settings"
+                        iconName: entry.rowAction === "remove" ? "minus" : entry.rowAction === "add" ? "plus" : "settings"
+                        Accessible.name: text + " " + entry.modelData.name
+                        // keyboard-path: the list's arrows reach every row's button; Tab enters at the selected row
+                        // The focused button, or the first row while none is.
+                        // Never `index` against `current`: a removed row above
+                        // moves both, one at a time, and Qt refuses to clear
+                        // this on the active focus item.
+                        activeFocusOnTab: root.current === -1 ? entry.index === 0 : focus
+                        Keys.onPressed: event => { event.accepted = nav.handle(event); }
+                        onActiveFocusChanged: if (activeFocus) nav.reveal(entry.index)
+                        onClicked: root.act(entry.modelData)
                     }
-                    Row {
-                        id: actions
-                        x: parent.width - width
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.listItem.gap
-                        Button {
-                            id: add
-                            visible: !entry.pluginOff && !entry.modelData.placed
-                            text: "Add"
-                            iconName: "plus"
-                            variant: "secondary"
-                            // keyboard-path: Right from the selected name; Left returns to it
-                            activeFocusOnTab: false
-                            onActiveFocusChanged: if (activeFocus) root.current = entry.index
-                            onClicked: {
-                                root.addWidget(entry.modelData.id);
-                                name.forceActiveFocus(Qt.TabFocusReason);
-                            }
-                        }
-                        Badge {
-                            visible: !entry.pluginOff && entry.modelData.placed
-                            text: "On bar"
-                            iconName: "check"
-                            tone: "neutral"
-                        }
-                        Badge {
-                            visible: entry.pluginOff
-                            text: "Plugin disabled"
-                            tone: "neutral"
-                        }
-                    }
-                }
+                ]
             }
         }
     }

@@ -5,7 +5,7 @@
   "name": "Google Drive",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Keep folders on this computer in step with Google Drive. Moves, renames and removals follow changes on either side.",
+  "description": "Keep folders in step with Google Drive.",
   "license": "MIT",
   "icon": "cloud-sync",
   "kinds": ["service", "bar-widget", "panel"],

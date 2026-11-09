@@ -4,7 +4,7 @@
   "name": "Local Sync",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Shows the rsync and unison jobs on this computer, and moves in the bar while one copies.",
+  "description": "Show the rsync and unison jobs on this computer.",
   "license": "MIT",
   "icon": "folder-sync",
   "kinds": ["service", "bar-widget", "panel"],

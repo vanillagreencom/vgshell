@@ -4,7 +4,7 @@
   "name": "Jarvis",
   "version": "0.1.0",
   "author": "VGS",
-  "description": "Talk to a voice assistant. Turning Jarvis off ends the session and prevents automatic starts.",
+  "description": "Talk to a voice assistant.",
   "license": "MIT AND Apache-2.0",
   "icon": "vgs-letter-j",
   "kinds": ["bar-widget", "service", "window"],
