@@ -110,8 +110,14 @@ Item {
     }
 
     // The layer exists while there is something to draw: a row or the
-    // caption-only toast.
-    readonly property bool wanted: look !== null && (rowModel.count > 0 || refusalCaption !== "") && !panelOpen
+    // caption-only toast. A layer on screen stays while the inbox is open,
+    // which the stack hides its cards under (Stack.qml). Hyprland gives the
+    // keyboard to the last window when a layer holding the pointer unmaps
+    // (v0.57.1 CLayerSurface::onUnmap, refocusLastWindow), so an unmap as
+    // the inbox opens closes the inbox for that window before it maps; and
+    // a stack built again as the inbox closes plays each card's entrance
+    // again.
+    readonly property bool wanted: look !== null && (rowModel.count > 0 || refusalCaption !== "" || (panelOpen && layerRelease !== null))
     onWantedChanged: syncLayer()
 
     Store {
