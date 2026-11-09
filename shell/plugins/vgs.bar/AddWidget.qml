@@ -20,20 +20,32 @@ FocusScope {
     property var payload: ({})
     readonly property var plugins: shell === null ? [] : shell.manager.plugins
     readonly property var widgets: plugins.filter(plugin => plugin.kinds.indexOf("bar-widget") !== -1)
-    // The selected row, -1 until a key selects one: opening focuses the
-    // list, never an action that changes the bar.
-    property int current: -1
+    // The selected row: the one whose button holds the list's focus, -1
+    // while none does. Opening clears it, so the list holds the keys and
+    // Return presses no action that changes the bar. Derived from focus,
+    // the index keys act on is always the row that draws the ring, also
+    // after a click, a re-summon or a row's removal.
+    readonly property int current: {
+        for (let i = 0; i < rows.count; i++) {
+            const row = rows.itemAt(i);
+            if (row !== null && row.actionButton.focus) return i;
+        }
+        return -1;
+    }
     property string notice: ""
     readonly property Item initialFocus: root
 
     implicitWidth: Theme.size.window.width
-    implicitHeight: Math.min(layout.uncappedHeight, Theme.size.panel.maxHeight)
+    implicitHeight: layout.implicitHeight
     focus: true
 
     function open(payloadJson) {
         payload = JSON.parse(payloadJson);
         notice = "";
-        current = -1;
+        // A re-summon finds the scope's focus on the button last focused,
+        // such as one just clicked, and the host's focus on the scope would
+        // hand it back.
+        for (let i = 0; i < rows.count; i++) rows.itemAt(i).actionButton.focus = false;
     }
     function close() {}
 
@@ -68,13 +80,10 @@ FocusScope {
         return reply;
     }
 
-    // The button writes `current` once it holds focus: Qt refuses to clear
-    // activeFocusOnTab on the item that holds the active focus.
     function focusRow(index) {
         const row = rows.itemAt(index);
         if (row !== null) row.actionButton.forceActiveFocus(Qt.TabFocusReason);
     }
-    onWidgetsChanged: current = Math.min(current, widgets.length - 1)
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
 
     KeyNav {
@@ -94,6 +103,9 @@ FocusScope {
         id: layout
         anchors.fill: parent
         container: "window"
+        fitToContent: true
+        maximumHeight: Theme.size.panel.maxHeight
+        bodyRowHeight: Theme.listItem.twoLineHeight
         title: "Add widget"
         bodySpacing: 0
         subtitle: [
@@ -139,12 +151,13 @@ FocusScope {
                         iconName: entry.rowAction === "remove" ? "minus" : entry.rowAction === "add" ? "plus" : "settings"
                         Accessible.name: text + " " + entry.modelData.name
                         // keyboard-path: the list's arrows reach every row's button; Tab enters at the selected row
-                        activeFocusOnTab: entry.index === Math.max(0, root.current)
+                        // The focused button, or the first row while none is.
+                        // Never `index` against `current`: a removed row above
+                        // moves both, one at a time, and Qt refuses to clear
+                        // this on the active focus item.
+                        activeFocusOnTab: root.current === -1 ? entry.index === 0 : focus
                         Keys.onPressed: event => { event.accepted = nav.handle(event); }
-                        onActiveFocusChanged: if (activeFocus) {
-                            root.current = entry.index;
-                            nav.reveal(entry.index);
-                        }
+                        onActiveFocusChanged: if (activeFocus) nav.reveal(entry.index)
                         onClicked: root.act(entry.modelData)
                     }
                 ]

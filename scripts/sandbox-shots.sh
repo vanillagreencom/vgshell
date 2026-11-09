@@ -1307,6 +1307,29 @@ gallery_menu_first() { # MODE
   park_pointer
 }
 
+# The gallery's Lists section, which lies past gallery_pages, one shot per
+# page as the pages above take them, then its KeyNav list focus example
+# holding the keyboard. Both preview focus, so the pointer is parked and
+# the chrome posed.
+gallery_lists() { # MODE
+  local span top bottom at cy ch h y page=1
+  span="$(ipc smoke sectionSpan "$gallery_kind" vgs.gallery Lists)"
+  [[ $span == \[* ]] || { fail "the gallery Lists section could not be read: $span"; return; }
+  read -r top bottom _ _ < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$span")
+  y=$top
+  park_pointer
+  while :; do
+    at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
+    [[ $at == \[* ]] || { fail "the gallery did not scroll to its Lists section: ${at:-no reply}"; return; }
+    read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
+    take_posed "gallery-$1-lists-p$page"
+    (( cy + h < bottom && cy + h < ch )) || break
+    y=$(( cy + h - 40 )); page=$(( page + 1 ))
+  done
+  expect "the gallery's KeyNav list takes focus" focused ipc smoke focusExample "$gallery_kind" vgs.gallery "KeyNav list"
+  take_posed "gallery-$1-keynav-list"
+}
+
 # One shot per page of the gallery's scrolling list, a page's height less
 # 40 px apart so each page repeats the last lines of the one before, up to
 # gallery_pages pages.
@@ -1346,6 +1369,7 @@ scene_gallery() { # MODE
     ipc smoke titledPaneScrollEnd "$gallery_kind" vgs.gallery >/dev/null || fail "the Gallery's final row was not reached"
     take_posed "gallery-$1-last-row"
   fi
+  gallery_lists "$1"
   gallery_error_focus "$1"
   gallery_menu_first "$1"
   if [[ $title_inventory == true ]]; then

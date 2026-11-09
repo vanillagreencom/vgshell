@@ -11,8 +11,8 @@ import "../../shell/plugins/vgs.bar" as BarPlugin
 // widget-only plugin that is off to turn it on, and a plugin with other
 // kinds that is off opens its Settings page. A mouse click on the button
 // leaves no focus ring; the arrows move the keyboard to a row's button
-// with its ring, and Return and Space press it once. Opening focuses the
-// list and presses nothing.
+// with its ring, and Return and Space press it once. Opening, also over a
+// focused button, focuses the list and presses nothing.
 Item {
     id: root
     width: 700
@@ -117,12 +117,52 @@ Item {
             compare(root.calls.length, 2, "Space presses it once");
         }
 
-        function test_opening_presses_nothing() {
+        // A re-summon calls open() on the open chooser and the host focuses
+        // the scope again, which would hand the focus back to the button
+        // last clicked or moved to.
+        function test_opening_presses_nothing_data() {
+            return [
+                { tag: "first open", focus: "" },
+                { tag: "re-summon after a click", focus: "click" },
+                { tag: "re-summon after a key move", focus: "key" }
+            ];
+        }
+
+        function test_opening_presses_nothing(data) {
+            if (data.focus === "click") mouseClick(rowOf("acme.placed").actionButton);
+            if (data.focus === "key") keyClick(Qt.Key_Down);
+            if (data.focus !== "") {
+                tryVerify(() => rowOf("acme.placed").actionButton.activeFocus, 1000, "the button holds the keys before the re-summon");
+                chooser.open(JSON.stringify({ screen: "DP-1", x: 40 }));
+                chooser.forceActiveFocus(Qt.OtherFocusReason);
+            }
+            root.calls = [];
             verify(chooser.activeFocus, "the list holds the keys on open");
             compare(chooser.current, -1);
+            compare(rowOf("acme.placed").actionButton.activeFocus, false, "no button holds the keys on open");
             keyClick(Qt.Key_Return);
             keyClick(Qt.Key_Space);
-            compare(root.calls, [], "Return with no row selected presses nothing");
+            compare(root.calls, [], "Return and Space with no row selected press nothing");
+            keyClick(Qt.Key_Down);
+            tryCompare(rowOf("acme.placed").actionButton, "activeFocus", true);
+            compare(chooser.current, 0, "the first Down selects the first row");
+        }
+
+        // A row removed above the selected one, as when a plugin is
+        // uninstalled while the chooser is open, keeps the keys on the
+        // selected plugin.
+        function test_a_removed_row_keeps_the_keys_on_the_selected_plugin() {
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Down);
+            const button = rowOf("acme.unplaced").actionButton;
+            tryCompare(button, "activeFocus", true);
+            const next = shell();
+            next.manager.plugins = root.rows.slice(1);
+            chooser.shell = next;
+            tryCompare(chooser, "current", 0);
+            verify(button.activeFocus, "the selected button keeps the keys");
+            keyClick(Qt.Key_Return);
+            compare(root.calls, [["insertWidget", "acme.unplaced", "DP-1", 40]], "Return presses the selected plugin's action");
         }
 
         function test_each_state_asks_for_its_one_call_data() {

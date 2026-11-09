@@ -119,6 +119,25 @@ Item {
         }
     }
 
+    // A fitted pane of `count` evenly pitched 40 px rows under a 300 px cap,
+    // which leaves a 192 px body room.
+    Component {
+        id: pitched
+        Pane {
+            id: layer
+            property int count: 0
+            width: 240
+            container: "panel"
+            fitToContent: true
+            maximumHeight: 300
+            bodyRowHeight: 40
+            bodySpacing: 4
+            header: [ Item { width: 10; height: 20 } ]
+            Repeater { model: layer.count; Item { width: 10; height: 40 } }
+            footer: [ Item { width: 10; height: 30 } ]
+        }
+    }
+
     // A fitted pane whose footer holds three bars of different heights, as
     // a tabbed window's footer holds one bar a tab; `shown` lists the bars
     // that show.
@@ -633,6 +652,25 @@ Item {
             compare(fitted.implicitHeight, 120);
             compare(fitted.scrollArea.height, 120 - 2 * fitted.contentInset - headerSlot(fitted).height - fitted.headerGap + 2 * fitted.ringRoom);
             verify(fitted.scrollArea.overflowing, "the capped pane scrolls its body");
+        }
+
+        // Rows that overflow the room end half-way through a row at the
+        // cap: four 44 px pitches and half a row, 196 px, exceed 192, so
+        // three pitches and half a row, 152 px, show. A body that fits
+        // shows in full, also one taller than that half-row cut.
+        function test_evenly_pitched_rows_end_half_way_through_a_row_data() {
+            return [
+                { tag: "overflowing", count: 12, shown: 3 * 44 + 20, overflowing: true },
+                { tag: "fits past the half-row cut", count: 4, shown: 4 * 40 + 3 * 4, overflowing: false }
+            ];
+        }
+
+        function test_evenly_pitched_rows_end_half_way_through_a_row(data) {
+            const made = createTemporaryObject(pitched, root, { count: data.count });
+            tryCompare(made, "bodyContentHeight", data.count * 40 + (data.count - 1) * 4);
+            compare(made.bodyRoom, 192);
+            tryCompare(made.scrollArea, "height", data.shown + 2 * made.ringRoom);
+            compare(made.scrollArea.overflowing, data.overflowing);
         }
 
         // A save bar that appears under the body at its end keeps the
