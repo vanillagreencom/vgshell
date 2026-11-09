@@ -87,7 +87,9 @@ Item {
     property bool replyHovered: false
     readonly property var replyShown: replyWanted !== null && replyWanted.key !== replyDismissed
         ? Object.assign({ output: focusedOutput }, replyWanted) : null
-    readonly property string replyKey: replyShown === null ? "" : replyShown.key + ":" + replyShown.mode + ":" + replyShown.settled + ":" + replyShown.output
+    // The whole decision, so a change of words alone, as a retried device
+    // turning into a fault, republishes the card; its `key` alone names it.
+    readonly property string replyKey: replyShown === null ? "" : JSON.stringify(replyShown)
     onReplyKeyChanged: {
         // A card that left under the pointer hears no leave.
         if (replyShown === null) replyHovered = false;

@@ -197,7 +197,8 @@ function verifyReplyCard(view) {
         physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } };
     const fault = { fault: { kind: "error", reason: "brain=stream-error", retry: 0 } };
     const spoken = { gen: 1, role: "assistant", text: "assistant 20" };
-    const card = (regions, rows = log, session = "1:0", caption = null) => view.replyCard(rows, detail(regions).state, session, caption, null);
+    // The judge runs in its library's own context; compare plain copies.
+    const card = (regions, rows = log, session = "1:0", caption = null) => copy(view.replyCard(rows, detail(regions).state, session, caption, null));
     const answer = (settled = true, mode = "answer") => ({ key: "1:20", answer: { gen: 1, at: 20 }, mode, fault: null, settled });
     assert.equal(card({}), null, "voice on and orb shown: no card");
     assert.deepEqual(card(muted), answer(), "muted: the newest answer");
@@ -224,12 +225,31 @@ function verifyReplyCard(view) {
         fault: { title: "The AI model did not answer", action: view.faultText(fault.fault, detail(fault).state.engine.kind, null).action }, settled: true },
         "a fault reads on the card in its plain words with no answer to open at");
     assert.equal(card(fault), null, "a fault with the voice on and the orb shown is the overlay's");
+    // A lost device retries, then fails with the same reason and generation:
+    // one card, whose words change from trying again to what to do.
+    const lost = 'device-lost target="fixture.mic" from=default microphones=0[]';
+    const retrying = card({ ...hidden, fault: { kind: "retrying", reason: lost, retry: 1 } });
+    const failed = card({ ...hidden, fault: { kind: "error", reason: lost, retry: 1 } });
+    assert.equal(retrying.key, failed.key, "the same fault keeps its card");
+    assert.notDeepEqual(retrying.fault, failed.fault, "the retried fault and the failed one read different words");
+    verifyReplyPublication(retrying, failed);
     // One answer identity, which the card and the console both read.
     assert.equal(view.isAnswer(row("assistant", 20), { gen: 1, at: 20 }), true);
     assert.equal(view.isAnswer(row("user", 20), { gen: 1, at: 20 }), false, "the user's words are no answer");
     assert.equal(view.isAnswer(row("assistant", 21), { gen: 1, at: 20 }), false, "another row is not the answer");
     assert.equal(view.isAnswer({ ...row("assistant", 20), gen: 2 }, { gen: 1, at: 20 }), false, "another generation's row is not the answer");
     assert.equal(view.isAnswer(row("assistant", 20), null), false, "no answer names no row");
+}
+// The service publishes the card again whenever its decision changes, its
+// words included (Service.qml replyKey), not only when its key does.
+function verifyReplyPublication(before, after) {
+    const service = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
+    const found = service.match(/^    readonly property string replyKey: (.*)$/m);
+    assert.notEqual(found, null, "one shipped publication key");
+    const key = shown => vm.runInContext(found[1], vm.createContext({ replyShown: shown }));
+    assert.notEqual(key(before), key(after), "a change of the card's words republishes it");
+    assert.equal(key(before), key(JSON.parse(JSON.stringify(before))), "an equal decision publishes nothing new");
+    assert.equal(key(null), "", "no card publishes the empty key");
 }
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
 verify(load(path.join(dir, "WidgetView.js")));
