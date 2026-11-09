@@ -1424,7 +1424,7 @@ function suite(ctx, configLogic, check) {
     check("validateManifest normalizes absent requirements to a list", ctx.validateManifest(bar, "/p").manifest.requirements, []);
     check("validateManifest normalizes an absent systemSteps to a list", ctx.validateManifest(bar, "/p").manifest.systemSteps, []);
     check("validateManifest keeps the declared systemSteps", ctx.validateManifest(Object.assign({}, bar, { capabilities: ["system"], systemSteps: ["i2c-dev", "apple-displays"] }), "/p").manifest.systemSteps, ["i2c-dev", "apple-displays"]);
-    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "service-sshd", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources"]);
+    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "service-sshd", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources", "dns-cloudflare", "dns-google", "dns-custom"]);
     const trafficManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.traffic/manifest.json"), "utf8")), "/traffic");
     check("traffic declares its judged capture system step", trafficManifest.ok, true);
     if (trafficManifest.ok) {

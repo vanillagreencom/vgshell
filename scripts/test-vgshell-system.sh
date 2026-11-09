@@ -138,6 +138,7 @@ exit 0
 EOF
 # systemctl answers from $tmp/units/<unit>.{active,enabled,masked,missing},
 # and enable --now leaves a unit with <unit>.no-start inactive;
+# reload fails for a unit with <unit>.no-reload;
 # display-manager.service is an alias of the unit $tmp/units/display-manager
 # names, else of an enabled greetd.service, else of no unit; the default
 # target is the one $tmp/units/default-target names, else graphical.target.
@@ -157,6 +158,8 @@ case "\$1 \$2" in
   "enable "*) touch "\$u/\$2.enabled" ;;
   "disable "*) rm -f "\$u/\$2.enabled" ;;
   "stop "*) rm -f "\$u/\$2.active" ;;
+  "reload "*) [ ! -e "\$u/\$2.no-reload" ] ;;
+  "restart "*) touch "\$u/\$2.active" ;;
   "daemon-reload ") ;;
   "get-default ") if [ -e "\$u/default-target" ]; then cat "\$u/default-target"; else echo graphical.target; fi ;;
   "set-default "*) printf '%s\n' "\$2" >"\$u/default-target" ;;
@@ -308,6 +311,67 @@ elif len(args) == 4 and args[0] == "login" and args[1].startswith("--operator=")
 else:
     sys.exit(64)
 EOF
+# nmcli answers from the profiles and devices of $tmp/nm.json and logs each
+# call; it fails while $tmp/nm-down exists. A modify refuses a list of
+# servers for a method that takes none, as NetworkManager 1.58.1's
+# nm-setting-ip4-config.c and nm-setting-ip6-config.c verify() do, and any
+# modify before the DNS record exists. A profile with no ipv4 or ipv6
+# setting prints no line for its fields, as src/nmcli/connections.c in
+# 1.58.1 does. The modify of the profile $tmp/nm-modify-fails names fails
+# once, and the reapply of the device $tmp/nm-reapply-refused names fails.
+# No call reaches NetworkManager. dns_fixture installs it.
+cat >"$tmp/nmcli-standin" <<EOF
+#!$(command -v python3)
+import json, sys
+from pathlib import Path
+root = Path("$tmp")
+args = sys.argv[1:]
+with (root / "nmcli.log").open("a") as log:
+    log.write(" ".join(args) + "\\n")
+if (root / "nm-down").exists():
+    sys.exit(8)
+path = root / "nm.json"
+state = json.loads(path.read_text())
+profiles = {p["connection.uuid"]: p for p in state["profiles"]}
+no_servers = {"ipv4": ("link-local", "shared", "disabled"), "ipv6": ("ignore", "link-local", "disabled")}
+columns = {"UUID": "connection.uuid", "TYPE": "connection.type", "PORT": "connection.port-type"}
+def refused(name, value):
+    path = root / name
+    return path.exists() and path.read_text().strip() == value
+if args[:2] == ["-t", "-f"] and args[3:] == ["connection", "show"] and set(args[2].split(",")) <= set(columns):
+    for p in state["profiles"]:
+        print(":".join(p.get(columns[c], "") for c in args[2].split(",")))
+elif args[:3] == ["--escape", "no", "-g"] and args[4:6] == ["connection", "show"] and args[6::2] == ["uuid"] * (len(args[6:]) // 2):
+    print("\\n\\n".join("\\n".join(profiles[u][f] for f in args[3].split(",") if f in profiles[u]) for u in args[7::2]))
+elif args == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+    for d in state["devices"]:
+        print(":".join((d["device"], d["type"], d["state"])))
+elif args[:3] == ["connection", "modify", "uuid"] and len(args) % 2 == 0:
+    if not Path("$records/dns").exists():
+        sys.exit(64)
+    if refused("nm-modify-fails", args[3]):
+        (root / "nm-modify-fails").unlink()
+        sys.exit(1)
+    p = profiles[args[3]]
+    for key, value in zip(args[4::2], args[5::2]):
+        family = key.split(".")[0]
+        if key in ("ipv4.dns", "ipv6.dns"):
+            value = ",".join(value.replace(",", " ").split())
+            if value and p[family + ".method"] in no_servers[family]:
+                sys.exit(4)
+        elif key not in ("ipv4.ignore-auto-dns", "ipv6.ignore-auto-dns") or value not in ("yes", "no"):
+            sys.exit(64)
+        p[key] = value
+    path.write_text(json.dumps(state, indent=1))
+elif args[:2] == ["device", "reapply"] and len(args) == 3:
+    if refused("nm-reapply-refused", args[2]):
+        sys.exit(1)
+elif args in (["general", "reload", "conf"], ["general", "reload", "dns-full"]):
+    pass
+else:
+    sys.exit(64)
+EOF
+chmod +x "$tmp/nmcli-standin"
 cat >"$bin/xdg-open" <<EOF
 #!/bin/sh
 printf '%s\n' "\$(id -u)" >"$tmp/browser-uid"
@@ -317,9 +381,10 @@ printf '%s\n' "\$1" >"$tmp/browser-address"
 EOF
 chmod +x "$bin/xdg-open"
 # gum confirm records its arguments, runs $tmp/gum-hook when present and
-# answers with $tmp/gum-answer.
+# answers with $tmp/gum-answer; gum input answers the terminal's next line.
 cat >"$bin/gum" <<EOF
 #!/bin/sh
+if [ "\$1" = input ]; then IFS= read -r line || exit 130; printf '%s\n' "\$line"; exit 0; fi
 [ "\$1" = confirm ] || exit 0
 printf '%s\n' "\$@" >"$tmp/gum.log"
 [ -x "$tmp/gum-hook" ] && "$tmp/gum-hook"
@@ -377,6 +442,7 @@ fresh() {
   rm -f -- "${root:?}/usr/sbin/hdparm"
   rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/wrapper-caps" "$tmp/capture-probes" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
   rm -f -- "$tmp/wake-expected"
+  rm -f -- "${bin:?}/nmcli" "${tmp:?}/nm.json" "${tmp:?}/nmcli.log" "${tmp:?}/nm-down" "${tmp:?}/nm-modify-fails" "${tmp:?}/nm-reapply-refused"
 }
 wake_fixture() {
   local device class state interface protocol
@@ -488,7 +554,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"service-sshd":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"service-sshd":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"},"dns-cloudflare":{"state":"absent","reason":"networkmanager-missing"},"dns-google":{"state":"absent","reason":"networkmanager-missing"},"dns-custom":{"state":"absent","reason":"networkmanager-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -1664,6 +1730,260 @@ run_nixos "a failed detection reads needed steps unknown" 0 "" "$nixos_path:$no_
 check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected unknown system-undetected unknown system-undetected)"
 check "an undetected system runs no sudo" no_sudo
 
+# DNS steps: NetworkManager's profiles and devices are $tmp/nm.json behind
+# the nmcli stand-in, NetworkManager and systemd-resolved run, and
+# /etc/resolv.conf links to resolved's stub. The wired profile carries the
+# owner's own servers and DNS-over-TLS setting, as cachy's "Wired
+# connection 1" does; the Hotspot profile's IPv6 is disabled; the
+# WireGuard profile is a full tunnel that routes `~.` to its own server;
+# the bridge and bond ports have no IP settings and the VRF port keeps
+# its own, as `nmcli --offline connection add type ethernet port-type
+# bridge|vrf controller c0` prints them.
+dns_wired=69c2c442-e91b-3e18-af84-6d05eddb2a7c
+dns_wifi=0c4be9a1-7d52-4a33-9d3e-2f6b8c1e5a70
+dns_hotspot=5d2f8e31-3b6a-4c1e-8f0a-9e7d6c5b4a32
+dns_joined=7a1c3e5f-2b4d-4f6a-8c0e-1d3f5a7b9c2e
+dns_vrf=5e0d3a2c-8b4f-4c7d-9e1a-3f2b4c5d6e7f
+dns_dropin="$root/etc/systemd/resolved.conf.d/60-vgs-dns.conf"
+cf4='1.1.1.1#cloudflare-dns.com,1.0.0.1#cloudflare-dns.com'
+cf6='2606:4700:4700::1111#cloudflare-dns.com,2606:4700:4700::1001#cloudflare-dns.com'
+g4='8.8.8.8#dns.google,8.8.4.4#dns.google'
+g6='2001:4860:4860::8888#dns.google,2001:4860:4860::8844#dns.google'
+own_servers='no 94.140.14.14,94.140.15.15 no 2a10:50c0::ad1:ff,2a10:50c0::ad2:ff'
+quad9='FallbackDNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net'
+dns_fixture() {
+  cp -- "$tmp/nmcli-standin" "$bin/nmcli"
+  python3 - "$tmp/nm.json" "$dns_wired" "$dns_wifi" "$dns_hotspot" "$dns_vrf" <<'PY'
+import json, sys
+path, wired, wifi, hotspot, vrf = sys.argv[1:]
+def profile(uuid, kind, name, v4="", v6="", method6="auto", **extra):
+    p = {"connection.uuid": uuid, "connection.type": kind, "connection.id": name, "connection.dns-over-tls": "-1",
+         "ipv4.method": "auto", "ipv4.ignore-auto-dns": "no", "ipv4.dns": v4, "ipv4.dns-search": "", "ipv4.dns-priority": "0",
+         "ipv6.method": method6, "ipv6.ignore-auto-dns": "no", "ipv6.dns": v6, "ipv6.dns-search": "", "ipv6.dns-priority": "0"}
+    p.update(extra)
+    return p
+json.dump({"profiles": [
+    profile(wired, "802-3-ethernet", "Wired connection 1", "94.140.14.14,94.140.15.15", "2a10:50c0::ad1:ff,2a10:50c0::ad2:ff", **{"connection.dns-over-tls": "2"}),
+    profile(wifi, "802-11-wireless", "Cafe"),
+    profile(hotspot, "802-11-wireless", "Hotspot", method6="disabled"),
+    profile("1f0e2d3c-4b5a-4968-8776-655443322110", "wireguard", "wg-full", "10.64.0.1", **{"ipv4.method": "manual", "ipv4.dns-search": "~."}),
+    profile("2e1d0c9b-8a79-4685-9443-322110ffeedd", "vpn", "office", "10.8.0.1"),
+    profile("e9a30477-e943-4825-8794-a267c9cea07c", "tun", "tailscale0", **{"ipv4.method": "disabled", "ipv6.method": "disabled"}),
+    {"connection.uuid": "3c8b1e0a-6f2d-4a5b-9c7e-1d0f2a3b4c5d", "connection.type": "802-3-ethernet", "connection.id": "br0 port", "connection.port-type": "bridge", "connection.controller": "br0"},
+    {"connection.uuid": "4d9c2f1b-7a3e-4b6c-8d0f-2e1a3b4c5d6e", "connection.type": "802-3-ethernet", "connection.id": "bond0 port", "connection.port-type": "bond", "connection.controller": "bond0"},
+    profile(vrf, "802-3-ethernet", "vrf0 port", **{"connection.port-type": "vrf", "connection.controller": "vrf0"}),
+], "devices": [
+    {"device": "enp10s0", "type": "ethernet", "state": "connected"},
+    {"device": "wlan0", "type": "wifi", "state": "connected"},
+    {"device": "wg0", "type": "wireguard", "state": "connected"},
+    {"device": "tailscale0", "type": "tun", "state": "connected (externally)"},
+    {"device": "enp11s0", "type": "ethernet", "state": "unavailable"},
+]}, open(path, "w"), indent=1)
+PY
+  touch "$tmp/units/NetworkManager.service.active" "$tmp/units/systemd-resolved.service.active"
+  mkdir -p "$root/run/systemd/resolve"
+  : >"$root/run/systemd/resolve/stub-resolv.conf"
+  ln -s ../run/systemd/resolve/stub-resolv.conf "$root/etc/resolv.conf"
+  printf '[Resolve]\n#DNS=\n#DNSOverTLS=no\n' >"$root/etc/systemd/resolved.conf"
+}
+# dns_profile UUID: its four DNS fields as the record writes them.
+dns_profile() { python3 -c 'import json,sys; p={q["connection.uuid"]: q for q in json.load(open(sys.argv[1]))["profiles"]}[sys.argv[2]]; print(" ".join(p[k] or "-" for k in ("ipv4.ignore-auto-dns", "ipv4.dns", "ipv6.ignore-auto-dns", "ipv6.dns")))' "$tmp/nm.json" "$1"; }
+# Every profile but the Wi-Fi and Ethernet ones with IP settings whole,
+# and every other profile's settings besides its four DNS fields.
+dns_others() { python3 -c 'import json,sys; four = ("ipv4.ignore-auto-dns", "ipv4.dns", "ipv6.ignore-auto-dns", "ipv6.dns"); print(json.dumps([p if p["connection.type"] not in ("802-11-wireless", "802-3-ethernet") or "ipv4.method" not in p else {k: v for k, v in p.items() if k not in four} for p in json.load(open(sys.argv[1]))["profiles"]], sort_keys=True))' "$tmp/nm.json"; }
+dns_set() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [p.update({sys.argv[3]: sys.argv[4]}) for p in d["profiles"] if p["connection.uuid"] == sys.argv[2]]; json.dump(d, open(sys.argv[1], "w"))' "$tmp/nm.json" "$@"; } # UUID KEY VALUE
+dns_join() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p=dict(d["profiles"][1]); p.update({"connection.uuid": sys.argv[2], "connection.id": "Joined later", "ipv4.ignore-auto-dns": "no", "ipv4.dns": "", "ipv6.ignore-auto-dns": "no", "ipv6.dns": ""}); d["profiles"].append(p); json.dump(d, open(sys.argv[1], "w"))' "$tmp/nm.json" "$1"; } # UUID
+dns_reloads() { grep -E -- "^-- ($(p nmcli) (general|device) |$(p systemctl) (reload|restart) systemd-resolved)" "$tmp/sudo.log"; }
+dns_reload_order="$(printf '%s\n' "-- $(p nmcli) general reload conf" "-- $(p nmcli) device reapply enp10s0" "-- $(p nmcli) device reapply wlan0" "-- $(p systemctl) reload systemd-resolved.service" "-- $(p nmcli) general reload dns-full")"
+dns_states() { printf '%s|%s|%s' "$(step_state dns-cloudflare)" "$(step_state dns-google)" "$(step_state dns-custom)"; }
+# A full-tunnel VPN keeps the default DNS route, the half of it the steps
+# hold: resolved has no global server, which systemd-resolved.service(8)
+# § PROTOCOLS AND ROUTING sends every unmatched name to beside the
+# default-route links; the WireGuard and VPN profiles keep their servers,
+# the WireGuard's `~.` and the default priority NetworkManager reads as
+# 50; and each Wi-Fi and Ethernet profile keeps the default it reads as
+# 100 (nm-settings-nmcli(5) ipv4.dns-priority). NetworkManager 1.58.1's
+# nm-dns-manager.c _mgr_configs_data_construct then drops the Wi-Fi and
+# Ethernet links' lower-priority `~`; no NetworkManager runs here.
+dns_vpn_keeps_route() {
+  [[ -f $dns_dropin ]] && ! grep -qE '^[[:space:]]*DNS[[:space:]]*=' -- "$dns_dropin" "$root/etc/systemd/resolved.conf" &&
+    python3 - "$tmp/nm.json" <<'PY'
+import json, sys
+profiles = json.load(open(sys.argv[1]))["profiles"]
+kinds = {}
+for p in profiles:
+    kinds.setdefault(p["connection.type"], []).append(p)
+(wg,), (vpn,) = kinds["wireguard"], kinds["vpn"]
+assert (wg["ipv4.dns"], wg["ipv4.dns-search"], wg["ipv4.dns-priority"]) == ("10.64.0.1", "~.", "0")
+assert (vpn["ipv4.dns"], vpn["ipv4.dns-priority"]) == ("10.8.0.1", "0")
+for p in kinds["802-3-ethernet"] + kinds["802-11-wireless"]:
+    if "ipv4.method" not in p:
+        continue
+    assert (p["ipv4.dns-priority"], p["ipv6.dns-priority"]) == ("0", "0")
+PY
+}
+# The plan's text names each server it replaces before the commands.
+dns_named_before_commands() { # SERVER...
+  python3 - "$tmp/out" "$@" <<'PY'
+import pathlib, re, sys
+plain = re.sub(r"\x1b\[[0-9;:]*m", "", pathlib.Path(sys.argv[1]).read_text())
+assert "│" in plain
+words = {w.strip(",.;") for w in plain.split("│", 1)[0].split()}
+assert all(server in words for server in sys.argv[2:])
+PY
+}
+# dns_custom_refused TEXT: dns-custom, with TEXT typed on its terminal,
+# exits 1 with its keyed refusal before anything is written or run as root.
+dns_custom_refused() {
+  local status=0
+  printf '%s\n' "$1" >"$tmp/tty-input"
+  tree_snapshot >"$tmp/before-tree"
+  "${row_env[@]}" SHELL="$BASH" "$script_bin" -qec "$(printf '%q ' "$vgs/bin/vgshell" system apply dns-custom)" /dev/null <"$tmp/tty-input" >"$tmp/raw" 2>&1 || status=$?
+  tr -d '\r' <"$tmp/raw" >"$tmp/out"
+  tree_snapshot >"$tmp/after-tree"
+  ((status == 1)) && out_has "vgs-system: refused: servers=invalid word=" && untouched && no_sudo
+}
+
+fresh
+check "without nmcli every DNS step reads absent" test "$(dns_states)" == "absent networkmanager-missing|absent networkmanager-missing|absent networkmanager-missing"
+dns_fixture
+check "a profile with the owner's own servers reads foreign for every provider" test "$(dns_states)" == "needed foreign|needed foreign|needed foreign"
+dns_others >"$tmp/dns-others-before"
+cp -- "$root/etc/systemd/resolved.conf" "$tmp/resolved-before"
+run_tty "apply dns-cloudflare succeeds" 0 apply dns-cloudflare
+check "apply dns-cloudflare reports the step ready" last_out_is "ok system=dns-cloudflare state=ready"
+check "the drop-in holds Omarchy's fallback and DNSOverTLS lines" holds_text "$dns_dropin" "$(printf '%s\n' '# Written by vgshell system apply dns-cloudflare; vgshell system undo dns-cloudflare removes it.' '[Resolve]' "$quad9" 'DNSOverTLS=opportunistic')"
+check "the wired profile carries Cloudflare in both families" test "$(dns_profile "$dns_wired")" == "yes $cf4 yes $cf6"
+check "the Wi-Fi profile carries Cloudflare in both families" test "$(dns_profile "$dns_wifi")" == "yes $cf4 yes $cf6"
+check "a profile whose IPv6 is disabled keeps its IPv6 fields" test "$(dns_profile "$dns_hotspot")" == "yes $cf4 no -"
+check "a VRF port profile carries Cloudflare in both families" test "$(dns_profile "$dns_vrf")" == "yes $cf4 yes $cf6"
+check "the WireGuard, VPN, tun and port profiles and every other setting are unchanged" cmp -s -- "$tmp/dns-others-before" <(dns_others)
+check "with a full-tunnel VPN up, the VPN keeps the default DNS route" dns_vpn_keeps_route
+check "resolved.conf is unchanged" cmp -s -- "$tmp/resolved-before" "$root/etc/systemd/resolved.conf"
+check "the reloads run in Omarchy's order, reapplying connected Wi-Fi and Ethernet alone" test "$(dns_reloads)" == "$dns_reload_order"
+check "the record keeps the wired profile's own servers" grep -qxF -- "profile-$dns_wired=$own_servers" "$records/dns"
+check "the record keeps a profile with no servers as none" grep -qxF -- "profile-$dns_wifi=no - no -" "$records/dns"
+check "the apply names the servers it replaces before its commands" dns_named_before_commands 94.140.14.14 94.140.15.15 2a10:50c0::ad1:ff 2a10:50c0::ad2:ff
+check "status reads Cloudflare in effect and the others not set" test "$(dns_states)" == "ready in-effect|needed not-set|needed not-set"
+rm -f -- "$tmp/sudo.log"
+run "apply of the provider in effect runs nothing" 0 "" apply dns-cloudflare
+check "a ready DNS apply runs no sudo" no_sudo
+run_tty "apply dns-google over Cloudflare succeeds" 0 apply dns-google
+check "the wired profile carries Google" test "$(dns_profile "$dns_wired")" == "yes $g4 yes $g6"
+check "the switch keeps the servers recorded before the first change" grep -qxF -- "profile-$dns_wired=$own_servers" "$records/dns"
+check "status reads Google in effect" test "$(dns_states)" == "needed not-set|ready in-effect|needed not-set"
+rm -f -- "$tmp/sudo.log"
+run_tty "undo of any DNS step returns to the network default" 0 undo dns-cloudflare
+check "undo reports it" last_out_is "ok system=dns-cloudflare state=undone"
+check "the wired profile gets back its recorded fields" test "$(dns_profile "$dns_wired")" == "$own_servers"
+check "the Wi-Fi profile gets back no servers" test "$(dns_profile "$dns_wifi")" == "no - no -"
+check "the IPv6-disabled profile gets back its IPv4 fields" test "$(dns_profile "$dns_hotspot")" == "no - no -"
+check "the VRF port profile gets back no servers" test "$(dns_profile "$dns_vrf")" == "no - no -"
+check "undo removes the drop-in, the directory it made and the record" test ! -e "$dns_dropin" -a ! -e "${dns_dropin%/*}" -a ! -e "$records/dns"
+check "undo leaves every other profile and setting" cmp -s -- "$tmp/dns-others-before" <(dns_others)
+check "undo reloads in Omarchy's order" test "$(dns_reloads)" == "$dns_reload_order"
+check "the owner's servers read foreign again" test "$(dns_states)" == "needed foreign|needed foreign|needed foreign"
+run "undo with no DNS record changes nothing" 0 "" undo dns-google
+check "an untouched DNS undo says so" out_is "ok system=dns-google state=untouched"
+
+# A network joined after the choice keeps its own DNS until the choice is
+# applied again, which keeps the first record; undo leaves a profile
+# someone changed after apply.
+fresh; dns_fixture
+run_tty "apply dns-google before a network is joined" 0 apply dns-google
+dns_join "$dns_joined"
+check "a network joined after the choice reads partial" test "$(step_state dns-google)" == "needed partial"
+rm -f -- "$tmp/sudo.log"
+run_tty "applying the choice again covers the joined network" 0 apply dns-google
+check "the joined network carries Google" test "$(dns_profile "$dns_joined")" == "yes $g4 yes $g6"
+check "applying again changes only the joined network" test "$(grep -c -- ' connection modify ' "$tmp/sudo.log")" == 1
+check "applying again keeps the record of the wired profile's own servers" grep -qxF -- "profile-$dns_wired=$own_servers" "$records/dns"
+dns_set "$dns_wifi" ipv4.dns 192.168.1.1
+run_tty "undo after someone changed a profile" 0 undo dns-google
+check "the changed profile keeps its newer servers" test "$(dns_profile "$dns_wifi")" == "yes 192.168.1.1 yes $g6"
+check "the unchanged wired profile gets back its own servers" test "$(dns_profile "$dns_wired")" == "$own_servers"
+
+# A change of provider that a refused modify stops part way still reads
+# the earlier provider's servers as VGS's: applying it again keeps, and
+# undo puts back, what each profile held before VGS.
+fresh; dns_fixture
+run_tty "apply dns-cloudflare before a switch that stops" 0 apply dns-cloudflare
+printf '%s\n' "$dns_wifi" >"$tmp/nm-modify-fails"
+run_tty "a switch to Google stops at a refused modify" 1 apply dns-google
+check "the stopped switch leaves the Wi-Fi profile on Cloudflare" test "$(dns_profile "$dns_wifi")" == "yes $cf4 yes $cf6"
+check "a stopped switch reads partial, never foreign" test "$(dns_states)" == "needed not-set|needed partial|needed not-set"
+run_tty "the switch to Google again completes" 0 apply dns-google
+check "the completed switch keeps the Wi-Fi profile's fields from before VGS" grep -qxF -- "profile-$dns_wifi=no - no -" "$records/dns"
+check "the completed switch keeps the wired profile's own servers" grep -qxF -- "profile-$dns_wired=$own_servers" "$records/dns"
+check "the completed switch reads Google in effect" test "$(dns_states)" == "needed not-set|ready in-effect|needed not-set"
+run_tty "undo after the completed switch" 0 undo dns-google
+check "undo after the completed switch gives the Wi-Fi profile back no servers" test "$(dns_profile "$dns_wifi")" == "no - no -"
+check "undo after the completed switch gives the wired profile back its own servers" test "$(dns_profile "$dns_wired")" == "$own_servers"
+fresh; dns_fixture
+run_tty "apply dns-cloudflare before a switch that stops and is undone" 0 apply dns-cloudflare
+printf '%s\n' "$dns_wifi" >"$tmp/nm-modify-fails"
+run_tty "a switch to Google stops before undo" 1 apply dns-google
+run_tty "undo of a stopped switch" 0 undo dns-google
+check "undo of a stopped switch gives the Wi-Fi profile back no servers" test "$(dns_profile "$dns_wifi")" == "no - no -"
+check "undo of a stopped switch gives the Hotspot profile back no servers" test "$(dns_profile "$dns_hotspot")" == "no - no -"
+check "undo of a stopped switch gives the wired profile back its own servers" test "$(dns_profile "$dns_wired")" == "$own_servers"
+check "undo of a stopped switch removes the record" test ! -e "$records/dns"
+
+# A device whose profile holds a change reapply cannot take refuses the
+# reapply; undo still restores every profile and drops the record.
+fresh; dns_fixture
+run_tty "apply dns-cloudflare before a refused reapply" 0 apply dns-cloudflare
+printf 'wlan0\n' >"$tmp/nm-reapply-refused"
+rm -f -- "${tmp:?}/sudo.log"
+run_tty "undo goes on past a refused reapply" 0 undo dns-cloudflare
+check "undo past a refused reapply gives the Wi-Fi profile back no servers" test "$(dns_profile "$dns_wifi")" == "no - no -"
+check "undo past a refused reapply removes the record" test ! -e "$records/dns"
+check "undo past a refused reapply runs every reload in Omarchy's order" test "$(dns_reloads)" == "$dns_reload_order"
+
+# dns-custom reads its servers on its own terminal and admits IPv4 and IPv6
+# literals alone, split and printed as Omarchy and NetworkManager do.
+fresh; dns_fixture
+check "dns-custom refuses a hostname" dns_custom_refused 'dns.google'
+check "dns-custom refuses a shell metacharacter" dns_custom_refused '1.1.1.1; reboot'
+TTY_INPUT='9.9.9.9 2620:00fe:0000::0009 149.112.112.112,2620:fe::fe' run_tty "dns-custom accepts a mixed list" 0 apply dns-custom
+check "dns-custom splits the IPv4 and IPv6 servers in order" test "$(dns_profile "$dns_wired")" == "yes 9.9.9.9,149.112.112.112 yes 2620:fe::9,2620:fe::fe"
+check "the custom drop-in has Omarchy's fallback and no DNSOverTLS line" holds_text "$dns_dropin" "$(printf '%s\n' '# Written by vgshell system apply dns-custom; vgshell system undo dns-custom removes it.' '[Resolve]' "$quad9")"
+check "status reads the custom servers in effect" test "$(dns_states)" == "needed not-set|needed not-set|ready in-effect"
+rm -f -- "$tmp/sudo.log"
+TTY_INPUT='9.9.9.9 149.112.112.112 2620:fe::9 2620:fe::fe' run_tty "dns-custom asks again while its servers are in effect" 0 apply dns-custom
+check "the servers in effect typed again run no sudo" no_sudo
+TTY_INPUT='192.0.2.53' run_tty "dns-custom replaces the servers in effect" 0 apply dns-custom
+check "the new custom servers replace the old" test "$(dns_profile "$dns_wired")" == "yes 192.0.2.53 yes -"
+check "the replacement keeps the record of the wired profile's own servers" grep -qxF -- "profile-$dns_wired=$own_servers" "$records/dns"
+run "dns-custom with no terminal is refused at the question" 2 "*" apply dns-custom
+
+# What the steps cannot judge reads unknown, and a drop-in VGS did not
+# write reads denied; apply refuses each before any sudo.
+fresh; dns_fixture; rm -f -- "$tmp/units/systemd-resolved.service.active"
+check "an inactive resolved reads unknown" test "$(step_state dns-cloudflare)" == "unknown resolved-inactive"
+run "apply refuses while resolved is inactive" 1 "vgs-system: refused: state=unknown reason=resolved-inactive step=dns-cloudflare" apply dns-cloudflare
+fresh; dns_fixture; rm -f -- "$root/etc/resolv.conf"; printf 'nameserver 192.168.1.1\n' >"$root/etc/resolv.conf"
+check "a resolv.conf that is not resolved's stub reads unknown" test "$(step_state dns-google)" == "unknown resolv-conf-not-stub"
+run "apply refuses past resolved's stub" 1 "vgs-system: refused: state=unknown reason=resolv-conf-not-stub step=dns-google" apply dns-google
+fresh; dns_fixture; touch "$tmp/nm-down"
+check "unreadable profiles read unknown" test "$(step_state dns-cloudflare)" == "unknown nmcli-failed"
+fresh; dns_fixture; rm -f -- "$tmp/units/NetworkManager.service.active"
+check "a stopped NetworkManager reads absent" test "$(step_state dns-cloudflare)" == "absent networkmanager-inactive"
+fresh; dns_fixture; mkdir -p "${dns_dropin%/*}"; printf 'mine\n' >"$dns_dropin"
+check "a drop-in VGS did not write reads denied" test "$(step_state dns-cloudflare)" == "denied foreign-dropin"
+run "apply refuses a drop-in VGS did not write" 1 "vgs-system: refused: state=denied reason=foreign-dropin step=dns-cloudflare" apply dns-cloudflare
+check "the foreign drop-in keeps its bytes" holds_text "$dns_dropin" mine
+check "the refused DNS rows run no sudo" no_sudo
+
+# NixOS: the configuration snippet, and nothing written.
+fresh; dns_fixture
+run_nixos "nixos apply of dns-cloudflare prints the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply dns-cloudflare
+check "nixos dns apply reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=dns-cloudflare skipped=nixos-config"
+check "nixos dns snippet sets Omarchy's fallback" out_has 'services.resolved.settings.Resolve.FallbackDNS = [ "9.9.9.9#dns.quad9.net" "149.112.112.112#dns.quad9.net" "2620:fe::fe#dns.quad9.net" "2620:fe::9#dns.quad9.net" ];'
+check "nixos dns snippet sets no global server" test "$(grep -c 'Resolve.DNS ' "$tmp/out" || true)" == 0
+check "nixos dns apply writes nothing" untouched
+check "nixos dns apply runs no sudo" no_sudo
+
 # Must-fail controls, each a copy of the helper missing one rule.
 control() { # NAME NEEDLE REPLACEMENT
   local copy="$tmp/control-$1"
@@ -1898,6 +2218,59 @@ for mutation in wrapper-path wrapper-probe; do
   run_nixos "the capture NixOS $mutation mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
   check "the NixOS $mutation mutant fails the ready contract" capture_nixos_control_rejected "$mutation"
 done
+
+# DNS step controls: each mutant runs as a user would, and the row's own
+# assertion above must read it red.
+green_red() { if "$@"; then echo green; else echo red; fi; }
+control dns-global-line 'FallbackDNS=$dns_fallback"' 'DNS=1.1.1.1#cloudflare-dns.com
+FallbackDNS=$dns_fallback"'
+dns_fixture
+run_tty "the dns-global-line mutant applies" 0 apply dns-cloudflare
+check "the dns-global-line mutant fails the full-tunnel VPN check" test "$(green_red dns_vpn_keeps_route)" == red
+control dns-filter-open 'case "${BASH_REMATCH[3]}" in 802-11-wireless|802-3-ethernet)' 'case "${BASH_REMATCH[3]}" in *)'
+dns_fixture; dns_others >"$tmp/dns-others-before"
+run_tty "the dns-filter-open mutant applies" 0 apply dns-cloudflare
+check "the dns-filter-open mutant fails the untouched VPN profiles check" test "$(green_red cmp -s -- "$tmp/dns-others-before" <(dns_others))" == red
+control dns-restore-blind '    dns_fields "$uuid" "$ignore4" "$(dns_unlisted "$ipv4")" "$ignore6" "$(dns_unlisted "$ipv6")"' '    dns_fields "$uuid" no "" no ""'
+dns_fixture
+run_tty "the dns-restore-blind mutant applies" 0 apply dns-cloudflare
+run_tty "the dns-restore-blind mutant undoes" 0 undo dns-cloudflare
+check "the dns-restore-blind mutant fails the recorded-fields check" test "$(green_red test "$(dns_profile "$dns_wired")" == "$own_servers")" == red
+control dns-rerecord '    if [[ -n $saved ]] && dns_vgs_held "$uuid"; then' '    if false; then'
+dns_fixture
+run_tty "the dns-rerecord mutant applies Cloudflare" 0 apply dns-cloudflare
+run_tty "the dns-rerecord mutant switches to Google" 0 apply dns-google
+run_tty "the dns-rerecord mutant undoes" 0 undo dns-google
+check "the dns-rerecord mutant fails the switch-then-undo check" test "$(green_red test "$(dns_profile "$dns_wired")" == "$own_servers")" == red
+control dns-custom-open '  parsed="$("$python" -I -c "$dns_split_servers" "$typed")" || status=$?' '  parsed="$typed -"'
+dns_fixture
+check "the dns-custom-open mutant fails the hostname refusal" test "$(green_red dns_custom_refused 'dns.google')" == red
+control dns-stub-blind '  resolv_stub || { set_probe unknown resolv-conf-not-stub; return; }' '  :'
+dns_fixture; rm -f -- "$root/etc/resolv.conf"; printf 'nameserver 192.168.1.1\n' >"$root/etc/resolv.conf"
+check "the dns-stub-blind mutant fails the unknown reading" test "$(step_state dns-google)" == "needed foreign"
+control dns-foreign-blind '    if dns_foreign "$uuid"; then set_probe needed foreign; return; fi' '    :'
+dns_fixture
+check "the dns-foreign-blind mutant fails the foreign reading" test "$(step_state dns-cloudflare)" == "needed not-set"
+control dns-prior-blind '  [[ -n $prior ]] || return 1' '  return 1'
+dns_fixture
+run_tty "the dns-prior-blind mutant applies Cloudflare" 0 apply dns-cloudflare
+printf '%s\n' "$dns_wifi" >"$tmp/nm-modify-fails"
+run_tty "the dns-prior-blind mutant's switch stops" 1 apply dns-google
+run_tty "the dns-prior-blind mutant undoes" 0 undo dns-google
+check "the dns-prior-blind mutant fails the stopped-switch undo check" test "$(green_red test "$(dns_profile "$dns_wifi")" == "no - no -")" == red
+control dns-reapply-fatal '      run) sudo -- "$nmcli" device reapply "$device" </dev/null || vgs_tui_warn "$device keeps its earlier DNS servers until it next connects." ;;' '      run) cmd "$nmcli" device reapply "$device" ;;'
+dns_fixture
+run_tty "the dns-reapply-fatal mutant applies" 0 apply dns-cloudflare
+printf 'wlan0\n' >"$tmp/nm-reapply-refused"
+run_tty "the dns-reapply-fatal mutant's undo stops at the reapply" 1 undo dns-cloudflare
+check "the dns-reapply-fatal mutant fails the record-dropped check" test "$(green_red test ! -e "$records/dns")" == red
+control dns-port-open '    [[ -z ${BASH_REMATCH[4]} || ${BASH_REMATCH[4]} == vrf ]] || continue' '    :'
+dns_fixture
+check "the dns-port-open mutant fails the foreign reading" test "$(green_red test "$(dns_states)" == "needed foreign|needed foreign|needed foreign")" == red
+control dns-vrf-skipped '    [[ -z ${BASH_REMATCH[4]} || ${BASH_REMATCH[4]} == vrf ]] || continue' '    [[ -z ${BASH_REMATCH[4]} ]] || continue'
+dns_fixture
+run_tty "the dns-vrf-skipped mutant applies" 0 apply dns-cloudflare
+check "the dns-vrf-skipped mutant fails the VRF port check" test "$(green_red test "$(dns_profile "$dns_vrf")" == "yes $cf4 yes $cf6")" == red
 
 # This stand-in reads synthetic JSON and changes only its fixture file.
 voxtype_fixture() {
