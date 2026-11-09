@@ -67,6 +67,11 @@ Scope {
     readonly property string bindAdmission: bindRequest === "" ? ""
         : JSON.stringify([Layer.mergeKeys(sections), Capabilities.hyprland.keymapRevision, Capabilities.hyprland.foreignKeys])
     property var bindSnapshot: null
+    // The failed snapshot a devices change asks to read again. ShortcutLabels
+    // reads key names on the same devices change and may hold the resolver
+    // first, so the retry stays due until a read replaces this snapshot; the
+    // resolver's release asks again through onResolvingKeysChanged.
+    property var bindRetry: null
     readonly property var bindLifetime: ({ active: true })
     readonly property var bindPlan: {
         if (!bindSourcesReady || bindSnapshot === null || bindSnapshot.admission !== bindAdmission
@@ -283,17 +288,18 @@ Scope {
         // a count change or a layout switch. configreloaded already advances
         // the revision.
         function onDevicesChanged() {
-            if (root.bindSnapshot !== null && root.bindSnapshot.read.kind === "failed") Qt.callLater(root.retryFailedKeys);
+            if (root.bindSnapshot !== null && root.bindSnapshot.read.kind === "failed") {
+                root.bindRetry = root.bindSnapshot;
+                Qt.callLater(root.resolveBindKeys);
+            }
         }
     }
 
-    function retryFailedKeys() { resolveBindKeys(true); }
-
-    function resolveBindKeys(retryFailed) {
+    function resolveBindKeys() {
         const request = bindRequest;
         const admission = bindAdmission;
         if (request === "" || (bindSnapshot !== null && bindSnapshot.request === request && bindSnapshot.admission === admission
-                && !(retryFailed === true && bindSnapshot.read.kind === "failed"))
+                && bindSnapshot !== bindRetry)
                 || Capabilities.hyprland.resolvingKeys) return;
         const keys = Layer.requestedBindKeys(sections, Capabilities.hyprland.foreignKeys, Capabilities.hyprland.userBindRows);
         const lifetime = bindLifetime;

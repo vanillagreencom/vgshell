@@ -74,6 +74,17 @@ Item {
             running("hyprctl reload config-only").finish(0, 0, "ok");
         }
 
+        // Return once the engine has been back to the event loop, so a
+        // Qt.callLater the code under test queued before this call has run
+        // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method). The
+        // order is checked by a run: the mutation row "a failed key read is
+        // read again on every release" goes red only behind this wait.
+        function settleTurn(message) {
+            let settled = false;
+            Qt.callLater(() => settled = true);
+            tryVerify(() => settled, 1000, message);
+        }
+
         function initTestCase() {
             Registry.hyprlandSections = [{ id: "acme.initial", version: "1.0.0",
                 binds: [{ shortcut: "talk", key: "SUPER+code:30" }],
@@ -195,26 +206,51 @@ Item {
             finishWrite();
         }
 
+        // held: ShortcutLabels reads key names on the same devices change and
+        // can take the shared resolver before the layer's retry runs.
+        function test_failed_key_read_reads_again_on_a_devices_change_data() {
+            return [{ tag: "resolver-free", held: false }, { tag: "resolver-held", held: true }];
+        }
+
         // expected-log: hyprland: refused: keymap=timeout -- the failed read this case answers
-        function test_failed_key_read_reads_again_on_a_devices_change() {
+        function test_failed_key_read_reads_again_on_a_devices_change(data) {
             const devicesBefore = Capabilities.hyprland.devices;
             Registry.hyprlandSections = [{ id: "acme.mic", version: "1.0.0", binds: [{ shortcut: "talk", key: "SUPER+code:30" }],
                 options: [], layerRules: [], appearance: {}, monitors: null, padRefusals: [], unknownKeys: [] }];
             tryVerify(() => Capabilities.hyprland.pendingKeys !== null);
             tryVerify(() => layer.machine.phase === "preparing");
             finishWrite();
-            Capabilities.hyprland.finishKeys({ ok: false, error: "refused: keymap=timeout" });
-            compare(layer.bindSnapshot.read.kind, "failed");
-            compare(Capabilities.hyprland.pendingKeys, null, "a failed read waits for an existing event");
-            Capabilities.hyprland.devices = { mice: [], keyboards: [{ main: true, name: "fixture", layout: "us",
-                activeLayoutIndex: 0, activeKeymap: "English (US)" }] };
-            tryVerify(() => Capabilities.hyprland.pendingKeys !== null, 1000, "a devices change reads the failed keys again");
-            Capabilities.hyprland.finishKeys({ ok: true, translation: [{ modifiers: ["SUPER"], keycode: 30 }] });
-            tryVerify(() => layer.bindPlan !== null);
-            Capabilities.hyprland.devices = devicesBefore;
-            Registry.hyprlandSections = [];
-            tryVerify(() => layer.machine.phase === "preparing");
-            finishWrite();
+            try {
+                const failed = Capabilities.hyprland.pendingKeys.keys;
+                Capabilities.hyprland.finishKeys({ ok: false, error: "refused: keymap=timeout" });
+                compare(layer.bindSnapshot.read.kind, "failed");
+                // The failed read's release queues resolveBindKeys for a
+                // later turn, which must not read the same keys again.
+                settleTurn("the turn after the failed read's release runs");
+                compare(Capabilities.hyprland.pendingKeys, null, "a failed read waits for an existing event");
+                if (data.held) Capabilities.hyprland.resolveKeys(["SUPER+code:44"], () => {});
+                Capabilities.hyprland.devices = { mice: [], keyboards: [{ main: true, name: "fixture", layout: "us",
+                    activeLayoutIndex: 0, activeKeymap: "English (US)" }] };
+                if (data.held) {
+                    settleTurn("the turn after the devices change runs");
+                    compare(JSON.stringify(Capabilities.hyprland.pendingKeys.keys), '["SUPER+code:44"]',
+                        "the other requester still holds the resolver");
+                    Capabilities.hyprland.finishKeys({ ok: true, translation: [{ modifiers: ["SUPER"], keycode: 44 }] });
+                }
+                tryVerify(() => Capabilities.hyprland.pendingKeys !== null, 1000, "a devices change reads the failed keys again");
+                compare(JSON.stringify(Capabilities.hyprland.pendingKeys.keys), JSON.stringify(failed));
+                Capabilities.hyprland.finishKeys({ ok: true, translation: [{ modifiers: ["SUPER"], keycode: 30 }] });
+                tryVerify(() => layer.bindPlan !== null, 1000, "the read again admits the binds");
+                compare(layer.bindPlan.keys["acme.mic"].talk, "SUPER+code:30");
+            } finally {
+                // A failed assertion leaves the next case no held resolver.
+                if (Capabilities.hyprland.pendingKeys !== null)
+                    Capabilities.hyprland.finishKeys({ ok: true, translation: [{ modifiers: ["SUPER"], keycode: 30 }] });
+                Capabilities.hyprland.devices = devicesBefore;
+                Registry.hyprlandSections = [];
+                tryVerify(() => layer.machine.phase === "preparing");
+                finishWrite();
+            }
         }
 
         function test_a_layout_change_during_a_key_read_reads_the_keys_again_data() {
@@ -247,9 +283,7 @@ Item {
                 Capabilities.hyprland.devices = keyboard(1, "German");
                 Capabilities.hyprland.pendingKeys = null;
                 asked.done({ ok: false, error: "refused: keymap=layout-changed" });
-                let turned = false;
-                Qt.callLater(() => turned = true);
-                tryVerify(() => turned, 1000, "the turn after the answer runs");
+                settleTurn("the turn after the answer runs");
                 compare(Capabilities.hyprland.pendingKeys, null, "no read starts while the resolver is held");
                 Capabilities.hyprland.resolvingKeys = false;
                 tryVerify(() => Capabilities.hyprland.pendingKeys !== null, 1000, "the superseded read is asked again");
