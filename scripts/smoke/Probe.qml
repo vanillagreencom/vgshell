@@ -1834,6 +1834,10 @@ Scope {
             }
             return root.json(out);
         }
+        // The capture's acknowledgment before changing its private core files.
+        function coreWatchState(): string {
+            return root.json({ ready: Registry.startCoreRevision !== "", changed: Registry.coreChanged, error: Registry.coreWatchError });
+        }
         // The core notice dialog: whether an item in it holds the keyboard
         // focus, and what it draws as { title, message, rows, groups,
         // actions, busy }, `rows` the visible lines under the message and

@@ -19,6 +19,9 @@
 # (scripts/smoke/shot.sh refuses the caller's runtime dir), so nothing is
 # captured or started on the live desktop. It needs the smoke's
 # prerequisites, XDG_RUNTIME_DIR included, plus grim.
+# restart-owed, taken only when named, captures the real core restart
+# notice after a source-byte change in the private tree. Request one scene
+# and one mode per invocation, so each theme has a fresh shell lifetime.
 #
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
@@ -612,6 +615,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-side) baseline_side="${2:-}"; shift 2 ;;
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
+    restart-owed) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
 
     link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug) scenes+=("$1"); shift ;;
@@ -756,6 +760,7 @@ fi
 ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.json ]] || return 1; done; }
 scene_ships() {
   case $1 in
+    restart-owed) [[ -f $tree/shell/Hosts/NoticeHost.qml && -f $tree/shell/Core/Registry.qml ]] ;;
     sysmon) ships_plugin vgs.sysmon vgs.settings ;;
     tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
@@ -8645,6 +8650,37 @@ network_shot_names() { ipc smoke readDescendant window vgs.network NetworkBody r
 network_shot_known() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(any(r["known"] for r in json.load(sys.stdin)["network"]["wifi"]))'; }
 network_shot_action() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(json.load(sys.stdin)["network"]["action"]["kind"])'; }
 network_shot_prompt() { ipc smoke statusValues vgs.network | py_reply 'import json,sys; print(bool(json.load(sys.stdin)["network"]["prompt"]))'; }
+
+# Source drift is terminal for a shell. Capture one theme per world and
+# never accept Restart; the world's existing owner ends the captured shell.
+scene_restart-owed() { # MODE
+  local saved="$sandbox/restart-shot-qmldir" qmldir="$repo/shell/Ui/qmldir"
+  if [[ ${#mode_list[@]} -ne 1 || ${#scenes[@]} -ne 1 ]]; then
+    fail "restart-owed needs one theme and one scene per capture world"
+    return 1
+  fi
+  restart_shot_armed() {
+    ipc smoke coreWatchState | py_reply 'import json,sys; s=json.load(sys.stdin); print("armed" if s["ready"] and not s["changed"] and s["error"] == "" else json.dumps(s))'
+  }
+  restart_shot_owed() {
+    ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["restart"]))'
+  }
+  close_notices
+  shots_baseline_safety expect_poll "the restart capture's source watcher is armed" armed restart_shot_armed
+  expect "the restart capture starts without restart debt" false restart_shot_owed
+  cp -- "$qmldir" "$saved"
+  printf '\n' >>"$qmldir"
+  expect_poll "the production source watcher owes the restart notice" true restart_shot_owed
+  expect_poll "the restart notice maps its real surface" 1 layer_count vgs:notice
+  expect_poll "the restart notice holds the keyboard before capture" true ipc smoke noticeFocused
+  ipc smoke noticeDrawn >"$SHOT_DIR/restart-owed-$1-state.json"
+  park_pointer
+  take "restart-owed-$1"
+  type_keys -k Escape || fail "sending Escape to the restart notice failed"
+  expect_poll "Escape dismisses the captured restart notice" 0 layer_count vgs:notice
+  cp -- "$saved" "$qmldir"
+  cmp -- "$saved" "$qmldir" || fail "the restart capture's source bytes were not restored"
+}
 
 scene_dialog() { # MODE
   expect "enabling acme.needs is allowed" ok ipc shell setPluginEnabled acme.needs true

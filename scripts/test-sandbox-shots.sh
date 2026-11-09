@@ -2301,10 +2301,14 @@ def prepare(text, name):
     # Execute existing scene assertion lines, not another classification
     # model. The wrappers themselves also come from their real owners.
     blocks = []
+    watcher = function("scene_restart-owed", text)
+    start = watcher.index("  restart_shot_armed()")
+    blocks.append(watcher[start:watcher.index("\n  }\n", start) + 5])
     for key, call, producer in (
         ("act", "settings_act", text), ("tui", "settings_open_tui", text),
         ("keyboard", "tooltip_link_call holdKeyboard true", text),
         ("focus", "tooltip_link_call focusItem", text),
+        ("restart-watcher", "restart_shot_armed", text),
         ("jarvis-done", "jarvis_asks_request done", jarvis),
         ("jarvis-later", "jarvis_asks_request later", jarvis),
         ("jarvis-reply", "jarvis_asks_request reply", jarvis),
@@ -2376,6 +2380,24 @@ def suite(text, name):
     assert run(pair, "before", empty, got="expected").returncode == 0, "empty-before"
     assert run(pair, "after", empty, got="expected").returncode == 0, "empty-after"
     assert run(pair, "after", empty).returncode == 1, "empty-new-failure"
+    # Readiness is a prerequisite even when IPC succeeds. Keep the
+    # structured watcher failure in the diagnostic, not in an omission.
+    for ready, error, status in (
+        (True, "", 0),
+        (False, "", 1),
+        (False, "vgshell-scan did not start", 1),
+        (True, "vgshell-scan exited before a core change", 1),
+    ):
+        state = json.dumps({"ready": ready, "changed": False, "error": error})
+        for side in ("before", "after"):
+            target = root / (name + "-watcher-" + str(run.serial) + ".jsonl") if side == "before" else empty
+            result = run(pair, side, target, kind="wrapped-restart-watcher", got=state)
+            assert result.returncode == status, ("restart-prerequisite", ready, error, side, result)
+            if status:
+                assert state in result.stdout, ("restart-failure-observation", result)
+            if side == "before":
+                assert (len(target.read_text().splitlines()) == 1 if status == 0 else target.read_text() == ""), (
+                    "restart-prerequisite-seal", ready, error, result)
     assert run(pair, "before", ledger).returncode == 1, "exclusive-acquisition"
     assert ledger.read_text().splitlines() == records, "existing-ledger-preserved"
     for token in ("@HOME@/white.png", "@REPO@/themes/vgs/backgrounds/black.png",
@@ -2480,6 +2502,8 @@ controls = (
      'box="$(ipc smoke itemGeometry "$settings_kind" vgs.settings Label \'No plugin matches "zzqxv"\')" || :', "dependency-failure"),
     ("wrapped-operation", '    jarvis_asks_request|jarvis_asks_refresh|jarvis_asks_page|power_display_wake_set|power_display_wake_end)',
      '    jarvis_asks_refresh|jarvis_asks_page|power_display_wake_set|power_display_wake_end)', "wrapped-operation"),
+    ("restart-prerequisite", '  shots_baseline_safety expect_poll "the restart capture\'s source watcher is armed"',
+     '  expect_poll "the restart capture\'s source watcher is armed"', "restart-prerequisite"),
 )
 for name, needle, replacement, expected in controls:
     assert source.count(needle) == 1, ("control-needle", name)

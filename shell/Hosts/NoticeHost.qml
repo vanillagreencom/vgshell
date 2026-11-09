@@ -179,7 +179,7 @@ Scope {
                     visible: win.consentMode && win.consent.keys !== undefined && win.consent.keys.length > 0
                     Label {
                         role: "eyebrow"
-                        text: win.consentMode ? win.consent.keysTitle : ""
+                        text: consentKeys.visible ? win.consent.keysTitle : ""
                     }
                     Repeater {
                         model: win.consentMode && win.consent.keys !== undefined ? win.consent.keys : []

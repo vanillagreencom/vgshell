@@ -82,6 +82,7 @@ expect "the restored panel has a live build record" True record_exists acme.drif
 # Acceptance: the core watcher raises restart debt with no rescan. If the
 # watcher is broken, this poll never sees the notice.
 owed_logs="$(log_lines 'notices: restart=owed')" || fail "the instance log is unreadable before the core change"
+drift_title_warnings="$(log_lines 'NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')" || fail "the instance log is unreadable before the notice title binds"
 loads_after_control="$(log_lines 'plugins: acme\.drift failed to load: ')" || fail "the instance log is unreadable after the defect control"
 cp -- "$drift_qmldir" "$sandbox/core-drift-qmldir.orig"
 printf 'import QtQuick\nItem {\n    width: 20\n    height: 20\n}\n' >"$drift_type"
@@ -93,6 +94,7 @@ expect_poll "the restart notice names the action" '"Restart to update"' drift_dr
 expect "the restart notice offers Restart and Not now" '["Restart", "Not now"]' drift_drawn actions
 expect "the restart notice draws no Show command row" '[]' drift_drawn rows
 expect "no row of the notice's body draws a command" '[]' drift_drawn rows
+expect "a notice without key rows adds no undefined string warning" "$drift_title_warnings" log_lines 'NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString'
 
 # Must-fail control for the hot-load acceptance: after coreChanged, a plugin
 # source edit is held. The listed revision stays at the open panel's old
