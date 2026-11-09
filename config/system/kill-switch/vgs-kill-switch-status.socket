@@ -1,0 +1,15 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. Any local user reads the kill switch's state
+# and drop count here, with no password: reading the rule needs
+# CAP_NET_ADMIN, which only the instance this socket starts holds.
+[Unit]
+Description=VGS VPN kill switch status socket
+
+[Socket]
+ListenStream=/run/vgs-kill-switch.sock
+SocketMode=0666
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

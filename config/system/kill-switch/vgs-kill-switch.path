@@ -1,0 +1,13 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. A change to the VPN state or to a
+# NetworkManager profile, a new endpoint included, applies the rule again.
+[Unit]
+Description=VGS VPN kill switch: watch the VPN state and NetworkManager profiles
+
+[Path]
+PathChanged=/var/lib/vgshell/vpn
+PathChanged=/etc/NetworkManager/system-connections
+Unit=vgs-kill-switch.service
+
+[Install]
+WantedBy=multi-user.target

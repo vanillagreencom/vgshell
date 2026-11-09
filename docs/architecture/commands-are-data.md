@@ -91,6 +91,7 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 - Do resolve every command of the sudo grant's root half in the system directories alone, drop the sudo credential before and after each verb that reaches it, and run the root half under `bash -p` with `PATH`, `LC_ALL` and `SUDO_UID` alone. `scripts/test-vgshell-sudo-grant.sh` pins each under `unshare -r`.
 - Do publish a timed grant by rename only after its expiry timer is armed and the boot cleanup is in place, with a `NOTAFTER` rule sudo ends itself. `scripts/test-vgshell-sudo-grant.sh` pins it.
 - Do write nothing and run no sudo on NixOS; print the configuration snippet instead, for the grant the `security.sudo.extraRules` snippet. `scripts/test-vgshell-sudo-grant.sh` and `scripts/test-vgshell-system.sh` pin the `nixos` state.
+- Do keep the VPN kill switch in the kernel table `inet vgshell_kill_switch`, which the `vpn-kill-switch` step's systemd units arm from the user's `/var/lib/vgshell/vpn/state`, read with that user's credentials. Every interface name, address, port and number reaches `nft` only after its validator, and no VGS process holds or re-applies the rule ([D129](../decisions/D129-vpn-kill-switch.md)). `scripts/test-vpn-kill-switch.sh` pins the rule, the off, the clear and the status read in network namespaces, and `scripts/test-vgshell-system.sh` pins the step.
 - Never let a step reach the host's devices, units or sudo in the sandbox. `scripts/smoke/rows/system-steps.sh` and `scripts/smoke/rows/auth-sentinel.sh` pin it.
 
 ### Consent

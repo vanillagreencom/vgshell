@@ -1,0 +1,535 @@
+#!/bin/bash
+# vgs-kill-switch: the VPN kill switch's root half. `vgshell system apply
+# vpn-kill-switch` installs it as /usr/local/bin/vgs-kill-switch, root's,
+# mode 0755: a copy, so the clear below still works after VGS is removed.
+#
+#   vgs-kill-switch sync     make the nftables table inet vgshell_kill_switch
+#                            match the state file; needs CAP_NET_ADMIN
+#   vgs-kill-switch status   print the one status line
+#   vgs-kill-switch off      turn the VPN off on purpose
+#
+# The state file, /var/lib/vgshell/vpn/state, belongs to the user who applied
+# the step. It holds at most 4096 bytes, one key=value per line, each of
+# these keys once and no other:
+#
+#   version=1
+#   meant-on=<NetworkManager profile uuid, or empty>
+#   kill-switch=block|block-lan|off
+#   portal-until=<unix seconds, or 0>
+#
+# block refuses every packet that leaves outside the tunnel; block-lan does
+# the same but passes the local network, DNS excepted. A missing file reads
+# as off. sync and the root form of off read and write it with its owner's
+# credentials, through setpriv, so a link planted in that directory reaches
+# nothing its owner cannot already read.
+#
+# sync holds the lock /run/vgs-kill-switch.lock. With meant-on empty or
+# kill-switch=off it deletes the table and the profile cache. Otherwise it
+# reads the profile's type, interface name and WireGuard peers through
+# nmcli while NetworkManager.service is active, and keeps them in
+# /var/lib/vgshell/kill-switch/profile, root's, mode 0600. While
+# NetworkManager is not active, as at boot, or nmcli cannot answer, it uses
+# that cache when it names the same uuid, and otherwise arms with no tunnel
+# and no peers. A profile that is not WireGuard, an interface name Linux
+# refuses or an endpoint that is no IP literal arms with no peers. Each of
+# these fails closed, and status names the reason. The table is armed or
+# updated in one nft transaction; the table and its `blocked` counter
+# persist across updates. sync reads the state file again after the change
+# and repeats once when it changed meanwhile.
+#
+# status prints one line:
+#
+#   state=off|holding|passing|unavailable reason=<word> blocked=<packets> tunnel=<ifname>
+#
+#   off          disarmed: reason disarmed, blocked=0
+#   holding      armed, the tunnel interface absent: reason tunnel-down
+#   passing      armed, the tunnel interface present: reason tunnel-up
+#   unavailable  armed with no usable tunnel or peers, every packet outside
+#                tailscale0 refused: reason profile-not-wireguard,
+#                profile-missing, profile-unread, interface-invalid,
+#                endpoint-hostname, endpoint-invalid or cache-unreadable
+#
+# With CAP_NET_ADMIN, as vgs-kill-switch-status@.service runs it, status reads
+# the kernel; without it, it reads the same line from /run/vgs-kill-switch.sock.
+#
+# off writes meant-on= into the state file and keeps its other keys, or
+# kill-switch=block and portal-until=0 for a file it cannot parse. With
+# CAP_NET_ADMIN, as `sudo vgs-kill-switch off`, it also deletes the table
+# and the cache at once, which clears the rule whatever state the units,
+# NetworkManager or VGS are in. Without it, it waits up to 3 s for status to
+# read off, then refuses with off=pending and names that root form.
+#
+# Every refusal prints one keyed line first on stderr:
+# `vgs-kill-switch: refused: <key>=<value>`. No output carries the state
+# file's bytes. Exit 0 on success, 1 on a refusal, 2 on a bad invocation.
+# docs/decisions/D129-vpn-kill-switch.md.
+set -euo pipefail
+
+# Every command resolves in the system directories alone, and the C locale
+# keeps nft's and ip's output in the form the readers below parse.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+export LC_ALL=C
+umask 022
+
+state_parent=/var/lib/vgshell
+state_dir="$state_parent/vpn"
+state_file="$state_dir/state"
+cache_dir="$state_parent/kill-switch"
+cache_file="$cache_dir/profile"
+lock_file=/run/vgs-kill-switch.lock
+status_socket=/run/vgs-kill-switch.sock
+table=vgshell_kill_switch
+# A sign-in page opens DNS, HTTP and HTTPS for at most this many seconds.
+portal_max=300
+# off's wait for the status read, in tenths of a second.
+off_wait_tenths=30
+
+# Character classes spelled out, as bin/vgshell-system does, so no range
+# depends on collation.
+digit='[0123456789]'
+hex='[0123456789abcdefABCDEF]'
+word_char='[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]'
+uuid_pattern="^$hex{8}-$hex{4}-$hex{4}-$hex{4}-$hex{12}$"
+# IFNAMSIZ is 16 with the terminating NUL; dev_valid_name refuses `.`, `..`,
+# `/`, `:` and whitespace. This keeps to the narrower set NetworkManager's
+# profiles use.
+ifname_pattern="^($word_char|[_.-]){1,15}$"
+octet='(25[012345]|2[01234]'"$digit"'|1'"$digit$digit"'|[123456789]?'"$digit"')'
+ipv4_pattern="^$octet(\\.$octet){3}$"
+port_pattern="^[123456789]$digit{0,4}$"
+# The characters of a host name an endpoint may carry instead of an address.
+hostname_pattern="^($word_char|[.-])+$"
+# A WireGuard public key: 32 bytes in base64.
+key_pattern="^($word_char|[+/]){43}=$"
+reason_pattern='^[abcdefghijklmnopqrstuvwxyz-]{1,40}$'
+status_pattern="^state=(off|holding|passing|unavailable) reason=[abcdefghijklmnopqrstuvwxyz-]{1,40} blocked=$digit{1,20} tunnel=($word_char|[_.-]){0,15}$"
+
+refuse() { # FIRST_LINE [ENGLISH...]
+  printf 'vgs-kill-switch: refused: %s\n' "$1" >&2
+  shift
+  (($# == 0)) || printf '%s\n' "$@" >&2
+  exit 1
+}
+bad_invocation() { # FIRST_LINE
+  printf 'vgs-kill-switch: refused: %s\n' "$1" >&2
+  printf 'usage: vgs-kill-switch sync|status|off\n' >&2
+  exit 2
+}
+
+# Whether this process holds CAP_NET_ADMIN (capability 12) in its effective
+# set: root, the units and sudo do; a user does not.
+net_admin() {
+  local key value caps=""
+  while read -r key value; do
+    if [[ $key == CapEff: ]]; then caps="$value"; break; fi
+  done </proc/self/status
+  [[ $caps =~ ^$hex{16}$ ]] || refuse "capabilities=unreadable"
+  (((16#$caps >> 12) & 1))
+}
+
+# Whether PATH is a real directory root owns that only root can write.
+root_dir() { # PATH
+  local info
+  [[ -d $1 && ! -L $1 ]] || return 1
+  info="$(stat -c '%u %a' -- "$1")" || return 1
+  [[ $info =~ ^0\ ($digit+)$ ]] && (((8#${BASH_REMATCH[1]} & 8#022) == 0))
+}
+
+take_lock() {
+  exec {lock_fd}>>"$lock_file" || refuse "lock=open path=$lock_file"
+  flock -w 30 "$lock_fd" || refuse "lock=busy path=$lock_file"
+}
+
+# ---------------------------------------------------------------- state file
+
+# Sets as_owner to the command prefix that reads and writes the state file:
+# with CAP_NET_ADMIN, the state directory's owner's uid and gid with no
+# groups and no capabilities; without it, the caller's own. Both are bounded,
+# since the owner may leave a FIFO at the file's path. Returns 1 while the
+# directory is missing.
+state_access() {
+  local info
+  [[ -e $state_dir || -L $state_dir ]] || return 1
+  [[ -d $state_dir && ! -L $state_dir ]] || refuse "state-dir=not-a-directory path=$state_dir"
+  as_owner=(timeout 5)
+  net_admin || return 0
+  root_dir "$state_parent" || refuse "untrusted=$state_parent"
+  info="$(stat -c '%u %g' -- "$state_dir")" || refuse "state-dir=unreadable path=$state_dir"
+  [[ $info =~ ^($digit+)\ ($digit+)$ ]] || refuse "state-dir=unreadable path=$state_dir"
+  as_owner=(timeout 5 setpriv "--reuid=${BASH_REMATCH[1]}" "--regid=${BASH_REMATCH[2]}" --clear-groups --inh-caps=-all --)
+}
+
+# Sets state_text to the state file's bytes and state_present to 1, or both
+# empty while the file or its directory is missing.
+read_state() {
+  state_text="" state_present=""
+  state_access || return 0
+  [[ -e $state_file || -L $state_file ]] || return 0
+  state_text="$("${as_owner[@]}" head -c 4097 -- "$state_file")" || refuse "state=unreadable path=$state_file"
+  ((${#state_text} <= 4096)) || refuse "state=too-large path=$state_file"
+  state_present=1
+}
+
+# Sets meant_on, kill_switch and portal_until from state_text; a missing
+# file is meant-on empty. Returns 1 for a file outside the grammar above.
+parse_state() {
+  local line key value seen=" "
+  meant_on="" kill_switch="" portal_until=0
+  [[ -n $state_present ]] || return 0
+  while IFS= read -r line; do
+    [[ $line == *=* ]] || return 1
+    key="${line%%=*}" value="${line#*=}"
+    [[ $seen != *" $key "* ]] || return 1
+    seen+="$key "
+    case "$key" in
+      version) [[ $value == 1 ]] ;;
+      meant-on) [[ -z $value || $value =~ $uuid_pattern ]] && meant_on="$value" ;;
+      kill-switch) [[ $value == block || $value == block-lan || $value == off ]] && kill_switch="$value" ;;
+      portal-until) [[ $value =~ ^(0|[123456789]$digit{0,11})$ ]] && portal_until="$value" ;;
+      *) false ;;
+    esac || return 1
+  done <<<"$state_text"
+  [[ $seen == *" version "* && $seen == *" meant-on "* && $seen == *" kill-switch "* && $seen == *" portal-until "* ]]
+}
+
+# Writes meant-on= into the state file through a temporary file in its
+# directory, renamed into place, as its owner. A file already off, or no
+# file, is left as it is.
+write_off() {
+  local temp text kill=block portal=0
+  read_state
+  [[ -n $state_present ]] || return 0
+  if parse_state; then
+    [[ -n $meant_on ]] || return 0
+    kill="$kill_switch" portal="$portal_until"
+  fi
+  text=$'version=1\nmeant-on=\nkill-switch='"$kill"$'\nportal-until='"$portal"$'\n'
+  temp="$("${as_owner[@]}" mktemp -- "$state_dir/.state.XXXXXXXXXX")" || refuse "state=write-failed path=$state_dir"
+  [[ $temp =~ ^/var/lib/vgshell/vpn/\.state\.($word_char){10}$ ]] || refuse "state=write-failed path=$state_dir"
+  printf '%s' "$text" | "${as_owner[@]}" tee -- "$temp" >/dev/null || refuse "state=write-failed path=$temp"
+  "${as_owner[@]}" chmod 0644 -- "$temp" || refuse "state=write-failed path=$temp"
+  "${as_owner[@]}" mv -fT -- "$temp" "$state_file" || refuse "state=write-failed path=$state_file"
+}
+
+# ---------------------------------------------------------------- validators
+
+valid_ifname() { [[ $1 =~ $ifname_pattern && $1 != . && $1 != .. ]]; } # NAME
+valid_port() { [[ $1 =~ $port_pattern ]] && ((10#$1 <= 65535)); } # PORT
+
+# Whether ADDRESS is an IPv6 literal of eight hex groups, or fewer around
+# one `::`, with no zone and no embedded IPv4 form.
+valid_ipv6() { # ADDRESS
+  local address="$1" head tail part group count=0 groups=()
+  [[ $address =~ ^($hex|:){2,39}$ && $address != *:::* ]] || return 1
+  if [[ $address == *::* ]]; then
+    head="${address%%::*}" tail="${address#*::}"
+    [[ $tail != *::* ]] || return 1
+  else
+    head="$address" tail=""
+  fi
+  for part in "$head" "$tail"; do
+    [[ -n $part ]] || continue
+    IFS=: read -r -a groups <<<"$part"
+    [[ $part != :* && $part != *: ]] || return 1
+    for group in "${groups[@]}"; do
+      [[ $group =~ ^$hex{1,4}$ ]] || return 1
+      count=$((count + 1))
+    done
+  done
+  if [[ $address == *::* ]]; then ((count <= 7)); else ((count == 8)); fi
+}
+
+# ---------------------------------------------------------------- profile
+
+# Sets peers4 and peers6 to `<address> . <port>` elements, or sets
+# peer_reason and returns 1. nm-settings-nmcli(5), NetworkManager 1.58.1,
+# wireguard.peers: "A comma-separated list of WireGuard peers. Each peer has
+# the following syntax: public-key [attribute=value [attribute=value]...]",
+# with endpoint "An endpoint IP or hostname, followed by a colon, and then a
+# port number". A peer with no endpoint sends nothing first, so it adds none.
+parse_peers() { # TEXT
+  local item word endpoint host port items=() words=()
+  peers4=() peers6=() peer_reason=""
+  [[ $1 != *$'\n'* ]] || { peer_reason=profile-unread; return 1; }
+  IFS=, read -r -a items <<<"$1"
+  for item in "${items[@]}"; do
+    read -r -a words <<<"$item"
+    ((${#words[@]} > 0)) || continue
+    [[ ${words[0]} =~ $key_pattern ]] || { peer_reason=profile-unread; return 1; }
+    endpoint=""
+    for word in "${words[@]:1}"; do
+      [[ $word != endpoint=* ]] || endpoint="${word#endpoint=}"
+    done
+    [[ -n $endpoint ]] || continue
+    if [[ $endpoint =~ ^\[([^]]+)\]:([^:]+)$ ]]; then
+      host="${BASH_REMATCH[1]}" port="${BASH_REMATCH[2]}"
+      if ! valid_ipv6 "$host" || ! valid_port "$port"; then peer_reason='endpoint-invalid'; return 1; fi
+      peers6+=("$host . $port")
+    elif [[ $endpoint =~ ^([^:]+):([^:]+)$ ]]; then
+      host="${BASH_REMATCH[1]}" port="${BASH_REMATCH[2]}"
+      valid_port "$port" || { peer_reason='endpoint-invalid'; return 1; }
+      if [[ $host =~ $ipv4_pattern ]]; then peers4+=("$host . $port")
+      elif [[ $host =~ $hostname_pattern ]]; then peer_reason='endpoint-hostname'; return 1
+      else peer_reason='endpoint-invalid'; return 1
+      fi
+    else
+      peer_reason='endpoint-invalid'
+      return 1
+    fi
+  done
+}
+
+# Writes the profile reading for UUID to the cache, root's, mode 0600.
+save_cache() { # UUID
+  local text="uuid=$1"$'\n'"tunnel=$tunnel"$'\n'"reason=$reason"$'\n' peer temp="$cache_dir/.profile"
+  for peer in "${peers4[@]}"; do text+="peer4=$peer"$'\n'; done
+  for peer in "${peers6[@]}"; do text+="peer6=$peer"$'\n'; done
+  root_dir "$state_parent" || refuse "untrusted=$state_parent"
+  if [[ ! -e $cache_dir && ! -L $cache_dir ]]; then mkdir -m 0700 -- "$cache_dir" || refuse "cache=write-failed path=$cache_dir"; fi
+  root_dir "$cache_dir" || refuse "untrusted=$cache_dir"
+  (umask 077 && printf '%s' "$text" >"$temp") || refuse "cache=write-failed path=$temp"
+  mv -fT -- "$temp" "$cache_file" || refuse "cache=write-failed path=$cache_file"
+}
+
+# Sets tunnel, peers4, peers6 and reason from the cache; with UUID, only
+# when the cache names it. Returns 1 when there is no such cache. Every
+# value is checked again, since it reaches nft.
+read_cache() { # [UUID]
+  local line key value text uuid="" host port
+  tunnel="" reason="" peers4=() peers6=()
+  [[ -f $cache_file && ! -L $cache_file ]] || return 1
+  text="$(<"$cache_file")" || return 1
+  while IFS= read -r line; do
+    key="${line%%=*}" value="${line#*=}"
+    case "$key" in
+      uuid) [[ $value =~ $uuid_pattern ]] && uuid="$value" ;;
+      tunnel) [[ -z $value ]] || valid_ifname "$value" && tunnel="$value" ;;
+      reason) [[ -z $value || $value =~ $reason_pattern ]] && reason="$value" ;;
+      peer4) split_peer "$value" && [[ $host =~ $ipv4_pattern ]] && valid_port "$port" && peers4+=("$value") ;;
+      peer6) split_peer "$value" && valid_ipv6 "$host" && valid_port "$port" && peers6+=("$value") ;;
+      *) false ;;
+    esac || { tunnel="" reason="" peers4=() peers6=(); return 1; }
+  done <<<"$text"
+  [[ -n $uuid && (-z ${1-} || $uuid == "$1") ]] || { tunnel="" reason="" peers4=() peers6=(); return 1; }
+}
+
+# Sets host and port from a `<address> . <port>` element.
+split_peer() { # ELEMENT
+  [[ $1 =~ ^([^ ]+)\ \.\ ([^ ]+)$ ]] || return 1
+  host="${BASH_REMATCH[1]}" port="${BASH_REMATCH[2]}"
+}
+
+# The cache for UUID, or no tunnel and no peers with reason profile-unread.
+# Kept in the cache too, so status names the reason.
+cached_profile() { # UUID
+  read_cache "$1" && return
+  reason=profile-unread
+  save_cache "$1"
+}
+
+# Sets tunnel, peers4, peers6 and reason for the profile UUID names. nmcli
+# exits 10 for a profile that does not exist (nmcli(1) EXIT STATUS), and -g
+# prints the fields asked one value per line (nmcli(1) --get-values); a
+# trailing empty value is lost to the command substitution. nmcli is asked
+# only while NetworkManager.service is active, since at boot it is ordered
+# after this service and a D-Bus activation would wait on it.
+read_profile() { # UUID
+  local out status=0 lines=() kind name
+  tunnel="" reason="" peers4=() peers6=()
+  if ! systemctl is-active --quiet NetworkManager.service; then cached_profile "$1"; return; fi
+  out="$(timeout 10 nmcli --escape no -g connection.type,connection.interface-name connection show uuid "$1" 2>/dev/null)" || status=$?
+  case "$status" in
+    0) ;;
+    10) reason=profile-missing; save_cache "$1"; return ;;
+    *) cached_profile "$1"; return ;;
+  esac
+  mapfile -t lines <<<"$out"
+  ((${#lines[@]} == 1 || ${#lines[@]} == 2)) || { cached_profile "$1"; return; }
+  kind="${lines[0]}" name="${lines[1]-}"
+  if [[ $kind != wireguard ]]; then
+    reason=profile-not-wireguard
+  elif ! valid_ifname "$name"; then
+    reason=interface-invalid
+  else
+    tunnel="$name"
+    status=0
+    out="$(timeout 10 nmcli --escape no -g wireguard.peers connection show uuid "$1" 2>/dev/null)" || status=$?
+    if ((status != 0)); then cached_profile "$1"; return; fi
+    parse_peers "$out" || reason="$peer_reason"
+  fi
+  save_cache "$1"
+}
+
+# ---------------------------------------------------------------- the table
+
+# docs/decisions/D129-vpn-kill-switch.md. Both base chains jump to decide;
+# forward also passes the replies a tunnel brings back to containers and
+# virtual machines that route through it. The declarations add only
+# what is missing, so the table and the counter persist; the flushes and
+# adds then replace every rule and element in the same transaction.
+arm() {
+  local text set elements=() now remaining
+  text="table inet $table {
+	counter blocked {}
+	set tunnel_links { type ifname; }
+	set peers4 { type ipv4_addr . inet_service; }
+	set peers6 { type ipv6_addr . inet_service; }
+	set lan4 { type ipv4_addr; flags interval; }
+	set lan6 { type ipv6_addr; flags interval; }
+	set portal { type inet_service; flags timeout; }
+	chain decide {}
+	chain output { type filter hook output priority filter; policy accept; }
+	chain forward { type filter hook forward priority filter; policy accept; }
+}
+"
+  for set in output forward decide; do text+="flush chain inet $table $set"$'\n'; done
+  for set in tunnel_links peers4 peers6 lan4 lan6 portal; do text+="flush set inet $table $set"$'\n'; done
+  text+="add rule inet $table decide oifname \"lo\" accept
+add rule inet $table decide oifname @tunnel_links accept
+add rule inet $table decide meta mark & 0xff0000 == 0x80000 accept
+add rule inet $table decide ip daddr . udp dport @peers4 accept
+add rule inet $table decide ip6 daddr . udp dport @peers6 accept
+add rule inet $table decide udp sport 68 udp dport 67 accept
+add rule inet $table decide udp sport 546 udp dport 547 accept
+add rule inet $table decide icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert, mld-listener-report, mld2-listener-report } accept
+add rule inet $table decide meta l4proto { tcp, udp } th dport @portal accept
+add rule inet $table decide meta l4proto { tcp, udp } th dport { 53, 853 } counter name blocked reject with icmpx admin-prohibited
+add rule inet $table decide ip daddr @lan4 accept
+add rule inet $table decide ip6 daddr @lan6 accept
+add rule inet $table decide counter name blocked reject with icmpx admin-prohibited
+add rule inet $table output jump decide
+add rule inet $table forward iifname @tunnel_links ct state established,related accept
+add rule inet $table forward jump decide
+"
+  # tailscaled's interface; its own packets on the Wi-Fi carry the mark.
+  elements=('"tailscale0"')
+  [[ -z $tunnel ]] || elements+=("\"$tunnel\"")
+  text+="add element inet $table tunnel_links { $(join_elements "${elements[@]}") }"$'\n'
+  ((${#peers4[@]} == 0)) || text+="add element inet $table peers4 { $(join_elements "${peers4[@]}") }"$'\n'
+  ((${#peers6[@]} == 0)) || text+="add element inet $table peers6 { $(join_elements "${peers6[@]}") }"$'\n'
+  if [[ $kill_switch == block-lan ]]; then
+    text+="add element inet $table lan4 { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4, 255.255.255.255 }"$'\n'
+    text+="add element inet $table lan6 { fe80::/10, fc00::/7, ff00::/8 }"$'\n'
+  fi
+  printf -v now '%(%s)T' -1
+  if ((10#$portal_until > now)); then
+    remaining=$((10#$portal_until - now))
+    ((remaining <= portal_max)) || remaining=$portal_max
+    text+="add element inet $table portal { 53 timeout ${remaining}s, 80 timeout ${remaining}s, 443 timeout ${remaining}s }"$'\n'
+  fi
+  nft -f - <<<"$text" || refuse "nft=failed verb=arm"
+}
+join_elements() { local IFS=,; printf '%s' "$*"; } # ELEMENT...
+
+# Deletes the table and the cache. Declaring the table first makes the
+# delete hold whether or not it exists, in one transaction.
+disarm() {
+  nft -f - <<<"table inet $table {}"$'\n'"delete table inet $table" || refuse "nft=failed verb=disarm"
+  rm -f -- "$cache_file" || refuse "cache=remove-failed path=$cache_file"
+}
+
+# ---------------------------------------------------------------- status
+
+# Prints the status line from the kernel, the cache and the links.
+kernel_status() {
+  local tables counter packets links line name state why found=""
+  tables="$(nft list tables inet)" || refuse "nft=failed verb=status"
+  if [[ $'\n'"$tables"$'\n' != *$'\n'"table inet $table"$'\n'* ]]; then
+    printf 'state=off reason=disarmed blocked=0 tunnel=\n'
+    return
+  fi
+  counter="$(nft list counter inet "$table" blocked)" || refuse "nft=failed verb=status"
+  [[ $counter =~ packets\ ($digit{1,20})\ bytes ]] || refuse "counter=unreadable"
+  packets="${BASH_REMATCH[1]}"
+  if ! read_cache; then state=unavailable why=cache-unreadable
+  elif [[ -n $reason ]]; then state=unavailable why="$reason"
+  elif [[ -z $tunnel ]]; then state=unavailable why=profile-unread
+  else
+    links="$(ip -o link show)" || refuse "ip=failed verb=status"
+    while IFS= read -r line; do
+      [[ $line =~ ^$digit+:\ ([^:@ ]+)(@[^:]*)?: ]] || continue
+      name="${BASH_REMATCH[1]}"
+      [[ $name != "$tunnel" ]] || found=1
+    done <<<"$links"
+    if [[ -n $found ]]; then state=passing why=tunnel-up; else state=holding why=tunnel-down; fi
+  fi
+  printf 'state=%s reason=%s blocked=%s tunnel=%s\n' "$state" "$why" "$packets" "$tunnel"
+}
+
+# Sets status to the line the status socket serves; 1 when it cannot be
+# read or is not a status line.
+socket_status() {
+  status="$(timeout 10 python3 -I -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+data = b""
+try:
+    s.connect(sys.argv[1])
+    while len(data) < 512:
+        chunk = s.recv(512 - len(data))
+        if not chunk:
+            break
+        data += chunk
+except OSError:
+    sys.exit(3)
+sys.stdout.write(data.decode("ascii", "replace"))
+' "$status_socket" 2>/dev/null)" || return 1
+  [[ $status =~ $status_pattern ]]
+}
+
+# ---------------------------------------------------------------- verbs
+
+verb_sync() {
+  local before before_present
+  net_admin || refuse "caller=unprivileged" "sync needs CAP_NET_ADMIN; vgs-kill-switch.service runs it as root"
+  take_lock
+  for _ in 1 2; do
+    read_state
+    parse_state || refuse "state=malformed path=$state_file" "the rule stays as it was; vgs-kill-switch off rewrites the file"
+    before="$state_text" before_present="$state_present"
+    if [[ -z $meant_on || $kill_switch == off ]]; then
+      disarm
+      result=disarmed
+    else
+      read_profile "$meant_on"
+      arm
+      result=armed
+    fi
+    read_state
+    [[ $state_text != "$before" || $state_present != "$before_present" ]] || break
+  done
+  printf 'ok sync=%s\n' "$result"
+}
+
+verb_status() {
+  if net_admin; then kernel_status; return; fi
+  socket_status || refuse "status=unreachable path=$status_socket"
+  printf '%s\n' "$status"
+}
+
+verb_off() {
+  local tenth
+  if net_admin; then
+    take_lock
+    write_off
+    disarm
+    printf 'ok state=off\n'
+    return
+  fi
+  write_off
+  for ((tenth = 0; tenth < off_wait_tenths; tenth++)); do
+    if socket_status && [[ $status == "state=off "* ]]; then
+      printf 'ok state=off\n'
+      return
+    fi
+    sleep 0.1
+  done
+  refuse "off=pending" "The VPN is off on purpose, but the rule still blocks traffic. Clear it now with: sudo vgs-kill-switch off"
+}
+
+case "${1-}" in
+  sync|status|off) (($# == 1)) || bad_invocation "count=$#" ;;
+  *) bad_invocation "verb=$(printf '%q' "${1-}")" ;;
+esac
+"verb_$1"

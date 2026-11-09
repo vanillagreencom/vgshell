@@ -1,0 +1,18 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. It runs before network-pre.target, as ufw's
+# own unit does, so the rule is in place before NetworkManager brings up a
+# link, and again whenever vgs-kill-switch.path sees a change.
+[Unit]
+Description=VGS VPN kill switch: apply the rule the VPN state asks for
+Documentation=file:///usr/local/bin/vgs-kill-switch
+DefaultDependencies=no
+After=local-fs.target systemd-sysctl.service
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vgs-kill-switch sync
+
+[Install]
+WantedBy=multi-user.target

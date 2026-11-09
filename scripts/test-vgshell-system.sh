@@ -60,6 +60,7 @@ cp -- "$repo/config/system/udev/60-vgs-apple-displays.rules" "$rule_src"
 cp -- "$repo/config/system/udev/69-vgs-disk-sleep.rules" "$disk_rule_src"
 cp -- "$repo/config/system/udev/90-vgs-wake.rules" "$wake_src"
 cp -R -- "$repo/config/system/greeter" "$greeter_src"
+cp -R -- "$repo/config/system/kill-switch" "$vgs/config/system/kill-switch"
 cp -- "$repo/shell/plugins/vgs.greeter/Greeter.qml" "$vgs/shell/plugins/vgs.greeter/Greeter.qml"
 cp -- "$repo/shell/greeter.qml" "$vgs/shell/greeter.qml"
 # The greeter account runs the install tree, so only its owner, root as the
@@ -154,6 +155,7 @@ case "\$1 \$2" in
     [ "\$4" = display-manager.service ] || exit 64
     if [ -e "\$u/display-manager" ]; then cat "\$u/display-manager"; elif [ -e "\$u/greetd.service.enabled" ]; then echo greetd.service; else echo display-manager.service; fi ;;
   "enable --now") touch "\$u/\$3.enabled"; [ -e "\$u/\$3.no-start" ] || touch "\$u/\$3.active" ;;
+  "disable --now") rm -f "\$u/\$3.enabled" "\$u/\$3.active" ;;
   "enable "*) touch "\$u/\$2.enabled" ;;
   "disable "*) rm -f "\$u/\$2.enabled" ;;
   "stop "*) rm -f "\$u/\$2.active" ;;
@@ -179,6 +181,14 @@ EOF
 # greetd and start-hyprland are only found; no row runs them.
 printf '#!/bin/sh\nexit 64\n' >"$bin/greetd"
 printf '#!/bin/sh\nexit 64\n' >"$bin/start-hyprland"
+# nft records its argv and stdin in $tmp/nft.log; no call reaches the
+# kernel's rules, which scripts/test-vpn-kill-switch.sh holds.
+cat >"$bin/nft" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/nft.log"
+cat >>"$tmp/nft.log"
+EOF
+chmod +x "$bin/nft"
 # These stand-ins store capability text beside the fixture binary. They
 # never read or write security.capability, and bandwhich never captures.
 cat >"$bin/getcap" <<EOF
@@ -357,6 +367,7 @@ fresh() {
   rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "${root:?}/usr/share" "$tmp/units"
   mkdir -p "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd/system" "$root/dev" "$root/var/lib" "$root/proc/sys/kernel/random" "$tmp/units"
   chmod 0755 "$root/etc" "$root/etc/udev" "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd" "$root/etc/systemd/system" "$root/var" "$root/var/lib"
+  rm -rf -- "${root:?}/usr/local" "${tmp:?}/nft.log"; mkdir -p "$root/usr/local/bin"; chmod 0755 "$root/usr/local" "$root/usr/local/bin"
   mkdir -p "$root/sys/block" "$root/sys/class/hidraw/hidraw0/device" "$root/sys/class/hidraw/hidraw1/device"
   printf 'DRIVER=hid-generic\nHID_ID=0003:000005AC:00009243\nHID_NAME=Apple Inc. Pro Display XDR\n' >"$root/sys/class/hidraw/hidraw0/device/uevent"
   printf 'HID_ID=0003:0000046D:0000C52B\n' >"$root/sys/class/hidraw/hidraw1/device/uevent"
@@ -750,7 +761,7 @@ check "a refused invocation asks nothing" test ! -e "$tmp/gum.log"
 
 # status: each probe reads real access, in table order.
 run "status reads every step" 0 "" status --json
-check "status names each step's state and reason" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive needed inactive needed operator-unset needed not-set-up)"
+check "status names each step's state and reason" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive needed inactive needed operator-unset needed not-set-up needed not-set-up)"
 # The manifest judge names steps from PluginLogic.SYSTEM_STEPS; the
 # script's own table must be that list, in that order.
 table_keys() { python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["steps"]))' "$tmp/out"; }
@@ -1499,6 +1510,150 @@ check "a shared-write data directory reads denied" test "$(step_state greeter)" 
 
 if [[ ${1-} == --greeter ]]; then rows_done "$suite"; exit; fi
 
+# vpn-kill-switch: the kill switch's root script and four units, the user's
+# VPN state directory and root's profile cache. What the rule does is
+# scripts/test-vpn-kill-switch.sh's; here nft only records.
+ks_src="$vgs/config/system/kill-switch"
+ks_script="$root/usr/local/bin/vgs-kill-switch"
+ks_units="$root/etc/systemd/system"
+vpn_dir="$root/var/lib/vgshell/vpn"
+ks_cache="$root/var/lib/vgshell/kill-switch"
+ks_names=(vgs-kill-switch.service vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch-status@.service)
+ks_enabled() { # WANT: 1 when the three units are enabled, 0 when none is
+  local unit count=0
+  for unit in vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service; do
+    [[ ! -e $tmp/units/$unit.enabled ]] || count=$((count + 1))
+  done
+  [[ $1 == 1 && $count == 3 || $1 == 0 && $count == 0 ]]
+}
+ks_installed() { # every file holds the shipped bytes and mode
+  local name
+  cmp -s -- "$ks_src/vgs-kill-switch" "$ks_script" && test "$("$stat_bin" -c %a -- "$ks_script")" == 755 || return 1
+  for name in "${ks_names[@]}"; do
+    cmp -s -- "$ks_src/$name" "$ks_units/$name" && test "$("$stat_bin" -c %a -- "$ks_units/$name")" == 644 || return 1
+  done
+}
+ks_record() { # LINE...: the record apply writes for the shipped files, then each LINE
+  printf 'uid=%s\nscript=%s\nsync-unit=%s\npath-unit=%s\nsocket-unit=%s\nstatus-unit=%s' "$uid" "$(file_hash "$ks_src/vgs-kill-switch")" \
+    "$(file_hash "$ks_src/vgs-kill-switch.service")" "$(file_hash "$ks_src/vgs-kill-switch.path")" \
+    "$(file_hash "$ks_src/vgs-kill-switch-status.socket")" "$(file_hash "$ks_src/vgs-kill-switch-status@.service")"
+  (($# == 0)) || printf '\n%s' "$@"
+}
+ks_enable_calls=("-- $(p systemctl) enable --now vgs-kill-switch.path" "-- $(p systemctl) enable --now vgs-kill-switch-status.socket" "-- $(p systemctl) enable --now vgs-kill-switch.service")
+fresh
+check "a kill switch VGS did not set up reads needed" test "$(step_state vpn-kill-switch)" == "needed not-set-up"
+run_tty "apply vpn-kill-switch succeeds" 0 apply vpn-kill-switch
+check "the kill switch installs its files, makes its directories, reloads and enables its units in one sudo session" test "$(sudo_calls)" == "$(session \
+  "-- $(p install) -d -m 0755 -o root -g root -- $records" \
+  "-- $(p tee) -- $records/.vpn-kill-switch" \
+  "-- $(p mv) -fT -- $records/.vpn-kill-switch $records/vpn-kill-switch" \
+  "-- $(p install) -m 0755 -o root -g root -T -- $ks_src/vgs-kill-switch $ks_script" \
+  "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch.service $ks_units/vgs-kill-switch.service" \
+  "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch.path $ks_units/vgs-kill-switch.path" \
+  "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch-status.socket $ks_units/vgs-kill-switch-status.socket" \
+  "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch-status@.service $ks_units/vgs-kill-switch-status@.service" \
+  "-- $(p install) -d -m 0755 -o $uid -g $gid -- $vpn_dir" \
+  "-- $(p install) -d -m 0700 -o root -g root -- $ks_cache" \
+  "-- $(p systemctl) daemon-reload" \
+  "${ks_enable_calls[@]}")"
+check "the script and the units hold the shipped bytes, modes 0755 and 0644" ks_installed
+check "the state directory is the caller's, 0755, and the cache directory 0700" test "$("$stat_bin" -c '%u %a' -- "$vpn_dir") $("$stat_bin" -c %a -- "$ks_cache")" == "$uid 755 700"
+check "the record names each file's hash and each directory made" test "$(cat "$records/vpn-kill-switch")" == "$(ks_record state-dir=1 cache-dir=1)"
+check "the path unit, the socket and the service are enabled" ks_enabled 1
+check "apply reports the kill switch ready" last_out_is "ok system=vpn-kill-switch state=ready"
+check "status reads the kill switch ready" test "$(step_state vpn-kill-switch)" == "ready granted"
+rm -f -- "${tmp:?}/sudo.log"
+run "apply on a ready kill switch runs nothing" 0 "" apply vpn-kill-switch
+check "a ready kill switch's apply runs no sudo" no_sudo
+
+# Units disabled after setup are enabled again, and nothing is reinstalled.
+rm -f -- "$tmp/units/vgs-kill-switch-status.socket.enabled" "$tmp/sudo.log"
+check "a disabled status socket reads needed" test "$(step_state vpn-kill-switch)" == "needed units-disabled"
+run_tty "apply over a disabled socket" 0 apply vpn-kill-switch
+check "apply over a disabled socket only enables the units" test "$(sudo_calls)" == "$(session \
+  "-- $(p tee) -- $records/.vpn-kill-switch" \
+  "-- $(p mv) -fT -- $records/.vpn-kill-switch $records/vpn-kill-switch" \
+  "${ks_enable_calls[@]}")"
+check "the directories VGS made stay on record" test "$(cat "$records/vpn-kill-switch")" == "$(ks_record state-dir=1 cache-dir=1)"
+
+# A new VGS ships a new script: apply replaces VGS's own copy alone.
+cp -- "$ks_src/vgs-kill-switch" "$tmp/ks-shipped"
+printf '# a later release\n' >>"$ks_src/vgs-kill-switch"
+rm -f -- "$tmp/sudo.log"
+check "a script older than the shipped one reads needed" test "$(step_state vpn-kill-switch)" == "needed not-set-up"
+run_tty "apply over the older script" 0 apply vpn-kill-switch
+check "apply over the older script installs the script alone" test "$(sudo_calls)" == "$(session \
+  "-- $(p tee) -- $records/.vpn-kill-switch" \
+  "-- $(p mv) -fT -- $records/.vpn-kill-switch $records/vpn-kill-switch" \
+  "-- $(p install) -m 0755 -o root -g root -T -- $ks_src/vgs-kill-switch $ks_script" \
+  "${ks_enable_calls[@]}")"
+check "the newer script is in place" ks_installed
+cp -- "$tmp/ks-shipped" "$ks_src/vgs-kill-switch"
+run_tty "apply the shipped script again" 0 apply vpn-kill-switch
+
+# undo stops the units first, deletes the rule, then removes what VGS made.
+rm -f -- "$tmp/sudo.log" "$tmp/nft.log"
+run_tty "undo vpn-kill-switch succeeds" 0 undo vpn-kill-switch
+check "undo disables the units, deletes the table, removes the files and directories, then the record" test "$(sudo_calls)" == "$(session \
+  "-- $(p systemctl) disable --now vgs-kill-switch.path" \
+  "-- $(p systemctl) disable --now vgs-kill-switch-status.socket" \
+  "-- $(p systemctl) disable --now vgs-kill-switch.service" \
+  "-- $(p nft) -f -" \
+  "-- $(p rm) -f -- $ks_script" \
+  "-- $(p rm) -f -- $ks_units/vgs-kill-switch.service" \
+  "-- $(p rm) -f -- $ks_units/vgs-kill-switch.path" \
+  "-- $(p rm) -f -- $ks_units/vgs-kill-switch-status.socket" \
+  "-- $(p rm) -f -- $ks_units/vgs-kill-switch-status@.service" \
+  "-- $(p systemctl) daemon-reload" \
+  "-- $(p rm) -rf -- $ks_cache" \
+  "-- $(p rm) -rf -- $vpn_dir" \
+  "-- $(p rm) -f -- $records/vpn-kill-switch")"
+check "undo hands nft the delete that holds whether or not the rule is armed" test "$(cat "$tmp/nft.log")" == "$(printf -- '-f -\ntable inet vgshell_kill_switch {}\ndelete table inet vgshell_kill_switch')"
+check "undo leaves no kill switch file, directory, enabled unit or record" test ! -e "$ks_script" -a ! -e "$ks_units/vgs-kill-switch.path" -a ! -e "$vpn_dir" -a ! -e "$ks_cache" -a ! -e "$records/vpn-kill-switch"
+check "undo disabled the units" ks_enabled 0
+check "undo reports the kill switch undone" last_out_is "ok system=vpn-kill-switch state=undone"
+run "undo with no record runs nothing" 0 "" undo vpn-kill-switch
+check "undo with no record reports untouched" out_is "ok system=vpn-kill-switch state=untouched"
+
+# A state directory that was there before stays through undo.
+fresh; mkdir -p "$vpn_dir"; chmod 0755 "$root/var/lib/vgshell" "$vpn_dir"
+run_tty "apply over an existing state directory" 0 apply vpn-kill-switch
+check "an existing state directory is not recorded as made" test "$(cat "$records/vpn-kill-switch")" == "$(ks_record cache-dir=1)"
+run_tty "undo over an existing state directory" 0 undo vpn-kill-switch
+check "undo keeps a state directory VGS did not make" test -d "$vpn_dir"
+
+# Files and directories VGS did not write are refused before the question.
+fresh; printf 'someone else\n' >"$ks_units/vgs-kill-switch.path"
+run "apply refuses a unit VGS did not write" 1 "vgs-system: refused: destination=foreign path=$ks_units/vgs-kill-switch.path" apply vpn-kill-switch
+check "the foreign unit keeps its bytes" test "$(cat "$ks_units/vgs-kill-switch.path")" == "someone else"
+check "a foreign unit asks nothing and runs no sudo" test ! -e "$tmp/gum.log" -a ! -e "$tmp/sudo.log"
+fresh; ln -s /dev/null "$ks_script"
+run "apply refuses a symbolic link at the script" 1 "vgs-system: refused: destination=symlink path=$ks_script" apply vpn-kill-switch
+check "a symlinked script runs no sudo" no_sudo
+fresh; mkdir -p "$root/var/lib/vgshell"; chmod 0755 "$root/var/lib/vgshell"; ln -s /tmp "$vpn_dir"
+run "apply refuses a symbolic link at the state directory" 1 "vgs-system: refused: destination=symlink path=$vpn_dir" apply vpn-kill-switch
+fresh; run_tty "apply before an edit of the unit" 0 apply vpn-kill-switch
+printf '# edited\n' >>"$ks_units/vgs-kill-switch.service"
+run "undo refuses an edited unit" 1 "vgs-system: refused: destination=foreign path=$ks_units/vgs-kill-switch.service" undo vpn-kill-switch
+check "the record stays for the edited unit" test -e "$records/vpn-kill-switch"
+
+# The probe's other readings.
+fresh; mkdir -p "$vpn_dir"; printf '1234 %s\n' "$vpn_dir" >"$tmp/owners"
+check "a state directory another account owns reads denied" test "$(step_state vpn-kill-switch)" == "denied other-account"
+run "apply refuses another account's state directory" 1 "vgs-system: refused: state=denied reason=other-account step=vpn-kill-switch" apply vpn-kill-switch
+for tool in nft:nft-missing systemctl:systemd-missing; do
+  fresh; mv -- "$bin/${tool%%:*}" "$tmp/away"
+  check "no ${tool%%:*} reads denied" test "$(step_state vpn-kill-switch)" == "denied ${tool##*:}"
+  mv -- "$tmp/away" "$bin/${tool%%:*}"
+done
+fresh; run_tty "apply before an unreadable unit" 0 apply vpn-kill-switch
+chmod 0000 "$ks_units/vgs-kill-switch.path" 2>/dev/null || true
+check "a unit the probe cannot hash reads unknown" test "$(step_state vpn-kill-switch)" == "unknown hash-failed"
+chmod 0644 "$ks_units/vgs-kill-switch.path" 2>/dev/null || true
+fresh
+run_nixos "the kill switch's apply on NixOS" 1 "vgs-system: refused: state=denied reason=nixos-unsupported step=vpn-kill-switch" "$nixos_path:$caller:/usr/bin:/bin" apply vpn-kill-switch
+check "NixOS reads the kill switch denied and writes nothing" untouched
+
 # reboot-notice: pacman's own override of the CachyOS reboot hook, a link
 # to /dev/null in the hook directory; any other file there is the user's.
 notice_hook="$root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
@@ -1607,7 +1762,7 @@ check "root is refused" caller_root
 # written and no sudo runs.
 fresh
 run_nixos "nixos status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
-check "nixos reads each needed step and the missing tailscaled.service as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive nixos unit-missing nixos inactive nixos inactive nixos operator-unset nixos not-set-up)"
+check "nixos reads each needed step and the missing tailscaled.service as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive nixos unit-missing nixos inactive nixos inactive nixos operator-unset nixos not-set-up denied nixos-unsupported)"
 check "nixos status writes nothing" untouched
 run_nixos "nixos apply prints the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply apple-displays
 check "nixos apply reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=apple-displays skipped=nixos-config"
@@ -1661,7 +1816,7 @@ check "nixos rows run no sudo" no_sudo
 run_nixos "a failed detection fails apply" 1 "vgs-system: refused: system=undetected exit=127" "$nixos_path:$no_node_path" apply apple-displays
 check "a failed detection writes nothing" untouched
 run_nixos "a failed detection reads needed steps unknown" 0 "" "$nixos_path:$no_node_path" status --json
-check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected unknown system-undetected unknown system-undetected)"
+check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected unknown system-undetected unknown system-undetected unknown system-undetected)"
 check "an undetected system runs no sudo" no_sudo
 
 # Must-fail controls, each a copy of the helper missing one rule.

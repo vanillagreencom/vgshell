@@ -64,6 +64,11 @@ f share/vgshell/config/runtime-libraries.json
 f share/vgshell/config/shell.json
 f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam
+f share/vgshell/config/system/kill-switch/vgs-kill-switch
+f share/vgshell/config/system/kill-switch/vgs-kill-switch-status.socket
+f share/vgshell/config/system/kill-switch/vgs-kill-switch-status@.service
+f share/vgshell/config/system/kill-switch/vgs-kill-switch.path
+f share/vgshell/config/system/kill-switch/vgs-kill-switch.service
 f share/vgshell/config/system/udev/60-vgs-apple-displays.rules
 f share/vgshell/config/system/udev/69-vgs-disk-sleep.rules
 f share/vgshell/config/system/udev/90-vgs-wake.rules

@@ -42,6 +42,30 @@
 #                        one TUI sudo session owns login, browser opening as the
 #                        desktop user, verified completion and previous-profile
 #                        recovery after cancellation or failure
+#   vpn-kill-switch      install config/system/kill-switch/vgs-kill-switch as
+#                        /usr/local/bin/vgs-kill-switch, mode 0755, and the
+#                        same directory's vgs-kill-switch.service,
+#                        vgs-kill-switch.path, vgs-kill-switch-status.socket and
+#                        vgs-kill-switch-status@.service in /etc/systemd/system,
+#                        mode 0644; make /var/lib/vgshell/vpn the caller's, 0755,
+#                        and /var/lib/vgshell/kill-switch root's, 0700; then
+#                        `systemctl daemon-reload` after a new unit file and
+#                        `systemctl enable --now` of the path unit, the socket
+#                        and vgs-kill-switch.service, whose start applies the
+#                        rule once. It reads ready while the five files hold the
+#                        shipped bytes, the three units are enabled and both
+#                        directories have those owners; denied, reason
+#                        other-account, while another account owns
+#                        /var/lib/vgshell/vpn; denied, reason systemd-missing or
+#                        nft-missing, without systemctl or nft; and denied,
+#                        reason nixos-unsupported, on NixOS. Its record holds
+#                        `script=`, `sync-unit=`, `path-unit=`, `socket-unit=` and
+#                        `status-unit=` <sha256> of the files, and `state-dir=1`
+#                        and `cache-dir=1` for each directory it made. Undo runs
+#                        `systemctl disable --now` of the three units, deletes the
+#                        nftables table inet vgshell_kill_switch, removes each file
+#                        while its bytes hash to the record, then each directory
+#                        it made
 #   bandwhich-capture    grant cap_sys_ptrace, cap_dac_read_search, cap_net_raw
 #                        and cap_net_admin, effective and permitted, on the
 #                        resolved, root-owned bandwhich binary; undo removes
@@ -246,6 +270,22 @@ greeter_copy="$greeter_theme/vgshell"
 greeter_state="$greeter_dir/state"
 # The greeter's directories as the record names them, each with its path.
 greeter_dirs=("dropin-dir:$dropin_dir" "greeter-dir:$greeter_dir" "theme-dir:$greeter_theme" "copy-dir:$greeter_copy" "state-dir:$greeter_state")
+# The VPN kill switch's files, each `<record key>|<name in
+# config/system/kill-switch>|<destination>|<mode>`, and its units, enabled in
+# this order, so the service's start applies the rule last.
+kill_switch_source="$install_root/config/system/kill-switch"
+local_bin="$prefix/usr/local/bin"
+kill_switch_files=(
+  "script|vgs-kill-switch|$local_bin/vgs-kill-switch|0755"
+  "sync-unit|vgs-kill-switch.service|$units_dir/vgs-kill-switch.service|0644"
+  "path-unit|vgs-kill-switch.path|$units_dir/vgs-kill-switch.path|0644"
+  "socket-unit|vgs-kill-switch-status.socket|$units_dir/vgs-kill-switch-status.socket|0644"
+  "status-unit|vgs-kill-switch-status@.service|$units_dir/vgs-kill-switch-status@.service|0644"
+)
+kill_switch_units=(vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service)
+# The user's VPN state, which the shell writes, and root's profile cache.
+vpn_state_dir="$prefix/var/lib/vgshell/vpn"
+vpn_cache_dir="$prefix/var/lib/vgshell/kill-switch"
 sys="$prefix/sys"
 dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
@@ -284,6 +324,8 @@ declare -A step_description=(
   [undo:tailscale-account-add]='An account add has no setup change to undo. Sign out of the account from the Tailscale card.'
   [apply:greeter]='Set VGS as the login screen for the next start of the computer. This lets you sign in through VGS when the computer starts.'
   [undo:greeter]='Undo the login screen changes that VGS made. This removes the VGS login screen setup and restores how the computer starts.'
+  [apply:vpn-kill-switch]='Let VGS block all traffic outside the VPN when the VPN drops. This installs a firewall service that keeps the block in place even when VGS is not running.'
+  [undo:vpn-kill-switch]='Remove the VPN kill switch that VGS installed. Traffic is no longer blocked when the VPN drops.'
   [apply:bandwhich-capture]='Give the network monitor access to connection details. This lets VGS show which applications use your network.'
   [undo:bandwhich-capture]='Remove the network monitor access that VGS granted. This stops that access to application connection details.'
   [apply:reboot-notice]='Turn off CachyOS reboot notices for package updates outside VGS. VGS still asks once after all its update steps finish when a restart is needed.'
@@ -889,6 +931,55 @@ probe_greeter() {
   set_probe ready granted
 }
 
+# Sets sum to FILE's sha256; 1 when it cannot be hashed. sha256_of refuses
+# instead, which a probe never does.
+probe_sum() { # FILE
+  sum="$(sha256sum -- "$1" 2>/dev/null)" || return 1
+  sum="${sum%% *}"
+  [[ $sum =~ ^$hex{64}$ ]]
+}
+
+# Whether the kill switch's five files are regular files in the install tree.
+kill_switch_sources() {
+  local entry key name dest file_mode
+  for entry in "${kill_switch_files[@]}"; do
+    IFS='|' read -r key name dest file_mode <<<"$entry"
+    [[ -f $kill_switch_source/$name && ! -L $kill_switch_source/$name ]] || return 1
+  done
+}
+
+# The rule itself needs root to read, so the probe compares bytes and reads
+# the units' enablement; vgs-kill-switch status reads the rule.
+probe_vpn_kill_switch() {
+  local entry key name dest file_mode status unit
+  detect_system || { set_probe unknown system-undetected; return; }
+  [[ $detected_system != nix ]] || { set_probe denied nixos-unsupported; return; }
+  command -v systemctl >/dev/null || { set_probe denied systemd-missing; return; }
+  command -v nft >/dev/null || { set_probe denied nft-missing; return; }
+  kill_switch_sources || { set_probe unknown source-missing; return; }
+  # A link there is refused by apply, as a link at a file is.
+  if [[ -L $vpn_state_dir ]]; then set_probe needed not-set-up; return; fi
+  if [[ -e $vpn_state_dir ]]; then
+    owned_by "$vpn_state_dir" "$uid" || { set_probe denied other-account; return; }
+  fi
+  for entry in "${kill_switch_files[@]}"; do
+    IFS='|' read -r key name dest file_mode <<<"$entry"
+    probe_sum "$kill_switch_source/$name" || { set_probe unknown hash-failed; return; }
+    status=0
+    file_holds "$dest" "$sum" || status=$?
+    case "$status" in
+      0) ;;
+      1) set_probe needed not-set-up; return ;;
+      *) set_probe unknown hash-failed; return ;;
+    esac
+  done
+  if [[ ! -d $vpn_state_dir ]] || ! trusted "$vpn_cache_dir"; then set_probe needed not-set-up; return; fi
+  for unit in "${kill_switch_units[@]}"; do
+    systemctl is-enabled --quiet "$unit" || { set_probe needed units-disabled; return; }
+  done
+  set_probe ready granted
+}
+
 # Sets notice_state to what is at the reboot notice's link path: none,
 # off for a link to /dev/null, or foreign for any other file or link; 1
 # when the link cannot be read.
@@ -963,6 +1054,7 @@ probe() { # STEP
       else set_probe needed account-add
       fi ;;
     greeter) probe_greeter ;;
+    vpn-kill-switch) probe_vpn_kill_switch ;;
     bandwhich-capture) probe_bandwhich_capture ;;
     reboot-notice) probe_reboot_notice ;;
     voxtype-engine) probe_voxtype_engine ;;
@@ -1050,6 +1142,7 @@ read_record() { # STEP
     i2c-dev) allowed=' uid loaded boot ' ;;
     service-*) allowed=' uid enabled started boot ' ;;
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
+    vpn-kill-switch) allowed=' uid script sync-unit path-unit socket-unit status-unit state-dir cache-dir ' ;;
     bandwhich-capture) allowed=' uid binary hash ' ;;
     reboot-notice) allowed=' uid link hooks-dir ' ;;
     voxtype-engine|vgs-quickshell-repository) allowed=' uid enabled ' ;;
@@ -1062,6 +1155,7 @@ read_record() { # STEP
     case "$key" in
       uid) [[ $value =~ ^$digit+$ ]] ;;
       rule|config|pam|dropin|hash) [[ $value =~ ^$hex{64}$ ]] ;;
+      script|sync-unit|path-unit|socket-unit|status-unit) [[ $value =~ ^$hex{64}$ ]] ;;
       binary) [[ $value == /* && $value != *$'\r'* ]] ;;
       loaded|enabled|started|link|*-dir) [[ $value == 1 ]] ;;
       boot|deferred) [[ $value =~ ^($hex|-){36}$ ]] ;;
@@ -1420,6 +1514,74 @@ undo_greeter() {
   greeter_kept=1
 }
 
+apply_vpn_kill_switch() {
+  local entry key name dest file_mode hash dir unit install systemctl reload="" text="uid=$uid" writes=()
+  kill_switch_sources || refuse 1 "source=missing path=$kill_switch_source"
+  program install install
+  program systemctl systemctl
+  for dir in "$local_bin" "$units_dir"; do trusted "$dir" || refuse 1 "untrusted=$dir"; done
+  owned_dir "${vpn_state_dir%/*}"
+  for dir in "$vpn_state_dir" "$vpn_cache_dir"; do no_symlink "$dir"; done
+  [[ ! -e $vpn_state_dir ]] || owned_by "$vpn_state_dir" "$uid" || refuse 1 "destination=ownership path=$vpn_state_dir"
+  [[ ! -e $vpn_cache_dir ]] || trusted "$vpn_cache_dir" || refuse 1 "untrusted=$vpn_cache_dir"
+  read_record vpn-kill-switch || true
+  for entry in "${kill_switch_files[@]}"; do
+    IFS='|' read -r key name dest file_mode <<<"$entry"
+    sha256_of "$kill_switch_source/$name"
+    hash="$sum"
+    # Leaves sum at the destination's hash when the file there is VGS's.
+    dest_state_of "$dest" "${record[$key]-}"
+    [[ $dest_state == own && $sum == "$hash" ]] || writes+=("$entry")
+    text+=$'\n'"$key=$hash"
+  done
+  # A directory VGS made before stays VGS's to remove.
+  if [[ -n ${record[state-dir]+set} || ! -e $vpn_state_dir ]]; then text+=$'\n'"state-dir=1"; fi
+  if [[ -n ${record[cache-dir]+set} || ! -e $vpn_cache_dir ]]; then text+=$'\n'"cache-dir=1"; fi
+  record_put vpn-kill-switch "$text"
+  for entry in "${writes[@]}"; do
+    IFS='|' read -r key name dest file_mode <<<"$entry"
+    cmd "$install" -m "$file_mode" -o root -g root -T -- "$kill_switch_source/$name" "$dest"
+    [[ $key == script ]] || reload=1
+  done
+  [[ -e $vpn_state_dir ]] || cmd "$install" -d -m 0755 -o "$uid" -g "$gid" -- "$vpn_state_dir"
+  [[ -e $vpn_cache_dir ]] || cmd "$install" -d -m 0700 -o root -g root -- "$vpn_cache_dir"
+  [[ -z $reload ]] || cmd "$systemctl" daemon-reload
+  for unit in "${kill_switch_units[@]}"; do cmd "$systemctl" enable --now "$unit"; done
+}
+
+# The units stop first, so no change starts a sync once the table is gone.
+# Declaring the table before its delete makes the delete hold whether or
+# not the rule is armed, in one transaction.
+undo_vpn_kill_switch() {
+  local entry key name dest file_mode unit nft rm systemctl dir reload="" present=()
+  program rm rm
+  program systemctl systemctl
+  for entry in "${kill_switch_files[@]}"; do
+    IFS='|' read -r key name dest file_mode <<<"$entry"
+    # Refuses a file VGS did not write; leaves dest_state at own or none.
+    dest_state_of "$dest" "${record[$key]-}"
+    [[ $dest_state == none ]] || present+=("$entry")
+  done
+  for unit in "${kill_switch_units[@]}"; do
+    [[ ! -e $units_dir/$unit ]] || cmd "$systemctl" disable --now "$unit"
+  done
+  if command -v nft >/dev/null; then
+    program nft nft
+    cmd_in "table inet vgshell_kill_switch {}"$'\n'"delete table inet vgshell_kill_switch" "$nft" -f -
+  fi
+  for entry in "${present[@]}"; do
+    IFS='|' read -r key name dest file_mode <<<"$entry"
+    cmd "$rm" -f -- "$dest"
+    [[ $key == script ]] || reload=1
+  done
+  [[ -z $reload ]] || cmd "$systemctl" daemon-reload
+  for dir in "$vpn_cache_dir:cache-dir" "$vpn_state_dir:state-dir"; do
+    no_symlink "${dir%:*}"
+    if [[ -n ${record[${dir##*:}]+set} && -e ${dir%:*} ]]; then cmd "$rm" -rf -- "${dir%:*}"; fi
+  done
+  record_drop vpn-kill-switch
+}
+
 apply_reboot_notice() {
   local ln install text="uid=$uid" made_dir=""
   trusted "$pacman_dir" || refuse 1 "untrusted=$pacman_dir"
@@ -1493,6 +1655,7 @@ plan() { # VERB STEP
     i2c-dev) "$1_i2c_dev" ;;
     service-bluetooth|service-tailscaled|service-cups|service-sshd) "$1_service" "$2" ;;
     greeter) "$1_greeter" ;;
+    vpn-kill-switch) "$1_vpn_kill_switch" ;;
     bandwhich-capture) "$1_bandwhich_capture" ;;
     reboot-notice) "$1_reboot_notice" ;;
     voxtype-engine) "$1_voxtype_engine" ;;
