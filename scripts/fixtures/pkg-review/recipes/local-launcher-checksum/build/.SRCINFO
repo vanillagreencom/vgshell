@@ -1,0 +1,20 @@
+pkgbase = proton-mail-bin
+	pkgdesc = Proton official desktop application for Proton Mail and Proton Calendar
+	pkgver = 1.16.1
+	pkgrel = 1
+	url = https://proton.me/mail
+	arch = any
+	license = GPL-3.0-or-later
+	depends = bash
+	depends = electron43
+	depends = hicolor-icon-theme
+	provides = proton-mail
+	conflicts = proton-mail
+	source = proton-mail-1.16.1.deb::https://proton.me/download/mail/linux/1.16.1/ProtonMail-desktop-beta.deb
+	source = proton-mail.sh
+	sha512sums = 5e2585499351eaf025add077823e3a842833c57922274a7605aca93f56a4af7584133626b869ffe6e10db81e2b82004b9d122b229d9fd53ce1b37be894c51905
+	sha512sums = 5b74cba7057ff23d3e1cfd54e728d0fe38a469e75372e115712d20e94706bf184751047aed17a870c451ee809006faa2f6b7e734d2435036b837cadec86c1afc
+	b2sums = 704f3e7c5baacbf55fdf20442932e660ee51d46fc2ddc986ab53a4afbebde00ffbd856d3966f8c6792dacde7a42cb7fa953094fe1f1bedb95135a814491db27e
+	b2sums = 25b08104cb8d71a17897bad43c7adaea645710b269e15a0a357b4b2b98158acc47c3abfd0e1484e0153a36a92bfab843df1bd1ad6454089105b92a2904c64407
+
+pkgname = proton-mail-bin

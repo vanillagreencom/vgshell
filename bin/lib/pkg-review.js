@@ -544,72 +544,101 @@ function cachedRecipe(binary, base) {
     const xdg = process.env.XDG_CACHE_HOME;
     const cache = xdg && path.isAbsolute(xdg) ? xdg : path.join(home(), ".cache");
     const helper = path.basename(binary);
-    if (helper === "paru") return path.join(cache, "paru/clone", base, "PKGBUILD");
-    if (helper === "yay") return path.join(cache, "yay", base, "PKGBUILD");
+    if (helper === "paru") return path.join(cache, "paru/clone", base);
+    if (helper === "yay") return path.join(cache, "yay", base);
     return null;
 }
 // One `recipe <pkgbase> new|unchanged|changed` line per fetched base, from
-// its PKGBUILD against the helper's cached copy, with recipe/<base>.diff
-// for changed. Untrusted text is only read and compared. A cached copy
-// that exists but cannot be read safely is failed evidence, never new.
-function recipeEvidence(dir, pkg, state) {
+// the whole fetched folder against the helper's cached copy. Local source
+// files can carry a payload without changing the PKGBUILD. Snapshot every
+// regular file except helper metadata before diffing; never execute it.
+function recipeContents(dir, kind, base) {
+    try {
+        const entries = recipeFiles(dir, file => {
+            const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+            try {
+                const stat = fs.fstatSync(fd);
+                if (!stat.isFile()) throw Object.assign(new Error("not a regular recipe file"), { code: "RECIPE_UNSAFE" });
+                const name = path.relative(dir, file);
+                if (stat.size > (kind === "cache" && name === "PKGBUILD" ? MAX_DATA : 16 * MAX_DATA))
+                    throw Object.assign(new Error("recipe file exceeds the read limit"), { code: "RECIPE_TOO_LARGE" });
+                return [name, fs.readFileSync(fd)];
+            } finally { fs.closeSync(fd); }
+        });
+        const contents = new Map(entries);
+        if (!contents.has("PKGBUILD")) throw new Error("the recipe folder has no PKGBUILD");
+        return contents;
+    } catch (e) {
+        const cause = ["ELOOP", "RECIPE_UNSAFE"].includes(e.code) ? "unsafe" : e.code === "RECIPE_TOO_LARGE" ? "too-large" : "unreadable";
+        throw new Error(`recipe=${kind}-${cause} name=${base}`);
+    }
+}
+function recipeEvidence(dir, pkg, state, compared) {
     const selected = recipeFolder(dir, pkg);
     if (selected === null || !selected.base) throw new Error("recipe=srcinfo-unreadable name=" + pkg.name);
     const base = selected.base;
-    if (state.lines.some(line => line.startsWith("recipe " + base + " "))) return;
     if (base.includes("/") || base === "." || base === "..") throw new Error("recipe=unsafe-base name=" + pkg.name);
+    if (compared.has(base)) return;
+    compared.add(base);
     const cached = cachedRecipe(pkg.binary, base);
     let old = null;
     if (cached !== null) {
-        let fd = null;
-        try { fd = fs.openSync(cached, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+        let exists = true;
+        try { fs.lstatSync(cached); }
         catch (e) {
-            if (e.code === "ELOOP") throw new Error("recipe=cache-unsafe name=" + base);
             if (e.code !== "ENOENT") throw new Error("recipe=cache-unreadable name=" + base);
+            exists = false;
         }
-        if (fd !== null) {
-            try {
-                const stat = fs.fstatSync(fd);
-                if (!stat.isFile()) throw new Error("recipe=cache-unsafe name=" + base);
-                if (stat.size > MAX_DATA) throw new Error("recipe=cache-too-large name=" + base);
-                try { old = fs.readFileSync(fd); } catch (_) { throw new Error("recipe=cache-unreadable name=" + base); }
-            } finally { fs.closeSync(fd); }
-        }
+        if (exists) old = recipeContents(cached, "cache", base);
     }
-    const fetched = path.join(selected.folder, "PKGBUILD");
-    let next;
-    try { next = fs.readFileSync(identity(fetched).path); } catch (_) { throw new Error("recipe=build-unreadable name=" + base); }
-    const recipeState = old === null ? "new" : old.equals(next) ? "unchanged" : "changed";
-    state.lines.push(`recipe ${base} ${recipeState}`);
-    if (recipeState !== "changed") return;
+    const next = recipeContents(selected.folder, "build", base);
+    const names = [...new Set([...(old?.keys() || []), ...next.keys()])].sort();
+    const changed = old === null ? [] : names.filter(name => !old.has(name) || !next.has(name) || !old.get(name).equals(next.get(name)));
+    const recipeState = old === null ? "new" : changed.length ? "changed" : "unchanged";
+    if (recipeState !== "changed") { state.lines.push(`recipe ${base} ${recipeState}`); return; }
     const out = path.join(dir, "recipe");
     fs.mkdirSync(out, { recursive: true, mode: 0o700 });
-    const copy = path.join(out, base + ".cached");
-    fs.writeFileSync(copy, old, { mode: 0o600 });
+    const before = path.join(out, base + ".old"), after = path.join(out, base + ".new");
+    let diff = "";
     try {
-        const r = query(["diff", "-u", "--label", cached, "--label", path.join("build", path.basename(selected.folder), "PKGBUILD"), "--", copy, fetched]);
-        if (r.error || r.status !== 1) throw new Error("recipe=diff-unreadable name=" + base);
-        fs.writeFileSync(path.join(out, base + ".diff"), r.stdout, { mode: 0o600 });
-    } finally { fs.rmSync(copy, { force: true }); }
+        for (const name of changed) {
+            if (old.has(name)) fs.writeFileSync(before, old.get(name), { mode: 0o600 });
+            if (next.has(name)) fs.writeFileSync(after, next.get(name), { mode: 0o600 });
+            const r = query(["diff", "-u", "--label", path.join("cached", base, name), "--label", path.join("build", base, name), "--",
+                old.has(name) ? before : "/dev/null", next.has(name) ? after : "/dev/null"]);
+            if (r.error || ![0, 1].includes(r.status)) throw new Error("recipe=diff-unreadable name=" + base);
+            // diff sees no bytes in an added or removed empty file, but the
+            // folder changed and its evidence must still name that file.
+            if (r.status === 0) diff += `Empty file ${old.has(name) ? "removed" : "added"}: ${path.join(old.has(name) ? "cached" : "build", base, name)}\n`;
+            else diff += r.stdout;
+        }
+        fs.writeFileSync(path.join(out, base + ".diff"), diff, { mode: 0o600 });
+        state.lines.push(`recipe ${base} ${recipeState}`);
+    } finally { fs.rmSync(before, { force: true }); fs.rmSync(after, { force: true }); }
 }
-function recipesIdentity(dir) {
+function recipeFiles(dir, readFile) {
     const entries = [];
     let bytes = 0;
     function read(at) {
+        if (!fs.lstatSync(at).isDirectory()) throw Object.assign(new Error("The AUR recipe folder is not a directory."), { code: "RECIPE_UNSAFE" });
         for (const row of fs.readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+            if (row.name === ".git") continue;
             const file = path.join(at, row.name);
-            if (row.isDirectory()) { if (row.name !== ".git") read(file); }
+            if (row.isDirectory()) read(file);
             else if (row.isFile()) {
                 bytes += fs.statSync(file).size;
-                if (entries.length >= 4096 || bytes > 64 * MAX_DATA) throw new Error("The AUR build recipes exceed the review's file or size limit.");
-                entries.push(identity(file));
+                if (entries.length >= 4096 || bytes > 64 * MAX_DATA) throw Object.assign(new Error("The AUR build recipes exceed the review's file or size limit."), { code: "RECIPE_TOO_LARGE" });
+                entries.push(readFile(file));
             }
-            else throw new Error("The AUR recipe file " + JSON.stringify(path.relative(dir, file)) + " is "
-                + (row.isSymbolicLink() ? "a symbolic link" : "not a regular file") + ", so it cannot be reviewed safely.");
+            else throw Object.assign(new Error("The AUR recipe file " + JSON.stringify(path.relative(dir, file)) + " is "
+                + (row.isSymbolicLink() ? "a symbolic link" : "not a regular file") + ", so it cannot be reviewed safely."), { code: "RECIPE_UNSAFE" });
         }
     }
     read(dir);
     return entries;
+}
+function recipesIdentity(dir) {
+    return recipeFiles(dir, identity);
 }
 function agentHome() {
     if (!process.env.XDG_RUNTIME_DIR) refuse("review=runtime-dir-unset");
@@ -718,6 +747,7 @@ async function reviewRequest(request, storage) {
                 try {
                     if (!reviewable) throw new Error("review=nothing-reviewable");
                     if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
+                    const comparedRecipes = new Set();
                     for (const pkg of thirdParty.filter(p => p.aur)) {
                         const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
                         const shownFetch = await ui("show", "Fetching package build files as your user", ...fetch);
@@ -727,7 +757,7 @@ async function reviewRequest(request, storage) {
                         if (r.error || r.status !== 0) throw new Error("fetch=failed name=" + pkg.name);
                         try { risks.push(...installEvidence(dir, pkg, state)); }
                         catch (e) { state.unknown.push(e.message); risks.push({ name: pkg.name, concern: "The install script could not be verified." }); }
-                        try { recipeEvidence(dir, pkg, state); }
+                        try { recipeEvidence(dir, pkg, state, comparedRecipes); }
                         catch (e) { state.unknown.push(e.message); }
                     }
                     state.recipes = recipesIdentity(path.join(dir, "build"));

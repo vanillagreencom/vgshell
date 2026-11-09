@@ -1,0 +1,19 @@
+{
+  "package": "ludusavi",
+  "pkgbase": "ludusavi",
+  "old": "0.31.0-1",
+  "new": "0.31.0-2",
+  "expect": "clean",
+  "source": "AUR ludusavi commit c16bcb49eafc1a631590a513fe7927e44284df30, https://aur.archlinux.org/cgit/aur.git/commit/?h=ludusavi&id=c16bcb49eafc1a631590a513fe7927e44284df30; recipe licence: 0BSD (LICENSE in the AUR repository); patch fixture synthesized against the first three lines of upstream v0.31.0 build.rs, https://github.com/mtkennerly/ludusavi/blob/v0.31.0/build.rs . Both cached and fetched recipes otherwise use this same AUR revision; no historical upstream patch is claimed. Benign build fix: the patch makes Cargo rerun the build script when assets/icon.svg changes, using cargo:rerun-if-changed (https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed). It adds no process, download or runtime code.",
+  "install": "none",
+  "installerRisk": false,
+  "recipe": "changed",
+  "recipeDiffFiles": [
+    ".SRCINFO",
+    "PKGBUILD",
+    "build-fix.patch"
+  ],
+  "recipeDiffAdded": [
+    "++    println!(\"cargo:rerun-if-changed=assets/icon.svg\");"
+  ]
+}

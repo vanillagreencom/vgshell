@@ -19,13 +19,14 @@
 //                 (PackageReview.installScriptChange) found a risky line.
 // `installerRiskGap` marks a malicious fixture that check misses today.
 // PLANTED rows reuse a fixture with one defect in the world and declare
-// the failure the owner must report instead.
+// the failure or whole-folder delta the owner must report instead. Local
+// source changes must reach the diff even when PKGBUILD stays identical.
 //
 // Each control copies one fixture with a wrong declaration into a scratch
 // recipes directory, runs this file over it with --recipes, and that run
 // must fail at the row the plant names.
 "use strict";
-const assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path"), cp = require("node:child_process");
+const assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path"), cp = require("node:child_process"), crypto = require("node:crypto");
 const { create } = require("./world.js");
 const q = s => "'" + String(s).replaceAll("'", "'\\''") + "'";
 
@@ -60,15 +61,49 @@ const FUTURE_BUILD_LIMIT = /^dependencies=unresolved name=/;
 // owner's expected evidence in place of the fixture's own declarations.
 const PLANTED = [
     { name: "cached-recipe-symlink", fixture: "build-change-cached", plant: "cache-symlink",
-        expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) }
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) },
+    { name: "cached-local-source-symlink", fixture: "local-launcher-checksum", plant: "cache-source-symlink",
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) },
+    { name: "cached-folder-symlink", fixture: "build-change-cached", plant: "cache-folder-symlink",
+        expect: meta => ({ recipe: null, failures: ["recipe=cache-unsafe name=" + meta.pkgbase] }) },
+    { name: "local-source-only", fixture: "local-launcher-checksum", plant: "source-only",
+        expect: () => ({ recipe: "changed", failures: [], diffFiles: ["obsolete.sh", "proton-mail.sh"] }) },
+    { name: "empty-source-added", fixture: "cached-malicious-unchanged", plant: "empty-added",
+        expect: meta => ({ recipe: "changed", failures: [], diffFiles: [], diffAdded: ["Empty file added: build/" + meta.pkgbase + "/sources/marker"] }) },
+    { name: "empty-source-removed", fixture: "cached-malicious-unchanged", plant: "empty-removed",
+        expect: meta => ({ recipe: "changed", failures: [], diffFiles: [], diffAdded: ["Empty file removed: cached/" + meta.pkgbase + "/sources/marker"] }) },
+    { name: "helper-metadata-only", fixture: "cached-malicious-unchanged", plant: "helper-metadata",
+        expect: () => ({ recipe: "unchanged", failures: [] }) }
 ];
 
 // The owner's review of one fixture: its packages.txt lines, install/ and
 // recipe/ files, the concern questions the stand-in gum recorded and the
 // owner's result. PLANT, when set, is the one defect its world carries.
 function reviewed(label, fixture, plant, stop) {
-    const meta = JSON.parse(fs.readFileSync(path.join(fixture, "fixture.json"), "utf8"));
     const out = path.join(scratch, label);
+    if (["source-only", "empty-added"].includes(plant)) {
+        const copy = path.join(out, "fixture");
+        fs.cpSync(fixture, copy, { recursive: true });
+        fixture = copy;
+        if (plant === "source-only") {
+            for (const file of ["PKGBUILD", ".SRCINFO"]) fs.copyFileSync(path.join(copy, "cached", file), path.join(copy, "build", file));
+            // AUR recipes may use SKIP for a local source. Keep the same
+            // PKGBUILD on both sides so this is a reachable source-only edit.
+            for (const algorithm of ["sha512", "blake2b512"]) {
+                const checksum = crypto.createHash(algorithm).update(fs.readFileSync(path.join(copy, "cached/proton-mail.sh"))).digest("hex");
+                for (const side of ["cached", "build"]) for (const file of ["PKGBUILD", ".SRCINFO"]) {
+                    const at = path.join(copy, side, file), text = fs.readFileSync(at, "utf8");
+                    assert.equal(text.split(checksum).length, 2, label + ": one local source checksum");
+                    fs.writeFileSync(at, text.replace(checksum, "SKIP"));
+                }
+            }
+            fs.writeFileSync(path.join(copy, "cached/obsolete.sh"), "#!/usr/bin/bash\nprintf '%s\\n' obsolete\n");
+        } else {
+            fs.mkdirSync(path.join(copy, "build/sources"));
+            fs.writeFileSync(path.join(copy, "build/sources/marker"), "");
+        }
+    }
+    const meta = JSON.parse(fs.readFileSync(path.join(fixture, "fixture.json"), "utf8"));
     // A concern question, if any, is answered Skip; the unavailable
     // question a failed read asks, Stop.
     const w = create(path.join(out, "world"), { choices: ["Review", "Use Claude Code", stop ? "Stop" : "Skip"] });
@@ -83,9 +118,19 @@ function reviewed(label, fixture, plant, stop) {
         // the world sets HOME and no XDG_CACHE_HOME.
         const clone = path.join(w.env.HOME, ".cache/paru/clone", meta.pkgbase);
         fs.cpSync(path.join(fixture, "cached"), clone, { recursive: true });
-        if (plant === "cache-symlink") {
-            fs.renameSync(path.join(clone, "PKGBUILD"), path.join(w.root, "linked-PKGBUILD"));
-            fs.symlinkSync(path.join(w.root, "linked-PKGBUILD"), path.join(clone, "PKGBUILD"));
+        if (["cache-symlink", "cache-source-symlink"].includes(plant)) {
+            const file = plant === "cache-symlink" ? "PKGBUILD" : "proton-mail.sh";
+            fs.renameSync(path.join(clone, file), path.join(w.root, "linked-source"));
+            fs.symlinkSync(path.join(w.root, "linked-source"), path.join(clone, file));
+        } else if (plant === "cache-folder-symlink") {
+            fs.renameSync(clone, path.join(w.root, "linked-clone"));
+            fs.symlinkSync(path.join(w.root, "linked-clone"), clone);
+        } else if (plant === "empty-removed") {
+            fs.mkdirSync(path.join(clone, "sources"));
+            fs.writeFileSync(path.join(clone, "sources/marker"), "");
+        } else if (plant === "helper-metadata") {
+            fs.mkdirSync(path.join(clone, ".git"));
+            fs.symlinkSync(path.join(w.root, "absent-metadata"), path.join(clone, ".git/ignored"));
         }
     } else assert.equal(plant, undefined, label + ": a planted cache needs a cached fixture");
     for (const tool of ["pacman", "paru", "claude", "codex"]) {
@@ -104,6 +149,8 @@ function reviewed(label, fixture, plant, stop) {
         lines: fs.readFileSync(path.join(evidence, "packages.txt"), "utf8").split("\n").filter(Boolean),
         installFiles: files("install"),
         recipeFiles: files("recipe"),
+        recipeDiff: fs.existsSync(path.join(evidence, "recipe", meta.pkgbase + ".diff"))
+            ? fs.readFileSync(path.join(evidence, "recipe", meta.pkgbase + ".diff"), "utf8") : null,
         concerns: w.calls().filter(c => c.kind === "offer" && c.offered.includes("Install anyway")),
         result: JSON.parse(fs.readFileSync(path.join(out, "result.json"), "utf8"))
     };
@@ -127,6 +174,13 @@ try {
         assert.deepEqual(lines.filter(l => l.startsWith("recipe ")), expected.recipe === null ? [] : [`recipe ${meta.pkgbase} ${expected.recipe}`], name + ": recipe line");
         assert.deepEqual(installFiles.filter(f => f.endsWith(".diff")), meta.install === "changed" ? [meta.package + ".diff"] : [], name + ": install diff");
         assert.deepEqual(recipeFiles, expected.recipe === "changed" ? [meta.pkgbase + ".diff"] : [], name + ": recipe diff");
+        if (expected.recipe === "changed" && (expected.diffFiles || meta.recipeDiffFiles)) {
+            const prefix = "+++ build/" + meta.pkgbase + "/";
+            assert.deepEqual(seen.recipeDiff.split("\n").filter(line => line.startsWith(prefix)).map(line => line.slice(prefix.length)).sort(),
+                [...(expected.diffFiles || meta.recipeDiffFiles)].sort(), name + ": recipe diff files");
+            for (const added of expected.diffAdded || meta.recipeDiffAdded || [])
+                assert.ok(seen.recipeDiff.includes(added), name + ": recipe diff carries the local source change");
+        }
         assert.deepEqual(lines.filter(l => l.startsWith("unknown ")).map(l => l.slice(8)).filter(l => !FUTURE_BUILD_LIMIT.test(l)), expected.failures, name + ": failures");
         assert.equal(result.decision, expected.failures.length ? "stop" : "proceed", name + ": owner decision");
         assert.deepEqual(result.reviewed, [meta.package], name + ": reviewed packages");
@@ -147,6 +201,7 @@ try {
         for (const [control, fixture, field, value, fails] of [
             ["wrong-install-state", "install-changed", "install", "unchanged", /install-changed: install line/],
             ["wrong-recipe-state", "source-domain-change", "recipe", "unchanged", /source-domain-change: recipe line/],
+            ["omitted-local-source-diff", "local-launcher-checksum", "recipeDiffFiles", ["PKGBUILD"], /local-launcher-checksum: recipe diff files/],
             ["missed-installer-risk", "install-setuid", "installerRisk", false, /install-setuid: installer risk/],
             ["invented-installer-risk", "pkgver-bump-cached", "installerRisk", true, /pkgver-bump-cached: installer risk/]
         ]) {
