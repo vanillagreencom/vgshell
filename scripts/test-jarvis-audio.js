@@ -214,7 +214,10 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     // A Talk release that ends a hold: past Session's tap bound, so it
     // closes the capture.
     const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
-    return { audio, runner, dispatch, release, levels, offers, faults, published, frames: () => frames, tick: ms => { at += ms; } };
+    // A later Talk press in toggle mode: past Session's 250 ms debounce
+    // (Session.js::bounced), so it toggles however soon the fixture reaches it.
+    const press = () => { skew += 250; dispatch("talk-down"); };
+    return { audio, runner, dispatch, release, press, levels, offers, faults, published, frames: () => frames, tick: ms => { at += ms; } };
 }
 
 async function capture(w) {
@@ -591,9 +594,9 @@ async function inside() {
             const resumes = ["complete", "interrupt", "stop"].includes(operation);
             if (operation === "complete") source.end();
             else if (operation === "interrupt") w.dispatch("interrupt");
-            else if (operation === "talk") w.dispatch("talk-down");
+            else if (operation === "talk") w.press();
             else if (operation === "release") {
-                w.dispatch("talk-down");
+                w.press();
                 w.release();
             }
             else if (operation === "indicator") w.dispatch("indicator", { gen: w.runner.state.gen, shown: false, bar: "gone" });
