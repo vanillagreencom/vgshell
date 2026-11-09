@@ -11,8 +11,15 @@
 # floating TUI run is live and shows once it ends. Restart is pressed only after the row proves
 # the notice belongs to the sandbox shell. The relaunched shell then builds
 # both panels from the changed core. Cleanup removes the fixtures and type
-# and starts the sandbox tree again.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py
+# and starts the sandbox tree again. A pacman-conf stand-in in the shell's
+# own PATH directory names a package database under the sandbox for the
+# whole row, so no watcher reads the host's pacman lock. The last block,
+# on that fresh shell, holds the database's lock while the bundled fonts
+# are gone and the core changes, as pacman's unlink-then-write leaves them
+# mid-transaction, and requires the restart notice only after the fonts
+# are back and the lock is gone, drawn from the bundled font files and no
+# fallback face. A last start clears the debt it raises.
+# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan shell/assets/fonts/InterVariable.ttf shell/assets/fonts/JetBrainsMono-Variable.ttf bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')
 drift="$home/.config/vgshell/plugins/acme.drift"
@@ -37,8 +44,103 @@ drift_relaunched() { # OLD_PID
   if IFS= read -r pid 2>/dev/null <"$rt_dir/vgshell.lock" && [[ $pid =~ ^[0-9]+$ && $pid != "$1" && -d /proc/$pid ]]; then echo "$pid"; else echo none; fi
 }
 drift_relaunch_deadline_ms=120000
+# The stand-in package database. It holds no lock until the font block.
+drift_db="$sandbox/core-drift-pacman"
+drift_fonts="$repo/shell/assets/fonts"
+drift_faces_before="$sandbox/core-drift-faces.before"
+# drift_watch_hold: `held` once the shell's core watcher holds an inotify
+# watch on the stand-in database, the watcher's own sign that it saw a core
+# change and the lock, else `watching`, or `no-watcher` when no child of
+# the shell runs --watch-core. The kernel prints each watch in fdinfo as
+# `inotify wd:%x ino:%lx ...` (fs/notify/fdinfo.c).
+drift_watch_hold() {
+  python3 - "$shell_qs_pid" "$drift_db" <<'PY'
+import os, sys
+qs, database = sys.argv[1:]
+try:
+    ino = " ino:%x " % os.stat(database).st_ino
+    children = set()
+    for task in os.listdir(f"/proc/{qs}/task"):
+        with open(f"/proc/{qs}/task/{task}/children") as fh:
+            children.update(fh.read().split())
+except OSError as exc:
+    print(f"unreadable={type(exc).__name__}")
+    sys.exit(0)
+state = "no-watcher"
+for pid in sorted(children):
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            argv = fh.read().split(b"\0")
+        if b"--watch-core" not in argv:
+            continue
+        state = "watching"
+        for name in os.listdir(f"/proc/{pid}/fdinfo"):
+            with open(f"/proc/{pid}/fdinfo/{name}") as fh:
+                if any(line.startswith("inotify ") and ino in line for line in fh.read().splitlines()):
+                    state = "held"
+    except OSError:
+        continue
+print(state)
+PY
+}
+# drift_faces [BEFORE]: the font files the shell maps outside the bundled
+# directory, one path per line; with BEFORE, the comma-joined ones BEFORE
+# does not list, or `none`. Run A of VGS-2359 drew the restart notice with
+# the bundled fonts' glyph numbers from such fallback faces.
+drift_faces() {
+  python3 - "$shell_qs_pid" "$drift_fonts" "${1:-}" <<'PY'
+import os, re, sys
+qs, bundled, before = sys.argv[1:]
+font = re.compile(r"\.(ttf|otf|ttc|otc|pfb|pfa|woff2?)$", re.IGNORECASE)
+try:
+    with open(f"/proc/{qs}/maps") as fh:
+        lines = fh.read().splitlines()
+    if before:
+        with open(before) as fh:
+            known = set(fh.read().splitlines())
+    else:
+        known = None
+except OSError as exc:
+    print(f"unreadable={type(exc).__name__}")
+    sys.exit(0)
+faces = set()
+for line in lines:
+    parts = line.split(None, 5)
+    if len(parts) < 6:
+        continue
+    path = parts[5].removesuffix(" (deleted)")
+    if font.search(path) and os.path.dirname(path) != bundled:
+        faces.add(path)
+if known is None:
+    print("\n".join(sorted(faces)))
+else:
+    print(",".join(sorted(faces - known)) or "none")
+PY
+}
+# drift_bundled_mapped: `mapped` once the shell maps each bundled font file
+# at the inode its path names now, else `unmapped=` the names it does not.
+drift_bundled_mapped() {
+  python3 - "$shell_qs_pid" "$drift_fonts" <<'PY'
+import os, sys
+qs, bundled = sys.argv[1:]
+names = ["InterVariable.ttf", "JetBrainsMono-Variable.ttf"]
+try:
+    with open(f"/proc/{qs}/maps") as fh:
+        rows = [line.split(None, 5) for line in fh.read().splitlines()]
+    mapped = {(parts[5], int(parts[4])) for parts in rows if len(parts) == 6}
+    want = {name: (os.path.join(bundled, name), os.stat(os.path.join(bundled, name)).st_ino) for name in names}
+except OSError as exc:
+    print(f"unreadable={type(exc).__name__}")
+    sys.exit(0)
+missing = [name for name in names if want[name] not in mapped]
+print("unmapped=" + ",".join(missing) if missing else "mapped")
+PY
+}
 
 [[ $shell_tree == "$repo" ]] || fail "the row needs the sandbox's own tree as the running shell, found $shell_tree"
+mkdir -p -- "$drift_db"
+printf '#!/bin/sh\nprintf "%%s\\n" %q\n' "$drift_db/" >"$shim/pacman-conf"
+chmod 755 "$shim/pacman-conf"
 install_plugin_copy acme.drift acme.drift Drift
 install_plugin_copy acme.drift acme.drift-b DriftB
 expected_errors+=('plugins: acme\.drift failed to load: ')
@@ -181,4 +283,38 @@ cp -- "$sandbox/core-drift-qmldir.orig" "$drift_qmldir"
 rm -f -- "${drift_type:?}"
 if stop_shell && start_shell "$repo" "$sandbox/core-drift-qs.log"; then
   expect "the shell started again owes no restart notice" false drift_owed
+fi
+
+# Acceptance (VGS-2359): pacman replaces each file by unlinking it and
+# writing the new one in place, under its database lock. A notice whose
+# render thread first opens a bundled font then finds it absent or partly
+# written, and draws the bundled glyph numbers from a fallback face. The
+# watcher therefore reports only once the lock goes. The fonts go first, so
+# a watcher that ignores the lock opens the notice while they are absent.
+# Must-fail control: the same block against bin/vgshell-scan before
+# VGS-2359 raises the notice while the lock is held, mapping fallback faces.
+drift_faces >"$drift_faces_before" || fail "the shell's mapped faces are unreadable before the font block"
+mkdir -p -- "$sandbox/core-drift-fonts"
+cp -p -- "$drift_fonts/InterVariable.ttf" "$drift_fonts/JetBrainsMono-Variable.ttf" "$sandbox/core-drift-fonts/"
+: >"$drift_db/db.lck"
+rm -- "${drift_fonts:?}/InterVariable.ttf" "${drift_fonts:?}/JetBrainsMono-Variable.ttf"
+printf 'import QtQuick\nItem {\n    width: 20\n    height: 20\n}\n' >"$drift_type"
+printf 'DriftMark 1.0 DriftMark.qml\n' >>"$drift_qmldir"
+expect_poll "the core watcher holds its report while the package lock is held" held drift_watch_hold
+expect "no restart is owed while the package lock is held" false drift_owed
+expect "no notice is drawn while the package lock is held" absent ipc smoke noticeDrawn
+expect "the shell maps no new fallback face while the package lock is held" none drift_faces "$drift_faces_before"
+cp -p -- "$sandbox/core-drift-fonts/InterVariable.ttf" "$sandbox/core-drift-fonts/JetBrainsMono-Variable.ttf" "$drift_fonts/"
+rm -- "${drift_db:?}/db.lck"
+expect_poll "the core watcher raises restart debt once the package lock goes" true drift_owed
+expect_poll "the restart notice after the transaction is the one notice surface" 1 layer_count vgs:notice
+expect_poll "the restart notice after the transaction names the action" '"Restart to update"' drift_drawn title
+expect_poll "the restart notice maps the bundled fonts as the transaction left them" mapped drift_bundled_mapped
+expect "the restart notice maps no fallback face the shell did not map before" none drift_faces "$drift_faces_before"
+
+cp -- "$sandbox/core-drift-qmldir.orig" "$drift_qmldir"
+rm -f -- "${drift_type:?}" "${shim:?}/pacman-conf"
+rm -rf -- "${drift_db:?}" "${sandbox:?}/core-drift-fonts"
+if stop_shell && start_shell "$repo" "$sandbox/core-drift-qs.log"; then
+  expect "the shell started after the transaction block owes no restart notice" false drift_owed
 fi

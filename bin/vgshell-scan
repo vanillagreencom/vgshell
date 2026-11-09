@@ -43,9 +43,23 @@ directory. It arms directory watches first, then hashes, then prints
 `{"revision": "<hash>"}` and waits. After an inotify batch it hashes the
 same relative paths again. A different revision, or a path from the armed
 set that vanished or stopped being a regular file, is printed and the
-process exits 0. A file added later is ignored. Importable core modules are
-listed through explicit qmldir files, so a new named type still reaches a
-plugin through a modified file in the armed set. A transient read error is
+process exits 0, but only once no pacman transaction is open: pacman
+replaces each file by unlinking it and writing the new one in place, so a
+surface the shell first draws mid-transaction can open a bundled font that
+is absent or partly written. On such a change the watcher asks `pacman-conf
+DBPath` once for the database lock, <DBPath>db.lck, which pacman holds for
+the whole transaction. While the lock exists it watches DBPath on the same
+inotify descriptor for the lock's removal, then hashes again and prints only
+if the revision still differs or a path is still gone. A lock a crashed
+pacman left behind holds the report until it is removed, as it holds pacman
+itself. With no `pacman-conf` on PATH the change is printed at once. A
+`pacman-conf` that fails, or a lock that cannot be read or watched, prints
+one stderr line `vgshell-scan: package-lock=unread cause=<cause>` and the
+change at once: the core did change, and holding the report on an unknown
+lock could hide it for the rest of the session. A file added later is
+ignored. Importable core modules are listed through explicit qmldir
+files, so a new named type still reaches a plugin through a modified file
+in the armed set. A transient read error is
 left for the next inotify batch. A setup failure prints one stderr line
 beginning `vgshell-scan: core-watch=failed` and exits 1.
 
@@ -422,6 +436,25 @@ def core_watch_dirs(directory):
                 pending.append((child_relative, ancestors + (identity,)))
 
 
+IN_MODIFY = 0x00000002
+IN_ATTRIB = 0x00000004
+IN_CLOSE_WRITE = 0x00000008
+IN_MOVED_FROM = 0x00000040
+IN_MOVED_TO = 0x00000080
+IN_CREATE = 0x00000100
+IN_DELETE = 0x00000200
+IN_DELETE_SELF = 0x00000400
+IN_MOVE_SELF = 0x00000800
+CORE_WATCH_MASK = (
+    IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE | IN_MOVED_FROM | IN_MOVED_TO
+    | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF
+)
+# pacman ends a transaction by unlinking its lock (libalpm _alpm_handle_unlock).
+LOCK_WATCH_MASK = IN_DELETE | IN_MOVED_FROM
+# One pacman-conf read: a bound on a stalled program, not a latency budget.
+PACKAGE_CONF_SECONDS = 5
+
+
 def inotify_open():
     import ctypes
 
@@ -444,20 +477,7 @@ def set_parent_death_signal(libc, ctypes, parent_pid):
     return current_parent != 1 and current_parent == parent_pid
 
 
-def inotify_add(libc, ctypes, fd, path):
-    IN_MODIFY = 0x00000002
-    IN_ATTRIB = 0x00000004
-    IN_CLOSE_WRITE = 0x00000008
-    IN_MOVED_FROM = 0x00000040
-    IN_MOVED_TO = 0x00000080
-    IN_CREATE = 0x00000100
-    IN_DELETE = 0x00000200
-    IN_DELETE_SELF = 0x00000400
-    IN_MOVE_SELF = 0x00000800
-    mask = (
-        IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE | IN_MOVED_FROM | IN_MOVED_TO
-        | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF
-    )
+def inotify_add(libc, ctypes, fd, path, mask):
     watch = libc.inotify_add_watch(fd, os.fsencode(path), mask)
     if watch == -1:
         err = ctypes.get_errno()
@@ -466,7 +486,7 @@ def inotify_add(libc, ctypes, fd, path):
 
 def arm_core_watch(fd, libc, ctypes, directory):
     for path in core_watch_dirs(directory):
-        inotify_add(libc, ctypes, fd, path)
+        inotify_add(libc, ctypes, fd, path, CORE_WATCH_MASK)
 
 
 def core_watch_fail(reason, exc):
@@ -475,6 +495,72 @@ def core_watch_fail(reason, exc):
     suffix = f" path={path}" if path else ""
     print(f"vgshell-scan: core-watch=failed reason={reason}{suffix}: {text}", file=sys.stderr)
     return 1
+
+
+def package_lock_unread(cause):
+    print(f"vgshell-scan: package-lock=unread cause={cause}", file=sys.stderr, flush=True)
+
+
+def package_lock_path():
+    """pacman's database lock, <DBPath>db.lck as libalpm names it, or None
+    with no pacman-conf on PATH or with a stderr line for a read that
+    failed. Asked only once a change is seen, so arming pays nothing."""
+    import shutil
+    import subprocess
+
+    program = shutil.which("pacman-conf")
+    if program is None:
+        return None
+    try:
+        proc = subprocess.run([program, "DBPath"], stdin=subprocess.DEVNULL, capture_output=True,
+                              timeout=PACKAGE_CONF_SECONDS, check=False)
+    except subprocess.TimeoutExpired:
+        package_lock_unread(f"timeout={PACKAGE_CONF_SECONDS}")
+        return None
+    except OSError as exc:
+        package_lock_unread(f"spawn={exc.strerror}")
+        return None
+    if proc.returncode != 0:
+        package_lock_unread(f"exit={proc.returncode}")
+        return None
+    lines = os.fsdecode(proc.stdout).splitlines()
+    if len(lines) != 1 or not os.path.isabs(lines[0]):
+        package_lock_unread("output")
+        return None
+    return os.path.join(lines[0], "db.lck")
+
+
+def package_lock_present(lock):
+    """True or False, or None with a stderr line for a lock that cannot be
+    read. pacman takes the lock by creating the entry exclusively, so any
+    entry at the path holds it."""
+    try:
+        os.lstat(lock)
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        package_lock_unread(f"stat={exc.strerror} path={lock}")
+        return None
+
+
+def package_transaction_open(fd, libc, ctypes, lock, watched):
+    """(open, watched): whether pacman still holds LOCK, arming the watch
+    on its directory the first time it is seen held. The lock is read again
+    after the watch is armed, so a removal between the two reads is not
+    missed: it raised no event on a directory not yet watched."""
+    if not package_lock_present(lock):
+        return False, watched
+    if not watched:
+        try:
+            inotify_add(libc, ctypes, fd, os.path.dirname(lock), LOCK_WATCH_MASK)
+        except OSError as exc:
+            package_lock_unread(f"watch={exc.strerror} path={os.path.dirname(lock)}")
+            return False, watched
+        watched = True
+        if not package_lock_present(lock):
+            return False, watched
+    return True, watched
 
 
 def watch_core(directory):
@@ -496,18 +582,36 @@ def watch_core(directory):
         except OSError as exc:
             return core_watch_fail("setup", exc)
         print(json.dumps({"revision": armed}), flush=True)
+        lock = None
+        lock_asked = False
+        lock_watched = False
+        held = False
         while True:
             try:
                 os.read(fd, 65536)
             except InterruptedError:
                 continue
+            # While pacman writes, most batches are its own: the lock alone
+            # is read until it goes, not the whole tree.
+            if held:
+                held, lock_watched = package_transaction_open(fd, libc, ctypes, lock, lock_watched)
+                if held:
+                    continue
             try:
                 changed, removed = armed_core_revision(directory, armed_paths)
             except OSError:
                 continue
-            if removed or changed != armed:
-                print(json.dumps({"revision": changed}), flush=True)
-                return 0
+            if not removed and changed == armed:
+                continue
+            if not lock_asked:
+                lock = package_lock_path()
+                lock_asked = True
+            if lock is not None:
+                held, lock_watched = package_transaction_open(fd, libc, ctypes, lock, lock_watched)
+                if held:
+                    continue
+            print(json.dumps({"revision": changed}), flush=True)
+            return 0
     finally:
         if fd is not None:
             os.close(fd)
