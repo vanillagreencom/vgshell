@@ -470,22 +470,43 @@ while not (root/'startup-release').exists():
     time.sleep(0.01)
 print('b false')
 ''')
+# The group-only copies run this at the start of cleanup, inside the first
+# TERM's handler and before cleanup ignores TERM: it reports that point and
+# holds there until the fixture, having sent the later TERM, releases it.
+(tools/'term-gate').write_text('''#!/usr/bin/env python3
+import os,pathlib,select
+root=pathlib.Path(os.environ['PRINTER_CASE'])
+with open(root/'term-entered','wb',buffering=0) as entered: entered.write(b'1')
+release=os.open(root/'term-release',os.O_RDONLY)
+assert select.select([release],[],[],3)[0], 'fixture TERM gate timeout'
+assert os.read(release,1) == b'1'
+''')
 for path in tools.iterdir():
     if not path.is_symlink(): path.chmod(0o755)
 source = helper.read_text()
-mutants = {}
-for name, needle, count in (('no-mask', 'env --block-signal=TERM,INT,HUP -- ', 1),
-                            ('reentrant-stop', 'trap "" TERM INT HUP; exit 1', 3)):
-    assert source.count(needle) == count, name
+def edited(text, needle, count, replacement):
+    assert text.count(needle) == count, needle
+    return text.replace(needle, replacement)
+def helper_copy(name, text):
     # Preserve the plugin-relative ipp files when running the helper copy.
     directory = root/name
     directory.mkdir()
     (directory/'bin').mkdir()
     (directory/'ipp').symlink_to(helper.parent.parent/'ipp')
     program = directory/'bin/printers-watch'
-    program.write_text(source.replace(needle, 'exit 1' if name == 'reentrant-stop' else ''))
+    program.write_text(text)
     program.chmod(0o755)
-    mutants[name] = program
+    return program
+# Bash runs a pending trap when a foreground command returns, so the gate
+# sits where the defect loses the cancel: a gate first in the TERM trap
+# would run the later TERM as a nested handler before `exit`, and that
+# exit's cleanup still ignores TERM before it cancels.
+cleanup_ignore = "  trap '' TERM INT HUP\n"
+gated = edited(source, cleanup_ignore, 1, '  term-gate\n'+cleanup_ignore)
+copies = {'no-mask': helper_copy('no-mask', edited(source, 'env --block-signal=TERM,INT,HUP -- ', 1, '')),
+          'gated': helper_copy('gated', gated),
+          # Its stop traps exit without ignoring the later TERMs.
+          'reentrant-stop': helper_copy('reentrant-stop', edited(gated, 'trap "" TERM INT HUP; exit 1', 3, 'exit 1'))}
 results = []
 def record(result):
     results.append(result)
@@ -578,7 +599,7 @@ for name, program, overlap, outcome in (
         ('refusal', helper, True, 'refused'),
         ('timeout', helper, True, 'timeout'),
         ('root-kill-model', helper, True, 'killed'),
-        ('control-no-mask', mutants['no-mask'], True, 'interrupted')):
+        ('control-no-mask', copies['no-mask'], True, 'interrupted')):
     case = root/name
     case.mkdir()
     server = Responder(outcome == 'refused')
@@ -703,19 +724,23 @@ def group_members(group):
 
 # At shell exit the engine's one root group TERM reaches both watchers
 # together, and the first forwards it again through %setpriv and once more
-# when its reader ends; no outer TERM comes first. Every run must reach the
-# real cancellation request and finish it. The race is in Bash's trap
-# handling, so one run proves nothing: the control, whose handlers do not
-# ignore the later TERMs, lost the cancel in 14 of 30 runs under python3 -I
-# outside the nested shell and 5 of 30 in this row (2026-10-22, the review
-# host); the review's own probe lost it in 38 of 60 on that form. The
-# control stops at its first loss; at 5 in 30, all 60 runs keep the cancel
-# less than once in 50000.
-GROUP_RUNS = 30
-CONTROL_RUNS = 60
-def group_only(program, run):
-    case = root/f'group-{program.parent.parent.name}-{run}'
+# when its reader ends; no outer TERM comes first. A later TERM pre-empts
+# cleanup only when it lands inside the held watch's first TERM handler
+# while TERM is still trapped, and when a forward lands is the scheduler's
+# choice. So each run holds the gated copy at the start of cleanup, sends
+# the later TERM to the held watch itself and only then releases it: one
+# run reaches that order on any host. A copy whose handler leaves TERM
+# trapped can lose the cancel to a forward before the gate; the run then
+# reports gateHeld false.
+def group_only(program):
+    case = root/f'group-{program.parent.parent.name}'
     case.mkdir()
+    os.mkfifo(case/'term-entered')
+    os.mkfifo(case/'term-release')
+    # Both ends the gate opens already have a peer here, so its opens never
+    # block; the watch inherits neither descriptor.
+    entered = os.open(case/'term-entered', os.O_RDONLY | os.O_NONBLOCK)
+    release = os.open(case/'term-release', os.O_RDWR)
     server = Responder(False)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -726,6 +751,7 @@ def group_only(program, run):
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
     # Popen has not reaped the leader, so this pidfd and its group id are ours.
     leader = os.pidfd_open(watch.pid)
+    held_watch = None
     try:
         ready, _, _ = select.select([watch.stdout], [], [], 5)
         assert ready, 'watcher readiness timeout'
@@ -737,21 +763,31 @@ def group_only(program, run):
         # Past `ready` the held watch runs only builtins until its read on
         # the monitor, so its first sleep is that read: the TERM must find
         # it there, where Bash runs the trap from inside the builtin.
-        held = []
-        for entry in pathlib.Path('/proc').iterdir():
-            if not entry.name.isdigit(): continue
+        def held_child(entry):
             try:
-                if (entry/'stat').read_text().rsplit(') ', 1)[1].split()[1] == str(watch.pid) \
-                        and b'--held' in (entry/'cmdline').read_bytes():
-                    held.append(entry)
+                return ((entry/'stat').read_text().rsplit(') ', 1)[1].split()[1] == str(watch.pid)
+                        and b'--held' in (entry/'cmdline').read_bytes())
             except (FileNotFoundError, ProcessLookupError):
-                continue
+                return False
+        held = [entry for entry in pathlib.Path('/proc').iterdir()
+                if entry.name.isdigit() and held_child(entry)]
         assert len(held) == 1, 'held watch not found'
+        held_watch = os.pidfd_open(int(held[0].name))
+        # Still the unreaped leader's held child after the open, so the
+        # pidfd names that watch and no reused id.
+        assert held_child(held[0]), 'held watch ended before its pidfd'
         deadline = time.monotonic()+3
         while (held[0]/'stat').read_text().rsplit(') ', 1)[1].split()[0] != 'S':
             assert time.monotonic() < deadline, 'held watch never blocked in its read'
             time.sleep(0.001)
         os.killpg(watch.pid, signal.SIGTERM)
+        ready, _, _ = select.select([entered, leader], [], [], 3)
+        assert ready, 'held watch neither reached cleanup nor ended'
+        gate = entered in ready
+        if gate:
+            assert os.read(entered, 1) == b'1'
+            signal.pidfd_send_signal(held_watch, signal.SIGTERM)
+            os.write(release, b'1')
         # A held 100 keeps a started cancel inside ipptool, so the watch
         # ends first only when it never asked.
         deadline = time.monotonic()+3
@@ -766,12 +802,14 @@ def group_only(program, run):
         status = watch.wait(timeout=1)
         stdout, stderr = watch.communicate(timeout=1)
         assert not server.errors, server.errors
-        return {'run': run, 'cancelRequested': reached, 'responseSent': server.finished.is_set(),
+        return {'gateHeld': gate, 'cancelRequested': reached, 'responseSent': server.finished.is_set(),
                 'status': status, 'stderr': stderr, 'groupSurvivors': survivors}
     finally:
         if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
         watch.communicate(timeout=3)
-        os.close(leader)
+        for fd in (leader, entered, release):
+            os.close(fd)
+        if held_watch is not None: os.close(held_watch)
         server.release.set()
         server.shutdown()
         server.server_close()
@@ -786,18 +824,14 @@ def cancelled(result):
             and 'printers-watch: cancel=failed' not in result['stderr']
             and not result['groupSurvivors'])
 
-runs = [group_only(helper, run) for run in range(GROUP_RUNS)]
-record({'case': 'group-only', 'runs': GROUP_RUNS, 'cancelled': sum(map(cancelled, runs)),
-        'failures': [r for r in runs if not cancelled(r)]})
-assert all(map(cancelled, runs)), [r for r in runs if not cancelled(r)]
-control = []
-for run in range(CONTROL_RUNS):
-    control.append(group_only(mutants['reentrant-stop'], run))
-    if not control[-1]['cancelRequested']: break
-record({'case': 'control-reentrant-stop', 'runs': len(control),
-        'cancelLost': not control[-1]['cancelRequested'],
-        'statuses': sorted({r['status'] for r in control})})
-assert not control[-1]['cancelRequested'], 'control: handlers that let a later TERM pre-empt cleanup kept every cancel'
+group = group_only(copies['gated'])
+record({'case': 'group-only', 'cancelled': cancelled(group), **group})
+# The shipped handler ignores TERM before its exit, so nothing pre-empts
+# its cleanup and the later TERM always lands at the gate.
+assert group['gateHeld'] and cancelled(group), group
+control = group_only(copies['reentrant-stop'])
+record({'case': 'control-reentrant-stop', 'cancelLost': not control['cancelRequested'], **control})
+assert not control['cancelRequested'], 'control: handlers that let a later TERM pre-empt cleanup kept the cancel'
 
 # Lock's sole monitor can finish during its startup query. These are real
 # owned children, with no PID reuse or real sleep action in the fixture.
