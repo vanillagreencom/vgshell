@@ -1026,7 +1026,7 @@ var TOKENS = {
     // answer a console opens at, stands on `mark` for `markHold`
     // milliseconds, a count that motion does not scale, then fades.
     messageRow: {
-        paddingX: length("{space.sm}"),
+        paddingX: length("{stack.inline}"),
         paddingY: length("{stack.inline}"),
         mark: color("{listItem.selected}"),
         markHold: number(2000, 0, 60000)

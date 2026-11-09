@@ -179,8 +179,10 @@ Item {
             const row = rowOf();
             compare(row.stateText, "Problem");
             compare(row.title, "The AI model did not answer");
-            const link = all(windowOf().contentItem).find(child => child.linkColor !== undefined && child.visible);
-            verify(link !== undefined && link.text.indexOf("Settings > Jarvis") !== -1, "the fault's action reads under it");
+            // The LinkText holds the action's words with their link markup.
+            const link = all(windowOf().contentItem).find(child => child.visible && child.link !== undefined
+                && String(child.text).indexOf("[Settings > Jarvis]") !== -1);
+            verify(link !== undefined, "the fault's action reads under it");
             const window = windowOf();
             verify(renderedFrame(window.contentItem));
             mouseClick(window.contentItem, 4, 4);

@@ -5,8 +5,8 @@ import qs.Ui
 import qs.Unit
 
 // MessageRow's reply-card inputs (VGS-2339): its avatar and text stand
-// `messageRow.paddingX`, 6, in from each side and `messageRow.paddingY`,
-// 8, from the top and bottom, marked or not; `bodyLines`
+// `messageRow.paddingX` and `messageRow.paddingY`, 8 each, in from every
+// edge, marked or not; `bodyLines`
 // cuts the body at that many lines and `bodyTruncated` says so, and only a
 // cut body shows `cutHint`, in the text column under the body;
 // `bodyComponent` draws its item in the body's place; `marked` stands the
@@ -60,10 +60,10 @@ Item {
 
         function test_the_avatar_and_text_stand_in_from_each_side() {
             const avatar = allChildren(row).find(child => child.people !== undefined);
-            compare(avatar.x, 6);
+            compare(avatar.x, 8);
             const body = labelOf(row, "A short answer.");
-            compare(body.mapToItem(row, 0, 0).x, 6 + 24 + 12);
-            compare(body.mapToItem(row, 0, 0).x + body.width, 300 - 6);
+            compare(body.mapToItem(row, 0, 0).x, 8 + 24 + 12);
+            compare(body.mapToItem(row, 0, 0).x + body.width, 300 - 8);
         }
 
         function test_the_avatar_and_text_stand_in_from_top_and_bottom() {
@@ -85,7 +85,8 @@ Item {
             const hint = labelOf(row, "Click to read the full answer");
             verify(hint !== undefined, "the cut body shows its hint");
             compare(hint.mapToItem(row, 0, 0).x, body.mapToItem(row, 0, 0).x, "the hint stands in the body's column");
-            verify(hint.mapToItem(row, 0, 0).y >= body.mapToItem(row, 0, body.height).y, "the hint stands under the body");
+            // The column lays out the newly shown hint on its next polish.
+            tryVerify(() => hint.mapToItem(row, 0, 0).y >= body.mapToItem(row, 0, body.height).y, 1000, "the hint stands under the body");
         }
 
         function test_a_whole_body_shows_no_hint() {
@@ -100,7 +101,7 @@ Item {
         function test_a_body_component_draws_in_the_bodys_place() {
             const item = allChildren(slotted).find(child => child.objectName === "slotItem");
             verify(item !== undefined, "the row builds its body item");
-            compare(item.mapToItem(slotted, 0, 0).x, 6 + 24 + 12);
+            compare(item.mapToItem(slotted, 0, 0).x, 8 + 24 + 12);
             verify(slotted.implicitHeight >= 40, "the row's height holds its body item");
         }
 

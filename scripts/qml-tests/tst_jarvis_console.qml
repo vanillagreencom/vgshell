@@ -110,7 +110,9 @@ Item {
             verify(answer.height > view.height, "the answer is taller than the view");
             tryVerify(() => answer.marked, 2000, "the console marks the answer");
             tryCompare(jarvisConsole, "placement", "held");
-            compare(answer.mapToItem(view.contentItem, 0, 0).y - view.contentY, view.clipPadding + view.fadeExtent,
+            // The mark shows as the answer is placed; the view takes its last
+            // place once the window settles its height.
+            tryVerify(() => answer.mapToItem(view.contentItem, 0, 0).y - view.contentY === view.clipPadding + view.fadeExtent, 2000,
                 "the answer's top stands under the top fade band");
             verify(view.contentY < view.contentHeight - view.height, "the view is not at its end");
             compare(collect(jarvisConsole, n => n.sender !== undefined && n.marked === true, []).length, 1, "only the answer is marked");
