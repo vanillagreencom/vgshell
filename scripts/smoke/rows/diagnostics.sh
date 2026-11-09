@@ -2,7 +2,7 @@
 # Above that limit every reading is unmeasured. bar-reconcile.sh samples reconcile's
 # reply-to-built window, one IPC round trip per poll with a 5 ms wait
 # between unsuccessful polls.
-# inputs: shell/* scripts/sample-shell-memory.sh bin/vgshell scripts/smoke/rows/bar-reconcile.sh
+# inputs: shell/* scripts/sample-shell-memory.sh bin/vgshell scripts/smoke/rows/bar-reconcile.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 latency_pressure_check diagnostics first_bar "${first_bar_ms:-}" "$first_bar_cpu_some_pct" "$first_bar_budget_ms"
 latency_pressure_check diagnostics reconcile "$reconcile_ms" "$reconcile_cpu_some_pct" "$reconcile_budget_ms"

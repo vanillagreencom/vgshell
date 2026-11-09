@@ -10,7 +10,7 @@
 # to, and a choice made while the daemon's answers are held reaches the
 # package once it is ready. The control drops the choice's hand-off in a
 # disposable Service copy: the same choice never reaches the package.
-# inputs: scripts/smoke/rows/jarvis.sh scripts/fixtures/jarvis/satellite-package.py scripts/fixtures/jarvis/prepare.js shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/feedback/LinkText.qml
+# inputs: scripts/smoke/rows/jarvis.sh scripts/fixtures/jarvis/satellite-package.py scripts/fixtures/jarvis/prepare.js shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/feedback/LinkText.qml shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin

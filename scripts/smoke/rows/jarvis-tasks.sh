@@ -8,7 +8,7 @@
 # daemon fixture, and the one task record is a synthetic starting record.
 # No latency ceiling. Reads poll once per nested IPC round trip; the
 # fixture polls its gates every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin

@@ -1,5 +1,5 @@
 # Shared Jarvis smoke helpers and warning state for downstream rows.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh packaging/jarvis-home/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh packaging/jarvis-home/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 
 # A fixture selects disposable inputs; the leak owner never restores source

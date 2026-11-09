@@ -25,7 +25,9 @@
 #   network; offline excludes unit, package, nix, nested smoke and the
 #   explicitly network-enabled publication row.
 #   --changed BASE selects rows whose inputs changed against BASE, including
-#   staged, unstaged and untracked files. Renames include both paths. Unknown
+#   staged, unstaged and untracked files. Renames include both paths. A
+#   wildcard input of a qml row or a nested smoke row matches a Markdown
+#   file under shell/ only when it ends in .md: index_add. Unknown
 #   inputs or an unreadable diff select the whole area. Repository checks
 #   always run, except a Markdown/text-only diff selects only text checks,
 #   including when the product displays that text. --list prints selected
@@ -949,22 +951,33 @@ private_keys_check() {
 # under a pattern; index_match sets index_hits to the members, space-led
 # and space-delimited, whose patterns match a path. The rows table's index
 # and the nested smoke rows' index are both of this kind.
-index_add() { # NAME PATTERN MEMBER
-  local -n index_add_literal="$1_literal" index_add_members="$1_glob_members" index_add_globs="$1_globs"
+#
+# A member filed with `loads` is a row that starts the shell: a nested
+# smoke row or a qml row of the table. Its wildcard patterns stand for what
+# that shell loads, and the shell loads no Markdown under shell/ but the
+# Jarvis skill layers its daemon reads, the only such Markdown
+# packaging/install-system.sh installs. Such a pattern matches a Markdown
+# file under shell/ only when it ends in .md itself, so a row whose shell
+# reads one names it; those members are in NAME_load_members. A literal
+# pattern matches its one path for every member.
+index_add() { # NAME PATTERN MEMBER [loads]
+  local -n index_add_literal="$1_literal" index_add_members="$1_glob_members" index_add_loads="$1_load_members" index_add_globs="$1_globs"
   case "$2" in
     # [[ == ]] reads ( as an extended pattern, so it is no literal.
     *[\*\?\[\\\(]*)
-      [[ -n ${index_add_members[$2]+set} ]] || index_add_globs+=("$2")
-      index_add_members[$2]+=" $3" ;;
+      [[ -n ${index_add_members[$2]+set} || -n ${index_add_loads[$2]+set} ]] || index_add_globs+=("$2")
+      if [[ ${4-} == loads && $2 != *.md ]]; then index_add_loads[$2]+=" $3"; else index_add_members[$2]+=" $3"; fi ;;
     *) index_add_literal[$2]+=" $3" ;;
   esac
 }
 index_match() { # NAME PATH
-  local -n index_match_literal="$1_literal" index_match_members="$1_glob_members" index_match_globs="$1_globs"
+  local -n index_match_literal="$1_literal" index_match_members="$1_glob_members" index_match_loads="$1_load_members" index_match_globs="$1_globs"
   local glob
   index_hits="${index_match_literal[$2]-}"
   for glob in "${index_match_globs[@]}"; do
-    [[ $2 != $glob ]] || index_hits+="${index_match_members[$glob]}"
+    [[ $2 == $glob ]] || continue
+    index_hits+="${index_match_members[$glob]-}"
+    [[ $2 == shell/*.md ]] || index_hits+="${index_match_loads[$glob]-}"
   done
 }
 
@@ -978,7 +991,7 @@ index_match() { # NAME PATH
 smoke_names=() smoke_harness_inputs=() smoke_tracked=() smoke_index_globs=() smoke_read_fault=unread
 declare -A smoke_row_lines=() smoke_row_globs=() smoke_row_reads=() smoke_path_hit=()
 declare -A smoke_loaded_by=() smoke_load_hit=()
-declare -A smoke_index_literal=() smoke_index_glob_members=()
+declare -A smoke_index_literal=() smoke_index_glob_members=() smoke_index_load_members=()
 
 # The reader of a row's input line and the core rows, smoke_core, both of
 # which scripts/qml-smoke.sh shares.
@@ -988,7 +1001,8 @@ source scripts/smoke/row-inputs.sh
 # through smoke_inputs_read and return 0. A line that is missing, repeated
 # or empty, or a file that cannot be read, prints its self-check line keyed
 # KEY and returns 1. Each glob that matches no file of smoke_tracked,
-# matched as the rows table matches, prints its self-check line and sets
+# matched as the smoke index matches a `loads` member (index_add), prints
+# its self-check line and sets
 # smoke_glob_unmatched; the caller's hits caches the answer per glob.
 smoke_input_read() { # KEY FILE
   local key="$1" file="$2" glob path
@@ -1005,6 +1019,7 @@ smoke_input_read() { # KEY FILE
     if [[ -z ${hits[$glob]-} ]]; then
       hits[$glob]=none
       for path in "${smoke_tracked[@]}"; do
+        [[ $path != shell/*.md || $glob == *.md ]] || continue
         if [[ $path == $glob ]]; then hits[$glob]=some; break; fi
       done
     fi
@@ -1523,7 +1538,7 @@ smoke_rows_read() {
   smoke_names=() smoke_harness_inputs=() smoke_tracked=() smoke_read_fault=""
   smoke_row_lines=() smoke_row_globs=() smoke_row_reads=() smoke_path_hit=()
   smoke_loaded_by=() smoke_load_hit=()
-  smoke_index_literal=() smoke_index_glob_members=() smoke_index_globs=()
+  smoke_index_literal=() smoke_index_glob_members=() smoke_index_load_members=() smoke_index_globs=()
   if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
     smoke_read_fault=row-list-unreadable; return 0
   fi
@@ -1550,7 +1565,7 @@ smoke_rows_read() {
     for needed in "${smoke_inputs_named[@]}"; do
       [[ " ${smoke_names[*]} " != *" $needed "* ]] || smoke_row_reads[$row]+=" $needed"
     done
-    for glob in "$file" "${smoke_globs[@]}"; do index_add smoke_index "$glob" "$row"; done
+    for glob in "$file" "${smoke_globs[@]}"; do index_add smoke_index "$glob" "$row" loads; done
   done
   [[ -n $smoke_read_fault ]] || smoke_loads_read
 }
@@ -1994,8 +2009,9 @@ rebased_scope() { # FILE
 # path; row_traced[i] is false for a row that holds a `$NAME` or `device:`
 # one, since prepared state and devices have no content a record can bind,
 # and for a repo row. row_scoped[i] is true for a row whose `%scope` input
-# says it reads VGS_VALIDATE_BASE and VGS_VALIDATE_CHANGED.
-declare -A row_index_literal=() row_index_glob_members=()
+# says it reads VGS_VALIDATE_BASE and VGS_VALIDATE_CHANGED. A qml row starts
+# the shell, so its patterns are filed with `loads` (index_add).
+declare -A row_index_literal=() row_index_glob_members=() row_index_load_members=()
 row_index_globs=()
 row_traced=()
 row_scoped=()
@@ -2004,6 +2020,8 @@ for i in "${!rows[@]}"; do
   row_traced[i]=false row_scoped[i]=false
   [[ $row_area != repo ]] || continue
   row_traced[i]=true
+  row_loads=""
+  [[ $row_area != qml ]] || row_loads=loads
   # Command words without a slash, such as node, are not inputs.
   read -r -a patterns <<<"$inputs"
   # run wraps ordinary rows even when their command never names the world.
@@ -2019,7 +2037,7 @@ for i in "${!rows[@]}"; do
       \$*|device:*) row_traced[i]=false ;;
       %scope) row_scoped[i]=true ;;
       @*) ;;
-      *) index_add row_index "$pattern" "$i" ;;
+      *) index_add row_index "$pattern" "$i" "$row_loads" ;;
     esac
   done
 done

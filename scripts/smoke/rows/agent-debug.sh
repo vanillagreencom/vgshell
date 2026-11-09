@@ -35,7 +35,7 @@
 # explicit one-off recovery. The altered-builder control edits only the
 # world's disposable plugin copy and must fail the exact-text assertion.
 # No latency ceiling; state polling is once per nested IPC round trip.
-# inputs: shell/plugins/vgs.agent-debug/manifest.json shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/plugins/vgs.agent-debug/Diagnose.js shell/plugins/vgs.agent-debug/Recovery.qml shell/Core/Capabilities.qml shell/Core/HandoffRegistry.qml shell/Core/Notices.qml shell/plugins/vgs.jarvis/* packaging/jarvis-home/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh scripts/smoke/rows/jarvis.sh scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/plugins/acme.probe/* bin/vgshell-tui
+# inputs: shell/plugins/vgs.agent-debug/manifest.json shell/plugins/vgs.agent-debug/Service.qml shell/plugins/vgs.agent-debug/Debug.js shell/plugins/vgs.agent-debug/Diagnose.js shell/plugins/vgs.agent-debug/Recovery.qml shell/Core/Capabilities.qml shell/Core/HandoffRegistry.qml shell/Core/Notices.qml shell/plugins/vgs.jarvis/* packaging/jarvis-home/* scripts/fixtures/jarvis/* scripts/smoke/jarvis-console.sh scripts/smoke/rows/jarvis.sh scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/plugins/acme.probe/* bin/vgshell-tui shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 source "$source_repo/scripts/smoke/jarvis-console.sh"
 expected_errors+=("${jarvis_provoked_errors[@]}")

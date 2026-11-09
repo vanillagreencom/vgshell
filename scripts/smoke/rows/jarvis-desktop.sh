@@ -10,7 +10,7 @@
 # is read twice: the tool's own outcome, and Hyprland's state read by the
 # row. No latency ceiling is measured: outcome and state reads poll every
 # 200 ms (expect_poll); the driver polls its call file every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin

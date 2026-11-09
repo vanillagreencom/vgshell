@@ -40,7 +40,7 @@
 # plugin set and stand-ins before starting the sandbox's own tree again.
 # Otherwise the default set's VPN readers can add subprocess calls while
 # a later row checks that its widget actions start none.
-# inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgshell scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh
+# inputs: shell/shell.qml shell/Core/ServiceGate.qml shell/Hosts/ServiceHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/plugins/* scripts/smoke/fixtures/plugins/acme.contention/* scripts/smoke/fixtures/plugins/acme.locker/* bin/vgshell scripts/smoke/rows/capabilities.sh scripts/smoke/rows/device-fakes.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 start_order_saved="$(mktemp -d "$sandbox/start-order-saved.XXXXXX")"
 start_order_paths=(

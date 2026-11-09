@@ -6,7 +6,7 @@ Validation and measurement scripts. Runtime helpers belong in `bin/lib/`, never 
 
 - Register checks and their must-fail controls in `scripts/validate`. Name a control `test-<subject>` for the script it exercises. `qml-smoke.sh` is a runner and has no separate control; `test-validate.sh` holds controls for checks implemented by `validate`. A new row whose inputs match a case's file in `test-validate.sh` adds its command to that case's expected plan.
 - Each script's header owns its command and output contract.
-- Put smoke rows under `scripts/smoke/rows/`. Each row declares one `# inputs: GLOB [GLOB...]` line in its leading comment block. Name the files it reads directly, including loads chosen at runtime, and each row whose functions or state it reads. `smoke/harness.sh` declares shared harness inputs in the same form.
+- Put smoke rows under `scripts/smoke/rows/`. Each row declares one `# inputs: GLOB [GLOB...]` line in its leading comment block. Name the files it reads directly, including loads chosen at runtime, and each row whose functions or state it reads. A wildcard glob matches a Markdown file under `shell/` only when it ends in `.md`, so name a Markdown file the row's shell loads that way: [validation.md § Plugin inputs](../docs/architecture/validation.md#plugin-inputs). `smoke/harness.sh` declares shared harness inputs in the same form.
 - Only `scripts/smoke/harness.sh` owns the sandbox lifetime; it sources `scripts/smoke/teardown.sh` for teardown.
 - A row types into a notice only after `ipc smoke noticeFocused` reads true.
 - Keep files needed after a run under the declared `$smoke_log_dir`, never the world's disposable `$repo`.

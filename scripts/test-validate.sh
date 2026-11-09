@@ -1069,11 +1069,14 @@ commit() {
   "${base_env[@]}" git -C "$1" commit -q -m "$2"
 }
 
-# A displayed plugin README reaches product rows through their real input
-# patterns. Mixed changes keep that reach; a text-only change suppresses it.
-for variant in text mixed control full unreadable; do
+# A plugin README reaches product rows through their real input patterns.
+# Mixed changes keep that reach, except through a wildcard input of a qml
+# row, which starts the shell; a text-only change suppresses it. A file the
+# shell loads keeps the qml rows' reach.
+for variant in text mixed control full unreadable loaded markdown-control; do
   d="$tmp/readme-scope-$variant"; fresh "$d"
   file=shell/plugins/vgs.keyboard/README.md
+  [[ $variant != loaded ]] || file=shell/plugins/vgs.keyboard/Service.qml
   mkdir -p "$d/shell/plugins/vgs.keyboard"
   cp -- "$repo/$file" "$d/$file"
   commit "$d" readme
@@ -1081,8 +1084,12 @@ for variant in text mixed control full unreadable; do
     plant "$d/scripts/validate" 'if [[ $pass_tree != unreadable && ${#changed_paths[@]} -gt 0 ]]; then' 'if false; then'
     commit "$d" control
   fi
+  if [[ $variant == markdown-control ]]; then
+    plant "$d/scripts/validate" '    [[ $2 == shell/*.md ]] || index_hits+="${index_match_loads[$glob]-}"' '    index_hits+="${index_match_loads[$glob]-}"'
+    commit "$d" control
+  fi
   printf '\nchanged\n' >>"$d/$file"
-  [[ $variant != mixed ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
+  [[ $variant != mixed && $variant != markdown-control ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
   [[ $variant != unreadable ]] || chmod 000 "$d/$file"
   test_area=all test_args=(--changed HEAD --list)
   [[ $variant != full ]] || test_args=(--full --list)
@@ -1102,9 +1109,18 @@ for variant in text mixed control full unreadable; do
         cat -- "$tmp/readme-text-control.log"
         fail "control: the README assertion failed for another cause"
       fi ;;
-    mixed|full|unreadable)
-      row "$variant README selection retains product coverage" "$d" 0 "" \
-        'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' ;;
+    mixed|unreadable)
+      row "$variant README selection retains the folder's readers and starts no shell" "$d" 0 "" \
+        'scripts/test-keyboard-ui.sh' '!scripts/qml-smoke.sh' '!scripts/test-qml-smoke.sh' '!scripts/measure-shader.sh' ;;
+    full)
+      row "full README selection retains product coverage" "$d" 0 "" \
+        'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
+    loaded)
+      row "a file the shell loads selects the rows that start it" "$d" 0 "" \
+        'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
+    markdown-control)
+      row "control: a README matched by a qml row's wildcard input starts the shell" "$d" 0 "" \
+        'scripts/qml-smoke.sh' 'scripts/test-qml-smoke.sh' ;;
   esac
 done
 test_args=()
@@ -1826,13 +1842,16 @@ smoke_fixture() { # DIR [VARIANT]
     printf 'clean\n' >"$dir/shell/Lib/Leaf.qml"
     printf '%s\n' 'import qs.Ui' 'import qs.Lib' 'Mid { DismissScope {} }' 'ImagePool.size' >"$dir/shell/plugins/acme.launcher/Panel.qml"
   fi
-  if [[ $variant == loads ]]; then
-    python3 - "$repo" "$dir" <<'PYLOADS'
+  if [[ $variant == loads || $variant == markdown* ]]; then
+    local -a real_rows=(updates agent-warden)
+    [[ $variant != markdown* ]] || real_rows=(jarvis-input)
+    python3 - "$repo" "$dir" "${real_rows[@]}" <<'PYLOADS'
 import fnmatch, os, pathlib, re, sys
 repo, target = map(pathlib.Path, sys.argv[1:3])
-# The real updates and agent-warden rows' input lines, with the real text of
-# each shell file they match and of the shared component's path through
-# BarItem, so the reading follows the real loads; other files are neutral.
+real_rows = sys.argv[3:]
+# The named real rows' input lines, with the real text of each shell file
+# they match and of the shared component's path through BarItem, so the
+# reading follows the real loads; other files are neutral.
 
 
 def matches(pattern):
@@ -1850,7 +1869,7 @@ def matches(pattern):
     return found
 
 
-for row in ('updates', 'agent-warden'):
+for row in real_rows:
     lines = re.findall(r'^# inputs: (.+)$', (repo / f'scripts/smoke/rows/{row}.sh').read_text(), re.M)
     assert len(lines) == 1
     for pattern in lines[0].split():
@@ -1871,8 +1890,15 @@ for relative in ('shell/Ui/qmldir', 'shell/Ui/controls/BarItem.qml', 'shell/Ui/f
 row_list = target / 'scripts/smoke/rows.list'
 text = row_list.read_text()
 assert text.count('start-order\n') == 1
-row_list.write_text(text.replace('start-order\n', 'updates\nagent-warden\nstart-order\n'))
+row_list.write_text(text.replace('start-order\n', ''.join(row + '\n' for row in real_rows) + 'start-order\n'))
 PYLOADS
+  fi
+  # A row whose only wildcard input covers nothing but Markdown under
+  # shell/, which no row's shell loads through it (index_add): the glob
+  # matches nothing, so the row always runs.
+  if [[ $variant == markdown-glob ]]; then
+    printf '# inputs: shell/plugins/vgs.jarvis/backend/skills/voice/*\n' >"$dir/scripts/smoke/rows/skill-notes.sh"
+    sed -i 's/^start-order$/skill-notes\nstart-order/' "$dir/scripts/smoke/rows.list"
   fi
   if [[ $variant == tailscale-values || $variant == tailscale-values-control ]]; then
     python3 - "$repo" "$dir" "$variant" <<'PYTAILSCALEINPUT'
@@ -1945,6 +1971,7 @@ smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notification
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
 smoke_tailscale="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail"
 smoke_badge="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,updates,agent-warden,$smoke_tail"
+smoke_jarvis="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,jarvis-input,$smoke_tail"
 # name|changed paths, a removed one led by -|scope|wanted plan|mutant|fixture variant
 smoke_cases=(
   "the shared byte counter selects its Tailscale runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail||tailscale-values"
@@ -1994,6 +2021,13 @@ smoke_cases=(
   "control: an unknown input no longer runs every row|shell/plugins/acme.launcher/Panel.qml new-source.bin|changed|$smoke_launcher|unknown|rows"
   "--full runs every row|shell/plugins/acme.launcher/Panel.qml|full|scripts/qml-smoke.sh||rows"
   "control: --full no longer runs every row|shell/plugins/acme.launcher/Panel.qml|full|$smoke_none|full|rows"
+  "a plugin README selects no row whose input names its folder|shell/plugins/vgs.jarvis/README.md|changed|||markdown"
+  "control: a folder input that matches a README selects its row|shell/plugins/vgs.jarvis/README.md|changed|$smoke_jarvis|markdown|markdown"
+  "a Markdown file the shell loads selects the row whose input names it|shell/plugins/vgs.jarvis/backend/skills/voice/core.md|changed|$smoke_jarvis||markdown"
+  "control: a Markdown input that matches no Markdown drops the row that names it|shell/plugins/vgs.jarvis/backend/skills/voice/core.md|changed||markdown-input|markdown"
+  "a file the row loads under its folder input selects it|shell/plugins/vgs.jarvis/Service.qml|changed|$smoke_jarvis||markdown"
+  "a wildcard input that covers only shell Markdown matches nothing and its row always runs|shell/plugins/vgs.jarvis/Service.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,jarvis-input,skill-notes,$smoke_tail||markdown-glob"
+  "control: a wildcard input that covers only shell Markdown passes the self-check and its row drops out|shell/plugins/vgs.jarvis/Service.qml|changed|$smoke_jarvis|markdown-glob|markdown-glob"
   "a path another table row owns selects the smoke rows that name it|scripts/fixtures/vpn/details.txt|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,vpn,$smoke_tail||table-owned"
   "control: a path another table row owns no longer selects the nested smoke|scripts/fixtures/vpn/details.txt|changed||table-reach|table-owned"
   "a change to a row's own file selects that row|scripts/smoke/rows/launcher.sh|changed|$smoke_launcher||rows"
@@ -2026,6 +2060,9 @@ declare -A smoke_mutant_old=(
   [absent]=$'    printf -v smoke_reach \'untraced reason=qml-load-target-absent path=%q\' "$2"'
   [failed-load]=$'    printf -v smoke_read_fault \'qml-loads-failed operation=python status=%s cause=%q\' "$status" "$out"; return 0'
   [unreadable-load]='unreadable|failed) smoke_read_fault="qml-loads-$fact $loader${loaded:+ $loaded}"; return 0 ;;'
+  [markdown]='    [[ $2 == shell/*.md ]] || index_hits+="${index_match_loads[$glob]-}"'
+  [markdown-input]='[[ ${4-} == loads && $2 != *.md ]]'
+  [markdown-glob]='        [[ $path != shell/*.md || $glob == *.md ]] || continue'
 )
 declare -A smoke_mutant_new=(
   [missing]=$'missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
@@ -2053,6 +2090,9 @@ declare -A smoke_mutant_new=(
   [absent]='    :'
   [failed-load]='    return 0'
   [unreadable-load]='unreadable|failed) return 0 ;;'
+  [markdown]='    index_hits+="${index_match_loads[$glob]-}"'
+  [markdown-input]='[[ ${4-} == loads ]]'
+  [markdown-glob]='        :'
 )
 for spec in "${smoke_cases[@]}"; do
   IFS='|' read -r name files scope wanted mutant variant <<<"$spec"
@@ -2072,9 +2112,9 @@ PY
   for file in $files; do
     if [[ $file == -* ]]; then rm -- "${d:?}/${file#-}"; else printf '# changed\n' >>"$d/$file"; fi
   done
-  # This case proves ordinary input reach. The text-only exception has its
-  # own real-README cases above, so keep this fixture a mixed change.
-  [[ $variant != table-owned ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
+  # These cases prove ordinary input reach. The text-only exception has its
+  # own real-README cases above, so keep these fixtures a mixed change.
+  [[ $variant != table-owned && $variant != markdown* ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
   scope_args=(--changed HEAD)
   [[ $scope == changed ]] || scope_args=(--full)
   status=0
