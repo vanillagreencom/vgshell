@@ -362,8 +362,8 @@ async function main() {
         assert.equal((await again(second)).state, "ok", "limited mode serves another token's first read");
         assert.deepEqual(await readOf(unsigned, "ok"), { state: "signed-out" });
         assert.deepEqual(await readOf(path.join(home, ".claude-absent"), "ok"), { state: "signed-out" });
-        assert.deepEqual(await readOf(linked, "ok"), { state: "failed", reason: "credentials-link" }, "a linked credential file is not followed");
-        assert.deepEqual(await readOf(fresh + "/../.claude", "ok"), { state: "failed", reason: "directory-not-absolute" });
+        assert.deepEqual(await readOf(linked, "ok"), { state: "failed", reason: "credentials-link", email: "" }, "a linked credential file is not followed");
+        assert.deepEqual(await readOf(fresh + "/../.claude", "ok"), { state: "failed", reason: "directory-not-absolute", email: "" });
         assert.deepEqual(await bounded(readOf(fresh, "hang", 500), 5000, "a read of a silent endpoint"),
             { state: "failed", reason: "deadline", email: "" }, "a silent endpoint ends at the deadline");
         assert.deepEqual(credentials(home), before, "no credential file changed");
@@ -445,6 +445,45 @@ async function main() {
         '    if (reply.status !== 200) return failed("http-" + reply.status);\n    let body;\n    try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }\n    const windows', emails);
     await control("plan-published", "backend/usage.js", 'email: result.email || "",\n            state: result.state,',
         'email: result.email || "", plan: "max",\n            state: result.state,', emails);
+
+    // Each failure before the credentials are read still names the account
+    // from its profile, and sends nothing; a profile that names no email
+    // leaves it "". The profile lies outside the folder, as HOME's does for
+    // the default folder, so a folder that cannot be opened still has one.
+    const earlyHome = path.join(root, "early-home");
+    const namedProfile = path.join(earlyHome, "named");
+    const unnamedProfile = path.join(earlyHome, "unnamed");
+    profile(namedProfile, "early@example.invalid");
+    write(path.join(unnamedProfile, ".claude.json"), JSON.stringify({ projects: {} }));
+    const early = (name, plant) => { const directory = path.join(earlyHome, name); plant(directory); return directory; };
+    const earlyRows = [
+        ["directory-not-absolute", path.join(earlyHome, "absent") + "/../.claude"],
+        ["directory-link", early(".claude-link", directory => fs.symlinkSync(fresh, directory))],
+        ["directory-not-directory", early(".claude-file", directory => write(directory, "{}"))],
+        ["credentials-link", early(".claude-linked", directory => {
+            fs.mkdirSync(directory);
+            fs.symlinkSync(path.join(fresh, ".credentials.json"), path.join(directory, ".credentials.json"));
+        })],
+        ["credentials-not-file", early(".claude-folder", directory => fs.mkdirSync(path.join(directory, ".credentials.json"), { recursive: true }))],
+        ["credentials-size", early(".claude-large", directory => write(path.join(directory, ".credentials.json"), JSON.stringify({
+            claudeAiOauth: { accessToken: TOKEN, expiresAt: NOW + HOUR }, padding: "x".repeat(65 * 1024) })))],
+        ["credentials-json", early(".claude-torn", directory => write(path.join(directory, ".credentials.json"), "{\"claudeAiOauth\":"))],
+        ["credentials-shape", early(".claude-shape", directory => write(path.join(directory, ".credentials.json"),
+            JSON.stringify({ claudeAiOauth: { accessToken: TOKEN } })))]
+    ];
+    const earlyFailures = async folder => {
+        const { readClaude } = usageIn(folder);
+        const sent = requests().length;
+        for (const [reason, directory] of earlyRows)
+            for (const [profileDir, email] of [[namedProfile, "early@example.invalid"], [unnamedProfile, ""]])
+                assert.deepEqual(await readClaude(Anchored, directory, { origin, now: NOW, profile: profileDir }),
+                    { state: "failed", reason, email }, reason + " with the " + path.basename(profileDir) + " profile");
+        assert.equal(requests().length, sent, "no early failure sends a request");
+    };
+    await earlyFailures(plugin);
+    cases++;
+    await control("early-failure-unnamed", "backend/usage.js", '    if (credentials.state === "failed") return lost(credentials.reason);',
+        '    if (credentials.state === "failed") return credentials;', earlyFailures);
 
     // Codex through the stand-in program: its answers, nothing run for a
     // folder with no auth.json, and the program dead after every read,
@@ -1100,14 +1139,14 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.equal(cards.find(r => r.id === "codex-api").note, View.NO_PLAN);
         assert.equal(cards.find(r => r.id === "codex-api").account, "", "an API key without an email has no account line");
         for (const provider of new Set(cards.map(card => card.provider))) {
-            const source = View.logo(provider, "#ffabcdef");
+            const source = View.logo(provider, "#ffabcdef", 32);
             assert.ok(source.startsWith("data:image/svg+xml,"));
             assert.ok(decodeURIComponent(source).includes('fill="#abcdef"'));
             assert.ok(decodeURIComponent(source).includes('fill-opacity="1"'));
-            assert.ok(decodeURIComponent(View.logo(provider, "#80123456")).includes('fill="#123456" fill-opacity="' + 128 / 255 + '"'));
+            assert.ok(decodeURIComponent(View.logo(provider, "#80123456", 32)).includes('fill="#123456" fill-opacity="' + 128 / 255 + '"'));
             assert.ok(decodeURIComponent(source).includes('<path '));
         }
-        assert.equal(View.logo("unknown", "#ffabcdef"), "");
+        assert.equal(View.logo("unknown", "#ffabcdef", 32), "");
     };
     cardChanges(plugin);
     cases++;
@@ -1143,8 +1182,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("limited-unused-ignored", "UsageView.js", 'return (row.state === "ok" || row.state === "limited") && row.windows.length > 0',
         'return row.state === "ok" && row.windows.length > 0', views);
     await control("kept-read-time-dropped", "UsageView.js", "                readAt: last.readAt });", "                readAt: now });", views);
-    await control("read-time-unset", "UsageView.js", 'return accountCopy(row, { readAt: row.state === "ok" ? now : null });',
-        "return accountCopy(row, { readAt: null });", views);
+    await control("read-time-unset", "UsageView.js", 'return accountCopy(row, { email: email, readAt: row.state === "ok" ? now : null });',
+        "return accountCopy(row, { email: email, readAt: null });", views);
     await control("run-read-time-dropped", "UsageView.js", "var copy = accountCopy(row, { readAt: row.readAt });", "var copy = accountCopy(row);", views);
     await control("failed-check-time-kept", "UsageView.js", "}), readAt: now, gatewayKey: previous.gatewayKey", "}), readAt: previous.readAt, gatewayKey: previous.gatewayKey", views);
     await control("first-failed-check-time-absent", "UsageView.js", "return { accounts: [], readAt: now, gatewayKey: null };", "return { accounts: [], readAt: null, gatewayKey: null };", views);
@@ -1189,6 +1228,79 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("credit-title-blank", "UsageView.js", 'cleanLine(credit.label, "Credit")', 'cleanLine(credit.label, "")', views);
     await control("balance-barred", "UsageView.js", "bar: share !== null, started: true,", "bar: true, started: true,", views);
     await control("credits-raw", "UsageView.js", '    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));', "    return String(n);", views);
+
+    // Every card names its account in every state: the email the read
+    // carries, else the one an earlier read of the account carried, with
+    // figures or without. Each row is [state, the reads in order, each
+    // [state, email, windows], the account line the last one draws].
+    const identities = folder => {
+        const View = viewIn(folder);
+        const used = [{ name: "seven_day", usedPercent: 40, resetsAt: NOW + 26 * HOUR }];
+        const idle = [{ name: "five_hour", usedPercent: 0, resetsAt: null }];
+        const email = "a@example.invalid";
+        for (const [state, reads, want] of [
+            ["ok", [["ok", email, used]], email],
+            ["no usage yet", [["ok", email, idle]], email],
+            ["limited, figures kept", [["ok", email, used], ["limited", "", []]], email],
+            ["limited, no figures yet", [["limited", email, []], ["limited", "", []]], email],
+            ["stale after a failed run", [["ok", email, used], null], email],
+            ["expired", [["expired", email, []]], email],
+            ["expired after a read that named the email", [["failed", email, []], ["expired", "", []]], email],
+            ["failed with earlier figures", [["ok", email, used], ["failed", "", []]], email],
+            ["failed with no figures, the email read", [["failed", email, []]], email],
+            ["failed with no figures, the email read before", [["failed", email, []], ["failed", "", []]], email],
+            ["failed run after a failed read", [["failed", email, []], null], email],
+            ["signed in again after a sign-out", [["ok", email, used], ["signed-out", "", []], ["failed", "", []]], ""]
+        ]) {
+            let usage = null;
+            reads.forEach((read, i) => {
+                usage = View.merge(usage, read === null ? null : { accounts: [{ id: "claude-a", provider: "claude",
+                    email: read[1], state: read[0], windows: read[2] }], partial: "" }, NOW + i);
+            });
+            const cards = View.panel(usage, NOW + reads.length);
+            assert.deepEqual(cards.map(card => card.account), [want], state);
+        }
+    };
+    identities(plugin);
+    cases++;
+    await control("kept-email-dropped", "UsageView.js", 'var email = row.email || (row.state !== "signed-out" && last !== null ? last.email : "");',
+        "var email = row.email;", identities);
+    await control("email-kept-past-sign-out", "UsageView.js", 'var email = row.email || (row.state !== "signed-out" && last !== null ? last.email : "");',
+        'var email = row.email || (last !== null ? last.email : "");', identities);
+    await control("kept-figures-email-dropped", "UsageView.js", "return accountCopy(row, { email: email, state:", "return accountCopy(row, { state:", identities);
+
+    // Hide from a card adds the account to Hidden accounts as a new item:
+    // its name is the lowest whole number no item names, as the Settings
+    // list names an item it adds, and the items there stay. An account
+    // already hidden adds none.
+    const hides = folder => {
+        const View = viewIn(folder);
+        const plainOf = value => JSON.parse(JSON.stringify(value));
+        for (const [settings, want] of [
+            [null, [{ name: "1", account: "claude-a" }]],
+            [{}, [{ name: "1", account: "claude-a" }]],
+            [{ hidden: [] }, [{ name: "1", account: "claude-a" }]],
+            [{ hidden: [{ name: "1", account: "codex-b" }, { name: "3", account: "" }] },
+                [{ name: "1", account: "codex-b" }, { name: "3", account: "" }, { name: "2", account: "claude-a" }]],
+            [{ hidden: [{ name: "item-1", account: "claude-a" }] }, [{ name: "item-1", account: "claude-a" }]]
+        ]) assert.deepEqual(plainOf(View.hiding(settings, "claude-a")), want, JSON.stringify(settings));
+        const before = { hidden: [{ name: "1", account: "codex-b" }] };
+        View.hiding(before, "claude-a");
+        assert.deepEqual(before, { hidden: [{ name: "1", account: "codex-b" }] }, "the settings read stay as they were");
+        // The list Hide writes is one the Settings judge stores, and it
+        // hides the account from the cards and the calendar.
+        const manifest = Judge.validateManifest(JSON.parse(fs.readFileSync(path.join(folder, "manifest.json"), "utf8")), "/vgs.ai-usage").manifest;
+        const written = View.hiding({ hidden: [{ name: "1", account: "codex-b" }] }, "claude-a");
+        assert.equal(Judge.settingError(manifest.schema.hidden, written), "", "the judge stores the list");
+        const usage = View.merge(null, { accounts: [{ id: "claude-a", provider: "claude", email: "a@example.invalid", state: "ok",
+            windows: [{ name: "seven_day", usedPercent: 40, resetsAt: NOW + 26 * HOUR }] }], partial: "" }, NOW);
+        assert.deepEqual([View.panel(usage, NOW, { hidden: written }).length, View.calendar(usage, NOW, { hidden: written }, String).length], [0, 0]);
+    };
+    hides(plugin);
+    cases++;
+    await control("hide-name-taken", "UsageView.js", "while (list.some(function (item) { return item.name === String(n); })) n += 1;", "", hides);
+    await control("hide-drops-items", "UsageView.js", "return list.concat([{ name: String(n), account: id }]);", "return [{ name: String(n), account: id }];", hides);
+    await control("hide-twice", "UsageView.js", "if (hiddenIds(settings).indexOf(id) !== -1) return list;", "", hides);
 
     // The reset calendar, in a zone where two resets an hour apart fall on
     // two local days but one UTC day: each account's longest all-model

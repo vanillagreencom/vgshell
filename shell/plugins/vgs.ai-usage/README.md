@@ -7,11 +7,12 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 ## Features
 
 - One number in the bar for your accounts, with optional warning colour from 80 % used.
-- A card for every Claude Code, Codex and Copilot account on this computer, with each limit and the time left until it resets.
+- A card for every Claude Code, Codex and Copilot account on this computer, named by its email or login, with each limit and the time left until it resets.
 - Credits the providers report: Claude Code extra usage, the Codex credit balance and Copilot AI credits.
 - A compact view with one line per limit, and a full view with meters and provider details.
 - A reset calendar of the next seven days.
 - Sorting, provider filters and hidden accounts.
+- Hide on a card's More actions menu removes that account from the cards and the reset calendar at once. The panel stays open.
 - When a check fails, the panel keeps the last figures and says they may be old.
 - Optional AI Gateway credits from Vercel.
 
@@ -36,7 +37,7 @@ codex login
 | Bar shows | The share used or the share left. |
 | Colour by usage | Uses the warning colour from 80 % used. |
 | Providers | Show or hide Claude Code, Codex and Copilot. |
-| Hidden accounts | Accounts left out of the panel and the bar number. |
+| Hidden accounts | Accounts left out of the panel, the reset calendar and the bar number. Hide on a card adds the account here. Remove the account from this list to show it again. |
 
 ### AI Gateway credits
 

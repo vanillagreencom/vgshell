@@ -29,17 +29,21 @@
 # bytes or modification time; and the AI Gateway key's line beside its
 # Settings field, whose Add key, Replace and Remove
 # write the row's libsecret stand-in through the core, the key on stdin
-# alone, with no key line on Details.
+# alone, with no key line on Details; and a card's More actions menu,
+# clicked with the nested pointer, whose Hide writes the account to
+# Hidden accounts through the core, takes its card and its calendar entry
+# away and leaves the panel open.
 # Controls: a widget copy shown with no account, a panel copy capped at its
 # output's whole height, a panel copy whose open asks for a read, a panel
 # copy whose Check now asks for none, a panel copy that never draws its
 # calendar, a helper copy that writes the
 # credential file, one that reads a failed request as 0 % and a panel host
 # copy whose slot opens Settings with no page each fail their own reading,
+# a panel copy whose Hide writes nothing fails the written reading,
 # and a Settings copy that draws its stored keys on Details fails the key
 # line's reading on each tab.
 # This row has no latency ceiling; every reading polls through expect_poll.
-# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SecretWriter.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/layout/Pane.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/foundation/KeyNavLogic.js shell/Commons/AnchorTracker.qml
+# inputs: shell/plugins/vgs.ai-usage/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js bin/lib/qml-library.js shell/Commons/AccountDirectories.js scripts/fixtures/ai-usage/* scripts/smoke/fixtures/ai-usage/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SecretWriter.qml shell/Core/TuiRunner.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/layout/Pane.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/feedback/Badge.qml shell/Ui/feedback/ProgressBar.qml shell/Commons/Time.qml config/shell.json bin/vgshell-tui scripts/qml-smoke.sh shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/foundation/KeyNavLogic.js shell/Commons/AnchorTracker.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Config.qml
 set -euo pipefail
 usage_dir="$sandbox/ai-usage"
 mkdir -p -- "$usage_dir"
@@ -284,7 +288,7 @@ const images = JSON.parse(process.argv[5]);
 const colour = JSON.parse(process.argv[6]);
 const size = JSON.parse(process.argv[7]);
 const matched = cards.length > 0 && cards.length === images.length && cards.every((card, index) => {
-    const source = View.logo(card.provider, colour);
+    const source = View.logo(card.provider, colour, size);
     const image = images[index];
     return source !== "" && image[0] === decodeURIComponent(source) && image[1] === "ready"
         && image[2][0] === size && image[2][1] === size;
@@ -565,6 +569,57 @@ expect "restoring full view is allowed" ok usage_apply_setting view '"full"'
 expect "the Settings window used for setting edits hides" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window used for setting edits is gone" 0 window_count Plugins
 
+# Hide on a card's menu: the first card's More actions, Claude Code's,
+# opens its menu, whose Hide adds the account to Hidden accounts in the
+# user's file through the core. The card and its calendar entry leave,
+# and the panel, its calendar still open, stays. usage_hidden_ids: the
+# account of each Hidden accounts item the user's file holds;
+# usage_card_providers and usage_calendar_providers: the providers of the
+# panel's cards and of its calendar's entries.
+usage_hidden_ids() { py_reply 'import json,sys
+row = next((r for r in json.load(sys.stdin).get("plugins", []) if r.get("id") == "vgs.ai-usage"), {})
+print(json.dumps([item.get("account") for item in row.get("hidden", [])]))' <"$home/.config/vgshell/shell.json"; }
+usage_card_providers() { usage_panel | py_reply 'import json,sys; print(json.dumps([r["provider"] for r in json.load(sys.stdin)]))'; }
+usage_calendar_providers() { ipc smoke readInstance panel vgs.ai-usage calendar | py_reply 'import json,sys; print(json.dumps(sorted(a["provider"] for d in json.load(sys.stdin) for a in d["accounts"])))'; }
+# usage_hide: open the panel and its calendar, then click the first card's
+# More actions, the first the panel draws, and its menu's Hide.
+usage_hide() {
+  click_centre "$(bar_key)" vgs.ai-usage || return 1
+  summon_drawn panel vgs.ai-usage || return 1
+  usage_calendar_click || return 1
+  expect_poll "the calendar lists both accounts before Hide" '["claude", "codex"]' usage_calendar_providers
+  local box
+  box="$(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "More actions")" || return 1
+  usage_click "More actions" "$box" || return 1
+  click_item popup:panel vgs.ai-usage "" "" MenuItem Hide
+}
+expect "Hidden accounts holds no account before Hide" '[]' usage_hidden_ids
+usage_hide || fail "Hide on the Claude Code card's menu failed"
+expect_poll "Hide writes the Claude Code account to Hidden accounts" "[\"$usage_claude_id\"]" usage_hidden_ids
+expect_poll "Hide takes the Claude Code card away" '["codex"]' usage_card_providers
+expect_poll "Hide takes the Claude Code calendar entry away" '["codex"]' usage_calendar_providers
+expect "the panel stays open after Hide, its calendar still open" true usage_calendar_open
+expect "the panel after Hide hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the panel after Hide is gone" absent usage_panel
+expect "the Settings window is summoned to show the account again" ok ipc shell summon window vgs.settings '{}'
+expect "removing the account from Hidden accounts is allowed" ok usage_apply_setting hidden '[]'
+expect "the Settings window that showed the account hides" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window that showed the account is gone" 0 window_count Plugins
+# A panel copy whose Hide writes nothing fails the written reading on the
+# list left empty.
+usage_edit "$usage_panel_qml" '        const reply = shell.configure.set("hidden", View.hiding(shell.settings, id));' '        const reply = "ok";' || fail "the unwritten Hide control's edit failed"
+rescan "the unwritten Hide copy is scanned"
+usage_refresh "the unwritten Hide copy's service"
+usage_hide || fail "Hide on the unwritten Hide copy failed"
+expect "a Hide that writes nothing breaks the written reading" 1 \
+  usage_poll_control "$usage_dir/hide-control.log" "Hide must write the account" "[\"$usage_claude_id\"]" usage_hidden_ids
+expect "the written reading fails on the empty list" 1 grep -c -F -- "Hide must write the account: got []" "$usage_dir/hide-control.log"
+expect "the unwritten Hide copy hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the unwritten Hide copy is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+rescan "the panel restored after the Hide control is scanned"
+usage_refresh "the panel restored after the Hide control"
+
 # The panel's gear, which Plugins, always on, gives every panel: a click
 # opens the Settings window on AI Usage's page and closes the panel.
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget for the gear failed"
@@ -770,7 +825,7 @@ expect "an absent shared age fails its footer reading" 1 usage_control "$usage_d
 expect "the absent check age panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the absent check age panel is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
-usage_edit "$usage_panel_qml" 'visible: modelData.api;' 'visible: false;' || fail "the hidden API chip control edit failed"
+usage_edit "$usage_panel_qml" 'visible: entry.api;' 'visible: false;' || fail "the hidden API chip control edit failed"
 rescan "the hidden API chip control is scanned"
 usage_refresh "the hidden API chip control"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the hidden API chip control failed"
@@ -779,8 +834,8 @@ expect "a hidden API chip fails the drawn chip reading" 1 usage_control "$usage_
 expect "the hidden API chip panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden API chip panel is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
-# The card's mark, by its indent apart from the reset calendar's.
-usage_edit "$usage_panel_qml" $'\n                        source: View.logo(modelData.provider, Theme.color.text)' $'\n                        source: modelData.provider === "codex" ? "" : View.logo(modelData.provider, Theme.color.text)' || fail "the absent Codex logo control edit failed"
+# The card's mark, by its own size apart from the reset calendar's.
+usage_edit "$usage_panel_qml" 'source: View.logo(entry.provider, Theme.color.text, providerLogo.sourceSize.width)' 'source: entry.provider === "codex" ? "" : View.logo(entry.provider, Theme.color.text, providerLogo.sourceSize.width)' || fail "the absent Codex logo control edit failed"
 rescan "the absent logo control is scanned"
 usage_refresh "the absent logo control"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the absent logo control failed"

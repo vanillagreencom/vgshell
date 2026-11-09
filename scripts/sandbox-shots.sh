@@ -27,7 +27,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, ai-usage-hide, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -92,7 +92,12 @@
 # beside it and planted sign-ins, with no host claude or codex on the
 # shell's PATH; ai-usage-states, taken only when named, is that dropdown
 # with a Claude Code account at its full weekly limit and one with no
-# figures at its top; jarvis-keys captures Jarvis's Keys section and, on a
+# figures at its top; ai-usage-hide, taken only when named, is that
+# dropdown over a Claude Code account whose sign-in file the helper cannot
+# read, beside the Codex account, with the others hidden, then with its
+# reset calendar open, and where the tree draws a card's More actions,
+# with Tab's focus on the first card's, its menu opened by Enter, and the
+# dropdown after Enter on Hide; jarvis-keys captures Jarvis's Keys section and, on a
 # tree that has it, the former Talk mode field. jarvis-states captures the
 # real widget and overlay at ready, listening, idle, thinking, speaking,
 # confirmation, fault and not-set-up, plus the console's matching asks
@@ -623,7 +628,7 @@ while [[ $# -gt 0 ]]; do
     restart-owed) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -809,7 +814,7 @@ scene_ships() {
     jarvis-setup|jarvis-home-repair|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
-    ai-usage|ai-usage-states) ships_plugin vgs.ai-usage ;;
+    ai-usage|ai-usage-states|ai-usage-hide) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     add-widget) ships_plugin vgs.bar && [[ -f $tree/shell/plugins/vgs.bar/AddWidget.qml ]] ;;
     devtools) ships_plugin vgs.devtools ;;
@@ -909,7 +914,7 @@ if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
 # host claude or codex.
-if [[ " ${scenes[*]} " == *" ai-usage "* || " ${scenes[*]} " == *" ai-usage-states "* ]]; then
+if [[ " ${scenes[*]} " == *" ai-usage "* || " ${scenes[*]} " == *" ai-usage-states "* || " ${scenes[*]} " == *" ai-usage-hide "* ]]; then
   shell_hidden_commands+=(claude codex)
 fi
 # Agent Debug offers only the agents the scene stands in, claude and codex,
@@ -3657,6 +3662,16 @@ PY
 # AI Usage's dropdown from its widget, at rest, then scrolled halfway down
 # its body, where both dividers show.
 usage_shot_rows() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; r=json.load(sys.stdin); print(isinstance(r,list) and len(r) >= 3)'; }
+# The open panel's reset calendar: whether every day it lists holds an
+# account, and a click on its button, which draws no text and is found by
+# its label.
+usage_shot_calendar() { ipc smoke readInstance panel vgs.ai-usage calendar | py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,list) and len(d) > 0 and all(len(day["accounts"]) > 0 for day in d))'; }
+usage_shot_calendar_click() {
+  local at x y
+  at="$(centre_of "$(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "Reset calendar")")" && [[ $at != none ]] || return 1
+  read -r x y <<<"$at"
+  hover "$((x + 1))" "$y" && click "$x" "$y"
+}
 scene_ai-usage() { # MODE
   local at y
   expect "enabling AI Usage for its dropdown is allowed" ok ipc shell setPluginEnabled vgs.ai-usage true
@@ -3666,15 +3681,7 @@ scene_ai-usage() { # MODE
   expect_poll "the widget opens its panel over its accounts" True usage_shot_rows
   park_pointer
   take "ai-usage-$1-panel"
-  # The reset calendar, opened and closed again by a click on its button,
-  # which draws no text and is found by its label.
-  usage_shot_calendar() { ipc smoke readInstance panel vgs.ai-usage calendar | py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,list) and len(d) > 0 and all(len(day["accounts"]) > 0 for day in d))'; }
-  usage_shot_calendar_click() {
-    local at x y
-    at="$(centre_of "$(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "Reset calendar")")" && [[ $at != none ]] || return 1
-    read -r x y <<<"$at"
-    hover "$((x + 1))" "$y" && click "$x" "$y"
-  }
+  # The reset calendar, opened and closed again by a click on its button.
   usage_shot_calendar_click || fail "the click that opens the reset calendar failed"
   expect_poll "the reset calendar opens" true ipc smoke readInstance panel vgs.ai-usage calendarOpen
   expect_poll "the reset calendar lists its days" True usage_shot_calendar
@@ -3706,7 +3713,7 @@ row = next((r for r in rows if r["id"] == "vgs.ai-usage"), None)
 if row is None:
     row = {"id": "vgs.ai-usage"}
     rows.append(row)
-row["hidden"] = [{"account": i} for i in json.loads(ids)]
+row["hidden"] = [{"name": str(n + 1), "account": i} for n, i in enumerate(json.loads(ids))]
 with open(path + ".tmp", "w") as out:
     json.dump(config, out)
 os.replace(path + ".tmp", path)
@@ -3738,6 +3745,71 @@ scene_ai-usage-states() { # MODE
   usage_shot_close "over the planted states"
   usage_shot_hidden '[]'
 }
+
+# AI Usage's dropdown over the Claude Code account whose sign-in file the
+# helper cannot read and the Codex account, the others hidden; then with
+# its reset calendar open. Where the tree draws a card's More actions, Tab
+# then takes the keys to the first card's, Enter opens its menu and Enter
+# again hides that account, which moves the keys to the Codex card's. A
+# tree without More actions has its dropdown and calendar shots alone.
+usage_shot_menu_open() { if [[ $(ipc smoke popupItemGeometry panel vgs.ai-usage "" "" MenuItem Hide) == \[* ]]; then echo open; else echo closed; fi; }
+# Whether the open menu's window holds the keys, which can follow its open.
+usage_shot_menu_keys() { ipc smoke popupFocus panel vgs.ai-usage | py_reply 'import sys; print(sys.stdin.read().strip().startswith("["))'; }
+# usage_shot_tab_to_more: Tab until the keys are on a More actions, up to
+# 20 presses, each waiting up to 1 s for the focused item's reading to move.
+usage_shot_tab_to_more() {
+  local want='["IconButton","More actions"]' at before
+  at="$(ipc smoke activeFocusItem panel vgs.ai-usage)" || at=unreadable
+  for _ in $(seq 1 20); do
+    [[ $at == "$want" ]] && return 0
+    before="$at"
+    type_keys -k Tab || return 1
+    for _ in $(seq 1 10); do
+      at="$(ipc smoke activeFocusItem panel vgs.ai-usage)" || at=unreadable
+      [[ $at != "$before" ]] && break
+      sleep 0.1
+    done
+  done
+  [[ $at == "$want" ]]
+}
+scene_ai-usage-hide() { # MODE
+  local others
+  others="$(ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; print(json.dumps([a["id"] for a in json.load(sys.stdin)["accounts"] if a["state"] != "failed" and not (a["provider"] == "codex" and a["state"] == "ok")]))')" \
+    || fail "the accounts to hide could not be read"
+  usage_shot_hidden "$others"
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage over the unreadable sign-in failed"
+  expect_poll "the dropdown draws the unreadable sign-in's card and the Codex card" '[["claude", "failed"], ["codex", "ok"]]' usage_shot_cards
+  park_pointer
+  take "ai-usage-hide-$1-panel"
+  usage_shot_calendar_click || fail "the click that opens the reset calendar failed"
+  expect_poll "the reset calendar opens" true ipc smoke readInstance panel vgs.ai-usage calendarOpen
+  expect_poll "the reset calendar lists its days" True usage_shot_calendar
+  park_pointer
+  take "ai-usage-hide-$1-calendar"
+  # The size each mark, on the cards and in the calendar, loaded at
+  # beside its box, so the shots' sharpness reads against it.
+  ipc smoke images panel vgs.ai-usage >"$SHOT_DIR/ai-usage-hide-$1-images.json" || fail "the dropdown's images are unreadable"
+  usage_shot_calendar_click || fail "the click that closes the reset calendar failed"
+  expect_poll "the reset calendar closes" false ipc smoke readInstance panel vgs.ai-usage calendarOpen
+  park_pointer
+  if [[ $(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "More actions") == \[* ]]; then
+    usage_shot_tab_to_more || fail "Tab never reached More actions"
+    expect_poll "More actions shows its focus ring" '["IconButton","More actions",true,true,true]' ipc smoke focused panel vgs.ai-usage
+    # A posed shot: a plain one clears the ring it shows.
+    take_posed "ai-usage-hide-$1-focus"
+    type_keys -k Return || fail "Enter on More actions failed"
+    expect_poll "Enter on More actions opens the card's menu" open usage_shot_menu_open
+    take_posed "ai-usage-hide-$1-menu"
+    expect_poll "the card's menu holds the keys" True usage_shot_menu_keys
+    type_keys -k Return || fail "Enter on Hide failed"
+    expect_poll "Hide takes the unreadable sign-in's card away" '[["codex", "ok"]]' usage_shot_cards
+    expect_poll "Hide moves the keys to the Codex card's More actions" '["IconButton","More actions",true,true,true]' ipc smoke focused panel vgs.ai-usage
+    take_posed "ai-usage-hide-$1-hidden"
+  fi
+  usage_shot_close "over the unreadable sign-in"
+  usage_shot_hidden '[]'
+}
+usage_shot_cards() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"]] for r in json.load(sys.stdin)]))'; }
 
 # The Add widget chooser as the empty bar's menu summons it, at the left
 # of the first output, with AI Usage, a plugin with other kinds, on and
@@ -10209,7 +10281,7 @@ for scene in "${scenes[@]}"; do
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     jarvis-causes|jarvis-home-repair) need_setup bar; need_setup settings; need_setup "$scene" ;;
-    ai-usage-states) need_setup ai-usage ;;
+    ai-usage-states|ai-usage-hide) need_setup ai-usage ;;
     focus) need_setup settings ;;
     info-dialog) need_setup info-dialog ;;
     focus-open) need_setup focus-open ;;
@@ -10342,6 +10414,19 @@ PY2
           { id: "claude-limited", provider: "claude", label: "Claude Code", email: "limited@example.invalid", state: "limited", windows: [], credits: null, details: {} });
     return { accounts, partial, gatewayKey };' || fail "planting the AI Usage states failed"
         usage_shot_want='["limited", "no-plan", "ok", "ok", "ok", "ok", "ok"]'
+      fi
+      if [[ " ${scenes[*]} " == *" ai-usage-hide "* ]]; then
+        # For ai-usage-hide, a Claude Code folder whose sign-in file holds
+        # no sign-in the helper can read, beside a profile naming its
+        # email. The ai-usage scene, named beside it, draws it too.
+        python3 - "$home" <<'PY' || fail "planting the unreadable Claude Code sign-in failed"
+import json, os, sys
+folder = os.path.join(sys.argv[1], ".claude-unread")
+os.makedirs(folder, exist_ok=True)
+json.dump({"claudeAiOauth": "unreadable"}, open(os.path.join(folder, ".credentials.json"), "w"))
+json.dump({"oauthAccount": {"emailAddress": "unread@example.invalid"}}, open(os.path.join(folder, ".claude.json"), "w"))
+PY
+        usage_shot_want="$(python3 -c 'import json,sys; print(json.dumps(sorted(json.loads(sys.argv[1]) + ["failed"])))' "$usage_shot_want")"
       fi
       python3 - "$home" <<'PY' || fail "planting the AI Usage sign-ins failed"
 import json, os, sys, time

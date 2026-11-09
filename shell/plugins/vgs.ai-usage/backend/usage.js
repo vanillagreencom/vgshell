@@ -284,16 +284,11 @@ function claudeEmail(Anchored, profile) {
 }
 
 /**
- * The Claude Code account in DIRECTORY: its `.credentials.json`, read
- * without following a link and never written, then one GET of the usage
- * endpoint at ORIGIN with the access token. An expired token sends nothing
- * and reads expired, as does a token the endpoint refuses. A 429 reads
- * limited, no failure: the endpoint answers so to frequent reads, and the
- * service keeps the last figures until a later read. PROFILE is the
- * folder whose `.claude.json` Claude Code reads for this account, which
- * names its email.
+ * The Claude Code sign-in in DIRECTORY, its `.credentials.json` read without
+ * following a link and never written: { state: "signed-out" },
+ * { state: "failed", reason } or { state: "signed-in", oauth }.
  */
-async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now(), deadlineMs = REQUEST_MS, profile = directory } = {}) {
+function claudeCredentials(Anchored, directory) {
     const opened = Anchored.directory(directory);
     if (opened.kind === "absent") return { state: "signed-out" };
     if (opened.kind !== "directory") return failed("directory-" + opened.kind);
@@ -307,8 +302,26 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
     if (oauth === undefined) return { state: "signed-out" };
     if (!plain(oauth) || !printable(oauth.accessToken, 8192) || typeof oauth.expiresAt !== "number")
         return failed("credentials-shape");
+    return { state: "signed-in", oauth };
+}
+
+/**
+ * The Claude Code account in DIRECTORY: its credentials, then one GET of
+ * the usage endpoint at ORIGIN with the access token. An expired token
+ * sends nothing and reads expired, as does a token the endpoint refuses. A
+ * 429 reads limited, no failure: the endpoint answers so to frequent reads,
+ * and the service keeps the last figures until a later read. PROFILE is the
+ * folder whose `.claude.json` Claude Code reads for this account, which
+ * names its email; every state but signed-out carries it, a failure to
+ * read the credentials included, so the card still says whose it is.
+ */
+async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now(), deadlineMs = REQUEST_MS, profile = directory } = {}) {
+    const credentials = claudeCredentials(Anchored, directory);
+    if (credentials.state === "signed-out") return credentials;
     const email = claudeEmail(Anchored, profile);
     const lost = reason => ({ ...failed(reason), email });
+    if (credentials.state === "failed") return lost(credentials.reason);
+    const oauth = credentials.oauth;
     if (oauth.expiresAt <= now) return { state: "expired", email };
     const reply = await get(new URL(USAGE_PATH, origin), {
         authorization: "Bearer " + oauth.accessToken, "anthropic-beta": OAUTH_BETA, accept: "application/json"

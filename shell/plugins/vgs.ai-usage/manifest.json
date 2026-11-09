@@ -9,7 +9,7 @@
   "icon": "gauge",
   "kinds": ["service", "bar-widget", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["ipc", "status", "surfaces", "tui", "secrets"],
+  "capabilities": ["ipc", "status", "surfaces", "tui", "secrets", "configure"],
   "defaultSection": "right",
   "requirements": [
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": false, "purpose": "Reads the plan limits of each signed-in account"},

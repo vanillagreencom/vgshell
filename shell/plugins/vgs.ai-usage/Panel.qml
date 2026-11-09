@@ -5,7 +5,8 @@ import qs.Ui
 import "UsageView.js" as View
 
 // Each signed-in and visible account in a card of its own: the provider,
-// the account's email, one row per limit with its time to reset and one
+// the account's email, its menu, whose Hide adds it to Hidden accounts,
+// one row per limit with its time to reset and one
 // per credit the provider reports. Full view adds a meter under each limit
 // and each credit with a used share, and the provider detail fields the
 // helper received. The calendar button left of the Settings gear shows the
@@ -23,6 +24,8 @@ Item {
     readonly property string checked: View.checkedText(usage === null ? null : usage.readAt, Time.now.getTime())
     readonly property bool fullView: shell !== null && shell.settings.view !== "compact"
     readonly property bool calendarOpen: calendarButton.checked
+    // Why the last Hide failed, or "".
+    property string problem: ""
     // Each reset time in the locale's short time format, which Qt reads from
     // LC_TIME: doc.qt.io/qt-6/qml-qtqml-date.html#toLocaleTimeString-method.
     readonly property var calendar: calendarOpen
@@ -41,6 +44,34 @@ Item {
         if (reply !== "ok") console.warn("ai-usage: panel refresh " + reply);
         return reply;
     }
+    // Hide adds account ID to the Hidden accounts setting Settings edits,
+    // so its card and calendar entry leave and the panel stays open. The
+    // keys move to the More actions of the card that takes its place, else
+    // of the card before it, else to Check now, the panel's first focus,
+    // with the ring when OPENER, the input that opened the card's menu, is
+    // "key".
+    function hide(id, opener) {
+        const ids = rows.map(row => row.id);
+        const at = ids.indexOf(id);
+        const next = at + 1 < ids.length ? ids[at + 1] : at > 0 ? ids[at - 1] : "";
+        const reply = shell.configure.set("hidden", View.hiding(shell.settings, id));
+        problem = reply === "ok" ? "" : "The account could not be hidden.";
+        if (reply !== "ok") {
+            console.warn("ai-usage: hide " + reply);
+            return reply;
+        }
+        const card = cardOf(next);
+        (card === null ? refreshButton : card.menuButton).forceActiveFocus(opener === "key" ? Qt.TabFocusReason : Qt.MouseFocusReason);
+        return reply;
+    }
+    // The card of account ID, or null.
+    function cardOf(id) {
+        for (let i = 0; i < cards.count; i++) {
+            const card = cards.itemAt(i);
+            if (card !== null && card.modelData === id) return card;
+        }
+        return null;
+    }
     function open(payloadJson) {}
     function close() {}
 
@@ -57,12 +88,14 @@ Item {
         maximumHeight: root.heightCap
         title: "AI Usage"
         // Pane leaves the title slot's end clear of its Settings gear, and
-        // the slot comes before the gear in Tab order.
+        // the slot comes before the gear in Tab order. The slot is as tall
+        // as its children's box, so a child centred on it is a binding
+        // loop; the button and the gear are one size and set the row's
+        // height.
         titleContent: [
             IconButton {
                 id: calendarButton
                 anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
                 size: "sm"
                 iconName: "calendar-clock"
                 label: "Reset calendar"
@@ -106,9 +139,11 @@ Item {
                                         y: resetAccount.y + resetAccount.topForLeadingIcon(height, resetAccount.y)
                                         width: Theme.icon.size.sm
                                         height: Theme.icon.size.sm
-                                        sourceSize.width: width
-                                        sourceSize.height: height
-                                        source: View.logo(modelData.provider, Theme.color.text)
+                                        // Qt loads a data URL at sourceSize alone, unscaled
+                                        // for the display: see providerLogo.
+                                        sourceSize.width: resetLogo.width * Screen.devicePixelRatio
+                                        sourceSize.height: resetLogo.height * Screen.devicePixelRatio
+                                        source: View.logo(modelData.provider, Theme.color.text, resetLogo.sourceSize.width)
                                     }
                                     Label {
                                         id: resetAccount
@@ -142,16 +177,50 @@ Item {
 
         Label {
             width: layout.contentWidth
+            visible: root.problem !== ""
+            role: "hint"
+            wrapMode: Text.Wrap
+            text: root.problem
+            color: Theme.badge.tone.warning.foreground
+        }
+
+        Label {
+            width: layout.contentWidth
             visible: root.rows.length === 0
             role: "body"
             wrapMode: Text.Wrap
             text: root.usage === null ? "Checking your sign-ins." : "No visible account is signed in. Check your AI Usage settings."
         }
 
+        // Keyed by account: Time.now's minute tick, a new check and any
+        // other status write each give fresh rows, and a model of the rows
+        // themselves built every card again at each, taking the keys and
+        // an open menu with it (tst_ai_usage_widget.qml). The keys are
+        // strings, as DeviceList's are: Quickshell 0.3.1's ScriptModel can
+        // leave a moved object's payload stale, so root.rows holds the
+        // current row. https://quickshell.org/docs/v0.3.1/types/Quickshell/ScriptModel
         Repeater {
-            model: root.rows
+            id: cards
+            model: ScriptModel { values: root.rows.map(row => row.id) }
             Card {
+                id: card
+                // The account's id.
                 required property var modelData
+                readonly property var current: root.rows.find(row => row.id === card.modelData)
+                // The account's row. A Hide drops it from root.rows before
+                // the model drops the card, which keeps the row it drew
+                // last until then: Binding.RestoreNone leaves the last value
+                // while `when` is false
+                // (https://doc.qt.io/qt-6/qml-qtqml-binding.html#restoreMode-prop).
+                property var entry: current
+                Binding on entry {
+                    value: card.current
+                    when: card.current !== undefined
+                    restoreMode: Binding.RestoreNone
+                }
+                readonly property Item menuButton: moreButton
+                // The input that opened the card's menu, KeyNavLogic.opener's.
+                property string opener: "pointer"
                 width: layout.contentWidth
 
                 Item {
@@ -160,11 +229,48 @@ Item {
                     Row {
                         id: identity
                         spacing: Theme.stack.inline
-                        Label { anchors.verticalCenter: parent.verticalCenter; role: "label"; text: modelData.title }
-                        Badge { anchors.verticalCenter: parent.verticalCenter; visible: modelData.api; text: "[API]"; tone: "info" }
+                        Label { anchors.verticalCenter: parent.verticalCenter; role: "label"; text: entry.title }
+                        Badge { anchors.verticalCenter: parent.verticalCenter; visible: entry.api; text: "[API]"; tone: "info" }
                     }
-                    // QsMenuEntry's 0.3.1 reference sizes Image's source to
-                    // its rendered box; SVG data retains the published mark.
+                    // The button's box overruns the line into the card's
+                    // padding, so the card keeps the height it has without
+                    // it; a ghost button draws no fill there.
+                    IconButton {
+                        id: moreButton
+                        anchors.right: providerLogo.left
+                        anchors.rightMargin: Theme.stack.inline
+                        anchors.verticalCenter: parent.verticalCenter
+                        size: "sm"
+                        iconName: "ellipsis"
+                        label: "More actions"
+                        onClicked: {
+                            card.opener = KeyNavLogic.opener(moreButton);
+                            cardMenu.toggle(card.opener);
+                        }
+                        Menu {
+                            id: cardMenu
+                            // The menu closes on the trigger, and the hidden
+                            // card takes the menu with it, so Hide waits for
+                            // that close.
+                            MenuItem {
+                                text: "Hide"
+                                iconName: "eye-off"
+                                onTriggered: {
+                                    const id = card.modelData;
+                                    const opener = card.opener;
+                                    Qt.callLater(() => root.hide(id, opener));
+                                }
+                            }
+                        }
+                    }
+                    // SVG data retains the published mark. Qt renders an
+                    // image at its sourceSize times the display scale only
+                    // for a URL whose path ends in svg, svgz or pdf
+                    // (QQuickPixmap::isScalableImageFormat), which a data
+                    // URL's never does, so sourceSize names device pixels,
+                    // and the mark states that size (View.logo): read at
+                    // scale 2 in the nested sandbox under Qt 6.12.0, a mark
+                    // loaded at its logical size draws scaled up.
                     Image {
                         id: providerLogo
                         objectName: "providerLogo"
@@ -172,36 +278,36 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: Theme.icon.size.md
                         height: Theme.icon.size.md
-                        sourceSize.width: width
-                        sourceSize.height: height
-                        source: View.logo(modelData.provider, Theme.color.text)
+                        sourceSize.width: providerLogo.width * Screen.devicePixelRatio
+                        sourceSize.height: providerLogo.height * Screen.devicePixelRatio
+                        source: View.logo(entry.provider, Theme.color.text, providerLogo.sourceSize.width)
                         visible: source.toString() !== ""
                     }
                 }
                 Label {
                     visible: text !== ""
                     role: "hint"
-                    text: modelData.account
+                    text: entry.account
                     // Qt Text reserves padding in addition to contentHeight:
                     // doc.qt.io/qt-6/qml-qtquick-text.html#padding-prop.
                     bottomPadding: Theme.stack.inline
                 }
-                Label { visible: root.fullView && text !== ""; role: "hint"; text: modelData.detail }
+                Label { visible: root.fullView && text !== ""; role: "hint"; text: entry.detail }
                 Label {
                     width: parent.width
                     visible: text !== ""
                     role: "hint"
                     wrapMode: Text.Wrap
-                    text: modelData.note
-                    color: modelData.noteTone === "warning" ? Theme.badge.tone.warning.foreground : Theme.text.hint.color
+                    text: entry.note
+                    color: entry.noteTone === "warning" ? Theme.badge.tone.warning.foreground : Theme.text.hint.color
                 }
 
                 Column {
-                    visible: modelData.windows.length > 0
+                    visible: entry.windows.length > 0
                     width: parent.width
                     spacing: root.fullView ? Theme.stack.inline : Theme.row.lineGap
                     Repeater {
-                        model: modelData.windows
+                        model: entry.windows
                         Column {
                             id: usageLimit
                             required property var modelData
@@ -255,11 +361,11 @@ Item {
                 }
 
                 Section {
-                    visible: root.fullView && modelData.details.length > 0
+                    visible: root.fullView && entry.details.length > 0
                     title: "Details"
                     rowSpacing: Theme.row.lineGap
                     Repeater {
-                        model: modelData.details
+                        model: entry.details
                         Item {
                             required property var modelData
                             width: parent.width
