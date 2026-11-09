@@ -483,23 +483,28 @@ function gather(request) {
 }
 // Untrusted fetched .SRCINFO sections retain split-package override rules;
 // neither PKGBUILD nor install script is ever executed during review.
-function installEvidence(dir, pkg, state) {
+// The fetched build folder whose .SRCINFO builds PKG's name: { folder, base,
+// script, src }, base the folder's pkgbase, or null.
+function recipeFolder(dir, pkg) {
     const build = path.join(dir, "build");
-    let selected = null;
     for (const entry of fs.readdirSync(build, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
         const folder = path.join(build, entry.name);
         const src = path.join(folder, ".SRCINFO");
         if (!fs.existsSync(src) || !fs.lstatSync(src).isFile()) continue;
-        let section = "", base = "", own = "", ownSet = false, found = false;
+        let section = "", base = "", own = "", ownSet = false, found = false, pkgbase = "";
         for (const { key, value } of judge.srcinfoFields(fs.readFileSync(src, "utf8"))) {
-            if (key === "pkgbase") section = "base";
+            if (key === "pkgbase") { section = "base"; pkgbase = value; }
             if (key === "pkgname") { section = value === pkg.name ? "own" : "other"; if (section === "own") found = true; }
             if (key === "install" && section === "base") base = value;
             if (key === "install" && section === "own") { own = value; ownSet = true; }
         }
-        if (found) { selected = { folder, script: ownSet ? own : base, src }; break; }
+        if (found) return { folder, base: pkgbase, script: ownSet ? own : base, src };
     }
+    return null;
+}
+function installEvidence(dir, pkg, state) {
+    const selected = recipeFolder(dir, pkg);
     if (selected === null) throw new Error("install=srcinfo-unreadable name=" + pkg.name);
     const script = selected.script;
     if (script && (script.includes("/") || script === "." || script === "..")) throw new Error("install=unsafe-script");
@@ -527,6 +532,65 @@ function installEvidence(dir, pkg, state) {
         fs.writeFileSync(diff, r.stdout, { mode: 0o600 });
     }
     return change.risks.map(concern => ({ name: pkg.name, concern }));
+}
+// The helper's copy of a base's recipe from its last build here, which
+// `-G` leaves alone. paru v2.1.0 clones into dirs::cache_dir()/paru/clone
+// (src/config.rs:578-589); yay v12.5.0 into $XDG_CACHE_HOME/yay, else
+// $HOME/.cache/yay (pkg/settings/dirs.go:36-46, config.go:247-252).
+// dirs::cache_dir() is an absolute $XDG_CACHE_HOME, else $HOME/.cache. A
+// configured CloneDir, buildDir or AURDEST is not read: its copy reads as
+// new. Any other helper keeps no copy VGS knows.
+function cachedRecipe(binary, base) {
+    const xdg = process.env.XDG_CACHE_HOME;
+    const cache = xdg && path.isAbsolute(xdg) ? xdg : path.join(home(), ".cache");
+    const helper = path.basename(binary);
+    if (helper === "paru") return path.join(cache, "paru/clone", base, "PKGBUILD");
+    if (helper === "yay") return path.join(cache, "yay", base, "PKGBUILD");
+    return null;
+}
+// One `recipe <pkgbase> new|unchanged|changed` line per fetched base, from
+// its PKGBUILD against the helper's cached copy, with recipe/<base>.diff
+// for changed. Untrusted text is only read and compared. A cached copy
+// that exists but cannot be read safely is failed evidence, never new.
+function recipeEvidence(dir, pkg, state) {
+    const selected = recipeFolder(dir, pkg);
+    if (selected === null || !selected.base) throw new Error("recipe=srcinfo-unreadable name=" + pkg.name);
+    const base = selected.base;
+    if (state.lines.some(line => line.startsWith("recipe " + base + " "))) return;
+    if (base.includes("/") || base === "." || base === "..") throw new Error("recipe=unsafe-base name=" + pkg.name);
+    const cached = cachedRecipe(pkg.binary, base);
+    let old = null;
+    if (cached !== null) {
+        let fd = null;
+        try { fd = fs.openSync(cached, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+        catch (e) {
+            if (e.code === "ELOOP") throw new Error("recipe=cache-unsafe name=" + base);
+            if (e.code !== "ENOENT") throw new Error("recipe=cache-unreadable name=" + base);
+        }
+        if (fd !== null) {
+            try {
+                const stat = fs.fstatSync(fd);
+                if (!stat.isFile()) throw new Error("recipe=cache-unsafe name=" + base);
+                if (stat.size > MAX_DATA) throw new Error("recipe=cache-too-large name=" + base);
+                try { old = fs.readFileSync(fd); } catch (_) { throw new Error("recipe=cache-unreadable name=" + base); }
+            } finally { fs.closeSync(fd); }
+        }
+    }
+    const fetched = path.join(selected.folder, "PKGBUILD");
+    let next;
+    try { next = fs.readFileSync(identity(fetched).path); } catch (_) { throw new Error("recipe=build-unreadable name=" + base); }
+    const recipeState = old === null ? "new" : old.equals(next) ? "unchanged" : "changed";
+    state.lines.push(`recipe ${base} ${recipeState}`);
+    if (recipeState !== "changed") return;
+    const out = path.join(dir, "recipe");
+    fs.mkdirSync(out, { recursive: true, mode: 0o700 });
+    const copy = path.join(out, base + ".cached");
+    fs.writeFileSync(copy, old, { mode: 0o600 });
+    try {
+        const r = query(["diff", "-u", "--label", cached, "--label", path.join("build", path.basename(selected.folder), "PKGBUILD"), "--", copy, fetched]);
+        if (r.error || r.status !== 1) throw new Error("recipe=diff-unreadable name=" + base);
+        fs.writeFileSync(path.join(out, base + ".diff"), r.stdout, { mode: 0o600 });
+    } finally { fs.rmSync(copy, { force: true }); }
 }
 function recipesIdentity(dir) {
     const entries = [];
@@ -582,6 +646,7 @@ async function reviewRequest(request, storage) {
         if (kind.startsWith("fetch=")) return "The AUR build files could not be downloaded" + subject + ".";
         if (kind.startsWith("origin=")) return "The AUR package source could not be confirmed" + subject + ".";
         if (kind.startsWith("install=") || kind.startsWith("identity=")) return "An AUR install script could not be read safely" + subject + ".";
+        if (kind.startsWith("recipe=")) return "The AUR build recipe could not be compared with the copy from its last build" + subject + ".";
         if (kind.startsWith("vgs-packages=")) return "VGS's own package names could not be read.";
         if (kind.startsWith("pending=")) return "The pending AUR update list could not be confirmed for this package configuration.";
         if (kind.startsWith("dependency=")) return "An AUR package's required dependency could not be resolved.";
@@ -662,6 +727,8 @@ async function reviewRequest(request, storage) {
                         if (r.error || r.status !== 0) throw new Error("fetch=failed name=" + pkg.name);
                         try { risks.push(...installEvidence(dir, pkg, state)); }
                         catch (e) { state.unknown.push(e.message); risks.push({ name: pkg.name, concern: "The install script could not be verified." }); }
+                        try { recipeEvidence(dir, pkg, state); }
+                        catch (e) { state.unknown.push(e.message); }
                     }
                     state.recipes = recipesIdentity(path.join(dir, "build"));
                     fs.writeFileSync(path.join(dir, "packages.txt"), state.lines.concat(state.unknown.map(e => "unknown " + e)).join("\n") + "\n", { mode: 0o600 });

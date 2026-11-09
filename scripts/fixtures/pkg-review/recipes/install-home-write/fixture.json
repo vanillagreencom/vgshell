@@ -1,0 +1,13 @@
+{
+  "package": "lsfg-vk",
+  "pkgbase": "lsfg-vk",
+  "old": null,
+  "new": "2.0.0-2",
+  "expect": "flagged",
+  "source": "Technique: MITRE ATT&CK T1098.004 (SSH authorized keys), https://attack.mitre.org/techniques/T1098/004/ ; no AUR incident found that wrote authorized_keys; base recipe AUR lsfg-vk commit 83ad83577c1c0b64ddf0aae9fbf97dbfeba9b926, https://aur.archlinux.org/cgit/aur.git/commit/?h=lsfg-vk&id=83ad83577c1c0b64ddf0aae9fbf97dbfeba9b926; recipe licence: 0BSD (LICENSE in the AUR repository); a split package (lsfg-vk, lib32-lsfg-vk)",
+  "signal": "post_install appends an SSH key to root's and every home folder's ~/.ssh/authorized_keys",
+  "install": "new",
+  "installerRisk": false,
+  "recipe": "new",
+  "installerRiskGap": "VGS-2414 Proposal 13e3ef27"
+}

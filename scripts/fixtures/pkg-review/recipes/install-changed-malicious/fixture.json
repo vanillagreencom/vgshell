@@ -1,0 +1,12 @@
+{
+  "package": "arrowdl",
+  "pkgbase": "arrowdl",
+  "old": "4.2.0-1",
+  "new": "4.2.1-1",
+  "expect": "flagged",
+  "source": "Models the July 2018 acroread download piped to a shell, moved into an otherwise ordinary install script change (https://lists.archlinux.org/pipermail/aur-general/2018-July/034151.html); base recipe AUR arrowdl commit 8aaa12bff78a12bd3839e140742c4462e7ef2225, https://aur.archlinux.org/cgit/aur.git/commit/?h=arrowdl&id=8aaa12bff78a12bd3839e140742c4462e7ef2225; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy and installed install script: commit 9a8d3468c9f754357247472bb3083162c06906fa; the real install script change renames the native messaging manifest",
+  "signal": "the install script's diff adds a download from native-host.arrowdl.invalid piped to sh as root",
+  "install": "changed",
+  "installerRisk": true,
+  "recipe": "changed"
+}
