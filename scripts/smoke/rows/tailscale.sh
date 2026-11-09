@@ -60,7 +60,9 @@
 # address on the clipboard; Connect hands the stand-in terminal
 # `vgshell-tui ssh-session --name <name> --host <dns name>`, which it does
 # not run, so no tmux or ssh runs; with no terminal launcher, Connect
-# leaves the launcher-missing line; Open admin console hands the admin
+# leaves the launcher-missing line, and once the launcher is back, Connect
+# while the state still reads missing opens the terminal, hides that line
+# and reads the terminal present; Open admin console hands the admin
 # address to the xdg-open stand-in, and with xdg-open missing raises its
 # requirement notice; the Exit nodes view with Recommended, None, your exit nodes and
 # Mullvad by country, a search, no match, a country's view, Back and
@@ -1284,12 +1286,15 @@ expect "Connect leaves no problem" hidden tailscale_label tailscale-problem
 # With no terminal launcher: a stand-in bin/vgshell-tui answers as the real
 # one does without xdg-terminal-exec, as rows/tui.sh plants it. The first
 # connect starts the launcher, whose exit 69 reaches its `done`; the next,
-# with the state missing, is refused at once and probes again.
+# with the launcher back and the state still missing, runs it as any
+# connect does (PluginLogic.tuiSsh refuses only bad arguments, so an
+# attached client stays reachable), and the terminal's start moves the
+# state to present.
 cp -- "$repo/bin/vgshell-tui" "$sandbox/tailscale-tui.real"
 printf '#!/bin/sh\nprintf '"'"'vgshell-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/tailscale-tui.missing"
 chmod 755 "$sandbox/tailscale-tui.missing"
 cp -- "$sandbox/tailscale-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
-expected_errors+=('tui: refused: tui=core/ssh reason=launcher-missing' 'tailscale: connect reason=launcher-missing' 'tailscale: connect refused: tui=core/ssh reason=launcher-missing')
+expected_errors+=('tui: refused: tui=core/ssh reason=launcher-missing' 'tailscale: connect reason=launcher-missing')
 forget_record
 tailscale_device_menu "attic-nas's menu opens on Star with no terminal" '["Star", "Connect in terminal", "Copy"]' "Star"
 tailscale_key Down
@@ -1300,9 +1305,11 @@ cp -- "$sandbox/tailscale-tui.real" "$repo/bin/vgshell-tui.next" && mv -T -- "$r
 tailscale_device_menu "attic-nas's menu opens on Star again" '["Star", "Connect in terminal", "Copy"]' "Star"
 tailscale_key Down
 tailscale_key Return
-expect_poll "a connect while the terminal reads missing leaves the launcher-missing line" "$(tailscale_launcher_missing_line)" tailscale_label tailscale-problem
-expect_poll "the probe that connect started finds the terminal again" '"present"' lent tui.launcher
-expect "no terminal opened while it read missing" absent recorded
+expect_poll "a connect while the terminal reads missing hands the restored terminal ssh-session with the device's name and DNS name" \
+  "$(words --title=attic-nas -- "$tui_self" ssh-session --name attic-nas --host attic-nas.tail-fixture.ts.net)" recorded
+expect_poll "that ssh launcher ends once the terminal has the session" '[]' lent tui.launching
+expect "the terminal's start records the terminal present" '"present"' lent tui.launcher
+expect "that connect hides the launcher-missing line" hidden tailscale_label tailscale-problem
 # This device's copy icon under the pointer copies what its row copies,
 # over attic-nas's address; the first icon labelled Copy is this device's.
 tailscale_self_copy_at="$(ipc smoke labelledGeometry panel vgs.tailscale IconButton Copy | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x + w / 2), int(y + h / 2))')" || tailscale_self_copy_at=""
