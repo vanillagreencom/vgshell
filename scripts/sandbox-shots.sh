@@ -7684,6 +7684,8 @@ PY
 
 scene_network() { # MODE
   devices_ready network-shot || return 0
+  source "$checkout/scripts/smoke/network-dns.sh"
+  network_dns_setup
   device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' show --property=LoadState --property=ActiveState NetworkManager.service
   device_reply nmcli 0 'org.freedesktop.NetworkManager.network-control:yes' -t -f PERMISSION,VALUE general permissions
   expect "the network shot has a saved fake profile" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" prepare
@@ -7696,6 +7698,43 @@ scene_network() { # MODE
   expect_poll "Network's pane reads the saved mock" '[["VGS Smoke Wi-Fi", "Wpa2Psk", true]]' network_shot_names
   park_pointer
   take "network-$1-pane"
+  local dns_case dns_want
+  while IFS='|' read -r dns_case dns_want; do
+    if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"'; then
+      network_dns_refresh "$dns_case"
+      expect_poll "DNS $dns_case: the captured probe selects the shared field" "$dns_want" network_dns_reading
+      ipc smoke revealText window vgs.system Field 'DNS provider' >/dev/null || fail "DNS $dns_case: the field did not scroll into view"
+    else
+      # The before revision has no DNS field. Frame the same bottom part
+      # of Network, where the field is added above the Bar section.
+      ipc smoke revealText window vgs.system Field 'Show disconnected icon' >/dev/null || fail "DNS before: Network's last field did not scroll into view"
+    fi
+    park_pointer
+    take "network-$1-dns-$dns_case"
+    # Every probe reading has the same before view, with no DNS field.
+    # One observed frame is the baseline for all of its after readings.
+    tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"' || break
+  done <<'DNSCAPTURES'
+default|["default", "default", 2, false, false]
+cloudflare|["ready", "cloudflare", 0, false, false]
+google|["ready", "google", 1, false, false]
+custom|["ready", "custom", 3, false, false]
+foreign|["foreign", "", -1, false, true]
+partial|["partial", "", -1, false, true]
+unknown|["unavailable", "", -1, true, true]
+denied|["unavailable", "", -1, true, true]
+absent|["unavailable", "", -1, true, true]
+DNSCAPTURES
+  if tree_has shell/plugins/vgs.network/NetworkBody.qml 'objectName: "network-dns-provider"'; then
+    network_dns_refresh default
+    expect_poll "DNS choices: network default is selected" '["default", "default", 2, false, false]' network_dns_reading
+    click_in 'window:System Settings' window vgs.network Select 'Network default' || fail "DNS choices: the list did not open"
+    expect_poll "DNS choices: the list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName network-dns-provider listOpen
+    park_pointer
+    take_posed "network-$1-dns-choices"
+    type_keys -k Escape
+  fi
+  expect "Network's pane resets after DNS shots" ok ipc shell summon window vgs.system '{"pane":"vgs.network"}'
   expect "Other Network is revealed for its form shot" scrolled network_shot_other_reveal
   click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "Other Network did not open for its shot"
   expect_poll "the hidden PSK form takes focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
@@ -7758,6 +7797,7 @@ scene_network() { # MODE
   expect "Network disables after its shot" ok ipc shell setPluginEnabled vgs.network false
   device_reply_clear nmcli
   device_reply_clear systemctl
+  network_dns_restore
 }
 backend_widget_shots() { # NAME MODE
   park_pointer

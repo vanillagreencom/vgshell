@@ -25,8 +25,10 @@
     "surfaces",
     "ipc",
     "configure",
-    "requirements"
+    "requirements",
+    "system"
   ],
+  "systemSteps": ["dns-cloudflare", "dns-google", "dns-custom"],
   "defaultSection": "right",
   "pane": {
     "group": "Connectivity",
@@ -42,6 +44,14 @@
     "showDisconnected": true
   },
   "status": {
+    "dnscloudflare": { "type": "state", "label": "Cloudflare DNS", "hidden": true, "action": { "label": "Use Cloudflare", "system": "dns-cloudflare" } },
+    "dnsgoogle": { "type": "state", "label": "Google DNS", "hidden": true, "action": { "label": "Use Google", "system": "dns-google" } },
+    "dnscustom": { "type": "state", "label": "Your own DNS servers", "hidden": true, "action": { "label": "Use your own servers", "system": "dns-custom" } },
+    "dnsDefault": { "type": "state", "label": "Network default DNS", "hidden": true, "actions": {
+      "cloudflare": { "label": "Use network default", "undo": "dns-cloudflare" },
+      "google": { "label": "Use network default", "undo": "dns-google" },
+      "custom": { "label": "Use network default", "undo": "dns-custom" }
+    } },
     "connection": {
       "type": "state",
       "label": "Connection"

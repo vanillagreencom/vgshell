@@ -42,6 +42,13 @@ FocusScope {
     readonly property bool detailsReady: shell !== null && !shell.requirements.missing.includes("nmcli")
     readonly property var network: values.network || ({ wifi: [], ethernet: [], state: "unavailable", action: { kind: "idle" }, prompt: null, detail: { state: "idle", rows: [] } })
     readonly property var rows: network.wifi || []
+    readonly property var dns: network.dns || ({ kind: "unavailable", provider: "", ready: "", hint: "", disabledReason: "The DNS provider is being read. Wait for the network services to answer." })
+    readonly property var dnsChoices: [
+        { value: "cloudflare", label: "Cloudflare" },
+        { value: "google", label: "Google" },
+        { value: "default", label: "Network default" },
+        { value: "custom", label: "Your own servers" }
+    ]
     readonly property var selected: rows.find(row => row.key === currentKey) || null
     readonly property string permissionNotice: network.access === "unavailable" ? "Network permissions could not be checked. NetworkManager still handles each change." : ""
     readonly property bool busy: network.action.kind !== "idle"
@@ -134,6 +141,17 @@ FocusScope {
     function action(kind, row) {
         if (shell === null) return "unavailable";
         return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, key: row ? row.key : "", interface: row ? row.interface || row.name : "" })));
+    }
+    function chooseDns(provider) {
+        if (shell === null || dns.disabledReason !== "") return;
+        if (provider === dns.provider && provider !== "custom") return;
+        if (provider === "default" && dns.ready === "") {
+            if (dns.provider !== "default") localProblem = "VGS has no DNS choice to undo. Choose a provider first.";
+            return;
+        }
+        const key = provider === "default" ? "dnsDefault" : "dns" + provider;
+        const reply = shell.status.act(key);
+        localProblem = shell.status.isOk(reply) ? "" : "The DNS change could not start. Try again.";
     }
     function activate(row) {
         if (row === null || !network.writable || busy) return;
@@ -500,6 +518,33 @@ FocusScope {
                 onClicked: {
                     const reply = root.shell.requirements.offer(["nmcli"]);
                     root.answered(reply === "satisfied" ? "ok" : reply);
+                }
+            }
+        }
+        Section {
+            width: parent.width
+            visible: root.expanded
+            title: "Address lookups"
+            Field {
+                width: parent.width
+                label: "DNS provider"
+                inline: true
+                hint: root.dns.disabledReason || root.dns.hint
+                info: "Choose who looks up internet addresses for your saved Wi-Fi and wired networks. VGS opens a terminal to review each change and enter your own servers. Network default restores the servers VGS replaced."
+                Select {
+                    objectName: "network-dns-provider"
+                    width: parent.width
+                    model: root.dnsChoices
+                    textRole: "label"
+                    currentIndex: root.dnsChoices.findIndex(choice => choice.value === root.dns.provider)
+                    placeholderText: root.dns.kind === "unavailable" ? "Not available" : root.dns.kind === "partial" ? "Partly applied" : "Set outside VGS"
+                    disabledReason: root.dns.disabledReason
+                    onActivated: index => {
+                        currentIndex = Qt.binding(() => root.dnsChoices.findIndex(choice => choice.value === root.dns.provider));
+                        // Select also emits on closed-list arrow navigation. Only
+                        // a confirmed menu choice may start a system change.
+                        if (listOpen) root.chooseDns(root.dnsChoices[index].value);
+                    }
                 }
             }
         }
