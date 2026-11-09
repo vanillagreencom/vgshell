@@ -825,7 +825,17 @@ while True:
 ' "$rt_dir/hypr/$signature/.socket2.sock"
 nk_events_pid="$spawn_pid"
 nk_mark() { hypr dispatch "hl.dsp.event(\"$1\")"; }
-nk_events_have() { grep -qxF -- "custom>>$1" "$nk_events" && echo marked || echo unmarked; }
+# grep exits 1 for no match, which is an answer; above 1 the record is
+# unreadable, and the reader fails with grep's status.
+nk_events_have() {
+  local status=0
+  grep -qxF -- "custom>>$1" "$nk_events" || status=$?
+  case $status in
+    0) echo marked ;;
+    1) echo unmarked ;;
+    *) return "$status" ;;
+  esac
+}
 # The open panel's last event read, which Panel.qml keeps as previousEvent.
 nk_panel_has() {
   ipc smoke readInstance panel vgs.notifications previousEvent | py_reply 'import json,sys
@@ -833,12 +843,35 @@ e=json.load(sys.stdin)
 print("marked" if isinstance(e, dict) and e.get("name") == "custom" and e.get("data") == sys.argv[1] else json.dumps(e))' "$1"
 }
 # The toast layer's own events from marker FROM to marker TO: `none`, the
-# events, or `unmarked` when the record lacks either marker.
+# events, or `unmarked` when the record lacks FROM or TO after it. The
+# record is read once and matched in the shell, so the one read that can
+# fail fails the reader, and it never reads as `none`.
 nk_toast_events() { # FROM TO
-  local events
-  [[ $(nk_events_have "$1") == marked && $(nk_events_have "$2") == marked ]] || { echo unmarked; return; }
-  events="$(sed -n "/^custom>>$1\$/,/^custom>>$2\$/p" -- "$nk_events" | grep -E '^(open|close)layer>>vgs:layer$' | paste -sd ' ')" || true
-  echo "${events:-none}"
+  local record line inside=false closed=false events=()
+  record="$(<"$nk_events")" || return
+  while IFS= read -r line; do
+    if [[ $inside == false ]]; then
+      [[ $line != "custom>>$1" ]] || inside=true
+    elif [[ $line == "custom>>$2" ]]; then
+      closed=true
+      break
+    elif [[ $line == 'openlayer>>vgs:layer' || $line == 'closelayer>>vgs:layer' ]]; then
+      events+=("$line")
+    fi
+  done <<<"$record"
+  [[ $closed == true ]] || { echo unmarked; return; }
+  if (( ${#events[@]} )); then echo "${events[*]}"; else echo none; fi
+}
+# Control: the layer-continuity assertion over a record it cannot read
+# must fail once, as a failed command, which reads `1 read`; its lines go
+# to the control's log.
+nk_toast_read_failure() {
+  local log="$sandbox/notifications-keys-read-failure.log"
+  (failures=0 behaviour_failures=0 reading=other
+   nk_events="$sandbox/notifications-keys-events.absent"
+   expect "read-failure control" none nk_toast_events nk-press-3 nk-closed-4 >"$log" 2>&1
+   [[ $(<"$log") != *"FAIL  read-failure control: command failed: nk_toast_events "* ]] || reading=read
+   echo "$failures $reading")
 }
 nk_toast_drawn() { ipc smoke layerItemsWith vgs.notifications CardSlot summary "$nk_urgent"; }
 # The toast's card at the end of its entrance: no drop, no squash, the
@@ -882,6 +915,8 @@ if open_toplevel "$nk_window_log" smoke.notifications-keys-window "Notifications
   expect_poll "the urgent toast shows" True has_row live "$nk_urgent"
   expect_poll "the urgent toast's card is drawn" 1 nk_toast_drawn
   nk_urgent_presses
+  expect "control: an unreadable event record fails the toast layer's continuity check" "1 read" nk_toast_read_failure
+  control_output "$sandbox/notifications-keys-read-failure.log"
   type_keys -k Escape || fail "sending Escape to the urgent toast's inbox failed"
   expect_poll "Escape closes the urgent toast's inbox" closed inbox_shown
   # A pointer left on the stack would hold the clock of the toast that
