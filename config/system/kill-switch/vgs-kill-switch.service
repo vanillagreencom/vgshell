@@ -1,0 +1,26 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. It runs before network-pre.target, as ufw's
+# own unit does, so the rule is in place before NetworkManager brings up a
+# link, and again whenever vgs-kill-switch.path sees a change. It runs after
+# nftables.service, whose ruleset may flush every table, and each start of
+# that unit, a restart included, starts this one again: a restart job pulls
+# in a start of each unit it wants (systemd v258 src/core/transaction.c,
+# transaction_add_job_and_dependencies). A write starts it about twice, and
+# a sync is short and idempotent, so it keeps no start limit: the default 5
+# starts in 10 s would refuse the sixth and fail vgs-kill-switch.path, which
+# then stops watching. That path unit's trigger limit bounds a loop.
+[Unit]
+Description=VGS VPN kill switch: apply the rule the VPN state asks for
+Documentation=file:///usr/local/bin/vgs-kill-switch
+DefaultDependencies=no
+After=local-fs.target systemd-sysctl.service nftables.service
+Before=network-pre.target
+Wants=network-pre.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vgs-kill-switch sync
+
+[Install]
+WantedBy=multi-user.target nftables.service

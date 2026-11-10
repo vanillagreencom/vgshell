@@ -1,0 +1,25 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. A change to the VPN state or to a
+# NetworkManager profile, a new endpoint included, applies the rule again.
+# systemd stops watching while the sync runs; a writer of the state then
+# leaves pending, which sync removes before it reads, so a write it missed
+# starts the next sync. A pending sync cannot remove, on a read-only /var or
+# in a state directory it refuses, would start it again each time it ends.
+# Such a sync took 16 to 28 ms (20 runs of each path under `unshare -rnm`,
+# 2026-11-08), far from the 100 starts a second the default trigger limit
+# (200 in 2 s) needs, so this limit trips at a sustained 5 a second. A tripped path unit
+# stops watching until it is restarted or the machine boots; a writer's
+# burst starts about 2 syncs a write, far below it.
+[Unit]
+Description=VGS VPN kill switch: watch the VPN state and NetworkManager profiles
+
+[Path]
+PathChanged=/var/lib/vgshell/vpn
+PathChanged=/etc/NetworkManager/system-connections
+PathExists=/var/lib/vgshell/vpn/pending
+Unit=vgs-kill-switch.service
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=50
+
+[Install]
+WantedBy=multi-user.target

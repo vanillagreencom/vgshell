@@ -1,0 +1,22 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. One instance per connection to
+# vgs-kill-switch-status.socket writes the status line and exits; it keeps
+# CAP_NET_ADMIN alone, to read the rule. Each connection names a new
+# instance, so a failed one is unloaded rather than kept (systemd.socket(5),
+# Accept=).
+[Unit]
+Description=VGS VPN kill switch status read
+CollectMode=inactive-or-failed
+
+[Service]
+ExecStart=/usr/local/bin/vgs-kill-switch status
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RuntimeMaxSec=10
