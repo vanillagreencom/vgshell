@@ -1569,7 +1569,7 @@ function suite(ctx, configLogic, check) {
     check("validateManifest normalizes absent requirements to a list", ctx.validateManifest(bar, "/p").manifest.requirements, []);
     check("validateManifest normalizes an absent systemSteps to a list", ctx.validateManifest(bar, "/p").manifest.systemSteps, []);
     check("validateManifest keeps the declared systemSteps", ctx.validateManifest(Object.assign({}, bar, { capabilities: ["system"], systemSteps: ["i2c-dev", "apple-displays"] }), "/p").manifest.systemSteps, ["i2c-dev", "apple-displays"]);
-    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "service-sshd", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources", "dns-cloudflare", "dns-google", "dns-custom", "vpn-kill-switch"]);
+    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "service-sshd", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources", "dns-cloudflare", "dns-google", "dns-custom", "vpn-kill-switch", "power-key", "lid-switch"]);
     const trafficManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.traffic/manifest.json"), "utf8")), "/traffic");
     check("traffic declares its judged capture system step", trafficManifest.ok, true);
     if (trafficManifest.ok) {
@@ -3419,7 +3419,7 @@ openRoutes(load(LOGIC), report, bundled);
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
-    ["system action values must come from the root report", "entry.values.indexOf(args[2]) === -1", "false"],
+    ["system action values must come from the root report", "entry.values.indexOf(args[2]) === -1", "false", "system manager admission: unlisted value"],
     ["a saved non-default holder offers reset", "&& defaults.indexOf(normalized) === -1;", "&& false;", "key clash reset:"],
     ["shared key hints keep Settings navigation in its view", 'return (hasOwn(names, p.id) ? names[p.id] : p.id) + " (" + p.shortcut + ")";',
         'return "[Settings/Keys](page:" + p.id + "/Settings/Keys)";', "key clash reset:"],
@@ -4084,9 +4084,11 @@ try {
                 else if (filter === "drmDriver:") drmDriverRequirements(ctx, check);
                 else if (filter === "key clash reset:") keyClashResets(ctx, check);
                 else if (filter === "Open route: acme.open-panel") openRoutes(ctx, check, bundled);
+                else if (filter === "system manager admission: unlisted value") systemValueActions(ctx, check);
                 else suite(ctx, configLogic, check);
             } catch (e) {
                 if (filter === "Open route: acme.open-panel") throw e;
+                if (filter === "system manager admission: unlisted value") throw e;
                 red += 1;
             }
             report("control: the suite fails without the rule: " + label, red > 0, true);

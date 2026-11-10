@@ -229,7 +229,12 @@
 # yet changed, so a change that stops part way still reads them as VGS's;
 # the record drops it once every profile holds the new servers. Undo
 # restores a profile only while it still holds what the recorded provider
-# set, or its `prior-` servers. `undo` reverts only that: it removes the rule
+# set, or its `prior-` servers.
+# The power-key and lid-switch records keep `value=` and `dropin=<sha256>`.
+# While replacing an owned override, `prior-dropin=<sha256>` also names the
+# file being replaced until publication succeeds, so a failed write leaves
+# either owned version available to undo or retry.
+# `undo` reverts only the recorded change: it removes the rule
 # and the greeter's files only while their bytes still hash to the record,
 # the reboot notice's link only while it still links to /dev/null,
 # unloads the module and stops the unit only in the boot that changed
@@ -599,10 +604,16 @@ probe_logind() { # STEP
   probe_value="$live_value"
   if [[ $probe_present == false ]]; then set_probe absent no-lid; return; fi
   logind_destination "$1"
-  if read_record "$1"; then recorded="${record[dropin]-}"; fi
+  read_record "$1" probe || status=$?
+  case "$status" in
+    0) recorded="${record[dropin]}" ;;
+    1) ;;
+    2) set_probe denied other-account; return ;;
+  esac
+  status=0
   if [[ -e $destination || -L $destination ]]; then
     [[ -n $recorded ]] || { set_probe denied foreign; return; }
-    file_holds "$destination" "$recorded" || status=$?
+    file_holds "$destination" "$recorded" "${record[prior-dropin]-}" || status=$?
     case "$status" in
       0) ;;
       1) set_probe denied foreign; return ;;
@@ -1003,13 +1014,13 @@ ExecStart=$greetd_bin --config /etc/greetd/vgshell.toml"
   sha256_of "$greeter_pam_source"; pam_sum="$sum"
 }
 
-# Whether FILE is a regular file whose bytes hash to SUM; 2 when it cannot
-# be hashed.
-file_holds() { # FILE SUM
+# Whether FILE is a regular file whose bytes hash to SUM or PRIOR_SUM;
+# 2 when it cannot be hashed.
+file_holds() { # FILE SUM [PRIOR_SUM]
   local got
   [[ -f $1 && ! -L $1 ]] || return 1
   got="$(sha256sum -- "$1")" || return 2
-  [[ ${got%% *} == "$2" ]]
+  [[ ${got%% *} == "$2" || (-n ${3-} && ${got%% *} == "${3-}") ]]
 }
 
 # Whether the greeter's files hold what apply would write now and its
@@ -1527,8 +1538,9 @@ nixos_snippet() { # STEP
 # Reads STEP's record into the associative array `record`: returns 1 with
 # it empty when there is none, and refuses a record that is not root's, not
 # of its step's keys or written for another uid. The DNS steps share the
-# record `dns`, so undo of any of them is the network default.
-read_record() { # STEP
+# record `dns`, so undo of any of them is the network default. A probe gets
+# status 2 for another uid instead of ending the complete status report.
+read_record() { # STEP [probe]
   local file line key value allowed name="$1"
   [[ $name != dns-* ]] || name=dns
   file="$record_dir/$name"
@@ -1546,7 +1558,7 @@ read_record() { # STEP
     reboot-notice) allowed=' uid link hooks-dir ' ;;
     voxtype-engine|vgs-quickshell-repository) allowed=' uid enabled ' ;;
     dns) allowed=' uid provider ipv4 ipv6 dropin dropin-dir ' ;;
-    power-key|lid-switch) allowed=' uid value dropin ' ;;
+    power-key|lid-switch) allowed=' uid value dropin prior-dropin ' ;;
     *) refuse 1 "internal=record step=$1" ;;
   esac
   while IFS= read -r line || [[ -n $line ]]; do
@@ -1555,7 +1567,7 @@ read_record() { # STEP
     [[ ($allowed == *" $key "* || ($name == dns && ($key == profile-* || $key == prior-*) && ${key#*-} =~ $uuid_pattern)) && -z ${record[$key]+set} ]] || refuse 1 "record=malformed path=$file"
     case "$key" in
       uid) [[ $value =~ ^$digit+$ ]] ;;
-      rule|config|pam|dropin|hash) [[ $value =~ ^$hex{64}$ ]] ;;
+      rule|config|pam|dropin|prior-dropin|hash) [[ $value =~ ^$hex{64}$ ]] ;;
       script|sync-unit|path-unit|socket-unit|status-unit) [[ $value =~ ^$hex{64}$ ]] ;;
       binary) [[ $value == /* && $value != *$'\r'* ]] ;;
       loaded|enabled|started|link|*-dir) [[ $value == 1 ]] ;;
@@ -1573,7 +1585,11 @@ read_record() { # STEP
   if [[ -n ${step_values[$name]-} ]]; then
     [[ -n ${record[value]-} && -n ${record[dropin]-} ]] || refuse 1 "record=malformed path=$file"
   fi
-  [[ ${record[uid]} == "$uid" ]] || refuse 1 "record=other-uid uid=${record[uid]} path=$file" "another account applied this step; only it can undo it"
+  if [[ ${record[uid]} != "$uid" ]]; then
+    [[ ${2-} != probe ]] || return 2
+    refuse 1 "record=other-uid uid=${record[uid]} path=$file" "another account applied this step; only it can undo it"
+  fi
+  return 0
 }
 
 # ---------------------------------------------------------------- plans
@@ -1646,14 +1662,14 @@ udev_reload() { # SUBSYSTEM
 no_symlink() { [[ ! -L $1 ]] || refuse 1 "destination=symlink path=$1"; } # PATH
 
 # Sets dest_state for the file at DEST: `none`, or `own` when its bytes
-# hash to HASH, VGS's record, leaving sum at that hash; refuses any other
-# file.
-dest_state_of() { # DEST HASH
+# hash to HASH or PRIOR_HASH, VGS's record, leaving sum at that hash;
+# refuses any other file.
+dest_state_of() { # DEST HASH [PRIOR_HASH]
   no_symlink "$1"
   if [[ ! -e $1 ]]; then dest_state=none; return; fi
   [[ -f $1 ]] || refuse 1 "destination=not-a-file path=$1"
   sha256_of "$1"
-  [[ -n $2 && $sum == "$2" ]] || refuse 1 "destination=foreign path=$1" "a file VGS did not write is never overwritten"
+  [[ (-n $2 && $sum == "$2") || (-n ${3-} && $sum == "${3-}") ]] || refuse 1 "destination=foreign path=$1" "a file VGS did not write is never overwritten"
   dest_state=own
 }
 udev_rule_of() { # STEP
@@ -1815,7 +1831,7 @@ undo_logind() { # STEP
   owned_dir "$logind_conf_dir"
   logind_destination "$1"
   if read_record "$1"; then recorded="${record[dropin]}"; fi
-  dest_state_of "$destination" "$recorded"
+  dest_state_of "$destination" "$recorded" "${record[prior-dropin]-}"
   [[ -n $recorded ]] || return 0
   program rm rm
   program systemctl systemctl
@@ -1833,21 +1849,29 @@ undo_logind() { # STEP
 }
 
 apply_logind() { # STEP
-  local recorded="" text hash install systemctl
+  local recorded="" prior="" text hash recovery install systemctl
   if [[ $action_value == "${logind_default[$1]}" ]]; then undo_logind "$1"; return; fi
   owned_dir "$logind_conf_dir"
   logind_destination "$1"
   if read_record "$1"; then recorded="${record[dropin]}"; fi
-  dest_state_of "$destination" "$recorded"
+  dest_state_of "$destination" "$recorded" "${record[prior-dropin]-}"
+  [[ $dest_state != own ]] || prior="$sum"
   text="# Written by vgshell system apply $1; vgshell system undo $1 removes it.
 [Login]
 ${logind_property[$1]}=$action_value"
   text_sum "$text"; hash="$sum"
   program install install
   program systemctl systemctl
-  record_put "$1" "uid=$uid"$'\n'"value=$action_value"$'\n'"dropin=$hash"
+  recovery="uid=$uid"$'\n'"value=$action_value"$'\n'"dropin=$hash"
+  # A refused tee or rename must leave the still-published version owned.
+  if [[ -n $prior && $prior != "$hash" ]]; then
+    record_put "$1" "$recovery"$'\n'"prior-dropin=$prior"
+  else
+    record_put "$1" "$recovery"
+  fi
   [[ -d $logind_conf_dir ]] || cmd "$install" -d -m 0755 -o root -g root -- "$logind_conf_dir"
-  if [[ $dest_state != own || $recorded != "$hash" ]]; then put_text "$destination" "$text"; fi
+  if [[ $dest_state != own || $prior != "$hash" ]]; then put_text "$destination" "$text"; fi
+  if [[ -n $prior && $prior != "$hash" ]]; then record_put "$1" "$recovery"; fi
   cmd "$systemctl" reload systemd-logind.service
 }
 
@@ -2585,7 +2609,7 @@ verb_undo() { # STEP
     logind_destination "$step"
     local recorded=""
     if read_record "$step"; then recorded="${record[dropin]}"; fi
-    dest_state_of "$destination" "$recorded"
+    dest_state_of "$destination" "$recorded" "${record[prior-dropin]-}"
   fi
   if ! read_record "$step"; then
     printf 'ok system=%s state=untouched\n' "$step"

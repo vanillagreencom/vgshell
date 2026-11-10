@@ -145,6 +145,7 @@
       "label": "Power button",
       "description": "Save a choice, then apply it on [Setup](page:vgs.power/Setup)",
       "optionsFrom": "keyActions",
+      "placeholder": "Choose action",
       "group": "Buttons"
     },
     "lidAction": {
@@ -153,6 +154,7 @@
       "description": "Save a choice, then apply it on [Setup](page:vgs.power/Setup)",
       "info": "The login service handles the lid. A dock, an external display or an application can prevent the selected lid action.",
       "optionsFrom": "lidActions",
+      "placeholder": "Choose action",
       "shownWhen": "lid",
       "group": "Buttons"
     },

@@ -95,7 +95,9 @@ fi
 EOF
 # sudo: -k and -n are recorded and answer at once; any other call is
 # recorded, exits with $tmp/sudo-exit when present, else runs its command
-# as the namespace's root. Only root maps under unshare -r, so an install's
+# as the namespace's root. $tmp/sudo-fail-command names an exact argv line
+# and occurrence to refuse, leaving that argv in sudo-refused.
+# Only root maps under unshare -r, so an install's
 # -o and -g owner reads 0 there, which is the suite's own account outside;
 # the log keeps the owner the step asked for.
 cat >"$bin/sudo" <<EOF
@@ -104,6 +106,13 @@ printf '%s\n' "\$*" >>"$tmp/sudo.log"
 case "\$1" in -k|-n) exit 0 ;; esac
 [ "\$1" = -- ] && shift
 if [ -f "$tmp/sudo-exit" ]; then read -r st <"$tmp/sudo-exit"; exit "\$st"; fi
+if [ -f "$tmp/sudo-fail-command" ]; then
+  { IFS= read -r fail_command; IFS= read -r fail_call; } <"$tmp/sudo-fail-command"
+  if [ "\$*" = "\$fail_command" ] && [ "\$(awk -v command="-- \$*" '\$0 == command { n++ } END { print n }' "$tmp/sudo.log")" = "\$fail_call" ]; then
+    printf '%s\n' "\$*" >"$tmp/sudo-refused"
+    exit 1
+  fi
+fi
 if [ "\$1 \${2-}" = "$bin/tailscale login" ] && [ -f "$tmp/login-mode" ]; then
   read -r login_mode <"$tmp/login-mode" || :
   [ "\$login_mode" != failed-start ] || exit 127
@@ -470,6 +479,7 @@ fresh() {
   : >"$tmp/operator"
   rm -f -- "${tmp:?}"/{profiles,login-mode,browser-opened,browser-fail,browser-uid,browser-address,login-ended,unsupported-login-json}
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
+  rm -f -- "$tmp/sudo-fail-command" "$tmp/sudo-refused"
   printf '0\n' >"$tmp/gum-answer"
   rm -f -- "${bin:?}/voxtype" "${tmp:?}/voxtype-compiled" "${tmp:?}/voxtype.log"
   rm -f -- "${bin:?}/hdparm"
@@ -980,6 +990,57 @@ for value_step in power-key lid-switch; do
   run_tty "$value_step applies before explicit undo" 0 apply "$value_step" ignore
   run_tty "$value_step explicit undo" 0 undo "$value_step"
   check "$value_step explicit undo removes only the owned override" test ! -e "$value_dropin" -a ! -e "$records/$value_step"
+  fresh; logind_fixture
+  run_tty "$value_step applies before another account reads its record" 0 apply "$value_step" ignore
+  run "$value_step reports every step before changing the record account" 0 "" status --json
+  cp -- "$tmp/out" "$tmp/logind-report-before"
+  sed -i "s/^uid=.*/uid=4242/" "$records/$value_step"
+  rm -- "$tmp/sudo.log"
+  run "$value_step another account still gets a complete report" 0 "" status --json
+  check "$value_step another account keeps live values and every unrelated reading" python3 -c '
+import json,sys
+with open(sys.argv[1]) as f: expected=json.load(f)
+with open(sys.argv[2]) as f: actual=json.load(f)
+expected["steps"][sys.argv[3]].update(state="denied", reason="other-account")
+assert actual == expected
+' "$tmp/logind-report-before" "$tmp/out" "$value_step"
+  run "$value_step another account cannot apply" 1 "vgs-system: refused: state=denied reason=other-account step=$value_step" apply "$value_step" hibernate
+  run "$value_step another account cannot undo" 1 "vgs-system: refused: record=other-uid uid=4242 path=$records/$value_step" undo "$value_step"
+  check "$value_step another account uses no sudo" no_sudo
+  while read -r failure tool target occurrence remaining recovery; do
+    fresh; logind_fixture
+    run_tty "$value_step applies before $failure failure" 0 apply "$value_step" ignore
+    if [[ $target == record ]]; then
+      if [[ $tool == tee ]]; then fail_args="$bin/tee -- $records/.$value_step"
+      else fail_args="$bin/mv -fT -- $records/.$value_step $records/$value_step"
+      fi
+    else
+      if [[ $tool == tee ]]; then fail_args="$bin/tee -- ${value_dropin%/*}/.${value_dropin##*/}"
+      else fail_args="$bin/mv -fT -- ${value_dropin%/*}/.${value_dropin##*/} $value_dropin"
+      fi
+    fi
+    rm -- "$tmp/sudo.log"
+    printf '%s\n' "$fail_args" "$occurrence" >"$tmp/sudo-fail-command"
+    run_tty "$value_step returns a $failure error during replacement" 1 apply "$value_step" hibernate
+    check "$value_step reaches the selected $failure failure" grep -qxF -- "$fail_args" "$tmp/sudo-refused"
+    check "$value_step $failure leaves the $remaining owned file" grep -qxF "$property=$remaining" "$value_dropin"
+    check "$value_step $failure keeps the remaining version recognized" test "$(step_state "$value_step")" == "ready live"
+    rm -- "$tmp/sudo-fail-command"
+    if [[ $recovery == retry ]]; then
+      run_tty "$value_step retries after $failure" 0 apply "$value_step" hibernate
+      check "$value_step retry after $failure publishes the choice" grep -qxF "$property=hibernate" "$value_dropin"
+      check "$value_step successful retry retires the prior identity after $failure" test "$(grep -c '^prior-dropin=' "$records/$value_step" || true)" == 0
+    fi
+    run_tty "$value_step undoes after $failure" 0 undo "$value_step"
+    check "$value_step $failure recovery removes its override and record" test ! -e "$value_dropin" -a ! -e "$records/$value_step"
+  done <<'LOGIND_WRITE_FAILURES'
+intent-write tee record 1 ignore retry
+intent-publish mv record 1 ignore undo
+dropin-write tee dropin 1 ignore retry
+dropin-publish mv dropin 1 ignore undo
+finish-write tee record 2 hibernate retry
+finish-publish mv record 2 hibernate undo
+LOGIND_WRITE_FAILURES
   fresh; logind_fixture
   printf 'HandlePowerKey=ignore\nHandleLidSwitch=ignore\n' >"$tmp/logind-values"
   run "$value_step never overwrites another default policy" 1 "vgs-system: refused: state=denied reason=default-managed-elsewhere step=$value_step" apply "$value_step" "$default"

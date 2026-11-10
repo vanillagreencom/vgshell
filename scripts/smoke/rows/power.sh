@@ -575,7 +575,7 @@ power_sleep_presence() { ipc smoke statusValues vgs.power | py_reply 'import jso
 power_button_choices() { ipc smoke statusValues vgs.power | py_reply 'import json,sys
 s=json.load(sys.stdin); print(json.dumps([[v["value"] for v in s.get(key, [])] for key in ("keyActions", "lidActions")]))'; }
 power_button_action() { ipc smoke statusValues vgs.power | py_reply 'import json,sys
-s=json.load(sys.stdin).get("powerKey", {}); print(json.dumps([s.get("action", False), s.get("actionValue")]))'; }
+s=json.load(sys.stdin).get(sys.argv[1], {}); print(json.dumps([s.get("action", False), s.get("actionValue")]))' "${1:-powerKey}"; }
 power_button_override() { if [[ -e $devices_system_root/etc/systemd/logind.conf.d/60-vgs-power-key.conf || -L $devices_system_root/etc/systemd/logind.conf.d/60-vgs-power-key.conf ]]; then echo present; else echo absent; fi; }
 power_button_live() { system_logind_status | py_reply 'import json,sys; print(json.load(sys.stdin)["power-key"]["value"])'; }
 power_buttons_check() {
@@ -606,9 +606,32 @@ power_buttons_check() {
   settings_details
   expect_poll "Details reports the applied power button choice read-only" '"Sleep"' \
     ipc smoke readMatchingDescendant window vgs.settings StatusLine label "Power button applied" text
-  expect "the button choice returns to its default saved preference" ok power_idle_set vgs.power powerKeyAction '"poweroff"'
+  settings_tab_click Settings || fail "the click on Power's Settings tab failed"
+  expect_poll "the saved button controls return to Settings" Settings settings_tab_text
+  forget_record
+  settings_press --type Select "Sleep" Field "Power button" || fail "the saved power button choice did not open"
+  type_keys -k Home -k Return || fail "reselecting Shut down for the power button failed"
+  expect_poll "reselecting Shut down saves the explicit poweroff value" '"poweroff"' power_setting powerKeyAction
+  expect_poll "the default power button choice remains applicable" '[true, "poweroff"]' power_button_action
+  settings_press --type Select "Sleep" Field "Close the lid" || fail "the lid choice did not open"
+  type_keys -k End -k Return || fail "choosing Do nothing for the lid failed"
+  expect_poll "choosing Do nothing saves ignore for the lid" '"ignore"' power_setting lidAction
+  expect_poll "the saved lid choice offers Apply" '[true, "ignore"]' power_button_action lidSwitch
+  settings_press --type Select "Do nothing" Field "Close the lid" || fail "the saved lid choice did not open"
+  type_keys -k Home -k Return || fail "reselecting Sleep for the lid failed"
+  expect_poll "reselecting Sleep saves the explicit suspend value" '"suspend"' power_setting lidAction
+  expect_poll "the default lid choice matches its live value" '[false, null]' power_button_action lidSwitch
+  expect "reselecting the defaults opens no root terminal" absent recorded
+  expect "reselecting the defaults leaves the applied power button choice alone" suspend power_button_live
+  expect "reselecting the defaults writes no privileged override" absent power_button_override
+  settings_setup
+  hold_runs
+  settings_press --type RowAction Apply StatusLine "Power button choice" || fail "the default Setup Apply press failed"
+  expect_poll "Setup applies the explicit default through the existing core TUI" \
+    "$(core_words core/system "System setup" org.vgs.tui system apply power-key poweroff)" recorded
   system_logind_fixture
-  rescan "rescan restores the fake default button policy"
+  release_runs
+  expect_run_end "the default button choice core/system run ends" core/system
   expect_poll "the restored default matches without Apply" '[false, null]' power_button_action
   settings_page_close vgs.power
 }
