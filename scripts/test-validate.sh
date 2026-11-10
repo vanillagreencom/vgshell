@@ -2647,7 +2647,10 @@ row_re "control: content that changes during the run no longer keeps the pass un
 # the stand-in named in .git/hang reports its PIDs in .git/hung and waits
 # to be stopped. Before the cut the case may set, in the git directory:
 # edit, which makes the smoke append to the launcher's panel while the run
-# reads; harness-line, a lane that removes the harness's input line;
+# reads; teardown, which makes the stand-in that waits end through the
+# real teardown.sh, whose closing reading the real qml_smoke_judge_reading
+# writes once its TERM-then-KILL wait is over, in place of the stand-in's
+# own; harness-line, a lane that removes the harness's input line;
 # fail ROW, a row that records one failure, in its partial record from its
 # start; call ROW or refuse ROW, a row in whose window the judges read an
 # authentication call or a refusal of an unshipped script, as harness.sh's
@@ -2697,8 +2700,17 @@ for row in $(awk '!/^#/ && NF' "$list"); do
   [[ $rows == ,, || $rows == *",$row,"* ]] || continue
   printf '%s start %s %s intact\n' "$row" "$calls" "$refused" >>"$a/judge-readings"
   if [[ $row == "$(knob fail)" ]]; then printf '1\0'; else printf '0\0'; fi >"$a/partial/$row"
-  if [[ $row == "$hang" ]]; then
+  if [[ $row == "$hang" && -e $git_dir/teardown ]]; then
+    # The real teardown takes the closing reading through the real reader
+    # as this process ends on the stop's TERM.
+    qml_smoke_attempt=$a pgids=() source_repo="$git_dir/real"
+    smoke_judge_reading() { printf '%s %s intact\n' "$calls" "$refused"; }
+    source "$source_repo/scripts/smoke/judge-reading.sh"
+    source "$source_repo/scripts/smoke/teardown.sh"
+  elif [[ $row == "$hang" ]]; then
     trap '[[ $row != "$(knob call)" ]] || calls=$((calls + 1)); close; kill "$waiting" 2>/dev/null; exit 143' TERM
+  fi
+  if [[ $row == "$hang" ]]; then
     sleep 600 &
     waiting=$!
     printf '%s %s\n' "$$" "$waiting" >"$git_dir/hung"
@@ -2725,20 +2737,38 @@ if [[ "$(cat -- "$git_dir/hang" 2>/dev/null)" == fatal-controls ]]; then printf 
 if [[ -e $git_dir/skip-controls ]]; then exit 77; fi
 SH
   commit "$dir" stand-ins
+  # The real teardown and closing-reading writer, which the smoke stand-in
+  # sources under the teardown knob, with a world check that passes. They
+  # sit in the git directory, so no input of the lane's tree changes.
+  local real="$dir/.git/real/scripts/smoke"
+  mkdir -p -- "$real"
+  cp -- "$repo/scripts/smoke/teardown.sh" "$real/teardown.sh"
+  sed -n '/^qml_smoke_judge_reading() {/,/^}/p' "$repo/scripts/qml-smoke.sh" >"$real/judge-reading.sh"
+  grep -q '^qml_smoke_judge_reading() {' "$real/judge-reading.sh" ||
+    fail "$dir: scripts/qml-smoke.sh holds no qml_smoke_judge_reading"
+  printf '#!/bin/sh\n[ "$1" = --check ]\n' >"$real/gpu-fence.sh"
+  chmod +x "$real/gpu-fence.sh"
   printf 'lane\n' >>"$dir/shell/plugins/acme.launcher/Panel.qml"
   printf 'lane\n' >>"$dir/shell/plugins/acme.notify/Panel.qml"
 }
 # reuse_cut DIR SIGNAL HANG: run `validate qml --changed HEAD` in DIR until
 # the stand-in HANG reports that it waits, then send SIGNAL to validate.
 # A KILL leaves validate's rows going, so the stand-in then gets the TERM
-# that ends it. Asserts the exit SIGNAL gives. HANG `-` lets the run end by
-# itself. The run's log is DIR.cut.log.
+# that ends it. SIGNAL UNIT stops the run as a unit's stop does
+# (systemd.kill(5), KillMode=control-group): validate runs in a session of
+# its own, and every process of that session gets a TERM at once,
+# validate's first, as the unit holds them in the order they started, so a
+# row's leader ends with the rest of its group. Asserts the exit SIGNAL
+# gives. HANG `-` lets the run end by itself. The run's log is
+# DIR.cut.log.
 reuse_cut() { # DIR SIGNAL HANG
-  local dir="$1" signal="$2" git_dir pid tick status=0 want=143
-  local -a hung
+  local dir="$1" signal="$2" git_dir pid tick status=0 want=143 sid stat file
+  local -a hung fields members launch=(bash)
   git_dir="$("${base_env[@]}" git -C "$dir" rev-parse --absolute-git-dir)"
   printf '%s\n' "$3" >"$git_dir/hang"
-  (cd -- "$dir" && exec "${base_env[@]}" bash scripts/validate qml --changed HEAD) >"$dir.cut.log" 2>&1 &
+  # -w: setsid forks when its caller leads a group, and then waits for it.
+  [[ $signal != UNIT ]] || launch=(setsid -w bash)
+  (cd -- "$dir" && exec "${base_env[@]}" "${launch[@]}" scripts/validate qml --changed HEAD) >"$dir.cut.log" 2>&1 &
   pid=$!
   if [[ $3 == - ]]; then
     wait "$pid" || true
@@ -2754,7 +2784,30 @@ reuse_cut() { # DIR SIGNAL HANG
     fail "$dir: the stand-in $3 never waited"; sed 's/^/        /' "$dir.cut.log"
     kill -KILL "$pid" 2>/dev/null || true; wait "$pid" || true; return 0
   fi
-  kill -s "$signal" "$pid"
+  if [[ $signal == UNIT ]]; then
+    # The session is the one setsid made: the stand-in's, led by validate,
+    # which is this job or its one child, and never this suite's own.
+    read -r -a hung <"$git_dir/hung"
+    read -r stat <"/proc/${hung[0]}/stat" && read -r -a fields <<<"${stat##*) }" && sid=${fields[3]}
+    read -r stat <"/proc/$$/stat" && read -r -a fields <<<"${stat##*) }"
+    if [[ -z ${sid-} || $sid == "${fields[3]}" ]] || ! read -r stat <"/proc/$sid/stat" ||
+       { read -r -a fields <<<"${stat##*) }"; [[ $sid != "$pid" && ${fields[1]} != "$pid" ]]; }; then
+      fail "$dir: the cut run's session is not validate's own"
+      kill -KILL "$pid" "${hung[@]}" 2>/dev/null || true; wait "$pid" || true; return 0
+    fi
+    members=()
+    for file in /proc/[0-9]*/stat; do
+      read -r stat 2>/dev/null <"$file" || continue
+      read -r -a fields <<<"${stat##*) }"
+      file="${file#/proc/}"
+      [[ ${fields[3]} != "$sid" || ${file%/stat} == "$sid" ]] || members+=("${file%/stat}")
+    done
+    ((${#members[@]} == 0)) || mapfile -t members < <(printf '%s\n' "${members[@]}" | sort -n)
+    # A member may end before its turn; the TERM reaches every other.
+    kill -TERM -- "$sid" "${members[@]}" 2>/dev/null || true
+  else
+    kill -s "$signal" "$pid"
+  fi
   # The redirection keeps bash's own report of a killed job off the log.
   { wait "$pid"; } 2>/dev/null || status=$?
   if [[ $signal == KILL ]]; then
@@ -2767,7 +2820,7 @@ reuse_cut() { # DIR SIGNAL HANG
       sleep 0.1
     done
   fi
-  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape"
+  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape" "${git_dir:?}/teardown"
   [[ $status == "$want" ]] || { fail "$dir: the cut run exited $status, not $want"; sed 's/^/        /' "$dir.cut.log"; }
 }
 smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,$smoke_always,$smoke_tail"
@@ -2800,10 +2853,13 @@ reuse_mutant open "$judged" '( -n ${ended[$row]-} && -z ${unproved[$row]-} )' '(
 reuse_mutant outside "$judged" '  [[ ${fields[0]-} == 0 ]] || return 1' '  :'
 reuse_mutant rank "$judged" '((smoke_record_failures > worst_count[$row] ||' '((smoke_record_failures < worst_count[$row] ||'
 reuse_mutant reading "$judged" '[[ $judged == true && -n ${smoke_attempt_ended[$row]-} ]] || unproved' '[[ $judged == true ]] || unproved'
+reuse_mutant collect-first scripts/validate "trap 'stop_rows; records_finish; " "trap 'records_finish; stop_rows; "
 # name|signal|stand-in that waits|before the cut|after the cut|mutant|wanted lines, ^ between them
 reuse_cases=(
   "a run cut off at its bound keeps the smoke rows it finished|TERM|notifications||||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^validate: rerun secs=3 reason=core smoke=bar^validate: rerun secs=unknown reason=untraced smoke=bare^$smoke_notify"
   "a killed run's finished smoke rows reach the next run|KILL|notifications||||validate: reused secs=3 smoke=launcher^$smoke_notify"
+  "a run its unit stops during a smoke row keeps the smoke rows that ended before the stop|UNIT|notifications|teardown|||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
+  "control: a unit's stop collected before the closing reading keeps no smoke row|UNIT|notifications|teardown||collect-first|validate: rerun secs=3 smoke=launcher^$smoke_both"
   "a call made during the cut row, read by the closing reading alone, leaves passes unproved|TERM|notifications|call-cut|||validate: rerun secs=3 smoke=launcher^$smoke_both"
   "control: the last row reading is final|TERM|notifications|call-cut||unread-close|validate: reused secs=3 smoke=launcher"
   "a refusal in auth-sentinel's window, whose controls plant calls, leaves passes unproved|TERM|fatal-controls|refuse-auth|||validate: rerun secs=3 smoke=launcher^$smoke_both"
@@ -2872,6 +2928,7 @@ reuse_case() { # SPEC
     call-auth|refuse-auth) printf 'auth-sentinel\n' >"$git_dir/${before%-auth}" ;;
     skip|partial|outside|replay|unread) printf '%s\n' "$before" >"$git_dir/shape" ;;
     skip-controls) : >"$git_dir/skip-controls" ;;
+    teardown) : >"$git_dir/teardown" ;;
     harness-line) plant "$d/scripts/smoke/harness.sh" $'# inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh\n' '' ;;
     other) plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh' ;;
   esac
