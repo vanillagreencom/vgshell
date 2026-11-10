@@ -828,6 +828,7 @@ mutations=(
   "the AI Usage calendar mark loads at its logical size|../plugins/vgs.ai-usage/Panel.qml|sourceSize.width: resetLogo.width * Screen.devicePixelRatio|sourceSize.width: resetLogo.width|tst_ai_usage_widget.qml"
   "the AI Usage cards are built again at each minute's tick|../plugins/vgs.ai-usage/Panel.qml|model: ScriptModel { values: root.rows.map(row => row.id) }|model: root.rows.map(row => row.id)|tst_ai_usage_widget.qml"
   "an AI Usage Hide leaves the keys on the hidden card|../plugins/vgs.ai-usage/Panel.qml|const card = cardOf(next);|const card = cardOf(next); return reply;|tst_ai_usage_widget.qml"
+  "an AI Usage card's Refresh asks for no check|../plugins/vgs.ai-usage/Panel.qml|onTriggered: root.refresh()|onTriggered: {}|tst_ai_usage_widget.qml"
   "the sudo widget draws its open lock in the badge foreground|../plugins/vgs.sudo/Widget.qml|case \"warning\": return Theme.color.warning;|case \"warning\": return Theme.badge.tone.warning.foreground;|tst_sudo_widget.qml"
   "the sudo widget draws an unknown grant in the badge foreground|../plugins/vgs.sudo/Widget.qml|case \"neutral\": return Theme.color.textMuted;|case \"neutral\": return Theme.badge.tone.neutral.foreground;|tst_sudo_widget.qml"
   "the Jarvis widget draws an unknown tone|../plugins/vgs.jarvis/Widget.qml|default: throw new Error(\"jarvis widget: tone \"|default: return Theme.bar.foreground; throw new Error(\"jarvis widget: tone \"|tst_jarvis_widget.qml"

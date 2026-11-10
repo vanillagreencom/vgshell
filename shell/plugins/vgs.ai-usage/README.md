@@ -12,6 +12,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 - A compact view with one line per limit, and a full view with meters and provider details.
 - A reset calendar of the next seven days.
 - Sorting, provider filters and hidden accounts.
+- Refresh on a card's More actions menu checks every account again, as Check now does.
 - Hide on a card's More actions menu removes that account from the cards and the reset calendar at once. The panel stays open.
 - When a check fails, the panel keeps the last figures and says they may be old.
 - Optional AI Gateway credits from Vercel.

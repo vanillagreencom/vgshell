@@ -11,7 +11,8 @@ import "../../shell/plugins/vgs.ai-usage"
 // draws in the bar's foreground. The panel's provider marks, on a card and
 // in the reset calendar, load at their size in device pixels at scale 1
 // and 2. A card keeps its More actions, with the keys and an open menu,
-// through Time.now's tick, and a Hide moves the keys to a neighbour.
+// through Time.now's tick, its menu's Refresh asks for one check, and a
+// Hide moves the keys to a neighbour.
 Item {
     id: root
     width: 200
@@ -100,15 +101,17 @@ Item {
 
         // A panel on the scale 1 screen over one ok account per email, in
         // that order, whose configure.set writes the setting into the
-        // shell it hands the panel, as the core's new shell does.
-        function panelOver(emails) {
+        // shell it hands the panel, as the core's new shell does, and whose
+        // ipc.call adds each [name, payload] it is asked to CALLS.
+        function panelOver(emails, calls = []) {
             const screen = Qt.application.screens[0];
             const window = panelWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
             window.visible = true;
             const now = Time.now.getTime();
             const accounts = emails.map((email, at) => ({ id: "claude-" + at, provider: "claude", state: "ok", email: email, readAt: now,
                 credits: null, details: {}, windows: [{ name: "five_hour", usedPercent: 40, resetsAt: now + 2 * 3600000 }] }));
-            const shell = { settings: { view: "full", sort: "provider", hidden: [] }, ipc: { call: () => "ok" },
+            const shell = { settings: { view: "full", sort: "provider", hidden: [] },
+                ipc: { call: (name, payload) => { calls.push([name, payload]); return "ok"; } },
                 status: { values: { usage: { readAt: now, gatewayKey: null, accounts: accounts } } } };
             shell.configure = { set: (key, value) => {
                 const settings = Object.assign({}, window.panel.shell.settings);
@@ -131,6 +134,12 @@ Item {
             return null;
         }
         function menuOf(button) { return find(button, n => n.triggerCurrent !== undefined); }
+        // Highlight MENU's entry whose text is TEXT, as a key would.
+        function keyToEntry(menu, text) {
+            const at = menu.items().findIndex(item => item.text === text);
+            verify(at !== -1, "the menu lists " + text);
+            menu.keyTo(at);
+        }
 
         // Time.now ticks each minute, and every status write hands the
         // panel fresh rows; a card stays the same item through both, so
@@ -154,6 +163,26 @@ Item {
             window.destroy();
         }
 
+        // The card's menu lists Refresh above Hide; Refresh asks the
+        // service for one check of every account, the call Check now
+        // makes, and closes the menu.
+        function test_refresh_asks_for_one_check() {
+            const calls = [];
+            const window = panelOver(["a@example.com"], calls);
+            const button = moreActionsOf(window.panel, "a@example.com");
+            button.forceActiveFocus(Qt.TabFocusReason);
+            button.clicked();
+            const menu = menuOf(button);
+            verify(menu.opened, "More actions opens its menu");
+            compare(menu.items().map(item => [item.text, item.iconName]), [["Refresh", "refresh-cw"], ["Hide", "eye-off"]],
+                "the menu lists Refresh above Hide");
+            keyToEntry(menu, "Refresh");
+            menu.triggerCurrent();
+            compare(calls, [["refresh", ""]], "Refresh asks for one check");
+            tryVerify(() => !menu.opened, 5000, "Refresh closes the menu");
+            window.destroy();
+        }
+
         // A Hide from the card's menu moves the keys to the More actions of
         // the card that takes its place, else of the card before it, else
         // to Check now.
@@ -173,6 +202,7 @@ Item {
             button.clicked();
             const menu = menuOf(button);
             verify(menu.opened, "More actions opens its menu");
+            keyToEntry(menu, "Hide");
             menu.triggerCurrent();
             tryVerify(() => moreActionsOf(window.panel, data.hide) === null, 5000, "Hide takes the card away");
             window.requestActivate();

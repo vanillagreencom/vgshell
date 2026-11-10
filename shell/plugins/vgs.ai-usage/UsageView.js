@@ -412,7 +412,7 @@ function windowRow(row, item, now) {
     var gatewayWindow = row.provider === "gateway" && item.name === "credits";
     var begun = started(item);
     return { name: item.name, percent: item.usedPercent, tone: usageTone(item.usedPercent), bar: true,
-        started: begun, resetIn: resetIn(item.resetsAt, now),
+        started: begun, opensGroup: false, resetIn: resetIn(item.resetsAt, now),
         label: creditWindow ? (row.credits.unit === "credits" ? "AI credits" : "Premium requests") : gatewayWindow ? "AI Gateway credits" : windowLabel(item.name),
         text: creditWindow ? compact(row.credits.used) + " of " + compact(row.credits.granted) : begun ? Math.round(item.usedPercent) + "%" : "Not started",
         reset: resetText(item.resetsAt, now) };
@@ -428,24 +428,27 @@ var CREDIT_TITLES = { cowork: "Claude Code and Cowork credit", codex: "Codex cre
  * of its limit where it carries both, else its used share, else the Codex
  * balance; a bar and tone only with a used share, tone "" without; and its
  * time left, as a limit row draws it. Nothing the helper reads says whether
- * a credit renews or expires, so no row says which.
+ * a credit renews or expires, so no row says which. OPENS_GROUP marks the
+ * first credit after a limit row, which the panel sets further down.
  */
-function creditRow(credit, now) {
+function creditRow(credit, now, opensGroup) {
     var codex = credit.kind === "codex";
     var share = codex || typeof credit.usedPercent !== "number" ? null : credit.usedPercent;
     var balance = codex ? wholeNumber(credit.balance) : "";
-    var text = codex ? (credit.unlimited === true ? "Unlimited" : balance !== "" ? balance + " available" : "Available")
+    var text = codex ? (credit.unlimited === true ? "Unlimited" : balance !== "" ? balance : "Available")
         : credit.used !== null && credit.limit !== null ? money(credit.used, "USD") + " of " + money(credit.limit, "USD")
         : share !== null ? Math.round(share) + "%" : "";
     var resetsAt = codex ? null : credit.resetsAt;
     return { name: "credit-" + credit.kind, percent: share === null ? 0 : share, tone: share === null ? "" : usageTone(share),
-        bar: share !== null, started: true, resetIn: resetIn(resetsAt, now),
+        bar: share !== null, started: true, opensGroup: opensGroup, resetIn: resetIn(resetsAt, now),
         label: credit.kind === "labelled" ? cleanLine(credit.label, "Credit") : CREDIT_TITLES[credit.kind], text: text, reset: resetText(resetsAt, now) };
 }
 
-function creditRows(row, now) {
+// The credit rows of ROW, one group: AFTER_LIMITS says a limit row comes
+// before them.
+function creditRows(row, now, afterLimits) {
     var pools = (row.details || {}).creditPools;
-    return Array.isArray(pools) ? pools.map(function (credit) { return creditRow(credit, now); }) : [];
+    return Array.isArray(pools) ? pools.map(function (credit, at) { return creditRow(credit, now, afterLimits && at === 0); }) : [];
 }
 
 // An account read, or kept through a limited read, whose every window is
@@ -522,6 +525,7 @@ function sortOf(settings) {
 function panel(usage, now, settings) {
     return sortedAccounts(visibleAccounts(usage, settings), sortOf(settings)).map(function (row) {
         var idle = unused(row);
+        var limits = idle ? [] : shownWindows(row.windows).map(function (item) { return windowRow(row, item, now); });
         var warning = row.state === "expired" ? EXPIRED[row.provider]
             : row.state === "stale" || (row.state === "limited" && pastReset(row, now)) ? STALE_NOTE
             : row.state === "failed" ? "Usage could not be read." : "";
@@ -533,8 +537,7 @@ function panel(usage, now, settings) {
         return { id: row.id, provider: row.provider, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, api: row.state === "no-plan" || row.provider === "gateway", detail: row.provider === "copilot" ? creditLine(row.credits) : "",
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
-            windows: (idle ? [] : shownWindows(row.windows).map(function (item) { return windowRow(row, item, now); }))
-                .concat(creditRows(row, now)) };
+            windows: limits.concat(creditRows(row, now, limits.length > 0)) };
     });
 }
 

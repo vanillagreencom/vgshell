@@ -1045,14 +1045,16 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.title, r.email, r.detail, r.note,
             r.windows.map(w => [w.label, w.text, w.percent, w.started]), r.details.map(d => [d.label, d.value])])), [
             ["claude-enterprise", "Claude Code", "", "", "This plan reports no usage limits.", [], []],
-            ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true], ["Codex credits", "59,295 available", 0, true]], []],
+            ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true], ["Codex credits", "59,295", 0, true]], []],
             ["copilot-a", "Copilot", "octo-user", "", "", [["AI credits", "45.2k of 1M", 4.5225, true]], [["Month credits used", "362k"], ["Renews", "2026-11-01"]]],
             ["copilot-b", "Copilot", "zero-user", "No premium request pool", "", [], []],
             ["gateway-a", "AI Gateway", "", "", "", [["AI Gateway credits", "33%", 33.3333333333, true]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
         // A credit row after the limits, one per credit, in either view:
-        // [name, title, figure, time left, bar, tone]. An amount needs both
-        // dollar figures and a bar needs the used share; no row says expires.
-        // An account with no 5-hour window draws none and no empty row.
+        // [name, title, figure, time left, bar, tone, opens the group]. An
+        // amount needs both dollar figures and a bar needs the used share;
+        // no row says expires. The first credit after a limit row opens the
+        // credits' group, and a card with no limit row opens none. An
+        // account with no 5-hour window draws none and no empty row.
         const credited = View.panel(View.merge(null, { accounts: [{ id: "claude-u", provider: "claude", email: "u@example.invalid", state: "ok",
             windows: [{ name: "seven_day", usedPercent: 60, resetsAt: NOW + 26 * HOUR }], credits: null, details: { creditPools: [
                 { kind: "labelled", label: "API credits", usedPercent: 20.6, used: 41.2, limit: 200, resetsAt: NOW + 25 * 24 * HOUR },
@@ -1063,14 +1065,14 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         { id: "codex-u", provider: "codex", email: "", state: "ok", windows: [], credits: null,
             details: { creditPools: [{ kind: "codex", unlimited: true, balance: null }, { kind: "codex", unlimited: false, balance: null }] } }],
         partial: "" }, NOW), NOW);
-        assert.deepEqual(plainOf(credited.map(r => [r.id, r.note, r.details, r.windows.map(w => [w.name, w.label, w.text, w.reset, w.bar, w.tone])])), [
-            ["claude-u", "", [], [["seven_day", "Weekly limit", "60%", "1d 2h", true, "warning"],
-                ["credit-labelled", "API credits", "$41.20 of $200.00", "25d 0h", true, "success"],
-                ["credit-cowork", "Claude Code and Cowork credit", "18%", "15d 0h", true, "success"],
-                ["credit-labelled", "Credit", "$50.00 of $200.00", "now", false, ""],
-                ["credit-labelled", "Limit only", "", "", false, ""],
-                ["credit-cowork", "Claude Code and Cowork credit", "", "", false, ""]]],
-            ["codex-u", "", [], [["credit-codex", "Codex credits", "Unlimited", "", false, ""], ["credit-codex", "Codex credits", "Available", "", false, ""]]]]);
+        assert.deepEqual(plainOf(credited.map(r => [r.id, r.note, r.details, r.windows.map(w => [w.name, w.label, w.text, w.reset, w.bar, w.tone, w.opensGroup])])), [
+            ["claude-u", "", [], [["seven_day", "Weekly limit", "60%", "1d 2h", true, "warning", false],
+                ["credit-labelled", "API credits", "$41.20 of $200.00", "25d 0h", true, "success", true],
+                ["credit-cowork", "Claude Code and Cowork credit", "18%", "15d 0h", true, "success", false],
+                ["credit-labelled", "Credit", "$50.00 of $200.00", "now", false, "", false],
+                ["credit-labelled", "Limit only", "", "", false, "", false],
+                ["credit-cowork", "Claude Code and Cowork credit", "", "", false, "", false]]],
+            ["codex-u", "", [], [["credit-codex", "Codex credits", "Unlimited", "", false, "", false], ["credit-codex", "Codex credits", "Available", "", false, "", false]]]]);
         assert.deepEqual(shown(View.merge(null, { accounts: [{ id: "codex-c", provider: "codex", email: "", state: "ok", windows: [],
             details: { creditPools: [{ kind: "codex", unlimited: true, balance: null }] } }], partial: "" }, NOW)), [true, null, "normal"],
         "a credit adds no share to the bar");
@@ -1217,11 +1219,13 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("no-reset-drawn", "UsageView.js", 'if (left.kind === "none") return "";', 'if (left.kind === "none") return "No reset time";', views);
     await control("title-labelled", "UsageView.js", "title: NAMES[row.provider] || row.provider,",
         'title: (NAMES[row.provider] || row.provider) + " · " + row.id,', views);
-    await control("unused-limits-drawn", "UsageView.js", "windows: (idle ? [] : shownWindows(row.windows).map(", "windows: (shownWindows(row.windows).map(", views);
+    await control("unused-limits-drawn", "UsageView.js", "var limits = idle ? [] : shownWindows(row.windows).map(", "var limits = shownWindows(row.windows).map(", views);
     await control("not-started-percent", "UsageView.js", 'return item.name === "credits" || item.usedPercent > 0 || ', "return true || ", views);
     await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
     await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.id;", views);
-    await control("credit-rows-dropped", "UsageView.js", "                .concat(creditRows(row, now)) };", " };", views);
+    await control("credit-rows-dropped", "UsageView.js", "windows: limits.concat(creditRows(row, now, limits.length > 0)) };", "windows: limits };", views);
+    await control("credit-group-every-row", "UsageView.js", "afterLimits && at === 0", "afterLimits", views);
+    await control("credit-group-without-limits", "UsageView.js", "creditRows(row, now, limits.length > 0)", "creditRows(row, now, true)", views);
     await control("derived-share", "UsageView.js", 'var share = codex || typeof credit.usedPercent !== "number" ? null : credit.usedPercent;',
         "var share = codex ? null : typeof credit.usedPercent === \"number\" ? credit.usedPercent : credit.limit > 0 && credit.used !== null ? credit.used * 100 / credit.limit : null;", views);
     await control("amount-without-used", "UsageView.js", ": credit.used !== null && credit.limit !== null ? money(", ": credit.limit !== null ? money(", views);

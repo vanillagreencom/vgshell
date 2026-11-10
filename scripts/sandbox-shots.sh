@@ -3755,6 +3755,28 @@ os.replace(path + ".tmp", path)
 PY2
   expect "AI Usage's hidden accounts reload" ok ipc shell reloadConfig
 }
+# AI Usage's View setting set to VIEW, or left to its default when VIEW
+# is empty.
+usage_shot_view() { # VIEW
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY2' || return 1
+import json, os, sys
+path, view = sys.argv[1:]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == "vgs.ai-usage"), None)
+if row is None:
+    row = {"id": "vgs.ai-usage"}
+    rows.append(row)
+if view:
+    row["view"] = view
+else:
+    row.pop("view", None)
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY2
+  expect "AI Usage's view reloads" ok ipc shell reloadConfig
+}
 usage_shot_open() { # LABEL
   click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage $1 failed"
   expect_poll "the widget opens its panel $1" True usage_shot_rows
@@ -3784,9 +3806,11 @@ scene_ai-usage-states() { # MODE
 # AI Usage's dropdown over the Claude Code account whose sign-in file the
 # helper cannot read and the Codex account, the others hidden; then with
 # its reset calendar open. Where the tree draws a card's More actions, Tab
-# then takes the keys to the first card's, Enter opens its menu and Enter
-# again hides that account, which moves the keys to the Codex card's. A
+# then takes the keys to the first card's, Enter opens its menu, typing h
+# highlights Hide wherever the menu lists it, and Enter hides that account,
+# which moves the keys to the Codex card's. A
 # tree without More actions has its dropdown and calendar shots alone.
+# Last, the dropdown in Compact view over the cards left.
 usage_shot_menu_open() { if [[ $(ipc smoke popupItemGeometry panel vgs.ai-usage "" "" MenuItem Hide) == \[* ]]; then echo open; else echo closed; fi; }
 # Whether the open menu's window holds the keys, which can follow its open.
 usage_shot_menu_keys() { ipc smoke popupFocus panel vgs.ai-usage | py_reply 'import sys; print(sys.stdin.read().strip().startswith("["))'; }
@@ -3836,12 +3860,20 @@ scene_ai-usage-hide() { # MODE
     expect_poll "Enter on More actions opens the card's menu" open usage_shot_menu_open
     take_posed "ai-usage-hide-$1-menu"
     expect_poll "the card's menu holds the keys" True usage_shot_menu_keys
+    type_keys h || fail "typing h to highlight Hide failed"
     type_keys -k Return || fail "Enter on Hide failed"
     expect_poll "Hide takes the unreadable sign-in's card away" '[["codex", "ok"]]' usage_shot_cards
     expect_poll "Hide moves the keys to the Codex card's More actions" '["IconButton","More actions",true,true,true]' ipc smoke focused panel vgs.ai-usage
     take_posed "ai-usage-hide-$1-hidden"
   fi
   usage_shot_close "over the unreadable sign-in"
+  usage_shot_view compact
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage in Compact view failed"
+  expect_poll "the dropdown draws Compact view" false ipc smoke readInstance panel vgs.ai-usage fullView
+  park_pointer
+  take "ai-usage-hide-$1-compact"
+  usage_shot_close "in Compact view"
+  usage_shot_view ""
   usage_shot_hidden '[]'
 }
 usage_shot_cards() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"]] for r in json.load(sys.stdin)]))'; }

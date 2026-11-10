@@ -5,9 +5,11 @@ import qs.Ui
 import "UsageView.js" as View
 
 // Each signed-in and visible account in a card of its own: the provider,
-// the account's email, its menu, whose Hide adds it to Hidden accounts,
+// the account's email, its menu, whose Refresh checks every account again
+// as Check now does and whose Hide adds it to Hidden accounts,
 // one row per limit with its time to reset and one
-// per credit the provider reports. Full view adds a meter under each limit
+// per credit the provider reports, the credits a group of their own one
+// step further down the spacing scale. Full view adds a meter under each limit
 // and each credit with a used share, and the provider detail fields the
 // helper received. The calendar button left of the Settings gear shows the
 // reset calendar above the cards until the panel closes. The footer shows
@@ -249,6 +251,11 @@ Item {
                         }
                         Menu {
                             id: cardMenu
+                            MenuItem {
+                                text: "Refresh"
+                                iconName: "refresh-cw"
+                                onTriggered: root.refresh()
+                            }
                             // The menu closes on the trigger, and the hidden
                             // card takes the menu with it, so Hide waits for
                             // that close.
@@ -303,6 +310,10 @@ Item {
                 }
 
                 Column {
+                    id: usageRows
+                    // The gap above the first credit after a limit row,
+                    // one step down the scale from the gap between rows.
+                    readonly property real groupGap: root.fullView ? Theme.stack.group : Theme.stack.inline
                     visible: entry.windows.length > 0
                     width: parent.width
                     spacing: root.fullView ? Theme.stack.inline : Theme.row.lineGap
@@ -316,6 +327,11 @@ Item {
                                 : modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
                             width: parent.width
                             spacing: Theme.row.lineGap
+                            // A Column's topPadding adds to its height above
+                            // its first child, so the row moves down and the
+                            // ones after it with it:
+                            // https://doc.qt.io/qt-6/qml-qtquick-column.html#topPadding-prop.
+                            topPadding: modelData.opensGroup ? usageRows.groupGap - usageRows.spacing : 0
 
                             Item {
                                 width: parent.width
