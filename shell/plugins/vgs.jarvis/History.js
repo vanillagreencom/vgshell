@@ -66,13 +66,17 @@ function operation(row) {
 
 // A failed turn's record names its cause's category and what Session did
 // (Audit.js fault rows); the row shows the category's plain words and
-// never the keyed cause.
+// never the keyed cause. A conversation stopped by an account, model or
+// setup cause fails the same way when asked again (ChainedEngine.js CAUSES),
+// so its row opens Jarvis Settings, where that cause is fixed.
+var SETTINGS_FAULTS = ["account", "model", "setup"];
 function faultProblem(row) {
     if (row.action !== "restarted" && row.action !== "stopped")
         throw new Error("jarvis history: action=" + JSON.stringify(row.action) + " unexpected");
+    var settings = row.action === "stopped" && SETTINGS_FAULTS.indexOf(row.category) !== -1;
     return { title: View.faultWords(row.category) + ".",
         body: row.action === "restarted" ? "VGS restarted Jarvis in a new conversation." : "Jarvis stopped the conversation.",
-        action: "Ask Jarvis again", settings: false };
+        action: settings ? "Jarvis settings" : "Ask Jarvis again", settings: settings };
 }
 
 function problem(row) {

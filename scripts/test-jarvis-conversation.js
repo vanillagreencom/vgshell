@@ -104,6 +104,23 @@ function operationContract(history) {
 }
 operationContract(History);
 
+// A conversation stopped by an account, model or setup fault fails the same
+// way when asked again, so its row opens Jarvis Settings (Console.qml reads
+// settings), named as the voice row's Settings action is. A restarted row and
+// any other stopped row keep asking again.
+function faultContract(history) {
+    const fault = (category, action) => history.problem({ time: refusal.time, kind: "fault", cause: "net=request", status: null, category, action });
+    for (const [category, stoppedOffersSettings] of [["account", true], ["model", true], ["setup", true], ["connection", false],
+        ["reply-cut", false], ["service", false], ["app-stopped", false], ["other", false]]) {
+        for (const action of ["restarted", "stopped"]) {
+            const settings = action === "stopped" && stoppedOffersSettings, shown = fault(category, action);
+            assert.equal(shown.settings, settings, category + " " + action);
+            assert.equal(shown.action, settings ? "Jarvis settings" : "Ask Jarvis again", category + " " + action);
+        }
+    }
+}
+faultContract(History);
+
 
 const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });
@@ -131,6 +148,13 @@ try {
     assert.throws(() => operationContract(load(historyCopy, historyModules)), assert.AssertionError,
         "control: dropping published operation labels must fail");
     controls++;
+    const settingsNeedle = 'var settings = row.action === "stopped" && ';
+    assert.equal(historySource.split(settingsNeedle).length - 1, 1);
+    for (const [name, replacement] of [["no-settings", "var settings = false && "], ["restart-settings", "var settings = "]]) {
+        fs.writeFileSync(historyCopy, historySource.replace(settingsNeedle, replacement));
+        assert.throws(() => faultContract(load(historyCopy, historyModules)), assert.AssertionError, "control: " + name + " must fail");
+        controls++;
+    }
     control("replace-open", "if (last !== null && open(last) && sameSegment(last, next))", "if (false && last !== null && open(last) && sameSegment(last, next))");
     control("close-final", "return entry.stage === \"partial\";", "return true;");
     control("same-role", "a.gen === b.gen && a.role === b.role", "a.gen === b.gen");

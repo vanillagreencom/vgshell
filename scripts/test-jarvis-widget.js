@@ -246,8 +246,10 @@ function verifyRestart(view, history) {
         }
         for (const [action, body] of [["restarted", "VGS restarted Jarvis in a new conversation."], ["stopped", "Jarvis stopped the conversation."]]) {
             const row = { time: "2026-11-09T08:00:00.000Z", kind: "fault", cause: "net=request", status: null, category, action };
-            assert.deepEqual(copy(history.problem(row)), { title: words + ".", body, action: "Ask Jarvis again", settings: false }, category + " " + action);
-            assert.deepEqual(copy(history.problems([row], "")), [{ at: Date.parse(row.time), title: words + ".", body, action: "Ask Jarvis again", settings: false }]);
+            // test-jarvis-conversation.js holds which fault rows offer Settings.
+            const offer = copy(history.problem(row));
+            assert.deepEqual(offer, { title: words + ".", body, action: offer.action, settings: offer.settings }, category + " " + action);
+            assert.deepEqual(copy(history.problems([row], "")), [{ at: Date.parse(row.time), ...offer }]);
             assert.equal(history.problems([row], "net=request").length, 0, "the keyed cause is not in the row");
         }
     }
