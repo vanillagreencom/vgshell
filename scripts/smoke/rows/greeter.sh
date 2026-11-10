@@ -83,7 +83,7 @@ greeter_view="$repo/shell/plugins/vgs.greeter/Greeter.qml"
 greeter_log="$sandbox/greeter-host.log"
 mkdir -p -- "$sandbox/greeter-theme/vgshell" "$sandbox/greeter-state/vgshell"
 cp -- "$greeter_fixtures/theme/vgshell/theme.json" "$greeter_fixtures/theme/vgshell/background" "$sandbox/greeter-theme/vgshell/"
-greeter_env=("${shell_env[@]}" XDG_DATA_DIRS="$greeter_fixtures/share-a:$greeter_fixtures/share-b"
+greeter_env=("${shell_env[@]}" "${bundled_fonts[@]}" XDG_DATA_DIRS="$greeter_fixtures/share-a:$greeter_fixtures/share-b"
   XDG_CONFIG_HOME="$sandbox/greeter-theme" XDG_STATE_HOME="$sandbox/greeter-state")
 if "${shell_env[@]}" bash -c 'command -v startx' >/dev/null 2>&1; then xfce_state=available; else xfce_state=unavailable; fi
 # greeter_wait TEXT LOG PID: whether one line of LOG ends with TEXT within

@@ -2409,9 +2409,7 @@ def prepare(text, name):
     # Execute existing scene assertion lines, not another classification
     # model. The wrappers themselves also come from their real owners.
     blocks = []
-    watcher = function("scene_restart-owed", text)
-    start = watcher.index("  restart_shot_armed()")
-    blocks.append(watcher[start:watcher.index("\n  }\n", start) + 5])
+    blocks.append(function("restart_shot_armed", text))
     for key, call, producer in (
         ("act", "settings_act", text), ("tui", "settings_open_tui", text),
         ("keyboard", "tooltip_link_call holdKeyboard true", text),

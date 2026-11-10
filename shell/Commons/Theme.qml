@@ -449,16 +449,28 @@ Singleton {
         return convertBodyLines(table, converted, bodyLineBox);
     }
 
-    FontLoader {
-        id: mono
-        source: Qt.resolvedUrl("../assets/fonts/JetBrainsMono-Variable.ttf")
+    // A bundled font, loaded from the file the environment variable
+    // `variable` names: the private copy `vgshell run` makes at each start
+    // (bin/vgshell font_copies), which no package upgrade rewrites under a
+    // running shell. A process that starts the shell or the greeter another
+    // way names the files itself. An unset variable is logged and loads
+    // nothing, so Qt substitutes a system font for the family.
+    component BundledFont: FontLoader {
+        required property string variable
+        property string path: Quickshell.env(variable) ?? ""
+        source: path ? "file://" + path.split("/").map(encodeURIComponent).join("/") : ""
+        Component.onCompleted: if (!path) console.error("theme: font=unset env=" + variable)
         onStatusChanged: if (status === FontLoader.Error) console.error("theme: bundled font failed to load: " + source)
     }
 
-    FontLoader {
+    BundledFont {
+        id: mono
+        variable: "VGSHELL_FONT_MONO"
+    }
+
+    BundledFont {
         id: sans
-        source: Qt.resolvedUrl("../assets/fonts/InterVariable.ttf")
-        onStatusChanged: if (status === FontLoader.Error) console.error("theme: bundled font failed to load: " + source)
+        variable: "VGSHELL_FONT_SANS"
     }
 
     ThemeSource {

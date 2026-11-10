@@ -2460,6 +2460,42 @@ process.stdin.setEncoding("utf8").on("data", d => { text += d; }).on("end", () =
 });' "$root/bin/lib/qml-library.js" "$shell_dir/Commons/SessionLockState.js" <<<"$1" 9>&- || echo unknown
 }
 
+# The bundled fonts the shell draws, as private copies for one start:
+# exports VGSHELL_FONT_SANS and VGSHELL_FONT_MONO, which
+# shell/Commons/Theme.qml loads, each naming a copy in the runtime
+# directory named by the SHA-256 of its bytes, and removes every other file
+# there. The main thread shapes text with the faces it opened at start,
+# while each window's render thread opens the font files again at its first
+# frame (Qt 6.12 QFontPrivate::engineForScript and the per-thread font
+# caches; the VGS-2359 cause note). pacman, dpkg and rpm write a font's new
+# bytes over the installed path, so a window first drawn from that path
+# after an upgrade would draw the start's glyph numbers with the new font's
+# shapes. A copy changes only at a start, which is a new shell. The copy is
+# hashed after it is written, so its name always holds its own bytes. Runs
+# under the instance lock, so no shell reads a file it replaces or removes.
+# A font that cannot be copied leaves its variable unset, which the shell
+# logs, and the runner logs the cause.
+font_copies() {
+  local dir="$rt_dir/vgshell/fonts" keep=() pair variable font part hash
+  mkdir -p -- "$dir" 9>&- || printf 'vgshell: font-copy=mkdir-failed dir=%s\n' "$dir" >&2
+  for pair in VGSHELL_FONT_SANS:InterVariable.ttf VGSHELL_FONT_MONO:JetBrainsMono-Variable.ttf; do
+    variable="${pair%%:*}"
+    font="$shell_dir/assets/fonts/${pair#*:}"
+    unset "$variable"
+    if part="$(mktemp -p "$dir" .copy.XXXXXX 9>&-)" \
+      && cp -- "$font" "$part" 9>&- \
+      && hash="$(sha256sum -- "$part" 9>&-)" \
+      && mv -f -- "$part" "$dir/${hash%% *}.ttf" 9>&-; then
+      export "$variable=$dir/${hash%% *}.ttf"
+      keep+=(! -name "${hash%% *}.ttf")
+    else
+      printf 'vgshell: font-copy=failed font=%s dir=%s\n' "$font" "$dir" >&2
+    fi
+  done
+  find "$dir" -mindepth 1 -maxdepth 1 "${keep[@]}" -exec rm -rf -- {} + 9>&- ||
+    printf 'vgshell: font-copy=prune-failed dir=%s\n' "$dir" >&2
+}
+
 # One start of the shell under the held instance lock. The lock file is
 # emptied first, since the child appends its pid through descriptor 9.
 shell_launch() {
@@ -2485,6 +2521,7 @@ shell_launch() {
       rm -rf -- "${stale:?}" 9>&-
     fi
   done
+  font_copies
   # Quickshell 0.3.1's Pipewire connects once, when a plugin first reads
   # it, and logs a failed first connection as an error and never tries
   # again; only a lost connection watches the runtime dir for a new

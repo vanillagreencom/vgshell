@@ -875,6 +875,10 @@ ok "nested compositor up: socket=$nested_socket"
 
 shell_env=("${sandbox_env[@]}" WAYLAND_DISPLAY="$nested_socket" HYPRLAND_INSTANCE_SIGNATURE="$signature"
   DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus")
+# The fonts a qs started without `vgshell run` loads, as
+# shell/Commons/Theme.qml reads them: the sandbox tree's bundled files. The
+# runner names its own copies (bin/vgshell font_copies).
+bundled_fonts=(VGSHELL_FONT_SANS="$repo/shell/assets/fonts/InterVariable.ttf" VGSHELL_FONT_MONO="$repo/shell/assets/fonts/JetBrainsMono-Variable.ttf")
 # smoke_finish: the run's closing verdict, after the log tails of a run
 # that failed; a run that does not pass exits with the verdict's status.
 # Defined before hypr-call.sh, whose stall handler ends the run through it

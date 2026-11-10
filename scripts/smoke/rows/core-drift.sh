@@ -18,9 +18,13 @@
 # are gone and the core changes, as pacman's unlink-then-write leaves them
 # mid-transaction, and requires an unbuilt copy, acme.drift-c, refused at
 # once and the restart notice only after the fonts are back and the lock
-# is gone, drawn from the bundled font files and no fallback face. A last
-# start clears the debt it raises.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan shell/assets/fonts/InterVariable.ttf shell/assets/fonts/JetBrainsMono-Variable.ttf bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py
+# is gone, drawn from the shell's private font copies and no fallback face.
+# The block after it, on a fresh shell, writes the mono font's bytes over
+# the sans font file in place, and requires the restart notice and a panel
+# window first drawn after that to read as the text they draw, from the
+# copies the shell started with, and a restart to load a copy of the new
+# bytes. A last start clears the debt it raises.
+# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan shell/assets/fonts/InterVariable.ttf shell/assets/fonts/JetBrainsMono-Variable.ttf shell/Commons/Theme.qml shell/Ui/foundation/Label.qml scripts/smoke/Probe.qml bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')
 drift="$home/.config/vgshell/plugins/acme.drift"
@@ -48,6 +52,7 @@ drift_relaunch_deadline_ms=120000
 # The stand-in package database. It holds no lock until the font block.
 drift_db="$sandbox/core-drift-pacman"
 drift_fonts="$repo/shell/assets/fonts"
+drift_copy_dir="$rt_dir/vgshell/fonts"
 drift_faces_before="$sandbox/core-drift-faces.before"
 # drift_watch_hold: `held` once the shell's core watcher holds an inotify
 # watch on the stand-in database, the watcher's own sign that it saw a core
@@ -118,24 +123,108 @@ else:
     print(",".join(sorted(faces - known)) or "none")
 PY
 }
-# drift_bundled_mapped: `mapped` once the shell maps each bundled font file
-# at the inode its path names now, else `unmapped=` the names it does not.
-drift_bundled_mapped() {
-  python3 - "$shell_qs_pid" "$drift_fonts" <<'PY'
+# drift_copies: `copies` once the shell maps the font copy each of its
+# VGSHELL_FONT_SANS and VGSHELL_FONT_MONO names, a file of the sandbox
+# runtime's vgshell/fonts at the inode its path names now, and maps no file
+# of the bundled font directory, deleted or not; else each difference.
+drift_copies() {
+  python3 - "$shell_qs_pid" "$drift_fonts" "$drift_copy_dir" <<'PY'
 import os, sys
-qs, bundled = sys.argv[1:]
-names = ["InterVariable.ttf", "JetBrainsMono-Variable.ttf"]
+qs, bundled, private = sys.argv[1:]
+private = os.path.realpath(private)
 try:
+    with open(f"/proc/{qs}/environ", "rb") as fh:
+        env = dict(item.split(b"=", 1) for item in fh.read().split(b"\0") if b"=" in item)
     with open(f"/proc/{qs}/maps") as fh:
         rows = [line.split(None, 5) for line in fh.read().splitlines()]
-    mapped = {(parts[5], int(parts[4])) for parts in rows if len(parts) == 6}
-    want = {name: (os.path.join(bundled, name), os.stat(os.path.join(bundled, name)).st_ino) for name in names}
 except OSError as exc:
     print(f"unreadable={type(exc).__name__}")
     sys.exit(0)
-missing = [name for name in names if want[name] not in mapped]
-print("unmapped=" + ",".join(missing) if missing else "mapped")
+files = [(parts[5].removesuffix(" (deleted)"), int(parts[4])) for parts in rows if len(parts) == 6]
+differences = []
+for name in ("VGSHELL_FONT_SANS", "VGSHELL_FONT_MONO"):
+    value = env.get(name.encode())
+    if value is None:
+        differences.append(f"{name}=unset")
+        continue
+    path = os.path.realpath(os.fsdecode(value))
+    if os.path.dirname(path) != private:
+        differences.append(f"{name}=outside:{path}")
+        continue
+    try:
+        inode = os.stat(path).st_ino
+    except OSError as exc:
+        differences.append(f"{name}=unreadable:{type(exc).__name__}")
+        continue
+    if (path, inode) not in files:
+        differences.append(f"{name}=unmapped")
+held = sorted({os.path.basename(path) for path, _ in files if os.path.dirname(path) == bundled})
+if held:
+    differences.append("bundled=" + ",".join(held))
+print(" ".join(differences) or "copies")
 PY
+}
+# drift_font_env NAME: the value of the shell's environment variable NAME,
+# `unset` when it has none.
+drift_font_env() {
+  python3 - "$shell_qs_pid" "$1" <<'PY'
+import os, sys
+qs, name = sys.argv[1:]
+try:
+    with open(f"/proc/{qs}/environ", "rb") as fh:
+        env = dict(item.split(b"=", 1) for item in fh.read().split(b"\0") if b"=" in item)
+except OSError as exc:
+    print(f"unreadable={type(exc).__name__}")
+    sys.exit(0)
+value = env.get(name.encode())
+print("unset" if value is None else os.fsdecode(value))
+PY
+}
+# drift_sans_copy: `current` when the shell's VGSHELL_FONT_SANS names the
+# copy of the bundled sans file's bytes as they are now, a file of the
+# sandbox runtime's vgshell/fonts named by those bytes' SHA-256 and holding
+# them; else what it names.
+drift_sans_copy() {
+  local named want
+  named="$(drift_font_env VGSHELL_FONT_SANS)" || return
+  want="$(sha256sum -- "$drift_fonts/InterVariable.ttf")" || return
+  want="$drift_copy_dir/${want%% *}.ttf"
+  if [[ $named == "$want" ]] && cmp -s -- "$named" "$drift_fonts/InterVariable.ttf"; then echo current; else echo "named=$named"; fi
+}
+# drift_message: the message the restart notice draws, as text.
+drift_message() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.load(sys.stdin)["message"])'; }
+# drift_reads NAME TEXT: `reads` when tesseract finds every word of TEXT, in
+# order, among the words of a capture of the nested output, kept as
+# $smoke_log_dir/core-drift-NAME.png; else `unread=` and the words it found.
+# Text shaped with one font's glyph numbers and drawn from another font's
+# file reads as other letters (the VGS-2359 cause note's decode).
+drift_reads() { # NAME TEXT
+  local socket output png="$smoke_log_dir/core-drift-$1.png" words status=0
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return
+  output="$(first_name)" || return
+  shot_grim "$socket" "$rt_dir" -o "$output" -t png "$png" || { echo "capture=failed"; return; }
+  words="$(tesseract "$png" - 2>"$sandbox/core-drift-ocr.err")" || status=$?
+  if [[ $status != 0 ]]; then echo "ocr=failed status=$status $(head -c 200 -- "$sandbox/core-drift-ocr.err")"; return; fi
+  python3 -c '
+import re, sys
+want = re.findall(r"[a-z0-9]+", sys.argv[1].lower())
+got = re.findall(r"[a-z0-9]+", sys.stdin.read().lower())
+found = any(got[i:i + len(want)] == want for i in range(len(got) - len(want) + 1))
+print("reads" if want and found else "unread=" + " ".join(got)[:400])
+' "$2" <<<"$words"
+}
+# drift_read_poll LABEL NAME TEXT: drift_reads again until it reads `reads`
+# or smoke_poll_bound_ms has passed, timed by the clock rather than counted
+# in steps, since each capture and OCR pass takes about a second.
+drift_read_poll() { # LABEL NAME TEXT
+  local got deadline=$(( $(now_ms) + smoke_poll_bound_ms ))
+  while :; do
+    got="$(drift_reads "$2" "$3")" || got="reader-failed status=$?"
+    [[ $got != reads ]] || { ok "$1"; return; }
+    (( $(now_ms) < deadline )) || break
+    sleep 0.2
+  done
+  fail "$1: got $got"
 }
 
 [[ $shell_tree == "$repo" ]] || fail "the row needs the sandbox's own tree as the running shell, found $shell_tree"
@@ -287,10 +376,11 @@ if stop_shell && start_shell "$repo" "$sandbox/core-drift-qs.log"; then
 fi
 
 # Acceptance (VGS-2359): pacman replaces each file by unlinking it and
-# writing the new one in place, under its database lock. A notice whose
-# render thread first opens a bundled font then finds it absent or partly
-# written, and draws the bundled glyph numbers from a fallback face. The
-# watcher therefore reports the change as pending while the lock is held,
+# writing the new one in place, under its database lock, so mid-transaction
+# the shell's own files are absent or partly written. The shell draws from
+# private font copies its start made (the VGS-2422 block below), so the
+# notice maps those and no fallback face. The
+# watcher reports the change as pending while the lock is held,
 # which holds first builds at once, and the notice waits until the lock
 # goes. The fonts go first, so a watcher that ignores the lock opens the
 # notice while they are absent. acme.drift-c is enabled and never built, so
@@ -321,14 +411,82 @@ rm -- "${drift_db:?}/db.lck"
 expect_poll "the core watcher raises restart debt once the package lock goes" true drift_owed
 expect_poll "the restart notice after the transaction is the one notice surface" 1 layer_count vgs:notice
 expect_poll "the restart notice after the transaction names the action" '"Restart to update"' drift_drawn title
-expect_poll "the restart notice maps the bundled fonts as the transaction left them" mapped drift_bundled_mapped
+expect_poll "the restart notice maps the shell's font copies and no bundled font file" copies drift_copies
 expect "the restart notice maps no fallback face the shell did not map before" none drift_faces "$drift_faces_before"
 
 cp -- "$sandbox/core-drift-qmldir.orig" "$drift_qmldir"
-rm -f -- "${drift_type:?}" "${shim:?}/pacman-conf"
-rm -rf -- "${drift_db:?}" "${sandbox:?}/core-drift-fonts"
+rm -f -- "${drift_type:?}"
 expect "disabling the held-transaction fixture is allowed" ok ipc shell setPluginEnabled acme.drift-c false
 rm -rf -- "${drift_c:?}"
 if stop_shell && start_shell "$repo" "$sandbox/core-drift-qs.log"; then
   expect "the shell started after the transaction block owes no restart notice" false drift_owed
+fi
+
+# Acceptance (VGS-2422): a package update that writes a different font over
+# a bundled font file in place leaves the running shell drawing the font it
+# started with. The main thread shapes text with the faces it opened at
+# start, and each window's render thread opens the font files again at its
+# first frame (the VGS-2359 cause note), so a window that opened the
+# bundled path would draw the start's glyph numbers from the new file. The
+# shell draws from copies bin/vgshell made at its start instead, so the
+# restart notice the change raises and a panel window first drawn after it
+# read as the text they draw. The mono font's bytes go over the sans file,
+# unlinked and written as pacman does. A restart then loads a copy of the
+# new bytes and removes the old copy. The panel's text names the theme's
+# sans family, which the new bytes do not hold, so after the restart it
+# reads in the family Qt picks for it, while the shell's sans font is the
+# new file.
+# Must-fail control: this block against shell/Commons/Theme.qml and
+# bin/vgshell before VGS-2422 draws the notice's message with the wrong
+# glyphs and maps the rewritten bundled file.
+drift_d="$home/.config/vgshell/plugins/acme.drift-d"
+drift_words="Readable after the update"
+install_plugin_copy acme.drift acme.drift-d DriftD
+printf 'import QtQuick\nimport qs.Ui\nItem {\n    property var shell: null\n    implicitWidth: 720\n    implicitHeight: 160\n    function open(payloadJson) {}\n    function close() {}\n    Label {\n        anchors.centerIn: parent\n        role: "display"\n        text: "%s"\n    }\n}\n' "$drift_words" >"$drift_d/Panel.qml"
+rescan "rescan after adding the replaced-font fixture answers ok"
+expect_poll "the replaced-font fixture is discovered" True plugin_known acme.drift-d
+expect "enabling the replaced-font fixture is allowed" ok ipc shell setPluginEnabled acme.drift-d true
+expect "the replaced-font panel builds before the font changes" ok ipc shell summon panel acme.drift-d '{}'
+drift_read_poll "the replaced-font panel reads as its text before the font changes" panel-before "$drift_words"
+expect "the replaced-font panel hides" ok ipc shell hide panel acme.drift-d
+expect_poll "the replaced-font panel leaves no surface" 0 layer_count vgs:panel
+expect "the shell maps its start's font copies before the font changes" copies drift_copies
+drift_sans_start="$(drift_font_env VGSHELL_FONT_SANS)" || fail "the shell's environment is unreadable before the font changes"
+drift_faces >"$drift_faces_before" || fail "the shell's mapped faces are unreadable before the font changes"
+mkdir -p -- "$sandbox/core-drift-fonts"
+cp -p -- "$drift_fonts/InterVariable.ttf" "$sandbox/core-drift-fonts/"
+rm -- "${drift_fonts:?}/InterVariable.ttf"
+cat -- "$drift_fonts/JetBrainsMono-Variable.ttf" >"$drift_fonts/InterVariable.ttf"
+expect_poll "the core watcher raises restart debt for the rewritten font" true drift_owed
+expect_poll "the restart notice after the rewrite is the one notice surface" 1 layer_count vgs:notice
+expect_poll "the restart notice after the rewrite names the action" '"Restart to update"' drift_drawn title
+drift_text="$(drift_message)" || fail "the restart notice's message is unreadable"
+drift_read_poll "the restart notice first drawn after the rewrite reads as its message" notice-rewritten "$drift_text"
+expect "the restart notice maps the start's font copies and no bundled font file" copies drift_copies
+expect "the restart notice maps no fallback face the shell did not map before" none drift_faces "$drift_faces_before"
+expect "the shell keeps the sans copy it started with" "$drift_sans_start" drift_font_env VGSHELL_FONT_SANS
+expect_poll "the restart notice holds the keyboard after the rewrite" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the restart notice after the rewrite failed"
+expect_poll "Escape closes the restart notice after the rewrite" false drift_owed
+expect_poll "the closed notice after the rewrite leaves no surface" 0 layer_count vgs:notice
+expect "the built panel summons a new window after the rewrite" ok ipc shell summon panel acme.drift-d '{}'
+drift_read_poll "the panel window first drawn after the rewrite reads as its text" panel-rewritten "$drift_words"
+expect "the panel window maps the start's font copies and no bundled font file" copies drift_copies
+expect "the panel hides after the rewrite" ok ipc shell hide panel acme.drift-d
+if stop_shell && start_shell "$repo" "$sandbox/core-drift-qs.log"; then
+  expect "the restarted shell loads its sans font from a copy of the rewritten file" current drift_sans_copy
+  if [[ $drift_sans_start == "$drift_copy_dir"/* && ! -e $drift_sans_start ]]; then ok "the restart removes the copy of the font it replaced"; else fail "the restart left the copy of the font it replaced: $drift_sans_start"; fi
+  expect "the restarted shell builds the panel" ok ipc shell summon panel acme.drift-d '{}'
+  drift_read_poll "the panel the restarted shell draws reads as its text" panel-restarted "$drift_words"
+  expect "the restarted shell maps its font copies and no bundled font file" copies drift_copies
+  expect "the panel hides after the restart" ok ipc shell hide panel acme.drift-d
+fi
+
+cp -p -- "$sandbox/core-drift-fonts/InterVariable.ttf" "$drift_fonts/"
+expect "disabling the replaced-font fixture is allowed" ok ipc shell setPluginEnabled acme.drift-d false
+rm -rf -- "${drift_d:?}"
+rm -f -- "${shim:?}/pacman-conf"
+rm -rf -- "${drift_db:?}" "${sandbox:?}/core-drift-fonts"
+if stop_shell && start_shell "$repo" "$sandbox/core-drift-qs.log"; then
+  expect "the shell started after the font blocks owes no restart notice" false drift_owed
 fi

@@ -25,7 +25,8 @@
 # LazyLoader that builds its component while active, a Variants that builds
 # one delegate per model entry, a DesktopEntries whose
 # application list a test replaces and a Quickshell singleton whose env
-# answers "env:NAME", so Paths names directories under it, a QsWindow
+# answers "env:NAME" for every variable but the bundled font paths, so
+# Paths names directories under it, a QsWindow
 # singleton whose window a test names, and a stand-in
 # Quickshell.Io a FileView and Process the test finishes by hand, since the real
 # modules' plugins do not load outside the shell. qs/Core holds the shipped
@@ -184,8 +185,6 @@ for entry in "$ui"/*; do
 done
 sed 's@^ModalDialog 1.0 overlay/ModalDialog.qml$@ModalDialog 1.0 UnitModalDialog.qml@' "$ui/qmldir" >"$imports/qs/Ui/qmldir"
 cp -- "$tests/stand-ins/ModalDialog.qml" "$imports/qs/Ui/UnitModalDialog.qml"
-# Theme.qml resolves the bundled font relative to its own directory.
-ln -s -- "$repo/shell/assets" "$imports/qs/assets"
 # The list is the part of qs.Commons these modules host: the module's own
 # qmldir names Time and Workspaces too, whose Quickshell types do not load
 # outside the shell, and a type a linked file names is resolved when that
@@ -224,6 +223,11 @@ for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qm
 done
 printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\nVariants 1.0 Variants.qml\nRegion 1.0 Region.qml\n' >"$imports/Quickshell/qmldir"
 printf 'ElapsedTimer 1.0 ElapsedTimer.qml\n' >>"$imports/Quickshell/qmldir"
+# The variables the stand-in Quickshell answers as set: the bundled fonts
+# Theme.qml loads, the files themselves, since no runner makes the copies
+# `vgshell run` names.
+python3 -c 'import json, sys; print(".pragma library\nvar VALUES = " + json.dumps({"VGSHELL_FONT_SANS": sys.argv[1] + "/InterVariable.ttf", "VGSHELL_FONT_MONO": sys.argv[1] + "/JetBrainsMono-Variable.ttf"}) + ";")' "$repo/shell/assets/fonts" >"$imports/Quickshell/UnitEnv.js" \
+  || { printf 'qml-unit: refused: unit-env=unwritten\n' >&2; exit 2; }
 # The shipped notification panel imports this type for hidden media. The
 # image-free boundary fixture needs its Rectangle interface only; rounded
 # image clipping remains covered by the real shell's notification smoke.

@@ -20,8 +20,13 @@
 # captured or started on the live desktop. It needs the smoke's
 # prerequisites, XDG_RUNTIME_DIR included, plus grim.
 # restart-owed, taken only when named, captures the real core restart
-# notice after a source-byte change in the private tree. Request one scene
-# and one mode per invocation, so each theme has a fresh shell lifetime.
+# notice after a source-byte change in the private tree. font-rewrite,
+# taken only when named, writes JetBrains Mono's bytes over the private
+# tree's InterVariable.ttf as pacman does, unlinked then written, and
+# captures the restart notice that raises, then a panel window first drawn
+# after it whose display-role Label reads "Readable after the update".
+# Request one scene and one mode per invocation of either, so each theme
+# has a fresh shell lifetime.
 #
 
 # SCENE is gallery, gallery-callouts, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
@@ -635,7 +640,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-side) baseline_side="${2:-}"; shift 2 ;;
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
-    restart-owed) scenes+=("$1"); shift ;;
+    restart-owed|font-rewrite) scenes+=("$1"); shift ;;
     jarvis-restart) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
 
@@ -785,6 +790,7 @@ ships_plugin() { local id; for id; do [[ -f $tree/shell/plugins/$id/manifest.jso
 scene_ships() {
   case $1 in
     restart-owed) [[ -f $tree/shell/Hosts/NoticeHost.qml && -f $tree/shell/Core/Registry.qml ]] ;;
+    font-rewrite) scene_ships restart-owed && [[ -f $tree/shell/assets/fonts/InterVariable.ttf && -f $tree/shell/assets/fonts/JetBrainsMono-Variable.ttf ]] ;;
     sysmon) ships_plugin vgs.sysmon vgs.settings ;;
     tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
@@ -9099,18 +9105,20 @@ network_shot_prompt() { ipc smoke statusValues vgs.network | py_reply 'import js
 
 # Source drift is terminal for a shell. Capture one theme per world and
 # never accept Restart; the world's existing owner ends the captured shell.
+# restart_shot_armed: `armed` once the core's source watcher is ready and
+# has seen no change, else its state.
+restart_shot_armed() {
+  ipc smoke coreWatchState | py_reply 'import json,sys; s=json.load(sys.stdin); print("armed" if s["ready"] and not s["changed"] and s["error"] == "" else json.dumps(s))'
+}
+restart_shot_owed() {
+  ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["restart"]))'
+}
 scene_restart-owed() { # MODE
   local saved="$sandbox/restart-shot-qmldir" qmldir="$repo/shell/Ui/qmldir"
   if [[ ${#mode_list[@]} -ne 1 || ${#scenes[@]} -ne 1 ]]; then
     fail "restart-owed needs one theme and one scene per capture world"
     return 1
   fi
-  restart_shot_armed() {
-    ipc smoke coreWatchState | py_reply 'import json,sys; s=json.load(sys.stdin); print("armed" if s["ready"] and not s["changed"] and s["error"] == "" else json.dumps(s))'
-  }
-  restart_shot_owed() {
-    ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["restart"]))'
-  }
   close_notices
   shots_baseline_safety expect_poll "the restart capture's source watcher is armed" armed restart_shot_armed
   expect "the restart capture starts without restart debt" false restart_shot_owed
@@ -9126,6 +9134,54 @@ scene_restart-owed() { # MODE
   expect_poll "Escape dismisses the captured restart notice" 0 layer_count vgs:notice
   cp -- "$saved" "$qmldir"
   cmp -- "$saved" "$qmldir" || fail "the restart capture's source bytes were not restored"
+}
+
+# A window's render thread opens the font files again at its first frame
+# (the VGS-2359 cause note in scripts/smoke/rows/core-drift.sh), so a
+# shell that loads the bundled files draws a window first shown after the
+# rewrite with the start's glyph numbers in the new font's shapes. The
+# panel is built before the rewrite, since restart debt holds first
+# builds; each summon after a hide draws a new window. The panel draws
+# its label on the shared Surface, as a shipped panel does, so each theme's
+# text shows on its own fill.
+scene_font-rewrite() { # MODE
+  local fonts="$repo/shell/assets/fonts" saved="$sandbox/font-rewrite-InterVariable.ttf"
+  local panel="$home/.config/vgshell/plugins/acme.font-rewrite"
+  if [[ ${#mode_list[@]} -ne 1 || ${#scenes[@]} -ne 1 ]]; then
+    fail "font-rewrite needs one theme and one scene per capture world"
+    return 1
+  fi
+  close_notices
+  mkdir -p -- "$panel"
+  printf '{ "schemaVersion": 1, "id": "acme.font-rewrite", "name": "Font rewrite", "version": "0.1.0", "author": "acme", "description": "capture fixture whose panel draws display text",\n  "kinds": ["panel"], "entryPoints": { "panel": "Panel.qml" }, "capabilities": [] }\n' >"$panel/manifest.json"
+  printf 'import QtQuick\nimport qs.Ui\nItem {\n    property var shell: null\n    implicitWidth: 720\n    implicitHeight: 160\n    function open(payloadJson) {}\n    function close() {}\n    Surface { anchors.fill: parent }\n    Label {\n        anchors.centerIn: parent\n        role: "display"\n        text: "Readable after the update"\n    }\n}\n' >"$panel/Panel.qml"
+  tree_rescan "the font-rewrite panel fixture is scanned"
+  expect_poll "the font-rewrite panel fixture is listed" True plugin_known acme.font-rewrite
+  expect "enabling the font-rewrite panel fixture is allowed" ok ipc shell setPluginEnabled acme.font-rewrite true
+  expect "the font-rewrite panel builds before the rewrite" ok ipc shell summon panel acme.font-rewrite '{}'
+  expect_poll "the font-rewrite panel maps before the rewrite" 1 layer_count vgs:panel
+  expect "the font-rewrite panel hides before the rewrite" ok ipc shell hide panel acme.font-rewrite
+  expect_poll "the font-rewrite panel leaves no surface before the rewrite" 0 layer_count vgs:panel
+  shots_baseline_safety expect_poll "the font-rewrite capture's source watcher is armed" armed restart_shot_armed
+  expect "the font-rewrite capture starts without restart debt" false restart_shot_owed
+  cp -p -- "$fonts/InterVariable.ttf" "$saved"
+  rm -- "${fonts:?}/InterVariable.ttf"
+  cat -- "$fonts/JetBrainsMono-Variable.ttf" >"$fonts/InterVariable.ttf"
+  expect_poll "the source watcher owes the restart notice for the rewritten font" true restart_shot_owed
+  expect_poll "the restart notice after the rewrite maps its real surface" 1 layer_count vgs:notice
+  expect_poll "the restart notice after the rewrite holds the keyboard before capture" true ipc smoke noticeFocused
+  ipc smoke noticeDrawn >"$SHOT_DIR/font-rewrite-$1-notice-state.json"
+  take "font-rewrite-$1-notice"
+  type_keys -k Escape || fail "sending Escape to the restart notice after the rewrite failed"
+  expect_poll "Escape dismisses the restart notice after the rewrite" 0 layer_count vgs:notice
+  expect "the font-rewrite panel summons a new window after the rewrite" ok ipc shell summon panel acme.font-rewrite '{}'
+  expect_poll "the font-rewrite panel maps after the rewrite" 1 layer_count vgs:panel
+  take "font-rewrite-$1-panel"
+  expect "the font-rewrite panel hides after the rewrite" ok ipc shell hide panel acme.font-rewrite
+  cp -p -- "$saved" "$fonts/InterVariable.ttf"
+  cmp -- "$saved" "$fonts/InterVariable.ttf" || fail "the font-rewrite capture's font bytes were not restored"
+  expect "disabling the font-rewrite panel fixture is allowed" ok ipc shell setPluginEnabled acme.font-rewrite false
+  rm -rf -- "${panel:?}"
 }
 
 scene_dialog() { # MODE
@@ -9471,7 +9527,7 @@ scene_greeter() { # MODE
   expect "the greeter shot adds its saved non-first primary" ok create_output "$primary"
   printf '{"outputs":{},"primaryOutput":"%s"}\n' "$primary" >"$dir/config/vgshell/displays.json"
   for word in "${shell_env[@]}"; do [[ $word != PATH=* ]] || base_path="${word#PATH=}"; done
-  spawn_display "$dir/greeter.log" "${shell_env[@]}" PATH="$dir/bin:$base_path" \
+  spawn_display "$dir/greeter.log" "${shell_env[@]}" "${bundled_fonts[@]}" PATH="$dir/bin:$base_path" \
     XDG_DATA_DIRS="$checkout/scripts/smoke/fixtures/greeter/share-a:$checkout/scripts/smoke/fixtures/greeter/share-b" \
     XDG_CONFIG_HOME="$dir/config" XDG_STATE_HOME="$dir/state" \
     VGS_GREETER_VIEW="$repo/shell/plugins/vgs.greeter/Greeter.qml" -- qs -p "$repo/shell/greeter.qml"
