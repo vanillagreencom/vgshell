@@ -157,8 +157,8 @@ process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.
     // Each fixture names a system the machine running the suite is unlikely
     // to be, so a run that read the machine's own file instead fails.
     const fedora = osRelease("os-release-fedora", "NAME=\"Fedora Linux\"\nID=\"fedora\"\n");
-    expectCommand("detect --json reads os-release and PATH", bound(fedora, env.PATH, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"dnf\",\"binary\":\"dnf5\"},\"overlays\":[],\"sources\":[]}\n", "");
-    expectCommand("detect prints one line per manager", bound(fedora, env.PATH, ["detect"]), 0, "primary=dnf binary=dnf5\n", "");
+    expectCommand("detect --json reads os-release and PATH", bound(fedora, env.PATH, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"dnf\",\"binary\":\"dnf5\"},\"overlays\":[{\"id\":\"rpm-file\",\"binary\":\"dnf5\"}],\"sources\":[]}\n", "");
+    expectCommand("detect prints one line per manager", bound(fedora, env.PATH, ["detect"]), 0, "primary=dnf binary=dnf5\noverlay=rpm-file binary=dnf5\n", "");
     const arch = osRelease("os-release-arch", "NAME=\"Arch Linux\"\nID=arch\n");
     const holders = path.join(tmp, "stubs-holders");
     const miseRoot = path.join(holders, "mise-root");
@@ -187,7 +187,7 @@ process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.
     fs.mkdirSync(unread, { recursive: true });
     writeScript(path.join(unread, "dnf5"), "exit 99");
     writeScript(path.join(unread, "broken-owner"), "echo broken-owner");
-    const unreadWant = { primary: { id: "dnf", binary: "dnf5" }, overlays: [], sources: [], holders: { "broken-owner": { path: path.join(unread, "broken-owner"), owners: { dnf: null } } } };
+    const unreadWant = { primary: { id: "dnf", binary: "dnf5" }, overlays: [{ id: "rpm-file", binary: "dnf5" }], sources: [], holders: { "broken-owner": { path: path.join(unread, "broken-owner"), owners: { dnf: null } } } };
     expectCommand("detect --json --holders keeps going when an owner query cannot start", bound(fedora, unread + path.delimiter + tools, ["detect", "--json", "--holders", "broken-owner"]), 0, JSON.stringify(unreadWant) + "\n", "holder=unread command=broken-owner manager=dnf cause=ENOENT\n");
     expectCommand("detect --json without holders stays byte-identical", bound(arch, holderPath, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"pacman\",\"binary\":\"pacman\"},\"overlays\":[{\"id\":\"aur\",\"binary\":\"paru\"},{\"id\":\"verified-file\",\"binary\":\"pacman\"}],\"sources\":[{\"id\":\"mise\",\"binary\":\"mise\"}]}\n", "");
     expectCommand("detect --holders refuses a malformed command", bound(arch, holderPath, ["detect", "--json", "--holders", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");

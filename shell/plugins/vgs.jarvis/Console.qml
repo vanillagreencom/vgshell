@@ -418,8 +418,8 @@ FocusScope {
                 : "choose This computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost), then choose " + reach.host + ".");
         if (reach.cause === "package")
             return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
-        if (reach.cause === "vgs-package")
-            return blocked + "VGS made this Home folder without the Jarvis package. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home).";
+        if (reach.cause === "not-set-up")
+            return blocked + "this home folder is not a Jarvis home yet. [Set it up in Home folder](page:vgs.jarvis/Setup/setupHome).";
         if (reach.kind === "unavailable")
             return blocked + "the Jarvis package in your [Home folder](page:vgs.jarvis/Settings/home) cannot be opened.";
         if (reach.cause === "setting-invalid")

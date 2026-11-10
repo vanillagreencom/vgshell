@@ -261,7 +261,8 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["voices", { voices: [] }, ["request"]],
                 ["echo-cancel", { state: "absent", path: "/fixture/echo.conf", reason: "config-missing" }, ["request"]],
                 ["input-ready", { commands: ["wtype", "wlrctl"] }, ["request"]],
-                ["personality", { personality: { kind: "missing" } }, ["request"]],
+                ["instructions", { instructions: { kind: "none" } }, ["request"]],
+                ["home-drift", { home: "~/Fixture", drift: { kind: "current" } }, ["request"]],
                 ["start-text", { size: { kind: "unreadable" } }, ["request"]],
                 ["audio-fault", { reason: "discovery-exit" }, ["request"]],
                 ["shell-status", { availability: { kind: "available" } }, ["request"]],
@@ -273,7 +274,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["level", { level: { capture: 0, playback: 0 } }, ["request"]],
                 ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1 }, ["request"]],
                 ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["request"]],
-                ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "main-host", "request"]]
+                ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "main-host", "drift", "request"]]
             ]) {
                 world = make({});
                 world.shell.shortcut = { keys: null };
@@ -281,17 +282,18 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
                     Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "", childSerial: 1,
                     lifetime: { kind: "starting" }, sessionState: protocol.Session.initial(),
-                    setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
+                    setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, instructionsShown: null, driftShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },
                     voiceProvider: world.shell.settings.voiceProvider, accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
                     echoCancel: null, echoRefreshPending: false,
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
                     sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
-                    deliverMainHost: () => events.push("main-host"),
+                    deliverMainHost: () => events.push("main-host"), deliverDrift: () => events.push("drift"),
+                    homeMessage: { homes: [], current: "" },
                     helloDeadline: { stop: () => {} }, indicatorPresented: false, barIndicator: "gone",
                     indicatorObservations: [], destroying: false, sendIndicator: () => {},
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
-                sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",
+                sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishInstructions", "publishStartText",
                     "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish", "publishEchoCancel", "refreshEchoCancel", "conversationChanged",
                     "restartChanged", "queueIndicator", "flushIndicators"]);
                 const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };

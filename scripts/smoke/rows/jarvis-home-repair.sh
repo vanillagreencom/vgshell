@@ -4,7 +4,7 @@
 # Its completion must cause the real daemon to open the current Home again.
 # The control disables that completion callback in a disposable Service copy:
 # the same repair restores the file but leaves the Home step To do.
-# inputs: scripts/smoke/rows/jarvis.sh scripts/smoke/fixtures/tui/vgs.jarvis/tui/repair-home.sh shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/TuiRunner.qml bin/vgshell-tui bin/lib/tui.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: scripts/smoke/rows/jarvis.sh scripts/fixtures/jarvis/home.js scripts/smoke/fixtures/tui/vgs.jarvis/tui/repair-home.sh shell/plugins/vgs.jarvis/* .agents/skills/jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/TuiRunner.qml bin/vgshell-tui bin/lib/tui.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 expected_errors+=("${dictation_absent_errors[@]}")
 expected_errors+=('WARN qml: jarvis-session: (change|status|build)=blocked block=package' 'WARN qml: jarvis: stderr=jarvis: home=package')
@@ -72,10 +72,7 @@ repair_home_seed() {
   node - "$repo" "$home/Repair Home" "$home/.repair-home-persona" <<'JSREPAIR'
 const fs = require("node:fs"), path = require("node:path");
 const [tree, folder, saved] = process.argv.slice(2);
-require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Core.js")).use(tree);
-const Home = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js"));
-Home.layout(folder);
-fs.copyFileSync(path.join(tree, "packaging/jarvis-home/.kendex-lock.json"), path.join(folder, ".kendex-lock.json"));
+require(path.join(tree, "scripts/fixtures/jarvis/home.js")).jarvisHome(folder, tree);
 const persona = path.join(folder, ".agents/skills/jarvis/persona.md");
 fs.copyFileSync(persona, saved);
 fs.rmSync(persona);

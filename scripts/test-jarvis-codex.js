@@ -12,6 +12,7 @@ const Check = require("./fixtures/schema-check.js");
 const excerpt = require("./fixtures/jarvis-codex/app-server.schema.json");
 const { load } = require("../bin/lib/qml-library.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
+const { jarvisHome } = require("./fixtures/jarvis/home.js");
 const cp = require("node:child_process");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 const SCHEMAS = { "initialize": "InitializeParams", "config/read": "ConfigReadParams", "thread/start": "ThreadStartParams",
@@ -551,7 +552,7 @@ world(async () => {
             const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], folder);
             const w = make(copied);
             const home = path.join(w.root, "home");
-            require(path.join(copied, "backend/Home.js")).layout(home);
+            jarvisHome(home, tree);
             const memory = require(path.join(copied, "backend/Memory.js")).install({
                 router: w.router, directory: path.join(w.root, "memory"), home: () => home
             });

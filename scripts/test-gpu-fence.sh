@@ -986,7 +986,7 @@ controls=(
   'export PATH="${world_node%/*}:$PATH"'
   'a qs the caller puts first on PATH is found first in the world and the harness'"'"'s sandbox, beside the native node'
   'the world sets no data ceiling'
-  'fence=(prlimit "--data=$ceiling:$ceiling" -- "${fence[@]}")'
+  'fence=(prlimit "--data=$ceiling:$ceiling" --core=0 -- "${fence[@]}")'
   :
   'a world over its memory ceiling fails, naming it, while one under it beside it passes'
   'the world names no ceiling'

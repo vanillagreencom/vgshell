@@ -2,7 +2,7 @@
 .import "Session.js" as Session
 
 // Shell produces hello, intent, indicator, shown, requirements-scan, tui-state, echo-cancel-refresh and reply. Voice confirmation
-// is daemon-internal. Daemon produces status/state/devices/echo-cancel/homes/voices/personality/start-text/level/audio-fault,
+// is daemon-internal. Daemon produces status/state/devices/echo-cancel/homes/voices/instructions/home-drift/start-text/level/audio-fault,
 // request, tasks, task-answer, model-fallback, voice-renewal and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
@@ -11,12 +11,15 @@ var TASK_TERMINALS = ["auto", "tmux", "floating"];
 // The manifest's cloudVision options; Policy.recipients judges the same set.
 var CLOUD_VISION = ["ask", "allow", "never"];
 var TRANSCRIPT_CHARS = Session.TRANSCRIPT_CHARS;
-// The Voice setting's offers, and the Personality section's lines as a
+// The Voice setting's offers, and the lines of the home's instructions as a
 // Settings state carries them: PluginLogic's STATUS_LIST_MAX, STATUS_LABEL_MAX
 // and STATUS_TEXT_MAX bound each.
 var VOICES_MAX = 64;
-var PERSONALITY_LINES = 24;
-var PERSONALITY_CHARS = 200;
+var INSTRUCTIONS_LINES = 24;
+var INSTRUCTIONS_CHARS = 200;
+// The readings of a home's package drift (backend/Drift.js KINDS): only
+// "behind" offers the update.
+var HOME_DRIFT = ["none", "checking", "current", "behind", "drift", "pending", "unknown", "kendex-missing", "malformed", "timeout", "failed"];
 // What the status judge refuses in a line: SettingValues.CONTROL_OR_SEPARATOR,
 // which PluginLogic.isPrintableLine reads. A plugin's published snapshot
 // cannot import a core file, so this is a copy, and
@@ -213,6 +216,13 @@ function feed(tail, chunk) {
 
 function directory(value) {
     return typeof value === "string" && value.length > 1 && value[0] === "/" && !/[\x00-\x1f\x7f]/.test(value);
+}
+
+// A selected home as the daemon names it on the wire, homes.current and
+// home-drift.home alike, which the service compares: "" for none, or a ~/
+// path within the bound Home.resolve admits.
+function homeIdentity(value) {
+    return typeof value === "string" && (value === "" || /^~\/[^\x00-\x1f\x7f]{1,4096}$/.test(value));
 }
 
 function text(value) {
@@ -465,7 +475,7 @@ function mainHostSetting(value) {
 // the home's session command (SessionCommand.place), a package older than
 // the satellite contract, which lacks its verbs, or one that did not answer
 // as expected or names a different main than the setting.
-var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread", "setting-unhanded"];
+var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "not-set-up", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread", "setting-unhanded"];
 
 // The `main-reach` message's reading of the main Jarvis (Satellite.js),
 // with the host Main Jarvis host names, or the package's held main while
@@ -483,22 +493,23 @@ function mainReach(value) {
         && [true, false, null].indexOf(value.reachable) !== -1 && ["", "main-unreachable", "setting-invalid"].indexOf(value.cause) !== -1;
 }
 
-// The `personality` message's section for TEXT, Guidance.personality's: each
+// The `instructions` message's text for TEXT, the whole home AGENTS.md: each
 // non-blank line with what the status judge refuses as spaces, cut at a space into
-// pieces of at most PERSONALITY_CHARS, the first PERSONALITY_LINES of them;
-// `more` says pieces were left out.
-function personalitySection(text) {
+// pieces of at most INSTRUCTIONS_CHARS, the first INSTRUCTIONS_LINES of them;
+// `more` says pieces were left out. A text with no such line is "empty".
+function instructionsText(text) {
     var pieces = [];
     for (var line of String(text).split("\n")) {
         var rest = line.replace(new RegExp(STATUS_UNPRINTABLE.source, "g"), " ").trim();
         while (rest !== "") {
-            var piece = rest.slice(0, PERSONALITY_CHARS);
+            var piece = rest.slice(0, INSTRUCTIONS_CHARS);
             if (piece.length < rest.length && piece.lastIndexOf(" ") > 0) piece = piece.slice(0, piece.lastIndexOf(" "));
             pieces.push(piece);
             rest = rest.slice(piece.length).trim();
         }
     }
-    return { kind: "section", lines: pieces.slice(0, PERSONALITY_LINES), more: pieces.length > PERSONALITY_LINES };
+    if (pieces.length === 0) return { kind: "empty" };
+    return { kind: "text", lines: pieces.slice(0, INSTRUCTIONS_LINES), more: pieces.length > INSTRUCTIONS_LINES };
 }
 
 // Return the judged message, or throw a keyed protocol error.
@@ -621,7 +632,7 @@ function accept(line, direction) {
             if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -843,8 +854,7 @@ function accept(line, direction) {
     case "homes":
         if (direction !== "daemon") fail("direction-homes");
         keys(message, ["v", "type", "gen", "revision", "homes", "current"], "homes");
-        if (typeof message.current !== "string" || message.current !== "" && !/^~\/[^\x00-\x1f\x7f]{1,4096}$/.test(message.current))
-            fail("home-current");
+        if (!homeIdentity(message.current)) fail("home-current");
         var values = message.homes;
         if (!Array.isArray(values) || values.length > 10) fail("home-choices");
         var seen = {};
@@ -874,20 +884,29 @@ function accept(line, direction) {
             Object.defineProperty(voiced, voice.value, { value: true });
         }
         break;
-    case "personality":
-        if (direction !== "daemon") fail("direction-personality");
-        keys(message, ["v", "type", "gen", "revision", "personality"], "personality");
-        var shown = message.personality;
-        if (!object(shown)) fail("personality");
-        if (shown.kind === "section") {
-            keys(shown, ["kind", "lines", "more"], "personality");
-            if (!Array.isArray(shown.lines) || shown.lines.length < 1 || shown.lines.length > PERSONALITY_LINES
-                    || !shown.lines.every(line => statusLine(line, PERSONALITY_CHARS)) || typeof shown.more !== "boolean")
-                fail("personality-lines");
+    case "instructions":
+        if (direction !== "daemon") fail("direction-instructions");
+        keys(message, ["v", "type", "gen", "revision", "instructions"], "instructions");
+        var shown = message.instructions;
+        if (!object(shown)) fail("instructions");
+        if (shown.kind === "text") {
+            keys(shown, ["kind", "lines", "more"], "instructions");
+            if (!Array.isArray(shown.lines) || shown.lines.length < 1 || shown.lines.length > INSTRUCTIONS_LINES
+                    || !shown.lines.every(line => statusLine(line, INSTRUCTIONS_CHARS)) || typeof shown.more !== "boolean")
+                fail("instructions-lines");
         } else {
-            keys(shown, ["kind"], "personality");
-            if (["none", "missing", "unreadable"].indexOf(shown.kind) === -1) fail("personality-kind");
+            keys(shown, ["kind"], "instructions");
+            if (["none", "empty", "unreadable"].indexOf(shown.kind) === -1) fail("instructions-kind");
         }
+        break;
+    case "home-drift":
+        // The package drift reading of HOME, the selected home as ~/path,
+        // or "" for none, which the service binds to its own home setting.
+        if (direction !== "daemon") fail("direction-home-drift");
+        keys(message, ["v", "type", "gen", "revision", "home", "drift"], "home-drift");
+        if (!homeIdentity(message.home)) fail("home-drift-home");
+        keys(message.drift, ["kind"], "home-drift");
+        if (HOME_DRIFT.indexOf(message.drift.kind) === -1) fail("home-drift-kind");
         break;
     case "start-text":
         if (direction !== "daemon") fail("direction-start-text");

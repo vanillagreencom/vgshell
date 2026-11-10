@@ -13,7 +13,7 @@ flowchart LR
 
 ## The AI model
 
-The AI model receives your request and the rest of the conversation. It also receives your personality, instructions, skill list and memory index from your Jarvis home, and the notes, files, screen reads and web pages it reads during the conversation. With an app, such as Claude Code or Codex, the app sends this to its own company through its own connection. With a key, Jarvis Voice sends it to the company the key belongs to. A model that runs on your own computer, such as one through Ollama, receives it without the network.
+The AI model receives your request and the rest of the conversation. It also receives the Jarvis persona, your instructions, skill list and memory index from your Jarvis home, and the notes, files, screen reads and web pages it reads during the conversation. With an app, such as Claude Code or Codex, the app sends this to its own company through its own connection. With a key, Jarvis Voice sends it to the company the key belongs to. A model that runs on your own computer, such as one through Ollama, receives it without the network.
 
 ## The voice provider
 

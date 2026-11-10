@@ -54,12 +54,20 @@ world(() => {
         return fs.existsSync(folder) ? fs.readdirSync(folder).map(name => JSON.parse(fs.readFileSync(path.join(folder, name), "utf8"))) : [];
     };
 
+    // A home's memory folder as the package's init leaves it, with the
+    // inbox Memory.js keeps there; nothing here reads the package.
+    function memoryHome(folder) {
+        fs.mkdirSync(path.join(folder, "memory/inbox"), { recursive: true });
+        fs.writeFileSync(path.join(folder, "memory/MEMORY.md"), "");
+        fs.mkdirSync(path.join(folder, "state"), { recursive: true });
+    }
+
     function make(logic = Memory) {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "memory-" + ++serial);
         const folder = path.join(root, "home");
         const state = path.join(root, "state");
         fs.mkdirSync(root, { recursive: true });
-        Home.layout(folder);
+        memoryHome(folder);
         fs.mkdirSync(state, { recursive: true });
         const write = (id, text) => {
             fs.mkdirSync(path.dirname(path.join(folder, "memory", id)), { recursive: true });
@@ -232,7 +240,7 @@ world(() => {
     fs.mkdirSync(realParent, { recursive: true });
     fs.symlinkSync(realParent, linkParent);
     const linkedHome = path.join(linkParent, "home");
-    Home.layout(linkedHome);
+    memoryHome(linkedHome);
     const linkedState = path.join(symlinkRoot, "state");
     fs.mkdirSync(linkedState);
     const linked = attach(Memory, linkedHome, linkedState);

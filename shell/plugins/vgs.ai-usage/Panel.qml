@@ -8,8 +8,8 @@ import "UsageView.js" as View
 // the account's email, its menu, whose Refresh checks every account again
 // as Check now does and whose Hide adds it to Hidden accounts,
 // one row per limit with its time to reset and one
-// per credit the provider reports, the credits a group of their own one
-// step further down the spacing scale. Full view adds a meter under each limit
+// per credit the provider reports. Full view gives the credits a larger
+// group gap and adds a meter under each limit
 // and each credit with a used share, and the provider detail fields the
 // helper received. The calendar button left of the Settings gear shows the
 // reset calendar above the cards until the panel closes. The footer shows
@@ -311,9 +311,9 @@ Item {
 
                 Column {
                     id: usageRows
-                    // The gap above the first credit after a limit row,
-                    // one step down the scale from the gap between rows.
-                    readonly property real groupGap: root.fullView ? Theme.stack.group : Theme.stack.inline
+                    // Full view separates credits from limits; Compact
+                    // keeps the same gap between every row.
+                    readonly property real groupGap: root.fullView ? Theme.stack.group : Theme.row.lineGap
                     visible: entry.windows.length > 0
                     width: parent.width
                     spacing: root.fullView ? Theme.stack.inline : Theme.row.lineGap

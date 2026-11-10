@@ -132,7 +132,13 @@ var INSTALL_SCRIPT_RISKS = [
     // text piped into a shell
     /\| ?(?:sudo )?(?:ba|da|z)?sh\b/,
     // a removal of the root or of a home directory, which no package owns
-    /\brm (?:-\S+ )*(?:\/\*?|~\S*|"?\$HOME\S*|\/home\S*|\/root\S*)(?: |$)/
+    /\brm (?:-\S+ )*(?:\/\*?|~\S*|"?\$HOME\S*|\/home\S*|\/root\S*)(?: |$)/,
+    // a redirected or tee write planting system configuration or an SSH login key
+    /(?:>|(?:^|[ ;|&])(?:\/usr\/bin\/)?tee(?: -\S+)* ) ?["']?(?:\/(?:etc|root|home)(?:\/|["' ]|$)|[^ ;|&]*\bauthorized_keys\b)/,
+    // a reverse shell opening a TCP or UDP connection through a shell device redirection
+    /[<>] ?["']?\/dev\/(?:tcp|udp)\//,
+    // persistence by enabling a planted systemd unit
+    /\bsystemctl (?:--\S+ )*enable\b/
 ];
 
 // One line as installScriptChange compares it: trimmed, its whitespace
@@ -150,6 +156,8 @@ function scriptLines(text) {
 }
 
 function riskyScriptLine(line) {
+    // A quoted printf assignment can hide a setuid payload; exempt only stdout %s formats and echo without active expansion, pipes or redirection.
+    if (!/[<>|`]|\$\(/.test(line) && /^(?:echo|printf (?:'%s(?:\\n)?'|"%s(?:\\n)?"))(?: (?:'[^']*'|"(?:[^"\\$]|\\[^$])*"))+;?$/.test(line)) return false;
     for (var i = 0; i < INSTALL_SCRIPT_RISKS.length; i++)
         if (INSTALL_SCRIPT_RISKS[i].test(line)) return true;
     return false;

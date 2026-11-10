@@ -19,7 +19,7 @@
 # held. With Voice on too, Voice's toggle during a Jarvis recording answers
 # busy and changes neither recording. With both off, no voxtype process
 # runs. Each read polls once per nested IPC round trip.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: scripts/smoke/user-config.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* .agents/skills/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -407,6 +407,14 @@ jarvis_fixture_copy jarvis-controls-stock "$jarvis_fixture_tree" "$jarvis_fixtur
 jarvis_launcher_home="$sandbox/jarvis-launcher-home"
 jarvis_launcher_lease="$sandbox/jarvis-launcher-lease.sh"
 mkdir -p -- "$jarvis_launcher_home"
+# Two homes Setup set up: the daemon writes nothing in a home (D126).
+# Without kendex's lock, a home with no session program is a session
+# choice not made, which the session row logs nothing for.
+node - "$repo" "$jarvis_launcher_home/Launcher One" "$jarvis_launcher_home/Launcher Two" <<'JSHOMES'
+const path = require("node:path");
+const [tree, ...folders] = process.argv.slice(2);
+for (const folder of folders) require(path.join(tree, "scripts/fixtures/jarvis/home.js")).jarvisHome(folder, tree, { lock: false });
+JSHOMES
 python3 - "$jarvis_launcher_lease" "$jarvis_launcher_home" <<'PYHOME'
 from pathlib import Path
 import shlex,sys

@@ -13,6 +13,9 @@ jarvis_asks_fixture() { # SOURCE_TREE
   mkdir -- "$jarvis_asks_home" || return 1
   local name="${jarvis_asks_home##*/}" world="$sandbox/jarvis-world"
   local scripts="$jarvis_asks_home/.agents/skills/jarvis/scripts"
+  # A home Setup set up: the daemon writes nothing in a home (D126).
+  "$node_bin" -e 'require(process.argv[1]).jarvisHome(process.argv[2], process.argv[3])' \
+    "$1/scripts/fixtures/jarvis/home.js" "$jarvis_asks_home" "$1" || return 1
   mkdir -p -- "$scripts" || return 1
   cp -- "$1/scripts/fixtures/jarvis/owner-asks.js" "$scripts/jarvis-session" || return 1
   chmod 755 "$scripts/jarvis-session" || return 1

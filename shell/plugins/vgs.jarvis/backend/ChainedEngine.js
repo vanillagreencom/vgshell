@@ -563,9 +563,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             : local && speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : null;
         if (plan.kind !== "ready") {
             const { speech, list, modelLists, ...answer } = plan;
-            // One cause per step: the sidecar's goes before the recording's.
-            return cause === null ? { ...answer, cautions }
-                : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))], cautions };
+            if (cause === null) return { ...answer, cautions };
+            // One cause per step, in step order (JarvisProtocol setupCauses):
+            // the home folder's that heldByHome put first keeps the lead, and
+            // the sidecar's takes the speech step's place from the recording's.
+            const home = answer.causes.filter(other => /^(home|guidance)=/.test(other));
+            const rest = answer.causes.filter(other => !/^(home|guidance|speech)=/.test(other));
+            return { ...answer, cause: home[0] ?? cause, causes: [...home, cause, ...rest], cautions };
         }
         if (cause === "speech=local-loading")
             return { kind: "loading", cause, causes: [cause], cautions };

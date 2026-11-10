@@ -204,7 +204,7 @@ Singleton {
             act: (id, key, row, rowAction, done) => root.managerAct(id, key, row, rowAction, ctx, done),
             refreshChoices: (id, key) => PluginStatus.refresh(id, key),
             previewChoice: (id, key, value) => PluginStatus.preview(id, key, value),
-            viewPage: id => { PluginStatus.viewed = id; },
+            viewPage: (id, tab) => PluginStatus.view(id, tab),
             open: id => root.managerOpen(id),
             openPane: id => root.managerOpenPane(id),
             openTui: (id, name) => root.managerOpenTui(id, name),
@@ -265,6 +265,7 @@ Singleton {
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
             get viewed() { return PluginStatus.viewed === ctx.id; },
+            get viewedTab() { return PluginStatus.viewedTabOf(ctx.id); },
             get revision() { return PluginStatus.revisionOf(ctx.id); }
         }),
         theme: themes.provider,

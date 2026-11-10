@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# The Home step keeps package ownership with Kendex or the VGS install.
+# The Home folder step's Repair and the package update the home's drift
+# reading offers: kendex refreshes the packages of the home the Home folder
+# setting names, `kendex refresh --scope project --project-path HOME
+# --leave` (backend/fleet-setup.js), and asks its own questions here.
 set -euo pipefail
 source "$VGS_TUI_LIB"
 log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup.log"
@@ -8,7 +11,7 @@ tree="${lib%/bin/lib/tui.sh}"
 [[ $# == 0 && $tree != "$lib" && -n ${VGS_PLUGIN_ID:-} && -n ${VGS_PLUGIN_DIR:-} ]] ||
   vgs_tui_refuse "$log" 2 "jarvis: home-repair=arguments" \
     "Open Repair from the Home folder step in Jarvis Settings." || exit
-vgs_tui_header "Repair the Home folder" "The package owner restores the Jarvis files."
+vgs_tui_header "Jarvis home packages" "kendex updates and restores the packages in your Jarvis home."
 settings="$(vgs_tui_logged "$log" "$tree/bin/vgshell" plugin settings "$VGS_PLUGIN_ID")" ||
   vgs_tui_refuse "$log" 1 "jarvis: home-repair=settings-unreadable" "VGS could not read the Jarvis settings." || exit
 setting="$(vgs_tui_logged "$log" node -e '

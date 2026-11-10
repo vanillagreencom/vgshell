@@ -125,7 +125,7 @@ function inside() {
     // A new selection that fails its check keeps the old session, says so
     // and stops nothing.
     function changeRefused(directory) {
-        for (const [setting, target, block] of [[local, "~/Jarvis", "not-app"], [claude, "~/Bare", "vgs-package"], [claude, "~/Absent", "no-home"]]) {
+        for (const [setting, target, block] of [[local, "~/Jarvis", "not-app"], [claude, "~/Bare", "not-set-up"], [claude, "~/Absent", "not-set-up"]]) {
             answers(folder, { status: said("running", "resumed", { home: folder, harness: "claude", account }), stop: said("stopping", "stop-requested") });
             const result = helper(directory, ["change", "~/Jarvis", setting, target, "resume"]);
             assert.deepEqual([result.kind, result.state, result.unapplied], ["answer", "running", block], block);
@@ -156,8 +156,8 @@ function inside() {
     function blocks(directory) {
         answers(folder, { status: said("stopped", "never-started"), start: said("starting", "launching") });
         const rows = [
-            ["no-home", ["build", claude, "", "resume", "on"]], ["no-home", ["status", "~/Absent"]], ["no-home", ["status", "/outside"]],
-            ["vgs-package", ["status", "~/Bare"]], ["vgs-package", ["build", claude, "~/Bare", "resume", "on"]],
+            ["no-home", ["build", claude, "", "resume", "on"]], ["not-set-up", ["status", "~/Absent"]], ["no-home", ["status", "/outside"]],
+            ["not-set-up", ["status", "~/Bare"]], ["not-set-up", ["build", claude, "~/Bare", "resume", "on"]],
             ["no-account", ["build", "", "~/Jarvis", "resume", "on"]], ["no-account", ["start", "cli:" + "0".repeat(32), "~/Jarvis", "resume"]],
             ["not-app", ["start", local, "~/Jarvis", "resume"]]
         ];
@@ -192,9 +192,12 @@ function inside() {
         fs.writeFileSync(path.join(at("Kendex"), ".kendex-lock.json"), JSON.stringify({ entries: { jarvis: { kind: "skill", name: "jarvis" } } }));
         fs.copyFileSync(standIn, path.join(scripts(at("Kendex")), "jarvis-session"));
         fs.chmodSync(path.join(scripts(at("Kendex")), "jarvis-session"), 0o644);
-        // A home VGS laid out from its render, which ships no command.
         fs.mkdirSync(at("Made"));
-        require(path.join(plugin, "backend/Home.js")).layout(at("Made"));
+        // A folder kendex never installed the package in: Setup's to set up.
+        for (const name of ["AGENTS.md", "memory/MEMORY.md"]) {
+            fs.mkdirSync(path.dirname(path.join(at("Made"), name)), { recursive: true });
+            fs.writeFileSync(path.join(at("Made"), name), "");
+        }
         const statusRows = [
             ["exit-2", { exit: 2, object: { state: "stopped", reason: "never-started" } }, { kind: "blocked", block: "unread" }, "jarvis: session-status=exit=2"],
             ["no-line", { exit: 0, raw: "" }, { kind: "blocked", block: "unread" }, "jarvis: session-status=unaccepted"],
@@ -213,7 +216,7 @@ function inside() {
         answers(other, { status: said("stopped", "never-started") });
         fs.chmodSync(file, 0o644);
         const homeRows = [["link", "~/causes/Linked", "home-link"], ["kind", "~/causes/Kind", "home-kind"],
-            ["kendex-no-execute", "~/causes/Kendex", "package"], ["vgs-no-execute", "~/Other", "vgs-package"], ["vgs-made", "~/causes/Made", "vgs-package"]];
+            ["kendex-no-execute", "~/causes/Kendex", "package"], ["no-lock-no-execute", "~/Other", "not-set-up"], ["no-package", "~/causes/Made", "not-set-up"]];
         for (const [name, setting, block] of homeRows) {
             read.push([name, helper(directory, ["status", setting]), errors.split("\n")[0]]);
             expected.push([name, { kind: "blocked", block }, ""]);
@@ -409,9 +412,9 @@ function inside() {
     control("keyed-line", C, 'process.stderr.write("jarvis: session-" + words[0] + "=" + cause + "\\n");', "", causes);
     control("trust-state", C, '"app-missing", "trust-required"]', '"app-missing"]', causes);
     control("home-blocks", S, 'if (command.kind !== "absent") return { kind: "blocked", block: BLOCKS[command.kind] };', "", causes);
-    control("package-owner", S, 'owner === "kendex" ? "package" : "vgs-package"', '"package"', causes);
+    control("package-installed", S, 'installed ? "package" : "not-set-up"', '"package"', causes);
     control("account-label", C, "account: await label(value.harness, value.account)", "account: value.account", names);
-    control("home-folder", S, "folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()", "folder === null", blocks);
+    control("home-not-set-up", S, 'if (found === undefined) return { kind: "blocked", block: "not-set-up" };', 'if (found === undefined) return { kind: "blocked", block: "no-home" };', blocks);
     control("fields-pass-on", C, '...Object.fromEntries(["model", "since"]', '...Object.fromEntries([]', fields);
     control("model-checked", C, "if (model !== null && !named(model)) return null;", "", fieldsOutside);
     control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);

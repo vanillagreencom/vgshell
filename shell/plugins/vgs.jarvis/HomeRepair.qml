@@ -2,8 +2,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Reads the failed Home's writer without changing it. The plain folder
-// reader remains independent: a failed install plan must not hide its files.
+// Reads, without changing it, whether kendex installed the partial Jarvis
+// package of the failed Home (fleet-setup.js repair-status): `home` takes
+// Repair, `setup` takes Set up. The plain folder reader remains independent.
 Item {
     id: root
     property var shell: null
@@ -42,7 +43,7 @@ Item {
         if (probe.code !== 0 || probe.timedOut) return;
         try {
             const repair = JSON.parse(probe.output);
-            if ((repair.kind !== "home" && repair.kind !== "install") || typeof repair.folder !== "string"
+            if ((repair.kind !== "home" && repair.kind !== "setup") || typeof repair.folder !== "string"
                 || (repair.lastRepair !== null && (!repair.lastRepair || ["running", "failed", "complete"].indexOf(repair.lastRepair.kind) === -1)))
                 throw new Error("shape");
             if (repair.lastRepair !== null && repair.lastRepair.kind === "running" && tuiState !== null && !tuiState.running && tuiState.endedAt !== null)

@@ -228,6 +228,10 @@ world("jg", root => {
     // differs from one in bytes.
     const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n" },
         "# Persona\nPERSONA-MARKER caf\u00e9\n", "\n- [Team](facts/team.md): MEMORY-MARKER\n");
+    // The package requires one skill, whose SKILL.md joins the index (D126).
+    fs.writeFileSync(path.join(full, ".agents/skills/jarvis/SKILL.md"), "---\ndescription: Jarvis package\ndependencies:\n  required: [communication]\n---\n# Jarvis\n");
+    fs.mkdirSync(path.join(full, ".agents/skills/communication"));
+    fs.writeFileSync(path.join(full, ".agents/skills/communication/SKILL.md"), "# Communication\nCOMM-BODY\n");
     // A persona left where VGS copied the package before kendex's layout is
     // no persona of the home: the one the brain gets is the render's.
     fs.mkdirSync(path.join(full, "skills/base/jarvis"), { recursive: true });
@@ -280,13 +284,20 @@ world("jg", root => {
             assert.equal(added.indexOf("PERSONA-MARKER") > -1 && added.indexOf("PERSONA-MARKER") < added.indexOf("HOME-MARKER"), true,
                 row.class + ": the package's persona, before the user's AGENTS.md");
             assert.equal(added.includes("OLD-PERSONA"), false, row.class + ": no persona of an older copy");
-            assert.deepEqual(["- base/jarvis: Jarvis package", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
-                row.class + ": the skill index, name and first line");
+            assert.deepEqual(["- base/communication: Communication", "- base/jarvis: Jarvis package", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true, true],
+                row.class + ": the skill index, name and first line, the skill the package requires among them");
+            assert.equal(added.includes("COMM-BODY"), false, "a required skill's body is read on demand");
+            // The persona layer names its file, so the route line the
+            // package's init writes in AGENTS.md finds it loaded (KEN-4957).
+            assert.equal(added.includes("\n\nThe text of .agents/skills/jarvis/persona.md, loaded for you:\n\n# Persona\nPERSONA-MARKER"), true,
+                row.class + ": the persona layer names persona.md");
+            assert.equal(added.split("PERSONA-MARKER").length - 1, 1, row.class + ": the persona loads once");
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
             assert.equal(stateLast(added, full, row.class).endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
             assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"]);
             sized(value, row, copy, ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"], row.class + " full home");
-            assert.equal(value.size.home[0].bytes, Buffer.byteLength("# Persona\nPERSONA-MARKER caf\u00e9"), "the persona's size in bytes");
+            assert.equal(value.size.home[0].bytes, Buffer.byteLength("The text of .agents/skills/jarvis/persona.md, loaded for you:\n\n# Persona\nPERSONA-MARKER caf\u00e9"),
+                "the persona layer's size in bytes");
             assert.deepEqual(value.overBudget, [], row.class + ": a home within its budgets names none");
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
@@ -330,7 +341,8 @@ world("jg", root => {
         ["home-layer", "        content.push(text);\n", ""],
         ["home-order", "        content.push(text);\n", "        content.unshift(text);\n"],
         ["home-empty", 'if (agents !== "")', "if (true)"],
-        ["persona-layer", 'if (persona !== "") out.push(["home/persona", persona]);', ""],
+        ["persona-layer", 'if (persona !== "") out.push(["home/persona", "The text of " + personaFile + ", loaded for you:\\n\\n" + persona]);', ""],
+        ["persona-named", '"The text of " + personaFile + ", loaded for you:\\n\\n" + persona', "persona"],
         ["persona-empty", 'if (persona !== "")', "if (true)"],
         ["persona-render", 'Home.baseSet(home) + "/" + Home.PACKAGE', '"skills/base/" + Home.PACKAGE'],
         ["voice-home", 'if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");', ""],
@@ -351,34 +363,6 @@ world("jg", root => {
         ["size-start", "const start = Buffer.byteLength(instructions);", "const start = instructions.length;"]
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => homeText(logic, path.join(root, name))); controls++;
-    }
-    // The Personality section the Settings page shows: its text up to the
-    // next heading of level one or two, its own deeper headings kept, and
-    // missing for no heading or an empty one.
-    const sections = [
-        ["between headings", "# Mine\n\nIntro.\n\n## Personality\n\nCalm.\n### Pace\nSlow.\n\n## Tools\nNone.\n", { kind: "section", text: "Calm.\n### Pace\nSlow." }],
-        ["last", "## personality  \nBrief and warm.\n", { kind: "section", text: "Brief and warm." }],
-        ["before a title", "## Personality\nDry.\n# Other\nx\n", { kind: "section", text: "Dry." }],
-        ["absent", "# Mine\nNo section.\n", { kind: "missing" }],
-        ["empty", "## Personality\n\n## Tools\nx\n", { kind: "missing" }],
-        ["another heading", "## Personality notes\nx\n", { kind: "missing" }]
-    ].map(([name, agents, expected]) => [name, home("personality-" + name.replace(/ /g, "-"), agents), expected]);
-    const overSection = home("personality-over", "## Personality\nCalm.\n## Notes\n" + "n".repeat(9000) + "\n");
-    const personality = (logic, copy = backend) => {
-        require(path.join(copy, "Core.js")).use(tree);
-        for (const [name, folder, expected] of sections) assert.deepEqual(logic.personality(folder), expected, name);
-        let shown;
-        assert.doesNotThrow(() => { shown = logic.personality(overSection); }, "an AGENTS.md over its budget shows its section");
-        assert.deepEqual(shown, { kind: "section", text: "Calm." });
-    };
-    personality(Guidance);
-    for (const [name, needle, replacement] of [
-        ["personality-end", 'const end = rest.findIndex(line => /^#{1,2}\\s/.test(line));', "const end = -1;"],
-        ["personality-heading", "/^##\\s+Personality\\s*$/i", "/^##\\s+Personality/i"],
-        ["personality-empty", 'return text === "" ? { kind: "missing" } : { kind: "section", text };', 'return { kind: "section", text };'],
-        ["personality-whole", 'Home.read(home, "AGENTS.md", null)', 'Home.read(home, "AGENTS.md", 8192)']
-    ]) {
-        control(root, name, "Guidance.js", needle, replacement, logic => personality(logic, path.join(root, name))); controls++;
     }
 });
 console.log("test-jarvis-guidance: ok fixtures=" + fixtures.length + " controls=" + controls);

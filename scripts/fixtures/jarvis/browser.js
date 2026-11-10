@@ -106,7 +106,7 @@ async function daemonLease(ending, removeClose = false) {
             }
             for (const frame of frames.filter(frame => ["main-reach", "echo-cancel"].includes(frame.type)))
                 Protocol.accept(JSON.stringify(frame), "daemon");
-            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks", "main-reach", "echo-cancel"].includes(frame.type)), [
+            assert.deepEqual(frames.filter(frame => !["homes", "voices", "instructions", "home-drift", "start-text", "owner-asks", "main-reach", "echo-cancel"].includes(frame.type)), [
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",

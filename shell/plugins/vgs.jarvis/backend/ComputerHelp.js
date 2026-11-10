@@ -1,6 +1,7 @@
 // One on-demand owner for help: the computer-family files VGS installs, one
-// regular Markdown file per family, and the skills of the user's Jarvis home
-// folder, read through Home.js. Browser readiness adds
+// regular Markdown file per family, a shared skill file of the VGS tree read
+// in place, and the skills of the user's Jarvis home folder, read through
+// Home.js. Browser readiness adds
 // its provider to this same owner. As the one executor that holds the home,
 // it also hands a request to the Jarvis session's mailbox there, through
 // the mail tool kendex installs in the home (Home.mailTool). Its answer
@@ -75,11 +76,13 @@ function events(result) {
  * empty, whose session alone takes a fleet request (a satellite forwards
  * instead, Satellite.js, or not at all while its forward is unavailable).
  * answer(item), when provided, receives the first final owner notice for
- * each request, labelled as agent output. Browser owns sync and close;
+ * each request, labelled as agent output. shared maps a topic of
+ * Tools.HELP_TOPICS to the absolute file it is read from in place of
+ * ROOT's. Browser owns sync and close;
  * neither a conversation end nor a new generation abandons a request.
  */
 function create(root = ROOT, browser = null, home = () => null, environment = {}, main = () => true,
-    { answer = null, log = () => {}, clock = CLOCK, run = Child.run } = {}) {
+    { answer = null, log = () => {}, clock = CLOCK, run = Child.run, shared = {} } = {}) {
     let closed = false;
     let timer = null;
     let reading = null;
@@ -99,8 +102,13 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         reader.abort();
         reader = new AbortController();
     }
+    // A shipped topic's file: ROOT's <topic>.md, or the file SHARED names
+    // for it, a skill of the VGS tree read in place, as Agent Debug's
+    // vgs-diagnose that its Diagnose hands over by name (D126: nothing
+    // writes it into a home).
+    const file = topic => Object.hasOwn(shared, topic) ? shared[topic] : path.join(root, topic + ".md");
     const shipped = Tools.HELP_TOPICS.filter(topic => {
-        try { return fs.lstatSync(path.join(root, topic + ".md")).isFile(); }
+        try { return fs.lstatSync(file(topic)).isFile(); }
         catch (error) { if (error.code === "ENOENT") return false; throw error; }
     });
     // A home whose skills cannot be listed offers none; Guidance.compose
@@ -284,7 +292,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
                 }
                 if (!shipped.includes(topic)) throw new Error("help-topic-unavailable");
                 if (topic === "browser" && browser !== null) { browser.start(call, done); return; }
-                fd = fs.openSync(path.join(root, topic + ".md"), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+                fd = fs.openSync(file(topic), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
                 if (!fs.fstatSync(fd).isFile()) throw new Error("help-file-invalid");
                 const buffer = Buffer.alloc(LIMIT + 1);
                 const size = fs.readSync(fd, buffer);

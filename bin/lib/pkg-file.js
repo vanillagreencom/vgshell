@@ -1,7 +1,10 @@
-// bin/lib/pkg-file.js: the user's side of a verified-file source of
-// shell/Core/PackageManagers.js. The repository's database is unsigned, so it
-// only names the file; the package's own signature, tied to the pinned key,
-// is the trust. Each refusal comes before any root step.
+// bin/lib/pkg-file.js: the user's side of a file row of
+// shell/Core/PackageManagers.js. A verified file: the repository's database
+// is unsigned, so it only names the file; the package's own signature, tied
+// to the pinned key, is the trust. A release file: the pinned SHA-256 of
+// the release asset is the trust, and the package file must name the
+// package, version and architecture pinned. Each refusal comes before any
+// root step.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");
@@ -61,9 +64,97 @@ function releaseSignals() {
     for (const signal of SIGNALS) process.removeListener(signal, onSignal);
 }
 
-// The installed version of NAME, or null: pacman -Q exits 1 for a package
-// it does not have.
-function installed(name) {
+// Each release file format's reads: the system's architecture as its
+// release assets name it, the package file's name, version and
+// architecture as one line, the installed version of a package, and the
+// format's own version comparison, whose versions a refusal holds to the
+// characters a version of that format takes.
+const FORMATS = {
+    // dpkg(1) --print-architecture; dpkg-deb(1) --field prints each field
+    // as `Field: value`; dpkg-query(1) exits 1 for a name it knows nothing
+    // of, and its db:Status-Status is `installed` only for an installed
+    // package, not one whose configuration files alone remain.
+    deb: {
+        arch: ["dpkg", "--print-architecture"],
+        identity: file => ["dpkg-deb", "--field", file, "Package", "Version", "Architecture"],
+        expected: (release, arch) => "Package: " + release.name + "\nVersion: " + release.version + "\nArchitecture: " + arch + "\n",
+        installed: name => ["dpkg-query", "-W", "--showformat=${db:Status-Status} ${Version}\n", "--", name],
+        read: (r, name) => {
+            if (r.error === undefined && r.status === 1) return null;
+            const found = r.status === 0 ? /^(\S+) (\S+)\n$/.exec(r.stdout) : null;
+            if (found === null) return undefined;
+            return found[1] === "installed" ? found[2] : null;
+        },
+        // deb-version(7): epoch, upstream version and revision, each
+        // starting with a digit, so no version reads as an option; dpkg(1)
+        // --compare-versions exits 0 for a true relation and 1 for a false one.
+        version: /^[0-9][A-Za-z0-9.+~:-]*$/,
+        newer: (a, b) => {
+            const r = spawn(["dpkg", "--compare-versions", a, "gt", b]);
+            if (r.error === undefined && (r.status === 0 || r.status === 1)) return r.status === 0;
+            return refuse("compare=failed tool=dpkg", undefined, 1, "VGS could not compare the versions " + a + " and " + b + ", so it changed nothing.\n" + (r.stderr || ""));
+        }
+    },
+    // rpm(8): -E evaluates a macro, -qp queries a package file, and -q exits
+    // 1 for a package that is not installed.
+    rpm: {
+        arch: ["rpm", "-E", "%{_arch}"],
+        identity: file => ["rpm", "-qp", "--queryformat", "%{NAME} %{VERSION} %{ARCH}\n", "--", file],
+        expected: (release, arch) => release.name + " " + release.version + " " + arch + "\n",
+        installed: name => ["rpm", "-q", "--queryformat", "%{VERSION}\n", "--", name],
+        read: r => {
+            if (r.error === undefined && r.status === 1) return null;
+            const found = r.status === 0 ? /^(\S+)\n$/.exec(r.stdout) : null;
+            return found === null ? undefined : found[1];
+        },
+        // rpm's own rpm.vercmp (rpm-lua(7)) prints 1, 0 or -1; the version
+        // pattern keeps every quote out of the Lua string it is put in.
+        version: /^[A-Za-z0-9._+~^]+$/,
+        newer: (a, b) => {
+            const said = tool(["rpm", "--eval", "%{lua:print(rpm.vercmp(\"" + a + "\",\"" + b + "\"))}"], "compare=failed tool=rpm",
+                "VGS could not compare the versions " + a + " and " + b + ", so it changed nothing.").trim();
+            if (!["1", "0", "-1"].includes(said)) refuse("compare=unreadable tool=rpm value=" + JSON.stringify(said), undefined, 1, "VGS could not compare the versions " + a + " and " + b + ", so it changed nothing.");
+            return said === "1";
+        }
+    }
+};
+
+// Each kind of file row (PackageManagers.js `files.kind`): a verified file
+// that a repository's database names, or a pinned release file.
+const KINDS = ["verified", "release"];
+
+// Manager ID's file row, its kind one of KINDS.
+function fileRow(id) {
+    const row = table.managerRow(id);
+    const spec = row === null ? undefined : row.files;
+    if (spec === undefined || !KINDS.includes(spec.kind)) refuse("manager=" + id + " reason=no-file-row", undefined, 1, "VGS takes no package files through " + id + ", so it changed nothing.");
+    return spec;
+}
+
+// Whether version A is newer than B under manager ID's row: pacman's own
+// vercmp for a verified file, the release format's comparison otherwise.
+function newer(id, a, b) {
+    const spec = fileRow(id);
+    if (spec.kind === "verified")
+        return Number(tool(["vercmp", a, b], "vercmp=failed", "VGS could not compare the versions " + a + " and " + b + ", so it changed nothing.")) > 0;
+    const format = FORMATS[spec.format];
+    for (const version of [a, b])
+        if (!format.version.test(version)) refuse("version=unreadable value=" + JSON.stringify(version), undefined, 1, "VGS could not read the version " + version + ", so it changed nothing.");
+    return format.newer(a, b);
+}
+
+// The installed version of NAME under manager ID's row, or null: pacman -Q
+// exits 1 for a package it does not have; a release file's format reads
+// its own.
+function installed(id, name) {
+    const spec = fileRow(id);
+    if (spec.kind === "release") {
+        const format = FORMATS[spec.format];
+        const r = spawn(format.installed(name));
+        const version = format.read(r, name);
+        if (version === undefined) refuse("installed=unreadable name=" + name, undefined, 1, "VGS could not read the installed version of " + name + ", so it changed nothing.\n" + (r.stderr || ""));
+        return version;
+    }
     const r = spawn(["pacman", "-Q", "--", name]);
     if (r.error === undefined && r.status === 1) return null;
     const words = r.status === 0 ? r.stdout.trim().split(" ") : [];
@@ -71,8 +162,31 @@ function installed(name) {
     return words[1];
 }
 
-function newer(a, b) {
-    return Number(tool(["vercmp", a, b], "vercmp=failed", "VGS could not compare the versions " + a + " and " + b + ", so it changed nothing.")) > 0;
+// Fetches release-file manager ID's package NAME into DIR: `{ name,
+// fetched, filename }` for PackageManagers.filePlan, once the asset's
+// SHA-256 is the pinned one and the file names the pinned package, version
+// and architecture.
+function fetchRelease(id, name, dir) {
+    const spec = fileRow(id);
+    const release = spec.releases.find(r => r.name === name);
+    if (release === undefined) refuse("manager=" + id + " name=" + name + " reason=unlisted", undefined, 1, "VGS takes no package named " + name + " from a pinned release, so it installed nothing.");
+    const format = FORMATS[spec.format];
+    const arch = tool(format.arch, "arch=unreadable", "VGS could not read this system's architecture, so it installed nothing.").trim();
+    const asset = Object.prototype.hasOwnProperty.call(release.assets, arch) ? release.assets[arch] : undefined;
+    if (asset === undefined) refuse("release=unsupported name=" + name + " arch=" + arch, undefined, 1, name + " publishes no package for this computer's architecture, " + arch + ", so VGS installed nothing.");
+    const current = installed(id, name);
+    if (current !== null && newer(id, current, release.version))
+        refuse("version=older name=" + name + " installed=" + current + " offered=" + release.version, undefined, 1, "VGS offers " + name + " " + release.version + ", older than the installed " + current + ". VGS does not install an older version, so it installed nothing.");
+    const url = release.url + asset.file;
+    process.stderr.write("Fetching " + asset.file + " from " + release.url + ", then checking it against the digest VGS pins.\n");
+    const fetched = download(url, path.join(dir, asset.file), name);
+    const refused = "VGS refused it, so it installed nothing.";
+    if (crypto.createHash("sha256").update(fs.readFileSync(fetched)).digest("hex") !== asset.sha256)
+        refuse("sha256=mismatch name=" + name + " url=" + url, undefined, 1, "The downloaded " + name + " file differs from the release VGS pins. " + refused + " Try again later.");
+    const other = "The downloaded " + name + " file is not the package, version and architecture VGS pins. " + refused;
+    if (tool(format.identity(fetched), "identity=unreadable name=" + name, other) !== format.expected(release, arch))
+        refuse("identity=mismatch name=" + name + " offered=" + release.version, undefined, 1, other);
+    return { name, fetched, filename: asset.file };
 }
 
 // SOURCE's database entries by package name, each `{ filename, version,
@@ -110,7 +224,8 @@ function unlisted(name, source) {
 // DIR: `{ name, fetched, fetchedSig, filename, key }` for
 // PackageManagers.filePlan.
 function fetch(id, name, dir) {
-    const source = table.managerRow(id).files.repositories.find(r => r.packages.includes(name));
+    if (fileRow(id).kind === "release") return fetchRelease(id, name, dir);
+    const source = fileRow(id).repositories.find(r => r.packages.includes(name));
     if (source === undefined) refuse("manager=" + id + " name=" + name + " reason=unlisted", undefined, 1, "VGS takes no package named " + name + " from a verified source, so it installed nothing.");
     if (fileSignatureRequired())
         refuse("local-file-siglevel=required name=" + name, undefined, 1, "This system's pacman checks a package file's signature itself, which would need " + source.name + "'s key in the system keyring. VGS does not trust a key system-wide, so it cannot install " + name + " here.");
@@ -118,8 +233,8 @@ function fetch(id, name, dir) {
     if (entry === undefined) unlisted(name, source);
     if (!FILENAME.test(entry.filename || "") || !entry.filename.startsWith(name + "-" + entry.version + "-") || !/^[0-9a-f]{64}$/.test(entry.sha256 || ""))
         refuse("database=malformed name=" + name + " repository=" + source.name, undefined, 1, source.name + "'s package list describes " + name + " in a form VGS does not accept, so it installed nothing. Try again later.");
-    const current = installed(name);
-    if (current !== null && newer(current, entry.version))
+    const current = installed(id, name);
+    if (current !== null && newer(id, current, entry.version))
         refuse("version=older name=" + name + " installed=" + current + " offered=" + entry.version, undefined, 1, source.name + " offers " + name + " " + entry.version + ", older than the installed " + current + ". VGS does not install an older version, so it installed nothing.");
     process.stderr.write("Fetching " + entry.filename + " and its signature from " + source.name + ", then checking them against the key VGS ships.\n");
     const fetched = download(entry.url, path.join(dir, entry.filename), name);
@@ -142,20 +257,30 @@ function fetch(id, name, dir) {
     return { name, fetched, fetchedSig, filename: entry.filename, key };
 }
 
-// Manager ID's installed packages its repositories' databases offer newer,
-// each `{ name, installed, offered }`, or null when none of its packages is
-// installed.
+// Manager ID's installed packages its repositories' databases or its
+// pinned releases offer newer, each `{ name, installed, offered }`, or null
+// when none of its packages is installed.
 function outdated(id) {
     const found = [];
     let used = false;
-    for (const source of table.managerRow(id).files.repositories) {
-        const have = source.packages.map(name => [name, installed(name)]).filter(pair => pair[1] !== null);
+    const spec = fileRow(id);
+    if (spec.kind === "release") {
+        for (const release of spec.releases) {
+            const version = installed(id, release.name);
+            if (version === null) continue;
+            used = true;
+            if (newer(id, release.version, version)) found.push({ name: release.name, installed: version, offered: release.version });
+        }
+        return used ? found : null;
+    }
+    for (const source of spec.repositories) {
+        const have = source.packages.map(name => [name, installed(id, name)]).filter(pair => pair[1] !== null);
         if (have.length === 0) continue;
         used = true;
         const entries = database(source, scratch());
         for (const [name, version] of have) {
             if (entries[name] === undefined) unlisted(name, source);
-            if (newer(entries[name].version, version)) found.push({ name, installed: version, offered: entries[name].version });
+            if (newer(id, entries[name].version, version)) found.push({ name, installed: version, offered: entries[name].version });
         }
     }
     return used ? found : null;

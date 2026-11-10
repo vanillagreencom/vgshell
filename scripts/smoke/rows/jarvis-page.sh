@@ -11,7 +11,7 @@
 # The Microphone field's info dialog
 # links to the Sounds page. With the fixture's key stored,
 # Details draws the key list, a line per key with its chip; Settings and
-# Setup draw none. Setup draws the API keys, Account search and Personality
+# Setup draw none. Setup draws the API keys, Account search and Instructions
 # steps, and Details draws none of them. Local servers appear beside
 # the signed-in Claude Code account. With that account chosen, and only
 # then, the page offers that account's models and effort
@@ -31,7 +31,7 @@
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh scripts/smoke/rows/settings.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* .agents/skills/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh scripts/smoke/rows/settings.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -46,6 +46,9 @@ printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 printf 'none\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_fixture_terminal
 jarvis_fixture_copy jarvis-page-input "$jarvis_fixture_tree" "$jarvis_fixture_shim"
+# This tree's daemon finds the Home folder case's ~/PageJarvis ready in its
+# own world; the input copy above stays without it.
+jarvis_world_home "$jarvis_fixture_tree" PageJarvis || fail "the daemon's fixture Jarvis home cannot be seeded"
 terminal_ready "Jarvis page"
 jarvis_rescan
 jarvis_enable
@@ -71,13 +74,19 @@ page_home_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"
 page_home_text() { page_home_field | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["text"]))'; }
 page_home_model() { page_home_field | py_reply 'import json,sys; print(json.dumps([row["label"] for row in json.load(sys.stdin)["model"]]))'; }
 expect_poll "the Home folder starts with None and the default home" '["None", "~/Jarvis", "Custom\u2026"]' page_home_model
-expect "the Settings page writes a fixture Jarvis home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":"~/SmokeJarvis"}'
-expect_poll "the Home folder offers None, the accepted fixture home, the default home and Custom" '["None", "~/SmokeJarvis", "~/Jarvis", "Custom\u2026"]' page_home_model
+# The daemon remembers a home it judged ready, and writes nothing in one
+# (D126): the fixture home is one Setup set up, without kendex's lock, so
+# its session row reads a choice not made and logs nothing. The daemon's
+# world makes its own (jarvis_world_home above); this is the shell's.
+node -e 'require(process.argv[1]).jarvisHome(process.argv[2], process.argv[3], { lock: false })' \
+  "$jarvis_fixture_tree/scripts/fixtures/jarvis/home.js" "$home/PageJarvis" "$jarvis_fixture_tree" || fail "the fixture Jarvis home could not be made"
+expect "the Settings page writes a fixture Jarvis home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":"~/PageJarvis"}'
+expect_poll "the Home folder offers None, the accepted fixture home, the default home and Custom" '["None", "~/PageJarvis", "~/Jarvis", "Custom\u2026"]' page_home_model
 # The page leaves no home set for the later steps and rows, and returns to
 # its top, which the Custom… editor scrolled from while the written home
 # was not yet offered.
 expect "the Settings page clears the fixture Jarvis home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":""}'
-expect_poll "the cleared Home folder still offers the used fixture home" '["None", "~/SmokeJarvis", "~/Jarvis", "Custom\u2026"]' page_home_model
+expect_poll "the cleared Home folder still offers the used fixture home" '["None", "~/PageJarvis", "~/Jarvis", "Custom\u2026"]' page_home_model
 expect_poll "the Home folder reads None" '"None"' page_home_text
 ipc smoke scrollTo window vgs.settings 0 >/dev/null || fail "the Jarvis page did not return to its top"
 
@@ -295,6 +304,9 @@ p.write_text(changed)
 PY
 jarvis_rescan
 jarvis_enable
+# The enable raises the requirement notice again, and its dialog can lie
+# over the tab strip, so the step closes it before the click on Setup.
+jarvis_notice_close "$jarvis_fixture_shim"
 settings_setup
 expect_poll "the control keeps the AI model hint's plain words" 'Choose an AI model in AI model' page_model_hint
 page_hint="$(page_model_hint)"
@@ -498,9 +510,9 @@ expect_poll "the restored world publishes its fixture key" matched jarvis_key_va
 # itself, so no masked field of the core's holds them and Settings and
 # Setup draw no list. The Details reading proves the read sees the list.
 page_keys_want="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["status"]["keys"]; print(json.dumps([e["label"], e["hint"], "fixture / test", "Present"]))' "$page_manifest")"
-# API keys, Account search and Personality are optional Setup steps: each
+# API keys, Account search and Instructions are optional Setup steps: each
 # draws on Setup, and none of their labels heads a Details row.
-page_moved=("keyStore" "accountSearch" "personality")
+page_moved=("keyStore" "accountSearch" "instructions")
 page_moved_setup() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; drawn={r["key"] for r in json.load(sys.stdin)}; print(json.dumps([k for k in sys.argv[1:] if k in drawn]))' "${page_moved[@]}"; }
 page_moved_details() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; status=json.load(open(sys.argv[1]))["status"]; labels=[status[k]["label"] for k in sys.argv[2:]]; print(json.dumps([r[0] for r in json.load(sys.stdin) if r and r[0] in labels]))' "$page_manifest" "${page_moved[@]}"; }
 page_moved_want="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${page_moved[@]}")"
@@ -509,10 +521,10 @@ settings_page_open vgs.jarvis
 expect_poll "the page opens Settings with no provider key list" rows=0 page_keys_drawn
 settings_setup
 expect "Setup draws no provider key list" rows=0 page_keys_drawn
-expect_poll "Setup draws the API keys, Account search and Personality steps" "$page_moved_want" page_moved_setup
+expect_poll "Setup draws the API keys, Account search and Instructions steps" "$page_moved_want" page_moved_setup
 settings_details
 expect_poll "Details draws the provider key list" "$page_keys_want" page_keys_drawn
-expect "Details draws no API keys, Account search or Personality row" '[]' page_moved_details
+expect "Details draws no API keys, Account search or Instructions row" '[]' page_moved_details
 settings_tab_click Settings || fail "the click back to Settings after the key list failed"
 expect_poll "the page shows Settings for the backup models" 0 settings_tab
 

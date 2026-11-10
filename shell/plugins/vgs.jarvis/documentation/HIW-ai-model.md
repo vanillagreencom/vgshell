@@ -23,7 +23,7 @@ With OpenAI Realtime or Gemini Live, the cloud voice only hears you and speaks t
 
 ## What it reads from your Jarvis home
 
-At a conversation's first turn, the AI model receives your personality, your `AGENTS.md` instructions, the list of your skills and your memory index. An edit you make to them reaches the next conversation. During the conversation it reads a skill when it needs one, and searches and reads your memory notes. [What belongs in my Jarvis home?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-home.md) and [What does Jarvis remember?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-memory.md) explain those files.
+At a conversation's first turn, the AI model receives the Jarvis persona, your `AGENTS.md` instructions, the list of your skills and your memory index. An edit you make to them reaches the next conversation. During the conversation it reads a skill when it needs one, and searches and reads your memory notes. [What belongs in my Jarvis home?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-home.md) and [What does Jarvis remember?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-memory.md) explain those files.
 
 The AI model can add or replace a memory note. A note from a turn that read a file, the screen, a web page or an agent's output waits in the memory inbox until you confirm it in the Console.
 
@@ -52,7 +52,7 @@ Jarvis Voice reports an action as done only when it reads the effect back. When 
 
 ## Your choices
 
-Account and Backup models choose the AI model. Home folder chooses the Jarvis home, and Edit beside Personality on Setup opens your instructions. Screen to cloud and Private windows choose what a screen read may send. Changing the Account, the Model or the Home folder ends the conversation.
+Account and Backup models choose the AI model. Home folder chooses the Jarvis home, and Edit beside Instructions on Setup opens your instructions. Screen to cloud and Private windows choose what a screen read may send. Changing the Account, the Model or the Home folder ends the conversation.
 
 ## Related pages
 

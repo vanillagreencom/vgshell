@@ -15,7 +15,7 @@ flowchart LR
 
 Main Jarvis host is under Home on Settings. On Jarvis main, choose This computer. On every other computer, enter Jarvis main's name as your network knows it, such as `cachy`. When the Jarvis home on Jarvis main has a different path, add a colon and that path after the name.
 
-VGS hands this setting to the Jarvis package in your Jarvis home, so a satellite needs a Jarvis home that the Jarvis package set up. The Console shows whether Jarvis main is reachable, or what keeps a forward from working and where to fix it.
+VGS hands this setting to the Jarvis package in your Jarvis home, so a satellite needs a Jarvis home that the Jarvis package set up. On a satellite, that home is a private copy of the home on Jarvis main. Set Main Jarvis host first, then use Use your Jarvis home from another computer on the Home folder step on Setup. Both computers then share one memory, and your keys and passwords stay on Jarvis main. The Console shows whether Jarvis main is reachable, or what keeps a forward from working and where to fix it.
 
 ## The forward
 

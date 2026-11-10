@@ -25,13 +25,13 @@ Item {
             property int refreshes: 0
 
             statusKey: "setupFleet"
-            tuiName: "setup-fleet"
+            tuiName: "setup-home"
             shell: ({ manifest: { status: { setupFleet: entry } }, requirements: { missing: [], revision: 0 },
                 tui: { state: {} }, status: { isOk: PluginLogic.statusReplyOk, set: (key, value) => runtime.write(key, value) } })
 
             // The Agent fleet row: the key whose retired write reached the
             // shell log.
-            readonly property var entry: ({ type: "state", label: "Agent fleet", action: { label: "Install mail tool", tui: "setup-fleet" } })
+            readonly property var entry: ({ type: "state", label: "Agent fleet", actions: { setup: { label: "Set up", tui: "setup-home" } } })
 
             function write(key, value) {
                 writes = writes.concat([{ key: key, value: value }]);

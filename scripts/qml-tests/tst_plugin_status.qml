@@ -10,6 +10,10 @@ Item {
     readonly property var aValues: PluginStatus.valuesOf("acme.a")
     readonly property var bValues: PluginStatus.valuesOf("acme.b")
     readonly property int bRevision: PluginStatus.revisionOf("acme.b")
+    readonly property string aTab: PluginStatus.viewedTabOf("acme.a")
+    // Each value aTab took, in order.
+    property var aTabs: []
+    onATabChanged: aTabs = aTabs.concat([aTab])
 
     function manifest(revision) {
         return { __revision: revision, status: { pending: { type: "count" }, detail: { type: "data" } } };
@@ -38,6 +42,7 @@ Item {
         }
 
         function cleanup() {
+            PluginStatus.view("", "");
             Registry.manifests = {};
             Registry.changed();
             wait(0); // QObject.destroy() completes after the current event turn.
@@ -58,6 +63,29 @@ Item {
             Registry.manifests = Object.assign({ "acme.c": root.manifest("c1") }, Registry.manifests);
             compare(PluginStatus.set(root.context("acme.c"), "detail", { zeta: 1, alpha: [1, 2] }), "ok");
             compare(JSON.stringify(PluginStatus.valuesOf("acme.c")), '{"detail":{"zeta":1,"alpha":[1,2]}}');
+        }
+
+        // The tab the Settings window shows reaches the plugin whose page it
+        // is alone, and a bound reader follows each report.
+        function test_a_viewed_tab_reaches_only_its_plugin() {
+            PluginStatus.view("acme.a", "Setup");
+            compare([root.aTab, PluginStatus.viewedTabOf("acme.b")], ["Setup", ""]);
+            PluginStatus.view("acme.a", "Details");
+            compare(root.aTab, "Details");
+            PluginStatus.view("acme.b", "Setup");
+            compare([root.aTab, PluginStatus.viewedTabOf("acme.b")], ["", "Setup"]);
+            PluginStatus.view("", "");
+            compare([root.aTab, PluginStatus.viewedTabOf("acme.b"), PluginStatus.viewed], ["", "", ""]);
+        }
+
+        // A report names its page and tab together: a plugin's bound reader
+        // never reads its page beside the tab the page before it showed, as
+        // Jarvis's Setup tab reader would start a package check on it.
+        function test_a_page_change_never_shows_the_last_pages_tab() {
+            PluginStatus.view("acme.b", "Setup");
+            root.aTabs = [];
+            PluginStatus.view("acme.a", "Settings");
+            compare(root.aTabs, ["Settings"]);
         }
 
         function test_a_dropped_record_reruns_its_readers_and_keeps_the_others() {

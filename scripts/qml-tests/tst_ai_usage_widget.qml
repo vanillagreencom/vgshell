@@ -65,6 +65,37 @@ Item {
                 { id: "a", provider: "claude", state: "ok", email: "a@example.com", windows: [{ name: "5h", usedPercent: percent }] }] } } } };
         }
 
+        function test_credit_gap_matches_the_view_data() {
+            return [
+                { tag: "Compact", view: "compact", rowGap: Theme.row.lineGap, creditGap: Theme.row.lineGap },
+                { tag: "Full", view: "full", rowGap: Theme.stack.inline, creditGap: Theme.stack.group }
+            ];
+        }
+        function test_credit_gap_matches_the_view(data) {
+            const window = panelWindow.createObject(null, { screen: Qt.application.screens[0] });
+            window.visible = true;
+            const now = Time.now.getTime();
+            window.panel.shell = { settings: { view: data.view }, ipc: { call: () => "ok" }, configure: { set: () => "ok" },
+                status: { values: { usage: { readAt: now, gatewayKey: null, accounts: [
+                    { id: "codex-a", provider: "codex", state: "ok", email: "a@example.com", readAt: now, credits: null,
+                        details: { creditPools: [{ kind: "codex", unlimited: false, balance: "12345" }] },
+                        windows: [
+                            { name: "five_hour", usedPercent: 40, resetsAt: now + 2 * 3600000 },
+                            { name: "seven_day", usedPercent: 60, resetsAt: now + 2 * 86400000 }
+                        ] }] } } } };
+            const row = name => find(window.panel, n => n.modelData !== undefined && n.modelData.name === name && n.topPadding !== undefined);
+            const first = row("seven_day");
+            const last = row("five_hour");
+            const credit = row("credit-codex");
+            verify(first !== null && last !== null && credit !== null, "the card draws two limits followed by its credit");
+            const creditLine = find(credit, n => n.role === "body" && n.text === "Codex credits").parent;
+            tryVerify(() => last.y - first.y - first.height === data.rowGap && credit.y >= last.y + last.height,
+                1000, "the limits settle at the view's row gap");
+            compare(credit.y + creditLine.y - last.y - last.height, data.creditGap,
+                "the first credit's content starts at the view's gap after the last limit");
+            window.destroy();
+        }
+
         // A mark's implicit size is the size of the image Qt loaded for it,
         // in pixels (QQuickImageBase sets it from the pixmap, divided by
         // the pixmap's own ratio, which is 1 for a data URL): at scale 2 a
