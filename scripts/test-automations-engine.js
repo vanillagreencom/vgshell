@@ -1010,6 +1010,57 @@ const CASES = {
         assert.equal(cli(w, engine, ["disable", id]).status, 0, "a seconds rule can still be paused while systemd is unavailable");
     },
 
+    "cron refuses seconds mutations before changing definitions or waiting runs"(engine) {
+        const seconds = { frequency: "secondly", interval: 30, start: "2026-10-30", end: { type: "never" }, zone: "utc" };
+        for (const action of ["add", "edit", "enable"]) {
+            const w = world({ systemd: "down", nowMs: NETWORK_DUE + 5 * 60000 });
+            const events = path.join(w.root, "commands");
+            const command = "echo original >> " + JSON.stringify(events);
+            const minute = { frequency: "minutely", interval: 1, start: "2026-10-30", end: { type: "never" }, zone: "utc" };
+            const job = add(w, engine, { command, requiresNetwork: true, schedule: minute });
+            const paused = add(w, engine, { name: "Seconds", enabled: false, command, requiresNetwork: true, schedule: seconds });
+            const id = action === "enable" ? paused : job;
+            const guardDir = path.join(w.home, ".local/state/vgshell/automations/guard");
+            write(path.join(guardDir, id + ".json"), JSON.stringify({ handledThrough: 0 }));
+            write(path.join(w.stub, "nm"), "1");
+            const runner = startRunner(w, engine, id, action === "enable" ? "manual" : "scheduled");
+            try {
+                waitFor(() => waits(w) >= 1, "the wait before rejected " + action);
+                const store = fs.readFileSync(w.store, "utf8");
+                const table = fs.readFileSync(path.join(w.stub, "crontab"), "utf8");
+                const guards = () => fs.readdirSync(guardDir).sort().map(name => [name, fs.readFileSync(path.join(guardDir, name), "utf8")]);
+                const beforeGuards = guards();
+                const pending = path.join(w.runs, id + ".pending.json");
+                const beforePending = fs.readFileSync(pending, "utf8");
+                const beforeRuns = runFiles(w);
+                const rejected = { command: "echo rejected >> " + JSON.stringify(events), schedule: seconds };
+                const args = action === "add" ? ["add", "--definition", JSON.stringify(def(Object.assign({ name: "New seconds" }, rejected)))]
+                    : action === "edit" ? ["edit", id, "--definition", JSON.stringify(rejected)] : ["enable", id];
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    const out = cli(w, engine, args);
+                    same([out.status, out.first], [1, "automations: refused: scheduler=systemd-required id=" + (action === "add" ? "new-seconds" : id)]);
+                    assert.equal(fs.readFileSync(w.store, "utf8"), store, action + " preserves the stored definitions");
+                    assert.equal(fs.readFileSync(path.join(w.stub, "crontab"), "utf8"), table, action + " preserves the installed schedule");
+                    same(guards(), beforeGuards, action + " preserves handled slots");
+                    assert.equal(fs.readFileSync(pending, "utf8"), beforePending, action + " preserves the waiting definition");
+                    same(runFiles(w), beforeRuns, action + " writes no cancellation record");
+                }
+                write(path.join(w.stub, "nm"), "4");
+                waitFor(() => !runnerAlive(runner), "the preserved wait to finish after " + action);
+                same([runnerExit(runner), ended(w, id).command, ended(w, id).outcome], [0, command, "succeeded"]);
+                assert.equal(fs.readFileSync(events, "utf8"), "original\n", "only the accepted command runs");
+                const supported = cli(w, engine, ["edit", job, "--definition", JSON.stringify({ schedule: Object.assign({}, minute, { interval: 10 }) })]);
+                assert.equal(supported.status, 0, supported.stderr);
+                const lines = fs.readFileSync(path.join(w.stub, "crontab"), "utf8").split("\n").filter(line => line.endsWith("'run' '--scheduled' '" + job + "'"));
+                same(lines.map(line => line.split(" env ")[0]), ["*/10 * * * *"], "a supported edit still reaches cron after " + action);
+                const pausedEdit = cli(w, engine, ["edit", paused, "--definition", JSON.stringify({ schedule: Object.assign({}, seconds, { interval: 15 }) })]);
+                assert.equal(pausedEdit.status, 0, pausedEdit.stderr);
+                const stored = JSON.parse(fs.readFileSync(w.store, "utf8")).automations.find(a => a.id === paused);
+                same([stored.enabled, stored.schedule.interval], [false, 15], "disabled seconds remain editable");
+            } finally { stopRunner(runner); }
+        }
+    },
+
     "run-now goes through systemd-run and refuses a busy automation"(engine) {
         const w = world();
         const id = add(w, engine, {});
@@ -1359,6 +1410,7 @@ const CONTROLS = [
     ["clear keeps a running run", "clear keeps a running run and prune keeps the retention", "judged.rows.filter(row => row.outcome !== \"running\")", "judged.rows"],
     ["cron is the fallback", "without a systemd user manager sync keeps a crontab block", "changed = writeCrontab(requireCommand(\"crontab\"), Logic.cronLines(", "changed = writeCrontab(requireCommand(\"crontab\"), [] || Logic.cronLines("],
     ["cron cannot silently drop a seconds rule", "seconds use calendar timers and refuse cron without replacing its table", "if (unsupported) refuse(\"scheduler=systemd-required id=\" + unsupported.id, \"cron has no seconds field\");", ""],
+    ["cron admission precedes store mutation", "cron refuses seconds mutations before changing definitions or waiting runs", "    admitScheduler(judged.store);\n    writeStore(judged.store);\n    markHandled(judged.automation.id, Date.now());", "    if (false) admitScheduler(judged.store);\n    writeStore(judged.store);\n    markHandled(judged.automation.id, Date.now());"],
     ["cron lines run the scheduled trigger", "under cron a catch-up automation runs a missed occurrence at startup", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"scheduled\"), runnerEnvironment)", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"manual\"), runnerEnvironment)"],
     ["a crontab without a table reads empty", "without a systemd user manager sync keeps a crontab block", "if (out.status === 1 && /^no crontab for /.test(firstLine(out.stderr))) return \"\";", ""],
     ["a late skip ends its unit clean", "offline lateness skips neutrally or catches up the latest once", "log(\"skipped=\" + id + \" reason=\" + (answer.reason || \"cancelled\"));", "process.exit(1);"],
@@ -1395,11 +1447,15 @@ try {
             CASES[name](path.join(copy, "bin", "automations"));
         } catch (e) {
             if (label === "FULL admission cannot be bypassed" && !(e instanceof assert.AssertionError)) throw e;
+            if (label === "cron admission precedes store mutation") {
+                if (!(e instanceof assert.AssertionError) || !e.message.startsWith("add preserves the stored definitions")) throw e;
+            }
             failed = true;
         }
         assert.ok(failed, `control "${label}": case "${name}" passed on an engine without that rule`);
         controls += 1;
         if (label === "FULL admission cannot be bypassed") console.log("control: FULL admission bypass rejected by non-FULL command-start assertion");
+        if (label === "cron admission precedes store mutation") console.log("control: late cron admission rejected by unchanged-store assertion after scheduler refusal");
     });
     console.log(`test-automations-engine: ok cases=${passed} controls=${controls}`);
 } finally {
