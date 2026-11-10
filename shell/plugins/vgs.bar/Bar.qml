@@ -88,7 +88,7 @@ Item {
         const reply = shell.surfaces.summon("window", JSON.stringify({
             screen: screen.name, x: bar.mapToItem(null, x, 0).x
         }));
-        if (reply !== "ok") console.warn("vgs.bar: add widget " + reply);
+        if (reply !== "ok") console.warn("vgs.bar: manage widgets " + reply);
     }
 
     // TapHandler's default DragThreshold policy takes a passive grab, so
@@ -139,8 +139,8 @@ Item {
                 id: spacerMenu
 
                 MenuItem {
-                    text: "Add widget"
-                    iconName: "circle-plus"
+                    text: "Manage widgets"
+                    iconName: "layout-panel-top"
                     onTriggered: bar.openWidgets(ui.x)
                 }
                 MenuItem {

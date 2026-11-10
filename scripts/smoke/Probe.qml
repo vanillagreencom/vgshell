@@ -3014,14 +3014,25 @@ Scope {
             const item = root.instance("window", "vgs.bar");
             if (item === null) return "absent";
             // `action` is the row's typed action, `add`, `remove` or
-            // `settings`; `truncated` whether a shown line of the row elides.
-            return root.json(root.descendants(item).filter(child => child.actionButton !== undefined && child.rowAction !== undefined).map(row => ({
-                id: row.modelData.id, enabled: row.modelData.enabled, placed: row.modelData.placed,
-                action: row.rowAction, secondary: row.secondary,
-                chips: root.descendants(row).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => badge.text),
-                truncated: root.descendants(row).some(child => root.typeName(child) === "Label" && child.visible && child.truncated === true),
-                row: JSON.parse(root.geometry(row)), button: JSON.parse(root.geometry(row.actionButton))
-            })));
+            // `enable`; `type` the type of the one control it shows and
+            // `control` its box, with `text` the link's words, "" for the
+            // switch, `checked` the switch's state, null for the link, and
+            // `focused` whether it holds the keyboard; `chips` the shown
+            // Badges' texts; `truncated` whether a shown line of the row
+            // elides.
+            return root.json(root.descendants(item).filter(child => child.control !== undefined && child.rowAction !== undefined).map(row => {
+                const type = root.typeName(row.control);
+                return {
+                    id: row.modelData.id, enabled: row.modelData.enabled, placed: row.modelData.placed,
+                    action: row.rowAction, secondary: row.secondary,
+                    type, text: type === "RowAction" ? row.control.text : "",
+                    checked: type === "Switch" ? row.control.checked : null,
+                    focused: row.control.activeFocus,
+                    chips: root.descendants(row).filter(child => root.typeName(child) === "Badge" && child.visible).map(badge => badge.text),
+                    truncated: root.descendants(row).some(child => root.typeName(child) === "Label" && child.visible && child.truncated === true),
+                    row: JSON.parse(root.geometry(row)), control: JSON.parse(root.geometry(row.control))
+                };
+            }));
         }
         function chooserInsert(id: string, screen: string, x: real): string {
             const item = root.instance("window", "vgs.bar");

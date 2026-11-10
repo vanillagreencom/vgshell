@@ -221,11 +221,16 @@
 # notify-send and sent to the sandbox's notification server as it was
 # written: its toast under the pointer, so its actions show, its Inbox row
 # selected, and that row with the arrow key on its first action.
-# add-widget, taken only when named, is the bar's Add widget chooser at
-# rest with AI Usage on and off the bar, with its rows' readings in
-# add-widget-<mode>-rows.json, with the keyboard moved to its first row,
-# and after a mouse click on AI Usage's Add, the saved configuration
-# restored after the shot;
+# add-widget, taken only when named, is the bar's widget chooser, Manage
+# widgets, or Add widget in a --rev tree from before it, at rest with the
+# Tick fixture on the bar, AI Usage off it and Displays turned off, with
+# its rows' readings in add-widget-<mode>-rows.json; with the keyboard
+# moved to its first row; after a mouse click on AI Usage's control, its
+# Switch, or Add in an older tree; after a mouse click on Displays'
+# control, its Enable plugin link, which turns it on and puts its widget
+# on the bar, the row then showing its Switch on, or Settings in an older
+# tree, which opens the Plugins window; and the empty bar's right-click
+# menu, the saved configuration restored after the shots;
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
@@ -3878,42 +3883,106 @@ scene_ai-usage-hide() { # MODE
 }
 usage_shot_cards() { ipc smoke readInstance panel vgs.ai-usage rows | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"]] for r in json.load(sys.stdin)]))'; }
 
-# The Add widget chooser as the empty bar's menu summons it, at the left
-# of the first output, with AI Usage, a plugin with other kinds, on and
-# off the bar, so its row offers Add. The saved configuration comes back
-# after the shot.
+# The widget chooser as the empty bar's menu summons it, at the left of
+# the first output, with its three row states at the top of the list,
+# above the fold: the widget-only Tick fixture on the bar, AI Usage, a
+# plugin with other kinds, on and off the bar, and Displays, a plugin with
+# other kinds whose requirements are all optional, so turning it on
+# raises no notice, turned off; its link turns it on and puts its widget
+# on the bar, so its row then shows its Switch on. The sandbox leaves every other
+# first-party plugin off, so rows below Displays show the link too and
+# each click finds its control inside its plugin's row. The chooser's title and
+# controls follow the tree: a tree from before Manage widgets titles it
+# Add widget and ends each row in a Button, Add for an unplaced widget and
+# Settings for a plugin that is off. The probe is this checkout's, so its
+# chooserRows reads no row of such a tree. The saved configuration comes
+# back after the shots.
 scene_add-widget() { # MODE
-  local saved="$sandbox/add-widget-scene-$1.json" x y
+  local saved="$sandbox/add-widget-scene-$1.json" x y rect key bar section title="Add widget" switches=false
+  if tree_has shell/plugins/vgs.bar/AddWidget.qml '"Enable plugin"'; then title="Manage widgets"; switches=true; fi
   cp -- "$home/.config/vgshell/shell.json" "$saved"
+  expect "Tick is on for the chooser" ok ipc shell setPluginEnabled acme.tick true
+  expect "Tick is on the bar for the chooser" ok ipc shell setPluginPlaced acme.tick true
   expect "AI Usage is on for the chooser" ok ipc shell setPluginEnabled vgs.ai-usage true
   expect "AI Usage is off the bar for the chooser" ok ipc shell setPluginPlaced vgs.ai-usage false
+  expect "Displays is off for the chooser" ok ipc shell setPluginEnabled vgs.displays false
   expect "the chooser summons" ok ipc shell summon window vgs.bar "{\"screen\":\"$(first_name)\",\"x\":40}"
   expect_poll "the chooser is a Bar window" 1 window_count Bar
   take "add-widget-$1-open"
-  # The rows' readings beside the shot: each row's action, height and
-  # whether a line elides.
+  # The rows' readings beside the shot: each row's action, control,
+  # height and whether a line elides.
   ipc smoke chooserRows >"$SHOT_DIR/add-widget-$1-rows.json" || fail "the chooser's rows are unreadable"
   # The keyboard follows the pointer, which a plain shot parks off the
   # window, so the key shot keeps the pointer on the title it clicked.
-  if read -r x y < <(window_point window:Bar window vgs.bar Label "Add widget") && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+  if read -r x y < <(window_point window:Bar window vgs.bar Label "$title") && hover "$((x - 1))" "$y" && click "$x" "$y"; then
     expect_poll "the chooser holds the keyboard" true ipc smoke activeFocusIn window vgs.bar
     type_keys -k Down || fail "Down in the chooser failed"
     take_posed "add-widget-$1-key"
   else
     fail "the click on the chooser's title failed"
   fi
-  # After the click the pointer rests on the title, inside the window, so
-  # the window keeps the keyboard and the button shows no hover.
-  if read -r x y < <(window_point window:Bar window vgs.bar Button Add) && hover "$((x - 1))" "$y" && click "$x" "$y" \
-    && read -r x y < <(window_point window:Bar window vgs.bar Label "Add widget") && hover "$x" "$y"; then
-    take_posed "add-widget-$1-click"
+  # AI Usage's control, then Displays'. After each click the pointer
+  # rests on the title, inside the window, so the window keeps the
+  # keyboard and the control shows no hover.
+  x=""
+  if [[ $switches == true ]]; then
+    rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow "AI Usage" Switch "")" || rect=""
   else
-    fail "the click on the chooser's first Add failed"
+    rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow "AI Usage" Button Add)" || rect=""
+  fi
+  [[ $rect == \[* ]] && read -r x y < <(at_centre window:Bar "$rect") || x=""
+  if [[ ${x:-} =~ ^[0-9]+$ ]] && hover "$((x - 1))" "$y" && click "$x" "$y" \
+    && read -r x y < <(window_point window:Bar window vgs.bar Label "$title") && hover "$x" "$y"; then
+    take_posed "add-widget-$1-add"
+  else
+    fail "the click on AI Usage's control failed"
+  fi
+  x=""
+  if [[ $switches == true ]]; then
+    rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow Displays RowAction "Enable plugin")" || rect=""
+  else
+    rect="$(ipc smoke scopedWindowGeometry window vgs.bar ContentRow Displays Button Settings)" || rect=""
+  fi
+  [[ $rect == \[* ]] && read -r x y < <(at_centre window:Bar "$rect") || x=""
+  if [[ ${x:-} =~ ^[0-9]+$ ]] && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    if [[ $switches == true ]]; then
+      expect_poll "Enable plugin turns Displays on and puts it on the bar" '"remove"' add_widget_shot_action vgs.displays
+      read -r x y < <(window_point window:Bar window vgs.bar Label "$title") && hover "$x" "$y" || fail "the pointer did not return to the chooser's title"
+      take_posed "add-widget-$1-enable"
+    else
+      expect_poll "Settings opens the Plugins window" 1 window_count Plugins
+      take "add-widget-$1-enable"
+      expect "the Plugins window hides" ok ipc shell hide window vgs.settings
+      expect_poll "the Plugins window is gone" 0 window_count Plugins
+    fi
+  else
+    fail "the click on Displays' control failed"
   fi
   expect "the chooser hides" ok ipc shell hide window vgs.bar
   expect_poll "the chooser is gone" 0 window_count Bar
+  # The empty bar's menu, opened as add-widget.sh opens it: a right click
+  # past the end of the left section.
+  if key="$(bar_key)" && bar="$(ipc smoke instanceGeometry "$key" vgs.bar)" && section="$(ipc smoke barSectionGeometry "$key" left)" \
+    && read -r x y < <(py_reply 'import json,sys
+b=json.loads(sys.argv[1]); s=json.load(sys.stdin); x=s[0]+s[2]+12
+print("%d %d" % (x,b[1]+b[3]/2) if b[0]<x<b[0]+b[2]/3 else "crowded")' "$bar" <<<"$section") \
+    && [[ $x =~ ^[0-9]+$ ]] && hover "$x" "$y" && right_click "$x" "$y"; then
+    expect_poll "the empty bar opens its menu" true ipc smoke readInstance "$key" vgs.bar spacerMenuOpen
+    take_posed "add-widget-$1-menu"
+    type_keys -k Escape || fail "Escape in the bar's menu failed"
+    expect_poll "the bar's menu closes" false ipc smoke readInstance "$key" vgs.bar spacerMenuOpen
+  else
+    fail "the right click on the empty bar failed"
+  fi
   cp -- "$saved" "$home/.config/vgshell/shell.json"
   expect "the saved configuration reloads after the chooser" ok ipc shell reloadConfig
+}
+# add_widget_shot_action ID: plugin ID's row action in the chooser (Probe
+# chooserRows), "absent" while no row shows it.
+add_widget_shot_action() {
+  ipc smoke chooserRows | py_reply 'import json,sys
+rows=[r for r in json.load(sys.stdin) if r["id"]==sys.argv[1]]
+print(json.dumps(rows[0]["action"]) if len(rows)==1 else "absent")' "$1"
 }
 
 # The production traffic views over a fixture service in the sandbox copy.
