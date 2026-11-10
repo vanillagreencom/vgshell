@@ -2386,6 +2386,7 @@ if [[ $probe_status -eq 77 ]]; then
 fi
 if [[ $probe_status -ne 0 ]]; then
   echo "test-qml-unit: the module test does not pass on the shipped tree:"
+  printf '%s\n' "$out" | sed -n '/^qml-unit: failed file=/p; /FAIL!/,/Loc:/p'
   printf '%s\n' "$out" | tail -n 20
   exit 1
 fi
@@ -2658,7 +2659,13 @@ run_case() { # KIND [INDEX]
   local out
   case "$1" in
     copy)
-      if out="$("$runner" --ui "$copy" 2>&1)"; then ok "the unmutated copy passes"; else fail "the unmutated copy fails"; printf '%s\n' "$out" | tail -n 20; fi ;;
+      if out="$("$runner" --ui "$copy" 2>&1)"; then
+        ok "the unmutated copy passes"
+      else
+        fail "the unmutated copy fails"
+        printf '%s\n' "$out" | sed -n '/^qml-unit: failed file=/p; /FAIL!/,/Loc:/p'
+        printf '%s\n' "$out" | tail -n 20
+      fi ;;
     mutation) mutation_case "$2" ;;
     missing-runner)
       if out="$(QML_UNIT_RUNNER=/nonexistent/qmltestrunner "$runner" --ui "$copy" 2>&1)"; then
