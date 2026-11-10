@@ -142,8 +142,21 @@ function run(view, logic) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const localTime = (local.getHours() < 10 ? "0" : "") + local.getHours() + ":" + (local.getMinutes() < 10 ? "0" : "") + local.getMinutes();
     assert.equal(view.formatWhen(occurrence), weekdays[(local.getDay() + 6) % 7] + " " + local.getDate() + " " + months[local.getMonth()] + " " + localTime, "preview instants display in the user's local time");
-    same(view.frequencyChoices(logic).map(c => [c.label, c.value]), [["minutes", "minutely"], ["hours", "hourly"], ["days", "daily"], ["weeks", "weekly"], ["months", "monthly"], ["years", "yearly"]], "Repeat every lists the judge's frequencies");
+    same(view.frequencyChoices(logic).map(c => [c.label, c.value]), [["seconds", "secondly"], ["minutes", "minutely"], ["hours", "hourly"], ["days", "daily"], ["weeks", "weekly"], ["months", "monthly"], ["years", "yearly"]], "Repeat every lists the judge's frequencies");
+    same(logic.INTERVAL_STEPS.secondly, [10, 15, 20, 30], "the editor's seconds steps");
+    const secondsSchedule = { frequency: "secondly", interval: 30, start: "2026-01-05", end: { type: "never" }, zone: "utc" };
+    const secondsDraft = view.draftFromAutomation(Object.assign({}, row, { schedule: secondsSchedule }), logic);
+    same([secondsDraft.preset, secondsDraft.frequency, secondsDraft.interval], ["custom", "secondly", 30], "seconds reopen in the Custom controls");
+    same(view.scheduleFromDraft(secondsDraft, logic), secondsSchedule, "seconds round-trip without times");
+    assert.equal(view.validation(secondsDraft, logic, now).ok, true);
+    assert.equal(view.summary(secondsDraft, logic), "Every 30 seconds");
+    const secondRuns = logic.nextOccurrences(secondsSchedule, now, 3);
+    same(secondRuns, [now + 30000, now + 60000, now + 90000], "the next-run preview advances every 30 seconds");
+    for (const [offset, suffix] of [[0, ":00"], [30000, ":30"]])
+        assert.equal(view.formatWhen(now + offset, true), view.formatWhen(now + offset) + suffix, "seconds are visible in the preview, including zero");
     const counted = Object.assign(view.clone(custom), { interval: 2, endType: "count" });
+    same(view.frequencyChanges(counted, "secondly", logic), [["frequency", "secondly"], ["interval", 10], ["endType", "never"]], "seconds select an allowed step and drop a counted end");
+    same(view.frequencyChanges(Object.assign(view.clone(custom), { interval: 30 }), "secondly", logic), [["frequency", "secondly"]], "seconds preserve an allowed step");
     same(view.frequencyChanges(counted, "minutely", logic), [["frequency", "minutely"], ["endType", "never"]], "minutes keep a step of 2 and drop the end after N runs");
     same(view.frequencyChanges(Object.assign(view.clone(custom), { interval: 7 }), "hourly", logic), [["frequency", "hourly"], ["interval", 1]], "hours take a step when 7 is none");
     same(view.frequencyChanges(counted, "daily", logic), [["frequency", "daily"]], "days keep the interval and the end");

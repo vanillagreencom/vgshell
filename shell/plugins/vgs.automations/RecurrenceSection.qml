@@ -24,7 +24,7 @@ Section {
     property int chosenMonthlyWeekIndex: Math.max(0, weekChoices.map(item => item.value).indexOf(draft.monthlyWeek))
     property int chosenYearlyMonthIndex: Math.max(0, monthChoices.map(item => item.value).indexOf(draft.yearlyMonth))
     readonly property var frequencyChoices: View.frequencyChoices(Engine)
-    // An every-N-minutes or every-N-hours rule: its Every field offers the
+    // An every-N-seconds, minutes or hours rule: its Every field offers the
     // judge's steps alone, and it has no times and no end after N runs.
     readonly property bool stepped: Engine.isStepFrequency(draft.frequency)
     readonly property bool customSteps: View.isStepDraft(draft, Engine)

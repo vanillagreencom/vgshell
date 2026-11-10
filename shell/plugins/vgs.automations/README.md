@@ -7,7 +7,7 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 ## Features
 
 - A window to write, schedule and preview your automations, with the history of every run.
-- Schedules from once to every N minutes, hours, days, weeks, months or years, in local time or UTC.
+- Schedules from once to every N seconds, minutes, hours, days, weeks, months or years, in local time or UTC. The shortest interval is 10 seconds with the system scheduler, or 1 minute with cron.
 - An end date, or for daily and longer schedules a number of runs.
 - Per automation: a shell command, a timeout, a working folder and catch-up of runs missed while the computer was off.
 - Run now, and the output of every run.

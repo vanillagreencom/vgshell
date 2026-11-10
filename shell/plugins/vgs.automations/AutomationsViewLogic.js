@@ -23,7 +23,7 @@ function outcomeLabel(outcome) {
 var PRESETS = ["once", "daily", "weekdays", "weekly", "biweekly", "monthly-date", "monthly-weekday", "yearly", "custom"];
 // The unit the Custom rule's Repeat every list names for each of the
 // judge's FREQUENCIES.
-var FREQUENCY_UNITS = { minutely: "minutes", hourly: "hours", daily: "days", weekly: "weeks", monthly: "months", yearly: "years" };
+var FREQUENCY_UNITS = { secondly: "seconds", minutely: "minutes", hourly: "hours", daily: "days", weekly: "weeks", monthly: "months", yearly: "years" };
 var TEMPLATES = [
     {
         key: "heartbeat-weekly",
@@ -171,7 +171,7 @@ function frequencyChoices(logic) {
     });
 }
 
-// Whether the draft is a Custom every-N-minutes or every-N-hours rule,
+// Whether the draft is a Custom every-N-seconds, minutes or hours rule,
 // which has no times and no end after N runs.
 function isStepDraft(draft, logic) {
     return draft.preset === "custom" && logic.isStepFrequency(draft.frequency);
@@ -393,14 +393,15 @@ function templateDraft(template, nowMs, logic) {
     return draft;
 }
 
-function formatWhen(ms) {
+function formatWhen(ms, showSeconds) {
     if (ms === null || ms === undefined) return "None";
     var at = new Date(ms);
     var weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var hh = (at.getHours() < 10 ? "0" : "") + at.getHours();
     var mm = (at.getMinutes() < 10 ? "0" : "") + at.getMinutes();
-    return weekdays[(at.getDay() + 6) % 7] + " " + at.getDate() + " " + months[at.getMonth()] + " " + hh + ":" + mm;
+    var ss = (at.getSeconds() < 10 ? "0" : "") + at.getSeconds();
+    return weekdays[(at.getDay() + 6) % 7] + " " + at.getDate() + " " + months[at.getMonth()] + " " + hh + ":" + mm + (showSeconds ? ":" + ss : "");
 }
 
 function networkExplanation(pending) {

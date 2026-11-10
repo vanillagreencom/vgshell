@@ -58,7 +58,7 @@ const UNTIL = schedule({ end: { type: "date", date: "2026-01-04" } });
 const FIVE_TIMES = schedule({ frequency: "weekly", weekdays: ["mon", "wed"], end: { type: "count", count: 5 } });
 const EVERY_3_DAYS = schedule({ interval: 3, start: "2026-01-02" });
 const EVERY_2_MONTHS = schedule({ frequency: "monthly", interval: 2, monthly: { by: "date", day: 1 }, start: "2026-02-10" });
-// Every N minutes or hours: no times, slots from each local midnight.
+// Every N seconds, minutes or hours: no times, slots from each local midnight.
 function stepped(frequency, interval, extra) {
     return Object.assign({ frequency: frequency, interval: interval, start: "2026-01-01", end: { type: "never" } }, extra);
 }
@@ -66,10 +66,15 @@ const EVERY_MINUTE = stepped("minutely", 1);
 const EVERY_10_MINUTES = stepped("minutely", 10);
 const EVERY_HOUR = stepped("hourly", 1);
 const EVERY_2_HOURS = stepped("hourly", 2);
+const EVERY_30_SECONDS = stepped("secondly", 30);
 const UTC_MONTHLY = schedule({ frequency: "monthly", monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-11-01", zone: "utc" });
 
 // The compiler: [label, schedule, OnCalendar= expressions, cron fields, summary].
 const COMPILED = [
+    ["every 10 seconds", stepped("secondly", 10), ["*-*-* *:*:00/10"], [], "Every 10 seconds"],
+    ["every 15 seconds", stepped("secondly", 15), ["*-*-* *:*:00/15"], [], "Every 15 seconds"],
+    ["every 20 seconds", stepped("secondly", 20), ["*-*-* *:*:00/20"], [], "Every 20 seconds"],
+    ["every 30 seconds", EVERY_30_SECONDS, ["*-*-* *:*:00/30"], [], "Every 30 seconds"],
     ["daily", schedule({}), ["*-*-* 09:00:00"], ["0 9 * * *"], "Every day at 09:00"],
     ["weekdays", WEEKDAYS, ["Mon,Tue,Wed,Thu,Fri *-*-* 09:00:00"], ["0 9 * * 1,2,3,4,5"], "Every weekday at 09:00"],
     ["several times a day", TWICE_DAILY, ["*-*-* 08:30:00", "*-*-* 17:00:00"], ["30 8 * * *", "0 17 * * *"], "Every day at 08:30 and 17:00"],
@@ -94,6 +99,9 @@ const COMPILED = [
 
 // Next occurrences under UTC: [label, schedule, after, the instants].
 const NEXT = [
+    ["seconds cross midnight", EVERY_30_SECONDS, "2026-01-05T23:59:40Z", ["2026-01-06T00:00:00Z", "2026-01-06T00:00:30Z", "2026-01-06T00:01:00Z"]],
+    ["seconds wait for the start date", stepped("secondly", 15, { start: "2026-02-01" }), "2026-01-31T23:59:50Z", ["2026-02-01T00:00:00Z", "2026-02-01T00:00:15Z"]],
+    ["seconds stop at the end date", stepped("secondly", 20, { end: { type: "date", date: "2026-01-05" } }), "2026-01-05T23:59:10Z", ["2026-01-05T23:59:20Z", "2026-01-05T23:59:40Z"]],
     ["daily", schedule({}), "2026-01-01T10:00:00Z", ["2026-01-02T09:00:00Z", "2026-01-03T09:00:00Z"]],
     ["the start date holds back an earlier day", schedule({ start: "2026-02-01" }), "2026-01-01T00:00:00Z", ["2026-02-01T09:00:00Z", "2026-02-02T09:00:00Z"]],
     ["every 2 weeks keeps the start week's parity", BIWEEKLY, "2026-01-06T00:00:00Z", ["2026-01-08T09:00:00Z", "2026-01-19T09:00:00Z", "2026-01-22T09:00:00Z", "2026-02-02T09:00:00Z"]],
@@ -119,6 +127,8 @@ const NEXT = [
 
 // The guard: [label, schedule, trigger time, handledThrough, catchUp, { run, slot, reason }].
 const GUARD = [
+    ["a seconds trigger uses its latest slot", EVERY_30_SECONDS, "2026-01-05T09:00:31Z", "2026-01-05T09:00:00Z", false, { run: true, slot: "2026-01-05T09:00:30Z", reason: "ran" }],
+    ["a duplicate seconds trigger is handled", EVERY_30_SECONDS, "2026-01-05T09:00:32Z", "2026-01-05T09:00:30Z", false, { run: false, slot: "2026-01-05T09:00:30Z", reason: "handled" }],
     ["a trigger on time runs", schedule({}), "2026-01-05T09:00:01Z", "2026-01-04T09:00:00Z", false, { run: true, slot: "2026-01-05T09:00:00Z", reason: "ran" }],
     ["a trigger on the second Tuesday runs", SECOND_TUESDAY, "2026-02-10T09:00:00Z", "2026-01-13T09:00:00Z", false, { run: true, slot: "2026-02-10T09:00:00Z", reason: "ran" }],
     ["an off week of every 2 weeks runs nothing", BIWEEKLY, "2026-01-12T09:00:00Z", "2026-01-08T09:00:00Z", false, { run: false, slot: "2026-01-08T09:00:00Z", reason: "handled" }],
@@ -144,7 +154,10 @@ const GUARD = [
 const REFUSED = [
     ["no object", 3, "schedule: want=object"],
     ["an unsupported zone", schedule({ zone: "Pacific" }), "schedule.zone: want=local|utc"],
-    ["an unknown frequency", schedule({ frequency: "secondly" }), "schedule.frequency: want=minutely|hourly|daily|weekly|monthly|yearly"],
+    ["an unknown frequency", schedule({ frequency: "fortnightly" }), "schedule.frequency: want=secondly|minutely|hourly|daily|weekly|monthly|yearly"],
+    ["an outside-list seconds step", stepped("secondly", 5), "schedule.interval: want=10|15|20|30"],
+    ["times on a seconds rule", stepped("secondly", 30, { times: ["09:00"] }), "schedule.times: unknown"],
+    ["an end after N runs on a seconds rule", stepped("secondly", 30, { end: { type: "count", count: 6 } }), "schedule.end.type: want=never|date"],
     ["a 7-minute step", stepped("minutely", 7), "schedule.interval: want=1|2|3|4|5|6|10|12|15|20|30"],
     ["a 5-hour step", stepped("hourly", 5), "schedule.interval: want=1|2|3|4|6|8|12"],
     ["a 60-minute step", stepped("minutely", 60), "schedule.interval: want=1|2|3|4|5|6|10|12|15|20|30"],
@@ -720,6 +733,12 @@ function systemdInstants(analyze, expression, zone, afterMs, count) {
 // CET on 25 October 2026; Lord Howe moves 02:00 back to 01:30 on 5 April
 // and 02:00 on to 02:30 on 4 October 2026.
 const STEPPED_PREVIEW = [
+    ["every 10 seconds", stepped("secondly", 10), "UTC", "2026-01-05T08:15:55Z"],
+    ["every 15 seconds", stepped("secondly", 15), "UTC", "2026-01-05T08:15:55Z"],
+    ["every 20 seconds", stepped("secondly", 20), "UTC", "2026-01-05T08:15:55Z"],
+    ["every 30 seconds", EVERY_30_SECONDS, "UTC", "2026-01-05T08:15:20Z"],
+    ["seconds across Berlin spring", EVERY_30_SECONDS, "Europe/Berlin", "2026-03-29T00:59:40Z"],
+    ["UTC seconds across the Pacific clock change", stepped("secondly", 30, { zone: "utc" }), "America/Los_Angeles", "2026-11-01T08:59:40Z"],
     ["every minute", EVERY_MINUTE, "UTC", "2026-01-05T08:15:00Z"],
     ["every 10 minutes", EVERY_10_MINUTES, "UTC", "2026-01-05T08:15:00Z"],
     ["every 2 hours", EVERY_2_HOURS, "UTC", "2026-01-05T09:00:00Z"],
@@ -762,12 +781,17 @@ function compareStepped(logic, analyze) {
     let repeats = 0;
     for (const [label, s, zone, after] of STEPPED_PREVIEW) {
         process.env.TZ = zone;
-        const mine = Array.from(logic.nextOccurrences(s, at(after), 12), iso);
+        const count = s.frequency === "secondly" ? 3 : 12;
+        const mine = Array.from(logic.nextOccurrences(s, at(after), count), iso);
         const expressions = logic.calendarExpressions(s);
         const lines = logic.cronFields(s);
         assert.equal(expressions.length, 1, "one OnCalendar= expression: " + label);
+        same(mine, systemdInstants(analyze, expressions[0], zone, at(after), count).map(iso), "preview equals systemd's next " + count + ": " + label);
+        if (s.frequency === "secondly") {
+            same(lines, [], "cron cannot express seconds: " + label);
+            continue;
+        }
         assert.equal(lines.length, 1, "one cron line: " + label);
-        same(mine, systemdInstants(analyze, expressions[0], zone, at(after), 12).map(iso), "preview equals systemd's next 12: " + label);
         // A wildcard hour and a second pass: twelve first-pass minutes may
         // need up to an hour more of the walk.
         const cron = cronInstants(lines[0], at(after), 24);
@@ -884,6 +908,7 @@ const CONTROLS = [
     ["the cap counts the newest first", "newest.sort(function (a, b) { return b.startedAt - a.startedAt", "newest.sort(function (a, b) { return a.startedAt - b.startedAt"],
     ["a running run takes no place under the cap", "var newest = rows.filter(function (r) { return r.outcome !== \"running\"; });", "var newest = rows.slice();"],
     ["a step divides the hour or the day", "if (INTERVAL_STEPS[s.frequency].indexOf(s.interval) === -1) return", "if (false) return"],
+    ["seconds compile to systemd's seconds step", "return [\"*-*-* *:*:00/\" + s.interval + calendarZoneSuffix(s)];", "return [\"*-*-* *:*:05/\" + s.interval + calendarZoneSuffix(s)];"],
     ["an every-N-minutes or hours rule has no times", "if (!stepped) allowed.push(\"times\");", "allowed.push(\"times\");"],
     ["an every-N-minutes or hours rule takes no end after N runs", "stepped ? [\"never\", \"date\"] : END_TYPES", "END_TYPES"],
     ["minutes step from minute 0", "for (mi = 0; mi < 60; mi += s.interval)", "for (mi = 0; mi < 60; mi += 1)"],
