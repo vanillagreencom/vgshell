@@ -239,6 +239,7 @@ Scope {
             if (Logic.hasOwn(Registry.manifests, p.id)) names[p.id] = Registry.manifests[p.id].name;
         const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key, identities) : [];
         const answer = { plugins: found.plugins, user: found.user, binds: state, userBinds: userBinds };
+        answer.resolutions = Logic.keyConflictResolutions(key, found, Config.effective, Registry.manifests);
         const plan = Registry.hyprlandBindPlan;
         const row = plan === null ? undefined : plan.sections.find(row => row.section.id === id);
         answer.suppressed = row !== undefined && row.binds.some(entry => entry.kind === "taken"

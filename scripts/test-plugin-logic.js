@@ -265,7 +265,63 @@ function conversationMigration(configLogic, check) {
     check("conversation migration: current identity", migrate(current), { config: current, migrated: false });
 }
 
+function keyClashResets(ctx, check) {
+    const key = "SUPER+COMMA";
+    const manifest = (id, name, defaults) => ctx.validateManifest({
+        schemaVersion: 1, id, name, version: "1", author: "a", description: "d",
+        kinds: ["window"], entryPoints: { window: "Window.qml" }, capabilities: ["shortcut"],
+        hyprland: { binds: [{ shortcut: "toggle", key: defaults }] }
+    }, "/fixture").manifest;
+    const loser = manifest("acme.loser", "System Settings", key);
+    // Producer: Settings' saved keys, including the incident's Plugins key.
+    for (const [name, defaults, saved, foreign, pluginHolder, reset, current = "present"] of [
+        ["saved non-default holder", "SUPER+PERIOD", key, [], true, true],
+        ["default holder", key, undefined, [], true, false],
+        ["saved default holder", key, key, [], true, false],
+        ["user config", "SUPER+PERIOD", undefined, [key], false, false],
+        ["user config beside a default plugin holder", key, undefined, [key], true, false],
+        ["default alternative still holds the key", [key, "SUPER+PERIOD"], key, [], true, false],
+        ["saved alternatives reset together", "SUPER+PERIOD", [key, "SUPER+X"], [], true, true],
+        ["published plan precedes plugin removal", "SUPER+PERIOD", key, [], true, false, "removed"],
+        ["published plan precedes shortcut removal", "SUPER+PERIOD", key, [], true, false, "no-shortcut"]
+    ]) {
+        const holder = manifest("acme.holder", "Plugins", defaults);
+        const manifests = { [holder.id]: holder, [loser.id]: loser };
+        const user = { version: ctx.ConfigLogic.CONFIG_VERSION, plugins: [
+            { id: holder.id, keep: 7, ...(saved === undefined ? {} : { keys: { toggle: saved } }) }
+        ] };
+        const before = JSON.stringify(user);
+        const sections = config => (pluginHolder ? [holder, loser] : [loser]).map(m => ctx.hyprlandSection(config, m));
+        const found = ctx.keyConflicts(key, sections(user), foreign, loser.id, "toggle");
+        if (current === "removed") delete manifests[holder.id];
+        if (current === "no-shortcut") manifests[holder.id] = { ...holder, hyprland: { ...holder.hyprland, binds: [] } };
+        found.resolutions = ctx.keyConflictResolutions(key, found, user, manifests);
+        check("key clash reset: " + name, {
+            user: found.user,
+            resolutions: found.resolutions
+        }, { user: foreign.length > 0, resolutions: pluginHolder && current === "present" ? [{
+            id: holder.id, shortcut: "toggle", name: "Plugins",
+            defaultKeys: Array.isArray(defaults) ? defaults : [defaults], reset
+        }] : [] });
+        const links = ctx.PageReference.references(ctx.conflictHint(found, { [holder.id]: "Plugins" })).links;
+        check("key clash reset: shared hints stay plain: " + name, links, []);
+        check("key clash reset: read preserves saved keys: " + name, JSON.stringify(user), before);
+        if (reset) {
+            // Same reset write as Settings: undefined removes the saved entry.
+            const updated = ctx.withKey(user, holder, "toggle", undefined, user);
+            check("key clash reset: removes only holder keys: " + name, updated.plugins, [{ id: holder.id, keep: 7 }]);
+            const plan = ctx.HyprlandLayer.resolveBinds(sections(updated));
+            check("key clash reset: both defaults bind: " + name,
+                [plan.keys[holder.id].toggle, plan.keys[loser.id].toggle, plan.conflicts],
+                ["SUPER+PERIOD", key, []]);
+            check("key clash reset: losing hint clears: " + name,
+                ctx.keyConflicts(key, sections(updated), [], loser.id, "toggle"), { plugins: [], user: false });
+        }
+    }
+}
+
 function suite(ctx, configLogic, check) {
+    keyClashResets(ctx, check);
     keySettings(ctx, check);
     conversationMigration(configLogic, check);
     unplacedMounts(ctx, check);
@@ -3223,6 +3279,9 @@ openRoutes(load(LOGIC), report, bundled);
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["a saved non-default holder offers reset", "&& defaults.indexOf(normalized) === -1;", "&& false;", "key clash reset:"],
+    ["shared key hints keep Settings navigation in its view", 'return (hasOwn(names, p.id) ? names[p.id] : p.id) + " (" + p.shortcut + ")";',
+        'return "[Settings/Keys](page:" + p.id + "/Settings/Keys)";', "key clash reset:"],
     ["a key setting names a declared shortcut", "if (unboundSetting !== undefined)", "if (false)", "underKey:"],
     ["an unplaced widget is mounted", 'out[manifest.unplacedSection].unshift({ id: id, transient: true });', 'out[manifest.unplacedSection].slice();', "unplaced mounts:"],
     ["Open routed to today's panel without an anchor", 'return { ok: true, kind: "summon", surface: kind, presentation: "window" };', 'return { ok: true, kind: "summon", surface: "panel" };', "Open route: acme.open-panel"],
@@ -3880,6 +3939,7 @@ try {
                 else if (filter === "unplaced mounts:") unplacedMounts(ctx, check);
                 else if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
                 else if (filter === "drmDriver:") drmDriverRequirements(ctx, check);
+                else if (filter === "key clash reset:") keyClashResets(ctx, check);
                 else if (filter === "Open route: acme.open-panel") openRoutes(ctx, check, bundled);
                 else suite(ctx, configLogic, check);
             } catch (e) {

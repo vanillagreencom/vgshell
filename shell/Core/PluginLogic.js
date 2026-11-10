@@ -2228,6 +2228,28 @@ function keyConflicts(key, sections, foreign, id, shortcut, bindPlan, identities
     }) };
 }
 
+// A conflict's plugin actions use the same effective/default rows as Settings.
+// Reset only when removing the saved choice releases this key; a default
+// containing it (including one alternative of a list) needs a visit instead.
+function keyConflictResolutions(key, found, config, manifests) {
+    var normalized = ConfigLogic.hyprlandKey(key).key;
+    var resolutions = [];
+    found.plugins.forEach(function (holder) {
+        // The published layer can precede a rescan or a pad-list edit.
+        // A holder no longer in the current rows grants no reset target.
+        if (!hasOwn(manifests, holder.id)) return;
+        var manifest = manifests[holder.id];
+        var bind = bindRows(config, manifest, {}).find(function (row) { return row.shortcut === holder.shortcut; });
+        if (bind === undefined) return;
+        var defaults = bind["default"] === null ? [] : keyValues(bind["default"]);
+        var saved = pluginRow(config, holder.id);
+        var reset = saved !== undefined && isPlainObject(saved.keys) && hasOwn(saved.keys, holder.shortcut)
+            && defaults.indexOf(normalized) === -1;
+        resolutions.push({ id: holder.id, shortcut: holder.shortcut, name: manifest.name, defaultKeys: defaults, reset: reset });
+    });
+    return resolutions;
+}
+
 // The hint a key field draws under its key, from FOUND, keyConflicts'
 // answer with `binds`, the state of the read of the user's binds
 // (`unread`, `read` or `failed`), and `userBinds`, where the user's

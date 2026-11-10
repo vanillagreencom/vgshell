@@ -74,6 +74,7 @@ Column {
     spacing: Theme.stack.row
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
     signal applyKey(var key)
+    signal resetHolder(string id, string shortcut)
     signal applySetting(string key, bool value)
     signal removalAsked(var target)
     signal lineAsked(var target)
@@ -96,6 +97,7 @@ Column {
         onApplyKey: key => row.applyKey(key)
         onRemovalAsked: target => row.removalAsked(target)
         onLineAsked: target => row.lineAsked(target)
+        onHintPageActivated: (id, tab) => row.openPage(id, tab)
 
         property var edits: null
         readonly property bool edited: shortcutField.edited
@@ -106,6 +108,8 @@ Column {
         // `Right Alt or Right Ctrl`.
         readonly property string defaultLabel: defaultKeys.map(key => ShortcutLabels.keyCaps(key).join("+")).join(" or ")
         readonly property bool userHolds: found !== null && found.user === true
+        readonly property var holderResets: found === null ? [] : (found.resolutions || []).filter(holder => holder.reset)
+        readonly property var linkedHolder: found === null || userHolds ? null : (found.resolutions || []).find(holder => !holder.reset) || null
         // The one user line that binds the key as a whole `hl.bind` call, which
         // Remove my line takes out; null when there is none or more than one.
         readonly property var userLine: {
@@ -202,7 +206,29 @@ Column {
         hintLink: citedLine === null || citedLine.config === "" ? "" : citedLine.place + " line " + citedLine.line
         onHintLinkActivated: if (citedLine !== null) lineAsked(citedLine)
 
+        // Settings owns page navigation; other BindField consumers keep
+        // the plain shared hint. BindField lends this target by alias.
+        // https://doc.qt.io/qt-6/qml-qtqml-binding.html
+        Binding {
+            target: root.shortcutField
+            property: "conflict"
+            value: root.found === null ? "" : root.found.hint + (root.linkedHolder === null ? ""
+                : " [Settings/Keys](page:" + root.linkedHolder.id + "/Settings/Keys)")
+        }
+
         hintActions: [
+            Repeater {
+                model: ScriptModel {
+                    values: root.holderResets
+                }
+                RowAction {
+                    required property var modelData
+                    text: "Reset " + modelData.name + " to " + (modelData.defaultKeys.length === 0 ? "Unbound"
+                        : modelData.defaultKeys.map(key => ShortcutLabels.keyCaps(key).join("+")).join(" or "))
+                    visible: root.editable
+                    onClicked: row.resetHolder(modelData.id, modelData.shortcut)
+                }
+            },
             RowAction {
                 objectName: "removeUserLine"
                 text: "Remove my line"

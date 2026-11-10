@@ -8,6 +8,8 @@
 # it, the submap is left once it commits, and the field names the
 # Launcher shortcut and the user bind holding SUPER+SPACE. A captured
 # SUPER+SHIFT+T names the Themes plugin, whose shortcut asks for the same key,
+# with Settings' reference to that plugin's Keys section. A user-config
+# clash keeps its file link and three existing actions without that reference,
 # and the field's Unbind button, clicked, stores null; Themes ends the row
 # enabled or disabled as the row found it, since the themes row leaves
 # Black current and an enabled Themes draws it. The control starts a tree whose key capture owner
@@ -97,6 +99,9 @@ expect "the field shows its focus ring for the Tab focus" true settings_key_fiel
 
 kc_capture "SUPER+SPACE" SUPER+SPACE "$sandbox/key-capture-space" -M logo -k space -m logo
 expect_poll "the field names the Launcher shortcut and the user bind holding SUPER+SPACE by its file and line" "\"Also used by Launcher (toggle), your Hyprland config at ~/.config/hypr/hyprland.lua line $kc_space_line.\"" settings_key_field conflict
+expect "the user-config clash keeps its file link" "\"~/.config/hypr/hyprland.lua line $kc_space_line\"" ipc smoke readMatchingDescendant window vgs.settings ShortcutField pluginId vgs.settings hintLink
+kc_user_actions="$(ipc smoke itemValues window vgs.settings RowAction objectName,visible)" || fail "the user-config clash actions are unreadable"
+expect "the user-config clash keeps its existing actions" '["pickAnotherKey", "removeUserLine", "useMyBinding"]' py_reply 'import json,sys; print(json.dumps(sorted(row["objectName"] for row in json.load(sys.stdin) if row.get("visible") and row.get("objectName"))))' <<<"$kc_user_actions"
 # Launcher's id sorts first, so it holds SUPER+SPACE and the Settings bind is skipped.
 kc_typed "SUPER+SPACE typed" "super+space" SUPER+SPACE absent
 kc_capture "CTRL+ALT+T" CTRL+ALT+T "$sandbox/key-capture-t" -M ctrl -M alt -k t -m alt -m ctrl
@@ -122,7 +127,7 @@ kc_themes_before="$(plugin_enabled vgs.themes)" || kc_themes_before=unread
 expect "enabling Themes, whose shortcut asks for SUPER+SHIFT+T, is allowed" ok ipc shell setPluginEnabled vgs.themes true
 kc_loaded "enabling Themes" vgs.themes:themes "65 t"
 kc_capture "SUPER+SHIFT+T" SUPER+SHIFT+T "$sandbox/key-capture-none" -M logo -M shift -k t -m shift -m logo
-expect_poll "the field names the Themes shortcut asking for SUPER+SHIFT+T" '"Also used by Themes (themes)."' settings_key_field conflict
+expect_poll "the field names the Themes shortcut and links its Settings Keys" '"Also used by Themes (themes). [Settings/Keys](page:vgs.themes/Settings/Keys)"' settings_key_field conflict
 kc_reveal_unbind() { local at; at="$(ipc smoke revealText window vgs.settings IconButton Unbind)" || return; [[ $at != absent ]] && echo shown || echo absent; }
 expect "the Unbind button is scrolled into view" shown kc_reveal_unbind
 click_in window:Plugins window vgs.settings IconButton Unbind || fail "the click on the field's Unbind button failed"

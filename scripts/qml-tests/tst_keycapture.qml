@@ -300,15 +300,15 @@ Item {
 
         function test_conflicts_read_the_user_binds() {
             source.foreignKeys = ["SUPER+SPACE"];
-            compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":true,"binds":"read","userBinds":[],"suppressed":false,"userLabels":[],"hint":"Also used by acme.keys (open), your other shortcuts."}');
+            compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":true,"binds":"read","userBinds":[],"resolutions":[],"suppressed":false,"userLabels":[],"hint":"Also used by acme.keys (open), your other shortcuts."}');
             source.userRows = { "SUPER+SPACE": [userLine(true)] };
             compare(JSON.stringify(root.capture.conflicts("super+space", "acme.other", "x").userBinds), JSON.stringify([userLine(true)]));
             source.foreignKeys = [];
-            compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"suppressed":false,"userLabels":[],"hint":"Also used by acme.keys (open)."}');
+            compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"resolutions":[],"suppressed":false,"userLabels":[],"hint":"Also used by acme.keys (open)."}');
             const before = Registry.manifests;
             Registry.manifests = { "acme.keys": { id: "acme.keys", name: "Keys", settings: {} } };
             try {
-                compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"suppressed":false,"userLabels":[],"hint":"Also used by Keys (open)."}');
+                compare(JSON.stringify(root.capture.conflicts("SUPER+SPACE", "acme.other", "x")), '{"plugins":[{"id":"acme.keys","shortcut":"open"}],"user":false,"binds":"read","userBinds":[],"resolutions":[],"suppressed":false,"userLabels":[],"hint":"Also used by Keys (open)."}');
             } finally {
                 Registry.manifests = before;
             }

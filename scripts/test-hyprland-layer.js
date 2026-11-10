@@ -220,7 +220,7 @@ function verifyUserBindLifecycle() {
     }))];
     const plan = layer.resolveBinds(sections, null, "admitted", ["SUPER+SHIFT+S"]);
     const hintContext = vm.createContext({
-        Logic: logic, Layer: layer, ConfigLogic: load(configFile), bindsState: "read",
+        Logic: logic, Layer: layer, ConfigLogic: load(configFile), Config: { effective: {} }, bindsState: "read",
         Registry: { hyprlandSections: sections, hyprlandBindPlan: plan, hyprlandKeyIdentities: null, manifests: {} },
         bindsSource: { foreignKeys: ["SUPER+SHIFT+S"], foreignBindRows: [{ key: "SUPER+SHIFT+S", description: "Move window down" }],
             userBindsFor: () => [] }

@@ -16,8 +16,8 @@
 # shell.json. A key the manager refuses leaves shell.json as it was and
 # reads over the rows as the shared reply line says it, from the manager's
 # own key judge under node; the next saved key clears it. The Settings
-# page's Keys row for the same shortcut shows the
-# same hint, and the same key written from there is the same shell.json
+# page's Keys row for the same shortcut adds its Settings/Keys reference to
+# the shared plain hint, and the same key written from there is the same shell.json
 # value, which this window then shows. The row's unbind writes null: the
 # bind leaves `hyprctl binds` and its row stays. SUPER+SLASH closes the
 # window, opens it again, and the window is then read as every
@@ -257,7 +257,8 @@ expect_poll "the saved key clears the refusal" '""' ipc smoke readInstance windo
 expect "Settings is summoned on the Themes page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.themes"}'
 expect_poll "the Settings window shows the Themes page" '"vgs.themes"' ipc smoke readInstance window vgs.settings page
 expect_poll "the Settings Keys row shows the key written here" '"SUPER+SLASH"' settings_field key
-expect_poll "the Settings Keys row shows the same hint" '"Also used by Key Hints (toggle)."' settings_field conflict
+kh_settings_want='"Also used by Key Hints (toggle). [Settings/Keys](page:vgs.keyhints/Settings/Keys)"'
+expect_poll "the Settings Keys row adds its holder page reference" "$kh_settings_want" settings_field conflict
 expect_poll "the Settings Keys row's field takes the focus" focused ipc smoke invokeInstance window vgs.settings focusKeyField "$kh_themes"
 type_keys -k Return || fail "Return on the Settings field failed"
 expect_poll "Return on the Settings field begins capture" true settings_field capturing
@@ -270,8 +271,8 @@ expect "the Settings Keys row writes the same key" applied ipc smoke invokeInsta
 expect_poll "the Settings page writes the value this window wrote" "$kh_written" themes_key
 expect_poll "the Themes row here shows the key the Settings page wrote" '"SUPER+SLASH"' kh_field "$kh_themes" key
 kh_settings_hint="$(settings_field conflict)" || kh_settings_hint=unread
-expect "the Settings Keys row still names this window's shortcut" '"Also used by Key Hints (toggle)."' printf '%s\n' "$kh_settings_hint"
-expect_poll "the Themes row here shows the hint the Settings page shows" "$kh_settings_hint" kh_field "$kh_themes" conflict
+expect "the Settings Keys row keeps its holder page reference" "$kh_settings_want" printf '%s\n' "$kh_settings_hint"
+expect_poll "the Themes row here keeps the shared plain hint" '"Also used by Key Hints (toggle)."' kh_field "$kh_themes" conflict
 expect "the Settings window is hidden" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone" 0 window_count Plugins
 

@@ -858,6 +858,7 @@ FocusScope {
                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                 onRemovalAsked: row => page.panel.confirmRemoval(keyField, row)
                                 onLineAsked: row => page.panel.openUserLine(row)
+                                onResetHolder: (id, shortcut) => page.panel.writeKey(id, shortcut, undefined)
                                 onApplyKey: key => {
                                     if (page === null || page.row === null) return;
                                     settle(key, Reply.isOk(page.panel.writeKey(pluginId, modelData.shortcut, key)));
