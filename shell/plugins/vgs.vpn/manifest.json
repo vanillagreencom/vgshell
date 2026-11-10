@@ -26,11 +26,14 @@
     "run",
     "status",
     "surfaces",
+    "system",
     "tui"
   ],
   "capabilityKinds": {
-    "run": ["pane"]
+    "run": ["pane"],
+    "system": ["service"]
   },
+  "systemSteps": ["vpn-kill-switch"],
   "defaultSection": "right",
   "pane": {
     "group": "Connectivity",
@@ -116,6 +119,21 @@
     "profiles": {
       "type": "data",
       "label": "VPN profiles"
+    },
+    "killSwitch": {
+      "type": "state",
+      "label": "Kill switch",
+      "setup": "optional",
+      "hint": "Block traffic outside the VPN when the VPN drops",
+      "info": "When a VPN you turned on in VGS drops, the kill switch blocks traffic outside it until it connects again or you turn it off in VGS. It works while VGS is not running and after a restart.",
+      "action": {
+        "label": "Set up",
+        "system": "vpn-kill-switch"
+      }
+    },
+    "killSwitchState": {
+      "type": "data",
+      "label": "Kill switch state"
     }
   },
   "tui": {

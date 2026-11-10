@@ -377,6 +377,12 @@ if [[ -e $repo/bin/vgshell-system ]] && ! devices_tree_state="$(devices_system_t
   printf 'qml-smoke: system-tree=failed %s\n' "$devices_tree_state"
   exit 1
 fi
+# The VPN kill switch's state file lies in that tree too, so no shell
+# writes the host's /var/lib/vgshell/vpn/state.
+if ! devices_vpn_state="$(devices_vpn_state_file)"; then
+  printf 'qml-smoke: vpn-state-file=failed %s\n' "$devices_vpn_state"
+  exit 1
+fi
 # The sandbox copy of bin/vgshell-sudo-grant resolves every path and
 # command in $sudo_grant_root, its `prefix=` line rewritten to it, since it
 # pins its PATH to the system directories and no PATH sentinel can stand

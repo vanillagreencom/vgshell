@@ -12,8 +12,10 @@ import "../../shell/plugins/vgs.vpn/VpnLogic.js" as Logic
 // the remove confirmation by keyboard: Cancel takes the focus, Cancel
 // hands it back to Remove profile, and once the profile leaves the list
 // the focus moves to the profile now in its place, else the one before
-// it, else Import a VPN file; and an open password prompt keeps its
-// profile when another connect ends at Needs password.
+// it, else Import a VPN file; an open password prompt keeps its
+// profile when another connect ends at Needs password; the kill
+// switch's row in each state, in the section and the flyout; and the
+// blocked-traffic notice while the kill switch holds the block.
 Item {
     id: root
     width: 900
@@ -45,10 +47,12 @@ Item {
             [campus, "Campus AnyConnect", "vpn", "", "openconnect", "vpn.example.edu"],
             [branch, "Branch IPsec", "vpn", "", "vpnc", "ipsec.example.net"]
         ].filter(row => names.indexOf(row[1]) !== -1);
-        const rows = all.map(row => ({ uuid: row[0], name: row[1], type: row[2], state: row[3] }));
+        const opts = options || {};
+        // `states` sets a profile's NetworkManager state by uuid.
+        const states = opts.states || {};
+        const rows = all.map(row => ({ uuid: row[0], name: row[1], type: row[2], state: states[row[0]] !== undefined ? states[row[0]] : row[3] }));
         const details = {};
         for (const row of all) details[row[0]] = { service: row[4], server: row[5] };
-        const opts = options || {};
         const listing = { state: opts.state || "available", rows: rows, count: rows.length, activeCount: rows.filter(row => row.state === "activated").length };
         const failures = Object.assign({ [travel]: { kind: "needs-password", service: "" }, [branch]: { kind: "sign-in", service: "" } }, opts.failures || {});
         return Logic.compose(listing, opts.details === undefined ? details : opts.details,
@@ -58,7 +62,7 @@ Item {
 
     function shell() {
         return {
-            status: { values: root.values },
+            status: { values: root.values, act: key => root.record(["act", key]) },
             settings: { pollSeconds: 30 },
             configure: { set: (key, value) => root.record(["configure", key, value]) },
             requirements: { missing: root.missing, offer: commands => root.record(["offer", commands]) },
@@ -91,8 +95,8 @@ Item {
 
         property Item view: null
 
-        function publish(value) {
-            root.values = { profiles: value, connection: Logic.connection(value) };
+        function publish(value, kill) {
+            root.values = Object.assign({ profiles: value, connection: Logic.connection(value) }, kill === undefined ? {} : { killSwitchState: kill });
             (view.panel !== undefined ? view.panel : view).shell = root.shell();
             renderedFrame(view);
         }
@@ -308,6 +312,193 @@ Item {
                 compare(empty.actionText, "", state + " offers no import");
                 verify(named("vpn-updates") === null, state + " shows no Updates");
             }
+        }
+
+        // The kill switch row draws the published state: nothing before it,
+        // Set up while the step is not applied, which runs the step's
+        // status action, the switch and Allow local network under it while
+        // it is on, each press sending its mode, and the reason a profile
+        // cannot be used in the error line.
+        function killState(step, file, line, busy) {
+            return Logic.killSwitchState(step, file, line === null ? null : Logic.killStatus(0, line + "\n"), busy === true, "");
+        }
+        function killCalls() {
+            return root.calls.filter(call => (call[0] === "ipc" && call[1] === "kill-switch") || call[0] === "act")
+                .map(call => call[0] === "act" ? ["act", call[1]] : ["mode", call[2]]);
+        }
+        function test_kill_switch_row_data() {
+            return [{ tag: "section", component: paneComponent }, { tag: "flyout", component: panelComponent }];
+        }
+        // By keyboard: the flyout's lower rows can lie under its fold.
+        function press(item) {
+            item.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Space);
+        }
+        function test_kill_switch_row(data) {
+            const ready = { state: "ready", reason: "granted" };
+            const valid = (meantOn, mode) => ({ kind: "valid", meantOn: meantOn, mode: mode, portalUntil: "0" });
+            open(data.component, root.payload(root.standIn));
+            verify(named("vpn-kill-switch") === null, "nothing shows before the state is published");
+
+            publish(root.payload(root.standIn), killState({ state: "needed", reason: "not-set-up" }, { kind: "reading" }, null));
+            verify(named("vpn-kill-switch") !== null);
+            verify(named("vpn-kill-switch-toggle") === null, "Set up stands in the switch's place");
+            press(named("vpn-kill-switch-setup"));
+            compare(killCalls(), [["act", "killSwitch"]]);
+
+            root.calls = [];
+            publish(root.payload(root.standIn), killState(ready, valid("", "off"), "state=off reason=disarmed blocked=0 tunnel= profile="));
+            verify(named("vpn-kill-switch-setup") === null);
+            const toggle = named("vpn-kill-switch-toggle");
+            verify(toggle !== null && !toggle.checked);
+            verify(row(root.office).view.key !== "kill-switch", "with the switch off Office VPN connects as before");
+            verify(named("vpn-kill-switch-lan") === null, "Allow local network shows only while the switch is on");
+            press(toggle);
+            compare(killCalls(), [["mode", "block"]]);
+            compare(toggle.checked, false, "the switch waits for the written state");
+
+            root.calls = [];
+            publish(root.payload(root.standIn), killState(ready, valid(root.home, "block"), "state=passing reason=tunnel-up blocked=0 tunnel=wg0 profile=" + root.home));
+            verify(toggle.checked);
+            // With the switch on, a profile that is not WireGuard cannot
+            // connect, and its switch says why before a press.
+            compare(row(root.office).view.key, "kill-switch");
+            verify(named("vpn-profile-toggle:" + root.office).disabledReason !== "", "Office VPN's switch says why");
+            compare(row(root.home).view.key, "connected");
+            const lan = named("vpn-kill-switch-lan");
+            verify(lan !== null && !lan.checked);
+            press(lan);
+            publish(root.payload(root.standIn), killState(ready, valid(root.home, "block-lan"), "state=passing reason=tunnel-up blocked=0 tunnel=wg0 profile=" + root.home));
+            verify(lan.checked);
+            press(lan);
+            press(toggle);
+            compare(killCalls(), [["mode", "block-lan"], ["mode", "block"], ["mode", "off"]]);
+            compare(named("vpn-kill-switch-field").error, "");
+
+            root.calls = [];
+            publish(root.payload(root.standIn), killState(ready, valid(root.home, "block"), "state=passing reason=tunnel-up blocked=0 tunnel=wg0 profile=" + root.home, true));
+            verify(toggle.disabledReason !== "" && lan.disabledReason !== "", "a write in flight disables both switches");
+            press(toggle);
+            press(lan);
+            compare(killCalls(), []);
+
+            publish(root.payload(root.standIn), killState(ready, valid(root.office, "block"), "state=unavailable reason=profile-not-wireguard blocked=3 tunnel= profile=" + root.office));
+            const field = named("vpn-kill-switch-field");
+            compare(field.error, Logic.killSwitchView(root.values.killSwitchState, root.values.profiles).hint);
+            verify(field.error.indexOf("Office VPN") === 0, "the reason names the profile");
+
+            publish(root.payload(root.standIn), killState(ready, valid(root.home, "block"), "state=off reason=disarmed blocked=0 tunnel= profile="));
+            verify(field.error !== "", "on, naming a profile, with no rule in place reads in the danger tone");
+            verify(field.error.indexOf("Home tunnel") !== -1, "it names the profile");
+            compare(field.hint, "");
+
+            publish(root.payload([]), killState(ready, valid("", "off"), "state=off reason=disarmed blocked=0 tunnel= profile="));
+            verify(named("vpn-kill-switch") === null, "no profile, no kill switch");
+        }
+
+        // While the status read says holding for the dropped profile the
+        // file names, the danger notice comes first, above every row, and
+        // its one button disconnects that profile; a keyboard press leaves
+        // the focus on the profile's switch. The profile reads Dropped with
+        // its switch on, which disconnects it too, and the flyout header
+        // names it dropped. It hides in every other reading, while the
+        // profile is connecting and for a line naming another profile, and
+        // for a profile no longer listed it offers no button.
+        function test_blocked_notice_data() {
+            return [{ tag: "section", component: paneComponent }, { tag: "flyout", component: panelComponent }];
+        }
+        function infoButton(item) { return find(item, child => String(child).indexOf("InfoButton") === 0); }
+        function test_blocked_notice(data) {
+            const ready = { state: "ready", reason: "granted" };
+            const valid = (meantOn, mode) => ({ kind: "valid", meantOn: meantOn, mode: mode, portalUntil: "0" });
+            const dropped = root.payload(root.standIn, { states: { [root.home]: "" } });
+            const holding = "state=holding reason=tunnel-down blocked=214 tunnel= profile=" + root.home;
+            open(data.component, dropped);
+            publish(dropped, killState(ready, valid(root.home, "block"), "state=passing reason=tunnel-up blocked=0 tunnel=wg0 profile=" + root.home));
+            verify(named("vpn-blocked") === null, "no notice while the tunnel passes");
+            verify(infoButton(named("vpn-kill-switch-field")) === null, "no count and no info button while the tunnel passes");
+
+            publish(dropped, killState(ready, valid(root.home, "block"), holding));
+            const notice = named("vpn-blocked");
+            verify(notice !== null, "the notice shows while the block holds");
+            compare(notice.tone, "danger");
+            compare(notice.text, Logic.blockedNotice(root.values.killSwitchState, root.values.profiles).text);
+            // The kill switch row's line is the refused count, and the
+            // switch's info button says what it counts.
+            const field = named("vpn-kill-switch-field");
+            compare(field.hint, Logic.killSwitchView(root.values.killSwitchState, root.values.profiles).hint);
+            verify(field.hint.indexOf("214") !== -1, "the line carries the count");
+            verify(infoButton(field) !== null, "the count has its info button");
+            const top = notice.mapToItem(view, 0, 0).y;
+            for (const uuid of [root.home, root.office])
+                verify(row(uuid).mapToItem(view, 0, 0).y > top, "the notice stands above " + uuid);
+            verify(named("vpn-kill-switch").mapToItem(view, 0, 0).y > top, "and above the kill switch row");
+            verify(notice.firstStop !== null && notice.buttonText !== "", "it offers one button");
+            root.calls = [];
+            notice.firstStop.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(lastIpc(), { kind: "profile-down", id: root.home });
+            verify(named("vpn-profile-toggle:" + root.home).activeFocus, "the focus waits on the profile's switch");
+
+            // The row and the header read the drop; the switch is the
+            // second off switch.
+            compare(row(root.home).view.key, "dropped");
+            const homeToggle = named("vpn-profile-toggle:" + root.home);
+            verify(homeToggle.checked && homeToggle.disabledReason === "", "the dropped profile's switch reads on and can be used");
+            const subtitle = named("vpn-subtitle");
+            if (data.tag === "flyout") {
+                verify(subtitle !== null);
+                compare(subtitle.text, Logic.summary(root.values.profiles, Logic.blockedNotice(root.values.killSwitchState, root.values.profiles)));
+                verify(subtitle.text !== Logic.summary(root.values.profiles, null), "the header does not read off");
+            }
+            root.calls = [];
+            press(homeToggle);
+            compare(lastIpc(), { kind: "profile-down", id: root.home });
+
+            // Expanded, the held profile offers Reconnect, a connect that
+            // keeps the block: it sends profile-up for that profile.
+            row(root.home).expanded = true;
+            renderedFrame(view);
+            const reconnect = named("vpn-reconnect:" + root.home);
+            verify(reconnect !== null, "the held profile offers Reconnect");
+            verify(named("vpn-reconnect:" + root.office) === null, "no Reconnect on another profile");
+            root.calls = [];
+            reconnect.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(lastIpc(), { kind: "profile-up", id: root.home });
+            compare(root.calls.filter(call => call[0] === "ipc" && call[1] === "kill-switch"), [], "Reconnect writes no kill switch mode");
+            // The connect hides Reconnect in the same turn: the keyboard's
+            // focus waits on the profile's switch.
+            verify(named("vpn-profile-toggle:" + root.home).activeFocus, "the focus moves to the profile's switch");
+
+            // A connect holds the block until its tunnel comes up: no notice
+            // and no Dropped while the profile connects, and none for a
+            // holding line that names another profile.
+            const connecting = root.payload(root.standIn, { states: { [root.home]: "activating" } });
+            publish(connecting, killState(ready, valid(root.home, "block"), holding));
+            verify(named("vpn-blocked") === null, "no notice while the named profile connects");
+            verify(infoButton(named("vpn-kill-switch-field")) === null, "no info button while the named profile connects");
+            verify(row(root.home).view.key !== "dropped");
+            verify(named("vpn-reconnect:" + root.home) === null, "no Reconnect while the profile connects");
+            publish(dropped, killState(ready, valid(root.home, "block"), "state=holding reason=tunnel-down blocked=3 tunnel= profile=" + root.office));
+            verify(named("vpn-blocked") === null, "no notice for a line naming another profile");
+            compare(row(root.home).view.key, "off");
+
+            for (const [reading, kill] of [["off", killState(ready, valid(root.home, "block"), "state=off reason=disarmed blocked=0 tunnel= profile=")],
+                ["unreachable", Logic.killSwitchState(ready, valid(root.home, "block"), Logic.killStatus(1, ""), false, "")],
+                ["the switch off", killState(ready, valid(root.home, "off"), holding)],
+                ["the file's profile cleared", killState(ready, valid("", "block"), holding)]]) {
+                publish(dropped, kill);
+                verify(named("vpn-blocked") === null, "no notice: " + reading);
+            }
+
+            publish(root.payload(["Office VPN"]), killState(ready, valid(root.home, "block"), holding));
+            const unlisted = named("vpn-blocked");
+            verify(unlisted !== null, "the notice still shows for a profile no longer listed");
+            compare(unlisted.buttonText, "");
+            verify(unlisted.firstStop === null, "with no button to press");
+            if (data.tag === "flyout")
+                verify(named("vpn-subtitle").text !== Logic.summary(root.values.profiles, null), "the header reads the drop for an unlisted profile");
         }
 
         // The flyout: no Remove, no Updates, no empty state.

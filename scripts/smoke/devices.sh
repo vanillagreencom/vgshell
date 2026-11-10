@@ -70,7 +70,7 @@ devices_fixtures="$repo/scripts/smoke/fixtures/devices"
 devices_env_words=(PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_DEV_ROOT="$devices_dev_root"
   VGS_SYSFS_ROOT="$devices_sysfs_root" VGS_HID_FAKE="$devices_hid_socket")
 device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli nm-connection-editor pactl pw-play bluetoothctl systemctl udevadm modprobe xdg-open gum
-  chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable lpstat ipptool system-config-printer)
+  chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable lpstat ipptool system-config-printer vgs-kill-switch)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 
 # The child-lifetime row needs the real sleep-watch protocol without a
@@ -652,6 +652,94 @@ if text.count("\nprefix=\n") != 1:
 open(path, "w").write(text.replace("\nprefix=\n", "\nprefix=" + root + "\n"))
 print("prefixed")
 PY
+}
+# devices_vpn_state_file: the sandbox copy of vgs.vpn's VpnLogic.js with its
+# STATE_FILE line rewritten to the kill switch's state file under the fakes'
+# tree, $devices_system_root/var/lib/vgshell/vpn/state, where the copy of
+# bin/vgshell-system probes the vpn-kill-switch step's directory, as
+# devices_system_tree rewrites that copy's `prefix=` line. The shell writes
+# no host path, and a scene reads what it wrote there. A copy is judged by
+# the host path itself, in every file under its vgs.vpn: none names it,
+# `absent`; else the STATE_FILE line must be there once and no file may
+# name the host path after the rewrite, since a host directory the step
+# set up is the user's to write and its path unit would arm the host's
+# rule. Prints `prefixed` or `absent`; else `state-line-count=<n>` or
+# `unrewritten=<file>` and returns 1.
+devices_vpn_state_file() {
+  local plugin="$repo/shell/plugins/vgs.vpn"
+  [[ -d $plugin ]] || { echo absent; return 0; }
+  python3 - "$plugin" "$devices_system_root" <<'PY'
+import os, sys
+plugin, root = sys.argv[1:]
+host = "/var/lib/vgshell/vpn"
+moved_dir = root + host
+def files():
+    for top, _, names in os.walk(plugin):
+        for name in sorted(names):
+            yield os.path.join(top, name)
+def naming():
+    out = []
+    for path in files():
+        try:
+            text = open(path, encoding="utf-8", errors="surrogateescape").read()
+        except OSError:
+            print("unrewritten=" + path)
+            sys.exit(1)
+        if host in text.replace(moved_dir, ""):
+            out.append(path)
+    return out
+before = naming()
+if not before:
+    moved = any(moved_dir in open(path, encoding="utf-8", errors="surrogateescape").read() for path in files())
+    print("prefixed" if moved else "absent")
+    sys.exit(0)
+logic = os.path.join(plugin, "VpnLogic.js")
+text = open(logic).read()
+line = 'var STATE_FILE = "' + host + '/state";'
+if text.count(line) > 1 or (text.count(line) == 0 and logic in before):
+    print("state-line-count=%d" % text.count(line))
+    sys.exit(1)
+if text.count(line) == 1:
+    open(logic, "w").write(text.replace(line, 'var STATE_FILE = "' + moved_dir + '/state";'))
+left = naming()
+if left:
+    print("unrewritten=" + left[0])
+    sys.exit(1)
+print("prefixed")
+PY
+}
+# devices_vpn_kill_tree needed|ready|remove: the vpn-kill-switch step's world in
+# the fakes' tree (devices_system_tree), never the host's. `needed` puts an
+# nft there, which the probe only looks up and nothing runs, so the step
+# reads needed and its row offers Set up. `ready` adds what apply leaves:
+# the five files at their destinations, the user's state directory, the
+# cache directory, which a stat stand-in reports root's, as rows/system-
+# steps.sh's does, and the three units enabled through the systemctl
+# stand-in. `remove` takes all of it away, the state file included.
+devices_vpn_kill_root="$devices_system_root/var/lib/vgshell"
+devices_vpn_kill_tree() { # needed|ready|remove
+  local bin="$devices_system_root/usr/bin" units="$devices_system_root/etc/systemd/system" unit
+  rm -rf -- "${devices_vpn_kill_root:?}/vpn" "${devices_vpn_kill_root:?}/kill-switch" "${devices_system_root:?}/usr/local/bin/vgs-kill-switch" \
+    "${units:?}/vgs-kill-switch.service" "${units:?}/vgs-kill-switch.path" "${units:?}/vgs-kill-switch-status.socket" \
+    "${units:?}/vgs-kill-switch-status@.service" "${bin:?}/nft" "${bin:?}/stat"
+  for unit in vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service; do
+    device_reply systemctl 1 "" is-enabled --quiet "$unit"
+  done
+  [[ $1 != remove ]] || { device_reply_clear vgs-kill-switch; return 0; }
+  printf '#!/bin/sh\nexit 1\n' >"$bin/nft"
+  chmod 755 "$bin/nft"
+  [[ $1 == ready ]] || return 0
+  mkdir -p -- "$devices_system_root/usr/local/bin" "$units" "$devices_vpn_kill_root/vpn" "$devices_vpn_kill_root/kill-switch"
+  cp -- "$repo/config/system/kill-switch/vgs-kill-switch" "$devices_system_root/usr/local/bin/vgs-kill-switch"
+  for unit in vgs-kill-switch.service vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch-status@.service; do
+    cp -- "$repo/config/system/kill-switch/$unit" "$units/$unit"
+  done
+  printf '#!/bin/sh\nfor last; do :; done\nif [ "$1 $2" = "-c %%u %%a" ] && [ "$last" = %q ]; then echo "0 700"; exit 0; fi\nexec %q "$@"\n' \
+    "$devices_vpn_kill_root/kill-switch" "$(command -v stat)" >"$bin/stat"
+  chmod 755 "$bin/stat"
+  for unit in vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service; do
+    device_reply systemctl 0 "" is-enabled --quiet "$unit"
+  done
 }
 # hid_fake_call DEVICE IOCTL HEX: one request to the HID fake, as the
 # brightness helper sends it, and the reply as one JSON line.

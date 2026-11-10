@@ -47,6 +47,54 @@ function holdsNothingPrivate(value, where) {
     for (const marker of PRIVATE) assert.ok(!json.includes(marker), where + " carries " + marker);
 }
 
+// State file texts and their read, as the root script's parse_state reads
+// them: the differential at the end hands each to the shipped script.
+const STATE_TABLE = [
+    ["the four keys", "version=1\nmeant-on=\nkill-switch=off\nportal-until=0\n", { kind: "valid", meantOn: "", mode: "off", portalUntil: "0" }],
+    ["any order, trailing line feeds", "kill-switch=block-lan\nportal-until=1794203888\nmeant-on=" + HOME + "\nversion=1\n\n\n",
+        { kind: "valid", meantOn: HOME, mode: "block-lan", portalUntil: "1794203888" }],
+    ["an upper-case uuid", "version=1\nmeant-on=" + HOME.toUpperCase() + "\nkill-switch=block\nportal-until=0",
+        { kind: "valid", meantOn: HOME.toUpperCase(), mode: "block", portalUntil: "0" }],
+    ["empty", "", { kind: "malformed" }],
+    ["a missing key", "version=1\nmeant-on=\nkill-switch=off\n", { kind: "malformed" }],
+    ["a repeated key", "version=1\nmeant-on=\nkill-switch=off\nportal-until=0\nkill-switch=block\n", { kind: "malformed" }],
+    ["another key", "version=1\nmeant-on=\nkill-switch=off\nportal-until=0\nextra=1\n", { kind: "malformed" }],
+    ["an empty line between keys", "version=1\n\nmeant-on=\nkill-switch=off\nportal-until=0\n", { kind: "malformed" }],
+    ["another version", "version=2\nmeant-on=\nkill-switch=off\nportal-until=0\n", { kind: "malformed" }],
+    ["a profile name", "version=1\nmeant-on=Home tunnel\nkill-switch=off\nportal-until=0\n", { kind: "malformed" }],
+    ["another mode", "version=1\nmeant-on=\nkill-switch=on\nportal-until=0\n", { kind: "malformed" }],
+    ["a leading zero", "version=1\nmeant-on=\nkill-switch=off\nportal-until=01\n", { kind: "malformed" }],
+    ["a CR line end", "version=1\r\nmeant-on=\r\nkill-switch=off\r\nportal-until=0\r\n", { kind: "malformed" }],
+    ["line feeds past 4096 bytes", "version=1\nmeant-on=\nkill-switch=off\nportal-until=0" + "\n".repeat(4070),
+        { kind: "valid", meantOn: "", mode: "off", portalUntil: "0" }],
+    ["over 4096 bytes", "version=1\nmeant-on=\nkill-switch=off\nportal-until=0\n" + "x".repeat(4100), { kind: "malformed" }],
+    ["a key with no value line", "version=1\nmeant-on=\nkill-switch=off\nportal-until=0\nnoise\n", { kind: "malformed" }]
+];
+
+// Status lines and killStatus's read of each, the parsed fields or
+// `unreachable` for a line it refuses: the differential at the end hands
+// each code-0 line to the root's status_pattern, which must accept the
+// same lines.
+const STATUS_TABLE = [
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile=\n", { state: "off", reason: "disarmed", blocked: "0", tunnel: "", profile: "" }],
+    [1, "state=off reason=disarmed blocked=0 tunnel= profile=\n", "unreachable"],
+    [0, "state=holding reason=tunnel-down blocked=0042 tunnel=wgnord profile=" + HOME + "\n",
+        { state: "holding", reason: "tunnel-down", blocked: "42", tunnel: "wgnord", profile: HOME }],
+    [0, "state=passing reason=tunnel-up blocked=18446744073709551615 tunnel=wg.home-0 profile=" + HOME.toUpperCase() + "\n",
+        { state: "passing", reason: "tunnel-up", blocked: "18446744073709551615", tunnel: "wg.home-0", profile: HOME }],
+    [0, "state=unavailable reason=profile-not-wireguard blocked=3 tunnel= profile=" + OFFICE + "\n",
+        { state: "unavailable", reason: "profile-not-wireguard", blocked: "3", tunnel: "", profile: OFFICE }],
+    [0, "state=unavailable reason=cache-unreadable blocked=3 tunnel= profile=\n",
+        { state: "unavailable", reason: "cache-unreadable", blocked: "3", tunnel: "", profile: "" }],
+    [1, "", "unreachable"], [-1, "state=off reason=disarmed blocked=0 tunnel= profile=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel=\n", "unreachable"],
+    [0, "state=armed reason=x blocked=0 tunnel= profile=\n", "unreachable"], [0, "state=off reason=Off blocked=0 tunnel= profile=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=-1 tunnel= profile=\n", "unreachable"], [0, "state=off reason=disarmed blocked=0 tunnel=a/b profile=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile=Home\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile=" + HOME + "0\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile=\nstate=off reason=disarmed blocked=0 tunnel= profile=\n", "unreachable"], [0, "", "unreachable"]
+];
+
 function vpnRequirementSuite(logic) {
     const openvpn = "org.freedesktop.NetworkManager.openvpn";
     const sourceRows = [
@@ -436,7 +484,7 @@ function suite(logic, service = serviceSource) {
     // `with` resolves the body's bare names on the owner, as QML does.
     const runListed = new Function("Logic", "owner", "next", "with (owner) {" + listedBody[1] + "}");
     const listedOwner = (fields) => {
-        const owner = Object.assign({ listing: null, failures: {}, addresses: {}, profileProblem: null, detailsRead: "", reads: 0, queued: [],
+        const owner = Object.assign({ listing: null, failures: {}, addresses: {}, profileProblem: null, profileAction: null, detailsRead: "", reads: 0, queued: [],
             readDetails() { owner.reads++; }, queueAddress(uuid) { owner.queued.push(uuid); } }, fields);
         return owner;
     };
@@ -506,15 +554,15 @@ function suite(logic, service = serviceSource) {
         // A feed the run never took, as when it never started, goes with it.
         const owner = Object.assign(helpers(), { profiles, failures: { [TRAVEL]: { kind: "needs-password", service: "" } },
             profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null,
-            connectFeed: () => {}, readProfiles() { reads++; } });
+            connectFeed: () => {}, runEnded() { reads++; } });
         completeAction(false, { code, status: 0 }, owner, logic, { text: "" }, { text: output }, { stop() {} }, console);
         assert.equal(owner.connectFeed, null, kind + " " + code);
         if (kind === "profile-up") assert.equal(owner.failures[uuid] === undefined ? null : owner.failures[uuid].kind, failure, kind + " " + code);
         assert.deepEqual(owner.profileProblem === null ? null : [owner.profileProblem.uuid, owner.profileProblem.kind],
             problem ? [uuid, kind] : null, kind + " " + code);
         if (problem) assert.equal(typeof owner.profileProblem.text === "string" && owner.profileProblem.text !== "", true, kind + " " + code);
-        assert.equal(owner.profileAction, null);
-        assert.equal(reads, 1);
+        // The change stays in flight until the next list (runEnded, below).
+        assert.equal(reads, 1, "the run's end hands over to runEnded");
         assert.deepEqual(console.messages, code === 0 ? [] : [["warn", "vpn: operation=" + kind + " completion=failed code=" + code]]);
         holdsNothingPrivate([owner.failures, owner.profileProblem], kind);
     }
@@ -533,13 +581,48 @@ function suite(logic, service = serviceSource) {
         owner[name] = new Function("Logic", "owner", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner);
     };
     const feed = () => {};
+    // The window between a connect's exit 0 and the next list: the list
+    // still reads the profile as before the run, and the kill switch's
+    // status still reads holding from the arm wait, so with the action
+    // cleared the published state read as a drop. The change stays in
+    // flight until a list read started after the run lands; a read
+    // already running when it ended started before it, so the one after
+    // decides.
+    const beforeRun = Object.assign({}, listing, { rows: listing.rows.map(row => row.uuid === HOME ? Object.assign({}, row, { state: "" }) : row), activeCount: 0 });
+    const afterRun = listing;
+    const holdingHome = plain(logic.killSwitchState({ state: "ready", reason: "granted" }, { kind: "valid", meantOn: HOME, mode: "block", portalUntil: "0" },
+        logic.killStatus(0, "state=holding reason=tunnel-down blocked=0 tunnel= profile=" + HOME + "\n"), false, "", false));
+    for (const [name, running, listsToClear] of [["no read running", false, 1], ["a read already running", true, 2]]) {
+        const ending = { registered: true, profilesMissing: false, profilesReader: { running }, reads: 0, readProfiles() { ending.reads++; },
+            profileAction: { kind: "profile-up", uuid: HOME, name: "Home tunnel", password: false },
+            listing: beforeRun, failures: {}, addresses: {}, profileProblem: null, detailsRead: key, readDetails() {}, queueAddress() {} };
+        method(ending, "runEnded");
+        method(ending, "listed");
+        ending.runEnded();
+        assert.equal(ending.reads, 1, name + ": the run's end asks for a list");
+        assert.notEqual(ending.profileAction, null, name + ": the change stays in flight");
+        assert.equal(logic.blockedNotice(holdingHome, plain(logic.compose(beforeRun, details, {}, {}, ending.profileAction, ""))), null, name + ": no drop in the window");
+        for (let list = 1; list < listsToClear; list++) {
+            ending.listed(beforeRun);
+            assert.notEqual(ending.profileAction, null, name + ": a list read started before the end does not end it");
+        }
+        ending.listed(afterRun);
+        assert.equal(ending.profileAction, null, name + ": the list after the run ends it");
+    }
+    const unread = { registered: true, profilesMissing: true, profilesReader: { running: false }, readProfiles() { throw new Error("no list to read"); },
+        profileAction: { kind: "profile-up", uuid: HOME, name: "Home tunnel", password: false } };
+    method(unread, "runEnded");
+    unread.runEnded();
+    assert.equal(unread.profileAction, null, "with no list to read the change ends at once");
     const actor = stdinEnabled => ({ running: false, stdinEnabled, command: [], completion: "old" });
     // stale: a feed and an open stdin a change before this one left behind.
     const actionOwner = (stale = false) => {
         const owner = { profiles, shell: { requirements: { missing: [] } }, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: stale ? () => {} : null,
-            profileActor: actor(stale), restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } } };
+            profileActor: actor(stale), restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } },
+            stateWrite: null, killReady: false, killFile: { kind: "reading" }, killSwitch: null };
         method(owner, "connectWithPassword");
         method(owner, "startAction");
+        method(owner, "launch");
         return owner;
     };
     const started = actionOwner();
@@ -590,7 +673,7 @@ function suite(logic, service = serviceSource) {
         [TRAVEL, "profile-up", true], [BRANCH, "profile-remove", true]]) {
         const rescanned = { listing, failures: recorded, profileProblem: { uuid, kind, text: logic.problem(kind, byUuid(uuid).name, 4) },
             detailsRead: key, detailReads: 0, refreshed: 0,
-            readDetails() { rescanned.detailReads++; }, readProfiles() { rescanned.refreshed++; } };
+            readDetails() { rescanned.detailReads++; }, readProfiles() { rescanned.refreshed++; }, readKillSwitch() {} };
         method(rescanned, "refresh");
         runRescan(rescanned);
         assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL, CAMPUS].sort());
@@ -604,21 +687,21 @@ function suite(logic, service = serviceSource) {
         const learned = { [OFFICE]: { kind, service: "openvpn" }, [TRAVEL]: { kind, service: "l2tp" } };
         const updated = { listing, failures: learned,
             profileProblem: { uuid: OFFICE, kind: "profile-up", text: "fixture" },
-            detailsRead: key, readDetails() {}, readProfiles() {} };
+            detailsRead: key, readDetails() {}, readProfiles() {}, readKillSwitch() {} };
         method(updated, "refresh");
         assert.equal(updated.refresh(OFFICE), "ok", kind);
         assert.deepEqual(plain(updated.failures), { [TRAVEL]: learned[TRAVEL] }, kind);
         assert.equal(updated.profileProblem, null, kind);
         assert.deepEqual(plain(learned), { [OFFICE]: { kind, service: "openvpn" }, [TRAVEL]: { kind, service: "l2tp" } });
         const focused = { listing, failures: learned, profileProblem: null,
-            detailsRead: key, readDetails() {}, readProfiles() {} };
+            detailsRead: key, readDetails() {}, readProfiles() {}, readKillSwitch() {} };
         method(focused, "refresh");
         focused.refresh("");
         assert.deepEqual(plain(focused.failures), learned, "ordinary metadata refresh preserves " + kind);
         const published = logic.compose(listing, details, {}, updated.failures, null, "");
         const passwordBody = /function passwordRow\(uuid\) \{([\s\S]*?)\n    \}/.exec(bodySource);
         assert.ok(passwordBody);
-        const passwordRow = new Function("Logic", "profiles", "shell", "uuid", passwordBody[1]).bind(null, logic, published, { requirements: { missing: [] } });
+        const passwordRow = new Function("Logic", "profiles", "shell", "killOn", "held", "uuid", passwordBody[1]).bind(null, logic, published, { requirements: { missing: [] } }, false, "");
         assert.equal(passwordRow(OFFICE), null, kind);
         const toggleBody = /function toggle\(row, wanted\) \{([\s\S]*?)\n    \}/.exec(bodySource);
         assert.ok(toggleBody);
@@ -638,10 +721,10 @@ function suite(logic, service = serviceSource) {
     // flight. Refresh queues one replacement read, which publishes the new
     // server; a failed replacement leaves its stamp unread for retry.
     const detailOwner = (running = false) => {
-        const owner = Object.assign(helpers(), { listing, failures: recorded, profileProblem: null, detailsRead: key, detailMap: details,
+        const owner = Object.assign(helpers(), { listing, failures: recorded, profileProblem: null, profileAction: null, detailsRead: key, detailMap: details,
             registered: true, profilesMissing: false, starts: 0, refreshed: 0,
             detailsReader: { running, again: false, completion: { code: 0, status: 0 }, key, command: [] },
-            detailsDeadline: { restart() { owner.starts++; }, stop() {} }, readProfiles() { owner.refreshed++; } });
+            detailsDeadline: { restart() { owner.starts++; }, stop() {} }, readProfiles() { owner.refreshed++; }, readKillSwitch() {} });
         method(owner, "readDetails");
         method(owner, "refresh");
         method(owner, "listed");
@@ -738,7 +821,7 @@ function suite(logic, service = serviceSource) {
     assert.equal(logic.line("a<b>\u0007c\n"), "ab>c");
     const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onConnectionChanged/.exec(service);
     assert.ok(publishBody);
-    const publish = new Function("shell", "connection", "profiles", "Logic", publishBody[1]);
+    const publish = new Function("shell", "connection", "profiles", "Logic", "killSwitch", "killSetup", publishBody[1]);
     const wide = Array.from({ length: 100 }, (_, i) => "界".repeat(80) + i + ":" + String(i).padStart(8, "0") + "-0000-4000-8000-000000000000:vpn:activated").join("\n");
     const wideListing = logic.list(0, wide);
     const wideDetails = {};
@@ -754,7 +837,7 @@ function suite(logic, service = serviceSource) {
     } } };
     for (const payload of [profiles, crowded, plain(logic.compose(logic.emptyProfiles("missing"), {}, {}, {}, null, ""))]) {
         const original = JSON.stringify(payload);
-        publish(shell, logic.connection(payload), payload, logic);
+        publish(shell, logic.connection(payload), payload, logic, logic.killSwitchState(undefined, { kind: "reading" }, null, false, ""), undefined);
         assert.equal(JSON.stringify(payload), original);
         assert.equal(values.profiles.count, payload.count);
         assert.equal(values.profiles.activeCount, payload.activeCount);
@@ -766,6 +849,693 @@ function suite(logic, service = serviceSource) {
             assert.ok(Buffer.byteLength(JSON.stringify(values.profiles)) <= logic.STATUS_DATA_BYTES);
         }
     }
+    // The kill switch's entries publish through the same callback, the
+    // Setup entry only once the step's first probe answered.
+    // Each entry as [tone, action offered, available], or undefined.
+    for (const [step, setup] of [[undefined, undefined], [{ state: "needed", reason: "not-set-up" }, ["warning", true, true]],
+        [{ state: "ready", reason: "granted" }, ["ok", false, true]], [{ state: "denied", reason: "nixos-unsupported" }, ["warning", false, false]],
+        [{ state: "unknown", reason: "system-undetected" }, ["warning", false, false]]]) {
+        values = {};
+        const state = logic.killSwitchState(step, { kind: "valid", meantOn: HOME, mode: "block-lan", portalUntil: "0" },
+            logic.killStatus(0, "state=passing reason=tunnel-up blocked=7 tunnel=wg0 profile=" + HOME + "\n"), false, "");
+        publish(shell, logic.connection(profiles), profiles, logic, state, logic.killSwitchSetup(step));
+        assert.deepEqual(values.killSwitchState, plain(state));
+        const entry = values.killSwitch;
+        assert.deepEqual(entry === undefined ? undefined : [entry.tone, entry.action === true, entry.available !== false], setup, JSON.stringify(step));
+    }
+    killSwitchSuite(logic, service, profiles);
+}
+
+// The kill switch's state file, status line and row (D129), and the
+// service's writes around a profile change: the file names the profile
+// before nmcli runs, a connect with the switch on runs only once the
+// status read reports the table armed, and a profile the root half cannot
+// use, or a table that does not arm within ARM_WAIT_MS, puts the file's
+// profile back and runs nothing.
+function killSwitchSuite(logic, service, profiles) {
+    const file = (meantOn, mode, portalUntil = "0") => ({ kind: "valid", meantOn, mode, portalUntil });
+    const textOf = (meantOn, mode, portalUntil = "0") => "version=1\nmeant-on=" + meantOn + "\nkill-switch=" + mode + "\nportal-until=" + portalUntil + "\n";
+    // The grammar the root script's parse_state reads; STATE_TABLE holds
+    // the same texts, which the differential below hands the shipped script.
+    for (const [name, input, read] of STATE_TABLE) assert.deepEqual(plain(logic.readState(input)), read, name);
+    for (const [meantOn, mode, portal] of [["", "off", "0"], [HOME, "block", "1794203888"], [OFFICE, "block-lan", "0"]])
+        assert.deepEqual(plain(logic.readState(logic.stateText(file(meantOn, mode, portal)))), file(meantOn, mode, portal));
+    // A change keeps every key it does not set, the portal time included.
+    for (const [name, before, patch, after] of [
+        ["a connect keeps the mode and the portal time", file("", "block-lan", "1794203888"), { meantOn: HOME }, textOf(HOME, "block-lan", "1794203888")],
+        ["a mode change keeps the profile", file(HOME, "block", "0"), { mode: "off" }, textOf(HOME, "off")],
+        ["a disconnect clears the profile alone", file(HOME, "block", "1794203888"), { meantOn: "" }, textOf("", "block", "1794203888")],
+        ["a missing file reads as off", { kind: "missing" }, { meantOn: HOME }, textOf(HOME, "off")],
+        ["a missing file takes the mode", { kind: "missing" }, { mode: "block" }, textOf("", "block")],
+        ["a malformed file fails closed", { kind: "malformed" }, { meantOn: HOME }, textOf(HOME, "block")],
+        ["an unread file is not written", { kind: "reading" }, { mode: "off" }, null],
+        ["an unreadable file is not written", { kind: "unreadable" }, { mode: "off" }, null]
+    ]) assert.equal(logic.stateChange(before, patch), after, name);
+    // What a profile change writes first.
+    for (const [name, kind, uuid, ready, before, type, plan] of [
+        ["no step, no write", "profile-up", HOME, false, file("", "block"), "wireguard", null],
+        ["a connect names its profile and waits with the switch on", "profile-up", HOME, true, file(OFFICE, "block"), "wireguard", { patch: { meantOn: HOME }, arm: true, previous: OFFICE }],
+        ["a connect with local network waits too", "profile-up", HOME, true, file("", "block-lan"), "wireguard", { patch: { meantOn: HOME }, arm: true, previous: "" }],
+        ["a connect with the switch off waits for nothing", "profile-up", HOME, true, file("", "off"), "wireguard", { patch: { meantOn: HOME }, arm: false, previous: "" }],
+        ["a connect over no file waits for nothing", "profile-up", HOME, true, { kind: "missing" }, "wireguard", { patch: { meantOn: HOME }, arm: false, previous: "" }],
+        ["a connect over a malformed file waits", "profile-up", HOME, true, { kind: "malformed" }, "wireguard", { patch: { meantOn: HOME }, arm: true, previous: "" }],
+        ["the switch on refuses a profile that is not WireGuard", "profile-up", OFFICE, true, file("", "block"), "vpn", { refuse: "profile-not-wireguard" }],
+        ["local network refuses it too", "profile-up", OFFICE, true, file("", "block-lan"), "vpn", { refuse: "profile-not-wireguard" }],
+        ["a malformed file refuses it, as it fails closed", "profile-up", OFFICE, true, { kind: "malformed" }, "vpn", { refuse: "profile-not-wireguard" }],
+        ["the switch off lets it connect", "profile-up", OFFICE, true, file("", "off"), "vpn", { patch: { meantOn: OFFICE }, arm: false, previous: "" }],
+        ["a disconnect of the named profile clears it", "profile-down", HOME, true, file(HOME.toUpperCase(), "block"), "wireguard", { patch: { meantOn: "" }, arm: false, previous: HOME }],
+        ["a remove of the named profile clears it", "profile-remove", HOME, true, file(HOME, "off"), "wireguard", { patch: { meantOn: "" }, arm: false, previous: HOME }],
+        ["a disconnect over a malformed file writes the off", "profile-down", HOME, true, { kind: "malformed" }, "wireguard", { patch: { meantOn: "" }, arm: false, previous: "" }],
+        ["a remove over a malformed file writes the off", "profile-remove", OFFICE, true, { kind: "malformed" }, "vpn", { patch: { meantOn: "" }, arm: false, previous: "" }],
+        ["a disconnect of another profile writes nothing", "profile-down", OFFICE, true, file(HOME, "block"), "vpn", null],
+        ["a remove of another profile writes nothing", "profile-remove", OFFICE, true, file(HOME, "block"), "vpn", null],
+        ["details write nothing", "profile-details", HOME, true, file(HOME, "block"), "wireguard", null],
+        ["an unreadable file plans a write for a connect", "profile-up", HOME, true, { kind: "unreadable" }, "wireguard", { patch: { meantOn: HOME }, arm: true, previous: "" }],
+        ["an unread file plans a write for a disconnect", "profile-down", HOME, true, { kind: "reading" }, "wireguard", { patch: { meantOn: "" }, arm: true, previous: "" }]
+    ]) assert.deepEqual(plain(logic.meantOnPlan(kind, uuid, ready, before, type)), plan, name);
+    // A malformed file's off is what `vgs-kill-switch off` writes.
+    assert.equal(logic.stateChange({ kind: "malformed" }, logic.meantOnPlan("profile-down", HOME, true, { kind: "malformed" }, "wireguard").patch), textOf("", "block"));
+    // The status line, as STATUS_TABLE holds it; the differential below
+    // hands each accepted or refused line to the root's status_pattern.
+    for (const [code, line, read] of STATUS_TABLE) {
+        const got = plain(logic.killStatus(code, line));
+        assert.deepEqual(read === "unreachable" ? got.state : got, read, JSON.stringify([code, line]));
+    }
+    for (const [code, errors, state] of [
+        [1, "vgs-kill-switch: refused: status=unreachable path=/run/vgs-kill-switch.sock\n", "unreachable"],
+        [1, "vgs-kill-switch: refused: status=unreadable path=/run/vgs-kill-switch.sock\nthe status read gave no status line\n", "unreadable"],
+        [1, "noise\nvgs-kill-switch: refused: status=unreadable path=/run/vgs-kill-switch.sock\n", "unreachable"],
+        [-1, "vgs-kill-switch: refused: status=unreadable path=x\n", "unreachable"],
+        [0, "vgs-kill-switch: refused: status=unreadable path=x\n", "unreachable"]
+    ]) assert.equal(logic.killStatus(code, "", errors).state, state, errors);
+    // Only a line naming the profile just written answers the wait.
+    const line = (state, reason, profile, tunnel = "") => logic.killStatus(0, "state=" + state + " reason=" + reason + " blocked=3 tunnel=" + tunnel + " profile=" + profile + "\n");
+    for (const [name, status, outcome] of [
+        ["its own passing", line("passing", "tunnel-up", HOME, "wg0"), "armed"],
+        ["its own holding", line("holding", "tunnel-down", HOME, "wg0"), "armed"],
+        ["its own holding in upper case", line("holding", "tunnel-down", HOME.toUpperCase(), "wg0"), "armed"],
+        ["its own refusal", line("unavailable", "endpoint-hostname", HOME), "unavailable"],
+        ["the previous profile's passing", line("passing", "tunnel-up", OFFICE, "wg1"), "waiting"],
+        ["the previous profile's refusal", line("unavailable", "profile-missing", OFFICE), "waiting"],
+        ["a sync between cache and table", line("unavailable", "cache-unreadable", ""), "waiting"],
+        ["off", line("off", "disarmed", ""), "waiting"],
+        ["unreachable", logic.killStatus(1, ""), "failed"],
+        ["unreadable", logic.killStatus(1, "", "vgs-kill-switch: refused: status=unreadable path=x"), "failed"],
+        ["no read yet", null, "waiting"]
+    ]) assert.equal(logic.armOutcome(status === null ? null : plain(status), HOME), outcome, name);
+
+    // The row's states.
+    const named = { rows: [{ uuid: HOME, name: "Home tunnel", state: "activated" }, { uuid: OFFICE, name: "Office VPN", state: "" }] };
+    const ready = { state: "ready", reason: "granted" };
+    const status = (state, reason = "tunnel-up", profile = HOME) => line(state, reason, profile, "wg0");
+    const row = (step, kill, read, busy = false, problem = "", settling = false) => plain(logic.killSwitchView(plain(logic.killSwitchState(step, kill, read, busy, problem, settling)), named));
+    const pick = view => [view.shown, view.setup, view.switchOn, view.lanShown, view.lanOn, view.reason !== "", view.tone];
+    for (const [name, view, shape] of [
+        ["nothing published hides the row", plain(logic.killSwitchView(undefined, named)), [false, false, false, false, false, false, ""]],
+        ["an absent step hides the row", row({ state: "absent", reason: "x" }, { kind: "reading" }, null), [false, false, false, false, false, false, ""]],
+        ["before the probe the switch waits", row(undefined, { kind: "reading" }, null), [true, false, false, false, false, true, ""]],
+        ["a step to apply shows Set up", row({ state: "needed", reason: "not-set-up" }, { kind: "reading" }, null), [true, true, false, false, false, false, ""]],
+        ["NixOS's snippet shows Set up", row({ state: "nixos", reason: "nixos" }, { kind: "reading" }, null), [true, true, false, false, false, false, ""]],
+        ["a denied step says why", row({ state: "denied", reason: "other-account" }, { kind: "reading" }, null), [true, false, false, false, false, true, ""]],
+        ["an unknown step says why", row({ state: "unknown", reason: "system-undetected" }, { kind: "reading" }, null), [true, false, false, false, false, true, ""]],
+        ["an unread file waits", row(ready, { kind: "reading" }, null), [true, false, false, false, false, true, ""]],
+        ["an unreadable file says so", row(ready, { kind: "unreadable" }, null), [true, false, false, false, false, true, "danger"]],
+        ["no file is off", row(ready, { kind: "missing" }, status("off", "disarmed", "")), [true, false, false, false, false, false, ""]],
+        ["off", row(ready, file("", "off"), status("off", "disarmed", "")), [true, false, false, false, false, false, ""]],
+        ["block", row(ready, file(HOME, "block"), status("passing")), [true, false, true, true, false, false, ""]],
+        ["block with local network", row(ready, file(HOME, "block-lan"), status("passing")), [true, false, true, true, true, false, ""]],
+        ["a write in flight disables both", row(ready, file(HOME, "block"), status("passing"), true), [true, false, true, true, false, true, ""]],
+        ["a failed write says so", row(ready, file(HOME, "block"), status("passing"), false, "VGS could not save the kill switch setting."), [true, false, true, true, false, false, "danger"]],
+        ["a malformed file reads off and says so", row(ready, { kind: "malformed" }, status("off", "disarmed", "")), [true, false, false, false, false, false, "danger"]],
+        ["an unsupported profile says so", row(ready, file(OFFICE, "block"), status("unavailable", "profile-not-wireguard", OFFICE)), [true, false, true, true, false, false, "danger"]],
+        ["holding is no danger line here", row(ready, file(HOME, "block"), status("holding", "tunnel-down")), [true, false, true, true, false, false, ""]],
+        ["an unreachable status is plain", row(ready, file(HOME, "block"), logic.killStatus(1, "")), [true, false, true, true, false, false, ""]],
+        ["an unreadable status is plain", row(ready, file(HOME, "block"), logic.killStatus(1, "", "vgs-kill-switch: refused: status=unreadable path=x")), [true, false, true, true, false, false, ""]],
+        ["on with no profile named and no rule is calm", row(ready, file("", "block"), status("off", "disarmed", "")), [true, false, true, true, false, false, ""]],
+        ["on, naming a profile, with no rule is danger", row(ready, file(HOME, "block"), status("off", "disarmed", "")), [true, false, true, true, false, false, "danger"]],
+        ["no rule while a write runs is not yet danger", row(ready, file(HOME, "block"), status("off", "disarmed", ""), true), [true, false, true, true, false, true, ""]],
+        ["no rule in a write's grace is not yet danger", row(ready, file(HOME, "block"), status("off", "disarmed", ""), false, "", true), [true, false, true, true, false, false, ""]],
+        ["no rule for a profile not connected is not danger", row(ready, file(OFFICE, "block"), status("off", "disarmed", "")), [true, false, true, true, false, false, ""]]
+    ]) assert.deepEqual(pick(view), shape, name);
+    // Naming a profile with no rule makes no claim while a write runs, in
+    // its grace, or while the profile is not connected: no line says it
+    // starts later or that it blocks.
+    for (const [name, view] of [["a write runs", row(ready, file(HOME, "block"), status("off", "disarmed", ""), true)],
+        ["the grace", row(ready, file(HOME, "block"), status("off", "disarmed", ""), false, "", true)],
+        ["not connected", row(ready, file(OFFICE, "block"), status("off", "disarmed", ""))]])
+        assert.equal(view.hint, "", name);
+    assert.notEqual(row(ready, file("", "block"), status("off", "disarmed", "")).hint, "", "with no profile named the line says when it starts");
+    // The lines name the profile the file names, and each reason the root
+    // half reports has its own sentence.
+    assert.ok(row(ready, file(OFFICE, "block"), status("unavailable", "profile-not-wireguard", OFFICE)).hint.includes("Office VPN"));
+    assert.ok(row(ready, file(HOME, "block"), status("passing")).hint.includes("Home tunnel"));
+    assert.ok(row(ready, file(HOME, "block"), status("off", "disarmed", "")).hint.includes("Home tunnel"));
+    const reasons = ["profile-not-wireguard", "profile-missing", "profile-unread", "interface-invalid", "endpoint-hostname", "endpoint-invalid", "cache-unreadable"];
+    assert.equal(new Set(reasons.map(reason => logic.unavailableWords(reason, "P"))).size, reasons.length - 1, "profile-unread and cache-unreadable share one sentence");
+    for (const reason of reasons) assert.notEqual(logic.unavailableWords(reason, "P"), logic.unavailableWords("unknown-reason", "P"), reason);
+    assert.equal(row(ready, file(HOME, "block"), logic.killStatus(1, "")).hint,
+        row(ready, file(HOME, "block"), logic.killStatus(1, "", "vgs-kill-switch: refused: status=unreadable path=x")).hint, "unreachable and unreadable read as one");
+    assert.notEqual(row(ready, file(HOME, "block"), logic.killStatus(1, "")).hint, "", "a failed status read says so");
+    // The blocked-traffic notice shows only while the status read says
+    // holding for the profile the file names with the switch on, and that
+    // profile is not connected, connecting or changing: holding is also
+    // a connect's state between the table arming and its tunnel coming up.
+    // It offers the disconnect only for a listed profile.
+    const droppedRows = { rows: [{ uuid: HOME, name: "Home tunnel", state: "" }, { uuid: OFFICE, name: "Office VPN", state: "" }], action: null };
+    const homeAs = (state, action = null) => ({ rows: [Object.assign({}, droppedRows.rows[0], { state }), droppedRows.rows[1]], action });
+    const notice = (step, kill, read, rows = droppedRows) => plain(logic.blockedNotice(plain(logic.killSwitchState(step, kill, read, false, "", false)), rows));
+    const holding = status("holding", "tunnel-down");
+    for (const [name, got, uuid] of [
+        ["holding for a listed profile", notice(ready, file(HOME, "block"), holding), HOME],
+        ["holding with local network", notice(ready, file(HOME, "block-lan"), holding), HOME],
+        ["an upper-case uuid in the file", notice(ready, file(HOME.toUpperCase(), "block"), holding), HOME],
+        ["holding for a profile no longer listed", notice(ready, file(LAB, "block"), status("holding", "tunnel-down", LAB)), ""],
+        ["holding while NetworkManager lists nothing", notice(ready, file(HOME, "block"), holding, { rows: [] }), ""],
+        ["holding while the named profile is connecting", notice(ready, file(HOME, "block"), holding, homeAs("activating")), null],
+        ["holding while VGS connects the named profile", notice(ready, file(HOME, "block"), holding, homeAs("", { kind: "profile-up", uuid: HOME })), null],
+        ["holding while Turn VPN off runs", notice(ready, file(HOME, "block"), holding, homeAs("", { kind: "profile-down", uuid: HOME })), null],
+        ["holding while the named profile reads connected", notice(ready, file(HOME, "block"), holding, homeAs("activated")), null],
+        ["holding while the named profile disconnects", notice(ready, file(HOME, "block"), holding, homeAs("deactivating")), null],
+        ["a holding line naming another profile", notice(ready, file(HOME, "block"), status("holding", "tunnel-down", OFFICE)), null],
+        ["a holding line naming no profile", notice(ready, file(HOME, "block"), status("holding", "tunnel-down", "")), null],
+        ["passing", notice(ready, file(HOME, "block"), status("passing")), null],
+        ["off", notice(ready, file(HOME, "block"), status("off", "disarmed", "")), null],
+        ["unavailable", notice(ready, file(OFFICE, "block"), status("unavailable", "profile-not-wireguard", OFFICE)), null],
+        ["an unreachable status read", notice(ready, file(HOME, "block"), logic.killStatus(1, "")), null],
+        ["no status read yet", notice(ready, file(HOME, "block"), null), null],
+        ["a holding line after the switch went off", notice(ready, file(HOME, "off"), holding), null],
+        ["a holding line after the file's profile was cleared", notice(ready, file("", "block"), holding), null],
+        ["a holding line naming no profile after the file's was cleared", notice(ready, file("", "block"), status("holding", "tunnel-down", "")), null],
+        ["a malformed file", notice(ready, { kind: "malformed" }, holding), null],
+        ["a step that reads needed", notice({ state: "needed", reason: "units-failed" }, file(HOME, "block"), holding), null],
+        ["nothing published", plain(logic.blockedNotice(undefined, droppedRows)), null]
+    ]) assert.deepEqual(got === null ? null : got.uuid, uuid, name);
+    const heldNotice = notice(ready, file(HOME, "block"), holding);
+    const unlistedNotice = notice(ready, file(LAB, "block"), status("holding", "tunnel-down", LAB));
+    assert.ok(unlistedNotice.text !== "" && unlistedNotice.text !== heldNotice.text, "an unlisted profile's notice names its own way out");
+    // Beside the notice the kill switch row's line is the refused count,
+    // singular for one, with the switch's info saying what it counts; in
+    // any other reading the line carries no count and no info.
+    const countView = (blocked, rows = droppedRows) => plain(logic.killSwitchView(plain(logic.killSwitchState(ready, file(HOME, "block"),
+        logic.killStatus(0, "state=holding reason=tunnel-down blocked=" + blocked + " tunnel= profile=" + HOME + "\n"), false, "", false)), rows));
+    const once = countView("1");
+    const many = countView("214");
+    assert.ok(once.hint.includes(" 1 ") && many.hint.includes(" 214 "), "the line carries the count");
+    assert.notEqual(once.hint.replace(" 1 ", " N "), many.hint.replace(" 214 ", " N "), "one refusal reads singular");
+    assert.ok(once.countInfo !== "" && many.countInfo === once.countInfo, "the count carries its info");
+    assert.deepEqual([once.tone, many.tone], ["", ""]);
+    assert.ok(!heldNotice.text.includes(many.hint), "the row's line does not repeat the notice");
+    for (const [name, view] of [
+        ["holding while the named profile connects", countView("214", homeAs("activating"))],
+        ["passing", plain(logic.killSwitchView(plain(logic.killSwitchState(ready, file(HOME, "block"), status("passing"), false, "", false)), droppedRows))],
+        ["off", plain(logic.killSwitchView(plain(logic.killSwitchState(ready, file("", "block"), status("off", "disarmed", ""), false, "", false)), droppedRows))]
+    ]) {
+        assert.equal(view.countInfo, "", name);
+        assert.ok(!view.hint.includes("214"), name);
+    }
+    // Its button is the profile's disconnect: for a profile NetworkManager
+    // already dropped, the state file's write alone; any other profile
+    // that is not connected still refuses it.
+    const dropped = Object.assign({}, profiles, { rows: profiles.rows.map(entry => entry.uuid === HOME ? Object.assign({}, entry, { state: "" }) : entry) });
+    for (const [name, uuid, meantOn, plan] of [
+        ["the dropped profile the file names", HOME, HOME, { argv: null }],
+        ["the file names it in upper case", HOME, HOME.toUpperCase(), { argv: null }],
+        ["the file names another profile", HOME, OFFICE, { refusal: "refused: profile=state" }],
+        ["the file names none", HOME, "", { refusal: "refused: profile=state" }],
+        ["no kill switch", HOME, undefined, { refusal: "refused: profile=state" }],
+        ["another profile that is not connected", OFFICE, HOME, { refusal: "refused: profile=state" }]
+    ]) assert.deepEqual(plain(logic.profileCommand({ kind: "profile-down", id: uuid }, dropped, [], true, meantOn)), plan, name);
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-down", id: HOME }, profiles, [], true, HOME)), { argv: ["nmcli", "connection", "down", "uuid", HOME] },
+        "a connected profile the file names takes nmcli down");
+    // The profile the notice names reads Dropped with its switch on, so
+    // the switch turns it off; a change in flight still shows as one. The
+    // flyout header and the status entry name it dropped, not off.
+    const homeDropped = dropped.rows.find(entry => entry.uuid === HOME);
+    const heldRow = plain(logic.rowView(homeDropped, dropped, [], true, HOME));
+    assert.deepEqual([heldRow.key, heldRow.switchOn, heldRow.connected, heldRow.busy, heldRow.reason, heldRow.reconnect], ["dropped", true, false, false, "", true]);
+    assert.equal(logic.rowView(homeDropped, dropped, [], true, "").reconnect, false, "Reconnect only for a held profile");
+    // Reconnect sends profile-up for the held profile: it plans nmcli up,
+    // its write keeps the file naming it, so the block never lifts, and
+    // the table it waits for is already armed for it.
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-up", id: HOME }, dropped, [], true, HOME)), { argv: ["nmcli", "connection", "up", "uuid", HOME] });
+    assert.deepEqual(plain(logic.meantOnPlan("profile-up", HOME, true, file(HOME, "block"), "wireguard")), { patch: { meantOn: HOME }, arm: true, previous: HOME },
+        "Reconnect keeps meant-on and waits for the table");
+    assert.equal(logic.armOutcome(plain(holding), HOME), "armed", "the holding line for the profile answers the wait");
+    assert.equal(logic.rowView(homeDropped, dropped, [], true, "").key, "off", "no notice, no Dropped");
+    assert.equal(logic.rowView(homeDropped, dropped, [], true, OFFICE).key, "off", "only the named profile reads Dropped");
+    assert.equal(logic.rowView(homeDropped, Object.assign({}, dropped, { action: { kind: "profile-down", uuid: HOME } }), [], true, HOME).key, "disconnecting");
+    const noticeFor = uuid => ({ uuid, text: "" });
+    assert.notEqual(logic.summary(dropped, noticeFor(HOME)), logic.summary(dropped, null), "the header does not read off");
+    assert.ok(logic.summary(dropped, noticeFor(HOME)).includes("Home tunnel"), "the header names the dropped profile");
+    assert.equal(logic.connection(dropped, noticeFor(HOME)).text, logic.summary(dropped, noticeFor(HOME)), "the status entry reads as the header");
+    // The bar's tooltip reads the drop as the header does, not off; with
+    // no notice it reads as before.
+    const barRows = { state: "available", count: 2, activeCount: 0, action: null,
+        rows: [{ uuid: HOME, name: "Home tunnel", state: "", failure: "" }, { uuid: OFFICE, name: "Office VPN", state: "", failure: "" }] };
+    const droppedBar = plain(logic.barView(barRows, noticeFor(HOME)));
+    assert.equal(droppedBar.tooltip, "VPN: " + logic.summary(barRows, noticeFor(HOME)), "the bar tooltip reads as the header");
+    assert.notEqual(droppedBar.tooltip, plain(logic.barView(barRows, null)).tooltip, "the bar tooltip does not read off");
+    assert.equal(plain(logic.barView(barRows)).tooltip, "VPN: " + logic.summary(barRows));
+    // A held drop puts the danger dot on the bar whatever icon shows, and
+    // reads danger in the Details Connection reading, with another profile
+    // up outside VGS too.
+    const otherUp = Object.assign({}, barRows, { activeCount: 1, rows: [barRows.rows[0], Object.assign({}, barRows.rows[1], { state: "activated" })] });
+    const otherConnecting = Object.assign({}, barRows, { action: { kind: "profile-up", uuid: OFFICE, name: "Office VPN", password: false } });
+    // A notice for a profile no longer listed reads the drop too.
+    for (const [name, rows, icon] of [["no other profile", barRows, "shield-off"], ["another profile up", otherUp, "shield-check"], ["another profile connecting", otherConnecting, "shield"]]) {
+        for (const [whose, notice] of [["listed", noticeFor(HOME)], ["unlisted", noticeFor("")]]) {
+            const held = plain(logic.barView(rows, notice));
+            assert.deepEqual([held.icon, held.stateDot], [icon, "danger"], name + " " + whose);
+            assert.equal(logic.connection(rows, notice).tone, "danger", name + " " + whose);
+            // A connect in progress reads first in the line; the dot and
+            // the tone still mark the drop.
+            if (icon !== "shield") {
+                assert.notEqual(logic.summary(rows, notice), logic.summary(rows, null), name + " " + whose + ": the line reads the drop");
+                assert.equal(held.tooltip, "VPN: " + logic.summary(rows, notice), name + " " + whose);
+            } else assert.equal(logic.summary(rows, notice), logic.summary(rows, null), name + " " + whose + ": the line reads the connect");
+        }
+        assert.equal(plain(logic.barView(rows, null)).stateDot, "", name + ": no dot without a drop");
+        assert.notEqual(logic.connection(rows, null).tone, "danger", name + ": no danger without a drop");
+    }
+    assert.ok(!logic.summary(barRows, noticeFor("")).includes("Home tunnel"), "an unlisted drop names no listed profile");
+    // A Reconnect under the block: held, then in flight. Its notice is
+    // null while it moves, and the header, Details and the bar's tooltip
+    // read the connect as one line, not off.
+    const holdingFor = rows => logic.blockedNotice(plain(logic.killSwitchState(ready, file(HOME, "block"), holding, false, "", false)), rows);
+    assert.equal(holdingFor(barRows).uuid, HOME, "held before the Reconnect");
+    const reconnecting = Object.assign({}, barRows, { action: { kind: "profile-up", uuid: HOME, name: "Home tunnel", password: false } });
+    const reconnectNotice = holdingFor(reconnecting);
+    assert.equal(reconnectNotice, null, "no notice while the Reconnect runs");
+    const reconnectLine = logic.summary(reconnecting, reconnectNotice);
+    assert.notEqual(reconnectLine, logic.summary(barRows, null), "the line does not read off while the Reconnect runs");
+    assert.ok(reconnectLine.includes("Home tunnel"), "the line names the profile connecting");
+    assert.equal(logic.connection(reconnecting, reconnectNotice).text, reconnectLine, "Details reads as the header");
+    assert.equal(plain(logic.barView(reconnecting, reconnectNotice)).tooltip, "VPN: " + reconnectLine, "the bar's tooltip reads as the header");
+    assert.equal(plain(logic.barView(null, noticeFor(HOME))).stateDot, "", "a hidden bar icon carries no dot");
+
+    // Each cause leaves its own problem line, and an unrestored rollback
+    // its own.
+    const causes = [["write", ""], ["timeout", ""], ["unchecked", ""], ["unavailable", "endpoint-hostname"]].map(([cause, reason]) => logic.stageProblem("profile-up", "Home tunnel", cause, reason, false));
+    assert.equal(new Set(causes).size, 4);
+    assert.notEqual(causes[2], logic.stageProblem("profile-up", "Home tunnel", "unavailable", "", false), "a wait with no line has its own words");
+    assert.notEqual(logic.stageProblem("profile-down", "Home tunnel", "write", "", false), causes[0]);
+    assert.ok(causes.every(cause => cause !== logic.stageProblem("profile-up", "Home tunnel", "timeout", "", true)), "an unrestored rollback reads apart");
+
+    // With the kill switch on, a profile that is not WireGuard cannot
+    // connect: its switch says why, and its IPC connect is refused, while
+    // a WireGuard profile and a profile already connected are unchanged.
+    const kinds = { [HOME]: "wireguard", [OFFICE]: "vpn", [LAB]: "wireguard", [TRAVEL]: "vpn" };
+    for (const listed of profiles.rows.filter(entry => kinds[entry.uuid] !== undefined)) {
+        const off = logic.rowView(listed, profiles, [], false);
+        const on = logic.rowView(listed, profiles, [], true);
+        const blocked = listed.type !== "wireguard" && listed.state !== "activated";
+        assert.equal(on.key === "kill-switch", blocked, listed.name);
+        assert.equal(on.reason !== "", blocked || off.reason !== "", listed.name);
+        if (!blocked) assert.deepEqual(plain(on), plain(off), listed.name);
+        const plan = logic.profileCommand({ kind: "profile-up", id: listed.uuid }, profiles, [], true);
+        if (blocked) assert.deepEqual(plain(plan), { refusal: "refused: profile=kill-switch" }, listed.name);
+    }
+    assert.deepEqual(plain(logic.passwordCommand(TRAVEL, profiles, [], true)), { refusal: "refused: profile=state" }, "no password connect past the kill switch");
+    const campus = profiles.rows.find(entry => entry.uuid === CAMPUS);
+    assert.equal(logic.rowView(campus, profiles, [], true).key, "unsupported", "a profile that connects in its own app keeps saying so");
+    assert.equal(logic.killSwitchOn(plain(logic.killSwitchState(ready, file("", "block"), null, false, ""))), true);
+    assert.equal(logic.killSwitchOn(plain(logic.killSwitchState(ready, file("", "block-lan"), null, false, ""))), true);
+    assert.equal(logic.killSwitchOn(plain(logic.killSwitchState(ready, file("", "off"), null, false, ""))), false);
+    assert.equal(logic.killSwitchOn(plain(logic.killSwitchState({ state: "needed", reason: "units-failed" }, file("", "block"), null, false, ""))), false);
+    assert.equal(logic.killSwitchOn(undefined), false);
+
+    // The service's own functions over doubles: `with` resolves bare names
+    // on the owner, as QML does.
+    const fnOf = name => {
+        const found = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(service);
+        assert.ok(found, name);
+        return found;
+    };
+    const bind = (owner, name) => {
+        const found = fnOf(name);
+        const params = found[1].split(",").map(param => param.trim()).filter(param => param !== "");
+        owner[name] = new Function("Logic", "owner", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner);
+    };
+    const UP = ["nmcli", "connection", "up", "uuid", HOME];
+    const DOWN = ["nmcli", "connection", "down", "uuid", HOME];
+    const LAB_UP = ["nmcli", "connection", "up", "uuid", LAB];
+    // A service double whose writes and status reads land in EVENTS; its
+    // file reads answer DISK. The rename lands the text on DISK unless
+    // `lost`, as a rename another writer's rename overtook; `touchFails`
+    // fails the pending file; `stall` names a step whose answer never
+    // comes.
+    const serviceOwner = (fields = {}) => {
+        const events = [];
+        const owner = Object.assign({
+            events, disk: textOf("", "block"), lost: false, saveFails: false, stall: "",
+            profiles, profileAction: null, profileProblem: null, connectFeed: null, killReady: true, killWritable: true, killFile: file("", "block"),
+            killStep: { state: "ready", reason: "granted" }, probeStep: null,
+            // The fresh probe answers at once, with probeStep when set.
+            shell: { system: { refresh(done) {
+                events.push("probe");
+                if (owner.probeStep !== null) {
+                    owner.killStep = owner.probeStep;
+                    owner.killReady = owner.probeStep.state === "ready";
+                }
+                done();
+                return "ok";
+            } } },
+            killStatus: null, stateWrite: null, stage: null, killChanging: false, killProblem: "", registered: true,
+            killSettling: false, killSettlePoll: false, stateSerial: 0, killSwitch: null,
+            profileActor: { running: false, stdinEnabled: false, command: [], completion: "old" },
+            profileActionDeadline: { restart() {} },
+            armDeadline: { restarted: 0, restart() { this.restarted++; }, stop() { events.push("arm-deadline-stop"); } },
+            stateDeadline: { restarted: 0, stopped: 0, restart() { this.restarted++; }, stop() { this.stopped++; } },
+            // The retry timer fires at once.
+            armRetry: { restart() { events.push("retry"); owner.readKillStatus(); }, stop() {} },
+            killReader: { running: false, again: false, completion: null, settles: false },
+            killDeadline: { restart() {} },
+            readProfiles() { events.push("read-profiles"); }, readKillSwitch() { events.push("read-kill-switch"); },
+            stateFile: {
+                held: textOf("", "block"),
+                text() { return this.held; },
+                reload() {
+                    events.push("reload");
+                    if (owner.stall === "reload") return;
+                    this.held = owner.disk;
+                    owner.killFile = owner.disk === null ? { kind: "missing" } : logic.readState(owner.disk);
+                    if (owner.stateWrite !== null) {
+                        if (owner.disk === null && owner.stateWrite.phase === "read") owner.stateRead();
+                        else if (owner.disk === null) owner.writeEnded(false);
+                        else owner.stateRead();
+                    }
+                },
+            },
+            tempFile: {
+                path: "",
+                setText(text) {
+                    events.push(["write", text], ["temp", this.path]);
+                    if (owner.saveFails) { owner.tempSaveFailed(); return; }
+                    owner.tempSaved();
+                }
+            },
+            stateModer: { command: [], completion: "old", busy: false, signal(sig) { events.push(["signal", "chmod", sig]); },
+                get running() { return this.busy; },
+                set running(value) {
+                    if (!value) return;
+                    events.push(["chmod", this.command]);
+                    if (owner.stall === "chmod") { this.busy = true; return; }
+                    owner.moded(owner.modeFails ? 1 : 0, this.serial);
+                } },
+            stateMover: { command: [], completion: "old", signal(sig) { events.push(["signal", "mv", sig]); },
+                get running() { return false; },
+                set running(value) {
+                    if (!value) return;
+                    events.push(["mv", this.command]);
+                    if (!owner.lost && !owner.moveFails) owner.disk = owner.stateWrite.text;
+                    owner.renamed(owner.moveFails ? 1 : 0, this.serial);
+                } },
+            pendingMaker: { command: [], completion: "old", signal(sig) { events.push(["signal", "touch", sig]); },
+                get running() { return false; },
+                set running(value) {
+                    if (!value) return;
+                    events.push(["touch", this.command]);
+                    owner.pendingMade(owner.touchFails ? 1 : 0, this.serial);
+                } },
+            tempRemover: { command: [], set running(value) { events.push(["rm", this.command]); } }
+        }, fields);
+        owner.root = owner;
+        owner.Object = Object;
+        owner.console = { warn(message) { events.push(["warn", message]); }, log() {} };
+        for (const name of ["startAction", "launch", "staged", "armRead", "armExpired", "waitEnd", "probed", "rollBack", "stageEnded", "setKillSwitch", "writeState", "stateRead",
+            "writeEnded", "readKillStatus", "tempSaved", "tempSaveFailed", "moded", "renamed", "makePending", "removeTemp", "pendingMade", "stateExpired", "stateInterrupted"]) bind(owner, name);
+        // Each status read ends at once with the next line of `lines`; a
+        // `null` line leaves the read running.
+        owner.lines = fields.lines || [];
+        owner.readKillStatus = () => {
+            const next = owner.lines.shift();
+            events.push(["status", next === undefined ? "none" : next === null ? "running" : next.state]);
+            if (next === undefined) return;
+            if (next === null) { owner.killReader.running = true; return; }
+            owner.killStatus = plain(next);
+            if (owner.stage !== null && owner.stage.phase === "arm") owner.armRead();
+        };
+        const launch = owner.launch;
+        owner.launch = argv => { events.push(["launch", argv]); launch(argv); };
+        return owner;
+    };
+    const launched = owner => owner.events.filter(event => Array.isArray(event) && event[0] === "launch").map(event => event[1]);
+    const writes = owner => owner.events.filter(event => Array.isArray(event) && event[0] === "write").map(event => event[1]);
+    const order = owner => owner.events.filter(event => Array.isArray(event) && (event[0] === "write" || event[0] === "launch" || event[0] === "status")).map(event => event[0]);
+    // Each write as the root script's header has it: a dot-prefixed file
+    // in the state directory, its mode, the rename, then pending.
+    const writeSteps = owner => owner.events.filter(event => Array.isArray(event) && ["temp", "chmod", "mv", "touch"].includes(event[0]));
+    const ended = (owner, kind, name, cause, reason, unrestored) => {
+        assert.deepEqual([owner.stage, owner.profileAction, owner.stateWrite], [null, null, null], cause);
+        assert.deepEqual(plain(owner.profileProblem), { uuid: kind, kind: "kill-switch", text: logic.stageProblem("profile-up", name, cause, reason, unrestored) }, cause);
+    };
+
+    // Switch on: the file names the profile, the table arms for it, then
+    // nmcli. A line from the previous profile, and a sync between cache
+    // and table, do not answer.
+    const armed = serviceOwner({ disk: textOf(OFFICE, "block"), lines: [status("passing", "tunnel-up", OFFICE), status("unavailable", "cache-unreadable", ""),
+        status("holding", "tunnel-down")] });
+    assert.equal(armed.startAction("profile-up", HOME, UP, null), "ok");
+    assert.equal(armed.armDeadline.restarted, 1);
+    assert.deepEqual(writes(armed), [textOf(HOME, "block")]);
+    const steps = writeSteps(armed);
+    assert.equal(steps.length, 4);
+    assert.match(steps[0][1], new RegExp("^" + logic.STATE_DIR + "/\\.state\\.[A-Za-z0-9]{10}$"), "a dot-prefixed temporary file in the state directory");
+    assert.deepEqual(steps[1], ["chmod", ["chmod", "0644", "--", steps[0][1]]], "mode 0644");
+    assert.deepEqual(steps[2], ["mv", ["mv", "-fT", "--", steps[0][1], logic.STATE_FILE]], "renamed over the state file");
+    assert.deepEqual(steps[3], ["touch", ["touch", "--", logic.STATE_DIR + "/pending"]], "then the pending file");
+    assert.equal(logic.STATE_DIR, "/var/lib/vgshell/vpn");
+    assert.deepEqual(order(armed), ["write", "status", "status", "status", "launch"], "the connect runs once the table arms for it");
+    assert.deepEqual(launched(armed), [UP]);
+    assert.equal(armed.stage, null);
+    assert.equal(armed.profileActor.running, true);
+    assert.deepEqual(plain(armed.profileAction), { kind: "profile-up", uuid: HOME, name: "Home tunnel", password: false });
+    assert.equal(armed.startAction("profile-up", OFFICE, UP, null), "busy");
+    assert.equal(armed.stateDeadline.stopped, 1, "the write's deadline stops with the write");
+    // The wait ends with the reader idle: the file's profile goes back,
+    // nothing runs. Reads that answered say the switch did not start.
+    const expired = serviceOwner({ disk: textOf(OFFICE, "block", "1794203888"), lines: [status("off", "disarmed", "")] });
+    expired.startAction("profile-up", HOME, UP, null);
+    assert.deepEqual(expired.stage.phase, "arm");
+    assert.ok(expired.events.includes("retry"), "a waiting read asks again");
+    expired.armExpired();
+    assert.deepEqual(writes(expired), [textOf(HOME, "block", "1794203888"), textOf(OFFICE, "block", "1794203888")]);
+    assert.deepEqual(launched(expired), []);
+    ended(expired, HOME, "Home tunnel", "timeout", "", false);
+    // The wait ends with a read running: the deadline only marks the
+    // stage, and that read's end rolls back unless it names the table
+    // armed for the profile.
+    for (const [name, last, rolled] of [["a read that does not answer", status("off", "disarmed", ""), true], ["a read that arms", status("passing"), false]]) {
+        const running = serviceOwner({ disk: textOf("", "block"), lines: [null] });
+        running.startAction("profile-up", HOME, UP, null);
+        running.armExpired();
+        assert.equal(running.stage.expired, true, name);
+        assert.equal(writes(running).length, 1, name + ": nothing rolls back while the read runs");
+        running.killReader.running = false;
+        running.killStatus = plain(last);
+        running.armRead();
+        assert.deepEqual(launched(running), rolled ? [] : [UP], name);
+        assert.equal(writes(running).length, rolled ? 2 : 1, name);
+    }
+    // Each wait that ends unarmed asks for a fresh probe.
+    assert.ok(expired.events.includes("probe"), "a timeout asks for a fresh probe");
+    // A wait that ends while the step reads needed, as after its units
+    // failed, points to Set up and still puts the file's profile back.
+    const resetUp = serviceOwner({ disk: textOf(OFFICE, "block"), lines: [status("off", "disarmed", "")] });
+    resetUp.startAction("profile-up", HOME, UP, null);
+    resetUp.probeStep = { state: "needed", reason: "units-failed" };
+    resetUp.armExpired();
+    assert.deepEqual(writes(resetUp), [textOf(HOME, "block"), textOf(OFFICE, "block")]);
+    assert.deepEqual(launched(resetUp), []);
+    ended(resetUp, HOME, "Home tunnel", "setup", "", false);
+    assert.notEqual(logic.stageProblem("profile-up", "Home tunnel", "setup", "", false), logic.stageProblem("profile-up", "Home tunnel", "timeout", "", false));
+    assert.notEqual(logic.stageProblem("profile-up", "Home tunnel", "setup", "", false), logic.stageProblem("profile-up", "Home tunnel", "unavailable", "", false));
+    // A wait in which no read gave a line says VGS could not check.
+    const unchecked = serviceOwner({ lines: [logic.killStatus(1, ""), logic.killStatus(1, "", "vgs-kill-switch: refused: status=unreadable path=x")] });
+    unchecked.startAction("profile-up", HOME, UP, null);
+    unchecked.armExpired();
+    ended(unchecked, HOME, "Home tunnel", "unchecked", "", false);
+    // A WireGuard profile the root half cannot use: put back at once,
+    // nothing runs.
+    const refused = serviceOwner({ lines: [status("unavailable", "endpoint-hostname", LAB)] });
+    refused.startAction("profile-up", LAB, LAB_UP, null);
+    assert.deepEqual(writes(refused), [textOf(LAB, "block"), textOf("", "block")]);
+    assert.deepEqual(launched(refused), []);
+    ended(refused, LAB, "Lab tunnel", "unavailable", "endpoint-hostname", false);
+    assert.ok(refused.events.includes("arm-deadline-stop"));
+    // A profile that is not WireGuard, with the switch on: refused before
+    // any write.
+    const notWireGuard = serviceOwner({ lines: [status("passing", "tunnel-up", HOME)] });
+    notWireGuard.startAction("profile-up", OFFICE, ["nmcli", "connection", "up", "uuid", OFFICE], null);
+    assert.deepEqual([writes(notWireGuard), launched(notWireGuard)], [[], []]);
+    ended(notWireGuard, OFFICE, "Office VPN", "unavailable", "profile-not-wireguard", false);
+    // A rollback that does not land says the block may hold.
+    const unrestored = serviceOwner({ disk: textOf(OFFICE, "block"), lines: [status("off", "disarmed", "")] });
+    unrestored.startAction("profile-up", HOME, UP, null);
+    unrestored.moveFails = true;
+    unrestored.armExpired();
+    assert.deepEqual(launched(unrestored), []);
+    ended(unrestored, HOME, "Home tunnel", "timeout", "", true);
+    // Switch off: the file names the profile and nmcli runs at once.
+    const plainUp = serviceOwner({ disk: textOf("", "off"), lines: [] });
+    plainUp.startAction("profile-up", HOME, UP, null);
+    assert.deepEqual(order(plainUp), ["write", "launch"]);
+    assert.deepEqual(writes(plainUp), [textOf(HOME, "off")]);
+    // A disconnect clears the profile first.
+    const down = serviceOwner({ disk: textOf(HOME, "block") });
+    down.startAction("profile-down", HOME, DOWN, null);
+    assert.deepEqual(order(down), ["write", "launch"]);
+    assert.deepEqual(writes(down), [textOf("", "block")]);
+    // The notice's Turn VPN off over the service's IPC: the dropped
+    // profile the file names is cleared from it, and nmcli does not run.
+    const release = serviceOwner({ disk: textOf(LAB, "block-lan", "1794203888"), killFile: file(LAB, "block-lan", "1794203888"), lines: [status("off", "disarmed", "")],
+        profiles: dropped });
+    release.killSwitch = plain(logic.killSwitchState(release.killStep, release.killFile, plain(holding), false, "", false));
+    release.shell.requirements = { missing: [] };
+    bind(release, "actProfile");
+    assert.equal(release.actProfile({ kind: "profile-down", id: LAB }), "ok");
+    assert.deepEqual(writes(release), [textOf("", "block-lan", "1794203888")]);
+    assert.deepEqual(launched(release), [null]);
+    assert.deepEqual([release.profileAction, release.stage, release.stateWrite, release.profileActor.running], [null, null, null, false]);
+    assert.ok(release.events.includes("read-profiles"), "the list is read again");
+    assert.equal(release.profileProblem, null);
+    // With the step not set up there is no file to name a profile, so a
+    // dropped profile's disconnect is refused as before.
+    const noStep = serviceOwner({ profiles: dropped, killReady: false, killWritable: false });
+    noStep.killSwitch = plain(logic.killSwitchState({ state: "needed", reason: "not-set-up" }, file(LAB, "block"), null, false, "", false));
+    noStep.shell.requirements = { missing: [] };
+    bind(noStep, "actProfile");
+    assert.equal(noStep.actProfile({ kind: "profile-down", id: LAB }), "refused: profile=state");
+    // A file already naming the profile is not written again.
+    const same = serviceOwner({ disk: textOf(HOME, "off") });
+    same.startAction("profile-up", HOME, UP, null);
+    assert.deepEqual(order(same), ["launch"]);
+    // No step: no write, nmcli at once.
+    const unready = serviceOwner({ killReady: false, killWritable: false });
+    unready.startAction("profile-up", HOME, UP, null);
+    assert.deepEqual(order(unready), ["launch"]);
+    // A write that fails before its rename, or over a file VGS cannot
+    // read, runs nothing; a failed save, chmod or rename removes its file.
+    const unreadable = owner => {
+        owner.stateFile.reload = function () {
+            owner.events.push("reload");
+            owner.killFile = { kind: "unreadable" };
+            if (owner.stateWrite !== null) owner.writeEnded(false);
+        };
+        return owner;
+    };
+    for (const [name, make, removes] of [["a failed save", fields => serviceOwner(Object.assign({ saveFails: true }, fields)), true],
+        ["an unreadable file", fields => unreadable(serviceOwner(fields)), false],
+        ["a failed rename", fields => serviceOwner(Object.assign({ moveFails: true }, fields)), true],
+        ["a failed chmod", fields => serviceOwner(Object.assign({ modeFails: true }, fields)), true]]) {
+        for (const [kind, argv, disk] of [["profile-up", UP, textOf(OFFICE, "block")], ["profile-down", DOWN, textOf(HOME, "block")],
+            ["profile-remove", ["nmcli", "connection", "delete", "uuid", HOME], textOf(HOME, "off")]]) {
+            const failed = make({ disk, lines: [status("holding", "tunnel-down")] });
+            assert.equal(failed.startAction(kind, HOME, argv, null), "ok");
+            assert.deepEqual(launched(failed), [], name + " " + kind);
+            assert.equal(failed.profileProblem.kind, "kill-switch", name + " " + kind);
+            assert.equal(failed.profileProblem.text, logic.stageProblem(kind, "Home tunnel", "write", "", false), name + " " + kind);
+            assert.deepEqual([failed.stage, failed.profileAction, failed.stateWrite], [null, null, null], name + " " + kind);
+            if (removes) {
+                const temp = failed.events.find(event => event[0] === "temp")[1];
+                assert.deepEqual(failed.events.filter(event => ["rm", "touch"].includes(event[0]) || (event[0] === "mv" && name !== "a failed rename")),
+                    [["rm", ["rm", "-f", "--", temp]]], name + " removes its file, renames nothing and makes no pending");
+            }
+        }
+    }
+    // After the rename the write is made: a failed touch, or a read-back
+    // another writer's rename overtook, is logged, and the change goes on.
+    for (const [name, fields] of [["a failed touch", { touchFails: true }], ["an overtaken rename", { lost: true }]]) {
+        const made = serviceOwner(Object.assign({ disk: textOf(HOME, "block") }, fields));
+        made.startAction("profile-down", HOME, DOWN, null);
+        assert.deepEqual(launched(made), [DOWN], name);
+        assert.ok(made.events.some(event => Array.isArray(event) && event[0] === "warn"), name + " is logged");
+    }
+    // A connect with the file already naming its profile writes nothing
+    // but still makes the pending file, so the root half reads it again.
+    const nudged = serviceOwner({ disk: textOf(HOME, "block"), lines: [status("holding", "tunnel-down")] });
+    nudged.startAction("profile-up", HOME, UP, null);
+    assert.deepEqual(writeSteps(nudged).map(event => event[0]), ["touch"], "only the pending file");
+    assert.deepEqual(launched(nudged), [UP]);
+    assert.deepEqual(nudged.events.filter(event => Array.isArray(event) && event[0] === "warn"), [], "a nudge's read-back finds what it expects");
+    // After a nudge the table already named the profile, so a refusal for
+    // it can predate the nudged sync: it waits, and decides only at the
+    // deadline, unless the sync arms the table first.
+    const staleRefusal = serviceOwner({ disk: textOf(HOME, "block"), lines: [status("unavailable", "profile-unread", HOME)] });
+    staleRefusal.startAction("profile-up", HOME, UP, null);
+    assert.equal(staleRefusal.stage.phase, "arm", "the refusal does not end the wait");
+    staleRefusal.armExpired();
+    assert.deepEqual(launched(staleRefusal), []);
+    ended(staleRefusal, HOME, "Home tunnel", "unavailable", "profile-unread", false);
+    const resynced = serviceOwner({ disk: textOf(HOME, "block"), lines: [status("unavailable", "profile-unread", HOME), status("holding", "tunnel-down", HOME)] });
+    resynced.startAction("profile-up", HOME, UP, null);
+    assert.deepEqual(launched(resynced), [UP], "the nudged sync's armed line connects");
+    // A write's end takes the grace from a read already running, and no
+    // write starts while a step an interrupted write left still runs.
+    const regraced = serviceOwner({ disk: textOf("", "block") });
+    regraced.killReader.settles = true;
+    regraced.setKillSwitch("off");
+    assert.equal(regraced.killReader.settles, false);
+    const held = serviceOwner();
+    held.stateModer.busy = true;
+    assert.equal(held.writeState(() => ({ mode: "off" }), () => { throw new Error("the write ran"); }), "busy");
+    const quiet = serviceOwner({ disk: textOf(HOME, "block") });
+    quiet.setKillSwitch("block");
+    assert.deepEqual(writeSteps(quiet), [], "an unchanged mode writes nothing");
+    // A late step of an ended write is not a later write's.
+    const serials = serviceOwner({ stall: "chmod" });
+    serials.writeState(() => ({ mode: "off" }), () => {});
+    const first = serials.stateWrite.serial;
+    serials.stateExpired();
+    serials.stateModer.busy = false;
+    serials.writeState(() => ({ mode: "block-lan" }), () => {});
+    assert.equal(serials.stateWrite.phase, "mode");
+    serials.stall = "";
+    serials.moded(0, first);
+    assert.equal(serials.stateWrite.phase, "mode", "the ended write's chmod does not move the later write");
+    serials.moded(0, serials.stateWrite.serial);
+    assert.equal(serials.stateWrite, null, "the later write's own chmod does");
+    // The grace ends on a status read that starts after a poll ticked,
+    // not on one already running.
+    const graced = { registered: true, killReady: true, killSettlePoll: true, killReader: { running: true, again: false, settles: false, completion: null },
+        killDeadline: { restart() {} } };
+    bind(graced, "readKillStatus");
+    graced.readKillStatus();
+    assert.deepEqual([graced.killReader.again, graced.killReader.settles, graced.killSettlePoll], [true, false, true], "a running read does not take the tick");
+    graced.killReader.running = false;
+    graced.readKillStatus();
+    assert.deepEqual([graced.killReader.settles, graced.killSettlePoll], [true, false], "the read the tick starts carries it");
+    // One writer: a second write while one runs answers busy.
+    const writer = serviceOwner({ stall: "reload" });
+    assert.equal(writer.writeState(() => ({ mode: "off" }), () => { throw new Error("the second write ran"); }), "ok");
+    assert.equal(writer.writeState(() => ({ mode: "block" }), () => { throw new Error("the second write ran"); }), "busy");
+    // A write whose answer never comes ends at its deadline: before the
+    // rename as failed, with its running step signalled.
+    for (const [name, stall, phase, ok] of [["a read that never answers", "reload", "read", false], ["a chmod that never ends", "chmod", "mode", false]]) {
+        const stuck = serviceOwner({ stall });
+        let result = null;
+        stuck.writeState(() => ({ mode: "off" }), value => { result = value; });
+        assert.equal(stuck.stateWrite.phase, phase, name);
+        stuck.stateExpired();
+        assert.deepEqual([result, stuck.stateWrite], [ok, null], name);
+        if (stall === "chmod") assert.deepEqual(stuck.events.filter(event => event[0] === "signal"), [["signal", "chmod", 9]], name);
+        // A late answer from the ended write does nothing.
+        stuck.moded(0);
+        stuck.stateRead();
+        assert.equal(stuck.stateWrite, null, name);
+    }
+    // The switches write the mode and keep every other key.
+    const toggled = serviceOwner({ disk: textOf(HOME, "block", "1794203888") });
+    assert.equal(toggled.setKillSwitch("on"), "refused: kill-switch=mode");
+    assert.equal(toggled.setKillSwitch("block-lan"), "ok");
+    assert.deepEqual(writes(toggled), [textOf(HOME, "block-lan", "1794203888")]);
+    assert.deepEqual([toggled.killChanging, toggled.killProblem, toggled.killSettling], [false, "", true]);
+    toggled.stage = { phase: "arm" };
+    assert.equal(toggled.setKillSwitch("off"), "busy");
+    assert.equal(serviceOwner({ killReady: false, killWritable: false }).setKillSwitch("off"), "refused: kill-switch=not-set-up");
+    const unsaved = serviceOwner({ saveFails: true });
+    assert.equal(unsaved.setKillSwitch("off"), "ok");
+    assert.notEqual(unsaved.killProblem, "", "a failed save leaves a problem");
 }
 
 // Execute the production editor planner and the pane's production click
@@ -912,10 +1682,60 @@ try {
         ["a carried second secret reads sign-in", 'missing.some(name => name !== PASSWORD_ENTRY) ? "sign-in" : "password-tried"', '"password-tried"'],
         ["password-tried reads Needs password", 'row.failure === "needs-password" || row.failure === "password-tried") return view(', 'row.failure === "needs-password") return view('],
         ["password-tried raises the alert", ' || row.failure === "password-tried"));', "));"],
-        ["only Needs password takes a password", 'if (rowView(row, profiles, missing).key !== "needs-password") return { refusal: "refused: profile=state" };', ""],
+        ["only Needs password takes a password", 'if (rowView(row, profiles, missing, killOn).key !== "needs-password") return { refusal: "refused: profile=state" };', ""],
         ["the core scan blocks OpenVPN before connect", '(missing || []).indexOf(OPENVPN_SERVICE) !== -1', "false"],
         ["the password connect never asks", '"passwd-file", "/dev/stdin"]', '"passwd-file", "/dev/stdin", "--ask"]'],
-        ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"]
+        ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"],
+        ["a missing key is malformed", "if (Object.keys(fields).length !== 4) return malformed;", ""],
+        ["a repeated key is malformed", "if (Object.prototype.hasOwnProperty.call(fields, key)) return malformed;", ""],
+        ["the portal time is kept", "portalUntil: base.portalUntil", 'portalUntil: "0"'],
+        ["a missing file reads as off", 'file.kind === "missing" ? { meantOn: "", mode: "off"', 'file.kind === "missing" ? { meantOn: "", mode: "block"'],
+        ["a malformed file fails closed", 'file.kind === "malformed" ? { meantOn: "", mode: "block"', 'file.kind === "malformed" ? { meantOn: "", mode: "off"'],
+        ["an unread file is not written", "if (base === null) return null;", 'if (base === null) return stateText({ meantOn: "", mode: "off", portalUntil: "0" });'],
+        ["a disconnect clears only its own profile", 'if (named === uuid || file.kind === "malformed")', 'if (true)'],
+        ["the switch on refuses a profile that is not WireGuard", 'if (mode !== "off" && type !== "wireguard") return { refuse', 'if (false) return { refuse'],
+        ["a malformed file's disconnect writes the off", ' || file.kind === "malformed") return { patch: { meantOn: "" }', ') return { patch: { meantOn: "" }'],
+        ["only the written profile answers the wait", '    if (status.profile !== uuid) return "waiting";\n', ''],
+        ["a read with no line is no answer", '    if (status.state === "unreachable" || status.state === "unreadable") return "failed";\n', ''],
+        ["the status line names its profile", 'profile: found[5].toLowerCase() }', 'profile: "" }'],
+        ["on, naming a connected profile, with no rule is danger", 'then turn it on again.", tone: "danger" });', 'then turn it on again.", tone: "" });'],
+        ["a write's grace holds the danger line back", 'if (state.busy || state.settling || ', 'if (state.busy || '],
+        ["a profile not connected gets no danger line", ' || meant === undefined || meant.state !== "activated") return view;', ') return view;'],
+        ["naming a profile makes no plain claim", 'if (state.meantOn === "") return fill({ hint: "Starts when you connect a VPN here" });', 'if (true) return fill({ hint: "Starts when you connect a VPN here" });'],
+        ["the kill switch marks a profile that is not WireGuard", 'if (killOn === true && row.type !== "wireguard")', 'if (false)'],
+        ["an unrestored rollback says so", 'if (unrestored === true)', 'if (false)'],
+        ["a wait with no line says VGS could not check", 'if (cause === "unchecked") return', 'if (false) return'],
+        ["Set up has its own line", 'if (cause === "setup")', 'if (false)'],
+        ["the switch off waits for nothing", 'arm: mode !== "off"', "arm: true"],
+        ["only holding or passing is armed", 'if (status.state === "holding" || status.state === "passing") return "armed";', 'if (status.state !== "unreachable") return "armed";'],
+        ["a refused status read is unreachable", "const found = code === 0 ?", "const found = true ?"],
+        ["the temporary file is dot-prefixed", 'return STATE_DIR + "/.state." + name;', 'return STATE_DIR + "/state." + name;'],
+        ["an unreadable status is its own reading", "const unreadable = code === 1 &&", "const unreadable = false &&"],
+        ["an unsupported profile reads in the danger colour", '" to end the block.", tone: "danger" });', '" to end the block.", tone: "" });'],
+        ["a step to apply shows Set up", 'case "setup": return fill({ setup: true,', 'case "setup": return fill({ setup: false,'],
+        ["Allow local network shows only while on", "lanShown: on,", "lanShown: true,"],
+        ["a write in flight disables the switches", 'reason: state.busy ? "Wait until VGS saves this setting." : ""', 'reason: ""'],
+        ["only a holding read shows the blocked notice", '|| state.status.state !== "holding" ||', '|| state.status.state === "off" ||'],
+        ["a holding line for another profile shows no notice", ' || state.status.profile !== named) return null;', ') return null;'],
+        ["a connected or connecting profile shows no notice", 'if (meant.state === "activated" || meant.state === "activating" || motion(', 'if (motion('],
+        ["a change in flight shows no notice", ' || motion(meant, profiles.action) !== "") return null;', ') return null;'],
+        ["the count shows only beside the notice", '        if (blockedNotice(state, profiles) === null) return fill({ hint: "Blocking traffic outside the VPN" });\n', ''],
+        ["one refusal reads singular", '(status.blocked === "1" ? " time" : " times")', '" times"'],
+        ["the count carries its info", 'countInfo: KILL_COUNT_INFO });', 'countInfo: "" });'],
+        ["the held profile reads Dropped", '    if (held === row.uuid) return view("dropped", "Dropped", { switchOn: true, reconnect: true });\n', ''],
+        ["a held drop marks the bar with the danger dot", 'const stateDot = isPlain(notice) ? "danger" : "";', 'const stateDot = "";'],
+        ["a held drop reads danger in Details", 'const tone = isPlain(notice) ? "danger" : ', 'const tone = false ? "danger" : '],
+        ["the bar tooltip reads a held profile as the header does", 'warning: false, stateDot: stateDot,\n        tooltip: "VPN: " + summary(profiles, notice) };', 'warning: false, stateDot: stateDot,\n        tooltip: "VPN: " + summary(profiles) };'],
+        ["an unlisted drop reads the drop", '    if (isPlain(notice)) {\n', '    if (isPlain(notice) && notice.uuid !== "") {\n'],
+        ["a change in flight reads first in the line", '        if (moving === "connecting") return "Connecting to " + row.name;\n', ''],
+        ["the bar's spinner tooltip is the line", 'stateDot: stateDot, tooltip: "VPN: " + summary(profiles, notice) };', 'stateDot: stateDot, tooltip: "VPN: Connecting" };'],
+        ["a dropped profile offers Reconnect", 'view("dropped", "Dropped", { switchOn: true, reconnect: true })', 'view("dropped", "Dropped", { switchOn: true })'],
+        ["the header names a held profile", 'return dropped === undefined ? "Dropped" : dropped.name + " dropped";', 'return "Dropped";'],
+        ["the blocked notice needs the file to name a profile", 'state.file !== "valid" || state.meantOn === "") return null;', 'state.file !== "valid") return null;'],
+        ["the blocked notice needs the switch on", 'if (!killSwitchOn(state) || state.file', 'if (!isPlain(state) || state.file'],
+        ["an unlisted profile offers no disconnect", 'return { uuid: "", text: "The VPN dropped', 'return { uuid: state.meantOn, text: "The VPN dropped'],
+        ["a dropped profile the file names turns off by its write", '        if (typeof meantOn === "string" && meantOn.toLowerCase() === row.uuid) return { argv: null };\n', ''],
+        ["the Setup entry waits for the first probe", 'case "checking": return undefined;', 'case "checking": return { tone: "info", text: "Checking", action: false };']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "VpnLogic.js");
@@ -927,7 +1747,7 @@ try {
         ["optional profile absence is informational", "if (code === 1 || code === 8) console.log(diagnostic);", "if (code === 1 || code === 8) console.warn(diagnostic);"],
         ["a failed detail read keeps nothing", "if (read === null) {", "if (false) {"],
         ["a failed detail read retries", 'root.detailsRead = "";', ""],
-        ["a view lease preserves learned failures", "if (request.open) readProfiles();", "if (request.open) refresh();"],
+        ["a view lease preserves learned failures", "if (request.open) {\n            readProfiles();", "if (request.open) {\n            refresh();"],
         ["a successful up clears its failure", "if (code === 0) delete next[action.uuid];", "if (code === 0) {}"],
         ["a gone profile leaves no problem", 'Logic.removeOutcome(code, output) === "failed"', 'code !== 0'],
         ["no nmcli text reaches the log", '" code=" + code);\n            if (action.kind', '" code=" + code + " " + output);\n            if (action.kind'],
@@ -943,20 +1763,116 @@ try {
         ["an activated profile drops its failure", 'failures = kept(failures, row => row.state !== "activated");', "failures = kept(failures, row => true);"],
         ["a profile no longer activated drops its address", 'addresses = kept(addresses, row => row.state === "activated");', "addresses = kept(addresses, row => true);"],
         ["an activated profile with an address queues no read", 'row.state === "activated" && addresses[row.uuid] === undefined', 'row.state === "activated"'],
-        ["a password connect opens stdin", "profileActor.stdinEnabled = feed !== null;", "profileActor.stdinEnabled = false;"],
+        ["a password connect opens stdin", "profileActor.stdinEnabled = connectFeed !== null;", "profileActor.stdinEnabled = false;"],
         ["a password connect is marked", "password: feed !== null }", "password: false }"],
         ["a password connect holds its feed", "connectFeed = feed;", ""],
-        ["one change at a time", 'if (profileActor.running) return "busy";', ""],
+        ["one change at a time", 'if (profileAction !== null || stateWrite !== null) return "busy";', ""],
+        ["a connect with the switch on waits for the table", "if (plan === null || !plan.arm) {", "if (true) {"],
+        ["only an armed table runs the connect", 'if (outcome === "armed") {', "if (true) {"],
+        ["an unusable profile runs nothing", '} else if (outcome === "unavailable" && !stage.nudged) {', "} else if (false) {"],
+        ["after a nudge a refusal waits for the deadline", '} else if (outcome === "unavailable" && !stage.nudged) {', '} else if (outcome === "unavailable") {'],
+        ["a refusal read in the wait decides at its end", '        else if (stage.refusal !== "") rollBack("unavailable", stage.refusal);\n', ""],
+        ["a nudge records the file's text", "stateWrite = Object.assign({}, stateWrite, { text: text, nudged: true });", "stateWrite = Object.assign({}, stateWrite, { nudged: true });"],
+        ["a write's end takes the grace from a running read", "        killReader.settles = false;\n", ""],
+        ["no write while a step still runs", " || stateModer.running || stateMover.running || pendingMaker.running) return", ") return"],
+        ["the end of the wait runs nothing", 'else if (stage.expired) waitEnd();', 'else if (false) waitEnd();'],
+        ["the rollback puts the previous profile back", "{ meantOn: previous } : null", '{ meantOn: "" } : null'],
+        ["the file is read again before a write", "else stateFile.reload();", "else stateRead();"],
+        ["an unchanged file is not written", "else if (text === stateFile.text()) {", "else if (false) {"],
+        ["a connect nudges an unchanged file", "            if (!stateWrite.nudge) writeEnded(true);\n            else {", "            if (true) writeEnded(true);\n            else {"],
+        ["a late chmod of an ended write is not a later write's", 'stateWrite.phase !== "mode" || stateWrite.serial !== serial) return;', 'stateWrite.phase !== "mode") return;'],
+        ["a read the poll starts ends the grace", "        killReader.settles = killSettlePoll;\n", ""],
+        ["a failed write runs nothing", 'if (!ok) {\n            stageEnded("write", "", false);', 'if (false) {\n            stageEnded("write", "", false);'],
+        ["the switches take three modes", 'if (Logic.KILL_MODES.indexOf(mode) === -1) return "refused: kill-switch=mode";', ""],
+        ["one state write at a time", 'if (stateWrite !== null || stage !== null) return "busy";', ""],
+        ["a profile the switch refuses runs nothing", "if (plan !== null && plan.refuse !== undefined) {", "if (false) {"],
+        ["the deadline marks a running read's wait", "        stage = Object.assign({}, stage, { expired: true });\n", ""],
+        ["the deadline ends an idle wait", '        if (!killReader.running) waitEnd();', '        if (false) waitEnd();'],
+        ["a wait that ends while the step reads needed points to Set up", 'if (Logic.stepWord(killStep) === "setup") rollBack("setup", "");', 'if (false) rollBack("setup", "");'],
+        ["a wait that ends unarmed asks for a fresh probe first", 'const reply = shell === null ? "refused" : shell.system.refresh(() => root.probed());', 'const reply = "refused";'],
+        ["a step that reads needed still takes the rollback", '        if (!killWritable) writeEnded(false);', '        if (!killReady) writeEnded(false);'],
+        ["a wait records a read that answered", 'if (outcome !== "failed" && !stage.answered)', 'if (!stage.answered)'],
+        ["a failed rollback is shown", "root.stageEnded(cause, reason, !ok);", "root.stageEnded(cause, reason, false);"],
+        ["a read-back after the rename does not fail the write", '            if (stateFile.text() !== stateWrite.text) console.warn("vpn: operation=kill-switch-write completion=read-back-differs");\n            writeEnded(true);', '            writeEnded(stateFile.text() === stateWrite.text);'],
+        ["a failed touch does not fail the write", 'if (code !== 0) console.warn("vpn: operation=kill-switch-pending completion=failed code=" + code);', 'if (code !== 0) { writeEnded(false); return; }'],
+        ["one writer", 'if (stateWrite !== null || stateModer.running', 'if (stateModer.running'],
+        ["the write's deadline ends the write", '        writeEnded(stateWrite.committed === true);\n    }\n    function writeEnded', '    }\n    function writeEnded'],
+        ["the deadline signals a running step", "if (step.running) step.signal(9);", "if (false) step.signal(9);"],
+        ["a late step of an ended write does nothing", '        if (stateWrite === null || stateWrite.phase !== "mode" || stateWrite.serial !== serial) return;\n', ''],
+        ["a failed save removes its file", '        if (stateWrite !== null && stateWrite.phase === "save") removeTemp();', '        if (stateWrite !== null && stateWrite.phase === "save") writeEnded(false);'],
+        ["the pending file is the state directory's", 'pendingMaker.command = ["touch", "--", Logic.PENDING_FILE];', 'pendingMaker.command = ["touch", "--", Logic.STATE_FILE];'],
+        ["a write's end opens the grace", "        killSettling = true;\n", ""],
+        ["the pending file follows the rename", "        pendingMaker.serial = stateWrite.serial;\n        pendingMaker.running = true;", "        pendingMade(0, stateWrite.serial);"],
+        ["a failed step removes its file", "        tempRemover.running = true;", ""],
+        ["the temporary file takes mode 0644 before the rename", '        stateWrite = Object.assign({}, stateWrite, { phase: "mode" });\n        stateModer.command = ["chmod", "0644", "--", stateWrite.temp];\n        stateModer.completion = null;\n        stateModer.serial = stateWrite.serial;\n        stateModer.running = true;', "        moded(0, stateWrite.serial);"],
         ["the started run drops its feed", "root.connectFeed = null;\n            if (once !== null)", "if (once !== null)"],
         ["a plain change drops a stale feed", "connectFeed = feed;", "if (feed !== null) connectFeed = feed;"],
-        ["a plain change closes stdin", "profileActor.stdinEnabled = feed !== null;", "if (feed !== null) profileActor.stdinEnabled = true;"],
+        ["a plain change closes stdin", "profileActor.stdinEnabled = connectFeed !== null;", "if (connectFeed !== null) profileActor.stdinEnabled = true;"],
         ["the ended run drops its feed", "root.connectFeed = null;\n            profileActionDeadline.stop();", "profileActionDeadline.stop();"],
         ["destruction drops the feed", "Logic.releaseConnect(root);\n        connectFeed = null;", "Logic.releaseConnect(root);"],
-        ["a password connect's failure is carried", "action.password === true)", "false)"]
+        ["a password connect's failure is carried", "action.password === true)", "false)"],
+        ["a run's end keeps the change in flight", '        profileAction = Object.assign({}, profileAction, { ended: true, stale: profilesReader.running });\n', '        profileAction = null;\n'],
+        ["a read running at the run's end does not end it", '{ ended: true, stale: profilesReader.running }', '{ ended: true, stale: false }'],
+        ["the list after the run ends it", '            profileAction = profileAction.stale ? Object.assign({}, profileAction, { stale: false }) : null;', '            profileAction = profileAction;'],
+        ["a disconnect with no run ends the action", "        if (argv === null) {\n            profileAction = null;", "        if (false) {\n            profileAction = null;"],
+        ["the service hands the file's profile to the plan", 'Logic.killSwitchOn(killSwitch), killReady ? killSwitch.meantOn : "");', 'Logic.killSwitchOn(killSwitch), "");']
     ]) {
         assert.equal(serviceSource.split(old).length - 1, 1, name);
         assert.throws(() => suite(load(file, commons), serviceSource.replace(old, replacement)), undefined, "control: " + name);
         console.log("vpn-logic: control=" + name + " red");
+    }
+
+    // The root script's own reader agrees with STATE_TABLE and reads
+    // stateText's output back, and its status_pattern accepts exactly the
+    // STATUS_TABLE lines killStatus accepts: its definitions, parse_state
+    // and status_pattern run under bash from the shipped file, with
+    // read_state's 4097-byte read.
+    const root = fs.readFileSync(path.join(__dirname, "../config/system/kill-switch/vgs-kill-switch"), "utf8");
+    const definition = name => {
+        const found = new RegExp("^" + name + "=.*$", "m").exec(root);
+        assert.ok(found, "the root script defines " + name);
+        return found[0];
+    };
+    const parseState = /^parse_state\(\) \{\n[\s\S]*?\n\}$/m.exec(root);
+    assert.ok(parseState, "the root script has parse_state");
+    const definitions = ["digit", "hex", "word_char", "uuid_body", "uuid_pattern"].map(definition);
+    const run = (script, args) => require("child_process").execFileSync("bash", ["--norc", "--noprofile", script, ...args],
+        { env: { PATH: process.env.PATH, LC_ALL: "C" }, encoding: "utf8" });
+    const asRoot = read => read.kind === "malformed" ? "malformed" : ["valid", read.meantOn === "" ? "-" : read.meantOn, read.mode, read.portalUntil].join(" ");
+    const shipped = load(file, commons);
+    // PARSE is parse_state's text, PATTERN status_pattern's line; each
+    // disagreement throws.
+    const rootAgrees = (parse, pattern) => {
+        const reader = path.join(scratch, "parse-state.sh");
+        fs.writeFileSync(reader, definitions.concat([parse,
+            'state_text="$(head -c 4097 -- "$1")"', "state_present=1",
+            'if ((${#state_text} > 4096)); then echo malformed; elif parse_state; then printf "valid %s %s %s\\n" "${meant_on:--}" "$kill_switch" "$portal_until"; else echo malformed; fi', ""]).join("\n"));
+        const rootRead = input => {
+            const at = path.join(scratch, "state");
+            fs.writeFileSync(at, input);
+            return run(reader, [at]).trim();
+        };
+        for (const [name, input, read] of STATE_TABLE) assert.equal(rootRead(input), asRoot(read), "the root script reads " + name);
+        for (const fields of [{ meantOn: "", mode: "off", portalUntil: "0" }, { meantOn: HOME, mode: "block-lan", portalUntil: "1794203888" }])
+            assert.equal(rootRead(shipped.stateText(fields)), asRoot(Object.assign({ kind: "valid" }, fields)), "the root script reads what VGS writes");
+        const matcher = path.join(scratch, "status-pattern.sh");
+        fs.writeFileSync(matcher, definitions.concat([pattern, 'for line; do if [[ $line =~ $status_pattern ]]; then echo accept; else echo refuse; fi; done', ""]).join("\n"));
+        const lines = STATUS_TABLE.filter(row => row[0] === 0).map(row => row[1].replace(/\n$/, ""));
+        const verdicts = run(matcher, lines).trim().split("\n");
+        assert.equal(verdicts.length, lines.length, "the root's status_pattern judges every line");
+        lines.forEach((text, i) => assert.equal(verdicts[i], shipped.killStatus(0, text + "\n").state === "unreachable" ? "refuse" : "accept", "status_pattern on " + JSON.stringify(text)));
+    };
+    rootAgrees(parseState[0], definition("status_pattern"));
+    console.log("vpn-logic: root-script reader agrees");
+    // The agreement fails on a root that reads otherwise: a parse_state
+    // that takes version=2 and a status_pattern that takes state=armed.
+    for (const [name, parse, pattern] of [
+        ["parse_state", parseState[0].replace("[[ $value == 1 ]]", "[[ $value == [12] ]]"), definition("status_pattern")],
+        ["status_pattern", parseState[0], definition("status_pattern").replace("(off|holding|passing|unavailable)", "(off|holding|passing|unavailable|armed)")]
+    ]) {
+        assert.notEqual(parse + pattern, parseState[0] + definition("status_pattern"), name + " mutation must change the text");
+        assert.throws(() => rootAgrees(parse, pattern), undefined, "control: the agreement on " + name);
+        console.log("vpn-logic: control=the root's " + name + " disagreeing red");
     }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 console.log("vpn-logic: passed");

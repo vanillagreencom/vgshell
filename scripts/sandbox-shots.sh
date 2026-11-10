@@ -8810,15 +8810,21 @@ TSSECTION
 # switch opens the password prompt: in the flyout empty, with typed text
 # and, after a password connect NetworkManager answers with Unknown
 # reason, with its retry line; in the section, after a plain connect
-# leaves it needing its password again.
+# leaves it needing its password again. Where the tree ships the kill
+# switch (vpn_kill_shots), its row shows in each state, at the ends of
+# the section and the flyout; a tree without it takes the same frames.
 vpn_shot_home=9d76b882-ead1-4c49-8675-7be6431d5f71
 vpn_shot_office=95ea5c2d-312f-4a84-8fd1-9ebc0a4a7581
 vpn_shot_travel=5b1c0a9e-2f43-4d7a-9a51-0c3e6e1d2b84
+# Lab tunnel's uuid, which the shots' profile list leaves out: the block
+# holding for a profile no longer listed.
+vpn_shot_unlisted=c41d7e02-58b3-4a6f-9e1d-3f2a0b8c7d65
 vpn_shot_campus=2e8f4d1a-7c6b-4f3e-8a29-6d5b4c3a2f10
 scene_vpn() { # MODE
   local fixtures="$repo/scripts/fixtures/vpn" scroll
   devices_ready vpn-shot || return 0
   vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
+  devices_vpn_kill_tree needed
   expect "VPN enables for its shot" ok ipc shell setPluginEnabled vgs.vpn true
   tree_rescan "the VPN shot reads the nmcli stand-in"
   expect_poll "VPN reads its stand-in profiles" '[["Home tunnel", "activated", "wireguard", "203.0.113.10:51820", "10.20.0.2", ""], ["Office VPN", "", "openvpn", "vpn.example.com", "", ""], ["Travel L2TP", "", "l2tp", "l2tp.example.net", "", ""], ["Campus AnyConnect", "", "openconnect", "vpn.example.edu", "", ""]]' vpn_shot_rows
@@ -8875,6 +8881,12 @@ scene_vpn() { # MODE
     fits) ok "the complete VPN pane fits its first frame" ;;
     *) fail "the VPN pane end is unreadable: $scroll" ;;
   esac
+  # A tree without the kill switch takes the setup frames at this step
+  # too, the before side of their pair.
+  if tree_has shell/plugins/vgs.vpn/VpnBody.qml "KillSwitch {"; then vpn_kill_shots "$1"; else vpn_kill_take setup "$1"; fi
+  vpn_kill_problem_shots "$1"
+  expect "VPN's pane summons again after the kill switch shots" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  expect_poll "VPN's pane is mounted again" shown vpn_shot_shown
 
   device_reply nmcli 4 "$(sed 's/NetworkManager\.vpnc/NetworkManager.openvpn/' "$fixtures/up-service-missing.txt")" connection up uuid "$vpn_shot_office"
   expect "Office VPN is asked to connect without its plugin" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_office\"}"
@@ -8894,6 +8906,7 @@ scene_vpn() { # MODE
   take "vpn-$1-dropdown-plugin"
   expect "the VPN flyout hides" ok ipc shell hide panel vgs.vpn
 
+  devices_vpn_kill_tree remove
   device_reply nmcli 0 "" -t -f NAME,UUID,TYPE,STATE connection show
   expect "VPN reads no profile" ok ipc vgs.vpn invoke refresh ""
   expect_poll "VPN lists no profile" 0 vpn_shot_status count
@@ -8909,6 +8922,286 @@ scene_vpn() { # MODE
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
   device_reply_clear nmcli
 }
+vpn_kill_state="$devices_vpn_kill_root/vpn/state"
+# vpn_kill_status LINE: the line the vgs-kill-switch stand-in prints for
+# `status`, as the root script's status verb does.
+vpn_kill_status() { device_reply vgs-kill-switch 0 "$1" status; }
+# vpn_kill_read KEY: a key of the published killSwitchState, as JSON.
+vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); k=sys.argv[1]; print("unpublished" if v is None else json.dumps(v["status"]["state"] if k == "status" and v["status"] else v.get(k)))' "$1"; }
+# vpn_kill_file: the state file's bytes, or `absent`.
+vpn_kill_file() { if [[ -f $vpn_kill_state ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$vpn_kill_state"; else echo absent; fi; }
+vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n" % tuple(sys.argv[1:])))' "$@"; } # MEANT MODE PORTAL
+# vpn_kill_take NAME MODE [ROW]: the end of the VPN section, revealed at
+# its Updates field, and the end of the flyout, where the kill switch row
+# sits. A tree without the row takes the same frames at the same step,
+# so `setup` is a before and after pair; ROW `row` also holds the row
+# drawn.
+vpn_kill_take() { # NAME MODE [row]
+  local scrolled
+  expect "VPN's pane summons for the kill switch shot" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  expect_poll "VPN's pane is mounted for the kill switch shot" shown vpn_shot_shown
+  [[ ${3:-} != row ]] || expect_poll "the section draws the kill switch row" true vpn_shot_read window KillSwitch vpn-kill-switch visible
+  scrolled="$(vpn_shot_end)" || { fail "the VPN pane end is unreadable"; return; }
+  [[ $scrolled == moved || $scrolled == fits ]] || fail "the VPN pane end is unreadable: $scrolled"
+  park_pointer
+  vpn_shot_record "vpn-$2-pane-kill-$1" "$2"
+  take "vpn-$2-pane-kill-$1"
+  expect "the VPN System window closes after the kill switch shot" ok ipc shell hide window vgs.system
+  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
+  expect_poll "the VPN widget opens its flyout" shown vpn_shot_panel
+  [[ ${3:-} != row ]] || expect_poll "the flyout draws the kill switch row" true vpn_shot_read panel KillSwitch vpn-kill-switch visible
+  scrolled="$(ipc smoke scrollTo panel vgs.vpn 100000)" || { fail "the VPN flyout end is unreadable"; return; }
+  [[ $scrolled == \[* ]] || fail "the VPN flyout end is unreadable: $scrolled"
+  park_pointer
+  take "vpn-$2-dropdown-kill-$1"
+  expect "the VPN flyout hides after the kill switch shot" ok ipc shell hide panel vgs.vpn
+}
+# vpn_kill_shots MODE: the kill switch row with the step not set up, then
+# set up and off, on, a failed status read, on with Allow local network,
+# naming a profile the root half cannot use, on and naming a profile
+# with no rule in place, and the block holding (vpn_kill_holding). The
+# state file and the status line are planted; rows/vpn.sh holds the
+# writes and the arm wait.
+vpn_kill_shots() { # MODE
+  expect_poll "the kill switch step reads not set up" '"setup"' vpn_kill_read step
+  vpn_kill_take setup "$1" row
+
+  devices_vpn_kill_tree ready
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  tree_rescan "a scan probes the kill switch step set up"
+  expect_poll "the kill switch step reads set up" '"ready"' vpn_kill_read step
+  expect_poll "no state file reads off" '"off"' vpn_kill_read mode
+  vpn_kill_take off "$1" row
+
+  vpn_kill_plant "$vpn_shot_home" block 1794203888 "state=passing reason=tunnel-up blocked=0 tunnel=wg-home profile=$vpn_shot_home" passing
+  vpn_kill_take on "$1" row
+
+  device_reply vgs-kill-switch 1 "" status
+  expect "VPN reads a failed status read" ok ipc vgs.vpn invoke refresh ""
+  expect_poll "the row reads the status unreachable" '"unreachable"' vpn_kill_read status
+  vpn_kill_take unknown "$1" row
+
+  vpn_kill_plant "$vpn_shot_home" block-lan 1794203888 "state=passing reason=tunnel-up blocked=0 tunnel=wg-home profile=$vpn_shot_home" passing
+  vpn_kill_take lan "$1" row
+
+  vpn_kill_plant "$vpn_shot_office" block 0 "state=unavailable reason=profile-not-wireguard blocked=12 tunnel= profile=$vpn_shot_office" unavailable
+  vpn_kill_take unsupported "$1" row
+
+  vpn_kill_plant "$vpn_shot_home" block 0 "state=off reason=disarmed blocked=0 tunnel= profile=" off
+  vpn_kill_take disarmed "$1" row
+  vpn_kill_holding "$1"
+  devices_vpn_kill_tree needed
+  tree_rescan "a scan probes the kill switch step not set up again"
+  expect_poll "the kill switch step reads not set up again" '"setup"' vpn_kill_read step
+}
+# vpn_kill_holding MODE: the block holding for Home tunnel after
+# NetworkManager dropped it: the file names it with the switch on, the
+# stand-in lists it off and the status line says holding. A tree with the
+# blocked-traffic notice draws it at the top of the section and the
+# flyout, and its Turn VPN off clears the file's profile and runs no
+# nmcli; a tree without it takes the same frames, the before side of
+# their pair. The kill switch row in that state follows, at the ends of
+# the section and the flyout, the held row expanded (vpn_kill_heldrow),
+# then the bar with no other alert, at rest
+# and with its tooltip, and the plugin's Details page with its Connection
+# reading. Travel L2TP's failure from the password shots is forgotten
+# first, as an editor handoff forgets it, so no alert outranks the drop.
+# Last, the block holding for a profile no longer listed.
+vpn_kill_holding() { # MODE
+  local list downs notice="" dot=""
+  tree_has shell/plugins/vgs.vpn/VpnBody.qml 'objectName: "vpn-blocked"' && notice=vpn-blocked
+  tree_has shell/plugins/vgs.vpn/Widget.qml "stateDot: widget.view.stateDot" && dot=danger
+  expect "VPN forgets Travel L2TP's failure for the holding shots" ok ipc vgs.vpn invoke refresh "$vpn_shot_travel"
+  expect_poll "Travel L2TP reads no failure" "" vpn_shot_failure "$vpn_shot_travel"
+  list="$(grep -E '^(Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect):' "$repo/scripts/fixtures/vpn/list.txt" | sed "s/:$vpn_shot_home:wireguard:activated\$/:$vpn_shot_home:wireguard:/")" || { fail "the VPN stand-in list is unreadable"; return; }
+  device_reply nmcli 0 "$list" -t -f NAME,UUID,TYPE,STATE connection show
+  vpn_kill_plant "$vpn_shot_home" block 0 "state=holding reason=tunnel-down blocked=214 tunnel= profile=$vpn_shot_home" holding
+  expect_poll "Home tunnel reads dropped" '"off"' vpn_shot_state "$vpn_shot_home"
+  vpn_kill_top holding "$1" "$notice"
+  vpn_kill_take holding-row "$1" row
+  vpn_kill_heldrow "$1"
+
+  expect_poll "the VPN widget shows no alert for the drop" '["shield-off", false]' vpn_shot_icon
+  [[ -z $dot ]] || expect_poll "the VPN widget carries the danger dot" '"danger"' ipc smoke readDescendant "$(bar_key)" vgs.vpn BarItem stateDot
+  park_pointer
+  take "vpn-$1-bar-held"
+  hover_widget "the pointer rests on the VPN widget while the block holds" vgs.vpn || return
+  expect_poll "the VPN tooltip opens while the block holds" true tooltip_opened vgs.vpn
+  take_posed "vpn-$1-bar-held-tooltip"
+  park_pointer
+  expect_poll "the VPN tooltip closes" false tooltip_opened vgs.vpn
+  expect "Settings opens on VPN's page while the block holds" ok ipc shell summon window vgs.settings '{"plugin":"vgs.vpn"}'
+  expect_poll "the VPN page is shown while the block holds" '"vgs.vpn"' settings_page
+  page_details
+  park_pointer
+  take "vpn-$1-details-held"
+  expect "the Settings window closes after the Details shot" ok ipc shell hide window vgs.settings
+  if [[ -n $notice ]]; then
+    downs="$(vpn_kill_downs)" || { fail "the nmcli stand-in's calls are unreadable"; return; }
+    expect "Turn VPN off asks for the dropped profile's disconnect" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-down\",\"id\":\"$vpn_shot_home\"}"
+    expect_poll "the disconnect clears the file's profile" "$(vpn_kill_text "" block 0)" vpn_kill_file
+    expect_poll "the disconnect ends" null vpn_shot_in_flight
+    expect "the disconnect of a dropped profile runs no nmcli down" "$downs" vpn_kill_downs
+  fi
+  vpn_kill_plant "$vpn_shot_unlisted" block 0 "state=holding reason=tunnel-down blocked=3 tunnel= profile=$vpn_shot_unlisted" holding
+  vpn_kill_top unlisted "$1" "$notice"
+  vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
+  expect "VPN reads Home tunnel connected after the holding shot" ok ipc vgs.vpn invoke refresh ""
+  expect_poll "Home tunnel reads connected after the holding shot" '"activated"' vpn_shot_state "$vpn_shot_home"
+}
+# vpn_kill_heldrow MODE: Home tunnel's row expanded while the block holds
+# for it, at the top of the section and the flyout, then collapsed again.
+# A tree with Reconnect draws it in that row.
+vpn_kill_heldrow() { # MODE
+  local reconnect=false
+  tree_has shell/plugins/vgs.vpn/ProfileRow.qml '"vpn-reconnect:"' && reconnect=true
+  expect "VPN's pane summons for the held row shot" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  expect_poll "VPN's pane is mounted for the held row shot" shown vpn_shot_shown
+  vpn_shot_expand window "window:System Settings" "Home tunnel" "$vpn_shot_home" true || return
+  [[ $reconnect == false ]] || expect_poll "the section's held row offers Reconnect" true vpn_shot_read window RowAction "vpn-reconnect:$vpn_shot_home" visible
+  expect "the VPN pane shows its Profiles heading for the held row" shown vpn_shot_top
+  park_pointer
+  take "vpn-$1-pane-kill-heldrow"
+  vpn_shot_expand window "window:System Settings" "Home tunnel" "$vpn_shot_home" false
+  expect "the VPN System window closes after the held row shot" ok ipc shell hide window vgs.system
+  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
+  expect_poll "the VPN widget opens its flyout for the held row" shown vpn_shot_panel
+  vpn_shot_expand panel "" "Home tunnel" "$vpn_shot_home" true || return
+  [[ $reconnect == false ]] || expect_poll "the flyout's held row offers Reconnect" true vpn_shot_read panel RowAction "vpn-reconnect:$vpn_shot_home" visible
+  ipc smoke scrollTo panel vgs.vpn 0 >/dev/null || fail "the VPN flyout top is unreadable"
+  park_pointer
+  take "vpn-$1-dropdown-kill-heldrow"
+  vpn_shot_expand panel "" "Home tunnel" "$vpn_shot_home" false
+  expect "the VPN flyout hides after the held row shot" ok ipc shell hide panel vgs.vpn
+}
+vpn_kill_downs() { device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin) if c[:2] == ["connection", "down"]]))'; }
+# vpn_kill_plant MEANT MODE PORTAL LINE STATE: the state file and the
+# status line planted, read by the service until the row reads STATE.
+vpn_kill_plant() { # MEANT MODE PORTAL LINE STATE
+  vpn_kill_text "$1" "$2" "$3" | python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.load(sys.stdin))' "$vpn_kill_state"
+  vpn_kill_status "$4"
+  expect "VPN reads the planted kill switch" ok ipc vgs.vpn invoke refresh ""
+  expect_poll "the row reads mode $2" "\"$2\"" vpn_kill_read mode
+  expect_poll "the row reads the table $5" "\"$5\"" vpn_kill_read status
+}
+# vpn_kill_problem_shots MODE: the profiles with the switch on, where a
+# profile that is not WireGuard says why it cannot connect, and the
+# problem line a connect behind the kill switch leaves, at the top of the
+# section and the flyout, at one step on every tree: Home tunnel off and
+# the step's world set up. With every
+# status read failing, a tree with the kill switch says it could not
+# check; with the table never arming and the rollback's write refused, by
+# a state directory made read-only once the connect's write landed, it
+# says it could not clear the profile; with the units disabled while it
+# waits, the fresh probe reads the step needed and the line points to Set
+# up. A tree without it connects through the nmcli stand-in, which then
+# lists Home tunnel connected, the before side of each pair.
+vpn_kill_problem_shots() { # MODE
+  local kill=false list unit
+  tree_has shell/plugins/vgs.vpn/VpnBody.qml "KillSwitch {" && kill=true
+  list="$(grep -E '^(Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect):' "$repo/scripts/fixtures/vpn/list.txt" | sed "s/:$vpn_shot_home:wireguard:activated\$/:$vpn_shot_home:wireguard:/")" || { fail "the VPN stand-in list is unreadable"; return; }
+  device_reply nmcli 0 "Connection successfully activated" connection up uuid "$vpn_shot_home"
+  devices_vpn_kill_tree ready
+  tree_rescan "a scan probes the kill switch step for the problem shots"
+  [[ $kill == false ]] || expect_poll "the kill switch step reads set up for the problem shots" '"ready"' vpn_kill_read step
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  vpn_kill_home_off "the WireGuard-only shot" "$list"
+  [[ $kill == false ]] || expect_poll "the row reads the switch on" '"block"' vpn_kill_read mode
+  vpn_kill_top wireguard-only "$1"
+
+  vpn_kill_home_off "the no-status-read connect" "$list"
+  device_reply vgs-kill-switch 1 "" status
+  expect "Home tunnel is asked to connect with no status read" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_home\"}"
+  expect_poll "the connect with no status read ends" null vpn_shot_in_flight
+  vpn_kill_home_connected "$kill"
+  vpn_kill_top unchecked "$1"
+
+  vpn_kill_home_off "the no-rule connect" "$list"
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  expect "Home tunnel is asked to connect with no rule arming" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_home\"}"
+  if [[ $kill == true ]]; then
+    expect_poll "the connect's write names Home tunnel" "$(vpn_kill_text "$vpn_shot_home" block 0)" vpn_kill_file
+    chmod 0555 -- "$devices_vpn_kill_root/vpn"
+  fi
+  expect_poll "the connect with no rule arming ends" null vpn_shot_in_flight
+  chmod 0755 -- "$devices_vpn_kill_root/vpn"
+  vpn_kill_home_connected "$kill"
+  vpn_kill_top unrestored "$1"
+  # After the next poll the row makes no second claim: Home tunnel is not
+  # connected, so it draws no line, neither a hint nor a danger line.
+  if [[ $kill == true ]]; then
+    expect "VPN's pane summons to read the row after a poll" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+    expect_poll "VPN's pane is mounted to read the row" shown vpn_shot_shown
+    expect_poll "the grace after the rollback ends" false vpn_kill_read settling
+    expect_poll "after a poll the row draws no line beside the problem" '["", ""]' vpn_kill_lines window
+    expect "the VPN System window closes after the row read" ok ipc shell hide window vgs.system
+  fi
+
+  vpn_kill_home_off "the units' failure" "$list"
+  expect "Home tunnel is asked to connect while the units fail" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_home\"}"
+  if [[ $kill == true ]]; then
+    expect_poll "the connect's write names Home tunnel before the units fail" "$(vpn_kill_text "$vpn_shot_home" block 0)" vpn_kill_file
+    for unit in vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service; do
+      device_reply systemctl 1 "" is-enabled --quiet "$unit"
+    done
+  fi
+  expect_poll "the connect while the units fail ends" null vpn_shot_in_flight
+  [[ $kill == false ]] || expect_poll "the fresh probe reads the step needed" '"setup"' vpn_kill_read step
+  vpn_kill_home_connected "$kill"
+  vpn_kill_top again "$1"
+
+  vpn_shot_plant || fail "the VPN stand-in profiles are unreadable"
+  expect "VPN reads Home tunnel connected again" ok ipc vgs.vpn invoke refresh ""
+  devices_vpn_kill_tree needed
+  tree_rescan "a scan probes the kill switch step after the problem shots"
+}
+# vpn_kill_home_off LABEL LIST: the state file on with no profile named,
+# and LIST, the stand-in profiles with Home tunnel off, read.
+vpn_kill_home_off() { # LABEL LIST
+  vpn_kill_text "" block 0 | python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.load(sys.stdin))' "$vpn_kill_state"
+  device_reply nmcli 0 "$2" -t -f NAME,UUID,TYPE,STATE connection show
+  expect "VPN reads Home tunnel off for $1" ok ipc vgs.vpn invoke refresh ""
+  expect_poll "Home tunnel reads off for $1" '"off"' vpn_shot_state "$vpn_shot_home"
+}
+# vpn_kill_home_connected KILL: on a tree without the kill switch, where
+# the connect ran, the stand-in lists Home tunnel connected, as
+# NetworkManager would after it.
+vpn_kill_home_connected() { # KILL
+  [[ $1 == false ]] || return 0
+  vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
+  expect "VPN reads Home tunnel connected after the connect" ok ipc vgs.vpn invoke refresh ""
+  expect_poll "Home tunnel reads connected after the connect" '"activated"' vpn_shot_state "$vpn_shot_home"
+}
+# vpn_kill_lines HOST: the kill switch row's hint and danger line as drawn.
+vpn_kill_lines() { # HOST
+  local hint error
+  hint="$(vpn_shot_read "$1" Field vpn-kill-switch-field hint)" || return 1
+  error="$(vpn_shot_read "$1" Field vpn-kill-switch-field error)" || return 1
+  printf '[%s, %s]\n' "$hint" "$error"
+}
+# vpn_kill_top NAME MODE: the top of the VPN section, revealed at its
+# Profiles heading, and of the flyout, where the problem line sits.
+# vpn_kill_top NAME MODE [NOTICE]: the top of the section and the flyout;
+# NOTICE names a Callout each must draw.
+vpn_kill_top() { # NAME MODE [NOTICE]
+  expect "VPN's pane summons for the problem shot" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  expect_poll "VPN's pane is mounted for the problem shot" shown vpn_shot_shown
+  expect "the VPN pane shows its Profiles heading" shown vpn_shot_top
+  [[ -z ${3:-} ]] || expect_poll "the section draws $3" true vpn_shot_read window Callout "$3" visible
+  park_pointer
+  vpn_shot_record "vpn-$2-pane-kill-$1" "$2"
+  take "vpn-$2-pane-kill-$1"
+  expect "the VPN System window closes after the problem shot" ok ipc shell hide window vgs.system
+  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
+  expect_poll "the VPN widget opens its flyout" shown vpn_shot_panel
+  ipc smoke scrollTo panel vgs.vpn 0 >/dev/null || fail "the VPN flyout top is unreadable"
+  [[ -z ${3:-} ]] || expect_poll "the flyout draws $3" true vpn_shot_read panel Callout "$3" visible
+  park_pointer
+  take "vpn-$2-dropdown-kill-$1"
+  expect "the VPN flyout hides after the problem shot" ok ipc shell hide panel vgs.vpn
+}
+vpn_shot_state() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {"rows": []}; s=next((r["state"] for r in v["rows"] if r["uuid"] == sys.argv[1]), None); print(json.dumps(None if s is None else s or "off"))' "$1"; }
+vpn_shot_in_flight() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; print(json.dumps((json.load(sys.stdin).get("profiles") or {}).get("action")))'; }
 # vpn_shot_dropdown_password MODE: in the open flyout, Travel L2TP's
 # switch opens the password prompt over the flyout's Pane; its field
 # empty, then holding typed text, then, after a password connect the
