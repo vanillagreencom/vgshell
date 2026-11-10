@@ -524,6 +524,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     ports.playback = audio.playbackPort;
     ports.voiceMute = { store: storeVoiceMute };
     ports.hidden = { store: storeHidden };
+    // Session's fault rows reach the audit owner the first hello creates. A
+    // refused row is logged by its key and never holds the session.
+    ports.audit = { fault(e) {
+        const result = audit === null ? { kind: "refuse", cause: "writer-absent" } : audit.fault(e);
+        if (result.kind !== "recorded") process.stderr.write("jarvis: audit=write kind=fault cause=" + result.cause + "\n");
+    } };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
             revision: context.revision, role: e.role,

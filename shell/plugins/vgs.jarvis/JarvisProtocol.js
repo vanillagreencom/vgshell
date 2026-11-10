@@ -700,6 +700,16 @@ function accept(line, direction) {
         keys(message, ["v", "type", "gen", "revision", "rows"], "audit-failures");
         if (!Array.isArray(message.rows) || message.rows.length > 20) fail("audit-failures");
         for (var row of message.rows) {
+            // A conversation fault's row: Audit's head word, status and words.
+            if (object(row) && row.kind === "fault") {
+                keys(row, ["time", "kind", "cause", "status", "category", "action"], "audit-fault");
+                if (typeof row.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.time)
+                        || typeof row.cause !== "string" || !/^[a-z-]+=[a-z0-9-]{1,60}$/.test(row.cause)
+                        || !(row.status === null || Number.isSafeInteger(row.status) && row.status >= 100 && row.status <= 599)
+                        || ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"].indexOf(row.category) === -1
+                        || ["restarted", "stopped"].indexOf(row.action) === -1) fail("audit-fault");
+                continue;
+            }
             keys(row, ["time", "tool", "effect", "decision", "outcome", "refusal", "cause"], "audit-row");
             if (typeof row.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.time)
                     || !printable(row.tool, 1, FIELD_MAX)

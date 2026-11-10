@@ -824,7 +824,7 @@ cases=(
   "jarvis-forbidden-cli-input|scripts/fixtures/jarvis/forbidden.js|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js'
   "jarvis-sandbox-datagram-input|scripts/fixtures/jarvis/sandbox-datagram.py|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-daemon.js'
   "jarvis-session-suite|scripts/test-jarvis-session.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-session.js"$'\n'"$repo_plan"
-  "jarvis-history-input|shell/plugins/vgs.jarvis/History.js|logic|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-conversation.js"
+  "jarvis-history-input|shell/plugins/vgs.jarvis/History.js|logic|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-widget.js"$'\n'"node scripts/test-jarvis-conversation.js"
   "jarvis-setup-conversation|shell/plugins/vgs.jarvis/Conversation.js|logic|node scripts/check-jarvis-words.js"$'\nnode scripts/test-plugin-status.js\nnode scripts/test-jarvis-setup-gate.js\nnode scripts/test-jarvis-conversation.js'
   "jarvis-setup-publication|shell/plugins/vgs.jarvis/StatusPublication.js|logic|node scripts/check-jarvis-words.js"$'\nnode scripts/test-plugin-status.js\nnode scripts/test-jarvis-setup-gate.js'
   "jarvis-owner-suite|scripts/test-jarvis-session-runner.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-session-runner.js"$'\n'"$repo_plan"

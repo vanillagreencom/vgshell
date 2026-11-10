@@ -476,6 +476,26 @@ Item {
                 "Tab from the filter reaches the shown list, not the scroll stop: " + focused);
         }
 
+        // The restart notice's action opens the console on its History
+        // tab's Problems list, every record in it shown, with the search
+        // field focused (Service.summonProblems); an ordinary open returns
+        // to Now.
+        function test_a_problems_open_shows_the_problems_list() {
+            const search = collect(jarvisConsole, n => n.placeholderText === "Search conversations, tasks and problems", [])[0];
+            verify(search !== undefined);
+            search.text = "missing";
+            jarvisConsole.historyType = 1;
+            jarvisConsole.open(JSON.stringify({ problems: true }));
+            compare([jarvisConsole.tab, jarvisConsole.historyType, jarvisConsole.historyQuery], [2, 3, ""]);
+            compare([jarvisConsole.showConversations, jarvisConsole.showTasks, jarvisConsole.showProblems], [false, false, true]);
+            tryCompare(search, "activeFocus", true);
+            jarvisConsole.open(JSON.stringify({ problems: true }));
+            compare(jarvisConsole.tab, 2, "a second open keeps the list");
+            tryCompare(search, "activeFocus", true);
+            jarvisConsole.open("{}");
+            compare(jarvisConsole.tab, 0);
+        }
+
         // History's coding tasks as Tasks.rows publishes them, the console
         // showing only them, its IPC recording each call in CALLS. READY
         // false publishes no daemon detail.

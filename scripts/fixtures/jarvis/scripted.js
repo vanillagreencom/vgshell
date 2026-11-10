@@ -247,7 +247,8 @@ function readyPlan() {
 // then streams REPLY and stops; cancel or close ends a waiting response.
 // With a long-request file in the gate folder, the response states a step at
 // once, a second step behind the second-step gate and its answer behind the
-// reply gate.
+// reply gate. A stream-failed file ends a waiting response as a stream that
+// broke off does (WireBrain's brain=stream-failed), so the engine judges it.
 const driver = { create() {
     let pending = null;
     let suspended = false;
@@ -256,6 +257,7 @@ const driver = { create() {
         if (pending === null) return Promise.resolve();
         gates.drop("reply");
         gates.drop("second-step");
+        gates.drop("stream-failed");
         const resolve = pending;
         pending = null;
         resolve?.({ value: undefined, done: true });
@@ -280,9 +282,15 @@ const driver = { create() {
                 if (steps.length === 0) return Promise.resolve({ value: undefined, done: true });
                 const step = steps.shift();
                 if (step.gate === undefined) return Promise.resolve({ value: step, done: false });
-                return new Promise(resolve => {
+                return new Promise((resolve, reject) => {
                     pending = resolve;
+                    gates.wait("stream-failed", () => {
+                        gates.drop(step.gate);
+                        pending = null;
+                        reject(new Error("jarvis: brain=stream-failed"));
+                    });
                     gates.wait(step.gate, () => {
+                        gates.drop("stream-failed");
                         pending = null;
                         resolve(steps.length ? { value: steps.shift(), done: false } : { value: undefined, done: true });
                     });

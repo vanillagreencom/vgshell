@@ -25,6 +25,15 @@ const VISION_REASONS = ["outside-turn", "ocr-unavailable", "screenshot-limit", "
     "area-cancelled", "area-shape", "screen-changed", "cancelled", "cleanup", "executor-failed",
     "session-locked", "policy-profile", "turn-taint", "policy-changed", "stale-turn"];
 const VISION_COMMAND = /^(grim|magick|slurp|tesseract)-(exit=[0-9]{1,3}|signal|cancelled|timeout|output-limit|spawn|input)$/;
+// A conversation fault's row keeps the keyed cause's head word, without a
+// key reader's `jarvis-keys: ` prefix, and its HTTP status, never the rest of
+// its text, which can name a model or a kind; the category is
+// ChainedEngine's restartOf word, and the action Session's. faultRecord
+// lowercases the head word and maps `_` to `-`, as a harness stop reason
+// carries its program's spelling (`copilot-stop-max_tokens`, `pi-stop-toolUse`).
+const FAULT_CAUSE = /^[a-z-]+=[a-z0-9-]{1,60}$/;
+const FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"];
+const FAULT_ACTIONS = ["restarted", "stopped"];
 
 function visionReason(content) {
     if (content === "executor-failed") return content;
@@ -113,9 +122,34 @@ function eventRecord(event, time) {
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }
 
+function faultRow(row) {
+    const { time, gen, cause, status, category, action } = row;
+    if (!Number.isSafeInteger(gen) || gen < 0) fail("identity");
+    if (typeof cause !== "string" || !FAULT_CAUSE.test(cause)) fail("fault-cause");
+    if (status !== undefined && (!Number.isSafeInteger(status) || status < 100 || status > 599)) fail("fault-status");
+    if (!FAULT_CATEGORIES.includes(category)) fail("fault-category");
+    if (!FAULT_ACTIONS.includes(action)) fail("fault-action");
+    return { time, kind: "fault", gen, cause, ...(status === undefined ? {} : { status }), category, action };
+}
+
+// Session's fault-record effect: {gen, reason, category, action}, reason the
+// engine's keyed cause, which this reduces to its head word and status.
+function faultRecord(event, time) {
+    if (event === null || typeof event !== "object" || typeof event.reason !== "string") fail("event-shape");
+    const status = / status=([1-5][0-9]{2})(?: |$)/.exec(event.reason);
+    return faultRow({ time, gen: event.gen, cause: event.reason.replace(/^jarvis-[a-z]+: /, "").split(" ", 1)[0].toLowerCase().replace(/_/g, "-"),
+        ...(status === null ? {} : { status: Number(status[1]) }), category: event.category, action: event.action });
+}
+
 function storedEvent(record) {
     if (typeof record.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(record.time)) fail("seed-time");
-    return eventRecord(record, record.time);
+    return record.kind === "fault" ? faultRow(record) : eventRecord(record, record.time);
+}
+
+// A row the Problems list shows: every fault, and every refused, withheld,
+// failed or unknown action or release.
+function problem(record) {
+    return record.kind === "fault" || ["refuse", "withhold"].includes(record.decision) || ["failed", "unknown"].includes(record.outcome);
 }
 
 /**
@@ -225,9 +259,11 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     }
 
     function retain(record) {
-        if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) return false;
-        recent = recent.concat([{ time: record.time, tool: record.tool, effect: record.effect,
-            decision: record.decision, outcome: record.outcome, refusal: record.refusal ?? null, cause: record.cause ?? null }]).slice(-20);
+        if (!problem(record)) return false;
+        recent = recent.concat([record.kind === "fault"
+            ? { time: record.time, kind: "fault", cause: record.cause, status: record.status ?? null, category: record.category, action: record.action }
+            : { time: record.time, tool: record.tool, effect: record.effect,
+                decision: record.decision, outcome: record.outcome, refusal: record.refusal ?? null, cause: record.cause ?? null }]).slice(-20);
         return true;
     }
 
@@ -295,8 +331,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
             for (const line of tail.toString("utf8").split("\n").filter(Boolean)) {
                 let record;
                 try { record = JSON.parse(line); } catch { fail("seed-json"); }
-                if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) continue;
-                retain(storedEvent(record));
+                if (problem(record)) retain(storedEvent(record));
             }
         } finally { fs.closeSync(fd); }
     }
@@ -372,16 +407,19 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
         }
     }
 
-    function record(event) {
+    function written(build) {
         let value;
-        const result = attempt(time => { value = eventRecord(event, time); return value; });
+        const result = attempt(time => { value = build(time); return value; });
         if (result.kind === "recorded" && retain(value)) changed(failures());
         return result;
     }
+    function record(event) { return written(time => eventRecord(event, time)); }
 
     return Object.freeze({
         /** Record a decision or later outcome, including refused/held calls. */
         record,
+        /** Record one conversation fault: what VGS did about which cause. */
+        fault: event => written(time => faultRecord(event, time)),
         failures,
         /**
          * Persist a pending authorized action/release before invoking start.

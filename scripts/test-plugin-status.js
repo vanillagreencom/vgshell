@@ -293,7 +293,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
                 sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",
                     "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish", "publishEchoCancel", "refreshEchoCancel", "conversationChanged",
-                    "queueIndicator", "flushIndicators"]);
+                    "restartChanged", "queueIndicator", "flushIndicators"]);
                 const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };
                 const first = Object.assign({}, base, { type }, fields);
                 const request = Object.assign({}, base, { type: "request", id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] });

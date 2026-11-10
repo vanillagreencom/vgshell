@@ -84,6 +84,8 @@ class SessionRunner {
         case "speech-close": this.ports.speech.close(e); break;
         case "speech-flush": this.ports.speech.flush(e); break;
         case "transcript": this.ports.transcript(e); break;
+        // A fault's record never holds the session: the port reports its own refusal.
+        case "fault-record": this.ports.audit.fault(e); break;
         default: throw new Error("jarvis: session=effect kind=" + e.kind);
         }
     }
@@ -129,6 +131,9 @@ function unavailable() {
         approval: { show: refuse, end: () => {}, refused: refuse },
         release: { confirmed: refuse },
         speech: { open: refuse, close: () => {}, flush: () => {}, release: () => {} },
+        // With no audit owner a fault has nowhere to be kept, and keeping it
+        // is never a condition of the session's next step.
+        audit: { fault: () => {} },
         transcript: refuse
     };
 }

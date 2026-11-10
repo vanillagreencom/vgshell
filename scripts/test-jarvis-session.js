@@ -20,6 +20,12 @@ const step = (logic, state, input) => copy(logic.reduce(state,
 const kinds = result => result.effects.map(effect => effect.kind);
 const has = (result, kind) => kinds(result).includes(kind);
 const LOST = 'device-lost target="fixture.mic" from=default microphones=0[]';
+// The engine's restart answers a brain-failed event carries (ChainedEngine's
+// cause table): one it may restart, one it may not.
+const RESTART = { kind: "restart", category: "connection" };
+const STOPPED = { kind: "none", category: "account" };
+const failure = (s, at, restart, reason = "net=request") => callback("brain-failed", s.turn, at, { reason, restart });
+const record = (r, kind) => r.effects.filter(e => e.kind === kind);
 function ready(logic, settings = {}, engine = "chained") {
     let s = step(logic, logic.initial(), snapshot({ settings, engine })).state;
     return step(logic, s, event("indicator", 1, { shown: true })).state;
@@ -880,7 +886,7 @@ const table = [
                 : ["brain-done", "brain-failed", "play", "transcript"];
             for (const type of callbacks) {
                 const late = step(logic, r.state, callback(type, before.engine.kind === "duplex" ? before.speech : before.turn, 401,
-                    { text: "late", role: "assistant", stage: "partial", rev: 1, due: true, empty: true, capture: 1, reason: "failed", id: "old" }));
+                    { text: "late", role: "assistant", stage: "partial", rev: 1, due: true, empty: true, capture: 1, reason: "failed", id: "old", restart: RESTART }));
                 assert.equal(late.state.stale, r.state.stale + 1, type);
                 assert.equal(has(late, "capture-open") || has(late, "playback-start") || has(late, "brain-send"), false, type);
             }
@@ -897,7 +903,7 @@ const table = [
         const s = thinking(logic);
         const late = step(logic, s, callback("brain-done", s.turn, s.turn.deadline));
         assert.deepEqual([late.state.turn.kind, late.state.fault.reason, late.state.stale], ["cancelling", "thinking-timeout", s.stale + 1]);
-        const failed = step(logic, s, callback("brain-failed", s.turn, 40, { reason: "brain=failed" })).state;
+        const failed = step(logic, s, callback("brain-failed", s.turn, 40, { reason: "brain=failed", restart: STOPPED })).state;
         assert.equal(failed.fault.reason, "brain=failed");
         const recovered = step(logic, failed, event("talk-down", 400));
         assert.deepEqual([recovered.state.fault.kind, recovered.state.conversation.kind, recovered.state.capture.kind], ["none", "active", "opening"]);
@@ -1267,6 +1273,172 @@ const table = [
         }
         assert.equal(logic.sayRefusal(ready(logic)), null, "typed input has no microphone privacy gate");
     }],
+    // One automatic restart per user conversation (VGS-2408): a cause the
+    // engine may restart ends the conversation with no fault and reopens an
+    // open one; the restarted conversation's next failure shows the fault.
+    ["restart-once", logic => {
+        const s = thinking(logic, false);
+        assert.equal(s.input.kind, "conversation", "an open conversation listens between turns");
+        const r = step(logic, s, failure(s, 40, RESTART));
+        assert.deepEqual([r.state.fault, r.state.restart, r.state.conversation, r.state.input],
+            [{ kind: "none" }, { kind: "restarted", category: "connection" }, { kind: "active", purpose: "conversation" }, { kind: "conversation" }]);
+        assert.ok(r.state.gen > s.gen, "the restart is a new conversation");
+        assert.notEqual(logic.phaseOf(r.state), "error");
+        assert.equal(logic.captureWanted(r.state), true, "the open conversation listens again");
+        assert.deepEqual(record(r, "fault-record"), [{ kind: "fault-record", gen: s.gen, op: r.effects.find(e => e.kind === "fault-record").op,
+            reason: "net=request", category: "connection", action: "restarted" }]);
+        assert.equal(r.effects.find(e => e.kind === "brain-close").target, s.brain.op, "the failed brain closes");
+        // The restarted conversation's first user turn spends the allowance.
+        const said = step(logic, r.state, event("say", 50, { text: "again" }));
+        assert.equal(has(said, "brain-send"), true);
+        assert.deepEqual(said.state.restart, { kind: "spent" });
+        const second = step(logic, said.state, failure(said.state, 60, RESTART, "brain=stream-failed"));
+        assert.deepEqual([second.state.fault, second.state.conversation.kind, second.state.restart],
+            [{ kind: "error", reason: "brain=stream-failed", retry: 0 }, "ended", { kind: "spent" }]);
+        assert.equal(logic.phaseOf(second.state), "error", "the second failure shows today's fault");
+        assert.deepEqual(record(second, "fault-record").map(e => [e.reason, e.category, e.action]), [["brain=stream-failed", "connection", "stopped"]]);
+        assert.equal(has(second, "capture-open"), false);
+    }],
+    ["restart-allowance", logic => {
+        const spent = s => {
+            const r = step(logic, s, failure(s, 40, RESTART)).state;
+            const said = step(logic, r, event("say", 50, { text: "again" })).state;
+            return step(logic, said, failure(said, 60, RESTART)).state;
+        };
+        const failed = spent(thinking(logic, false));
+        assert.equal(failed.fault.kind, "error");
+        // Talk clears the fault and starts a conversation the user asked for.
+        const talk = step(logic, failed, event("talk-down", 400)).state;
+        assert.deepEqual([talk.fault.kind, talk.conversation.kind, talk.restart], ["none", "active", { kind: "none" }]);
+        const typed = step(logic, failed, event("say", 400, { text: "typed" })).state;
+        assert.deepEqual(typed.restart, { kind: "none" }, "a typed message from an ended conversation starts a user conversation");
+        const fresh = step(logic, spent(thinking(logic, false)), event("new-conversation", 400)).state;
+        assert.deepEqual(fresh.restart, { kind: "none" });
+        const settled = spent(thinking(logic, false));
+        const changed = step(logic, settled, snapshot({ at: 400, settings: { ...settled.settings, model: "changed" } })).state;
+        assert.deepEqual(changed.restart, { kind: "none" }, "a settings change starts fresh");
+        const device = step(logic, settled, snapshot({ at: 400, settings: { ...settled.settings, microphone: "changed" } })).state;
+        assert.deepEqual(device.restart, { kind: "spent" }, "a device change alone is no new user conversation");
+        // The renewed allowance restarts once more.
+        let again = step(logic, talk, callback("capture-closed", talk.capture, 401)).state;
+        again = step(logic, again, callback("capture-opened", again.capture, 402)).state;
+        again = step(logic, again, callback("final", again.turn, 403, { text: "next" })).state;
+        assert.equal(again.turn.kind, "thinking");
+        assert.deepEqual(step(logic, again, failure(again, 404, RESTART)).state.restart, { kind: "restarted", category: "connection" });
+    }],
+    ["restart-closed-inputs", logic => {
+        const typed = step(logic, ready(logic, { holdToTalk: true }), event("say", 20, { text: "typed" })).state;
+        for (const [label, s] of [["hold-to-talk", thinking(logic, true)], ["typed", typed]]) {
+            assert.notEqual(s.input.kind, "conversation", label + ": no open input");
+            const r = step(logic, s, failure(s, 40, RESTART));
+            assert.deepEqual([r.state.fault, r.state.restart, r.state.conversation.kind, r.state.input.kind],
+                [{ kind: "none" }, { kind: "restarted", category: "connection" }, "ended", "released"], label);
+            assert.equal(logic.captureWanted(r.state), false, label + ": nothing listens");
+            assert.equal(has(r, "capture-open") || has(r, "brain-send"), false, label);
+            assert.equal(record(r, "fault-record")[0].action, "restarted", label);
+            // The next conversation the user starts is the restarted one.
+            const pressed = step(logic, r.state, event("talk-down", 400)).state;
+            assert.deepEqual([pressed.conversation.kind, pressed.restart], ["active", { kind: "spent" }], label);
+            const said = step(logic, r.state, event("say", 400, { text: "again" }));
+            assert.deepEqual([said.state.turn.kind, said.state.restart], ["thinking", { kind: "spent" }], label);
+            // Its failure shows today's fault; the conversation after that
+            // allows a restart again.
+            const second = step(logic, said.state, failure(said.state, 410, RESTART, "brain=stream-failed"));
+            assert.deepEqual([second.state.fault, second.state.conversation.kind],
+                [{ kind: "error", reason: "brain=stream-failed", retry: 0 }, "ended"], label);
+            assert.deepEqual(record(second, "fault-record").map(e => e.action), ["stopped"], label);
+            assert.equal(has(second, "capture-open"), false, label);
+            const after = step(logic, second.state, event("talk-down", 500)).state;
+            assert.deepEqual([after.fault.kind, after.conversation.kind, after.restart], ["none", "active", { kind: "none" }], label);
+        }
+    }],
+    // Each way the user starts a conversation, a voice preview's promotion
+    // included, gives the restart region the same next value.
+    ["restart-user-start", logic => {
+        const previewed = s => {
+            let p = step(logic, s, event("preview", 390, { voice: "VoiceA" })).state;
+            p = step(logic, p, callback("play", p.turn, 391, { interruptible: true })).state;
+            return step(logic, p, callback("brain-done", p.turn, 392)).state;
+        };
+        const routes = [
+            ["talk", s => step(logic, s, event("talk-down", 400)).state],
+            ["typed", s => step(logic, s, event("say", 400, { text: "typed" })).state],
+            ["preview-talk", s => step(logic, previewed(s), event("talk-down", 400)).state],
+            ["preview-typed", s => step(logic, previewed(s), event("say", 400, { text: "typed" })).state]
+        ];
+        const cases = [
+            [{ kind: "restarted", category: "connection" }, { kind: "spent" }],
+            [{ kind: "spent" }, { kind: "none" }],
+            [{ kind: "none" }, { kind: "none" }]
+        ];
+        for (const [route, enter] of routes) for (const [before, after] of cases) {
+            const label = route + " from " + before.kind;
+            const s = { ...ready(logic), restart: before };
+            assert.equal(s.conversation.kind, "ended", label);
+            if (route.startsWith("preview")) assert.deepEqual([previewed(s).conversation.purpose, previewed(s).restart], ["preview", before], label);
+            const started = enter(s);
+            assert.deepEqual([started.conversation, started.restart], [{ kind: "active", purpose: "conversation" }, after], label);
+        }
+    }],
+    ["restart-none-keeps-fault", logic => {
+        for (const s of [thinking(logic, false), thinking(logic, true)]) {
+            const r = step(logic, s, failure(s, 40, STOPPED, "brain=unauthorized status=401"));
+            assert.deepEqual([r.state.fault, r.state.conversation.kind, r.state.restart],
+                [{ kind: "error", reason: "brain=unauthorized status=401", retry: 0 }, "ended", { kind: "none" }]);
+            assert.equal(logic.canEngage(r.state), false);
+            assert.equal(has(r, "capture-open"), false);
+            assert.deepEqual(record(r, "fault-record").map(e => [e.gen, e.reason, e.category, e.action]),
+                [[s.gen, "brain=unauthorized status=401", "account", "stopped"]]);
+        }
+    }],
+    ["restart-gates", logic => {
+        // A held approval ends with its conversation; the restart starts
+        // no tool and confirms no release.
+        const open = thinking(logic, false);
+        for (const purpose of ["action", "release"]) {
+            const held = step(logic, open, callback("approval", open.turn, 35, { id: "held", digest: "a".repeat(64), purpose,
+                physical: true, text: "Fixture", tool: "fixture", timeoutMs: 100, cancellable: true })).state;
+            assert.equal(held.approval.kind, "held");
+            const r = step(logic, held, failure(held, 40, RESTART));
+            assert.deepEqual([r.state.approval.kind, r.state.action.kind, r.state.restart.kind], ["none", "none", "restarted"], purpose);
+            assert.equal(r.effects.find(e => e.kind === "approval-ended").target, held.approval.op, purpose);
+            assert.equal(has(r, "tool-start") || has(r, "release-confirmed"), false, purpose);
+            const late = step(logic, r.state, callback("confirm", held.approval, 1000, { id: "held", digest: "a".repeat(64), source: "key" }));
+            assert.equal(has(late, "tool-start") || has(late, "release-confirmed"), false, purpose + ": the old hold confirms nothing");
+        }
+        // A locked screen cancels the turn: its failure is stale and opens nothing.
+        const locked = step(logic, open, snapshot({ at: 35, settings: open.settings, locked: true })).state;
+        assert.equal(locked.turn.kind, "cancelling");
+        const late = step(logic, locked, callback("brain-failed", open.turn, 40, { reason: "net=request", restart: RESTART }));
+        assert.deepEqual([late.state.conversation.kind, late.state.restart, late.state.stale], ["ended", { kind: "none" }, locked.stale + 1]);
+        assert.equal(has(late, "capture-open") || has(late, "fault-record"), false);
+        // A voice preview is no user conversation and never restarts.
+        const preview = step(logic, ready(logic), event("preview", 50, { voice: "VoiceA" })).state;
+        const previewed = step(logic, preview, failure(preview, 60, RESTART));
+        assert.deepEqual([previewed.state.fault.kind, previewed.state.restart], ["error", { kind: "none" }]);
+        assert.equal(record(previewed, "fault-record")[0].action, "stopped");
+    }],
+    // A gate that refuses Talk refuses the reopen, so the failure takes
+    // today's path: its fault, a stopped record and no restart.
+    ["restart-refused-reopen", logic => {
+        const open = thinking(logic, false);
+        assert.equal(open.capture.kind, "opening", "the open conversation listens while it thinks");
+        const refused = step(logic, open, callback("capture-failed", open.capture, 35, { reason: "capture=failed" })).state;
+        assert.deepEqual([refused.turn.kind, refused.fault.kind, logic.canEngage(refused)], ["thinking", "error", false]);
+        const r = step(logic, refused, failure(refused, 40, RESTART));
+        assert.deepEqual([r.state.fault, r.state.conversation.kind, r.state.restart],
+            [{ kind: "error", reason: "net=request", retry: 0 }, "ended", { kind: "none" }]);
+        assert.deepEqual(record(r, "fault-record").map(e => e.action), ["stopped"]);
+        assert.equal(has(r, "capture-open"), false);
+    }],
+    ["restart-refused-shape", logic => {
+        const s = thinking(logic, false);
+        for (const restart of [undefined, null, true, {}, { kind: "restart" }, { kind: "retry", category: "connection" },
+            { kind: "restart", category: "unknown" }, { kind: "none", category: "other", extra: 1 }])
+            assert.throws(() => logic.reduce(s, failure(s, 40, restart)), /session=brain-failed/, JSON.stringify(restart));
+        for (const category of ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"])
+            assert.equal(step(logic, s, failure(s, 40, { kind: "none", category })).state.fault.kind, "error", category);
+    }],
     ["invalid-inputs", logic => {
         for (const at of [-1, NaN, Infinity]) assert.throws(() => logic.reduce(logic.initial(), event("stop", at)), /session=clock/);
         const s = thinking(logic);
@@ -1312,7 +1484,11 @@ const shapeCases = [
     ["echo", listening, s => { s.duplex = { kind: "echo" }; }],
     ["hidden-shape", listening, s => { s.visibility = { kind: "hidden", saved: true }; }],
     ["bar-indicator-shape", listening, s => { s.barIndicator = { kind: "configured" }; }],
-    ["bar-indicator-generation", listening, s => { s.barIndicator = { kind: "present", gen: -1 }; }]
+    ["bar-indicator-generation", listening, s => { s.barIndicator = { kind: "present", gen: -1 }; }],
+    ["restart-missing", listening, s => { delete s.restart; }],
+    ["restart-category", listening, s => { s.restart = { kind: "restarted", category: "unknown" }; }],
+    ["restart-spent-category", listening, s => { s.restart = { kind: "spent", category: "connection" }; }],
+    ["restart-kind", listening, s => { s.restart = { kind: "used" }; }]
 ];
 for (const [name, seed, mutate] of shapeCases) table.push(["wire-" + name, logic => {
     const s = seed(logic);
@@ -1338,7 +1514,7 @@ function fixture(type, s, at) {
     const owner = s[owners[type]] || {};
     return event(type, at, { gen: owner.gen ?? s.gen, op: owner.op ?? 99999,
         locked: false, configured: true, engine: s.engine.kind, echoCancel: s.duplex.kind === "full", settings: s.settings, shown: true, bar: "gone",
-        text: "fixture", reason: type === "conversation-reset" ? "turn-limit" : "fixture", outcome: "completed", tool: "fixture", timeoutMs: 100, cancellable: true,
+        text: "fixture", reason: type === "conversation-reset" ? "turn-limit" : "fixture", restart: RESTART, outcome: "completed", tool: "fixture", timeoutMs: 100, cancellable: true,
         interruptible: true, id: s.approval.id || "fixture", digest: s.approval.digest || "a".repeat(64), physical: true,
         source: "key", role: "user", stage: "partial", rev: 1, ask: null, due: true,
         result: "ready", device: "fixture.mic", capture: s.input.source || s.capture.op || 1, empty: false, speech: true, voice: "VoiceA" });
@@ -1439,7 +1615,21 @@ try {
         ["phase-priority", 'if (s.approval.kind === "held") return "confirming";', 'if (false) return "confirming";', "phase-priority"],
         ["voice-mute-store", 'effect(s, effects, "voice-mute-store", { muted: s.voiceMute.kind === "on" });', 'void effects;', "voice-mute-and-cues"],
         ["cue-stop", 's.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };', 's.cue = { kind: "none" };', "voice-mute-and-cues"],
-        ["pending-reply", 'reply.kind === "waiting" && reply.gen === s.gen', 'false && reply.kind === "waiting" && reply.gen === s.gen', "feedback-reply-ownership"]
+        ["pending-reply", 'reply.kind === "waiting" && reply.gen === s.gen', 'false && reply.kind === "waiting" && reply.gen === s.gen', "feedback-reply-ownership"],
+        ["restart-every-time", 'e.restart.kind === "restart" && s.restart.kind === "none"', 'e.restart.kind === "restart"', "restart-once"],
+        ["restart-without-engine", 'e.restart.kind === "restart" && s.restart.kind === "none"', 's.restart.kind === "none"', "restart-none-keeps-fault"],
+        ["restart-no-reopen", 'if (open) start(s, effects, "conversation", e.at);', 'void open;', "restart-once"],
+        ["restart-reopens-closed", 'var open = s.input.kind === "conversation";', 'var open = true;', "restart-closed-inputs"],
+        ["restart-unspent", 'if (s.restart.kind === "restarted") s.restart = { kind: "spent" };', 'void s;', "restart-once"],
+        ["restart-unrenewed", 'userConversation(s);\n        if (s.settings.sounds === true)', 'if (s.settings.sounds === true)', "restart-allowance"],
+        ["restart-typed-unrenewed", 'userConversation(s);\n    }\n    spendRestart(s);', '}\n    spendRestart(s);', "restart-user-start"],
+        ["restart-preview-unrenewed", '\n    userConversation(s);\n', '\n', "restart-user-start"],
+        ["restart-renewed-after-restart", 's.restart.kind === "restarted" ? { kind: "spent" } : { kind: "none" }', '{ kind: "none" }', "restart-closed-inputs"],
+        ["restart-record-action", 'action: restarting ? "restarted" : "stopped"', 'action: "stopped"', "restart-once"],
+        ["restart-preview", ' && !previewConversation(s) && canEngage(s);', ' && canEngage(s);', "restart-gates"],
+        ["restart-ungated", ' && canEngage(s);\n    var open', ';\n    var open', "restart-refused-reopen"],
+        ["restart-any-category", '\n        && FAULT_CATEGORIES.indexOf(restart.category) !== -1;', ';', "restart-refused-shape"],
+        ["restart-region-category", 'if (region === "restart" && r.kind === "restarted" && FAULT_CATEGORIES.indexOf(r.category) === -1) return false;', '', "wire-restart-category"]
     ];
     for (const [name, needle, replacement, row, matches = 1] of mutants) {
         assert.equal(source.split(needle).length - 1, matches, name + " mutation match");

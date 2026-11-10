@@ -84,8 +84,10 @@ var FAULT_KINDS = [
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
 // What the bar and the bubble say of each kind: what went wrong, then what
-// to do. Only a changed device setting or a restart clears a fault, so a
-// device fault asks for a device and every other for a restart. A home
+// removes its cause. A Talk press clears a fault and starts a new
+// conversation, but not the cause, which can stop that conversation too:
+// a device fault asks for a device, and a kind with no other step below
+// asks for a restart, which starts Jarvis again. A home
 // folder fault opens the Home folder step, whose row links each file to
 // check: Jarvis reads the folder again at the next request. A refused model asks for another: a changed model clears the
 // fault, and its title ends with the model's name. A dictation fault, the
@@ -109,6 +111,21 @@ var FAULT_TEXT = {
     "keyRefused": { title: "The voice service refused your key", action: KEY_REFUSED_ACTION },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
+// What went wrong, in plain words, for each cause category the engine
+// names (Session.FAULT_CATEGORIES): the title of the restart line, the
+// restart notice and a fault row in the console's Problems list.
+var FAULT_WORDS = {
+    "connection": "Jarvis lost the connection to the AI model",
+    "reply-cut": "The reply from the AI model stopped too early",
+    "service": "The AI service had an error",
+    "app-stopped": "The AI app stopped",
+    "account": "The AI account refused the request",
+    "model": "Jarvis cannot use the AI model",
+    "setup": "The AI model is not set up correctly",
+    "other": "The AI model did not answer"
+};
+// The restart notice's one action, which opens the console's Problems list.
+var PROBLEMS_ACTION = "problems";
 // While Session retries a lost device, Jarvis acts by itself.
 var RETRYING = { title: "The microphone or speaker is gone", action: "Jarvis is trying it again." };
 var AUDIO_TEXT = { title: "Jarvis cannot read the microphones and speakers", action: RESTART };
@@ -290,6 +307,37 @@ function menuEntries(micMuted, voiceMuted, hidden, hideBlock) {
     ];
 }
 
+function faultWords(category) {
+    if (!hasOwn(FAULT_WORDS, category)) refuse("category", category);
+    return FAULT_WORDS[category];
+}
+
+// What the bar and the bubble say while RESTART, Session's restart region,
+// holds a restart that has not met a user turn yet: { title, action }, or
+// null. LISTENING is whether the conversation opened again.
+function restartLine(restart, listening) {
+    if (restart === null || typeof restart !== "object") refuse("restart", restart);
+    if (restart.kind === "none" || restart.kind === "spent") return null;
+    if (restart.kind !== "restarted") refuse("restart", restart);
+    return { title: faultWords(restart.category),
+        action: listening ? "VGS restarted Jarvis. Say your request again." : "VGS restarted Jarvis. Talk to Jarvis to ask again." };
+}
+
+// The one notice of a restart of CATEGORY (Service.qml): a restart starts a
+// new conversation, which keeps nothing said before it (D121). LISTENING is
+// whether the conversation opened again. Its action opens the Problems list.
+// It is transient: an action holds one of the shell's shared notify-send
+// runs until the server closes the notification, which the notifications
+// plugin does for a transient one when its card times out and keeps for
+// History otherwise (NotificationLogic.heldAfterLeave). The action works
+// while the card shows; the Problems list stays in the console after.
+function restartNotice(category, listening) {
+    return { title: "VGS restarted Jarvis", tone: "warning", icon: "vgs-letter-j", transient: true,
+        message: faultWords(category) + ". "
+            + (listening ? "This is a new conversation, so say your request again." : "Your next request starts a new conversation."),
+        actions: [{ id: PROBLEMS_ACTION, label: "Show problems" }] };
+}
+
 function conversationResetNotice(reason) {
     if (["requested", "turn-limit"].indexOf(reason) === -1) refuse("conversation-reset", reason);
     return { title: "New conversation", tone: "info", icon: "message-circle-plus",
@@ -322,6 +370,12 @@ function reportLook(state, value) { return look(state, undefined, value.hint ===
 function view(values, voice) {
     var out = stateView(values, voice);
     var detail = values.detail;
+    // A restart's line follows the state's look, which a problem or a
+    // closed gate replaces.
+    if (detail !== undefined && detail !== null && out.state !== "problem" && out.state !== "off") {
+        var restarted = restartLine(detail.state.restart, detail.state.conversation.kind !== "ended");
+        if (restarted !== null) out.tooltipDetails = out.tooltipDetails.concat([restarted.title + ". " + restarted.action]);
+    }
     if (detail !== undefined && detail !== null && detail.state.visibility.kind === "hidden") {
         out.icon = "vgs-letter-j-hidden";
         out.tooltip += " (hidden)";

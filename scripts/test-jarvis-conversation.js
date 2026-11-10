@@ -40,7 +40,10 @@ function contract(logic) {
 }
 contract(Conversation);
 
-const History = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/History.js"));
+// History reads its fault rows' plain words from WidgetView, whose links
+// come from the shell's PageReference.
+const historyModules = { "qs.Commons 1.0": { PageReference: load(path.resolve(__dirname, "../shell/Commons/PageReference.js")) } };
+const History = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/History.js"), historyModules);
 const morning = new Date(2026, 10, 1, 9).getTime(), nextDay = new Date(2026, 10, 2, 9).getTime();
 const transcript = [
     { ...entry(1, "user", "Voice question", "final"), at: morning, startedAt: morning, session: "first" },
@@ -107,7 +110,8 @@ fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "jc-"));
 const source = fs.readFileSync(file, "utf8");
 fs.copyFileSync(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js"), path.join(root, "JarvisProtocol.js"));
-fs.copyFileSync(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js"), path.join(root, "Session.js"));
+for (const name of ["Session.js", "WidgetView.js", "SetupGate.js"])
+    fs.copyFileSync(path.resolve(__dirname, "../shell/plugins/vgs.jarvis", name), path.join(root, name));
 let controls = 0;
 try {
     function control(name, needle, replacement) {
@@ -124,7 +128,7 @@ try {
     assert.equal(historySource.split(historyNeedle).length - 1, 1);
     const historyCopy = path.join(root, "History.js");
     fs.writeFileSync(historyCopy, historySource.replace(historyNeedle, 'title: "The action" + outcome'));
-    assert.throws(() => operationContract(load(historyCopy)), assert.AssertionError,
+    assert.throws(() => operationContract(load(historyCopy, historyModules)), assert.AssertionError,
         "control: dropping published operation labels must fail");
     controls++;
     control("replace-open", "if (last !== null && open(last) && sameSegment(last, next))", "if (false && last !== null && open(last) && sameSegment(last, next))");

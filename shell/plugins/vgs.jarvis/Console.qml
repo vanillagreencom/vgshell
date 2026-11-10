@@ -220,8 +220,25 @@ FocusScope {
         if (previous !== undefined) composerFocus.forceActiveFocus(previous.focusReason);
     }
 
+    // The History tab filtered to its Problems list, every record in it
+    // shown, its search field focused (focusTab).
+    function openProblems() {
+        problem = "";
+        editingAsk = null;
+        askProblem = "";
+        historySearch.text = "";
+        historyType = 3;
+        if (tab === 2) Qt.callLater(focusTab);
+        else tab = 2;
+    }
+
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
+        // The restart notice's action opens the Problems list (Service.qml).
+        if (payload.problems === true) {
+            openProblems();
+            return;
+        }
         if (payload.text !== undefined) {
             const result = acceptDraft(payload.text);
             if (!result.ok) throw new Error("draft=refused");

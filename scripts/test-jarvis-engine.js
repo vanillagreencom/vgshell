@@ -32,6 +32,8 @@ function gate() {
     return { wait, open };
 }
 
+// The shipped daemon's audit port, which Session's fault records reach.
+const AUDIT_PORT = /ports\.audit = (\{ fault\(e\) \{\n[\s\S]*?\n    \} \});\n/g;
 // One expression of the shipped daemon's wiring, evaluated in the rig's scope.
 function shipped(source, pattern, scope, what) {
     const found = [...source.matchAll(pattern)];
@@ -192,7 +194,15 @@ function rig(kit, server, options = {}) {
     const wiring = [...daemonSource.matchAll(/runner\.ports\.approval = (\{\n[\s\S]*?\n                    \});/g)];
     assert.equal(wiring.length, 1, "one shipped daemon approval wiring");
     ports.approval = vm.runInNewContext("(" + wiring[0][1] + ")", { engine, actionApproval });
-    ports.brain = engine.brain;
+    // Each turn fault as the engine hands it to Session, restart answer and all.
+    const failed = [];
+    ports.brain = { ...engine.brain, send: (e, done) => engine.brain.send(e, (type, values) => {
+        if (type === "brain-failed") failed.push(values);
+        done(type, values);
+    }) };
+    // Session's fault records reach the real audit store through the shipped daemon's port.
+    const auditLines = [];
+    ports.audit = shipped(daemonSource, AUDIT_PORT, vm.createContext({ audit, process: { stderr: { write: line => auditLines.push(line) } } }), "audit port");
     ports.capture.collect = engine.collect;
     ports.playback = engine.playback(audio.playbackPort);
     audio.captureSink = engine.captureSink;
@@ -212,7 +222,7 @@ function rig(kit, server, options = {}) {
         const file = path.join(state, "audit/2026-10-01.jsonl");
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
-    return { Session, runnerNow: runnerClock.now, runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
+    return { Session, runnerNow: runnerClock.now, runner, router, audio, audioClock, engine, audit, faults, failed, auditLines, executions, held, partials, captions, rows, configure,
         state, workspace, server, advanceRunner, writes, timers, tasks, dictation, bridge: daemon?.bridge,
         s: () => runner.state, observed,
         async close() {
@@ -366,6 +376,9 @@ function statusBrain(port, behavior) {
                 for (const frame of behavior.frames) response.write(Frames.encode(frame, "failover"));
                 response.end();
             });
+        } else if (behavior.kind === "reset") {
+            // The connection closes with no response: the client reads no answer.
+            request.socket.destroy();
         } else if (behavior.kind === "stream-failed") {
             response.writeHead(200, { "content-type": "text/event-stream" });
             response.write("data: ");
@@ -562,7 +575,8 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             assert.equal(user(body).at(-1).split("\n\n").at(-1), "Fixture request.");
             assert.equal(starts().length, 1, "conversation starts no new sidecar");
             if (ending === "brain-failed")
-                w.runner.dispatch({ type: "brain-failed", gen: w.s().gen, op: w.s().turn.op, reason: "brain=fixture-failed" });
+                w.runner.dispatch({ type: "brain-failed", gen: w.s().gen, op: w.s().turn.op, reason: "brain=fixture-failed",
+                    restart: { kind: "none", category: "other" } });
             else w.runner.dispatch({ type: "toggle" });
             await until(() => w.s().conversation.kind === "ended", "conversation ends");
             await until(() => w.s().brain.kind === "closed" && w.s().capture.kind === "closed", "conversation children acknowledge closure");
@@ -1072,6 +1086,179 @@ async function cases(kit, server, only = null, mutation = false) {
             assert.equal(server.requests.length, before, "backup does not receive a request after a routed action");
         } finally { await primary.close(); }
     }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }], ...options });
+
+    // A reply the provider filtered: a permanent cause, which no restart
+    // takes, so Session keeps today's fault whatever its restart rule.
+    const filtered = [Frames.delta({ role: "assistant", content: "" }), Frames.delta({}, "content_filter"), "[DONE]"];
+    const ended = w => w.s().conversation.kind === "ended" && w.s().brain.kind === "closed";
+
+    // A failed turn ends its conversation with its brain: the next
+    // conversation's brain holds none of the faulted one's history (D121),
+    // and the fault's row keeps only the cause's head word.
+    await run("failed-turn-fresh-brain", async w => {
+        const first = await say(w, utterance("Remember the blue door."));
+        server.replies.push(text(""));
+        await requested(w, first + 1, "the first request");
+        await until(() => w.s().turn.kind === "none", "the first turn completes");
+        const second = await say(w, utterance("Which door?"));
+        const gen = w.s().gen;
+        server.replies.push(filtered);
+        await requested(w, second + 1, "the second request");
+        await until(() => w.failed.length === 1, "the filtered reply fails the turn");
+        assert.deepEqual(w.failed[0], { reason: "brain=finish reason=content-filter", restart: { kind: "none", category: "other" } });
+        await until(() => ended(w), "the fault ends the conversation");
+        const next = await say(w, utterance("Hello again."));
+        server.replies.push(text(""));
+        assert.deepEqual(user(await requested(w, next + 1, "the next conversation's request")), ["Hello again."],
+            "the next conversation's brain starts fresh");
+        await until(() => w.s().turn.kind === "none", "the fresh brain answers");
+        assert.deepEqual(w.failed.length, 1);
+        assert.deepEqual(w.rows().filter(row => row.kind === "fault").map(({ time, ...row }) => row),
+            [{ kind: "fault", gen, cause: "brain=finish", category: "other", action: "stopped" }]);
+        assert.deepEqual(w.auditLines, []);
+    });
+
+    // A turn that used up the failover list leaves the last entry's brain
+    // nowhere: the next conversation starts at the plan's first entry.
+    await run("failover-exhausted-starts-primary", async w => {
+        const primary = statusBrain(8080, { kind: "status", status: 403 });
+        await primary.ready;
+        try {
+            const before = await say(w, utterance("Try both."));
+            server.replies.push(filtered);
+            await requested(w, before + 1, "the backup receives the refused request");
+            await until(() => w.failed.length === 1, "the backup's refusal fails the turn");
+            await until(() => ended(w), "the fault ends the conversation");
+            assert.equal(primary.requests.length, 1);
+            const next = await say(w, utterance("Again."));
+            server.replies.push(text(""));
+            await requested(w, next + 1, "the next conversation reaches the backup after the primary refuses");
+            assert.equal(primary.requests.length, 2, "the next conversation starts at the primary");
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
+
+    // The failover's resent turn is the new brain's first: the engine starts
+    // fresh at the history bound before the brain refuses the next turn.
+    await run("failover-resend-history-bound", async w => {
+        const primary = statusBrain(8080, { kind: "status", status: 403 });
+        await primary.ready;
+        try {
+            let before = await say(w, utterance("turn 1"));
+            server.replies.push(text(""));
+            assert.deepEqual(user(await requested(w, before + 1, "the backup receives the resent turn")), ["turn 1"]);
+            await until(() => w.s().turn.kind === "none", "the resent turn completes");
+            await playOut(w);
+            for (let index = 2; index <= 40; index++) {
+                before = await say(w, utterance("turn " + index));
+                server.replies.push(text(""));
+                const body = await requested(w, before + 1, "turn " + index);
+                assert.equal(user(body).length, index, "the backup's history holds every turn since the failover");
+                await until(() => w.s().turn.kind === "none", "turn " + index + " completes");
+            }
+            const epoch = w.s().history.epoch;
+            before = await say(w, utterance("one more"));
+            server.replies.push(text(""));
+            assert.deepEqual(user(await requested(w, before + 1, "the turn past the bound", () => w.failed.length !== 0)), ["one more"],
+                "only the attempted next turn reaches the fresh brain");
+            assert.deepEqual(w.failed, [], "the bound leaves no fault");
+            assert.deepEqual({ ...w.s().history }, { kind: "reset", epoch: epoch + 1, reason: "turn-limit" });
+        } finally { await primary.close(); }
+    }, { accounts: failoverAccounts(), fallbacks: [{ name: "backup", brain: "backup", model: "backup-model" }] });
+
+    // A driver that refuses to create its brain on a conversation's first
+    // turn fails that turn; nothing escapes the runner's dispatch.
+    await run("first-turn-create-refused", async w => {
+        assert.doesNotThrow(() => w.runner.dispatch({ type: "say", text: "Hello." }), "the refusal stays inside the turn");
+        await until(() => w.failed.length === 1, "the refusal fails the turn");
+        assert.deepEqual(w.failed[0], { reason: "brain=no-key", restart: { kind: "none", category: "setup" } });
+        assert.equal(w.s().fault.reason, "brain=no-key");
+    }, { accounts: { secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "openai", label: "keyless",
+        source: { kind: "local", origin: "https://api.openai.com" }, model: "fixture-model" } }) } });
+
+    // A transient fault restarts its conversation once, unless its turn did
+    // something a second request could repeat: a routed call, or content sent
+    // on the user's confirm. A program's exit restarts only a brain that
+    // answered before, and a refused connection only a remote brain's.
+    async function cutReply(w, words, beforeRequest = async () => {}, whileStreaming = async () => {}) {
+        const held = gate();
+        const before = await say(w, utterance(words));
+        server.replies.push(pause(held));
+        await beforeRequest(w);
+        await requested(w, before + 1, "the request streams");
+        await whileStreaming(w);
+        held.open();
+    }
+    async function confirmRelease(w) {
+        await w.observed(() => w.s().approval.kind === "held", "the clipboard text waits for consent");
+        const held = w.s().approval;
+        w.runner.dispatch({ type: "shown", gen: held.gen, op: held.op, id: held.id });
+        w.advanceRunner(1000);
+        w.runner.dispatch({ type: "confirm", gen: held.gen, id: held.id, digest: held.digest, source: "button" });
+    }
+    const remoteVoice = { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } };
+    for (const [name, turns, reason, restart, category, options] of [
+        ["restart-after-cut-reply", w => cutReply(w, "Focus the editor."), "brain=stream-truncated", "restart", "reply-cut"],
+        ["restart-none-after-tool", w => cutReply(w, "Focus the editor.", undefined, async () => {
+            const routed = w.router.route({ kind: "tool-call", id: "wire-call", tool: "windows.focus", arguments: { window: "0x1f" } },
+                { gen: w.s().gen, op: w.s().turn.op });
+            assert.notEqual(routed.kind, "refuse", "the tool route is accepted");
+            await until(() => w.executions.length === 1, "the call runs");
+        }), "brain=stream-truncated", "none", "reply-cut"],
+        // A reopened conversation asks again before its retained clipboard
+        // text leaves; the turn that sends it on the confirm routes no call.
+        ["restart-none-after-release", async w => {
+            const first = await say(w, utterance("Read my clipboard."));
+            server.replies.push(calls({ id: "retained_clipboard", name: "clipboard_read", arguments: {} }), text(""));
+            await confirmRelease(w);
+            await requested(w, first + 2, "the confirmed result reaches the brain");
+            await until(() => w.s().turn.kind === "none", "the first turn completes");
+            await playOut(w);
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.s().brain.kind === "closed", "ordinary close settles");
+            const executions = w.executions.length;
+            await cutReply(w, "What did the clipboard say?", confirmRelease);
+            assert.equal(w.executions.length, executions, "the failed turn routes no call");
+        }, "brain=stream-truncated", "none", "reply-cut", remoteVoice],
+        // The brain's second turn ends as a harness program's exit does.
+        ["restart-after-answered-exit", async w => {
+            const Wire = require(path.join(kit.folder, "backend/OpenAIChat.js"));
+            const create = Wire.create;
+            Wire.create = options => {
+                const brain = create(options);
+                let sends = 0;
+                return { ...brain, send(request, grants) {
+                    const reply = brain.send(request, grants);
+                    if (++sends === 1) return reply;
+                    return { release: reply.release, events: (async function* () {
+                        await reply.events.return();
+                        throw new Error("jarvis: brain=harness-exit code=1");
+                    })() };
+                } };
+            };
+            try {
+                const first = await say(w, utterance("Hello."));
+                server.replies.push(text("Hello there."));
+                await requested(w, first + 1, "the first turn's request");
+                await until(() => w.s().turn.kind === "none", "the brain answers the first turn");
+                await playOut(w);
+                await say(w, utterance("Again."));
+                await until(() => w.failed.length === 1, "the program's exit fails the second turn");
+            } finally { Wire.create = create; }
+        }, "brain=harness-exit code=1", "restart", "app-stopped"],
+        ["restart-none-loopback-request", async w => {
+            const primary = statusBrain(8080, { kind: "reset" });
+            await primary.ready;
+            try {
+                await say(w, utterance("Focus the editor."));
+                await until(() => w.failed.length === 1, "the closed connection fails the turn");
+                assert.equal(primary.requests.length, 1, "the loopback brain received the request");
+            } finally { await primary.close(); }
+        }, "net=request", "none", "connection", { accounts: failoverAccounts(), fallbacks: [] }]
+    ]) await run(name, async w => {
+        await turns(w);
+        await until(() => w.failed.length === 1, "the fault fails the turn");
+        assert.deepEqual(w.failed[0], { reason, restart: { kind: restart, category } });
+    }, options);
 
     await run("feedback-start", async w => {
         w.runner.dispatch({ type: "talk-down" });
@@ -1948,7 +2135,7 @@ async function cases(kit, server, only = null, mutation = false) {
         const second = await say(w, utterance("And tomorrow?"));
         await requested(w, second + 1, "second request");
         server.replies.push(text("Bye, now. Go. More").slice(0, 2));
-        await until(() => w.s().fault.kind === "error", "the cut reply fails");
+        await until(() => w.failed.length === 1, "the cut reply fails");
         // The acknowledgement opens each reply's caption, so it shares the
         // reply's segments.
         assert.deepEqual(assistantCaptions(w).map(row => row.slice(2)), [
@@ -3311,6 +3498,104 @@ function brainPlan(Engine) {
 // The trace's own rules, at the engine's creation: only the test-run marker
 // with an absolute path makes the file, the run's own and never a link's
 // target.
+// The engine's answer to every class of turn fault: its category, and
+// whether Session restarts the conversation. Each row is a cause an adapter
+// produces; facts are the turn's (restartOf).
+function restartTable(Engine) {
+    const clean = { acted: false, answered: true, remote: true };
+    const rows = [
+        // Transient: restarts after a clean turn, under its own further condition.
+        ["brain=stream-failed", clean, "restart", "reply-cut"],
+        ["brain=stream-truncated", { acted: false, answered: false, remote: false }, "restart", "reply-cut"],
+        ["brain=stream-truncated", { ...clean, acted: true }, "none", "reply-cut"],
+        ["net=request", clean, "restart", "connection"],
+        ["net=request", { ...clean, remote: false }, "none", "connection"],
+        ["brain=provider-error status=500", clean, "restart", "service"],
+        ["brain=unavailable status=503", clean, "restart", "service"],
+        ["brain=timeout status=504", clean, "restart", "service"],
+        ["brain=overloaded status=529", clean, "restart", "service"],
+        ["brain=http status=502", clean, "restart", "service"],
+        ["brain=harness-api-error status=503", clean, "restart", "service"],
+        ["brain=provider-error status=500", { ...clean, acted: true }, "none", "service"],
+        ["brain=harness-ended", { acted: false, answered: false, remote: false }, "restart", "app-stopped"],
+        ["brain=harness-exit code=1", clean, "restart", "app-stopped"],
+        ["brain=harness-exit signal=SIGKILL", { ...clean, answered: false }, "none", "app-stopped"],
+        ["brain=codex-exited code=1 signal=null", clean, "restart", "app-stopped"],
+        ["brain=copilot-exited code=0 signal=null", clean, "restart", "app-stopped"],
+        ["brain=pi-exited code=0 signal=null", { ...clean, answered: false }, "none", "app-stopped"],
+        // Account, the 429 quota rows among them, and refused models.
+        ["brain=rate-limited status=429", clean, "none", "account"],
+        ["brain=harness-api-error status=429", clean, "none", "account"],
+        ["brain=unauthorized status=401", clean, "none", "account"],
+        ["brain=billing status=402", clean, "none", "account"],
+        ["brain=forbidden status=403", clean, "none", "account"],
+        ["brain=harness-api-error status=401", clean, "none", "account"],
+        ["brain=copilot-signed-out", clean, "none", "account"],
+        ["brain=harness-model-refused model=fable", clean, "none", "model"],
+        ["brain=not-found status=404", clean, "none", "model"],
+        // Setup: a program that never started, and keys or servers set up wrong.
+        ["brain=harness-exit code=127", clean, "none", "setup"],
+        ["brain=harness-exit cause=ENOENT", clean, "none", "setup"],
+        ["brain=codex-exited code=127 signal=null", clean, "none", "setup"],
+        ["brain=copilot-exited code=127 signal=null", clean, "none", "setup"],
+        ["brain=pi-exited code=127 signal=null", clean, "none", "setup"],
+        ["brain=codex-exited code=1 signal=null cause=home-missing", clean, "none", "setup"],
+        ["brain=codex-exited code=1 signal=null cause=not-started", clean, "none", "setup"],
+        ["brain=codex-start cause=EACCES", clean, "none", "setup"],
+        ["brain=content-type", clean, "none", "setup"],
+        ["brain=no-key", clean, "none", "setup"],
+        ["net=redirect", clean, "none", "setup"],
+        ["net=key-origin", clean, "none", "setup"],
+        ["jarvis-keys: secret-tool=locked", clean, "none", "setup"],
+        // Unknown: the cause lost its provider's class or status.
+        ["brain=stream-error", clean, "none", "other"],
+        ["brain=harness-api-error status=0", clean, "none", "other"],
+        ["brain=http status=408", clean, "none", "other"],
+        ["brain=codex-turn-failed", clean, "none", "other"],
+        ["brain=pi-stop-error", clean, "none", "other"],
+        ["brain=copilot-stop-max_tokens", clean, "none", "other"],
+        ["brain=harness-error-during-execution", clean, "none", "other"],
+        ["brain=copilot-closed", clean, "none", "other"],
+        // Permanent: judges, invariants, refusals and every unlisted cause.
+        ["brain=context-limit", clean, "none", "other"],
+        ["brain=refusal", clean, "none", "other"],
+        ["brain=copilot-stop-refusal", clean, "none", "other"],
+        ["brain=finish reason=content-filter", clean, "none", "other"],
+        ["brain=request-rejected status=400", clean, "none", "other"],
+        ["net=recipient", clean, "none", "other"],
+        ["engine=unexpected", clean, "none", "other"],
+        ["home=absent", clean, "none", "other"]];
+    for (const [reason, facts, kind, category] of rows)
+        assert.deepEqual(Engine.restartOf(reason, facts), { kind, category }, reason + " " + JSON.stringify(facts));
+}
+// The failover answers the cause table keeps (failoverCause before the table).
+function failoverTable(Engine) {
+    for (const cause of ["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
+        "brain=harness-api-error status=429", "brain=harness-model-refused model=fable",
+        "brain=harness-exit code=1", "brain=codex-exited code=1 signal=null", "brain=copilot-signed-out",
+        "brain=harness-exit code=127", "brain=harness-exit cause=ENOENT", "brain=pi-exited code=127 signal=null", "brain=harness-ended",
+        "brain=rate-limited status=429", "brain=overloaded status=529"])
+        assert.equal(Engine.failoverCause(cause), true, cause);
+    for (const cause of ["brain=refusal", "brain=finish reason=content-filter",
+        "brain=context-limit", "brain=harness-tool name=bad", "brain=not-found status=404", "brain=http status=408",
+        "brain=harness-api-error status=0", "brain=content-type", "brain=codex-start cause=EACCES", "brain=pi-stop-error",
+        "brain=copilot-closed", "brain=unauthorized status=500", "net=redirect"])
+        assert.equal(Engine.failoverCause(cause), false, cause);
+}
+// The shipped daemon's audit port logs a refused fault row by its key and
+// never throws into Session's dispatch, with or without its writer.
+function auditPortRefusal(kit) {
+    const lines = [];
+    const scope = vm.createContext({ audit: { fault: () => ({ kind: "refuse", reason: "audit-write", cause: "store-full" }) },
+        process: { stderr: { write: line => lines.push(line) } } });
+    const port = shipped(fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8"), AUDIT_PORT, scope, "audit port");
+    const record = { kind: "fault-record", gen: 1, op: 1, reason: "brain=harness-ended", category: "app-stopped", action: "restarted" };
+    assert.doesNotThrow(() => port.fault(record));
+    scope.audit = null;
+    assert.doesNotThrow(() => port.fault(record));
+    assert.deepEqual(lines, ["jarvis: audit=write kind=fault cause=store-full\n", "jarvis: audit=write kind=fault cause=writer-absent\n"]);
+}
+
 function tracePaths(Engine) {
     const folder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "trace-paths-"));
     const open = trace => Engine.create({ captionLimit: 1, trace });
@@ -3634,14 +3919,20 @@ async function groupSelection(root, server) {
         controls++;
     }
     tracePaths(Fixture.copy(root).Engine);
-    const classifier = Fixture.copy(root).Engine.failoverCause;
-    for (const cause of ["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
-        "brain=harness-api-error status=429", "brain=harness-model-refused model=fable",
-        "brain=harness-exit code=1", "brain=codex-exited code=1 signal=null", "brain=copilot-signed-out"])
-        assert.equal(classifier(cause), true, cause);
-    for (const cause of ["brain=refusal", "brain=finish reason=content-filter",
-        "brain=context-limit", "brain=harness-tool name=bad"])
-        assert.equal(classifier(cause), false, cause);
+    failoverTable(Fixture.copy(root).Engine);
+    restartTable(Fixture.copy(root).Engine);
+    for (const [name, needle, replacement] of [
+        ["restart-acted", "judged.class === \"transient\" && !facts.acted && ", "judged.class === \"transient\" && "],
+        ["restart-needs", "(judged.needs === null || facts[judged.needs] === true)", "true"],
+        ["restart-quota", "[\"rate-limited 429\", ACCOUNT]", "[\"rate-limited 429\", SERVICE]"],
+        ["restart-stream-error", "[/^brain=stream-error$/, () => cause(\"unknown\", \"other\", true)]", "[/^brain=stream-error$/, () => cause(\"transient\", \"reply-cut\", true)]"],
+        ["restart-setup-exit", "programEnd(/ code=127 | cause=(?:home-missing|not-started)$/)", "programEnd(/ cause=(?:home-missing|not-started)$/)"]]) {
+        const { Engine } = Fixture.copy(root, [[needle, replacement]]);
+        assert.throws(() => restartTable(Engine), assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+    auditPortRefusal(Fixture.copy(root));
     for (const [name, needle, replacement] of [
         ["trace-unmarked", 'if (trace.marker !== "1" || trace.file === undefined) return null;', "if (trace.file === undefined) return null;"],
         ["trace-relative", 'if (typeof trace.file !== "string" || !path.isAbsolute(trace.file)) fail("trace-path");', ""],
@@ -3661,7 +3952,7 @@ async function groupSelection(root, server) {
     }
     for (const [name, needle, replacement] of [
         ["home-text-stale", "try { return c.plan.brain.guidance.withHome(folder); }", "try { return c.plan.brain.guidance; }"],
-        ["home-text-cut", '            done("brain-failed", { reason: keyed(error) });\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
+        ["home-text-cut", '            const reason = keyed(error);\n            faulted(c, done, reason, unrestarted(reason));\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
     ]) {
         await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,
             name + " must turn home-text red");
@@ -3776,8 +4067,8 @@ async function groupPlants(root, server) {
         ["working-earcon-unmarked", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
             'c.turn.speech.readable.push({ pcm: earcon("working") });', "voice-mute-spoken-only"],
         ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
-        ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
-            'case "done":\n                    void turn;', "feedback-suppressed-tool"],
+        ["feedback-tool-suppression", 'answered.add(answering);\n                    quiet(turn);',
+            'answered.add(answering);\n                    void turn;', "feedback-suppressed-tool"],
         ["acknowledgement", 'line(c, turn, Speakable.acknowledgement(e.text), ["speech"]);',
             '', "spoken-lines"],
         ["step-drain", "for (const step of stream.steps()) {",
@@ -3909,6 +4200,19 @@ async function groupPlants(root, server) {
             'settle({ kind: "text", text: ok(result) ? result.data.text : "" });', "dictation-stop-refused"],
         ["dictation-unbound-records", "                if (utterance.answers) utterance.begin();", "                utterance.begin();", "dictation-toggle-second-turn"],
         ["dictation-refusal-unheard", "if (collecting(c, utterance.collection)) utterance.collection.failed(result.cause);\n            else if (running", "if (running", "dictation-start-refused"],
+        ...["failed-turn-fresh-brain", "failover-exhausted-starts-primary"].map(scenario => ["failed-turn-keeps-brain-" + scenario,
+            '        freshBrain(c);\n        done("brain-failed", { reason, restart });', '        done("brain-failed", { reason, restart });', scenario]),
+        ["failover-resend-uncounted", "                        c.turns++;\n                        void respond(", "                        void respond(", "failover-resend-history-bound"],
+        ["first-turn-create-escapes", "                let opened;\n                try { opened = openBrain(c, e.owner, done); }\n                catch (error) {\n"
+            + "                    const reason = keyed(error);\n                    faulted(c, done, reason, unrestarted(reason));\n                    return;\n                }\n"
+            + "                if (!opened) return;", "                if (!openBrain(c, e.owner, done)) return;", "first-turn-create-refused"],
+        ["restart-after-routed-call", "|| turn.routed === true ", "", "restart-none-after-tool"],
+        ["restart-after-confirmed-release", "c.turn.op === pending.identity.op) c.turn.released = true;", "c.turn.op === pending.identity.op) void c.turn;",
+            "restart-none-after-release"],
+        ["restart-unanswered-brain", "                    answered.add(answering);\n", "", "restart-after-answered-exit"],
+        ["restart-loopback-remote", 'remote: recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback',
+            'remote: recipient.kind === "network" && Net.endpoint(recipient.origin).loopback', "restart-none-loopback-request"],
+        ["restart-answer-dropped", 'done("brain-failed", { reason, restart });', 'done("brain-failed", { reason, restart: unrestarted(reason) });', "restart-after-cut-reply"],
     ];
     for (const [name, needle, replacement, scenario] of plants) {
         // The copy asserts its match outside the measured run.
@@ -3931,6 +4235,19 @@ async function groupPlants(root, server) {
     await assert.rejects(() => cases(bridgeKit, server, "fleet-request-bridged", true), error => {
         assert.ok(error instanceof assert.AssertionError, "dropping the daemon's bridge answer port must fail the bridged fixed line: " + error);
         console.log("control=fleet-line-bridged-wiring detected by=" + JSON.stringify(error.message.split("\n").slice(0, 6).join(" ")));
+        return true;
+    });
+    controls++;
+    // Without the daemon's audit port a fault keeps no row.
+    const auditKit = Fixture.copy(root);
+    const auditFile = path.join(auditKit.folder, "backend/jarvisd.js");
+    const auditSource = fs.readFileSync(auditFile, "utf8");
+    const faultNeedle = ": audit.fault(e);";
+    assert.equal(auditSource.split(faultNeedle).length, 2, "one audit port control match");
+    fs.writeFileSync(auditFile, auditSource.replace(faultNeedle, ': { kind: "recorded" };'));
+    await assert.rejects(() => cases(auditKit, server, "failed-turn-fresh-brain", true), error => {
+        assert.ok(error instanceof assert.AssertionError, "a daemon port that drops the fault must fail its row: " + error);
+        console.log("control=fault-row-unwired detected by=" + JSON.stringify(error.message.split("\n")[0]));
         return true;
     });
     controls++;

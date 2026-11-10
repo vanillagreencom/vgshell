@@ -23,6 +23,10 @@ var CONVERSATION_QUIET_MS = 30 * 60 * 1000;
 // The boundary follows HyprlandLayer's hold/tap repeat-delay convention.
 var TAP_MS = 600;
 var TRANSCRIPT_CHARS = 4096;
+// The engine's cause categories (ChainedEngine's cause table), which a
+// brain-failed event names and the restart region keeps for the shell's
+// plain words (WidgetView.FAULT_WORDS).
+var FAULT_CATEGORIES = ["connection", "reply-cut", "service", "app-stopped", "account", "model", "setup", "other"];
 var EVENTS = [
     "snapshot", "indicator", "hide", "show", "hidden", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
@@ -43,7 +47,8 @@ function initial() {
         input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
         indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
         duplex: { kind: "half" }, toggleAt: null,
-        engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
+        engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
+        restart: { kind: "none" }
     };
 }
 
@@ -157,7 +162,7 @@ function previewConversation(s) {
 
 function end(s, effects, at, reason, stopTool) {
     var soundedClose = s.conversation.kind !== "ended" && !previewConversation(s) && s.settings.sounds === true && s.fault.kind === "none"
-        && ["lease", "gate", "settings", "voice-unavailable"].indexOf(reason) === -1;
+        && ["lease", "gate", "settings", "voice-unavailable", "brain-failed"].indexOf(reason) === -1;
     s.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };
     s.quiet = { kind: "none" };
     s.sound = { kind: "none" };
@@ -175,6 +180,33 @@ function end(s, effects, at, reason, stopTool) {
     closeSpeech(s, effects, reason === "lease" ? "abort" : "graceful");
     dropApproval(s, effects, reason, at);
     if (stopTool) requestToolCancel(s, effects);
+}
+
+// The engine's answer whether a failed turn's cause may restart: { kind:
+// "restart" | "none", category }.
+function restartAnswer(restart) {
+    return exact(restart, ["kind", "category"]) && ["restart", "none"].indexOf(restart.kind) !== -1
+        && FAULT_CATEGORIES.indexOf(restart.category) !== -1;
+}
+
+// A failed turn ends its conversation. A cause the engine may restart, in a
+// user conversation that has not used its restart and that Talk could start
+// again (canEngage), ends it with no fault instead; an open conversation, one
+// that listens between turns, opens again through start(). Every failure
+// leaves one record of its cause and what Session did.
+function failBrain(s, effects, e) {
+    var restarting = e.restart.kind === "restart" && s.restart.kind === "none" && !previewConversation(s) && canEngage(s);
+    var open = s.input.kind === "conversation";
+    effect(s, effects, "fault-record", { reason: e.reason, category: e.restart.category,
+        action: restarting ? "restarted" : "stopped" });
+    if (!restarting) {
+        s.fault = { kind: "error", reason: e.reason, retry: 0 };
+        end(s, effects, e.at, "brain-failed", false);
+        return;
+    }
+    end(s, effects, e.at, "brain-failed", false);
+    if (open) start(s, effects, "conversation", e.at);
+    s.restart = { kind: "restarted", category: e.restart.category };
 }
 
 function canEngage(s) {
@@ -266,13 +298,30 @@ function userTranscript(s, effects, text, rev) {
     if (shown !== "") effect(s, effects, "transcript", { role: "user", text: shown, stage: "final", rev: rev });
 }
 
+// The one automatic restart a user conversation allows. The restarted
+// conversation's first user turn spends what is left of it.
+function spendRestart(s) {
+    if (s.restart.kind === "restarted") s.restart = { kind: "spent" };
+}
+
+// A conversation the user starts allows the restart again, unless the
+// restart region still holds a restart no user turn has met: then the new
+// conversation continues the restarted one and starts spent. That covers the
+// conversation after a restart that left no input open, and the one after a
+// reopened conversation that ended before a user turn.
+function userConversation(s) {
+    s.restart = s.restart.kind === "restarted" ? { kind: "spent" } : { kind: "none" };
+}
+
 function commitUserText(s, effects, text, at, rev) {
     promotePreview(s, effects, at);
     if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
     if (s.conversation.kind === "ended") {
         s.gen += 1;
         s.conversation = { kind: "active", purpose: "conversation" };
+        userConversation(s);
     }
+    spendRestart(s);
     if (s.input.kind === "held" || s.input.kind === "closing-tap") s.input = { kind: "released" };
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
@@ -297,6 +346,7 @@ function promotePreview(s, effects, at) {
     // conversation takes a fresh speech owner, within this generation.
     closeSpeech(s, effects, "abort");
     s.conversation = { kind: "active", purpose: "conversation" };
+    userConversation(s);
     if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
 }
 
@@ -373,6 +423,7 @@ function start(s, effects, mode, at) {
     if (s.conversation.kind === "ended") {
         s.gen++;
         s.conversation = { kind: "active", purpose: "conversation" };
+        userConversation(s);
         if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
     s.input = mode === "held" ? { kind: "held", since: at, heard: false } : { kind: mode };
@@ -532,7 +583,10 @@ function reduce(state, e) {
             end(s, effects, e.at, "settings", false);
             if (s.gen === before) s.gen++;
             s.fault = { kind: "none" };
-            if (settingsChanged) resetHistory(s, null);
+            if (settingsChanged) {
+                resetHistory(s, null);
+                s.restart = { kind: "none" };
+            }
         }
         s.settings = JSON.parse(JSON.stringify(e.settings));
         if (s.settings.sounds !== true) s.cue = { kind: "none" };
@@ -641,6 +695,7 @@ function reduce(state, e) {
         effect(s, effects, "brain-reset", {});
         s.cue = { kind: "none" };
         s.fault = { kind: "none" };
+        s.restart = { kind: "none" };
         s.input = { kind: "released" };
         if (open) {
             s.conversation = { kind: "active", purpose: "conversation" };
@@ -747,6 +802,7 @@ function reduce(state, e) {
             // A new request drops the words the voice held for the old one.
             if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
             if (s.conversation.kind === "interrupted") s.conversation = { kind: "active", purpose: s.conversation.purpose };
+            spendRestart(s);
             think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
@@ -802,6 +858,7 @@ function reduce(state, e) {
         break;
     case "brain-done":
     case "brain-failed":
+        if (e.type === "brain-failed" && !restartAnswer(e.restart)) throw new Error("jarvis: session=brain-failed");
         if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
         s.turn = { kind: "none" };
         if (e.type === "brain-done") activity(s, e.at);
@@ -810,10 +867,7 @@ function reduce(state, e) {
         if (e.type === "brain-done" && (s.playback.kind === "flushing" || s.playback.kind === "feedback")
                 && s.playback.reply.kind === "waiting")
             s.playback.reply.deadline = e.at + PLAYBACK_TIMEOUT_MS;
-        if (e.type === "brain-failed") {
-            s.fault = { kind: "error", reason: e.reason, retry: 0 };
-            end(s, effects, e.at, "brain-failed", false);
-        }
+        if (e.type === "brain-failed") failBrain(s, effects, e);
         break;
     case "cancelled":
         if (!live(s, e, "turn", ["cancelling"])) { stale(s); break; }
@@ -1058,6 +1112,7 @@ var REGIONS = {
     indicator: { gone: "", shown: "" }, barIndicator: { gone: "", present: "gen", listening: "gen" },
     visibility: { shown: "", showing: "", hidden: "" }, duplex: { half: "", full: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
+    restart: { none: "", restarted: "category", spent: "" },
     check: { unavailable: "", kept: "result device", ready: "", again: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result device", failed: "reason device" }
 };
 
@@ -1123,6 +1178,7 @@ function validate(s) {
         if (region === "check" && (r.kind === "done" || r.kind === "kept") && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
         if (region === "playback" && r.kind === "feedback" && ["start", "stop", "working", "line"].indexOf(r.cue) === -1) return false;
         if (region === "cue" && r.kind === "pending" && ["start", "stop"].indexOf(r.cue) === -1) return false;
+        if (region === "restart" && r.kind === "restarted" && FAULT_CATEGORIES.indexOf(r.category) === -1) return false;
         if (region === "gate" && r.kind === "down"
                 && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;
     }

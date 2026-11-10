@@ -120,24 +120,76 @@ function keyed(error) {
         ? message.replace(/^jarvis: /, "").slice(0, 180) : "engine=unexpected";
 }
 
-const WIRE_FAILOVER = new Map([
-    ["unauthorized", 401], ["billing", 402], ["forbidden", 403], ["rate-limited", 429],
-    ["provider-error", 500], ["unavailable", 503], ["timeout", 504], ["overloaded", 529]
+// The one table of a turn fault's keyed cause, first match winning. A cause
+// has a class: transient, account (a 429 too, since a spent quota answers
+// it), refused-model, setup, unknown (the cause lost the provider's class or
+// status) or permanent, which every unlisted cause is. category is the word
+// Session and the shell name it by. failover says a later plan entry takes
+// the turn over; ended, that the brain's program ended. needs is what a
+// transient cause's restart further asks (restartOf). scripts/test-jarvis-engine.js
+// holds a row for each class.
+function cause(kind, category, failover, more = {}) {
+    return Object.freeze({ class: kind, category, failover, ended: false, needs: null, ...more });
+}
+const PERMANENT = cause("permanent", "other", false);
+const UNKNOWN = cause("unknown", "other", false);
+const SETUP = cause("setup", "setup", false);
+const ACCOUNT = cause("account", "account", true);
+const SERVICE = cause("transient", "service", true);
+const WIRE_CAUSES = new Map([
+    ["unauthorized 401", ACCOUNT], ["billing 402", ACCOUNT], ["forbidden 403", ACCOUNT], ["rate-limited 429", ACCOUNT],
+    ["provider-error 500", SERVICE], ["unavailable 503", SERVICE], ["timeout 504", SERVICE], ["overloaded 529", SERVICE],
+    ["not-found 404", cause("refused-model", "model", false)]
 ]);
-function failoverCause(reason) {
-    if (["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request"].includes(reason)) return true;
-    const api = /^brain=harness-api-error status=([0-9]+)$/.exec(reason);
-    if (api !== null) return [401, 402, 403, 429].includes(Number(api[1])) || Number(api[1]) >= 500;
-    const wire = /^brain=([a-z-]+) status=([0-9]+)$/.exec(reason);
-    if (wire !== null && wire[1] === "http") return Number(wire[2]) >= 500;
-    if (wire !== null) return WIRE_FAILOVER.get(wire[1]) === Number(wire[2]);
-    if (/^brain=harness-model-refused(?: |$)/.test(reason)) return true;
-    if (/^brain=(harness-exit|harness-ended|copilot-signed-out|(?:codex|copilot|pi)-exited)(?: |$)/.test(reason)) return true;
-    return false;
+// A program that ended: its start's own failure, setpriv finding no program
+// (127) or Codex's missing home are setup; any other end restarts only a
+// brain that answered before, since one that never answered may not start.
+function programEnd(setup) {
+    return match => setup.test(match.input) ? cause("setup", "setup", true, { ended: true })
+        : cause("transient", "app-stopped", true, { ended: true, needs: "answered" });
 }
-function endedCause(reason) {
-    return /^brain=(harness-exit|harness-ended|(?:codex|copilot|pi)-exited)(?: |$)/.test(reason);
+const CAUSES = Object.freeze([
+    [/^brain=stream-(?:failed|truncated)$/, () => cause("transient", "reply-cut", true)],
+    // The provider's error event names no class: it is read unread.
+    [/^brain=stream-error$/, () => cause("unknown", "other", true)],
+    // A local server that is down refuses its connection too: setup to the user.
+    [/^net=request$/, () => cause("transient", "connection", true, { needs: "remote" })],
+    [/^brain=harness-api-error status=([0-9]+)$/, ([, status]) => Number(status) >= 500 ? SERVICE
+        : [401, 402, 403, 429].includes(Number(status)) ? ACCOUNT : UNKNOWN],
+    [/^brain=http status=([0-9]+)$/, ([, status]) => Number(status) >= 500 ? SERVICE : UNKNOWN],
+    [/^brain=([a-z-]+) status=([0-9]+)$/, ([, name, status]) => WIRE_CAUSES.get(name + " " + status) ?? PERMANENT],
+    [/^brain=harness-model-refused(?: |$)/, () => cause("refused-model", "model", true)],
+    [/^brain=copilot-signed-out(?: |$)/, () => ACCOUNT],
+    [/^brain=harness-ended(?: |$)/, () => cause("transient", "app-stopped", true, { ended: true })],
+    [/^brain=harness-exit(?: |$)/, programEnd(/ (?:code=127|cause=\S+)$/)],
+    [/^brain=(?:codex|copilot|pi)-exited(?: |$)/, programEnd(/ code=127 | cause=(?:home-missing|not-started)$/)],
+    [/^brain=(?:codex|copilot|pi)-start(?: |$)/, () => SETUP],
+    [/^(?:brain=(?:content-type|no-key|model-required)|net=(?:redirect|key-origin|key-plaintext))$/, () => SETUP],
+    [/^jarvis-keys: /, () => SETUP],
+    [/^brain=(?:codex-turn-failed|pi-stop-error|harness-error-during-execution|(?:codex|copilot|pi)-closed)$/, () => UNKNOWN],
+    [/^brain=copilot-stop-(?!refusal$)/, () => UNKNOWN]
+]);
+function causeOf(reason) {
+    for (const [pattern, of] of CAUSES) {
+        const match = pattern.exec(reason);
+        if (match !== null) return of(match);
+    }
+    return PERMANENT;
 }
+function failoverCause(reason) { return causeOf(reason).failover; }
+function endedCause(reason) { return causeOf(reason).ended; }
+// Session's answer to a turn fault: restart the conversation once, which
+// Session counts per user conversation, or stop it. Only a transient cause
+// restarts, and only after a turn that did nothing a second request could
+// repeat: facts.acted is a routed call, a confirmed release, a fast call, a
+// relay line or a voice preview. facts.answered says the faulted brain
+// finished a reply before; facts.remote, its origin is not loopback.
+function restartOf(reason, facts) {
+    const judged = causeOf(reason);
+    const restart = judged.class === "transient" && !facts.acted && (judged.needs === null || facts[judged.needs] === true);
+    return { kind: restart ? "restart" : "none", category: judged.category };
+}
+function unrestarted(reason) { return { kind: "none", category: causeOf(reason).category }; }
 
 function providerLabel(provider) {
     return PROVIDERS.find(row => row.id === provider)?.label ?? provider;
@@ -424,6 +476,21 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (savedBrain !== null) closeBrainOwner(savedBrain.owner);
         savedBrain = null;
     }
+    // The conversation's brain closes, and its next turn opens a new one
+    // whose history starts again.
+    function freshBrain(c) {
+        closeBrainOwner(c.brainOwner);
+        c.owner = null;
+        c.resume = null;
+        c.historyLabels.clear();
+        c.turns = 0;
+        c.heard = null;
+        c.prior = null;
+        c.results = [];
+    }
+    // The brains that finished a reply, for restartOf's facts.answered. A
+    // retained brain keeps its place across Talk closes.
+    const answered = new WeakSet();
     function historySelection() {
         return JSON.stringify([homePath(), policy(), plan.entries.map(entry =>
             [entry.provider, entry.model, entry.effort, entry.account,
@@ -1257,7 +1324,19 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.turn === turn) c.turn = null;
         concluded(c, turn);
         const reason = keyed(error);
-        turn.done("brain-failed", { reason });
+        const recipient = c.plan.brain.recipient;
+        faulted(c, turn.done, reason, restartOf(reason, {
+            acted: turn.relay !== null || turn.fast !== undefined || turn.routed === true || turn.calls.length !== 0 || turn.released === true,
+            answered: answered.has(c.brainOwner.value),
+            remote: recipient.kind === "network" && !Net.endpoint(recipient.origin).loopback }));
+    }
+    // A failed turn ends its conversation in Session. Its brain closes here,
+    // before Session's end reaches observe, so the end retains no faulted
+    // brain and the next conversation starts fresh at the plan's first entry
+    // (D121).
+    function faulted(c, done, reason, restart) {
+        freshBrain(c);
+        done("brain-failed", { reason, restart });
     }
 
     // The brain's guidance with the home text as it reads now. No hello
@@ -1279,7 +1358,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         try { c.guidance = guidanceNow(c); }
         catch (error) {
             if (homeCause(error) === null) throw error;
-            done("brain-failed", { reason: keyed(error) });
+            const reason = keyed(error);
+            faulted(c, done, reason, unrestarted(reason));
             return false;
         }
         // Off the runner's drain, the judgement's snapshot can end the
@@ -1352,12 +1432,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (accepted) c.grants.push(grant);
         });
         c.releasePending = null;
+        // A turn that sent content on the user's confirm is never restarted.
+        if (result.kind === "started" && accepted && c.turn !== null && c.turn.op === pending.identity.op) c.turn.released = true;
         pending.resolve(result.kind === "started" && accepted);
     }
 
     async function respond(c, turn, request) {
         try {
-            let reply = c.brainOwner.value.send(request, c.grants);
+            const answering = c.brainOwner.value;
+            let reply = answering.send(request, c.grants);
             if (reply.release.needed.some(label => !c.decisions.has(label))) {
                 // send() only prepares a request. Returning its unstarted stream
                 // releases that slot without putting an unsent turn in history.
@@ -1398,6 +1481,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     break;
                 case "tool-call": calls.push(event); break;
                 case "done":
+                    answered.add(answering);
                     quiet(turn);
                     // History holds the calls once done is read: an interrupt
                     // from here on must answer them.
@@ -1445,6 +1529,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     say(c, turn, failoverLine(switched.from, switched.to, resend), ["desktop"]);
                     if (resend) {
                         turn.phase = "streaming";
+                        // The new brain's history holds the resent turn.
+                        c.turns++;
                         void respond(c, turn, { kind: "user", items: [Policy.item(turn.resendText, ["speech"])] });
                     } else {
                         turn.phase = "done";
@@ -1704,16 +1790,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // A brain keeps the tools it started with, as every driver takes
             // them at start: a turn after the fleet route changed opens a new
             // brain, whose history starts again.
-            if (c.brainOwner.value !== null && fleetRoute(router.offer()) !== c.fleet) {
-                closeBrainOwner(c.brainOwner);
-                c.owner = null;
-                c.resume = null;
-                c.historyLabels.clear();
-                c.turns = 0;
-                c.heard = null;
-                c.prior = null;
-                c.results = [];
-            }
+            if (c.brainOwner.value !== null && fleetRoute(router.offer()) !== c.fleet) freshBrain(c);
             // REVISIT(D121): Revisit this bound only when the owner changes
             // history semantics, preserving the attempted next turn.
             if (c.turns >= HISTORY_TURNS && e.text.trim() !== "") {
@@ -1733,13 +1810,23 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // The home text is read at each conversation's first turn, so
                 // the user's last edit is the one a brain gets. A text that
                 // outgrew its bound since the setup answer fails this turn.
-                if (!openBrain(c, e.owner, done)) return;
+                // A driver that refuses to create, as for a missing key,
+                // fails the turn too; openBrain itself throws, for its
+                // failover caller's next entry.
+                let opened;
+                try { opened = openBrain(c, e.owner, done); }
+                catch (error) {
+                    const reason = keyed(error);
+                    faulted(c, done, reason, unrestarted(reason));
+                    return;
+                }
+                if (!opened) return;
             } else if (c.owner !== e.owner) fail("brain-owner");
             if (c.turn !== null) fail("brain-busy");
             const turn = { gen: e.gen, op: e.op, done, labels: new Set(), speech: null, stopped: false, speaking: false, delegation: e.delegation,
                 feedbackTimer: null, relay: null,
                 phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner,
-                routed: false, replyStarted: false, progressTimer: null, progressDue: false, step: null, lines: new Set(),
+                routed: false, released: false, replyStarted: false, progressTimer: null, progressDue: false, step: null, lines: new Set(),
                 linePrefix: "", lineStream: null, pendingLine: null, waitingLine: null, fixed: null };
             if (e.text.trim() === "") {
                 done("brain-done");
@@ -2270,4 +2357,4 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     });
 }
 
-module.exports = { create, failoverCause };
+module.exports = { create, failoverCause, restartOf };

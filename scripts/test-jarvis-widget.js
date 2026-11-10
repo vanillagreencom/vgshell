@@ -210,6 +210,132 @@ verify(load(path.join(dir, "WidgetView.js")));
     }
     assert.notEqual(notices[0].message, notices[1].message, "automatic reset explains its different cause");
 }
+
+// One automatic restart after a failed turn (VGS-2408). The restart line,
+// the notice and a Problems row are text the product delivers: each names
+// the cause's category in plain words and says VGS restarted Jarvis, and
+// none carries the engine's keyed cause. A second failure keeps today's
+// fault text.
+const RESTART_WORDS = [
+    ["connection", "Jarvis lost the connection to the AI model"],
+    ["reply-cut", "The reply from the AI model stopped too early"],
+    ["service", "The AI service had an error"],
+    ["app-stopped", "The AI app stopped"],
+    ["account", "The AI account refused the request"],
+    ["model", "Jarvis cannot use the AI model"],
+    ["setup", "The AI model is not set up correctly"],
+    ["other", "The AI model did not answer"]
+];
+const KEYED = /(?:brain|net)=|[a-z-]+=[a-z0-9-]/;
+function verifyRestart(view, history) {
+    assert.deepEqual(RESTART_WORDS.map(([category]) => category), copy(Session.FAULT_CATEGORIES), "a plain cause for every category Session keeps");
+    for (const [category, words] of RESTART_WORDS) {
+        const restart = { kind: "restarted", category };
+        assert.deepEqual(copy(view.restartLine(restart, true)), { title: words, action: "VGS restarted Jarvis. Say your request again." }, category);
+        assert.deepEqual(copy(view.restartLine(restart, false)), { title: words, action: "VGS restarted Jarvis. Talk to Jarvis to ask again." }, category);
+        for (const listening of [true, false]) {
+            const notice = copy(view.restartNotice(category, listening));
+            // Transient: the notifications plugin closes it when its card
+            // times out, which ends the notify-send run its action holds.
+            assert.deepEqual(notice, { title: "VGS restarted Jarvis", tone: "warning", icon: "vgs-letter-j", transient: true,
+                message: words + ". "
+                    + (listening ? "This is a new conversation, so say your request again." : "Your next request starts a new conversation."),
+                actions: [{ id: view.PROBLEMS_ACTION, label: "Show problems" }] }, category + " notice");
+            assert.ok(Object.hasOwn(Lucide.ICONS, notice.icon));
+            assert.equal(KEYED.test(notice.title + " " + notice.message), false, category + ": no keyed cause");
+        }
+        for (const [action, body] of [["restarted", "VGS restarted Jarvis in a new conversation."], ["stopped", "Jarvis stopped the conversation."]]) {
+            const row = { time: "2026-11-09T08:00:00.000Z", kind: "fault", cause: "net=request", status: null, category, action };
+            assert.deepEqual(copy(history.problem(row)), { title: words + ".", body, action: "Ask Jarvis again", settings: false }, category + " " + action);
+            assert.deepEqual(copy(history.problems([row], "")), [{ at: Date.parse(row.time), title: words + ".", body, action: "Ask Jarvis again", settings: false }]);
+            assert.equal(history.problems([row], "net=request").length, 0, "the keyed cause is not in the row");
+        }
+    }
+    for (const kind of ["none", "spent"]) assert.equal(view.restartLine({ kind }, true), null, kind);
+    for (const restart of [null, { kind: "used" }, { kind: "restarted", category: "unknown" }])
+        assert.throws(() => view.restartLine(restart, true), /jarvis widget: (restart|category)=/, JSON.stringify(restart));
+    assert.throws(() => history.problem({ time: "2026-11-09T08:00:00.000Z", kind: "fault", cause: "net=request", status: null, category: "service", action: "retried" }),
+        /jarvis history: action=/);
+    // The bar keeps its state look and adds the restart line under it.
+    const restarted = { restart: { kind: "restarted", category: "service" } };
+    for (const [label, regions, state, title, line] of [
+        ["listening again", { ...OPEN, ...restarted }, "listening", "Listening", "The AI service had an error. VGS restarted Jarvis. Say your request again."],
+        ["conversation ended", restarted, "ready", "Ready", "The AI service had an error. VGS restarted Jarvis. Talk to Jarvis to ask again."],
+        ["spent", { ...OPEN, restart: { kind: "spent" } }, "listening", "Listening", null]
+    ]) {
+        const bar = view.view(up(regions), null);
+        assert.deepEqual([bar.state, bar.tooltip, copy(bar.tooltipDetails)], [state, "Jarvis: " + title, line === null ? [] : [line]], label);
+    }
+    // A second failure in the restarted conversation shows today's fault.
+    const second = { ...restarted, fault: { kind: "error", reason: "brain=stream-failed", retry: 0 } };
+    const bar = view.view(up(second), null);
+    assert.deepEqual([bar.state, copy(bar.tooltipDetails)], ["problem", ["Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."]]);
+    assert.deepEqual(copy(view.faultText(second.fault, "chained", null)),
+        { title: "The AI model did not answer", action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." });
+}
+const historyFile = path.join(dir, "History.js");
+verifyRestart(load(path.join(dir, "WidgetView.js")), load(historyFile));
+// The service posts one notice as a restart starts, and its action, and
+// only its action, opens the console's Problems list.
+function verifyRestartNotice(service, view) {
+    const matches = [...service.matchAll(/^    function restartChanged\(previous, current\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(matches.length, 1, "one shipped restart notice owner");
+    const notices = [], warnings = [];
+    let summoned = 0;
+    const ctx = vm.createContext({ View: view, notice: (value, done) => notices.push({ value, done }),
+        summonProblems: () => summoned++, console: { warn: line => warnings.push(line) } });
+    const deliver = vm.runInContext("(" + matches[0][0] + ")", ctx);
+    const state = (restart, conversation = "ended") => ({ restart, conversation: conversation === "ended" ? { kind: "ended" } : { kind: "active", purpose: "conversation" } });
+    const none = state({ kind: "none" }), open = state({ kind: "restarted", category: "app-stopped" }, "active");
+    deliver(null, none);
+    deliver(none, none);
+    assert.equal(notices.length, 0, "no restart, no notice");
+    deliver(none, open);
+    deliver(open, open);
+    deliver(open, state({ kind: "spent" }, "active"));
+    assert.equal(notices.length, 1, "one notice per restart");
+    assert.deepEqual(copy(notices[0].value), copy(view.restartNotice("app-stopped", true)));
+    assert.deepEqual(warnings, ["jarvis: restart=app-stopped"]);
+    notices[0].done("");
+    assert.equal(summoned, 0, "a dismissed notice opens nothing");
+    notices[0].done(view.PROBLEMS_ACTION);
+    assert.equal(summoned, 1, "the action opens the Problems list");
+    deliver(state({ kind: "spent" }), state({ kind: "restarted", category: "connection" }));
+    assert.equal(notices.length, 2, "a later conversation's restart has its own notice");
+    assert.deepEqual(copy(notices[1].value), copy(view.restartNotice("connection", false)));
+}
+const serviceSource = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
+verifyRestartNotice(serviceSource, load(path.join(dir, "WidgetView.js")));
+{
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-restart-control-"));
+    try {
+        for (const name of ["SetupGate.js", "Session.js", "WidgetView.js", "History.js"]) fs.copyFileSync(path.join(dir, name), path.join(temp, name));
+        const historySource = fs.readFileSync(historyFile, "utf8");
+        for (const [label, file, needle, replacement] of [
+            ["bar drops the restart line", "WidgetView.js", 'if (restarted !== null) out.tooltipDetails = ', 'if (false) out.tooltipDetails = '],
+            ["restart line over a problem", "WidgetView.js", 'out.state !== "problem" && out.state !== "off"', 'out.state !== "off"'],
+            ["restart line ignores listening", "WidgetView.js", 'action: listening ? "VGS restarted Jarvis. Say your request again." :', 'action: false ? "" :'],
+            ["notice ignores listening", "WidgetView.js", '(listening ? "This is a new conversation, so say your request again." : "Your next request starts a new conversation.")', '"Your next request starts a new conversation."'],
+            ["notice offers no action", "WidgetView.js", 'actions: [{ id: PROBLEMS_ACTION, label: "Show problems" }]', 'actions: []'],
+            ["notice holds its run after the card", "WidgetView.js", 'icon: "vgs-letter-j", transient: true,', 'icon: "vgs-letter-j",'],
+            ["problems ignore fault rows", "History.js", 'if (row.kind === "fault") return faultProblem(row);', ''],
+            ["fault rows say restarted always", "History.js", 'body: row.action === "restarted" ? ', 'body: true ? ']
+        ]) {
+            const original = file === "History.js" ? historySource : source;
+            assert.equal(original.split(needle).length, 2, label + ": one mutation target");
+            fs.writeFileSync(path.join(temp, file), original.replace(needle, replacement));
+            assert.throws(() => verifyRestart(load(path.join(temp, "WidgetView.js")), load(path.join(temp, "History.js"))), assert.AssertionError, label);
+            fs.writeFileSync(path.join(temp, file), original);
+        }
+        for (const [label, needle, replacement] of [
+            ["notice on every state", ' || previous !== null && previous.restart.kind === "restarted"', ''],
+            ["dismissal opens the console", 'if (action === View.PROBLEMS_ACTION) summonProblems();', 'summonProblems();']
+        ]) {
+            assert.equal(serviceSource.split(needle).length, 2, label + ": one mutation target");
+            assert.throws(() => verifyRestartNotice(serviceSource.replace(needle, replacement), load(path.join(dir, "WidgetView.js"))), assert.AssertionError, label);
+        }
+    } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+}
 const controls = [
     ["bar loses recovery", '(state === "problem" || state === "off")', 'false'],
     ["bar changes the J while listening", '"listening": { icon: "vgs-letter-j"', '"listening": { icon: "audio-lines"'],

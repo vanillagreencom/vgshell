@@ -1,4 +1,5 @@
 .pragma library
+.import "WidgetView.js" as View
 
 function matches(query, values) {
     var wanted = String(query).trim().toLocaleLowerCase();
@@ -63,7 +64,19 @@ function operation(row) {
     return labels[row.tool] === undefined ? "The action" : labels[row.tool];
 }
 
+// A failed turn's record names its cause's category and what Session did
+// (Audit.js fault rows); the row shows the category's plain words and
+// never the keyed cause.
+function faultProblem(row) {
+    if (row.action !== "restarted" && row.action !== "stopped")
+        throw new Error("jarvis history: action=" + JSON.stringify(row.action) + " unexpected");
+    return { title: View.faultWords(row.category) + ".",
+        body: row.action === "restarted" ? "VGS restarted Jarvis in a new conversation." : "Jarvis stopped the conversation.",
+        action: "Ask Jarvis again", settings: false };
+}
+
 function problem(row) {
+    if (row.kind === "fault") return faultProblem(row);
     var voice = {
         "key-refused": "The voice service refused the saved key.",
         "voice-stopped": "The voice service stopped before finishing."

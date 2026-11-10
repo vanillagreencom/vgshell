@@ -109,8 +109,10 @@ Item {
     readonly property bool micMuted: microphoneMute === true
     readonly property bool voiceMuted: state !== null && state.voiceMute.kind === "on"
     // A fault reads as the bar says it: what went wrong, then what to do.
+    // A restart after a failed turn reads the same way while the orb shows.
     readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind,
-        service.shell === null ? null : Providers.cloudVoice(service.shell.settings.voiceProvider)) : null
+        service.shell === null ? null : Providers.cloudVoice(service.shell.settings.voiceProvider))
+        : state === null || hidden ? null : View.restartLine(state.restart, state.conversation.kind !== "ended")
     readonly property string stateText: state === null ? "" : hidden && fault !== null ? fault.title : micMuted ? "Microphone muted"
         : fault !== null ? fault.title
         : stateWords[phase]

@@ -567,6 +567,17 @@ Item {
         notice(View.conversationResetNotice(current.history.reason));
     }
 
+    // One notice when Session restarts after a failed turn: its restart
+    // region turns restarted, which only a new user conversation and then
+    // another failure can do again.
+    function restartChanged(previous, current) {
+        if (current.restart.kind !== "restarted" || previous !== null && previous.restart.kind === "restarted") return;
+        console.warn("jarvis: restart=" + current.restart.category);
+        notice(View.restartNotice(current.restart.category, current.conversation.kind !== "ended"), action => {
+            if (action === View.PROBLEMS_ACTION) summonProblems();
+        });
+    }
+
     function displayedApproval() {
         const item = bubbles.find(item => item !== null && item.approvalPresented);
         return item === undefined ? null : item.displayedHold;
@@ -648,6 +659,13 @@ Item {
 
     function protocolKey(message) {
         return String(message).replace(/^jarvis: protocol=/, "");
+    }
+
+    // The console on its History tab's Problems list (Console.openProblems).
+    function summonProblems() {
+        if (shell === null) return;
+        const reply = shell.surfaces.summon("window", JSON.stringify({ problems: true }));
+        if (reply !== "ok") console.warn("jarvis: console " + reply);
     }
 
     function say(text) {
@@ -1035,8 +1053,9 @@ Item {
     }
 
     // One system notification; the core sends it and no other path draws it.
-    function notice(options) {
-        const reply = shell.notify.send(options);
+    // DONE, when given, receives the pressed action's id (shell.notify.send).
+    function notice(options, done) {
+        const reply = shell.notify.send(options, done);
         if (reply !== "ok") console.error("jarvis: notice " + reply);
     }
 
@@ -1447,6 +1466,7 @@ Item {
                     const previousState = sessionState;
                     sessionState = message.state;
                     conversationChanged(previousState, sessionState);
+                    restartChanged(previousState, sessionState);
                     if (!publishShellSetup()) return;
                     const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state,
                         brain: message.brain, conversationId: childSerial + ":" + message.state.history.epoch });

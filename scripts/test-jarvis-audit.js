@@ -85,7 +85,7 @@ world(() => {
     checkFailures(Audit);
     mutant(file, "failure seed whole file", "const buffer = Buffer.alloc(Math.min(stat.size, TAIL_BYTES));",
         "const buffer = Buffer.alloc(stat.size);", checkFailures);
-    mutant(file, "failure list args", "[{ time: record.time, tool: record.tool", "[{ ...record, time: record.time, tool: record.tool", checkFailures);
+    mutant(file, "failure list args", ": { time: record.time, tool: record.tool", ": { ...record, time: record.time, tool: record.tool", checkFailures);
     mutant(file, "failure list bound", ".slice(-20)", ".slice(-21)", checkFailures);
     mutant(file, "failure callback", '&& retain(value)) changed(failures());', '&& retain(value)) void failures();', checkFailures);
     function checkOrder(logic) {
@@ -368,6 +368,50 @@ world(() => {
             assert.equal(records(root).length, 3, "a refused cause writes nothing");
         });
     }
+    // A conversation fault's row: the keyed cause's head word and status,
+    // the engine's category and Session's action, never the cause's other
+    // text. The Problems list keeps it, and the next writer seeds it back.
+    function checkFaultRow(logic) {
+        const root = currentState();
+        const time = "2026-09-30T12:00:00.000Z";
+        const fault = { kind: "fault-record", gen: 4, op: 9, reason: "brain=provider-error status=503", category: "service", action: "restarted" };
+        const kept = [
+            ["brain=provider-error status=503", "service", "restarted", { cause: "brain=provider-error", status: 503 }],
+            ["brain=harness-model-refused model=planted-arbitrary-credential", "model", "stopped", { cause: "brain=harness-model-refused" }],
+            ["brain=harness-api-error status=0", "other", "stopped", { cause: "brain=harness-api-error" }],
+            ["net=request", "connection", "restarted", { cause: "net=request" }],
+            ["jarvis-keys: secret-tool=locked", "setup", "stopped", { cause: "secret-tool=locked" }],
+            ["home=absent", "other", "stopped", { cause: "home=absent" }],
+            // Harness stop reasons keep their program's spelling (CopilotAcp.STOPS, PiRpc.STOPS).
+            ["brain=copilot-stop-max_tokens", "other", "stopped", { cause: "brain=copilot-stop-max-tokens" }],
+            ["brain=copilot-stop-max_turn_requests", "other", "stopped", { cause: "brain=copilot-stop-max-turn-requests" }],
+            ["brain=pi-stop-toolUse", "other", "stopped", { cause: "brain=pi-stop-tooluse" }]];
+        const listed = kept.map(([, category, action, row]) => ({ time, kind: "fault", status: null, ...row, category, action }));
+        const changes = [];
+        withWriter(logic, { state: root, changed: rows => changes.push(rows) }, writer => {
+            for (const [reason, category, action] of kept)
+                assert.equal(writer.fault({ ...fault, reason, category, action }).kind, "recorded", reason);
+            assert.deepEqual(records(root), kept.map(([, category, action, row]) => ({ time, kind: "fault", gen: 4, ...row, category, action })));
+            for (const [name, value, cause] of [
+                ["free text head", { ...fault, reason: "brain=Provider: said no" }, "fault-cause"],
+                ["unkeyed text", { ...fault, reason: "the provider said no" }, "fault-cause"],
+                ["second prefix", { ...fault, reason: "jarvis-keys: jarvis-accounts: store=locked" }, "fault-cause"],
+                ["long head", { ...fault, reason: "brain=" + "a".repeat(61) }, "fault-cause"],
+                ["category", { ...fault, category: "transient" }, "fault-category"],
+                ["action", { ...fault, action: "retried" }, "fault-action"],
+                ["identity", { ...fault, gen: -1 }, "identity"],
+                ["reason", { ...fault, reason: 7 }, "event-shape"]])
+                assert.deepEqual(writer.fault(value), { kind: "refuse", reason: "audit-write", cause }, name);
+            assert.equal(records(root).length, kept.length, "a refused fault writes nothing");
+            assert.deepEqual(writer.failures(), listed, "the Problems list keeps every fault");
+            assert.deepEqual(changes.at(-1), listed, "each kept fault publishes the list");
+        });
+        withWriter(logic, { state: root }, writer => {
+            let seeded;
+            assert.doesNotThrow(() => { seeded = writer.failures(); }, "the stored faults pass the seed's judge");
+            assert.deepEqual(seeded, listed, "the next writer seeds the stored faults");
+        });
+    }
     function legacyStore() {
         const root = state();
         fs.mkdirSync(path.join(root, "audit"), { recursive: true, mode: 0o700 });
@@ -504,7 +548,7 @@ world(() => {
             });
         });
     }
-    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit); checkCause(Audit);
+    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit); checkCause(Audit); checkFaultRow(Audit);
     for (const invalid of ["relative", "/", base + "/x/../y", null])
         assert.throws(() => Audit.create({ state: invalid }), { code: "state-path" });
     withWriter(Audit, { now: () => NaN }, writer => assert.equal(writer.record(event).kind, "refuse"));
@@ -573,6 +617,18 @@ world(() => {
         ["cause judged", 'if (event.cause !== undefined && (kind !== "release" || outcome !== "failed" || !STREAM_CAUSES.includes(event.cause))) fail("cause");', "", checkCause],
         ["cause scope", 'kind !== "release" || outcome !== "failed" || !STREAM_CAUSES', "!STREAM_CAUSES", checkCause],
         ["cause listed", "cause: record.cause ?? null }", "cause: null }", checkFailures],
+        ["fault head word", '.split(" ", 1)[0]', "", checkFaultRow],
+        ["fault head spelling", '.toLowerCase().replace(/_/g, "-")', "", checkFaultRow],
+        ["fault key prefix", '.replace(/^jarvis-[a-z]+: /, "")', "", checkFaultRow],
+        ["fault any area", "const FAULT_CAUSE = /^[a-z-]+=[a-z0-9-]{1,60}$/;", "const FAULT_CAUSE = /^(?:brain|net)=[a-z0-9-]{1,60}$/;", checkFaultRow],
+        ["fault cause judged", 'if (typeof cause !== "string" || !FAULT_CAUSE.test(cause)) fail("fault-cause");', "", checkFaultRow],
+        ["fault status kept", "...(status === null ? {} : { status: Number(status[1]) })", "...{}", checkFaultRow],
+        ["fault category judged", 'if (!FAULT_CATEGORIES.includes(category)) fail("fault-category");', "", checkFaultRow],
+        ["fault action judged", 'if (!FAULT_ACTIONS.includes(action)) fail("fault-action");', "", checkFaultRow],
+        ["fault retained", 'return record.kind === "fault" || ["refuse"', 'return ["refuse"', checkFaultRow],
+        ["fault stored judge", 'return record.kind === "fault" ? faultRow(record) : eventRecord(record, record.time);',
+            "return eventRecord(record, record.time);", checkFaultRow],
+        ["fault status listed", "status: record.status ?? null,", "status: null,", checkFaultRow],
         ["vision signal producer shape", 'value.code === undefined && typeof value.signal === "string"',
             'value.code === null && typeof value.signal === "string"', checkVisionReason],
         ["capture keys", 'Object.keys(capture).sort().join(",") !== "box,bytes,height,masks,scale,sha256,width"', "false", checkCapture],

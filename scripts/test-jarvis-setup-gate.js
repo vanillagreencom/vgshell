@@ -798,7 +798,7 @@ const SIGNED_OUT = { kind: "answered", causes: ["brain=signed-out"] };
 // shortcut and notice bodies, with only their capability endpoints supplied.
 function verifyHomeSwitch(serviceSource) {
     const switchHome = serviceSource.match(/^    function switchHome\(item\) \{\n[\s\S]*?^    \}/m);
-    const notice = serviceSource.match(/^    function notice\(options\) \{\n[\s\S]*?^    \}/m);
+    const notice = serviceSource.match(/^    function notice\(options, done\) \{\n[\s\S]*?^    \}/m);
     assert.ok(switchHome && notice, "the home shortcut and notice helper are present");
     const id = "h0123456789ab", selected = "~/Other home", previous = "~/Current home";
     for (const [name, item, reply] of [

@@ -805,6 +805,7 @@ mutations=(
   "a starting task's row opens no terminal yet without a reason|../plugins/vgs.jarvis/Console.qml|(row.state === \"starting\" ? \"Wait for the task's terminal to start.\" : \"\")|\"\"|tst_jarvis_console.qml"
   "a task row's action acts on another task|../plugins/vgs.jarvis/Console.qml|\"open-task\", row.id);|\"open-task\", taskRows[0].id);|tst_jarvis_console.qml"
   "a stopped task's row drops the keyboard|../plugins/vgs.jarvis/Console.qml|if (reply === \"ok\" && action === \"stop\") tasksBody.forceActiveFocus(|if (false) tasksBody.forceActiveFocus(|tst_jarvis_console.qml"
+  "the restart notice's open shows Now|../plugins/vgs.jarvis/Console.qml|if (payload.problems === true) {|if (false) {|tst_jarvis_console.qml"
   "the Jarvis menu's intents call nothing|../plugins/vgs.jarvis/Widget.qml|const action = entry.intent !== undefined ? () => root.offer(entry.intent)|const action = entry.intent !== undefined ? () => {}|tst_jarvis_widget.qml"
   "the Jarvis menu's Key hints opens nothing|../plugins/vgs.jarvis/Widget.qml|() => root.shell.surfaces.openPage(entry.page, entry.tab);|() => {};|tst_jarvis_widget.qml"
   "frame actions rebuild before the menu closes|BarWidget.qml|                hideMenu.close(true);|                void hideMenu;|tst_jarvis_widget.qml"

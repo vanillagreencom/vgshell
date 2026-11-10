@@ -91,6 +91,7 @@ const taskRow = { id: taskStop.task, goal: "Goal", agent: "fixture", state: "wor
 const taskList = { v: 1, type: "task-list", gen: 0, revision: hello.revision, rows: [taskRow] };
 const auditRow = { time: "2026-09-30T12:00:00.000Z", tool: "files.write", effect: "persistent", decision: "allow", outcome: "failed", refusal: null, cause: null };
 const auditFailures = { ...taskList, type: "audit-failures", rows: [auditRow] };
+const faultRow = { time: "2026-09-30T12:00:00.000Z", kind: "fault", cause: "brain=harness-ended", status: null, category: "app-stopped", action: "restarted" };
 const say = { ...intent, intent: "say", text: "typed message" };
 const requirementsScan = { v: 1, type: "requirements-scan", gen: 0, revision: hello.revision, scan: 1 };
 const tuiState = { v: 1, type: "tui-state", gen: 0, revision: hello.revision, name: "task", running: true };
@@ -156,6 +157,12 @@ const cases = [
     ["audit-refusal", changed(auditFailures, { rows: [{ ...auditRow, refusal: "other" }] }), "daemon", "audit-row"],
     ["audit-cause", changed(auditFailures, { rows: [{ ...auditRow, cause: "live=unheard" }] }), "daemon", "audit-row"],
     ["audit-key-cause", changed(auditFailures, { rows: [{ ...auditRow, cause: "live=key-refused" }] }), "daemon", "audit-row"],
+    ["audit-fault-text", changed(auditFailures, { rows: [{ ...faultRow, cause: "brain=harness-model-refused model=fable" }] }), "daemon", "audit-fault"],
+    ["audit-fault-prefix", changed(auditFailures, { rows: [{ ...faultRow, cause: "jarvis-keys: secret-tool=locked" }] }), "daemon", "audit-fault"],
+    ["audit-fault-status", changed(auditFailures, { rows: [{ ...faultRow, status: 0 }] }), "daemon", "audit-fault"],
+    ["audit-fault-category", changed(auditFailures, { rows: [{ ...faultRow, category: "transient" }] }), "daemon", "audit-fault"],
+    ["audit-fault-action", changed(auditFailures, { rows: [{ ...faultRow, action: "retried" }] }), "daemon", "audit-fault"],
+    ["audit-fault-gen", changed(auditFailures, { rows: [{ ...faultRow, gen: 1 }] }), "daemon", "shape-audit-fault"],
     ["task-open-id", changed(taskOpen, { task: "a".repeat(65) }), "shell", "task-id"],
     ["task-open-direction", JSON.stringify(taskOpened), "shell", "direction-task-open"],
     ["task-open-answer-id", changed(taskOpened, { task: "a".repeat(65) }), "daemon", "open-task-id"],
@@ -452,6 +459,19 @@ function rejected(logic, row) {
     assert.throws(() => logic.accept(row[1], row[2]), { message: "jarvis: protocol=" + row[3] }, row[0]);
 }
 for (const row of cases) rejected(Protocol, row);
+// Fault rows publish beside the existing rows, any keyed area's head word among them.
+function faultRows(logic) {
+    const faultList = { ...auditFailures, rows: [auditRow, faultRow, { ...faultRow, cause: "brain=provider-error", status: 500, category: "service", action: "stopped" },
+        { ...faultRow, cause: "home=absent", category: "other", action: "stopped" }] };
+    let accepted;
+    try {
+        accepted = logic.accept(JSON.stringify(faultList), "daemon");
+    } catch (error) {
+        assert.fail("fault rows refused: " + error.message);
+    }
+    assert.equal(JSON.stringify(accepted), JSON.stringify(faultList));
+}
+faultRows(Protocol);
 assert.throws(() => Protocol.accept(null, "shell"), { message: "jarvis: protocol=line-not-string" });
 for (const locked of [false, true]) {
     const message = { ...hello, locked };
@@ -718,7 +738,8 @@ try {
         ["audit-direction", 'if (direction !== "daemon") fail("direction-audit-failures");', "", "audit-direction"],
         ["audit-count", "message.rows.length > 20", "message.rows.length > 21", "audit-count"],
         ["audit-args", '["time", "tool", "effect", "decision", "outcome", "refusal", "cause"], "audit-row"', '["time", "tool", "effect", "decision", "outcome", "refusal", "cause", "args"], "audit-row"', "audit-args"],
-        ["audit-time", '!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(row.time)', "false", "audit-time"],
+        ["audit-time", '!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(row.time)\n                    || !printable(row.tool',
+            'false\n                    || !printable(row.tool', "audit-time"],
         ["audit-tool", "printable(row.tool, 1, FIELD_MAX)", "printable(row.tool, 1, FIELD_MAX + 1)", "audit-tool"],
         ["audit-effect", "].indexOf(row.effect) !== -1", "].indexOf(row.effect) >= -1", "audit-effect"],
         ["audit-decision", "].indexOf(row.decision) === -1\n", "].indexOf(row.decision) < -1\n", "audit-decision"],
@@ -726,6 +747,8 @@ try {
         ["audit-completed", '(["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)', "false", "audit-completed"],
         ["audit-refusal", "].indexOf(row.refusal) !== -1", "].indexOf(row.refusal) >= -1", "audit-refusal"],
         ["audit-cause", "].indexOf(row.cause) !== -1", "].indexOf(row.cause) >= -1", "audit-cause"],
+        ...["audit-fault-text", "audit-fault-prefix"].map(example => [example,
+            ' || typeof row.cause !== "string" || !/^[a-z-]+=[a-z0-9-]{1,60}$/.test(row.cause)', "", example]),
         ["task-open-direction", 'if (direction !== "daemon") fail("direction-task-open");', "", "task-open-direction"],
         ["task-open-answer-id", 'if (!taskId(message.task)) fail("open-task-id");', "", "task-open-answer-id"],
         ["task-open-answer", 'fail("task-open");', ";", "task-open-answer"],
@@ -941,6 +964,7 @@ try {
             logic => rejected(logic, cases.find(row => row[0] === "retired-audit-cause-" + cause)));
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
+    control("audit-fault-area", "!/^[a-z-]+=[a-z0-9-]{1,60}$/.test(row.cause)", "!/^(?:brain|net)=[a-z0-9-]{1,60}$/.test(row.cause)", faultRows);
     control("voice-provider-gemini", '["local", "realtime", "gemini", "elevenlabs"]', '["local", "realtime", "elevenlabs"]', voiceProviders);
     control("voice-provider-elevenlabs", '["local", "realtime", "gemini", "elevenlabs"]', '["local", "realtime", "gemini"]', voiceProviders);
     control("memory-inbox-filter-bound", "size + next > MEMORY_INBOX_BYTES", "false", logic =>

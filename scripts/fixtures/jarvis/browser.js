@@ -120,7 +120,8 @@ async function daemonLease(ending, removeClose = false) {
                     input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
                     indicator: { kind: "gone" }, barIndicator: { kind: "gone" }, visibility: { kind: "shown" },
                     duplex: { kind: "half" }, toggleAt: null,
-                    engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
+                    engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null,
+                    restart: { kind: "none" }
                 }, phase: "down", brain: "" },
                 { v: 1, type: "memory-inbox", gen: 1, revision: hello.revision, entries: [] },
                 { v: 1, type: "task-list", gen: 1, revision: hello.revision, rows: [] }
