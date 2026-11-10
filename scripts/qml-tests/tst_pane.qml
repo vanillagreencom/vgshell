@@ -354,6 +354,38 @@ Item {
         when: windowShown
 
         function init() { UnitTheme.reset(); }
+        function test_a_titled_body_can_fill_its_room() {
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { id: p; width: 240; height: 200; title: "System"; Item { objectName: "filledBody"; width: p.contentWidth; height: p.bodyRoom } }', root);
+            verify(renderedFrame(made));
+            const filled = body(made).children.find(item => item.objectName === "filledBody");
+            verify(filled !== undefined);
+            compare(filled.mapToItem(made, 0, filled.height).y, made.height - made.contentInset);
+            made.destroy();
+        }
+        function test_first_key_label_aligns_with_a_section_heading_data() {
+            return [
+                { tag: "bare", row: 'FormRow { width: parent.width; label: "Built-in display"; Slider {} }' },
+                { tag: "field", row: 'Field { width: parent.width; inline: true; label: "Battery"; Label { role: "value"; text: "64%" } }' },
+                { tag: "nested", row: 'Column { width: parent.width; Column { width: parent.width; Field { width: parent.width; inline: true; label: "Battery"; Label { role: "value"; text: "64%" } } } }' }
+            ];
+        }
+        function test_first_key_label_aligns_with_a_section_heading(data) {
+            const heading = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 360; title: "Bluetooth"; fitToContent: true; SectionHeader { text: "My devices" } }', root);
+            const keyed = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 360; title: "Power"; fitToContent: true; ' + data.row + ' }', root);
+            verify(renderedFrame(keyed));
+            function labels(item) {
+                let out = [];
+                for (const child of item.children) out = out.concat(child instanceof Label ? [child] : [], labels(child));
+                return out;
+            }
+            const key = labels(keyed).find(item => item.objectName === "fieldLabel");
+            const section = labels(heading).find(item => item.role === "eyebrow");
+            verify(key !== undefined && section !== undefined);
+            compare(key.mapToItem(keyed, 0, key.capTop()).y - keyed.contentInset - keyed.headerHeight,
+                section.mapToItem(heading, 0, section.capTop()).y - heading.contentInset - heading.headerHeight);
+            keyed.destroy();
+            heading.destroy();
+        }
         function titleRow(of) { return of.children[0]; }
         function titleLabel(of) { return titleRow(of).children[0]; }
         function scroll(of) { return of.scrollArea; }

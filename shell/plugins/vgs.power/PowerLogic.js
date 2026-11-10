@@ -124,12 +124,16 @@ function profileLabel(profile) {
 }
 
 function stateLabel(battery) {
-    if (!battery || battery.present !== true) return "No battery";
-    if (battery.state === "fully-charged") return "Fully charged";
-    if (battery.charging) return "Charging";
-    if (battery.state === "discharging") return "On battery";
-    if (battery.state === "pending-charge") return "Plugged in, not charging";
-    return "Battery present";
+    return stateView(battery).label;
+}
+
+function stateView(battery) {
+    if (!battery || battery.present !== true) return { label: "No battery", icon: "battery", tone: "textMuted" };
+    if (battery.state === "fully-charged") return { label: "Fully charged", icon: batteryIcon(100, false), tone: "success" };
+    if (battery.charging) return { label: "Charging", icon: batteryIcon(battery.level, true), tone: "accent" };
+    if (battery.state === "discharging") return { label: "On battery", icon: batteryIcon(battery.level, false), tone: "textMuted" };
+    if (battery.state === "pending-charge") return { label: "Plugged in, not charging", icon: "battery-warning", tone: "warning" };
+    return { label: "Battery present", icon: "battery", tone: "textMuted" };
 }
 
 function timeText(battery) {

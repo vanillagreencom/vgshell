@@ -1531,7 +1531,7 @@ edit_tree focus-keyboard-open shell/Ui/foundation/KeyNavLogic.js \
   'owner.focusReason = Qt.OtherFocusReason;' \
   'owner.focusReason = Qt.TabFocusReason;'
 edit_tree focus-keyboard-open shell/Ui/layout/Pane.qml \
-  'readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap' \
+  'readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Math.max(0, Theme.stack.titleSpace - firstLabelInset(bodyColumn)) : gap' \
   'readonly property real headerBodyGap: gap'
 stop_shell
 start_shell "$sandbox/tree-focus-keyboard-open" "$sandbox/focus-keyboard-open.log" || fail "the initial keyboard reason control starts"

@@ -863,6 +863,8 @@ cases=(
   "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
   "settings-edit-set|shell/plugins/vgs.settings/EditSet.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "displays-pane|shell/plugins/vgs.displays/Pane.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
+  "power-stay-awake-view|shell/plugins/vgs.power/StayAwake.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
+  "power-battery-view|shell/plugins/vgs.power/PowerLogic.js|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "vpn-view|shell/plugins/vgs.vpn/VpnBody.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "shell-gc-mode|shell/shell.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-session-lock.sh'
   "harness-render|.agents/skills/review-gate/scripts/review-policy|all|$repo_plan"

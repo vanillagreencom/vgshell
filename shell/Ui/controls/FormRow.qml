@@ -291,6 +291,9 @@ Item {
 
     function inkBelow() { return drawnBelow(false); }
     function inkAbove() { return shift + drawnAbove(false); }
+    // A titled Pane removes only the label's centring room from its first
+    // row. The label then starts where an unboxed SectionHeader starts.
+    function titleLabelInset() { return labelColumn && label !== "" ? shift + labelTop : 0; }
     function lineBelow() { return drawnBelow(true); }
     function lineAbove() { return shift + drawnAbove(true); }
 

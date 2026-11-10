@@ -123,7 +123,7 @@ Item {
     readonly property real headerHeight: hasTitle ? titleBlockHeight + titleToHeaderGap + headerSlotImplicitHeight : Math.max(subtitleHeight + (subtitleHeight > 0 && headerSlotImplicitHeight > 0 ? gap : 0) + headerSlotImplicitHeight, gear.item ? gear.item.height : 0)
     readonly property real footerHeight: footerSlot.implicitHeight
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
-    readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap
+    readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Math.max(0, Theme.stack.titleSpace - firstLabelInset(bodyColumn)) : gap
     // A sticky bar keeps the container inset between its content and its
     // line. Leave the viewport's ring room on the other side of that line.
     readonly property real stickyGap: contentInset + dividerWidth + ringRoom
@@ -158,6 +158,22 @@ Item {
         return rows < 1 ? 0 : room - (rows * pitch + bodyRowHeight / 2);
     }
     readonly property alias scrollArea: scroll
+
+    // FormRow centres a key in its row box; SectionHeader has no row box.
+    // Remove that first key's centring room at the title/body boundary,
+    // not from row pitch. Stop at a non-Column boundary, notably TabPages:
+    // its strip-to-page gap belongs to that component, not to this title.
+    // Read the positioner's mark, not child sizes: a body's height may
+    // read bodyRoom, which reads this gap.
+    // https://doc.qt.io/qt-6/qml-qtquick-positioner.html
+    function firstLabelInset(item) {
+        if (item === null || item === undefined) return 0;
+        if (typeof item.titleLabelInset === "function") return item.titleLabelInset();
+        if (item instanceof Loader) return item.item === null ? 0 : firstLabelInset(item.item);
+        if (!(item instanceof Column)) return 0;
+        const first = (item.children ?? []).find(child => child.Positioner.isFirstItem);
+        return first === undefined ? 0 : firstLabelInset(first);
+    }
 
     // A slot's width is its widest child's implicit width, never the
     // children's laid-out boxes: read through `childrenRect`, a header of

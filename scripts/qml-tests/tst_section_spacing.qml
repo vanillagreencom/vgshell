@@ -323,6 +323,21 @@ Item {
 
         function init() { UnitTheme.reset(); }
 
+        function test_tabbed_settings_first_key_gap_is_unchanged() {
+            const page = createTemporaryObject(pageComponent, root, { row: rowOf("vgs.displays") });
+            verify(page !== null);
+            verify(renderedFrame(page));
+            const all = descendants(page);
+            const tabs = all.find(item => item instanceof TabPages);
+            const enabled = all.find(item => item instanceof Field && item.label === SettingValues.PAGE_LABELS.enabled);
+            verify(tabs !== undefined && enabled !== undefined);
+            const row = enabled.children.find(item => item instanceof FormRow);
+            const label = row.children.find(item => item.objectName === "fieldLabel");
+            compare(enabled.mapToItem(tabs, 0, 0).y - tabs.tabs.height, tabs.topInset + Theme.stack.section);
+            compare(label.mapToItem(tabs, 0, label.capTop()).y - tabs.tabs.height,
+                tabs.topInset + Theme.stack.section + row.labelTop + label.capTop());
+        }
+
         function manifest(id) {
             const request = new XMLHttpRequest();
             request.open("GET", Qt.resolvedUrl("../../shell/plugins/" + id + "/manifest.json"), false);

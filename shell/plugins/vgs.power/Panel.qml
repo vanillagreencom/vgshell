@@ -15,6 +15,7 @@ FocusScope {
     property var shell: null
     readonly property var power: shell === null || shell.status.values.power === undefined ? null : shell.status.values.power
     readonly property var battery: power && power.battery ? power.battery : { present: false, level: 0, charging: false, state: "absent", secondsToEmpty: 0, secondsToFull: 0 }
+    readonly property var batteryState: Logic.stateView(battery)
     readonly property var profile: power && power.profile ? power.profile : { available: false, active: "balanced", choices: [] }
     readonly property var profileTiles: profile.choices.map(p => ({ text: Logic.profileLabel(p), icon: Logic.profileIcon(p), available: true }))
     readonly property int activeIndex: Math.max(0, profile.choices.indexOf(profile.active))
@@ -59,7 +60,6 @@ FocusScope {
             spacing: Theme.stack.group
 
             Column {
-                visible: root.battery.present
                 width: parent.width
                 spacing: Theme.stack.row
 
@@ -67,11 +67,39 @@ FocusScope {
                     width: parent.width
                     inline: true
                     label: "Battery"
-                    lines: [Logic.stateLabel(root.battery)]
                     hint: Logic.timeText(root.battery)
-                    Label { role: "value"; text: root.battery.level + "%" }
+                    Column {
+                        width: parent.width
+                        readonly property real firstLineHeight: level.visible ? level.height : 0
+                        spacing: Theme.field.gap
+                        Label {
+                            id: level
+                            visible: root.battery.present
+                            role: "value"
+                            text: root.battery.level + "%"
+                        }
+                        Row {
+                            id: stateRow
+                            width: parent.width
+                            spacing: Theme.stack.inline
+                            Icon {
+                                name: root.batteryState.icon
+                                size: Theme.icon.size.sm
+                                color: Theme.color[root.batteryState.tone]
+                                y: stateText.topForLeadingIcon(height)
+                            }
+                            Label {
+                                id: stateText
+                                role: "value"
+                                text: root.batteryState.label
+                                width: parent.width - x
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
                 }
                 ProgressBar {
+                    visible: root.battery.present
                     width: parent.width
                     from: 0
                     to: 100
@@ -88,6 +116,8 @@ FocusScope {
                 label: "Stay awake"
                 hint: stayAwake.hint
                 error: stayAwake.problem
+                topPadding: Theme.stack.row
+                bottomPadding: Theme.space.md
 
                 StayAwake {
                     id: stayAwake

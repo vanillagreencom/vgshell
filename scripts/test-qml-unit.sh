@@ -70,6 +70,14 @@ fi
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 # A needle can span lines to distinguish identical statements in different branches.
 mutations=(
+  "Stay awake action loses the field height|../plugins/vgs.power/StayAwake.qml|size: \"md\"|size: \"sm\"|tst_power_view.qml|test_field_height_in_both_surfaces"
+  "first key label keeps its row centring below a title|layout/Pane.qml|Theme.stack.titleSpace - firstLabelInset(bodyColumn)|Theme.stack.titleSpace|tst_pane.qml|test_first_key_label_aligns_with_a_section_heading"
+  "tabbed Settings loses its page gap|layout/TabPages.qml|property real spacing: Theme.stack.section|property real spacing: Theme.stack.row|tst_section_spacing.qml|test_tabbed_settings_first_key_gap_is_unchanged"
+  "Power loses its battery state icon|../plugins/vgs.power/Panel.qml|name: root.batteryState.icon|name: \"\"|tst_power_view.qml|test_battery_state_icon"
+  "Power centres its battery key on both value lines|../plugins/vgs.power/Panel.qml|firstLineHeight: level.visible ? level.height : 0|firstLineHeight: 0|tst_power_view.qml|test_battery_state_icon"
+  "first-label lookup reads its body's dependent height|layout/Pane.qml|child.Positioner.isFirstItem|child.visible && child.width > 0 && child.height > 0|tst_pane.qml|test_a_titled_body_can_fill_its_room"
+  "Power loses the row gap above Stay awake|../plugins/vgs.power/Panel.qml|topPadding: Theme.stack.row|topPadding: 0|tst_power_view.qml|test_stay_awake_spacing"
+  "Power loses the helper bottom space|../plugins/vgs.power/Panel.qml|bottomPadding: Theme.space.md|bottomPadding: 0|tst_power_view.qml|test_stay_awake_spacing"
   "shortcut labels accept a stale layout answer|foundation/ShortcutLabels.qml|if (askedGeneration === generation) {|if (true) {|tst_shortcutlabels.qml"
   "shortcut labels keep names after a layout switch|foundation/ShortcutLabels.qml|        names = symbolNames;|        names = names;|tst_shortcutlabels.qml"
   "key caps lose layout data|feedback/KeyCaps.qml|ShortcutLabels.keyCaps(shortcut)|KeyNavLogic.keyCaps(shortcut)|tst_shortcutlabels.qml"
@@ -258,9 +266,9 @@ mutations=(
   "traffic pointer return keeps its keyboard reason|../plugins/vgs.traffic/Panel.qml|appList.focusReason = Qt.MouseFocusReason;|{}|tst_navigation_focus.qml"
   "the default title gap keeps two body lines|../Commons/Tokens.js|titleSpace: bodyLines(1),|titleSpace: bodyLines(2),|tst_title_space.qml"
   "the title gap stops at the sticky inset|layout/Pane.qml|readonly property real bodyGap: hasTitle && headerSlotImplicitHeight === 0 ? headerBodyGap : Math.max(headerBodyGap, stickyGap)|readonly property real bodyGap: Math.max(headerBodyGap, stickyGap)|tst_title_space.qml"
-  "an untitled description gains the title gap|layout/Pane.qml|readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap|readonly property real headerBodyGap: headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap|tst_title_space.qml"
+  "an untitled description gains the title gap|layout/Pane.qml|readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Math.max(0, Theme.stack.titleSpace - firstLabelInset(bodyColumn)) : gap|readonly property real headerBodyGap: headerSlotImplicitHeight === 0 ? Math.max(0, Theme.stack.titleSpace - firstLabelInset(bodyColumn)) : gap|tst_title_space.qml"
   "the title uses the old gap before a header|layout/Pane.qml|readonly property real titleToHeaderGap: hasTitle && titleBlockHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.stack.titleSpace : 0|readonly property real titleToHeaderGap: hasTitle && titleBlockHeight > 0 && headerSlotImplicitHeight > 0 ? Theme.row.lineGap : 0|tst_title_space.qml"
-  "the title uses the old gap before a body|layout/Pane.qml|readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap|readonly property real headerBodyGap: gap|tst_title_space.qml"
+  "the title uses the old gap before a body|layout/Pane.qml|readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Math.max(0, Theme.stack.titleSpace - firstLabelInset(bodyColumn)) : gap|readonly property real headerBodyGap: gap|tst_title_space.qml"
   "a fitted title clips its last source row|layout/Pane.qml|height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)|height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - 2 * root.headerGap - root.footerGap - root.footerHeight)|tst_pane.qml"
   "the description separates from its title|layout/Pane.qml|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.row.lineGap : 0|readonly property real subtitleGap: titleRowHeight > 0 && subtitleHeight > 0 ? Theme.stack.titleSpace : 0|tst_title_space.qml"
   "a surviving slot dereferences its destroyed measure height|layout/Pane.qml|implicitHeight: contentItem === null ? 0 : (contentItem === this ? childrenRect.height : contentItem.implicitHeight)|implicitHeight: contentItem === this ? childrenRect.height : contentItem.implicitHeight|tst_title_space.qml"

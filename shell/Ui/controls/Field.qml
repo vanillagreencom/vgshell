@@ -107,6 +107,8 @@ Column {
     // slot, which starts at the row box's bottom.
     spacing: inline ? 0 : Theme.field.gap
 
+    function titleLabelInset() { return inline ? topPadding + controlRow.titleLabelInset() : 0; }
+
     // No child's `y` is read, since a positioner sets it on a later polish
     // than a page's height is read for a resize (Theme.inkBelow); the slot
     // takes `spacing` under the row while it has height, and a Column skips
