@@ -6,7 +6,8 @@ import qs.Ui
 // Text with cited substrings as independent links. The text property is plain
 // text; every occurrence of `link` is drawn as a link and activates the
 // component. `lineCount` is the wrapped label's line count, for owners that
-// measure whether the message stayed on one line, `inkAbove()` is the
+// measure whether the message stayed on one line, `inkAbove()` and
+// `topForLeadingIcon()`, for an icon leading the first line, are the
 // label's (Label.qml), and `inkBelow()` is the
 // label's over the last line's text, which the plain twin
 // lays out at the same width. Use it where a consumer
@@ -235,6 +236,7 @@ T.Control {
     }
 
     function inkAbove() { return label.y + label.inkAbove(); }
+    function topForLeadingIcon(iconHeight, origin) { return label.y + label.topForLeadingIcon(iconHeight, origin); }
 
     // An occurrence inside running text is underlined at rest, so the
     // underline reaches the last line when the last occurrence ends past

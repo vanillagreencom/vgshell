@@ -473,21 +473,46 @@ Item {
                 Column {
                     width: parent.width
                     spacing: Theme.stack.group
+                    // Each state with a title, text and a link; with wrapped
+                    // text and no title beside a button; and as the one-line
+                    // banner with a button and no icon.
                     Repeater {
-                        model: ["accent", "info", "warning", "danger"]
-                        Callout {
-                            required property string modelData
-                            tone: modelData
-                            iconName: "book-open"
-                            title: "Callout: " + modelData
-                            text: "Read the guide before you start."
-                            linkText: "Read the guide"
-                            onActivated: text = "The guide action was selected."
+                        model: [
+                            { tone: "danger", mark: "circle-alert", line: "VPN dropped: traffic blocked", action: "Turn VPN off" },
+                            { tone: "warning", mark: "triangle-alert", line: "Jarvis cannot forward requests", action: "Open Settings" },
+                            { tone: "info", mark: "info", line: "A new version of VGS is ready", action: "Update" }
+                        ]
+                        Column {
+                            id: example
+                            required property var modelData
+                            width: parent ? parent.width : 0
+                            spacing: Theme.stack.inline
+                            Callout {
+                                tone: example.modelData.tone
+                                iconName: example.modelData.mark
+                                title: "Callout: " + example.modelData.tone
+                                text: "Read the [setup guide](page:vgs.gallery) before you start. The text wraps to fit the available width."
+                                linkText: "Read the guide"
+                                onActivated: linkText = "The guide action was selected"
+                                onPageActivated: (page, tab) => text = "The page link was selected."
+                            }
+                            Callout {
+                                tone: example.modelData.tone
+                                iconName: example.modelData.mark
+                                text: "Text without a title wraps under its first line, which the icon stays level with, and centres on the button beside it."
+                                buttonText: "Try again"
+                                onButtonActivated: buttonText = "Selected"
+                            }
+                            Callout {
+                                tone: example.modelData.tone
+                                text: example.modelData.line
+                                buttonText: example.modelData.action
+                                onButtonActivated: text = "The button was selected"
+                            }
                         }
                     }
                     Callout { title: "Title only" }
-                    Callout { title: "Without an icon or link"; text: "The text wraps to fit the available width." }
-                    Callout { text: "Text without a title" }
+                    Callout { text: "Text only, in the default info state" }
                 }
                 Flow {
                     width: parent.width

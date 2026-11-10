@@ -594,10 +594,13 @@ Item {
             compare(collect(jarvisConsole, n => n.highlighted === true && n.visible, []).length, 0, "no row holds a selection");
         }
 
-        // The main Jarvis's reading draws one line on Now alone, in the
-        // warning colour while the route cannot forward or the main did not
-        // answer, linking where an unavailable route is fixed and nowhere
-        // for a package VGS cannot fix; before the first reading none shows.
+        // The main Jarvis's reading draws on Now alone: a muted line while
+        // it forwards or has not tried, and a warning notice in its place
+        // while the route cannot forward or the main did not answer,
+        // linking where an unavailable route is fixed and nowhere for a
+        // package VGS cannot fix; before the first reading none shows. The
+        // notice's link is the Tab stop after New conversation, and Return
+        // on it opens its page.
         function test_main_reach_line_data() {
             const unavailable = cause => ({ kind: "unavailable", host: "cachy", cause: cause });
             return [
@@ -622,12 +625,26 @@ Item {
             if (data.reach !== undefined) values.mainReach = data.reach;
             const shell = root.shellWith(values);
             shell.settings.mainHost = data.mainHost === undefined ? "cachy" : data.mainHost;
+            const opened = [];
+            shell.surfaces.openPage = (page, tab) => opened.push(page + "/" + tab);
             jarvisConsole.shell = shell;
-            const line = () => collect(jarvisConsole, n => n.objectName === "mainReachLine", [])[0];
-            compare(line().visible, data.shown);
-            if (data.shown) compare(Qt.colorEqual(line().color, data.warning ? Theme.color.warning : Theme.color.textMuted), true);
+            const reading = collect(jarvisConsole, n => n.objectName === "mainReachLine", [])[0];
+            const notice = collect(jarvisConsole, n => n.objectName === "mainReachNotice", [])[0];
+            verify(notice instanceof Callout, "the warning is a notice banner");
+            compare([reading.visible, notice.visible], [data.shown && !data.warning, data.shown && data.warning], "a warning shows as the notice, a reading as the line");
+            if (data.warning) compare(notice.tone, "warning");
+            const line = () => data.warning ? notice : reading;
             const links = (line().text.match(/\]\(([^)]*)\)/g) || []).map(link => link.slice(2, -1));
             compare(JSON.stringify(links), JSON.stringify(data.link === "" ? [] : [data.link]), "the line links where its route is fixed");
+            if (data.link !== "") {
+                const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
+                action.forceActiveFocus(Qt.TabFocusReason);
+                keyClick(Qt.Key_Tab);
+                verify(notice.firstStop !== null && notice.firstStop.activeFocus, "Tab from New conversation reaches the notice's link");
+                keyClick(Qt.Key_Return);
+                compare(opened.length, 1, "Return on the notice's link opens its page");
+                compare("page:" + opened[0], data.link, "the page and tab the link names");
+            }
             if (data.differsFromSet) {
                 const emptyText = line().text;
                 const setShell = root.shellWith(values);

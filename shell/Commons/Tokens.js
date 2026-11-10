@@ -80,6 +80,26 @@ function tone(role) {
     return { background: color("{color." + role + "Subtle}"), foreground: color("mix({color." + role + "}, contrast({palette.background}), 0.28)") };
 }
 
+// One callout tone, NAME, from BASE's `background` and `foreground`: the
+// link and the button derive from that tone's own foreground.
+function calloutTone(name, base) {
+    var ink = "{callout.tone." + name + ".foreground}";
+    var link = "{callout.tone." + name + ".link.foreground}";
+    return {
+        background: base.background,
+        foreground: base.foreground,
+        link: {
+            foreground: color("mix(" + ink + ", contrast({palette.background}), 0.3)"),
+            hover: color("mix(" + link + ", {palette.foreground}, 0.18)"),
+            pressed: color("mix(" + link + ", {palette.background}, 0.18)")
+        },
+        button: {
+            hover: color("alpha(" + ink + ", 0.12)"),
+            pressed: color("alpha(" + ink + ", 0.2)")
+        }
+    };
+}
+
 function merge() {
     var out = {};
     for (var i = 0; i < arguments.length; i++)
@@ -476,21 +496,31 @@ var TOKENS = {
         border: color("{color.borderSubtle}")
     },
 
-    // A callout stands out from a page's rows to say one thing a reader
-    // needs before them, such as a guide to read first: its lines `gap`
-    // apart beside its icon, `iconGap` from them, `padding` inside a
-    // faint fill of its tone, its corner `radius`; the icon takes the
-    // tone's text colour.
+    // A callout, the notice banner, stands out from a page's rows to say
+    // one thing a reader needs before them: its lines `gap` apart beside
+    // its icon, `iconGap` from them, a trailing button `buttonGap` after
+    // them, `padding` inside the fill of its tone, its corner `radius`.
+    // Each tone holds its `background`, the `foreground` its icon, title,
+    // text and button draw in, its link's colours at rest, on hover and
+    // pressed, and its button's hover and pressed fills, all from the
+    // tone's own `foreground`, so a theme that sets one ink keeps the
+    // rest in its tone. `danger` and `warning` take a badge's faint tone
+    // fill and ink (tone); `info` takes neutral shades and no hue: a wash
+    // of the foreground under the body text moved 0.15 toward black or
+    // white, whichever the background contrasts with, which holds the
+    // readability floor on that wash in every catalog theme. A link moves
+    // 0.3 from the ink the same way, so it reads stronger than the words
+    // round it in the same tone.
     callout: {
         radius: length("{radius.md}"),
         padding: length("{space.lg}"),
         gap: length("{row.lineGap}"),
         iconGap: length("{space.md}"),
+        buttonGap: length("{space.lg}"),
         tone: {
-            accent: tone("accent"),
-            info: tone("info"),
-            warning: tone("warning"),
-            danger: tone("danger")
+            info: calloutTone("info", { background: color("alpha({palette.foreground}, 0.1)"), foreground: color("mix({color.text}, contrast({palette.background}), 0.15)") }),
+            warning: calloutTone("warning", tone("warning")),
+            danger: calloutTone("danger", tone("danger"))
         }
     },
 

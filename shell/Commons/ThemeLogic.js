@@ -376,6 +376,11 @@ var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
 // from the theme, so both caption colours read the selected role's weight.
 function readabilityWeights(values) {
     var tileWeight = "text." + valueAt(values, "tileGroup.captionRole") + ".weight";
+    // A callout's ink draws its title, its text with its page references,
+    // and its button's label in the secondary variant's weight; its link
+    // is a RowAction in the body role.
+    var calloutInk = ["text.body.weight", "text.bodyStrong.weight", "button.variant.secondary.weight"];
+    var calloutLink = ["text.body.weight"];
     return {
         "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "avatarGroup.weight", "text.pathChip.weight"],
         "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
@@ -399,6 +404,12 @@ function readabilityWeights(values) {
         "badge.tone.danger.foreground": ["text.label.weight", "text.kbd.weight"],
         "badge.tone.info.foreground": ["text.label.weight", "text.kbd.weight"],
         "badge.unread.tone.normal.foreground": ["text.label.weight", "text.bar.weight"],
+        "callout.tone.info.foreground": calloutInk,
+        "callout.tone.warning.foreground": calloutInk,
+        "callout.tone.danger.foreground": calloutInk,
+        "callout.tone.info.link.foreground": calloutLink,
+        "callout.tone.warning.link.foreground": calloutLink,
+        "callout.tone.danger.link.foreground": calloutLink,
         "badge.unread.tone.warning.foreground": ["text.label.weight", "text.bar.weight"],
         "badge.unread.tone.danger.foreground": ["text.label.weight", "text.bar.weight"],
         "carousel.hint": ["text.itemHint.weight", "text.h3.weight"],
@@ -436,6 +447,12 @@ var READABILITY_PAIRS = [
     ["badge.unread.tone.normal.foreground", "badge.unread.tone.normal.background"],
     ["badge.unread.tone.warning.foreground", "badge.unread.tone.warning.background"],
     ["badge.unread.tone.danger.foreground", "badge.unread.tone.danger.background"],
+    ["callout.tone.info.foreground", "callout.tone.info.background"],
+    ["callout.tone.info.link.foreground", "callout.tone.info.background"],
+    ["callout.tone.warning.foreground", "callout.tone.warning.background"],
+    ["callout.tone.warning.link.foreground", "callout.tone.warning.background"],
+    ["callout.tone.danger.foreground", "callout.tone.danger.background"],
+    ["callout.tone.danger.link.foreground", "callout.tone.danger.background"],
     ["screensaver.foreground", "screensaver.background"],
     ["screensaver.gradientStart", "screensaver.background"],
     ["screensaver.gradientEnd", "screensaver.background"]
@@ -521,7 +538,13 @@ var READABILITY_NAMES = {
     "screensaver.gradientStart": "Screensaver gradient", "screensaver.gradientEnd": "Screensaver gradient tint",
     "badge.unread.tone.normal.foreground": "Count figures", "badge.unread.tone.normal.background": "count badges",
     "badge.unread.tone.warning.foreground": "Warning count figures", "badge.unread.tone.warning.background": "warning count badges",
-    "badge.unread.tone.danger.foreground": "Error count figures", "badge.unread.tone.danger.background": "error count badges"
+    "badge.unread.tone.danger.foreground": "Error count figures", "badge.unread.tone.danger.background": "error count badges",
+    "callout.tone.info.foreground": "Information notice text", "callout.tone.info.link.foreground": "Information notice links",
+    "callout.tone.info.background": "information notice backgrounds",
+    "callout.tone.warning.foreground": "Warning notice text", "callout.tone.warning.link.foreground": "Warning notice links",
+    "callout.tone.warning.background": "warning notice backgrounds",
+    "callout.tone.danger.foreground": "Error notice text", "callout.tone.danger.link.foreground": "Error notice links",
+    "callout.tone.danger.background": "error notice backgrounds"
 };
 var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
 

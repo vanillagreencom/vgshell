@@ -515,22 +515,35 @@ FocusScope {
                 // Explicit reverse navigation keeps the header action between
                 // tabs and composer: https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
                 KeyNavigation.backtab: consoleTabs
-                KeyNavigation.tab: root.composerFocus
+                // The forwarding notice's page link, while one shows, comes
+                // before the composer.
+                KeyNavigation.tab: reachNotice.visible && reachNotice.firstStop !== null ? reachNotice.firstStop : root.composerFocus
                 onClicked: root.newConversation()
             }
             // The main Jarvis's reachability, in the fixed header so a long
-            // conversation never scrolls it away.
+            // conversation never scrolls it away: a reading as a hint line,
+            // and a route that cannot forward, or a main that did not
+            // answer, which stops a forward, as a warning notice with the
+            // reading's page link (design-system.md).
             LinkText {
                 objectName: "mainReachLine"
-                visible: root.tab === 0 && text !== ""
+                visible: root.tab === 0 && text !== "" && !reachNotice.warns
                 width: parent.width
                 role: "hint"
                 text: root.reachText(root.values.mainReach)
-                // A route that cannot forward, or a main that did not answer,
-                // stops a forward: the warning tone (design-system.md).
-                color: root.values.mainReach && (root.values.mainReach.kind === "unavailable"
-                    || root.values.mainReach.kind === "satellite" && root.values.mainReach.cause !== "") ? Theme.color.warning : Theme.color.textMuted
+                color: Theme.color.textMuted
                 wrapMode: Text.Wrap
+            }
+            Callout {
+                id: reachNotice
+                objectName: "mainReachNotice"
+                readonly property var reach: root.values.mainReach
+                readonly property bool warns: reach !== undefined && reach !== null
+                    && (reach.kind === "unavailable" || reach.kind === "satellite" && reach.cause !== "")
+                visible: root.tab === 0 && warns
+                tone: "warning"
+                iconName: "triangle-alert"
+                text: warns ? root.reachText(reach) : ""
                 onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
             Row {

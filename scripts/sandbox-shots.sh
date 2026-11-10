@@ -24,10 +24,10 @@
 # and one mode per invocation, so each theme has a fresh shell lifetime.
 #
 
-# SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
+# SCENE is gallery, gallery-callouts, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, ai-usage-hide, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-reach, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, ai-usage-hide, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -109,7 +109,12 @@
 # It captures hidden listening, idle, speaking, held request and fault.
 # These scenes run only when named. jarvis-console is the Jarvis console
 # window over the scripted daemon fixture in each conversation state and
-# the package-owned Needs you/History pages, taken only when named; jarvis-history draws plain
+# the package-owned Needs you/History pages, taken only when named;
+# gallery-callouts, taken only when named, is the Gallery's Feedback
+# section from its top, three pages, which hold its Callout examples;
+# jarvis-reach is its Now tab while the main Jarvis reading, published
+# through the service's own status provider, says requests cannot be
+# forwarded until a Home folder is chosen, taken only when named; jarvis-history draws plain
 # problem sentences from three fixture records at default and narrow sizes
 # and checks that an empty source fails its entry check; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; capture is
@@ -628,7 +633,7 @@ while [[ $# -gt 0 ]]; do
     restart-owed) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -780,7 +785,7 @@ scene_ships() {
     plugin-pages|info-dialog) [[ $manager_scene == settings ]] ;;
     setup-tab) [[ $manager_scene == settings && $has_setup_tab == true ]] ;;
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
-    gallery) ships_plugin vgs.gallery ;;
+    gallery|gallery-callouts) ships_plugin vgs.gallery ;;
     focus) ships_plugin vgs.gallery vgs.settings ;;
     focus-open) ships_plugin vgs.settings vgs.network vgs.system ;;
     flyout-titles) ships_plugin vgs.sysmon vgs.settings vgs.network vgs.sound vgs.updates ;;
@@ -796,7 +801,7 @@ scene_ships() {
     capture-notifications) ships_plugin vgs.capture vgs.notifications ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
-    jarvis-console|jarvis-history) ships_plugin vgs.jarvis ;;
+    jarvis-console|jarvis-reach|jarvis-history) ships_plugin vgs.jarvis ;;
     jarvis-keys|jarvis-states) [[ $manager_scene == settings ]] && ships_plugin vgs.jarvis vgs.settings vgs.bar ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
@@ -1339,6 +1344,23 @@ gallery_lists() { # MODE
 # 40 px apart so each page repeats the last lines of the one before, up to
 # gallery_pages pages.
 gallery_pages=12
+# The Feedback section's first three pages, from its top.
+scene_gallery-callouts() { # MODE
+  local page y span at cy ch h
+  expect "the gallery summons for its notices" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
+  expect_poll "the gallery maps its surface for its notices" 1 surface_count "$gallery_surface"
+  span="$(ipc smoke sectionSpan "$gallery_kind" vgs.gallery Feedback)" || span=unread
+  if [[ $span != "["* ]]; then fail "the gallery Feedback section could not be read: $span"; return; fi
+  y="$(python3 -c 'import json,sys; print(max(0, int(json.loads(sys.argv[1])[0]) - 12))' "$span")"
+  for page in 1 2 3; do
+    at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
+    if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; return; fi
+    read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
+    take "gallery-callouts-$1-p$page"
+    y=$(( cy + h - 40 ))
+  done
+  expect "the gallery hides after its notices" ok ipc shell hide "$gallery_kind" vgs.gallery
+}
 scene_gallery() { # MODE
   local page=1 y=0 at cy ch h span focus_shown message_focus_shown
   expect "the gallery summons" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
@@ -4841,6 +4863,26 @@ JSHOME
     [[ $reply == ok ]] || { printf '%s=%s\n' "$key" "$reply"; failed=1; }
   done <<<"$rows"
   [[ $failed == 0 ]] && echo ok || return 1
+}
+# The console's Now tab over an unavailable forwarding route, in the
+# selected revision's own drawing of that reading.
+jarvis_reach_drawn() {
+  ipc smoke itemTexts window vgs.jarvis QQuickText | py_reply 'import json,sys; print(any(t.startswith("Jarvis cannot forward requests") for row in json.load(sys.stdin) for t in row))'
+}
+scene_jarvis-reach() { # MODE
+  expect "Jarvis enables for the forwarding warning" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "Jarvis answers for the forwarding warning" ready jarvis_started
+  expect "the Jarvis status provider is held for the forwarding warning" held ipc smoke holdStatus service vgs.jarvis
+  close_notices
+  expect "the unavailable route publishes" ok ipc smoke heldStatusSet mainReach '{"kind":"unavailable","host":"","cause":"no-home"}'
+  expect "the Jarvis console summons for the forwarding warning" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the Jarvis console maps for the forwarding warning" 1 window_count Jarvis
+  expect_poll "the Jarvis console draws the forwarding warning" True jarvis_reach_drawn
+  park_pointer
+  take_posed "jarvis-reach-$1-unavailable"
+  expect "the Jarvis console hides after the forwarding warning" ok ipc shell hide window vgs.jarvis
+  expect "Jarvis disables after the forwarding warning" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "Jarvis is gone after the forwarding warning" absent ipc smoke jarvisProcess
 }
 # Each Home repair state uses the selected revision's own status rules.
 # The before revision has no repair result formatter and keeps its refusal.

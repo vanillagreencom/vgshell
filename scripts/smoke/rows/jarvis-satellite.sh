@@ -10,7 +10,7 @@
 # to, and a choice made while the daemon's answers are held reaches the
 # package once it is ready. The control drops the choice's hand-off in a
 # disposable Service copy: the same choice never reaches the package.
-# inputs: scripts/smoke/rows/jarvis.sh scripts/fixtures/jarvis/satellite-package.py scripts/fixtures/jarvis/prepare.js shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/feedback/LinkText.qml shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: scripts/smoke/rows/jarvis.sh scripts/fixtures/jarvis/satellite-package.py scripts/fixtures/jarvis/prepare.js shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Ui/feedback/LinkText.qml shell/plugins/vgs.jarvis/backend/skills/*.md shell/Ui/feedback/Callout.qml
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -79,12 +79,20 @@ sets=[a[1].split("=",1)[1] for a in rows if a[0]=="main-host" and a[1].startswit
 print(sets[-1] if sets else "none")
 PYSET
 }
-# The Now line as drawn, or hidden.
+# The Now reading as drawn: the line's text, the warning notice's text
+# after `warning: `, or hidden.
 satellite_line() {
-  ipc smoke itemValues window vgs.jarvis LinkText objectName,text,visible | py_reply '
+  local line notice
+  line="$(ipc smoke itemValues window vgs.jarvis LinkText objectName,text,visible)" || return
+  notice="$(ipc smoke itemValues window vgs.jarvis Callout objectName,text,visible,tone)" || return
+  if [[ $notice != \[* ]]; then printf '%s\n' "$notice"; return; fi
+  py_reply '
 import json,sys
-rows=[r for r in json.load(sys.stdin) if r.get("objectName")=="mainReachLine"]
-print(rows[0]["text"] if len(rows)==1 and rows[0]["visible"] else "hidden" if rows else "absent")'
+pick=lambda rows,name: [r for r in rows if r.get("objectName")==name]
+line=pick(json.load(sys.stdin),"mainReachLine")
+notice=pick(json.loads(sys.argv[1]),"mainReachNotice")
+shown=[r["text"] for r in line if r["visible"]]+[r["tone"]+": "+r["text"] for r in notice if r["visible"]]
+print("absent" if len(line)!=1 or len(notice)!=1 else shown[0] if len(shown)==1 else "hidden" if not shown else "both")' "$notice" <<<"$line"
 }
 satellite_choose() { # KEY VALUE
   expect "choose $1 $2" ok ipc smoke invokeInstance window vgs.settings applySetting "{\"id\":\"vgs.jarvis\",\"key\":\"$1\",\"value\":\"$2\"}"
@@ -121,16 +129,16 @@ expect_poll "the choice reaches the package as the main and this Home's path" "c
 expect_poll "the Now line reads the main as reachable" "Requests that need your main Jarvis go to cachy. It is reachable." satellite_line
 satellite_state "{\"main\": \"cachy:$satellite_home\", \"reachable\": false}"
 satellite_choose mainHost jarvis
-expect_poll "the Now line names a main that did not answer" "Requests that need your main Jarvis go to jarvis. It did not answer. Requests wait here." satellite_line
+expect_poll "the Now line names a main that did not answer" "warning: Requests that need your main Jarvis go to jarvis. It did not answer. Requests wait here." satellite_line
 satellite_choose mainHost ""
 expect_poll "choosing This computer clears the package's setting" "" satellite_set
 expect_poll "the Now line reads this computer as the main" "This computer runs your main Jarvis." satellite_line
 satellite_state '{"package": "old"}'
 satellite_choose mainHost cachy
-expect_poll "an older package cannot forward" "Jarvis cannot forward to cachy: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line
+expect_poll "an older package cannot forward" "warning: Jarvis cannot forward to cachy: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line
 satellite_state '{"setter": "absent"}'
 satellite_choose mainHost jarvis
-expect_poll "a package without the setter is older" "Jarvis cannot forward to jarvis: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line
+expect_poll "a package without the setter is older" "warning: Jarvis cannot forward to jarvis: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line
 
 # The launcher's Switch Jarvis home hands the setting to the home it
 # switches to, as a choice on the page does.

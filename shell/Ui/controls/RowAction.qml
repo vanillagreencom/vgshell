@@ -9,8 +9,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // fill, no box and no side padding, so the text starts on the
 // control's own edge and a row puts it on its value column. `tone` names a
 // group of `Theme.rowAction.tone`, `accent` or `danger`; an unknown name is
-// logged and drawn as `accent`. The text draws no underline at rest; on
-// hover it takes the tone's hover colour over an underline
+// logged and drawn as `accent`. A container that draws its actions in its
+// own tone, as Callout does, hands its colours as `tokens`, a group of
+// `foreground`, `hover` and `pressed`, in place of the tone's, and the
+// action draws as an accent one does in them. The text draws no underline
+// at rest; on hover it takes the tone's hover colour over an underline
 // `rowAction.underline` thick, at least `rowAction.underlineGap` under its
 // baseline and one clear device row under its descenders
 // (Inset.underlineTop), and pressed it takes the tone's pressed
@@ -72,7 +75,7 @@ T.Button {
     property string markName: ""
     property bool removesItem: false
     readonly property DisabledReason lock: lockState
-    readonly property var tokens: toneOf(removesItem ? "danger" : tone)
+    property var tokens: toneOf(removesItem ? "danger" : tone)
     readonly property color foreground: down ? tokens.pressed : hovered ? tokens.hover : tokens.foreground
     readonly property bool marked: removesItem || tone === "danger"
     readonly property real glyphEnd: removesItem ? width - contentItem.x - mark.x - mark.painted[2] : 0

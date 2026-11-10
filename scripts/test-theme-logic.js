@@ -698,6 +698,7 @@ const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.
 const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["kbd.valueForeground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
     ...["normal", "warning", "danger"].map(level => [`badge.unread.tone.${level}.foreground`, `badge.unread.tone.${level}.background`]),
+    ...["info", "warning", "danger"].flatMap(tone => [[`callout.tone.${tone}.foreground`, `callout.tone.${tone}.background`], [`callout.tone.${tone}.link.foreground`, `callout.tone.${tone}.background`]]),
     ...["foreground", "gradientStart", "gradientEnd"].map(role => [`screensaver.${role}`, "screensaver.background"])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
@@ -952,6 +953,17 @@ function verify(judge) {
     const opaqueFill = judge.accept(TOKENS, document({ badge: { tone: { success: { background: "#c9d897" } } } }));
     assert.equal(opaqueFill.ok, true, opaqueFill.ok ? "" : judge.refusalLine(opaqueFill));
     assert.deepEqual(plain(readability(judge, opaqueFill.values)), [{ text: "badge.tone.success.foreground", surface: "badge.tone.success.background", ratio: 1, floor: 4.5 }]);
+
+    // A notice's ink and its link, in each state, are judged on the
+    // state's translucent fill laid over each resting surface: an ink the
+    // colour of the background fails on every one, and the link, which
+    // derives from the ink, fails with it.
+    for (const tone of ["info", "warning", "danger"]) {
+        const dark = judge.accept(TOKENS, document({ callout: { tone: { [tone]: { foreground: "#000000" } } } }));
+        assert.equal(dark.ok, true, dark.ok ? "" : judge.refusalLine(dark));
+        assert.deepEqual(plain(readability(judge, dark.values).map(row => [row.text, row.surface])),
+            ["foreground", "link.foreground"].flatMap(ink => READABILITY_SURFACES.map(surface => [`callout.tone.${tone}.${ink}`, `callout.tone.${tone}.background over ${surface}`])), tone + ": a notice's ink is judged on its fill");
+    }
 
     // The resolved tree holds exactly the table's tokens, each with a value
     // of its type's portable form.
@@ -1737,7 +1749,11 @@ for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
 const LED_LINES = [
     { file: "shell/Ui/feedback/SaveBar.qml", label: "savedText", icon: 'name: "check"' },
     { file: "shell/Ui/controls/TitleButton.qml", label: "label", icon: 'name: "chevron-down"' },
-    { file: "shell/Ui/feedback/Callout.qml", label: "titleLabel", icon: "name: root.iconName" },
+    {
+        file: "shell/Ui/feedback/Callout.qml", icon: "name: root.iconName",
+        binding: "y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
     { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },
     {
         file: "shell/plugins/vgs.themes/WallpaperView.qml", icon: "color: sourceText.color",
@@ -2267,6 +2283,7 @@ const CONTROLS = [
     ["readability floor", "var READABILITY_FLOOR = 4.5;", "var READABILITY_FLOOR = 1;"],
     ["readability pairs", "    [\"segmented.foreground\", \"segmented.background\"],\n", ""],
     ["readability badge pairs", "    [\"badge.tone.success.foreground\", \"badge.tone.success.background\"],\n", ""],
+    ["readability notice pairs", "    [\"callout.tone.danger.foreground\", \"callout.tone.danger.background\"],\n", ""],
     ["readability count badge pairs", "    [\"badge.unread.tone.warning.foreground\", \"badge.unread.tone.warning.background\"],\n", ""],
     ["readability translucent fill over a surface", "if (fill === null || fill.a === 1)", "if (true)"],
     ["readability fill blend", "r: base.r + (fill.r - base.r) * fill.a,", "r: fill.r,"],
