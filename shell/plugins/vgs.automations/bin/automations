@@ -289,13 +289,13 @@ function scheduler() {
     return which("crontab") !== null ? "cron" : "none";
 }
 
-function admitScheduler(store) {
+function admitScheduler(automations) {
     const chosen = scheduler();
     if (chosen === "none") refuse("scheduler=none", "neither a systemd user manager nor crontab answered");
     // The preview reports no cron fields for a seconds rule. Admission must
     // precede store writes and waiting-run cancellation as well as sync.
     if (chosen === "cron") {
-        const unsupported = store.automations.find(a => a.enabled && Logic.cronFields(a.schedule).length === 0);
+        const unsupported = automations.find(a => a.enabled && Logic.cronFields(a.schedule).length === 0);
         if (unsupported) refuse("scheduler=systemd-required id=" + unsupported.id, "cron has no seconds field");
     }
     return chosen;
@@ -457,7 +457,7 @@ function sync() {
         process.stdout.write("sync=idle changed=0\n");
         return;
     }
-    const chosen = admitScheduler(store);
+    const chosen = admitScheduler(store.automations);
     const engine = ensureEngine();
     let changed;
     if (chosen === "systemd") {
@@ -609,7 +609,7 @@ function addVerb(words) {
     flagged(words, ["--definition"]);
     if (words.length !== 2) bad("definition=missing");
     const judged = accept(Logic.addAutomation(readStore(), readJsonArg("--definition", words, "definition")));
-    admitScheduler(judged.store);
+    admitScheduler([judged.automation]);
     writeStore(judged.store);
     markHandled(judged.automation.id, Date.now());
     sync();
@@ -623,7 +623,7 @@ function editVerb(words) {
     const id = words[0];
     const before = Logic.indexOfAutomation(store, id);
     const judged = accept(Logic.editAutomation(store, id, readJsonArg("--definition", words, "definition")));
-    admitScheduler(judged.store);
+    admitScheduler([judged.automation]);
     cancelPending(id, false);
     writeStore(judged.store);
     if (judged.automation.enabled && !store.automations[before].enabled) markHandled(id, Date.now());
@@ -635,7 +635,7 @@ function enableVerb(words, enabled) {
     const id = one(words, "id");
     const store = readStore();
     const judged = accept(Logic.editAutomation(store, id, { enabled: enabled }));
-    admitScheduler(judged.store);
+    admitScheduler([judged.automation]);
     cancelPending(id, false);
     writeStore(judged.store);
     if (enabled) markHandled(id, Date.now());

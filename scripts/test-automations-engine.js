@@ -250,7 +250,7 @@ const CASES = {
         const w = world();
         const id = add(w, engine, { name: "Back up", schedule: { frequency: "weekly", interval: 2, weekdays: ["mon", "thu"], times: ["08:30", "17:00"], start: "2026-01-05", end: { type: "never" } }, catchUp: true });
         assert.equal(id, "back-up");
-        same(calls(w, "systemctl"), [["--user", "show-environment"], ["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-automation-back-up.timer"]]);
+        same(calls(w, "systemctl"), [["--user", "show-environment"], ["--user", "show-environment"], ["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-automation-back-up.timer"]]);
         const timer = fs.readFileSync(path.join(w.units, "vgs-automation-back-up.timer"), "utf8");
         assert.match(timer, /\nOnCalendar=Mon,Thu \*-\*-\* 08:30:00\nOnCalendar=Mon,Thu \*-\*-\* 17:00:00\n/);
         assert.match(timer, /\nPersistent=true\n/);
@@ -291,10 +291,10 @@ const CASES = {
         fs.rmSync(path.join(w.stub, "systemctl.calls"));
         assert.equal(cli(w, engine, ["edit", id, "--definition", JSON.stringify({ schedule: { frequency: "yearly", interval: 1, yearly: { month: 3, day: 15 }, times: ["07:00"], start: "2026-01-01", end: { type: "never" } } })]).status, 0);
         assert.match(fs.readFileSync(path.join(w.units, "vgs-automation-job.timer"), "utf8"), /\nOnCalendar=\*-03-15 07:00:00\n/);
-        same(calls(w, "systemctl").slice(1), [["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-automation-job.timer"], ["--user", "restart", "vgs-automation-job.timer"]], "a changed timer restarts");
+        same(calls(w, "systemctl"), [["--user", "show-environment"], ["--user", "show-environment"], ["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-automation-job.timer"], ["--user", "restart", "vgs-automation-job.timer"]], "a changed timer restarts");
         fs.rmSync(path.join(w.stub, "systemctl.calls"));
         assert.equal(cli(w, engine, ["disable", id]).stdout.trim().split("\n").pop(), "disabled=job");
-        same(calls(w, "systemctl").slice(1), [["--user", "disable", "--now", "vgs-automation-job.timer"], ["--user", "daemon-reload"]]);
+        same(calls(w, "systemctl"), [["--user", "show-environment"], ["--user", "show-environment"], ["--user", "disable", "--now", "vgs-automation-job.timer"], ["--user", "daemon-reload"]]);
         same(fs.readdirSync(w.units), []);
         assert.equal(cli(w, engine, ["enable", id]).status, 0);
         same(fs.readdirSync(w.units).sort(), ["vgs-automation-job.service", "vgs-automation-job.timer"]);
@@ -1010,6 +1010,34 @@ const CASES = {
         assert.equal(cli(w, engine, ["disable", id]).status, 0, "a seconds rule can still be paused while systemd is unavailable");
     },
 
+    "cron can repair saved seconds rules while unsupported siblings remain"(engine) {
+        const seconds = { frequency: "secondly", interval: 30, start: "2026-01-01", end: { type: "never" }, zone: "utc" };
+        const minutes = Object.assign({}, seconds, { frequency: "minutely", interval: 1 });
+        for (const action of ["disable", "edit"]) {
+            const w = world();
+            const first = add(w, engine, { name: "First", schedule: seconds });
+            const second = add(w, engine, { name: "Second", schedule: seconds });
+            const original = "MAILTO=me\n";
+            write(path.join(w.stub, "crontab"), original);
+            write(path.join(w.stub, "systemd"), "down");
+            const repair = id => cli(w, engine, action === "disable" ? ["disable", id]
+                : ["edit", id, "--definition", JSON.stringify({ schedule: minutes })]);
+            const partial = repair(first);
+            same([partial.status, partial.first], [1, "automations: refused: scheduler=systemd-required id=second"]);
+            const stored = JSON.parse(fs.readFileSync(w.store, "utf8")).automations;
+            same(stored.map(a => [a.id, a.enabled, a.schedule.frequency]), [
+                [first, action !== "disable", action === "edit" ? "minutely" : "secondly"],
+                [second, true, "secondly"]
+            ], action + " makes progress without changing the unsupported sibling");
+            assert.equal(fs.readFileSync(path.join(w.stub, "crontab"), "utf8"), original, "sync still refuses the unsupported sibling");
+            const finished = repair(second);
+            assert.equal(finished.status, 0, finished.stderr);
+            const lines = fs.readFileSync(path.join(w.stub, "crontab"), "utf8").split("\n");
+            for (const id of [first, second])
+                assert.equal(lines.some(line => line.endsWith("'run' '--scheduled' '" + id + "'")), action === "edit", action + " restores the requested cron schedule");
+        }
+    },
+
     "cron refuses seconds mutations before changing definitions or waiting runs"(engine) {
         const seconds = { frequency: "secondly", interval: 30, start: "2026-10-30", end: { type: "never" }, zone: "utc" };
         for (const action of ["add", "edit", "enable"]) {
@@ -1134,7 +1162,7 @@ const CASES = {
     "without a systemd user manager sync keeps a crontab block"(engine) {
         const w = world({ systemd: "down" });
         const id = add(w, engine, { schedule: { frequency: "monthly", interval: 1, monthly: { by: "weekday", week: 2, weekday: "tue" }, times: ["09:00"], start: "2026-01-01", end: { type: "never" } } });
-        same(calls(w, "systemctl"), [["--user", "show-environment"]], "no unit is written");
+        same(calls(w, "systemctl"), [["--user", "show-environment"], ["--user", "show-environment"]], "no unit is written");
         same(calls(w, "crontab"), [["-l"], ["-"]], "a user without a table gets one");
         const block = fs.readFileSync(path.join(w.stub, "crontab"), "utf8");
         write(path.join(w.stub, "crontab"), "MAILTO=me\n5 * * * * mine\n" + block);
@@ -1410,7 +1438,8 @@ const CONTROLS = [
     ["clear keeps a running run", "clear keeps a running run and prune keeps the retention", "judged.rows.filter(row => row.outcome !== \"running\")", "judged.rows"],
     ["cron is the fallback", "without a systemd user manager sync keeps a crontab block", "changed = writeCrontab(requireCommand(\"crontab\"), Logic.cronLines(", "changed = writeCrontab(requireCommand(\"crontab\"), [] || Logic.cronLines("],
     ["cron cannot silently drop a seconds rule", "seconds use calendar timers and refuse cron without replacing its table", "if (unsupported) refuse(\"scheduler=systemd-required id=\" + unsupported.id, \"cron has no seconds field\");", ""],
-    ["cron admission precedes store mutation", "cron refuses seconds mutations before changing definitions or waiting runs", "    admitScheduler(judged.store);\n    writeStore(judged.store);\n    markHandled(judged.automation.id, Date.now());", "    if (false) admitScheduler(judged.store);\n    writeStore(judged.store);\n    markHandled(judged.automation.id, Date.now());"],
+    ["cron admission precedes store mutation", "cron refuses seconds mutations before changing definitions or waiting runs", "    admitScheduler([judged.automation]);\n    writeStore(judged.store);\n    markHandled(judged.automation.id, Date.now());", "    if (false) admitScheduler([judged.automation]);\n    writeStore(judged.store);\n    markHandled(judged.automation.id, Date.now());"],
+    ["cron recovery admits only the changed candidate", "cron can repair saved seconds rules while unsupported siblings remain", "    const judged = accept(Logic.editAutomation(store, id, { enabled: enabled }));\n    admitScheduler([judged.automation]);", "    const judged = accept(Logic.editAutomation(store, id, { enabled: enabled }));\n    admitScheduler(judged.store.automations);"],
     ["cron lines run the scheduled trigger", "under cron a catch-up automation runs a missed occurrence at startup", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"scheduled\"), runnerEnvironment)", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"manual\"), runnerEnvironment)"],
     ["a crontab without a table reads empty", "without a systemd user manager sync keeps a crontab block", "if (out.status === 1 && /^no crontab for /.test(firstLine(out.stderr))) return \"\";", ""],
     ["a late skip ends its unit clean", "offline lateness skips neutrally or catches up the latest once", "log(\"skipped=\" + id + \" reason=\" + (answer.reason || \"cancelled\"));", "process.exit(1);"],
