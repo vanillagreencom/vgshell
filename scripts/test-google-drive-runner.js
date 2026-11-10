@@ -233,6 +233,10 @@ const all = args[1] === "--all";
 const rest = args.slice(all ? 2 : 1);
 if (args[0] !== "search" || !keyed(rest, 0)) process.exit(2);
 const account = rest[3];
+if (fs.existsSync(stub + "/observe-attention")) {
+    const status = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(w.state, "status.json"))}, "utf8"));
+    fs.appendFileSync(stub + "/attention-renders", JSON.stringify(status) + "\\n");
+}
 const locked = fs.existsSync(path.join(store, account + ".locked"));
 let found = items(account);
 if (locked && found.length === 0) found = [account];
@@ -2533,6 +2537,7 @@ async function caseRenameConcurrent(runner) {
     try {
         await waitFor(path.join(w.stub, "store-blocked"), "the rename's token store");
         for (const dir of Object.values(oldPlaces(w))) assert.equal(fs.existsSync(dir), false, dir);
+        assert.equal(fs.existsSync(path.join(w.state, "rename.pending")), true, "moved directories keep the pending rename record before token storage");
         const before = waits();
         signOut = spawnRunner(w, ["sign-out"], runner);
         const deadline = Date.now() + 30000;
@@ -2755,6 +2760,137 @@ function initialize(w, runner, id = "docs") {
     return state;
 }
 
+function caseInitializationAttention(runner) {
+    const w = twoWayWorld(runner);
+    const photos = path.join(w.home, "mirror", "photos");
+    const rows = [
+        { ids: ["docs"], change: () => {} },
+        { ids: ["docs", "photos"], run: true, change: () => {
+            seedEqual(w, "Photos", photos);
+            addPair(w, runner, { id: "photos", label: "Photos", remote: "Photos", local: photos });
+        } },
+        { ids: ["photos"], change: () => initialize(w, runner) }
+    ];
+    let previous = null;
+    for (const row of rows) {
+        row.change();
+        const record = status(w, runner);
+        assert.deepEqual(record.pairs.filter(p => p.state === "initialization-required").map(p => p.id).sort(), row.ids);
+        assert.notEqual(record.attention, null, "stopped pair set changes attention");
+        assert.deepEqual(record.attention.reasons, ["initialization-required"]);
+        assert.notEqual(record.attention.key, previous, "stopped pair set changes attention");
+        assert.equal(record.attention.notified, false, "changed stopped pair set has not been notified");
+        assert.equal(cli(w, ["attention-seen", record.attention.key], runner).status, 0);
+        assert.deepEqual(status(w, runner).attention, Object.assign({}, record.attention, { notified: true }), "unchanged stopped pair set stays notified");
+        if (row.run) {
+            assert.ok(record.pairs.every(p => p.lastError === null), "the first ordinary run has no saved failure");
+            write(path.join(w.stub, "observe-attention"), "");
+            const out = cli(w, ["run"], runner);
+            assert.equal(out.status, 1, out.stderr);
+            const renders = jsonLines(path.join(w.stub, "attention-renders"));
+            const running = new Set(renders.flatMap(r => r.pairs.filter(p => p.state === "running").map(p => p.id)));
+            assert.deepEqual([...running].sort(), row.ids, "ordinary run observed both producer steps");
+            for (const during of renders) {
+                assert.deepEqual(during.pairs.filter(p => p.initialization.state === "required").map(p => p.id).sort(), row.ids);
+                assert.deepEqual(during.attention, Object.assign({}, record.attention, { notified: true }), "ordinary run keeps setup attention");
+            }
+            assert.deepEqual(status(w, runner).attention, Object.assign({}, record.attention, { notified: true }), "ordinary run keeps setup attention after both holds");
+            fs.unlinkSync(path.join(w.stub, "observe-attention"));
+        }
+        previous = record.attention.key;
+    }
+}
+
+function caseModeAdmission(runner) {
+    const old = world({ twoWaySync: true });
+    fs.mkdirSync(old.mirror, { recursive: true });
+    fs.mkdirSync(path.join(old.drive, "Docs"), { recursive: true });
+    write(path.join(old.home, ".config/vgshell/google-drive/pairs.json"), JSON.stringify({ pairs: [
+        { id: "docs", label: "Documents", remote: "Docs", local: old.mirror }
+    ] }));
+    write(path.join(old.state, "pairs/docs/state.json"), JSON.stringify({ state: "idle", records: [], lastError: null }));
+    const before = status(old, runner);
+    assert.equal(before.copyModeMigration, true, "existing pairs need Settings admission");
+    assert.equal(before.twoWaySync, true, "admission metadata never overrides the Settings mirror");
+    assert.equal(cli(old, ["run"], runner).stdout, "pair=docs result=initialization-required\n", "a timer can arrive before Service admission");
+    assert.equal(cli(old, ["service-mode", "false"], runner).status, 0);
+    const off = status(old, runner);
+    assert.equal(off.pairs[0].state, "idle", "copy mode withdraws the former setup hold");
+    assert.equal(off.attention, null, "copy mode withdraws the former setup notice before its next run");
+    runOk(old, runner);
+    const admitted = status(old, runner);
+    assert.equal(admitted.copyModeMigration, false);
+    assert.equal(admitted.pairs[0].route, "copy");
+    assert.equal(admitted.attention, null, "r188 copy route needs no setup notice");
+    const fresh = world({ twoWaySync: true });
+    assert.equal(status(fresh, runner).twoWaySync, true, "fresh empty install keeps On");
+    addPair(fresh, runner);
+    assert.equal(status(fresh, runner).twoWaySync, true, "fresh first pair keeps On");
+    assert.equal(status(fresh, runner).copyModeMigration, false, "fresh admission survives pair-add");
+    assert.equal(cli(fresh, ["set-two-way", "false"], runner).status, 2, "public second mode writer is removed");
+}
+
+function caseInitializationPreparation(runner, only) {
+    const rows = ["download", "historical", "decline", "edited", "historical-edited", "hash-edited", "size-edited", "occupied", "changed-at-confirm", "local-access-only", "remote-access-only"];
+    for (const name of rows.filter(name => only === undefined || only === name)) {
+        const w = world({ ids: true, user: ACCOUNT });
+        addPair(w, runner);
+        seedEqual(w, "Docs", w.mirror);
+        for (const root of [w.mirror, path.join(w.drive, "Docs")]) fs.unlinkSync(path.join(root, "RCLONE_TEST"));
+        const rel = "reports/Plan.docx";
+        write(path.join(w.stub, "exports"), rel + "\n");
+        drive(w, rel, "downloaded native document\n", 1700000000);
+        runOk(w, runner);
+        const inventoryFile = path.join(w.state, "pairs/docs/inventory.json");
+        const inventory = JSON.parse(read(inventoryFile));
+        const original = inventory.entries[rel];
+        assert.equal(original.size, Buffer.byteLength("downloaded native document\n"), "download records byte size");
+        assert.match(original.hash, /^[0-9a-f]{32}$/, "download records MD5");
+        if (name.startsWith("historical")) {
+            Object.assign(inventory.entries[rel], { size: -1, hash: null });
+            write(inventoryFile, JSON.stringify(inventory));
+        }
+        if (name === "edited" || name === "historical-edited") {
+            write(path.join(w.mirror, rel), "owner edit\n");
+            fs.utimesSync(path.join(w.mirror, rel), 1700003600, 1700003600);
+            runOk(w, runner);
+            assert.deepEqual(JSON.parse(read(inventoryFile)).entries[rel], inventory.entries[rel], "skipped newer edit cannot replace download proof");
+        }
+        if (name === "hash-edited" || name === "size-edited") {
+            write(path.join(w.mirror, rel), name === "hash-edited" ? "Downloaded native document\n" : "different size\n");
+            fs.utimesSync(path.join(w.mirror, rel), 1700000000, 1700000000);
+        }
+        if (name === "local-access-only" || name === "remote-access-only") {
+            const root = name === "local-access-only" ? w.mirror : path.join(w.drive, "Docs");
+            write(path.join(root, "RCLONE_TEST"), "access sentinel\n");
+            fs.utimesSync(path.join(root, "RCLONE_TEST"), 1700000000, 1700000000);
+        }
+        const destination = path.join(w.state, "pairs/docs/exports", rel);
+        if (name === "occupied") write(destination, "keep destination\n");
+        if (name === "decline") write(path.join(w.stub, "decline"), "");
+        if (name === "changed-at-confirm") write(path.join(w.stub, "edit-at-confirm"), "");
+        assert.equal(cli(w, ["service-mode", "true"], runner).status, 0);
+        const roots = snapshot([w.mirror, w.drive]);
+        const out = cli(w, ["initialize", "--pair", "docs"], runner);
+        if (["download", "historical", "local-access-only", "remote-access-only"].includes(name)) {
+            assert.equal(out.status, 0, name + ": " + out.stderr + out.stdout);
+            assert.equal(fs.existsSync(path.join(w.mirror, rel)), false, name + ": download moved out");
+            assert.equal(read(destination), "downloaded native document\n", name + ": export bytes preserved");
+            for (const root of [w.mirror, path.join(w.drive, "Docs")])
+                assert.equal(read(path.join(root, "RCLONE_TEST")), name.endsWith("access-only") ? "access sentinel\n" : "VGS Google Drive access check\n", name + ": access file created");
+            assert.ok(JSON.parse(read(path.join(w.state, "pairs/docs/state.json"))).baseline, name + ": baseline stored");
+        } else {
+            assert.equal(out.status, name === "decline" ? 0 : 1, name + ": " + out.stderr);
+            if (name !== "changed-at-confirm") assert.deepEqual(snapshot([w.mirror, w.drive]), roots, name + ": no synced changes");
+            if (name.endsWith("edited") || name === "occupied")
+                assert.ok(out.stdout.includes(name === "occupied" ? destination : path.join(w.mirror, rel)), name + ": refusal names file");
+            assert.equal(fs.existsSync(destination), name === "occupied", name + ": no export overwritten or created");
+            assert.equal(fs.existsSync(path.join(w.mirror, "RCLONE_TEST")), false, name + ": no access file created");
+            assert.equal(JSON.parse(read(path.join(w.state, "pairs/docs/state.json"))).baseline, null, name + ": no baseline stored");
+        }
+    }
+}
+
 // Admission reaches the production runner and real read-only rclone checks.
 // The confirmation fixture supplies consent only, never baseline files.
 function caseInitializationAdmission(runner) {
@@ -2766,15 +2902,11 @@ function caseInitializationAdmission(runner) {
         }, kind: "folders-differ" },
         { name: "bad existing evidence", plant: w => write(path.join(w.state, "pairs", "docs", "inventory.json"), "{"), kind: "baseline-evidence-unreadable" },
         { name: "bad state evidence", plant: w => write(path.join(w.state, "pairs", "docs", "state.json"), "{"), kind: "baseline-evidence-unreadable" },
-        { name: "missing access files", plant: w => {
-            fs.unlinkSync(path.join(w.mirror, "RCLONE_TEST"));
-            fs.unlinkSync(path.join(w.drive, "Docs", "RCLONE_TEST"));
-        }, kind: "access-file-missing" },
         { name: "ambiguous file path", plant: w => write(path.join(w.stub, "duplicate-file-listing"), ""), kind: "listing-ambiguous" },
-        { name: "ambiguous Drive folder", plant: w => write(path.join(w.stub, "duplicate-directory-listing"), ""), kind: "identity-unknown" },
+        { name: "ambiguous Drive folder", plant: w => write(path.join(w.stub, "duplicate-directory-listing"), ""), kind: "listing-ambiguous" },
         { name: "changed after confirmation", plant: w => write(path.join(w.stub, "edit-at-confirm"), ""), kind: "folders-differ" },
         { name: "pause changed after confirmation", plant: w => {
-            assert.equal(cli(w, ["set-two-way", "true"], runner).status, 0);
+            assert.equal(cli(w, ["service-mode", "true"], runner).status, 0);
             write(path.join(w.stub, "pause-at-confirm"), "");
         }, kind: "control-changed" },
         { name: "unknown account", plant: w => {
@@ -2783,7 +2915,7 @@ function caseInitializationAdmission(runner) {
         { name: "orphan old export", plant: w => {
             equalFile(w, "Report.docx", "old exported document\n");
             write(path.join(w.state, "pairs", "docs", "inventory.json"), JSON.stringify({ entries: {
-                "Report.docx": { export: true, size: -1, mtimeMs: 1700000000000, hash: null, id: "native-doc-id" }
+                "Report.docx": { export: true, size: -1, mtimeMs: 1699999999000, hash: null, id: "native-doc-id" }
             } }));
         }, kind: "native-export-in-sync-root" }
     ];
@@ -2912,7 +3044,7 @@ function caseTwoWayModeAndSafety(runner) {
     const roots = snapshot([w.mirror, w.drive]);
     const calls = rcloneCalls(w).length;
     assert.equal(cli(w, ["pause", "--pair", "docs"], runner).status, 0);
-    for (const value of ["false", "true"]) assert.equal(cli(w, ["set-two-way", value], runner).status, 0);
+    for (const value of ["false", "true"]) assert.equal(cli(w, ["service-mode", value], runner).status, 0);
     assert.equal(read(path.join(w.state, "pairs", "docs", "state.json")), baseline, "switch retains baseline");
     assert.deepEqual(snapshot([w.mirror, w.drive]), roots, "switch changes no data");
     assert.equal(rcloneCalls(w).length, calls, "switch starts no rclone");
@@ -2922,12 +3054,12 @@ function caseTwoWayModeAndSafety(runner) {
     runOk(w, runner);
     assert.ok(rcloneCalls(w).at(-1).argv.includes("bisync"), "unused toggle reuses initialized history");
     fs.unlinkSync(path.join(w.mirror, "neutral-0.txt"));
-    assert.equal(cli(w, ["set-two-way", "false"], runner).status, 0);
+    assert.equal(cli(w, ["service-mode", "false"], runner).status, 0);
     assert.equal(fs.existsSync(path.join(w.mirror, "neutral-0.txt")), false, "Off write does not restore");
     runOk(w, runner);
     assert.equal(read(path.join(w.mirror, "neutral-0.txt")), "unchanged neutral 0\n");
     assert.equal(JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).baseline, null, "copy attempt invalidates");
-    assert.equal(cli(w, ["set-two-way", "true"], runner).status, 0);
+    assert.equal(cli(w, ["service-mode", "true"], runner).status, 0);
     assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=initialization-required\n");
     initialize(w, runner);
     for (const operation of ["delete", "rename"]) {
@@ -3003,12 +3135,12 @@ function caseTwoWayConflictsAndNative(runner) {
 async function caseCopyAttemptInvalidation(runner) {
     const w = twoWayWorld(runner);
     initialize(w, runner);
-    assert.equal(cli(w, ["set-two-way", "false"], runner).status, 0);
+    assert.equal(cli(w, ["service-mode", "false"], runner).status, 0);
     const first = startBlocked(w, runner);
     try {
         await waitFor(path.join(w.stub, "blocked"), "first Off copy");
         assert.equal(JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).baseline, null, "copy invalidates before child progress");
-        assert.equal(cli(w, ["set-two-way", "true"], runner).status, 0);
+        assert.equal(cli(w, ["service-mode", "true"], runner).status, 0);
         assert.equal(status(w, runner).pairs[0].route, "copy", "active operation keeps pinned route");
     } finally {
         release(w);
@@ -3123,6 +3255,30 @@ async function twoWayControl(name, from, to, fn, assertion) {
 }
 
 async function controls() {
+    await twoWayControl("setup attention includes the stopped pair set",
+        'pairs.filter(p => p.initialization.state === "required")',
+        'pairs.filter(p => false)',
+        caseInitializationAttention, "stopped pair set changes attention");
+    await twoWayControl("ordinary run keeps setup attention",
+        'pairs.filter(p => p.initialization.state === "required")',
+        'pairs.filter(p => p.state === "initialization-required")',
+        caseInitializationAttention, "ordinary run keeps setup attention");
+    await twoWayControl("planned comparison ignores directory metadata",
+        'items.map(list => view(list, true))',
+        'items.map(list => list.map(i => [i.Path, i.IsDir, i.Size, listedMd5(i), i.IsDir ? null : Date.parse(i.ModTime)]))',
+        r => caseInitializationPreparation(r, "download"), "download:");
+    await twoWayControl("preserving setup needs matching download time",
+        'base.export === true && base.mtimeMs === Math.floor(st.mtimeMs)', 'base.export === true',
+        r => caseInitializationPreparation(r, "historical-edited"), "historical-edited:");
+    await twoWayControl("setup creates access files only after consent",
+        'if (confirmed.status === 1) return;', 'if (false) return;',
+        r => caseInitializationPreparation(r, "decline"), "decline:");
+    await twoWayControl("existing pairs need Settings admission",
+        'modeAdmitted: pairs.pairs.length === 0', 'modeAdmitted: true',
+        caseModeAdmission, "existing pairs need Settings admission");
+    await twoWayControl("copy mode withdraws the former setup hold",
+        '!control.twoWaySync && state === "initialization-required"', 'false',
+        caseModeAdmission, "copy mode withdraws the former setup hold");
     await twoWayControl("ordinary operation attribution",
         "    bisyncRecords(pair, state, result, backup);",
         "    bisyncRecords(pair, state, result, backup, \"initialize\");",
@@ -3179,7 +3335,7 @@ async function controls() {
     await mustFail("disabled rename suppresses installed stop-post", mutant("disabled rename suppresses installed stop-post", 'const DISABLED_STOP_POST = "[Service]\\nExecStopPost=\\n";', 'const DISABLED_STOP_POST = "[Service]\\n# ExecStopPost=\\n";'), r => caseDisabledMigration(r, "partial new install"));
     await mustFail("disabled failed stop clears overrides", mutant("disabled failed stop clears overrides", '    } finally {\n        clearDisabledStopPost("disabled");\n    }', '    } finally {\n        if (failures.length === 0) clearDisabledStopPost("disabled");\n    }'), r => caseDisabledMigration(r, "stop-fail"));
     await mustFail("rename resumes a held keyring", mutant("rename resumes a held keyring", "writeJson(RENAME_PENDING, { held: keyring.held });", "fs.rmSync(RENAME_PENDING, { force: true });"), r => caseRenameMigration(r, "keyring locked"));
-    await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\" && verb !== \"set-two-way\" && verb !== \"initialize\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
+    await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\" && verb !== \"service-mode\" && verb !== \"initialize\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
     await mustFail("attention key", mutant("attention key", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "needing.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
@@ -3211,7 +3367,7 @@ async function controls() {
     await mustFail("dismiss refuses a row that needs the user", mutant("dismiss refuses a row that needs the user", "if (row.needs === \"you\") refuse(", "if (false) refuse("), caseDismiss);
     await mustFail("a stale key is dropped", mutant("a stale key is dropped", "if (control.dismissed.length !== status.dismissed.length) writeJson(", "if (false) writeJson("), caseDismiss);
     await mustFail("an unreadable pair list drops nothing", mutant("an unreadable pair list drops nothing", "const dismissed = read.error !== null ? control.dismissed : ", "const dismissed = false ? control.dismissed : "), caseDismiss);
-    await mustFail("a pause keeps the dismissals", mutant("a pause keeps the dismissals", "writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync }));", "writeJson(controlFile, Object.assign(next, { twoWaySync: control.twoWaySync }));"), caseDismiss);
+    await mustFail("a pause keeps the dismissals", mutant("a pause keeps the dismissals", "writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync, modeAdmitted: control.modeAdmitted }));", "writeJson(controlFile, Object.assign(next, { twoWaySync: control.twoWaySync }));"), caseDismiss);
     await mustFail("the key follows the copies", mutant("the key follows the copies", "mine: mine, version: version };", "mine: mine };"), caseDismiss);
     await mustFail("a dismissal carries to the versioned record", mutant("a dismissal carries to the versioned record", "if (carried.length > 0) writeJson(", "if (false) writeJson("), caseDismiss);
     await mustFail("only needs-you rows ask for attention", mutant("only needs-you rows ask for attention", "if (needing.length > 0) reasons.push(\"conflicts\");", "if (conflicts.length > 0) reasons.push(\"conflicts\");"), caseNeedsAttention);
@@ -3238,7 +3394,10 @@ async function controls() {
     await mustFail("attention-seen writes", mutant("attention-seen writes", "writeJson(controlFile, Object.assign(readControl(), { notifiedKey: words[0] }));", ""), caseAttention);
     await mustFail("nothing to clear", mutant("nothing to clear", "if (out.status === 1 && out.stderr === \"\") return;", ""), caseAuthorize);
     await mustFail("running pair stands", mutant("running pair stands", "p.state === \"running\" && p.lastError !== null ? failureState(p.lastError.kind) : p.state", "p.state"), caseRunKey);
-    await mustFail("cause by pair id", mutant("cause by pair id", ".sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);", ".sort((a, b) => String(b.lastError.at).localeCompare(String(a.lastError.at))).slice(0, 1);"), caseRunKey);
+    await mustFail("cause by pair id", mutant("cause by pair id",
+        'const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)\n        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);',
+        'const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)\n        .sort((a, b) => String(b.lastError.at).localeCompare(String(a.lastError.at))).slice(0, 1);'),
+        caseRunKey);
     await mustFail("re-arm", mutant("re-arm", "if (control.notifiedKey !== null) writeJson(controlFile, Object.assign(control, { notifiedKey: null }));", ""), caseAttention);
     await mustFail("sign-out notified", mutant("sign-out notified", "if (after !== null && (before === null || before.notified)) writeJson(", "if (false) writeJson("), caseSignOut);
     await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);
@@ -3267,6 +3426,9 @@ async function controls() {
 }
 
 async function main() {
+    caseModeAdmission();
+    caseInitializationAttention();
+    caseInitializationPreparation();
     caseInitializationAdmission();
     caseTwoWayConvergence();
     caseCrossPairConvergence();

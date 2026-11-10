@@ -88,7 +88,7 @@ Item {
     // that opened closes the popover, since the user works there now.
     function fix(action) {
         const reply = action.tui !== undefined
-            ? answered(shell.tui.run(action.tui), "VGS could not open the window for this step.")
+            ? answered(shell.tui.run(action.tui, action.args), "VGS could not open the window for this step.")
             : answered(shell.surfaces.openPage("vgs.google-drive", action.tab), "VGS could not show the Google Drive settings.");
         if (reply === "ok") shell.surfaces.hide("panel");
         return reply;

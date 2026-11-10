@@ -88,6 +88,7 @@ function recordOf(over) {
         state: "authorization-required",
         paused: false,
         twoWaySync: false,
+        copyModeMigration: false,
         units: "installed",
         lastSuccess: iso(NOW - HOUR),
         staleAfter: iso(NOW + HOUR),
@@ -186,6 +187,8 @@ function verifyTwoWay(L) {
     const invalidFields = [
         ["missing mode", { twoWaySync: undefined }, "status=twoWaySync"],
         ["text mode", { twoWaySync: "true" }, "status=twoWaySync"],
+        ["missing admission", { copyModeMigration: undefined }, "status=copyModeMigration"],
+        ["text admission", { copyModeMigration: "false" }, "status=copyModeMigration"],
         ["missing route", { pairs: [Object.assign({}, ready, { route: undefined })] }, "status=pairs"],
         ["unknown route", { pairs: [Object.assign({}, ready, { route: "automatic" })] }, "status=pairs"],
         ["unknown operation", { pairs: [Object.assign({}, ready, { operation: "resync" })] }, "status=pairs"],
@@ -228,6 +231,40 @@ function verifyTwoWay(L) {
     const attention = L.notification(tw({ state: "initialization-required", pairs: [required],
         attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } }));
     assert.equal(attention.tone, "warning");
+    // VGS-2449 makes the delivered explanation and exact setup target the
+    // product contract: name stopped folders, explain the stop and offer
+    // their setup directly, with no internal sync terminology.
+    for (const [label, pairs, ids] of [
+        ["one stopped folder", [required, Object.assign({}, ready, { id: "ready", label: "Already ready" })], ["docs"]],
+        ["several stopped folders", [required, Object.assign({}, required, { id: "inbox", label: "Agent uploads" }), Object.assign({}, ready, { id: "ready", label: "Already ready" })], []]
+    ]) {
+        const rec = tw({ state: "initialization-required", pairs,
+            attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } });
+        const cloud = L.cloudValue(rec, "");
+        const callout = L.problemCallout(cloud, NOW);
+        const notification = L.notification(rec);
+        const setup = L.initializationValue(cloud, signedIn);
+        same(callout.action, { label: "Set up two-way sync", tui: "initialize", args: ids }, label + ": callout target");
+        same(notification.action, callout.action, label + ": notification target");
+        const messages = [callout.text, notification.message, setup.lines.join("\n")];
+        for (const message of messages) {
+            for (const pair of pairs.filter(p => p.initialization.state === "required"))
+                assert.ok(message.includes(pair.label), label + ": stopped folder is named");
+            assert.ok(!message.includes("Already ready"), label + ": ready folder is not called stopped");
+            assert.match(message, /sync stopped/i, label + ": stop is explicit");
+            assert.match(message, /two-way sync/i, label + ": reason is explicit");
+            assert.doesNotMatch(message, /baseline|initializ|settle/i, label + ": plain explanation");
+        }
+        for (const surface of [callout, notification]) {
+            assert.match(surface.text || surface.message, /review.*confirm/i, label + ": action explains the preview");
+            assert.doesNotMatch(surface.title, /baseline|initializ|settle/i, label + ": plain title");
+        }
+    }
+    const manyRequired = Array.from({ length: 64 }, (_, i) => Object.assign({}, required, { id: "p" + i, label: "A long stopped folder name with documents and photos number " + i }));
+    const longNotice = L.notification(tw({ state: "initialization-required", pairs: manyRequired,
+        attention: { reasons: ["initialization-required"], key: "0123456789abcdef", notified: false } }));
+    assert.ok(longNotice.message.length <= 600, "stopped-folder notice fits the core notification contract");
+    same(longNotice.action.args, [], "a long folder list still opens its chooser");
     const noSignIn = L.statusValues(tw({ pairs: [required] }), null, "", "", NOW, HOME).initialization;
     same([noSignIn.available, noSignIn.action], [false, undefined], "initialization waits for a readable sign-in probe");
 
@@ -1093,7 +1130,10 @@ const controls = [
     ["partial recovery cannot report a completed removal", 'if (twoWay && c.outcome !== "completed" && c.kind !== "local-recovery") return false;', ""],
     ["historical copy removal is not reattributed", 'if (conflict.operation === "two-way") {\n        if (conflict.kind === "removed-on-drive"', 'if (conflict.operation === "two-way" || conflict.kind === "removed-locally") {\n        if (conflict.kind === "removed-on-drive"'],
     ["operation outcome and recovery reach their consumer", 'if (hasOwn(c, key)) out[key] = c[key];', ""],
-    ["Setup offers the declared initialization step", 'text: "Initialization needed", action: true, hint:', 'text: "Initialization needed", hint:'],
+    ["Setup offers the declared initialization step", 'text: "Sync stopped", action: true, hint:', 'text: "Sync stopped", hint:'],
+    ["stopped folders replace the earlier generic advice", 'return "Sync stopped for " + stoppedFolders(pairs) + ". Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm.";', 'return "Settle earlier removals and native-document copies with Jarvis, then initialize the matching folders on Setup.";'],
+    ["a single stopped folder opens directly", 'args: pairs.length === 1 ? [pairs[0].id] : []', 'args: []'],
+    ["several stopped folders open the chooser", 'args: pairs.length === 1 ? [pairs[0].id] : []', 'args: [pairs[0].id]'],
     ["initialization-needed pairs cannot run ordinary sync", 'if (pair.state === "initialization-required") return false;\n    if (pair.route === "two-way" && pair.initialization.state === "required") return false;', ""]
 ];
 

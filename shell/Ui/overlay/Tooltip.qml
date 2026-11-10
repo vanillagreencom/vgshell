@@ -464,6 +464,12 @@ Item {
             // click leaves open; grabFocus true is a Popup with an xdg_popup
             // grab the compositor dismisses on a click outside.
             grabFocus: false
+            // A plain tooltip must not intercept the move onto content
+            // beneath it. Only a tooltip with a link needs pointer input.
+            // An empty Region passes input through; null masks do not.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+            mask: root.reachable ? null : passiveMask
+            readonly property Region passiveMask: Region {}
             visible: root.shown
             readonly property AnchorTracker tracker: AnchorTracker { popup: window; anchor: root.anchorItem }
             readonly property bool pointerOver: over.hovered

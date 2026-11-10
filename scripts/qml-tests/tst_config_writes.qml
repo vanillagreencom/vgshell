@@ -226,6 +226,65 @@ Item {
             verify(!Object.prototype.hasOwnProperty.call(Config.user.packages.review, "enabled"));
         }
 
+        function test_setting_admission_preserves_saved_choices_and_unrelated_keys() {
+            const manifest = { id: "vgs.google-drive", settings: { twoWaySync: true }, schema: { twoWaySync: { type: "boolean" } } };
+            const reader = compareReader();
+            for (const saved of [undefined, false, true]) {
+                const row = { id: manifest.id };
+                if (saved !== undefined) row.twoWaySync = saved;
+                const user = { version: 6, plugins: [row, { id: "acme.other", keep: true }], unrelated: 7 };
+                const bytes = JSON.stringify(user);
+                finishNextRead(Config.userPath, bytes);
+                reader.blockingError = 0;
+                reader.blockingContent = bytes;
+                compare(Config.writeSettingIfAbsent(manifest, "twoWaySync", false), "ok");
+                const wanted = saved === undefined ? false : saved;
+                compare(Config.user.plugins[0].twoWaySync, wanted);
+                compare(Config.user.plugins[1], { id: "acme.other", keep: true });
+                compare(Config.user.unrelated, 7);
+                fileHolds(Object.assign({}, user, { plugins: [{ id: manifest.id, twoWaySync: wanted }, user.plugins[1]] }));
+            }
+        }
+
+        function test_setting_admission_refuses_a_new_disk_choice_before_the_watcher_reads_it() {
+            const manifest = { id: "vgs.google-drive", settings: { twoWaySync: true } };
+            const reader = compareReader();
+            const bytes = Config.userText;
+            reader.blockingError = 0;
+            reader.blockingContent = JSON.stringify({ version: 6, plugins: [{ id: manifest.id, twoWaySync: true }] });
+            verify(Config.writeSettingIfAbsent(manifest, "twoWaySync", false) !== "ok");
+            compare(Config.userText, bytes);
+            reader.blockingError = FileViewError.PermissionDenied;
+            verify(Config.writeSettingIfAbsent(manifest, "twoWaySync", false) !== "ok");
+            compare(Config.userText, bytes);
+            reader.blockingError = 0;
+            finishNextRead(Config.userPath, reader.blockingContent);
+            compare(Config.writeSettingIfAbsent(manifest, "twoWaySync", false), "ok");
+            compare(Config.user.plugins[0].twoWaySync, true);
+        }
+
+        // expected-log: config: user file not written at -- admission never proceeds after a refused save
+        function test_setting_admission_writes_absent_file_and_retries_only_after_a_read() {
+            const manifest = { id: "vgs.google-drive", settings: { twoWaySync: true } };
+            const reader = compareReader();
+            watched(Config.userPath).read();
+            view(Config.userPath).failRead(FileViewError.FileNotFound);
+            reader.blockingError = FileViewError.FileNotFound;
+            compare(Config.writeSettingIfAbsent(manifest, "twoWaySync", false), "ok");
+            fileHolds({ version: 6, plugins: [{ id: manifest.id, twoWaySync: false }] });
+            watched(Config.userPath).read();
+            view(Config.userPath).failRead(FileViewError.FileNotFound);
+            view(Config.userPath).failNextWrite = 28;
+            verify(Config.writeSettingIfAbsent(manifest, "twoWaySync", false) !== "ok");
+            compare(Config.user, null);
+            verify(Config.writeSettingIfAbsent(manifest, "twoWaySync", false) !== "ok");
+            finishNextRead(Config.userPath, root.baseText);
+            reader.blockingError = 0;
+            reader.blockingContent = root.baseText;
+            compare(Config.writeSettingIfAbsent(manifest, "twoWaySync", false), "ok");
+            fileHolds({ version: 6, plugins: [{ id: manifest.id, twoWaySync: false }] });
+        }
+
         function test_retired_shortcuts_use_shipped_migration_data_and_write_current_values() {
             const replacements = [{ id: "acme.keys", shortcut: "talk", from: "SUPER+code:108", to: "SUPER+code:30" }];
             try {

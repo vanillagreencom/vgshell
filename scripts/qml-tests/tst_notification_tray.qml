@@ -57,14 +57,14 @@ Item {
         // placed in the plugin's directory, so its relative imports and
         // the plugin's own types resolve, and its required properties are
         // set as the shipped card's are.
-        function leavingCard() {
+        function alteredCard(needle, replacement) {
             const request = new XMLHttpRequest();
             request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.notifications/NotificationCard.qml"), false);
             request.send();
             const source = request.responseText;
-            verify(source.split(fixedReserve).length === 2, "the shipped card holds the reserve once");
-            const planted = source.replace(fixedReserve, leavingReserve);
-            verify(planted !== source, "the reserve was replaced");
+            verify(source.split(needle).length === 2, "the control matches the shipped card once");
+            const planted = source.replace(needle, replacement);
+            verify(planted !== source, "the control changed the card");
             const root = planted.search(/^Item \{$/m);
             verify(root > 0, "the card's root item was found");
             const wrapper = planted.slice(0, root)
@@ -207,7 +207,7 @@ Item {
         }
 
         function test_text_clears_the_pills_through_both_fades(row) {
-            const card = row.leaving ? leavingCard() : build(shippedCard);
+            const card = row.leaving ? alteredCard(fixedReserve, leavingReserve) : build(shippedCard);
             const read = fades(card);
             verifyCanSee(read.fadeIn, "fade in");
             verifyCanSee(read.fadeOut, "fade out");
@@ -217,6 +217,50 @@ Item {
             else
                 compare(overlaps(read.fadeOut), [], "text under a pill in the fade out");
             card.destroy();
+        }
+
+        function test_long_actions_leave_the_message_readable_data() {
+            return [{ tag: "shipped card", control: false }, { tag: "control: actions consume the message width", control: true }];
+        }
+
+        function test_long_actions_leave_the_message_readable(row) {
+            const card = row.control ? alteredCard("readonly property bool trayBelow:", "readonly property bool trayBelow: false &&")
+                : build(shippedCard);
+            card.summary = "Google Drive folder sync stopped";
+            card.body = "Sync stopped for Documents and Agent uploads. Two-way sync needs setup.";
+            card.hintIcon = "cloud-alert";
+            tryCompare(card, "showsSlot", true);
+            card.actions = [{ id: "setup", label: "Set up two-way sync" }, { id: "dismiss", label: "Dismiss" }];
+            card.showActions = true;
+            tryCompare(parts(card).tray, "opacity", 1);
+            card.settleHeight();
+            const part = parts(card);
+            verify(card.trayReserve > 0, "the holder retains either tray layout while actions draw");
+            if (row.control) {
+                verify(part.title.truncated && part.body.truncated, "the control exposes the unreadable notification");
+                card.destroy();
+                return;
+            }
+            verify(!part.title.truncated, "the complete title stays readable with the actions shown");
+            verify(!part.body.truncated, "both stopped-folder names and their setup explanation remain readable");
+            const body = sceneRect(part.body, part.body.width, part.body.height);
+            const tray = sceneRect(part.tray, part.tray.width, part.tray.height);
+            verify(tray.y >= body.y + body.height, "the actions leave the message its own complete row");
+            verify(tray.y + tray.height <= card.y + card.height - card.pad + 0.5,
+                "every action stays within the card");
+            verify(part.body.width >= card.textWidth - 0.5, "folder names keep the full message column");
+            const selected = [];
+            card.actionTriggered.connect(id => selected.push(id));
+            const setup = descendants(part.tray).find(child => child.emphasized === true);
+            verify(setup !== undefined);
+            scene.height = card.fullHeight + 2 * card.pad;
+            mouseClick(setup);
+            compare(selected, ["setup"], "the readable action remains reachable");
+            card.showActions = false;
+            tryCompare(part.tray, "opacity", 0);
+            compare(card.trayReserve, 0, "the holder releases the tray only after its fade");
+            card.destroy();
+            scene.height = scene.look.card.maxHeight;
         }
     }
 }

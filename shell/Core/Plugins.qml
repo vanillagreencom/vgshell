@@ -1164,6 +1164,16 @@ Singleton {
         return Config.writeUser(Logic.withSetting(Config.user, m, key, value, Config.effective));
     }
 
+    // Startup migrations may supply a value only where the owner saved none.
+    // Config compares fresh disk bytes before deciding that absence.
+    function writeSettingIfAbsent(id, key, value) {
+        if (!Registry.has(id)) return "unknown: " + id;
+        const m = Registry.manifests[id];
+        const refusal = Logic.settingRefusal(m, key, value);
+        if (refusal !== "") return refusal;
+        return Config.writeSettingIfAbsent(m, key, value);
+    }
+
     // Remove one schema-declared setting of one plugin from its plugins[]
     // row, so the manifest's default applies again. The reply is one keyed
     // line: `ok` (the file holds no value for it), `unknown: <id>` or a
