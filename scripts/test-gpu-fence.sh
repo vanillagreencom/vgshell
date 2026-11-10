@@ -35,6 +35,12 @@
 # control whose label no case carries is a failure, never a pass: a planted
 # one must turn the controls loop red.
 #
+# The ceiling cases start two worlds side by side under a 256 MiB
+# VGS_VALIDATE_ROW_MEMORY: python3 in one asks for more, and must fail
+# while the other, under it, passes, each log naming the ceiling. A world
+# started under a lower data limit keeps it, and a setting that is no byte
+# count is refused before anything starts.
+#
 # The PATH case reads which qs and node a command finds in the world and
 # under the harness's own sandbox_env words. A copy of the harness whose
 # sandbox PATH leads with the native node's directory must turn it red.
@@ -77,7 +83,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run and nothing else: `none` has no bwrap, `broken` a stand-in that
 # records its call and fails, `real` the host's bubblewrap.
 mkdir -p "$TMP_ROOT/bin-none" "$TMP_ROOT/bin-broken" "$TMP_ROOT/bin-real" "$TMP_ROOT/cwd" "$TMP_ROOT/empty"
-for tool in chmod dirname env git id ln mkdir mktemp readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
+for tool in chmod dirname env git id ln mkdir mktemp prlimit readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
   tool_path="$(type -P "$tool")" || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
   for bin in none broken real; do ln -s -- "$tool_path" "$TMP_ROOT/bin-$bin/$tool"; done
 done
@@ -237,9 +243,14 @@ for path in /run/dbus /run/tailscale; do
   [[ -e $path ]] || want_mask_notice+="${want_mask_notice:+,}$path"
 done
 [[ -z $want_mask_notice ]] || want_mask_notice="gpu-fence: service-masks skipped=$want_mask_notice"
+# The ceiling a world with no VGS_VALIDATE_ROW_MEMORY runs under, the
+# header's default, when the suite itself runs under no lower data limit.
+want_ceiling="gpu-fence: ceiling=data limit=17179869184"
+want_plain_err="${want_mask_notice:+$want_mask_notice$'\n'}$want_ceiling"
 want_proof="$(
   {
     [[ -z $want_mask_notice ]] || printf '%s\n' "$want_mask_notice"
+    printf '%s\n' "$want_ceiling"
     for path in "${amd_paths[@]}"; do printf 'gpu-fence: absent path=%s/amd/dev/%s\n' "$TMP_ROOT" "$path"; done
     for path in "${other_paths[@]}"; do printf 'gpu-fence: present path=%s/amd/dev/%s dev=0:0\n' "$TMP_ROOT" "$path"; done
   } | LC_ALL=C sort
@@ -313,7 +324,58 @@ plain_namespace() {
   roots plain
   run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/plain/dev" "${amd_paths[@]}" "${other_paths[@]}" char/1:3
   seen="$(seen_report)" || return 1
-  [[ $status -eq 9 && $seen == "$want_plain" && "$(<"$TMP_ROOT/err")" == "$want_mask_notice" ]]
+  [[ $status -eq 9 && $seen == "$want_plain" && "$(<"$TMP_ROOT/err")" == "$want_plain_err" ]]
+}
+# The ceiling cases' process: python3 asks for BYTES at once and exits 3
+# when the allocation is refused.
+python="$(type -P python3)"
+allocate=("$python" -c 'import sys
+try:
+    bytearray(int(sys.argv[1]))
+except MemoryError:
+    sys.exit(3)')
+# ceiling_alone FILE: two worlds side by side under a 256 MiB ceiling. The
+# one whose process asks for 512 MiB fails, and its log names the ceiling;
+# the one that asks for 32 MiB passes beside it.
+ceiling_alone() {
+  local limit=268435456 side bytes pids=() over=0 under=0
+  roots plain
+  for side in over under; do
+    if [[ $side == over ]]; then bytes=$((2 * limit)); else bytes=$((limit / 8)); fi
+    (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" VGS_VALIDATE_ROW_MEMORY=$limit \
+      "$BASH" "$1" "${at[@]}" "${allocate[@]}" "$bytes") >"$TMP_ROOT/$side.out" 2>"$TMP_ROOT/$side.err" &
+    pids+=("$!")
+  done
+  wait "${pids[0]}" || over=$?
+  wait "${pids[1]}" || under=$?
+  status="over=$over under=$under"
+  cat -- "$TMP_ROOT/over.err" "$TMP_ROOT/under.err" >"$TMP_ROOT/err"
+  [[ $over -eq 3 && $under -eq 0 ]] &&
+    grep -qxF "gpu-fence: ceiling=data limit=$limit" "$TMP_ROOT/over.err" &&
+    grep -qxF "gpu-fence: ceiling=data limit=$limit" "$TMP_ROOT/under.err"
+}
+# ceiling_inherited FILE: a world started under a 1 GiB data limit with a
+# setting of 2 GiB keeps the limit it inherited.
+ceiling_inherited() {
+  local limit=1073741824
+  roots plain
+  status=0
+  (cd -- "$TMP_ROOT/cwd" && prlimit "--data=$limit:$limit" -- env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" \
+    VGS_VALIDATE_ROW_MEMORY=$((2 * limit)) "$BASH" "$1" "${at[@]}" true) >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  [[ $status -eq 0 ]] && grep -qxF "gpu-fence: ceiling=data limit=$limit" "$TMP_ROOT/err"
+}
+# ceiling_refused FILE: each setting that is no positive whole number of
+# bytes is refused with its value and starts nothing.
+ceiling_refused() {
+  local value
+  roots plain
+  for value in abc 0 -1 16G 1e9 " 5" 1234567890123456789; do
+    rm -f -- "${TMP_ROOT:?}/marker"
+    status=0
+    (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" VGS_VALIDATE_ROW_MEMORY="$value" \
+      "$BASH" "$1" "${at[@]}" touch "$TMP_ROOT/marker") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+    [[ $status -eq 2 && "$(first_error)" == "gpu-fence: refused: row-memory=$value" && ! -e $TMP_ROOT/marker ]] || return 1
+  done
 }
 # path_order FILE [HARNESS]: a qs the caller puts first on PATH is the one
 # found in the world and under the sandbox environment HARNESS builds, and
@@ -659,7 +721,7 @@ PYSERVICES
 # fails for a path named stuck0, saying so on two stderr lines, and is the
 # real one for every other.
 mkdir -p "$TMP_ROOT/bin-hold" "$TMP_ROOT/bin-stuck"
-for tool in chmod dirname env git id ln mkdir mktemp readlink realpath sed seq setsid stat sh sleep touch true; do
+for tool in chmod dirname env git id ln mkdir mktemp prlimit readlink realpath sed seq setsid stat sh sleep touch true; do
   for bin in hold stuck; do ln -s -- "$(type -P "$tool")" "$TMP_ROOT/bin-$bin/$tool"; done
 done
 ln -s -- "$(type -P rm)" "$TMP_ROOT/bin-hold/rm"
@@ -834,6 +896,9 @@ cases=(
   "a host with no amdgpu node needs the fence|no|check_is plain 1"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
   "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
+  "a world over its memory ceiling fails, naming it, while one under it beside it passes|yes|ceiling_alone"
+  "a world keeps a lower data limit it inherited|yes|ceiling_inherited"
+  "a memory ceiling that is no positive whole number of bytes is refused|no|ceiling_refused"
   "service masks hide present paths and leave absent paths absent|yes|service_masks"
   "a qs the caller puts first on PATH is found first in the world and the harness's sandbox, beside the native node|yes|path_order"
   "a SIGKILL of the fence ends every process its command started|yes|fence_killed"
@@ -920,6 +985,22 @@ controls=(
   'export PATH="$fence_dir/node:$PATH"'
   'export PATH="${world_node%/*}:$PATH"'
   'a qs the caller puts first on PATH is found first in the world and the harness'"'"'s sandbox, beside the native node'
+  'the world sets no data ceiling'
+  'fence=(prlimit "--data=$ceiling:$ceiling" -- "${fence[@]}")'
+  :
+  'a world over its memory ceiling fails, naming it, while one under it beside it passes'
+  'the world names no ceiling'
+  'note "ceiling=data limit=${line%% *}"'
+  :
+  'a world over its memory ceiling fails, naming it, while one under it beside it passes'
+  'a world takes its setting over the lower limit it inherited'
+  '[[ $limit == unlimited ]] || ((limit >= ceiling)) || ceiling=$limit'
+  :
+  'a world keeps a lower data limit it inherited'
+  'any setting is a ceiling'
+  '[[ $ceiling =~ ^[1-9][0-9]{0,17}$ ]] ||'
+  'true ||'
+  'a memory ceiling that is no positive whole number of bytes is refused'
   'an absent service path is unconditionally masked'
   'if [[ -e $service_path ]]; then'
   'if true; then'

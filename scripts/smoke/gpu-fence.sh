@@ -53,6 +53,19 @@
 # in other sessions and stopped children.
 # Its /proc exposes no outside process or descriptor.
 #
+# Every process the world starts runs under one data ceiling, RLIMIT_DATA
+# (setrlimit(2): the heap and private writable mappings), which prlimit sets
+# on bubblewrap before it starts, so the whole namespace inherits it.
+# VGS_VALIDATE_ROW_MEMORY names the ceiling in bytes; unset or empty, it is
+# 17179869184 (16 GiB), on the readings docs/architecture/validation.md
+# § Host safety names. A world started under a lower limit keeps that
+# limit, so a nested world never raises the one it inherited. An
+# allocation past the ceiling fails in the process that asks for it. The
+# ceiling bounds each process, not the sum of a world's processes. A check
+# that enters no world has none. A value that is no positive whole number
+# of bytes is refused before anything starts:
+#   gpu-fence: refused: row-memory=<value>
+#
 # Before CMD starts inside the namespace, the proof stats every path, with
 # no open, and prints one line each on stderr:
 #   gpu-fence: absent path=<path>
@@ -60,7 +73,10 @@
 # An AMD path that resolves, or another node or link the host had that no
 # longer does, stops the run, and its reason lines come before every proof
 # line. A namespace made around `true` runs the same proof first, so a
-# failure there is the namespace's and never CMD's.
+# failure there is the namespace's and never CMD's. After a proof that
+# holds, the ceiling in force, read back inside the namespace, follows the
+# proof lines, so a failed row's log names it:
+#   gpu-fence: ceiling=data limit=<bytes>
 #
 # --check reads access permissions and mounts: the checkout must be read-only,
 # the owned root writable and every AMD path absent. It never writes.
@@ -93,6 +109,7 @@
 #   gpu-fence: status=not-measured reason=sysfs-unreadable path=<path>
 #   gpu-fence: status=not-measured reason=entry-unclassified path=<path>
 #   gpu-fence: status=not-measured reason=links-unreadable count=<n>
+#   gpu-fence: status=not-measured reason=limits-unreadable path=<path>
 set -euo pipefail
 
 note() { printf 'gpu-fence: %s\n' "$*" >&2; }
@@ -119,6 +136,7 @@ fault() {
     sysfs-unreadable) note "  a DRM node's device number or driver could not be read" ;;
     entry-unclassified) note "  an entry under the device tree is no node sysfs lists and no link, so the namespace cannot place it" ;;
     links-unreadable) note "  the links under the device tree could not be resolved" ;;
+    limits-unreadable) note "  the data limit this process runs under could not be read" ;;
     *) note "  internal error: no text for this reason" ;;
   esac
 }
@@ -259,6 +277,21 @@ plan() {
   [[ ! -d $dev/dri ]] || rebuild=(--tmpfs "$dev/dri" "${rebuild[@]}" "${dirs[@]}")
   [[ ! -d $dev/char ]] || rebuild+=(--tmpfs "$dev/char")
   rebuild+=("${symlinks[@]}")
+}
+
+# data_limit: this process's RLIMIT_DATA as "<soft> <hard>", each a byte
+# count or `unlimited`, from its "Max data size" line in /proc/<pid>/limits
+# (proc_pid_limits(5)).
+data_limit() {
+  local line soft hard
+  while read -r line; do
+    [[ $line == "Max data size "* ]] || continue
+    read -r _ _ _ soft hard _ <<<"$line"
+    [[ $soft =~ ^([0-9]+|unlimited)$ && $hard =~ ^([0-9]+|unlimited)$ ]] || return 1
+    printf '%s %s\n' "$soft" "$hard"
+    return 0
+  done <"/proc/$$/limits"
+  return 1
 }
 
 # exposed: true when a hidden path resolves in the caller's view.
@@ -452,6 +485,8 @@ inside() {
   (($#)) || { note "refused: argument=--inside"; exit 2; }
   for line in "${proof[@]}"; do note "$line"; done
   [[ $broken == false ]] || exit 77
+  line="$(data_limit)" || { fault limits-unreadable "path=/proc/$$/limits"; exit 77; }
+  note "ceiling=data limit=${line%% *}"
   # The proof's env has given back the stops bubblewrap's monitor ignores;
   # from here a stop forward hands this process ends it or reaches CMD.
   : >"$VGSHELL_WORLD_ROOT/stops-restored"
@@ -537,12 +572,19 @@ case "$mode" in
     inside "$@" ;;
   run)
     (($#)) || { note "refused: argument=missing-command"; exit 2; }
+    ceiling="${VGS_VALIDATE_ROW_MEMORY:-17179869184}"
+    # At most 18 digits, so bash's 64-bit arithmetic below cannot overflow.
+    [[ $ceiling =~ ^[1-9][0-9]{0,17}$ ]] || { note "refused: row-memory=$(why "$ceiling")"; exit 2; }
     plan
     if [[ $fresh == false ]]; then ! fenced || exposed || exec "$@"; fi
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
     world_start="$(proc_start "$$")" || { fault owner-record-unreadable "path=/proc/$$/stat"; exit 77; }
     world_ns="$(readlink -- "/proc/$$/ns/pid")" && [[ $world_ns =~ ^pid:\[([0-9]+)\]$ ]] || { fault owner-record-unreadable "path=/proc/$$/ns/pid"; exit 77; }
     world_ns="${BASH_REMATCH[1]}"
+    inherited="$(data_limit)" || { fault limits-unreadable "path=/proc/$$/limits"; exit 77; }
+    for limit in $inherited; do
+      [[ $limit == unlimited ]] || ((limit >= ceiling)) || ceiling=$limit
+    done
     reap_orphans
     kind=r
     [[ $keep == false ]] || kind=k
@@ -694,6 +736,10 @@ case "$mode" in
       --bind "$fence_dir/runtime" "$world_runtime/owned"
       "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
       "${environment[@]}" --remount-ro /)
+    # prlimit sets the ceiling on itself and execs the rest, so bubblewrap
+    # and all it starts inherit it, and the monitor keeps the pid the fence
+    # started.
+    fence=(prlimit "--data=$ceiling:$ceiling" -- "${fence[@]}")
     proof=(-- env --default-signal=TERM,INT,HUP "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
     probe="$(

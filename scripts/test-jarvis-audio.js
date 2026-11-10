@@ -255,11 +255,15 @@ async function cloudInput(Implementation = Audio) {
     try {
         await audio.openCapture({ gen: 3, op: 7, mode: "conversation" }, () => {}, reason => failures.push(reason));
         send(0, 110);
-        assert.deepEqual(writes, [], "digital silence never leaves for the cloud");
+        // A count, not deepEqual against []: on a forwarded gate Node v26.13.0
+        // builds that AssertionError's diff over every frame, 2.9 GiB for 20
+        // (VGS-2424 probe, cachy, 2026-11-09), and the cloud-level-gate
+        // control sends 110.
+        assert.equal(writes.length, 0, "digital silence never leaves for the cloud");
         assert.deepEqual(readings, [{ type: "input-silent", gen: 3, op: 7, device: "fixture.mic" }],
             "one nonblocking hint belongs to the microphone capture");
         send(128, 20);
-        assert.deepEqual(writes, [], "quiet background frames stay on this computer");
+        assert.equal(writes.length, 0, "quiet background frames stay on this computer");
         send(8192, 1);
         send(0, 30);
         assert.equal(ends.length, 1, "the captured hangover ends one native input");

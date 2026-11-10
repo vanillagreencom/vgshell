@@ -2198,12 +2198,12 @@ printf '{ "schemaVersion": 1, "name": "demo", "tokens": {} }\n' >"$shots_repo/th
 # scene_case SCRIPT LABEL STATUS LINE ARG...: SCRIPT run from the scratch
 # repository gives STATUS and LINE on stderr, or with STATUS 77 a stdout
 # line starting LINE. On a host with an amdgpu node the run enters
-# scripts/smoke/gpu-fence.sh, whose cleanup and proof lines come first on
-# stderr and are not the script's; scene_skip matches them. Where the fence
+# scripts/smoke/gpu-fence.sh, whose cleanup, proof and ceiling lines come
+# first on stderr and are not the script's; scene_skip matches them. Where the fence
 # could not make or prove its namespace no scene case measured anything:
 # the suite prints `test-sandbox-shots: status=not-measured` with the
 # fence's own line and exits 77.
-scene_skip='^gpu-fence: \(\(absent\|present\) path\|cleanup\)='
+scene_skip='^gpu-fence: \(\(absent\|present\) path\|cleanup\|ceiling\)='
 scene_case() {
   local script="$1" label="$2" want_status="$3" want_line="$4" status=0 out err
   shift 4
