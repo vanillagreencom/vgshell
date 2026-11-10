@@ -443,6 +443,18 @@ Singleton {
 
     function endPressGrab() {
         if (barPressGrab === null) return;
+        const notice = Logic.hasOwn(hosts, "notice") ? hosts.notice.dialog : null;
+        if (notice !== null) {
+            // The grab focuses the bar even with keyboardFocus None.
+            // Hyprland 0.57.1 setGrab(nullptr) does not restore an Exclusive
+            // layer, so hand this grab to the notice before releasing it.
+            // The remove question's popup may already have cleared it.
+            // Quickshell 0.3.1 commits windows synchronously before active=false
+            // destroys the grab (focus_grab/qml.cpp setWindows, grab.cpp sync):
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandFocusGrab/
+            barPressGrab.windows = [notice.QsWindow.window];
+            barPressGrab.active = true;
+        }
         barPressGrab.active = false;
         barPressGrab.destroy();
         barPressGrab = null;
