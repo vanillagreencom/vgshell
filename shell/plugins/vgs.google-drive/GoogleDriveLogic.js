@@ -82,7 +82,7 @@ var ERROR_TEXT = {
     "initialization-required": "Sync stopped because two-way sync is not set up. Select Set up two-way sync to review and confirm the changes.",
     "baseline-evidence-unreadable": "VGS cannot read the earlier sync records. Keep the folders paused and review them before initialization.",
     "deletion-limit": "The sync would remove more than half of a folder, so it stopped. Review the removals or large rename with Jarvis before a one-run allowance.",
-    "bisync-recovery-required": "The two-way sync history cannot be recovered. Review the folders with Jarvis, then initialize them again on Setup.",
+    "bisync-recovery-required": "The two-way sync history cannot be recovered. Review the folders with Jarvis, then select Set up two-way sync on Setup.",
     "pairs-invalid": "The folder pair list is not valid, so VGS copies nothing."
 };
 var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next sync.";
@@ -663,8 +663,8 @@ var UNREADABLE_ROW = { id: "unreadable", label: "The folder pair list cannot be 
     state: { tone: "danger", text: "Not readable" }, actions: [] };
 
 // The `pairs` rows value of CLOUD (PluginLogic, a `rows` entry): one row
-// per pair, its label, its folders and its state, with Initialize while
-// required and Remove. Both TUIs take the published pair id.
+// per pair, its label, its folders and its state, with Set up two-way sync
+// while required and Remove. Both TUIs take the published pair id.
 // While the runner cannot read the pair list it
 // holds no pair and refuses every change but the repair, so the list holds
 // UNREADABLE_ROW alone, with no Remove. HOME is the user's home folder.
