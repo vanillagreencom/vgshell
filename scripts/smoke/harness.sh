@@ -243,10 +243,9 @@ if logs then logs:close() end
 hl.config({
     misc = { disable_hyprland_logo = true, disable_splash_rendering = true, disable_autoreload = true, enable_anr_dialog = true },
     animations = { enabled = false },
-    -- Hyprland 0.56.2 with hyprgraphics 0.5.1 draws the configuration
-    -- error overlay's text through the async resource gatherer, which can
-    -- lose its wakeup and stop the compositor; the rows read every error
-    -- through `hyprctl configerrors`, which lists them with the overlay off.
+    -- The error overlay's text load can hang the compositor (lost wakeup in
+    -- hyprgraphics CAsyncResourceGatherer::await, unfixed through 0.6.0); rows
+    -- read `hyprctl configerrors`. Drop once hyprwm/hyprgraphics#52 is released.
     debug = { disable_logs = logs == nil, suppress_errors = true },
     -- No row runs an X11 client. The GPU fence kills the nested compositor
     -- and its Xwayland at the end of every run (scripts/smoke/gpu-fence.sh,

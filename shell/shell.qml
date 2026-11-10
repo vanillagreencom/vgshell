@@ -5,7 +5,8 @@
 // completes collection in one step (Qt GCStateMachine::transition):
 // https://github.com/qt/qtdeclarative/blob/6.12/src/qml/memory/qv4mm.cpp
 // The Env pragma sets it before engine creation, over any inherited value.
-// Remove it only on a Qt release verified to fix the collector fault.
+// Remove it only on a Qt verified to fix the collector fault; the candidate
+// upstream fixes are QTBUG-149512 and QTBUG-151273 (fix version 6.12.1).
 //@ pragma Env QV4_GC_TIMELIMIT = 0
 //@ pragma AppId org.vgs.shell
 import QtQuick
