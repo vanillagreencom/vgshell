@@ -142,7 +142,7 @@ function resolveLinks(notes) {
     }
 }
 
-function install({ router, directory, home, sqlite = () => require("node:sqlite"), log = () => {}, notify = () => {} }) {
+function install({ router, directory, home, memoryNotes = () => undefined, sqlite = () => require("node:sqlite"), log = () => {}, notify = () => {} }) {
     let DatabaseSync;
     try {
         // node:sqlite is unflagged from Node 22.13. This machine runs
@@ -514,7 +514,8 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         const labels = origin?.labels ?? ["home"];
         try {
             checkWrite(args.id, args.text, labels, args.hash, kind === "replace");
-            if (origin?.tainted === true) {
+            // REVISIT(D131): Narrow consent here if the owner needs per-source choices.
+            if (origin?.tainted === true && memoryNotes() !== "save") {
                 writeInbox(inboxRecord(kind, args.id, args.text, labels, args.hash));
                 publishInbox();
                 done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind }) });

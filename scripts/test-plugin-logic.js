@@ -2425,6 +2425,10 @@ function suite(ctx, configLogic, check) {
     const shippedSettings = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "manifest.json"), "utf8")), "/p");
     check("enabledRefusal: the shipped Plugins manifest refuses a disable", shippedSettings.ok ? ctx.enabledRefusal(shippedSettings.manifest, false) : shippedSettings.error, "refused: enabled=vgs.settings reason=always-on");
 
+    const jarvisMemory = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/manifest.json"), "utf8"));
+    check("settingsFor: an existing Jarvis row gets the outside-memory default without migration",
+        ctx.settingsFor({ plugins: [{ id: "vgs.jarvis", cloudVision: "never" }] }, jarvisMemory).memoryNotes, "ask");
+
     // The enum values a configuration written under the plain-string
     // option form may hold: [plugin, setting, list item field or null,
     // values]. Each still writes and reads back as it is.

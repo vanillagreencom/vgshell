@@ -25,7 +25,7 @@ With OpenAI Realtime or Gemini Live, the cloud voice only hears you and speaks t
 
 At a conversation's first turn, the AI model receives the Jarvis persona, your `AGENTS.md` instructions, the list of your skills and your memory index. An edit you make to them reaches the next conversation. During the conversation it reads a skill when it needs one, and searches and reads your memory notes. [What belongs in my Jarvis home?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-home.md) and [What does Jarvis remember?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-memory.md) explain those files.
 
-The AI model can add or replace a memory note. A note from a turn that read a file, the screen, a web page or an agent's output waits in the memory inbox until you confirm it in the Console.
+The AI model can add or replace a memory note. The [Outside memory notes](page:vgs.jarvis/Settings/memoryNotes) setting in Safety controls notes from a turn that read a file, the screen, a web page or an agent's output. Ask first is the default: the note waits in the memory inbox until you choose Confirm or Discard in the Console. Save without asking saves new notes and replacements at once. Both choices keep the note's sources. Notes already waiting still need Confirm or Discard.
 
 ## What it does by itself
 
@@ -52,7 +52,7 @@ Every action passes one check before it runs, whether the AI model asks for it o
 | Deleting a file, replacing an existing file, or changing a file that starts programs, such as your shell's startup files or your Hyprland configuration | Asks, and takes only the button or the Confirm key, not your voice |
 | Typing into a terminal, VGS, the lock screen, a password prompt or a password field, or an app running its own command outside the sandbox | Refuses |
 
-After a turn reads a file, the screen, a web page or an agent's output, every change, command or typing in that turn asks first. The question shows on screen. Answer it by voice, with its button, or with the Confirm and Deny keys. A question you leave unanswered for a minute lapses, and the action does not run.
+After a turn reads a file, the screen, a web page or an agent's output, every change, command or typing in that turn asks first, except for [memory notes](#what-it-reads-from-your-jarvis-home), which follow your setting. The question shows on screen. Answer it by voice, with its button, or with the Confirm and Deny keys. A question you leave unanswered for a minute lapses, and the action does not run.
 
 Jarvis Voice reports an action as done only when it reads the effect back. When it cannot tell, it says the result is unknown. [How does Jarvis use my computer and accounts?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-tools.md) explains how Jarvis, the long-running session, decides its own actions.
 

@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 
-**Status**: Active
+**Status**: Active (tainted memory-write confirmation → [D131](D131-outside-memory-consent.md))
 
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623)
 

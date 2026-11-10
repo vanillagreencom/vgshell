@@ -2,6 +2,8 @@
 // Jarvis memory search index: Memory.js owns the disposable SQLite FTS5 index,
 // reads notes only through Home.js, and returns Policy labels from note
 // sources. The scratch world is under JARVIS_TEST_ROOT.
+// --write-policy=ask-tainted|save-tainted runs only those matrix rows for
+// isolated must-fail controls, still inside the Jarvis test environment.
 "use strict";
 const crypto = require("node:crypto");
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
@@ -62,7 +64,7 @@ world(() => {
         fs.mkdirSync(path.join(folder, "state"), { recursive: true });
     }
 
-    function make(logic = Memory) {
+    function make(logic = Memory, options = {}) {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "memory-" + ++serial);
         const folder = path.join(root, "home");
         const state = path.join(root, "state");
@@ -73,8 +75,89 @@ world(() => {
             fs.mkdirSync(path.dirname(path.join(folder, "memory", id)), { recursive: true });
             fs.writeFileSync(path.join(folder, "memory", id), text);
         };
-        return { root, folder, state, write, db: path.join(state, "memory/memory.sqlite"), ...attach(logic, folder, state) };
+        return { root, folder, state, write, db: path.join(state, "memory/memory.sqlite"), ...attach(logic, folder, state, options) };
     }
+
+    function checkWritePolicy(logic, only = null) {
+        let setting;
+        const x = make(logic, { memoryNotes: () => setting });
+        const rows = [
+            ["ask", false, "propose", "written"],
+            ["save", false, "propose", "written"],
+            ["ask", true, "propose", "pending"],
+            ["save", true, "propose", "written"],
+            ["ask", false, "replace", "written"],
+            ["save", false, "replace", "written"],
+            ["ask", true, "replace", "pending"],
+            ["save", true, "replace", "written"]
+        ];
+        try {
+            for (const [choice, tainted, kind, status] of rows) {
+                if (only !== null && (!tainted || choice !== only)) continue;
+                setting = choice;
+                const name = choice + "-" + (tainted ? "tainted" : "clean") + "-" + kind;
+                const id = "facts/" + name + ".md";
+                const target = path.join(x.folder, "memory", id);
+                const old = "---\nsources: [file]\n---\n# Before\noriginal\n";
+                if (kind === "replace") x.write(id, old);
+                const args = { id, text: "# Note\n" + name + "\n", ...(kind === "replace" ? { hash: sha(old) } : {}) };
+                const labels = tainted ? ["home", "web", "agent"] : ["home"];
+                const sources = kind === "replace" ? ["home", "file", ...labels.slice(1)] : labels;
+                const before = x.installed.pending();
+                const answer = x.writeCall("memory." + kind, args, { labels, tainted });
+                assert.equal(answer.outcome, "completed", name);
+                assert.deepEqual(JSON.parse(answer.content), { status, id, kind }, name);
+                if (status === "pending") {
+                    assert.equal(kind === "replace" ? fs.readFileSync(target, "utf8") === old : !fs.existsSync(target), true, name);
+                    const waiting = x.installed.pending().filter(row => row.target === id);
+                    assert.deepEqual(waiting.map(row => [row.kind, row.labels]), [[kind, labels]], name);
+                    const recorded = receipts(x.state);
+                    assert.equal(recorded.some(row => row.note === id && row.inbox === undefined), false, name);
+                    const inboxReceipt = recorded.find(row => row.inbox === waiting[0].id);
+                    assert.ok(inboxReceipt, name + " has an inbox receipt");
+                    assert.deepEqual([inboxReceipt.note, inboxReceipt.kind, inboxReceipt.labels,
+                        inboxReceipt.sourceHash, inboxReceipt.approvedHash],
+                        [id, kind, labels, sha(args.text), waiting[0].hash], name);
+                } else {
+                    assert.deepEqual(x.installed.pending(), before, name + " leaves older inbox entries pending");
+                    const note = x.read([id]);
+                    assert.deepEqual(note.body.notes[0].sources, sources, name);
+                    assert.deepEqual(note.answer.labels, sources, name + " read keeps turn taint");
+                    assert.equal(note.body.notes[0].edited, false, name);
+                    const receipt = receipts(x.state).find(row => row.note === id && row.inbox === undefined);
+                    assert.ok(receipt, name + " has a receipt");
+                    assert.deepEqual(receipt.labels, sources, name);
+                    assert.equal(receipt.approvedHash, sha(fs.readFileSync(target, "utf8")), name);
+                    assert.equal(receipt.sourceHash, sha(args.text), name);
+                }
+            }
+            for (const entry of x.installed.pending()) {
+                const target = path.join(x.folder, "memory", entry.target);
+                assert.equal(entry.kind === "propose" ? !fs.existsSync(target)
+                    : fs.readFileSync(target, "utf8") === "---\nsources: [file]\n---\n# Before\noriginal\n", true,
+                "changing settings never writes an older pending target");
+            }
+        } finally { x.installed.close(); }
+    }
+
+    const policyCase = process.argv.find(arg => arg.startsWith("--write-policy="));
+    if (policyCase !== undefined) {
+        const choice = policyCase.slice("--write-policy=".length);
+        assert.ok(["ask-tainted", "save-tainted"].includes(choice), "known write-policy case");
+        checkWritePolicy(Memory, choice.split("-")[0]);
+        console.log("test-jarvis-memory: write-policy=" + choice + " passed");
+        return;
+    }
+    checkWritePolicy(Memory);
+    let unknownChoice;
+    const failClosed = make(Memory, { memoryNotes: () => unknownChoice });
+    for (const [index, choice] of [undefined, null, "allow", true].entries()) {
+        unknownChoice = choice;
+        const answer = failClosed.writeCall("memory.propose", { id: "facts/unknown-" + index + ".md", text: "Outside fact" },
+            { labels: ["home", "web"], tainted: true });
+        assert.equal(JSON.parse(answer.content).status, "pending", "only explicit save permits a tainted write");
+    }
+    failClosed.installed.close();
 
     function populate(w) {
         w.write("facts/title.md", "---\ntitle: Alpha launch\naliases: [rocket, crew]\ndate: 2026-10-01\nsources: [web]\n---\n# Alpha launch\nThe launch note links [[facts/body.md|body]] and [[Inbox secret]].\n");
@@ -247,18 +330,41 @@ world(() => {
     assert.equal(linked.writeCall("memory.propose", { id: "facts/symlink-parent.md", text: "symlink-parent-token" }).outcome, "completed");
     assert.equal(linked.search({ query: "symlink-parent-token" }).body.results[0].id, "facts/symlink-parent.md");
 
-    const guarded = make();
-    const outside = path.join(guarded.root, "outside.md");
-    fs.writeFileSync(outside, "outside-safe\n");
-    fs.symlinkSync(outside, path.join(guarded.folder, "memory/link.md"));
-    const refusedLink = guarded.writeCall("memory.propose", { id: "link.md", text: "outside changed\n" });
-    assert.deepEqual([refusedLink.outcome, refusedLink.content], ["failed", "memory-propose:link"]);
-    assert.equal(fs.readFileSync(outside, "utf8"), "outside-safe\n");
-    const secret = guarded.writeCall("memory.propose", { id: "facts/secret.md", text: "token sk-ant-synthetic-secret-token-value" });
-    assert.deepEqual([secret.outcome, secret.content], ["failed", "memory-propose:secret"]);
-    assert.deepEqual(guarded.writeCall("memory.propose", { id: "sk-ant-synthetic-secret-token-value.md", text: "title" }).content,
-        "memory-propose:secret");
-    assert.equal(fs.existsSync(path.join(guarded.folder, "memory/facts/secret.md")), false);
+    for (const choice of ["ask", "save"]) {
+        const guarded = make(Memory, { memoryNotes: () => choice });
+        const outside = path.join(guarded.root, "outside");
+        fs.mkdirSync(outside);
+        fs.writeFileSync(path.join(outside, "note.md"), "outside-safe\n");
+        fs.symlinkSync(path.join(outside, "note.md"), path.join(guarded.folder, "memory/link.md"));
+        fs.symlinkSync(outside, path.join(guarded.folder, "memory/linked"));
+        const original = "# Original\nuser bytes\n";
+        guarded.write("facts/existing.md", original);
+        const refusals = [
+            ["MEMORY.md", "bootstrap", "bootstrap"],
+            ["facts/too-big.md", "x".repeat(16 * 1024 + 1), "size"],
+            ["facts/secret.md", "token sk-ant-synthetic-secret-token-value", "secret"],
+            ["sk-ant-synthetic-secret-token-value.md", "title", "secret"],
+            ["link.md", "outside changed\n", "link"],
+            ["linked/note.md", "outside changed\n", "link"]
+        ];
+        try {
+            for (const kind of ["propose", "replace"]) {
+                for (const [id, text, cause] of refusals.concat([
+                    ["facts/existing.md", "lost bytes", kind === "replace" ? "conflict" : "exists"]
+                ])) {
+                    const answer = guarded.writeCall("memory." + kind, { id, text, ...(kind === "replace" ? { hash: "0".repeat(64) } : {}) },
+                        { labels: ["home", "web"], tainted: true });
+                    assert.deepEqual([answer.outcome, answer.content], ["failed", "memory-" + kind + ":" + cause], choice + " " + id);
+                }
+            }
+            assert.deepEqual(guarded.installed.pending(), []);
+            assert.deepEqual(receipts(guarded.state), []);
+            assert.equal(fs.readFileSync(path.join(outside, "note.md"), "utf8"), "outside-safe\n");
+            assert.equal(fs.readFileSync(path.join(guarded.folder, "memory/facts/existing.md"), "utf8"), original);
+            assert.equal(fs.readFileSync(path.join(guarded.folder, "memory/MEMORY.md"), "utf8"), "");
+            assert.deepEqual(fs.readdirSync(path.join(guarded.folder, "memory/facts")), ["existing.md"]);
+        } finally { guarded.installed.close(); }
+    }
 
     for (const loader of [() => { throw new Error("missing"); }, () => ({ DatabaseSync: class {
         exec(sql) { if (String(sql).includes("fts5")) throw new Error("no fts"); }
@@ -394,12 +500,11 @@ world(() => {
         audit.close();
     });
     controls++;
-    mutant(memoryFile, "memory-quarantine-taint", "if (origin?.tainted === true) {", "if (false && origin?.tainted === true) {", logic => {
-        const x = make(logic);
-        x.writeCall("memory.propose", { id: "facts/web.md", text: "# Web\nweb-pending-token\n" },
-            { labels: ["home", "web"], tainted: true });
-        assert.deepEqual(x.search({ query: "web-pending-token" }).body.results, [], "tainted proposal must wait outside the index");
-    });
+    mutant(memoryFile, "memory-quarantine-taint", 'if (origin?.tainted === true && memoryNotes() !== "save") {',
+        'if (false && origin?.tainted === true && memoryNotes() !== "save") {', logic => checkWritePolicy(logic, "ask"));
+    controls++;
+    mutant(memoryFile, "memory-auto-save", 'if (origin?.tainted === true && memoryNotes() !== "save") {',
+        'if (origin?.tainted === true) {', logic => checkWritePolicy(logic, "save"));
     controls++;
     mutant(memoryFile, "memory-replace-conflict", [
         ["if (hashText(current) !== expectedHash) throw new Error(\"jarvis: memory=conflict\");",

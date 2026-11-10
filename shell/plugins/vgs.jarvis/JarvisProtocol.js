@@ -10,6 +10,7 @@ var MAX_LINE_BYTES = 256 * 1024;
 var TASK_TERMINALS = ["auto", "tmux", "floating"];
 // The manifest's cloudVision options; Policy.recipients judges the same set.
 var CLOUD_VISION = ["ask", "allow", "never"];
+var MEMORY_NOTES = ["ask", "save"];
 var TRANSCRIPT_CHARS = Session.TRANSCRIPT_CHARS;
 // The Voice setting's offers, and the lines of the home's instructions as a
 // Settings state carries them: PluginLogic's STATUS_LIST_MAX, STATUS_LABEL_MAX
@@ -527,7 +528,7 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");
+        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "memoryNotes", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");
         if (typeof message.settings.weeklyOpenaiCap !== "number" || !Number.isFinite(message.settings.weeklyOpenaiCap)
                 || message.settings.weeklyOpenaiCap < 0 || message.settings.weeklyOpenaiCap > 10000) fail("weekly-openai-cap");
         if (!["local", "realtime", "gemini", "elevenlabs"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
@@ -552,6 +553,7 @@ function accept(line, direction) {
         if (typeof message.settings.holdToTalk !== "boolean") fail("hold-to-talk");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");
+        if (MEMORY_NOTES.indexOf(message.settings.memoryNotes) === -1) fail("memory-notes");
         if (typeof message.settings.privateWindows !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,1024}$/.test(message.settings.privateWindows)) fail("private-windows");
         // Home.js judges the folder the text names; the wire bounds the text.

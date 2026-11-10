@@ -805,6 +805,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     files = Files.install({ router, denied, clock });
                     memory = Memory.install({ router, directory: path.join(context.directories.state, "memory"),
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
+                        memoryNotes: () => context.settings.memoryNotes,
                         log: line => process.stderr.write(line + "\n"),
                         notify: entries => writeMemoryInbox(entries) });
                     if (memory.kind === "refused") {
