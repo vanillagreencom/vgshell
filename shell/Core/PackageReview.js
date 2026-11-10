@@ -23,6 +23,34 @@ function srcinfoFields(text) {
     return out;
 }
 
+// .SRCINFO's base applies to each package unless its pkgname section
+// overrides it. Read data only, never execute a recipe.
+// https://wiki.archlinux.org/title/.SRCINFO#Syntax
+function srcinfoArchitectures(text, name, base) {
+    var section = "", declaredBase = "", inherited = [], own = [], found = false;
+    var fields = srcinfoFields(text);
+    for (var i = 0; i < fields.length; i++) {
+        var field = fields[i];
+        if (field.key === "pkgbase") {
+            if (declaredBase !== "") return null;
+            declaredBase = field.value;
+            section = "base";
+        } else if (field.key === "pkgname") {
+            section = field.value === name ? "own" : "other";
+            if (section === "own") {
+                if (found) return null;
+                found = true;
+            }
+        } else if (field.key === "arch" && (section === "base" || section === "own")) {
+            if (!/^[A-Za-z0-9_]+$/.test(field.value)) return null;
+            var arches = section === "base" ? inherited : own;
+            if (arches.indexOf(field.value) === -1) arches.push(field.value);
+        }
+    }
+    var selected = own.length > 0 ? own : inherited;
+    return declaredBase === base && found && selected.length > 0 ? selected : null;
+}
+
 // Who publishes the target NAME, given VIA_AUR, whether the owner resolved
 // it through the AUR helper itself (never a repository's name, since any
 // pacman repository may be named `aur`), and PUBLISHED, the pkgname lines of

@@ -23,7 +23,7 @@ Field {
 
     label: row.requirement.title
     inline: true
-    hint: row.requirement.purpose
+    hint: row.requirement.reason || row.requirement.purpose
     Item {
         implicitHeight: chip.height
         Badge { id: chip; text: row.requirement.badge.text; tone: row.requirement.badge.tone }

@@ -134,7 +134,7 @@ notification_audio_restore() {
 }
 notifications_restore_standins() {
   sentinel_restore "$shim/secret-tool"
-  rm -f -- "${shim:?}/curl"
+  rm -f -- "${shim:?}/curl.row"
 }
 notifications_abandon() {
   if [[ $note_audio_shell_stopped == yes ]]; then
@@ -355,12 +355,12 @@ seed_slack_photos
 secret_tool_stand_in "slack:T0ACME present;slack:T0GLOBEX present"
 # Enable photos for the synthetic workspace and token rows below.
 set_slack_photos on
-cat >"$shim/curl" <<'SH'
+cat >"$shim/curl.row" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' 'notifications-smoke: real Slack API refused' >&2
 exit 19
 SH
-chmod 755 "$shim/curl"
+chmod 755 "$shim/curl.row"
 shell_secret_tool() { PATH="$shim:$(dirname -- "$node_bin"):$PATH" command -v secret-tool || true; }
 expect "the Slack photo helper resolves the stub secret-tool first" "$shim/secret-tool" shell_secret_tool
 file_url_json() { python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps("file://" + str(p) + "?v=" + hashlib.sha256(p.read_bytes()).hexdigest()[:16]))' "$1"; }
@@ -3718,13 +3718,13 @@ printf 'secret-tool %s\n' "\$*" >>"$off_calls"
 [[ \${1:-} == search ]] && exit 0
 exit 1
 SH
-cat >"$shim/curl" <<SH
+cat >"$shim/curl.row" <<SH
 #!/usr/bin/env bash
 printf 'curl %s\n' "\$*" >>"$off_calls"
 printf '%s\n' 'notifications-smoke: real Slack API refused' >&2
 exit 19
 SH
-chmod 755 "$shim/curl"
+chmod 755 "$shim/curl.row"
 off_token_calls() {
   local text status=0
   text="$(grep -E '^(curl |secret-tool (lookup|store|clear) )' -- "$off_calls")" || status=$?
@@ -6689,7 +6689,7 @@ print(sorted(set(os.listdir(sys.argv[2])) - owned))' "$note_state" "$note_images
 }
 expect "the images directory holds only what the stored entries own" '[]' orphans
 # The rows above are done with the secret-tool stand-in: the harness's
-# sentinel comes back for every later row. The curl stand-in the row added
-# goes too.
+# sentinel comes back for every later row. The Slack curl delegate goes
+# too, while the shared AUR fixture remains.
 notifications_restore_standins
 notification_audio_restore

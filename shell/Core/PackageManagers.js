@@ -466,12 +466,29 @@ function packageFor(packages, found, holder) {
     return null;
 }
 
+// The machine architecture a picked AUR recipe excludes, or null when
+// compatible or unread. Only recipe facts from vgshell-pkg availability
+// can refuse an offer; missing metadata leaves the existing offer intact.
+// PKGBUILD(5), arch: `any` needs no architecture-specific build.
+// https://man.archlinux.org/man/PKGBUILD.5.en#arch
+function unavailableArchitecture(pick, found) {
+    if (pick === null || pick.manager !== "aur" || found === null || found === undefined) return null;
+    var metadata = found.aurAvailability;
+    if (metadata === undefined || metadata === null || typeof metadata.machine !== "string" || metadata.machine === ""
+        || metadata.packages === null || typeof metadata.packages !== "object") return null;
+    var fact = metadata.packages[pick.name];
+    if (fact === undefined || fact === null || fact.error !== undefined || !Array.isArray(fact.arches)
+        || fact.arches.length === 0 || !fact.arches.every(function (arch) { return typeof arch === "string" && /^[A-Za-z0-9_]+$/.test(arch); })) return null;
+    return fact.arches.indexOf("any") === -1 && fact.arches.indexOf(metadata.machine) === -1 ? metadata.machine : null;
+}
+
 // The packages that provide ROWS on this system, rows carrying a
 // requirement's `packages`: `{ picks, groups }`. `picks` holds packageFor's
 // pick from FOUND for each row, in order. `groups` holds one `{ manager,
 // primary, names, installs }` per manager a pick names, in FOUND's order,
 // primary first, then overlays, then sources: `names` each package once in
-// the order the rows first pick it, `primary` whether the manager is
+// the order the rows first pick it, excluding recipes known to reject this
+// architecture, `primary` whether the manager is
 // FOUND's primary, and `installs` whether its row has install steps, and so
 // update steps. A manager without them, nix, changes the system through its
 // own configuration, so its packages are added there by hand.
@@ -483,7 +500,7 @@ function installGroups(rows, found) {
     for (var i = 0; i < order.length; i++) {
         var names = [];
         for (var j = 0; j < picks.length; j++)
-            if (picks[j] !== null && picks[j].manager === order[i].id && names.indexOf(picks[j].name) === -1) names.push(picks[j].name);
+            if (picks[j] !== null && picks[j].manager === order[i].id && unavailableArchitecture(picks[j], found) === null && names.indexOf(picks[j].name) === -1) names.push(picks[j].name);
         if (names.length === 0) continue;
         groups.push({ manager: order[i].id, primary: order[i] === found.primary, names: names, installs: managerRow(order[i].id).install !== null });
     }

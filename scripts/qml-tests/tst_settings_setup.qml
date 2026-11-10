@@ -154,6 +154,12 @@ Item {
             pluginRow("acme.optional", optional, { featureState: { tone: "warning", text: "Not configured", action: true }, health: ready }, ["optional-tool"],
                 { schema: { feature: { type: "boolean", label: "Feature" } }, settings: { feature: false } }),
             pluginRow("acme.required", requiredTools, {}, ["required-a", "required-b"], {}),
+            pluginRow("acme.architecture", requiredTools, {}, ["required-a"], {
+                requirements: PluginLogic.requirementRows({ requirements: PluginLogic.normalRequirements([
+                    { command: "ttfx", packages: { aur: "ttfx" }, purpose: "Animates the screensaver text art" }
+                ]) }, ["ttfx"], {}, { primary: { id: "pacman", binary: "pacman" }, overlays: [{ id: "aur", binary: "paru" }], sources: [],
+                    aurAvailability: { machine: "aarch64", packages: { ttfx: { arches: ["x86_64"] } } } })
+            }),
             pluginRow("acme.extra", extended, { model: ready, extra: { tone: "warning", text: "Not set up", action: true } }, [], {}),
             pluginRow("acme.present", requiredTools, {}, [], {}),
             pluginRow("acme.keys", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
@@ -453,6 +459,17 @@ Item {
             compare(shown(window, Field).filter(field => field.label === "Tools").length, 1);
             compare(shown(window, Badge).map(chip => chip.text), ["Done"]);
             compare(shown(window, RowAction).length, 0);
+        }
+        function test_architecture_exclusion_draws_no_install_offer() {
+            const window = opened(); window.openPlugin("acme.architecture", Qt.OtherFocusReason, "Setup");
+            const tools = shown(window, Field).filter(field => field.label === "Tools");
+            compare(tools.length, 1, "the required tool stays on Setup");
+            compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [["Not available", "neutral"]]);
+            compare(shown(window, RowAction).length, 0, "an excluded recipe offers no installation");
+            const requirement = fakeManager.plugins.find(row => row.id === "acme.architecture").requirements[0];
+            compare(tools[0].hint, requirement.title + ": " + requirement.reason, "the real Tools field draws the shared architecture and feature purpose");
+            compare(requirement.architecture, "aarch64");
+            compare(requirement.optional, false);
         }
         // A failed install of the plugin's tools: its Tools step reads Failed
         // with what failed in place of To do, the install's last lines apart

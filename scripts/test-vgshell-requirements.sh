@@ -46,6 +46,18 @@ stub pacman '[ "${STUB_FAIL:-}" != "$1" ] || exit 7
 printf '#!/bin/sh\necho "vgs-need-old 1.2.3"\n' >"$stubs/vgs-need-old"
 chmod +x "$stubs/vgs-need-old"
 stub paru ''
+# Read-only architecture probes use only fixture data. Other rows leave
+# AUR_SOURCE unset, so metadata is unknown without reaching a network.
+printf '#!/bin/sh\n[ "$*" = "-m" ] || exit 99\n[ "${AUR_MACHINE_FAIL:-}" != 1 ] || exit 1\necho aarch64\n' >"$stubs/uname"
+printf '%s\n' '#!/bin/sh' 'while [ "$#" -gt 1 ]; do shift; done' \
+  'case "$1" in' \
+  '  "https://aur.archlinux.org/rpc/v5/info?arg[]="*) [ -n "${AUR_SOURCE:-}" ] || exit 22' \
+  '    printf '"'"'%s\n'"'"' '"'"'{"type":"multiinfo","resultcount":1,"results":[{"Name":"need-two","PackageBase":"need-two-base"}]}'"'"' ;;' \
+  '  "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=need-two-base") [ -n "${AUR_SOURCE:-}" ] || exit 22' \
+  '    cat "$AUR_SOURCE" ;;' \
+  '  *) exit 99 ;;' \
+  'esac' >"$stubs/curl"
+chmod +x "$stubs/uname" "$stubs/curl"
 # Common review is real; only the gum renderer submits decline, preserving
 # this suite's pre-existing install/rescan assertions without a live agent.
 review_tools="$tmp/review-tools"; mkdir -p "$review_tools"
@@ -75,7 +87,7 @@ log="$tmp/log"
 # The doctor rows' PATH: the stubs, then only what bin/vgshell, the scan and
 # the judge run, so the core's other commands are missing on every host.
 tools="$tmp/tools"; mkdir -p "$tools"
-for tool in bash readlink dirname python3 env setpriv; do
+for tool in bash readlink dirname python3 env setpriv cat; do
   found="$(command -v "$tool")" || { echo "test-vgshell-requirements: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -111,6 +123,7 @@ out_is() { [[ "$(cat -- "$tmp/out")" == "$1" ]] || { printf 'out: [%s]\nwant: [%
 # SIGPIPE tr then takes on a long output fails the match.
 out_has() { tr -d '\r' <"$tmp/out" | grep -xF -- "$1" >/dev/null; }
 err_is() { [[ "$(cat -- "$tmp/err")" == "$1" ]]; }
+err_has() { grep -qxF -- "$1" "$tmp/err"; }
 log_is() { [[ "$(cat -- "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n' "$(cat -- "$log")" "$1" >"$tmp/why"; return 1; }; }
 log_has() { grep -qxF -- "$1" "$log"; }
 lines() { printf '%s\n' "$@"; }
@@ -230,11 +243,56 @@ row_doctor() {
   [[ $status == 0 ]] && json_is "$tmp/out" '"acme.needs" not in d["plugins"]' || { why "doctor --json, acme.needs disabled"; return 1; }
   printf '{ "version": 2, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["name"]: r["state"] for r in d["core"]}["node"] == "present" and {r["name"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["name"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || { why "doctor --json, acme.needs enabled"; return 1; }
+  [[ $status == 0 ]] && err_has "availability=unknown package=need-two reason=rpc-unreadable" && json_is "$tmp/out" '[r["state"] for r in d["plugins"]["acme.needs"]] == ["missing"] * 7 and {r["name"]: r["state"] for r in d["core"]}["node"] == "present" and {r["name"]: r["state"] for r in d["core"]}["git"] == "missing" and {r["name"]: r["package"] for r in d["core"]}["python3"] == {"manager": "pacman", "name": "python"}' || { why "doctor --json, acme.needs enabled"; return 1; }
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor
-  [[ $status == 0 ]] && err_is "" && out_has "acme.needs missing vgs-need-two (need-two): Second" \
+  [[ $status == 0 ]] && err_has "availability=unknown package=need-two reason=rpc-unreadable" && out_has "acme.needs missing vgs-need-two (need-two): Second" \
     && out_has "acme.needs missing git (git): Present" && grep -qx "core present node (nodejs): .*" "$tmp/out" \
     && grep -qx "core missing git (git): .*" "$tmp/out" && grep -qx "core missing gum (gum): .*" "$tmp/out" || { why "doctor, acme.needs enabled"; return 1; }
+}
+row_doctor_architecture() {
+  req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
+  printf '{ "version": 2, "plugins": [ { "id": "acme.needs" } ] }\n' >"$2/vgshell/shell.json"
+  local fixture expected source machine_fail diagnostic format
+  for fixture in x86 arm any rpc-unreadable srcinfo-unreadable machine-unreadable; do
+    expected=missing
+    [[ $fixture != x86 ]] || expected=unavailable-architecture
+    source="$repo/scripts/fixtures/pkg/aur-$fixture.SRCINFO"
+    machine_fail=0 diagnostic=""
+    case "$fixture" in
+      rpc-unreadable) source="" ;;
+      srcinfo-unreadable) source="$tmp/absent-srcinfo" ;;
+      machine-unreadable) machine_fail=1 ;;
+    esac
+    if [[ $fixture == *-unreadable ]]; then
+      diagnostic="availability=unknown package=need-two reason=$fixture"
+    fi
+    for format in json text; do
+      local args=(doctor)
+      [[ $format != json ]] || args+=(--json)
+      REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" AUR_SOURCE="$source" AUR_MACHINE_FAIL="$machine_fail" -- "${args[@]}"
+      [[ $status == 0 ]] || { why "doctor architecture $format $fixture"; return 1; }
+      # Doctor also reports enabled shipped plugins. Assert this fixture's
+      # package facts without fixing their growing package inventory.
+      if [[ -n $diagnostic ]]; then
+        err_has "$diagnostic" || { why "doctor advisory $format $fixture"; return 1; }
+      else
+        ! grep -q '^availability=unknown package=need-two ' "$tmp/err" || return 1
+      fi
+      if [[ $fixture == machine-unreadable ]]; then
+        grep -qxE 'availability=unknown packages=([^ ,]+,)*need-two(,[^ ]+)* reason=machine-unreadable' "$tmp/err" || return 1
+      fi
+      if [[ $format == json ]]; then
+        json_is "$tmp/out" "next(r for r in d['plugins']['acme.needs'] if r['name']=='vgs-need-two')['state']=='$expected' and next(r for r in d['plugins']['acme.needs'] if r['name']=='vgs-need-two')['optional'] is False" || return 1
+        [[ $fixture != x86 ]] || json_is "$tmp/out" "next(r for r in d['plugins']['acme.needs'] if r['name']=='vgs-need-two')['architecture']=='aarch64'" || return 1
+      elif [[ $fixture == x86 ]]; then
+        # Doctor's text is its product result: name the unsupported machine
+        # and the requirement's feature purpose, without pinning the wording.
+        grep -xE 'acme.needs unavailable-architecture vgs-need-two \(need-two\): .*aarch64.*Second' "$tmp/out" >/dev/null || return 1
+      else
+        out_has "acme.needs missing vgs-need-two (need-two): Second" || return 1
+      fi
+    done
+  done
 }
 # The requirement notice's rows for the plugin at $1, as the shell builds
 # them: PluginLogic.noticeView over the versions `vgshell-scan --versions`
@@ -289,9 +347,9 @@ row_floor_agrees() {
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- plugin requirements acme.floor
   [[ $status == 0 ]] && out_is "outdated vgs-need-old (need-old-aur): Old" || { why "plugin requirements"; return 1; }
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor --json
-  [[ $status == 0 ]] && json_is "$tmp/out" "[{'state': r['state'], 'package': r['package']} for r in d['plugins']['acme.floor']] == $floor_rows" || { why "doctor --json"; return 1; }
+  [[ $status == 0 ]] && err_has "availability=unknown package=need-old-aur reason=rpc-unreadable" && json_is "$tmp/out" "[{'state': r['state'], 'package': r['package']} for r in d['plugins']['acme.floor']] == $floor_rows" || { why "doctor --json"; return 1; }
   REQ_PATH="$tools" req "$1" plain "" "$2" "$rt_empty" -- doctor
-  [[ $status == 0 ]] && out_has "acme.floor outdated vgs-need-old (need-old-aur): Old" || { why "doctor"; return 1; }
+  [[ $status == 0 ]] && err_has "availability=unknown package=need-old-aur reason=rpc-unreadable" && out_has "acme.floor outdated vgs-need-old (need-old-aur): Old" || { why "doctor"; return 1; }
 }
 # The session line: a hand-started session, graphical-session.target
 # inactive, reads as a missing uwsm-managed session that names what breaks
@@ -324,6 +382,7 @@ declare -a ROWS=(
   "plugin requirements names each requirement's state and package|row_requirements"
   "plugin requirements --json carries the package pick|row_requirements_json"
   "doctor reports the core and the enabled plugins only|row_doctor"
+  "doctor preserves required architecture exclusions and compatible offers|row_doctor_architecture"
   "doctor says whether the session is uwsm-managed|row_doctor_session"
   "the notice, doctor and plugin requirements agree on an outdated command's state and package|row_floor_agrees"
 )
@@ -365,7 +424,10 @@ declare -a CONTROLS=(
   "doctor reports enabled plugins only" vgshell-plugin-judge '.filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId))' '' row_doctor
   "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(name => !onPath(name))' '.filter(name => false)' row_doctor
   "a row carries this system's package" vgshell-plugin-judge '{ package: picks[i] }' '{ package: null }' row_requirements_json
-  "doctor and plugin requirements read a command's version" vgshell-plugin-judge 'logic.requirementRows({ requirements }, missing, read.versions)' 'logic.requirementRows({ requirements }, missing, {})' row_floor_agrees
+  "doctor and plugin requirements read a command's version" vgshell-plugin-judge 'logic.requirementRows({ requirements }, missing, read.versions, read.found)' 'logic.requirementRows({ requirements }, missing, {}, read.found)' row_floor_agrees
+  "doctor reads architecture metadata" vgshell-plugin-judge 'systemRead(owners, missing, enabled, true)' 'systemRead(owners, missing, enabled, false)' row_doctor_architecture
+  "doctor exposes top-level advisory errors" vgshell-plugin-judge 'if (found.aurAvailability.error)' 'if (false)' row_doctor_architecture
+  "doctor exposes package advisory errors" vgshell-plugin-judge 'if (error)' 'if (false)' row_doctor_architecture
   "a disabled plugin's version is not read" vgshell-plugin-judge ' ? [id] : [];' ' ? [id] : [id];' row_floor_agrees
   "the package is the one its holder's manager names" vgshell-plugin-judge 'logic.PackageManagers.installGroups(rows, read.found).picks' 'rows.map(row => logic.PackageManagers.packageFor(row.packages, read.found))' row_floor_agrees
   "nix gets no install command" vgshell-plugin-judge 'lines.push(group.installs ? ' 'lines.push(true ? ' row_nix_by_hand

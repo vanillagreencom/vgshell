@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/fixtures/pkg/aur-curl.js scripts/fixtures/pkg/aur-any.SRCINFO scripts/lib/jarvis-env.sh
 set -euo pipefail
 smoke_harness_started_us="${EPOCHREALTIME/./}"
 # Reports must not become a reader's stdout or stderr inside $() or a
@@ -305,6 +305,13 @@ sandbox_env=(env -i
 # The stand-in execs the real binary; a row that needs a start failure
 # swaps in a file whose interpreter does not exist, which exec refuses.
 shim="$sandbox/shim"; mkdir -p "$shim"
+# Keep availability at the real package owner even while a row replaces
+# its other verbs. The same-directory copy retains its relative imports.
+cp -- "$repo/bin/vgshell-pkg" "$repo/bin/vgshell-pkg.availability.js"
+# Setup reads recipe metadata in every shell, copied Jarvis trees included.
+# Only a row-owned delegate can answer non-AUR requests such as Slack.
+printf '#!/usr/bin/env bash\nexec %q %q %q "$@"\n' "$node_bin" "$repo/scripts/fixtures/pkg/aur-curl.js" "$shim/curl.row" >"$shim/curl"
+chmod 755 "$shim/curl"
 if ! hyprctl_bin="$(command -v hyprctl)"; then
   printf 'qml-smoke: status=not-measured missing=hyprctl-binary\n'
   exit 77
@@ -3666,9 +3673,10 @@ path.write_text(text.replace(needle, 'if [[ ' + when + ' ]]; then run=("${kept[@
 PY_FAILS
 }
 # pkg_stub DETECT_JSON [HOLDER]: bin/vgshell-pkg in the checkout answers
-# `detect --json` with DETECT_JSON, or fails detection for "", and refuses
-# every other command; HOLDER aur|none owns vgs-smoke-old. The caller keeps
-# the real one and puts it back.
+# `detect --json` with DETECT_JSON, or fails detection for "". availability
+# uses the real read-only owner and fixture curl; every other command is
+# refused. HOLDER aur|none owns vgs-smoke-old. The caller keeps the real
+# one and puts it back.
 pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
   local body holder="${2:-none}" aur_owner=null
   if [[ $holder == aur ]]; then
@@ -3679,7 +3687,7 @@ pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
   else
     body=""
   fi
-  printf '#!/usr/bin/env node\n%s\nprocess.stderr.write("vgshell: refused: stub=vgshell-pkg\\n");\nprocess.exit(70);\n' "$body" >"$sandbox/vgshell-pkg.stub"
+  printf '#!/usr/bin/env node\nif (process.argv[2] === "availability") {\nrequire(require("node:path").join(__dirname, "vgshell-pkg.availability.js"));\n} else {\n%s\nprocess.stderr.write("vgshell: refused: stub=vgshell-pkg\\n");\nprocess.exit(70);\n}\n' "$body" >"$sandbox/vgshell-pkg.stub"
   chmod 755 "$sandbox/vgshell-pkg.stub"
   cp -- "$sandbox/vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 }

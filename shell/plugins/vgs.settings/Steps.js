@@ -126,30 +126,45 @@ function failedView(view, failure, lines) {
     return Object.assign({}, view, { text: chip.text, tone: chip.tone, lines: [failureText(failure) + (unread ? FAILURE_UNREAD : "")],
         output: lines ? failure.lines.slice() : [] });
 }
-// REQUIREMENTS by title, each that is missing or outdated marked so.
+// REQUIREMENTS by title, with an unavailable recipe's architecture and
+// purpose, or the ordinary missing/outdated reading.
 function toolsText(requirements) {
-    return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
+    return requirements.map(function (row) {
+        return row.title + (row.state === "unavailable-architecture" ? ": " + row.reason
+            : row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : "");
+    }).join(", ");
 }
-// The required tools of REQUIREMENTS that are missing or outdated.
+// The required tools of REQUIREMENTS the user can install or update.
 function requiredLacking(requirements) {
-    return requirements.filter(function (row) { return !row.optional && requirementApplies(row); });
+    return requirements.filter(function (row) { return !row.optional && requirementApplies(row) && row.state !== "unavailable-architecture"; });
 }
 // The one step of REQUIREMENTS' required tools, Tools, while OPTIONAL is
 // false, else of their optional tools, Optional tools: { done, optional,
 // label, text, tone, hint, button }, Done while every one is present and
 // current, else To do, or Optional for the optional tools, naming the
-// missing or outdated ones and offering Review. Null while the plugin
-// declares no such tool.
+// lacking ones. Excluded recipes stay unfinished and read Not available;
+// Review is offered only for tools the user can install or update. Null
+// while the plugin declares no such tool.
 function toolsStep(requirements, optional) {
     var rows = requirements.filter(function (row) { return row.optional === optional; });
     if (rows.length === 0) return null;
     var lacking = rows.filter(requirementApplies);
-    var chip = STEP_CHIPS[lacking.length === 0 ? "done" : optional ? "optional" : "todo"];
+    var actionable = lacking.some(function (row) { return row.state !== "unavailable-architecture"; });
+    var chip = STEP_CHIPS[lacking.length === 0 ? "done" : !actionable ? "unavailable" : optional ? "optional" : "todo"];
     return { done: lacking.length === 0, optional: optional, label: toolsLabel(optional), text: chip.text, tone: chip.tone,
+        available: actionable || lacking.length === 0,
         hint: lacking.length === 0 ? (optional ? "Every optional tool is installed" : "Every required tool is installed") : toolsText(lacking),
-        button: lacking.length === 0 ? null : reviewButton() };
+        button: actionable ? reviewButton() : null };
 }
 function toolsLabel(optional) { return optional ? "Optional tools" : "Tools"; }
+// A step that asks for tools cannot proceed when every lacking tool is
+// excluded by its recipe. Give it the same unavailable reading as Tools.
+function toolBlockedEntry(entry, requirements) {
+    if (entry.report !== "reported" || entry.type !== "state" || entry.value.action !== "tools") return entry;
+    var lacking = requirements.filter(requirementApplies);
+    if (lacking.length === 0 || lacking.some(function (row) { return row.state !== "unavailable-architecture"; })) return entry;
+    return Object.assign({}, entry, { value: Object.assign({}, entry.value, { available: false }), hint: toolsText(lacking) });
+}
 // The command the core reads and stores a plugin's keys with
 // (PluginLogic.secretRequest).
 var KEY_TOOL = "secret-tool";
@@ -173,7 +188,7 @@ function keyToolStep(requirements) {
 function setupSections(tuis, status, requirements, plugin, failure) {
     var required = requirements === undefined ? [] : requirements;
     var rank = function (entry) { return stepRank(entry, plugin); };
-    var ordered = status.filter(declaresStep).map(function (entry, index) { return { entry: entry, index: index }; })
+    var ordered = status.filter(declaresStep).map(function (entry, index) { return { entry: toolBlockedEntry(entry, required), index: index }; })
         .sort(function (a, b) { return rank(a.entry) - rank(b.entry) || a.index - b.index; })
         .map(function (step) { return step.entry; });
     var items = [];
@@ -187,7 +202,7 @@ function setupSections(tuis, status, requirements, plugin, failure) {
     [toolsStep(required, false), toolsStep(required, true)].forEach(function (tools) {
         if (tools === null) return;
         var toolEntry = { key: tools.optional ? "optional-tools" : "required-tools", label: tools.label, type: "state", setup: tools.optional ? "optional" : "required",
-            report: "reported", tone: tools.tone, value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
+            report: "reported", tone: tools.tone, value: { text: "", available: tools.available }, hint: tools.hint, info: "", link: null, action: null, aside: null };
         var toolItem = { key: toolEntry.key, slot: toolEntry.key + ":" + tools.done, keys: false, tools: true, entry: toolEntry,
             label: tools.label, step: true, button: tools.button, aside: null };
         var after = items.findIndex(function (item) { return !item.keys && rank(item.entry) > rank(toolEntry); });
@@ -225,7 +240,7 @@ function failedBy(rows, failure) {
 // (stepReading).
 function setupNeeds(status, requirements, enabled, failed) {
     var plugin = { enabled: enabled, failed: failed === true };
-    return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepReading(entry, plugin) === "todo"; })
+    return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepReading(toolBlockedEntry(entry, requirements), plugin) === "todo"; })
         || requiredLacking(requirements).length > 0) };
 }
 function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
@@ -244,7 +259,7 @@ function setupTab(sections, requirements) { return sections.length > 0 || requir
 // Details or rows line reads no REQUIREMENTS. Null while none is offered.
 function stepButton(entry, requirements) {
     if (entry.type === "state" && entry.report === "reported" && entry.value.action === "tools")
-        return requirements.some(requirementApplies) ? reviewButton() : null;
+        return requirements.some(function (row) { return requirementApplies(row) && row.state !== "unavailable-architecture"; }) ? reviewButton() : null;
     if (entry.action === null || !entry.action.offered) return null;
     return { kind: "status", key: entry.key + " " + entry.action.label, name: entry.action.tui,
         label: entry.action.label, tone: entry.action.tone, icon: entry.action.icon, enabled: true, reason: "" };

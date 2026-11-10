@@ -559,6 +559,22 @@ function verify(logic, producer) {
         [[refusalLine], "danger"],
         [["hyprland: SUPER+COMMA for acme.example:toggle skipped: already bound by acme.other", buildLine], "danger"]
     ]) same(logic.problemTone(errors), tone, "problem tone follows start failure");
+    const excluded = producer.requirementRows({ requirements: producer.normalRequirements([
+        { command: "need-two", packages: { aur: "need-two" }, purpose: "Animates the screensaver text art" }
+    ]) }, ["need-two"], {}, { primary: { id: "pacman", binary: "pacman" }, overlays: [{ id: "aur", binary: "paru" }], sources: [],
+        aurAvailability: { machine: "aarch64", packages: { "need-two": { arches: ["x86_64"] } } } });
+    const excludedTools = logic.toolsStep(excluded, false);
+    same([excludedTools.done, excludedTools.available, excludedTools.button, logic.requiredLacking(excluded).length],
+        [false, false, null, 0], "architecture exclusion: a required tool is unfinished but has no install action");
+    const excludedItem = items(logic.setupSections({}, [], excluded, on))[0];
+    same([logic.stepReading(excludedItem.entry, on), excludedItem.button, logic.setupNeeds([], excluded, true).open],
+        ["unavailable", null, false], "architecture exclusion: Setup shows an unavailable step with no actionable warning");
+    same(logic.stepButton(rows({ home: toolBlocked }).find(entry => entry.key === "home"), excluded), null,
+        "architecture exclusion: a blocked step offers no impossible tool install");
+    const excludedBlockedStatus = rows({ home: toolBlocked }).filter(entry => entry.key === "home");
+    const excludedHome = items(logic.setupSections({}, excludedBlockedStatus, excluded, on)).find(item => item.key === "home");
+    same([logic.stepReading(excludedHome.entry, on), excludedHome.button, logic.setupNeeds(excludedBlockedStatus, excluded, true).open],
+        ["unavailable", null, false], "architecture exclusion: tool-blocked work never reads To do without an action");
 }
 
 // Mask comments and strings before counting braces, so explanatory text
@@ -590,7 +606,7 @@ const controls = [
     ["optional-on-Setup", 'return entry.placement === "setup"; }', 'return entry.placement === "setup" || entry.placement === "settings"; }', "optional entries never draw on Setup"],
     ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "tools steps an optional tool missing"],
     ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],
-    ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
+    ["an optional step raises Setup needed", 'stepReading(toolBlockedEntry(entry, requirements), plugin) === "todo"; })', 'stepReading(toolBlockedEntry(entry, requirements), plugin) !== "done" && stepReading(toolBlockedEntry(entry, requirements), plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
     ["Optional reads in a warning tone", 'optional: { text: "Optional", tone: "neutral" }', 'optional: { text: "Optional", tone: "warning" }', "tools steps an optional tool missing"],
     ["an optional problem reads as Optional", 'var chip = entry.setup === "optional" && entry.report === "reported" && entry.type === "state"\n        && (view.tone === "warning" || view.tone === "danger") ? view : STEP_CHIPS[reading];',
         'var chip = STEP_CHIPS[reading];', "optional step warning beside a done required step: the chip"],
@@ -607,15 +623,16 @@ const controls = [
     ["a failed build reads To do", 'if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";', '', "Not available after a failed build: the chip"],
     ["Setup needed ignores a failed build", 'var plugin = { enabled: enabled, failed: failed === true };', 'var plugin = { enabled: enabled, failed: false };', "Setup needed after a failed build"],
     ["a refusal reads To do", 'return line.startsWith("build failed: ") || line.startsWith("refused: ");', 'return line.startsWith("build failed: ");', "Setup needed refused"],
-    ["a tools step offers nothing", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
-    ["a tools step offers Review with every tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "tools: every tool present"],
-    ["a tools step waits on required tools alone", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', "tools: a missing optional tool alone"],
+    ["a tools step offers nothing", 'return requirements.some(function (row) { return requirementApplies(row) && row.state !== "unavailable-architecture"; }) ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
+    ["a tools step offers Review with every tool present", 'return requirements.some(function (row) { return requirementApplies(row) && row.state !== "unavailable-architecture"; }) ? reviewButton() : null;', 'return reviewButton();', "tools: every tool present"],
+    ["a tools step waits on required tools alone", 'return requirements.some(function (row) { return requirementApplies(row) && row.state !== "unavailable-architecture"; }) ? reviewButton() : null;', 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', "tools: a missing optional tool alone"],
+    ["an excluded tool offers Review", 'button: actionable ? reviewButton() : null', 'button: lacking.length > 0 ? reviewButton() : null', "architecture exclusion: a required tool is unfinished but has no install action"],
     ["a Settings list draws on Details", 'return entry.placement === "rows" && entry.settings === settings;', 'return entry.placement === "rows";', "rows: each list on its own tab"],
     ["optional tools create no step", '[toolsStep(required, false), toolsStep(required, true)]', '[toolsStep(required, false)]', "optional tools alone create Setup"],
     ["optional tool becomes required Tools", 'var rows = requirements.filter(function (row) { return row.optional === optional; });', 'var rows = optional ? requirements.filter(function (row) { return row.optional; }) : requirements.slice();', "optional tools alone create Setup"],
     ["the optional tools step names the required tools", 'var lacking = rows.filter(requirementApplies);', 'var lacking = requirements.filter(requirementApplies);', "tools steps a required tool missing"],
     ["ready tools drop their step", 'if (rows.length === 0) return null;', 'if (rows.length === 0 || rows.every(function (row) { return row.state === "present"; })) return null;', "tools steps every tool present"],
-    ["optional tool warns", 'return !row.optional && requirementApplies(row);', 'return requirementApplies(row);', "only optional tool missing"],
+    ["optional tool warns", 'return !row.optional && requirementApplies(row) && row.state !== "unavailable-architecture";', 'return requirementApplies(row) && row.state !== "unavailable-architecture";', "only optional tool missing"],
     ["disabled plugin warns", 'open: enabled && (', 'open: (', "disabled plugin"],
     ["outdated tool passes", 'return requirement.state !== "present";', 'return requirement.state === "missing";', "outdated required tools stay open"],
     ["pending chip leaks status words", 'view.text = chip.text;', 'view.text = entry.value.text;', "tools steps every tool present"],

@@ -59,6 +59,18 @@ post_remove() {
 
 
 function verify(logic) {
+  const recipe=fs.readFileSync(path.join(__dirname,"../pkg/aur-x86.SRCINFO"),"utf8");
+  for(const [label,text,name,base,want] of [
+    ["base architecture",recipe,"need-two","need-two-base",["x86_64"]],
+    ["CRLF recipe",recipe.replace(/\n/g,"\r\n"),"need-two","need-two-base",["x86_64"]],
+    ["split override",recipe+"\tarch = aarch64\npkgname = sibling\n\tarch = any\n","need-two","need-two-base",["aarch64"]],
+    ["split sibling",recipe+"pkgname = sibling\n\tarch = any\n","need-two","need-two-base",["x86_64"]],
+    ["architecture independent",recipe.replace("x86_64","any"),"need-two","need-two-base",["any"]],
+    ["wrong package",recipe,"other","need-two-base",null],
+    ["wrong base",recipe,"need-two","other-base",null],
+    ["missing architecture",recipe.replace("\tarch = x86_64\n",""),"need-two","need-two-base",null],
+    ["malformed architecture",recipe.replace("x86_64","'x86_64'"),"need-two","need-two-base",null]
+  ]) assert.deepEqual(JSON.parse(JSON.stringify(logic.srcinfoArchitectures(text,name,base))),want,"recipe architecture: "+label);
   // [settings, agents found, initial row, preference, availability, asks]:
   // only a saved Install without review asks nothing.
   const cases = [
@@ -172,7 +184,8 @@ try {
  for(const [label,needle,replacement,fails] of [
   ["verdict","reviewed.indexOf(m[1]) < 0 || ","",/line=2/],
   ["publisher","if (viaAur !== true) return \"third-party\";\n","",/publisher: vgshell-git from a repository/],
-  ["ask","ask: !(hasOwn(s, \"enabled\") && s.enabled === false) };","ask: true };",/"enabled":false/]
+  ["ask","ask: !(hasOwn(s, \"enabled\") && s.enabled === false) };","ask: true };",/"enabled":false/],
+  ["architecture","var selected = own.length > 0 ? own : inherited;","var selected = inherited;",/recipe architecture: split override/]
  ]){
   assert.equal(source.split(needle).length-1,1,label);
   const mutant=path.join(scratch,"PackageReview-"+label+".js");fs.writeFileSync(mutant,source.replace(needle,replacement));

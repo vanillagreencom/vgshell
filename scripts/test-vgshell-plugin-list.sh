@@ -71,6 +71,7 @@ declare -a ROWS=(
   "a missing optional requirement says so|plain|$(reply "[$(req fzf missing true '{}')]")|missing acme.need fzf optional|0|"
   "a missing requirement names this system's package|bound|$(reply "[$(req gum missing false '{"pacman":"gum-arch","dnf":"gum-fedora"}')]")|missing acme.need gum (gum-fedora)|0|"
   "a package for no manager here names the command alone|bound|$(reply "[$(req gum missing false '{"apt":"gum"}')]")|missing acme.need gum|0|"
+  "an architecture exclusion keeps the unmet required command and shared reason|bound|$(reply '[{"name":"ttfx","bus":null,"packages":{"aur":"ttfx"},"optional":false,"purpose":"Screensaver","state":"unavailable-architecture","architecture":"aarch64","reason":"ttfx is unavailable on aarch64. Screensaver"}]')|unavailable-architecture acme.need ttfx: ttfx is unavailable on aarch64. Screensaver|0|"
   "missing lines follow the unknown lines|plain|$(reply "[$(req gum missing false '{}')]" '[{"id":"vgs.background","key":"disabledPlugins"}]')|missing acme.need gum|0|"
   "a paged reply reads as the whole reply|plain|paged=7|acme.need                    1.0      disabled  kinds=service|0|"
   "a page the shell no longer keeps refuses|plain|paged=8||69|vgshell: refused: ipc=shell.listPlugins reason=page-absent page=1"
@@ -130,7 +131,8 @@ detect_failure_row loud
 # the file in the tree; every row and the detection refusal run against
 # it, and the file is put back after.
 declare -a CONTROLS=(
-  "a missing requirement is listed" bin/vgshell-plugin-judge 'if (r.state === "missing") missing.push' 'if (false) missing.push'
+  "a missing requirement is listed" bin/vgshell-plugin-judge 'if (r.state === "missing" || r.state === "unavailable-architecture") missing.push' 'if (false) missing.push'
+  "an architecture exclusion remains listed" bin/vgshell-plugin-judge ' || r.state === "unavailable-architecture"' ''
   "the package is this system's pick" bin/vgshell-plugin-judge 'logic.PackageManagers.packageFor(m.requirement.packages, found)' 'null'
   "an optional requirement says so" bin/vgshell-plugin-judge '(optional ? " optional" : "")' '""'
   "a failed detection refuses" bin/vgshell-plugin-judge 'if (r.error !== undefined || r.status !== 0) {' 'if (false) {'

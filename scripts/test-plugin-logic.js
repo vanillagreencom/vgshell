@@ -1517,6 +1517,75 @@ function suite(ctx, configLogic, check) {
     check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
     check("requirementRows: every requirement is present when the scan missed none", ctx.requirementRows(required, [], {}).map(r => r.state), ["present", "present", "present"]);
     check("requirementRows does not alias the manifest", (() => { ctx.requirementRows(required, [], {})[1].packages.apt = "x"; return required.requirements[1].packages; })(), { pacman: "pacman-contrib" });
+    const architectureRecipe = fs.readFileSync(path.join(__dirname, "fixtures/pkg/aur-x86.SRCINFO"), "utf8");
+    const architectureArches = load(path.join(__dirname, "../shell/Core/PackageReview.js")).srcinfoArchitectures(architectureRecipe, "need-two", "need-two-base");
+    const architectureOwner = { requirements: ctx.normalRequirements([{ command: "need-two", packages: { aur: "need-two" }, purpose: "Animates the screensaver text art" }]) };
+    for (const [label, machine, fact, missing, state, offers] of [
+        ["excluded machine", "aarch64", { arches: architectureArches }, ["need-two"], "unavailable-architecture", false],
+        ["included machine", "x86_64", { arches: architectureArches }, ["need-two"], "missing", true],
+        ["any architecture", "aarch64", { arches: ["any"] }, ["need-two"], "missing", true],
+        ["recipe unreadable", "aarch64", { error: "srcinfo-unreadable" }, ["need-two"], "missing", true],
+        ["machine unreadable", null, { arches: architectureArches }, ["need-two"], "missing", true],
+        ["already installed", "aarch64", { arches: architectureArches }, [], "present", false]
+    ]) {
+        const found = { primary: { id: "pacman", binary: "pacman" }, overlays: [{ id: "aur", binary: "paru" }], sources: [],
+            aurAvailability: { machine, packages: { "need-two": fact } } };
+        const row = ctx.requirementRows(architectureOwner, missing, {}, found)[0];
+        check("recipe architecture: " + label + ": required state", [row.state, row.optional, row.purpose], [state, false, "Animates the screensaver text art"]);
+        const notice = ctx.noticeView(architectureOwner, missing, {}, { commands: ["need-two"], required: ["need-two"] }, found);
+        check("recipe architecture: " + label + ": install and readiness", [notice.run !== null, notice.satisfied], [offers, missing.length === 0]);
+        if (state === "unavailable-architecture")
+            check("recipe architecture: excluded machine is named", [row.architecture, notice.rows[0].architecture, notice.rows[0].optional, notice.byHand], ["aarch64", "aarch64", false, []]);
+    }
+    for (const [label, completion, output, accepted] of [
+        ["valid exclusion", { code: 0, status: 0 }, { machine: "aarch64", packages: { "need-two": { arches: ["x86_64"] } } }, true],
+        ["unknown recipe", { code: 0, status: 0 }, { machine: "aarch64", packages: { "need-two": { error: "srcinfo-unreadable" } } }, true],
+        ["unknown machine", { code: 0, status: 0 }, { machine: null, packages: {}, error: "machine-unreadable" }, true],
+        ["partial reply", { code: 0, status: 0 }, { machine: "aarch64", packages: {} }, false],
+        ["empty architectures", { code: 0, status: 0 }, { machine: "aarch64", packages: { "need-two": { arches: [] } } }, false],
+        ["failed process", { code: 1, status: 0 }, {}, false],
+        ["failed start", null, {}, false]
+    ]) check("recipe metadata read: " + label, ctx.aurAvailabilityRead(completion, JSON.stringify(output), ["need-two"], { machine: null, packages: {} }).ok, accepted);
+    // Screensaver and Voice Setup query disjoint package sets in one session.
+    let recipeMetadata = { machine: null, packages: {}, error: "unread" };
+    for (const [label, names, output, packages] of [
+        ["Screensaver exclusion", ["ttfx"],
+            { machine: "aarch64", packages: { ttfx: { arches: ["x86_64"] } } },
+            { ttfx: { arches: ["x86_64"] } }],
+        ["Voice preserves the Screensaver exclusion", ["voxtype-bin"],
+            { machine: "aarch64", packages: { "voxtype-bin": { arches: ["any"] } } },
+            { ttfx: { arches: ["x86_64"] }, "voxtype-bin": { arches: ["any"] } }],
+        ["a queried unknown replaces its exclusion", ["ttfx"],
+            { machine: "aarch64", packages: { ttfx: { error: "srcinfo-unreadable" } } },
+            { ttfx: { error: "srcinfo-unreadable" }, "voxtype-bin": { arches: ["any"] } }],
+        ["another query preserves the explicit unknown", ["voxtype-bin"],
+            { machine: "aarch64", packages: { "voxtype-bin": { arches: ["aarch64"] } } },
+            { ttfx: { error: "srcinfo-unreadable" }, "voxtype-bin": { arches: ["aarch64"] } }],
+        ["a compatible reread replaces the unknown", ["ttfx"],
+            { machine: "aarch64", packages: { ttfx: { arches: ["any"] } } },
+            { ttfx: { arches: ["any"] }, "voxtype-bin": { arches: ["aarch64"] } }],
+        ["a changed machine resets unrelated facts", ["ttfx"],
+            { machine: "x86_64", packages: { ttfx: { arches: ["x86_64"] } } },
+            { ttfx: { arches: ["x86_64"] } }],
+        ["an unknown machine clears earlier facts", ["voxtype-bin"],
+            { machine: null, packages: {}, error: "machine-unreadable" }, {}]
+    ]) {
+        const before = JSON.stringify(recipeMetadata);
+        const reply = ctx.aurAvailabilityRead({ code: 0, status: 0 }, JSON.stringify(output), names, recipeMetadata);
+        check("recipe metadata read: " + label, reply, { ok: true, metadata: { ...output, packages } });
+        check("recipe metadata read: " + label + ": preserves the previous snapshot", JSON.stringify(recipeMetadata), before);
+        recipeMetadata = reply.metadata;
+    }
+    const mixedArchitectureOwner = { requirements: ctx.normalRequirements([
+        { command: "need-two", packages: { aur: "need-two" }, purpose: "Screensaver animation" },
+        { command: "compatible", packages: { aur: "compatible" }, purpose: "Image conversion" }
+    ]) };
+    const mixedArchitectureFound = { primary: { id: "pacman", binary: "pacman" }, overlays: [{ id: "aur", binary: "paru" }], sources: [],
+        aurAvailability: { machine: "aarch64", packages: { "need-two": { arches: architectureArches }, compatible: { arches: ["any"] } } } };
+    const mixedArchitectureView = ctx.noticeView(mixedArchitectureOwner, ["need-two", "compatible"], {},
+        { commands: ["need-two", "compatible"], required: ["need-two", "compatible"] }, mixedArchitectureFound);
+    check("recipe architecture: a mixed install never includes the excluded package", [mixedArchitectureView.run.installs, mixedArchitectureView.satisfied],
+        [["compatible"], false]);
     // A floor: vgs-tool needs 1.10.1, vgs-free declares none. Each row is
     // [name, the scan's missing names, the line it read for vgs-tool or
     // undefined for no read, vgs-tool's state].
@@ -3631,7 +3700,9 @@ const CONTROLS = [
     ["a version above its floor is present", "if (part > least) break;", ""],
     ["a requirement without a floor is never outdated", "var read = entry.floor !== null && typeof", "var read = typeof"],
     ["a notice lists an outdated command", "var lacking = rows.filter(function (row) { return row.state !== \"present\"; });", "var lacking = rows.filter(function (row) { return row.state === \"missing\"; });"],
-    ["a view lists an outdated command", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== \"present\"; });\n    var rows", "requirementRows(manifest, missing, versions).filter(function (row) { return row.state === \"missing\"; });\n    var rows"],
+    ["a view lists an outdated command", "requirementRows(manifest, missing, versions, found).filter(function (row) { return row.state !== \"present\"; });\n    var rows", "requirementRows(manifest, missing, versions, found).filter(function (row) { return row.state === \"missing\"; });\n    var rows"],
+    ["an excluded recipe stays an architecture refusal", "row.state = \"unavailable-architecture\";", "row.state = \"missing\";"],
+    ["a partial recipe reply retains unrelated same-machine facts", "Object.assign({}, packages, read.packages)", "Object.assign({}, read.packages)", "recipe metadata read:"],
     ["an update is offered for the outdated rows alone", "e.chip === name && e.update; });", "e.chip === name; });"],
     ["an entry is an update while each of its rows is outdated", "var update = row.state === \"outdated\";", "var update = false;"],
     ["a floor is three dotted numbers", "!REQUIREMENT_FLOOR.test(requirement.floor)", "false"],

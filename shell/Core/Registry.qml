@@ -580,7 +580,7 @@ Singleton {
     // requirementOwners binding recomputes, so use the same judge directly.
     function requirementsOf(id) {
         const scan = publishedScan;
-        return Logic.requirementRows(Logic.requirementOwner(scan.manifests[id], scan.requirementDrivers[id]), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions);
+        return Logic.requirementRows(Logic.requirementOwner(scan.manifests[id], scan.requirementDrivers[id]), Logic.hasOwn(missingCommands, id) ? missingCommands[id] : [], commandVersions, Notices.requirementManagers);
     }
 
     // Where a plugin was found: `bundled` under the shell's own plugins

@@ -32,7 +32,7 @@ function shellSingle(text) {
 function makeTree(dir, texts) {
     for (const sub of ["bin", "config", path.join("shell", "Core")]) fs.mkdirSync(path.join(dir, sub), { recursive: true });
     fs.symlinkSync(path.join(repo, "bin", "lib"), path.join(dir, "bin", "lib"));
-    for (const file of ["config/shell.json", "shell/Core/ConfigLogic.js"])
+    for (const file of ["config/shell.json", "shell/Core/ConfigLogic.js", "shell/Core/PackageReview.js"])
         fs.symlinkSync(path.join(repo, file), path.join(dir, file));
     fs.writeFileSync(path.join(dir, "shell", "Core", "PackageManagers.js"), texts.table);
     fs.writeFileSync(path.join(dir, "bin", "vgshell-pkg"), texts.pkg, { mode: 0o755 });
@@ -108,6 +108,36 @@ process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.
     expectCommand("present names the missing command and exits 1", run(scripts.pkg, ["present", "gum", "fzf"]), 1, "{\"present\":[\"gum\"],\"missing\":[\"fzf\"]}\n", "");
     expectCommand("present exits 0 when every command is found", run(scripts.pkg, ["present", "gum", "yay"]), 0, "{\"present\":[\"gum\",\"yay\"],\"missing\":[]}\n", "");
     expectCommand("present refuses a path", run(scripts.pkg, ["present", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");
+    // RPC and recipe bytes are fixtures. The curl stand-in rejects every
+    // other URL; no test can reach the AUR, even on a networked runner.
+    const aurPath = stubPath(tmp, "aur-availability", {
+        uname: '[ "$*" = "-m" ] || exit 99\n[ "${AUR_MACHINE_FAIL:-}" != 1 ] || exit 1\necho aarch64',
+        curl: 'while [ "$#" -gt 1 ]; do shift; done\ncase "$1" in\n' +
+            '  "https://aur.archlinux.org/rpc/v5/info?arg[]=need-two") [ "${AUR_RPC_FAIL:-}" != 1 ] || exit 22\n' +
+            '    printf \'%s\\n\' \'{"type":"multiinfo","resultcount":1,"results":[{"Name":"need-two","PackageBase":"need-two-base"}]}\' ;;\n' +
+            '  "https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=need-two-base") [ "${AUR_SOURCE_FAIL:-}" != 1 ] || exit 22\ncat "$AUR_SOURCE" ;;\n' +
+            '  *) exit 99 ;;\nesac'
+    }, tools);
+    const neutralAurPath = stubPath(tmp, "aur-neutral", {
+        uname: '[ "$*" = "-m" ] || exit 99\necho aarch64',
+        curl: "exec " + shellSingle(process.execPath) + " " + shellSingle(path.join(FIXTURES, "aur-curl.js")) + " " + shellSingle(path.join(tmp, "no-curl-delegate")) + ' "$@"'
+    }, tools);
+    for (const [label, fixture, extra, expected] of [
+        ["excluded", "aur-x86.SRCINFO", {}, { arches: ["x86_64"] }],
+        ["compatible", "aur-arm.SRCINFO", {}, { arches: ["aarch64"] }],
+        ["any", "aur-any.SRCINFO", {}, { arches: ["any"] }],
+        ["RPC unreadable", "aur-x86.SRCINFO", { AUR_RPC_FAIL: "1" }, { error: "rpc-unreadable" }],
+        ["recipe unreadable", "aur-x86.SRCINFO", { AUR_SOURCE_FAIL: "1" }, { error: "srcinfo-unreadable" }]
+    ]) {
+        const r = childProcess.spawnSync(scripts.pkg, ["availability", "need-two"], { encoding: "utf8", env: {
+            ...env, PATH: label === "any" ? neutralAurPath : aurPath, AUR_SOURCE: path.join(FIXTURES, fixture), ...extra
+        } });
+        expectCommand("AUR availability " + label, r, 0, JSON.stringify({ machine: "aarch64", packages: { "need-two": expected } }) + "\n", "");
+    }
+    expectCommand("AUR availability rejects names before fetching", run(scripts.pkg, ["availability", "need two"]), 2, "", "vgshell: refused: availability=names\n");
+    expectCommand("AUR availability keeps a machine read failure unknown", childProcess.spawnSync(scripts.pkg, ["availability", "need-two"], {
+        encoding: "utf8", env: { ...env, PATH: aurPath, AUR_MACHINE_FAIL: "1" }
+    }), 0, '{"machine":null,"packages":{"need-two":{"error":"machine-unreadable"}},"error":"machine-unreadable"}\n', "");
     // The rpm stub answers as rpm did in a clean Fedora 44 image with the
     // package nodejs22 installed, which provides nodejs (podman fedora:44,
     // 2026-11-03): -q matches package names, --whatprovides the
@@ -395,6 +425,7 @@ function checkRows(scripts, quick, tools, tmp, expect, failures) {
 // text one of the copy's failures must hold, for a control that proves one
 // particular assertion can fail.
 const CONTROLS = [
+    ["cli", "AUR availability discards the recipe architectures", PKG, "const arches = source === null ? null : judge.srcinfoArchitectures(source, name, base);", "const arches = null;", "AUR availability excluded"],
     ["cli", "desktop review settings stays in the terminal editor", PKG, "if (process.env.WAYLAND_DISPLAY) {", "if (false) {", "desktop review settings target"],
     ["cli", "run --ignore with no name is accepted", PKG, "            if (ignored.length === 0) usage(\"option=--ignore value=missing\");\n", "", "run upgrade --ignore without a name is a bad invocation"],
     ["cli", "plan names no elevator", PKG, "elevator: planElevator(r.plan)", "elevator: null", "plan names the configured elevator"],

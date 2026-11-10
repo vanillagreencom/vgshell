@@ -1060,17 +1060,7 @@ expect_poll "the Voice voxtype requirement is missing after stub removal" missin
 # after the install rows.
 voice_pkg_real="$sandbox/voice-vgshell-pkg.real"
 cp -- "$repo/bin/vgshell-pkg" "$voice_pkg_real"
-cat >"$sandbox/voice-vgshell-pkg.stub" <<'EOF_PKG'
-#!/usr/bin/env node
-if (process.argv[2] === "detect" && process.argv[3] === "--json") {
-    process.stdout.write('{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}\n');
-    process.exit(0);
-}
-process.stderr.write("vgshell: refused: stub=vgshell-pkg\n");
-process.exit(70);
-EOF_PKG
-chmod 755 "$sandbox/voice-vgshell-pkg.stub"
-cp -- "$sandbox/voice-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}'
 voice_resumes() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["notices"]["resumes"]))'; }
 # The notice's entries as [chip, the number of lines under it].
 voice_notice_groups() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.dumps([[g[0], len(g[1])] for g in json.load(sys.stdin)["groups"]]))'; }

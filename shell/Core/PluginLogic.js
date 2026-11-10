@@ -163,7 +163,7 @@ var NM_VPN_SERVICE_PREFIX = "org.freedesktop.NetworkManager.";
 var REQUIREMENT_LABEL_MAX = 40;
 var REQUIREMENT_BUSES = ["system", "session"];
 var REQUIREMENT_PURPOSE_MAX = 120;
-var REQUIREMENT_STATES = ["present", "missing", "outdated"];
+var REQUIREMENT_STATES = ["present", "missing", "outdated", "unavailable-architecture"];
 // A `floor`: three dotted numbers, none with a leading zero.
 var REQUIREMENT_FLOOR = /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$/;
 // The version in the line a command's `--version` printed: its first three
@@ -2729,6 +2729,7 @@ function requirementBadge(state, optional) {
     case "present": return { text: "Present", tone: "success" };
     case "missing": return optional ? { text: "Optional", tone: "info" } : { text: "Missing", tone: "danger" };
     case "outdated": return { text: "Outdated", tone: "warning" };
+    case "unavailable-architecture": return { text: "Not available", tone: "neutral" };
     }
     throw new Error("requirementBadge: no rule for requirement state " + JSON.stringify(state));
 }
@@ -2737,10 +2738,11 @@ function requirementBadge(state, optional) {
 // of MANIFEST's `requirements`, in order, except a driver the completed
 // scan proved absent. An unknown discovery retains the real command state
 // and install offer. Conditional entries come from requirementOwner.
-// Each row has `state` as requirementState
-// reads it from MISSING and VERSIONS and `badge` as requirementBadge draws
-// that state.
-function requirementRows(manifest, missing, versions) {
+// Each row has the command state from MISSING and VERSIONS and its badge.
+// When optional FOUND holds a picked AUR recipe that excludes this machine,
+// a lacking row instead carries unavailable-architecture, the architecture
+// and its plain reason; its requiredness and purpose stay unchanged.
+function requirementRows(manifest, missing, versions, found) {
     return manifest.requirements.filter(function (entry) {
         if (entry.drmDriver === null || entry.drmDriver === undefined) return true;
         if (entry.drmDriverFact === undefined)
@@ -2749,9 +2751,55 @@ function requirementRows(manifest, missing, versions) {
     }).map(function (entry) {
         var row = clone(entry);
         row.state = requirementState(entry, missing, versions);
+        if (row.state !== "present" && found !== undefined && found !== null) {
+            var holder = found.holders !== undefined && hasOwn(found.holders, row.name) ? found.holders[row.name] : null;
+            var architecture = PackageManagers.unavailableArchitecture(PackageManagers.packageFor(row.packages, found, holder), found);
+            if (architecture !== null) {
+                row.state = "unavailable-architecture";
+                row.architecture = architecture;
+                row.reason = "Not available for " + architecture + ". " + row.purpose;
+            }
+        }
         row.badge = requirementBadge(row.state, row.optional);
         return row;
     });
+}
+
+// The AUR recipes whose absent or outdated requirements need metadata,
+// using the same installed-owner and manager selection as an install.
+function requirementAurNames(manifest, missing, versions, found) {
+    if (found === null) return [];
+    var rows = requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== "present"; });
+    var picks = PackageManagers.installGroups(rows, found).picks;
+    return picks.reduce(function (names, pick) {
+        if (pick !== null && pick.manager === "aur" && names.indexOf(pick.name) === -1) names.push(pick.name);
+        return names;
+    }, []);
+}
+
+// The read-only recipe metadata reply for NAMES. Unread or malformed
+// evidence is never a successful architecture reading. Each Setup owner
+// queries only its own names: keep unrelated facts from PREVIOUS until the
+// machine changes, while a queried unknown replaces its earlier fact.
+function aurAvailabilityRead(completion, stdout, names, previous) {
+    var failed = function (cause) { return { ok: false, line: "requirements: availability=" + cause }; };
+    if (completion === null) return failed("unstarted");
+    if (completion.code !== 0 || completion.status !== 0) return failed("failed exit=" + completion.code + " status=" + completion.status);
+    var read;
+    try { read = JSON.parse(stdout); } catch (e) { return failed("unparseable"); }
+    if (!isPlainObject(read) || !isPlainObject(read.packages)
+        || !(typeof read.machine === "string" && /^[A-Za-z0-9_]+$/.test(read.machine)
+            || read.machine === null && typeof read.error === "string" && read.error !== "")
+        || !(read.machine === null || names.every(function (name) {
+            if (!hasOwn(read.packages, name)) return false;
+            var fact = read.packages[name];
+            return isPlainObject(fact) && (typeof fact.error === "string" && fact.error !== ""
+                || Array.isArray(fact.arches) && fact.arches.length > 0
+                && fact.arches.every(function (arch) { return typeof arch === "string" && /^[A-Za-z0-9_]+$/.test(arch); }));
+        }))) return failed("malformed");
+    var packages = previous.machine === read.machine ? previous.packages : {};
+    read.packages = Object.assign({}, packages, read.packages);
+    return { ok: true, metadata: read };
 }
 
 // The commands whose version a scan reads, each once and sorted: every
@@ -2959,11 +3007,11 @@ function noticeAdmit(queue, rest, failed, id, request, trigger, now) {
 // `byHand` is each group whose manager installs nothing through vgshell,
 // nix, as { manager, names }.
 function noticeView(manifest, missing, versions, notice, found) {
-    var lacking = requirementRows(manifest, missing, versions).filter(function (row) { return row.state !== "present"; });
+    var lacking = requirementRows(manifest, missing, versions, found).filter(function (row) { return row.state !== "present"; });
     var rows = lacking.filter(function (row) { return notice.commands.indexOf(row.name) !== -1; });
     var satisfied = !notice.required.some(function (c) { return lacking.some(function (row) { return row.name === c; }); });
     var plan = found === null ? { picks: rows.map(function () { return null; }), groups: [] } : PackageManagers.installGroups(rows, found);
-    var shown = rows.map(function (row, i) { return { name: row.name, purpose: row.purpose, optional: row.optional, state: row.state, package: plan.picks[i] }; });
+    var shown = rows.map(function (row, i) { return { name: row.name, purpose: row.reason || row.purpose, optional: row.optional, state: row.state, architecture: row.architecture, package: plan.picks[i] }; });
     var entries = noticeGroups(shown);
     var updatesOf = function (group) {
         return group.names.filter(function (name) { return entries.some(function (e) { return e.manager === group.manager && e.chip === name && e.update; }); });
@@ -3190,14 +3238,14 @@ function noticeGroups(rows) {
         var manager = packaged ? row.package.manager : null;
         var update = row.state === "outdated";
         var held = out.filter(function (g) { return g.manager === manager && g.chip === chip; })[0];
-        if (held === undefined) out.push({ chip: chip, packaged: packaged, manager: manager, update: update, optional: row.optional, purposes: [row.purpose] });
+        if (held === undefined) out.push({ chip: chip, packaged: packaged, manager: manager, update: update, architecture: row.architecture, optional: row.optional, purposes: [row.purpose] });
         else {
             held.update = held.update && update;
             held.optional = held.optional && row.optional;
             held.purposes.push(row.purpose);
         }
     });
-    return out.map(function (g) { return Object.assign(g, { badge: requirementBadge(g.update ? "outdated" : "missing", g.optional) }); });
+    return out.map(function (g) { return Object.assign(g, { badge: requirementBadge(g.architecture !== undefined ? "unavailable-architecture" : g.update ? "outdated" : "missing", g.optional) }); });
 }
 
 // What a run of RAN left as it was, or null when it left nothing: RAN is

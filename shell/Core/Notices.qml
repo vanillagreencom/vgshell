@@ -24,7 +24,7 @@ import "PluginLogic.js" as Logic
 // queue, and what the shown notice lists and installs; NoticeHost draws
 // it. The managers come from `bin/vgshell-pkg detect --json`, with
 // `--holders` for commands that have a floor, run when the first notice
-// arrives and after each install. Install opens the core TUI
+// arrives, after each install and when Setup opens. Install opens the core TUI
 // `core/requirements-install`, and Update, for commands below their floor,
 // `core/requirements-update`, which also installs the same manager's missing
 // packages; once its run ends, one rescan follows, and
@@ -56,6 +56,13 @@ Singleton {
     // detect's answer, or null before the first detection and after one
     // failed.
     property var managers: null
+    // Recipe reads happen only on opening Setup, through its existing
+    // viewPage report. Keep the last facts for notices and manager rows;
+    // neither a scan nor an install refreshes metadata in the background.
+    property var aurAvailability: ({ machine: null, packages: {}, error: "unread" })
+    readonly property var requirementManagers: managers === null ? null : Object.assign({}, managers, { aurAvailability: aurAvailability })
+    property string availabilityOwner: ""
+    property string lastSetupOwner: ""
     // What the last detection left: `pending` from the first notice of a
     // showing until a detection ends, then `answered` or `failed`. The
     // notice waits while it is pending; a later detection keeps the last
@@ -195,7 +202,7 @@ Singleton {
         const owners = Registry.requirementOwners;
         const missing = Registry.ownerMissing;
         const versions = Registry.commandVersions;
-        const found = managers;
+        const found = requirementManagers;
         if (notice === null || detection === "pending" || !Logic.hasOwn(owners, notice.id)) return null;
         const base = Logic.noticeView(owners[notice.id], Logic.hasOwn(missing, notice.id) ? missing[notice.id] : [], versions, notice, found);
         const shown = Logic.noticeCompletionView(base, packageCompletion, Capabilities.tuis.runs, Registry.scanError === "" && detection === "answered" && !detector.running);
@@ -272,6 +279,32 @@ Singleton {
 
     function missingOf(id) {
         return Logic.hasOwn(Registry.ownerMissing, id) ? Registry.ownerMissing[id] : [];
+    }
+
+    Connections {
+        target: PluginStatus
+        function onViewingChanged() {
+            const viewed = PluginStatus.viewing;
+            const id = viewed.tab === "Setup" ? viewed.id : "";
+            if (id === root.lastSetupOwner) return;
+            root.lastSetupOwner = id;
+            root.availabilityOwner = id;
+            if (id !== "") root.detect();
+        }
+    }
+
+    function readAvailability() {
+        if (availabilityReader.running || detector.running || availabilityOwner === "" || managers === null) return;
+        const id = availabilityOwner;
+        availabilityOwner = "";
+        const owners = Registry.requirementOwners;
+        if (!Logic.hasOwn(owners, id)) return;
+        const names = Logic.requirementAurNames(owners[id], missingOf(id), Registry.commandVersions, managers);
+        if (names.length === 0) return;
+        availabilityReader.names = names;
+        availabilityReader.completion = null;
+        availabilityReader.command = [Quickshell.shellDir + "/../bin/vgshell-pkg", "availability"].concat(names);
+        availabilityReader.running = true;
     }
 
     // The `requirements` capability's `outdated`: owner ID's commands the
@@ -589,7 +622,7 @@ Singleton {
             const notice = root.queue.find(n => n.id === id);
             const owner = Registry.requirementOwners[id];
             const held = { ran: ran, run: run, result: result };
-            const shown = notice === undefined || owner === undefined ? null : Logic.noticeView(owner, root.missingOf(id), Registry.commandVersions, notice, root.managers);
+            const shown = notice === undefined || owner === undefined ? null : Logic.noticeView(owner, root.missingOf(id), Registry.commandVersions, notice, root.requirementManagers);
             const classified = shown === null ? null : Logic.noticePackageFailure(shown, held, Capabilities.tuis.runs, Registry.scanError === "" && root.detection === "answered");
             if (!ended && id !== Logic.CORE_OWNER && classified === null && notice !== undefined) root.close(notice);
             root.settle();
@@ -597,7 +630,7 @@ Singleton {
             root.packageCompletion = classified === null ? null : held;
             if (classified !== null) root.failure = null;
             else if (ended)
-                root.failure = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.managers, ran);
+                root.failure = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.requirementManagers, ran);
         };
         afterVersions(() => {
             if (detector.running) root.installSettlement = settleEnd;
@@ -837,9 +870,37 @@ Singleton {
                 return;
             }
             root.detection = answer.ok ? "answered" : "failed";
+            if (answer.ok) root.readAvailability();
+            else root.availabilityOwner = "";
             const settlement = root.installSettlement;
             root.installSettlement = null;
             if (settlement !== null) settlement();
+        }
+    }
+
+    // argv and collectors are set before starting; runningChanged also
+    // handles a failed start without an exited signal.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/StdioCollector/
+    Process {
+        id: availabilityReader
+        property var names: []
+        property var completion: null
+        stdout: StdioCollector { id: availabilityOutput }
+        stderr: StdioCollector { id: availabilityErrors }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const reply = Logic.aurAvailabilityRead(completion, availabilityOutput.text, names, root.aurAvailability);
+            const metadata = reply.ok ? reply.metadata : { machine: null, packages: {}, error: "read-failed" };
+            if (!reply.ok) console.warn(reply.line + " " + availabilityErrors.text.trim());
+            if (metadata.error !== undefined && reply.ok) console.warn("requirements: availability=" + metadata.error);
+            for (const name of names) {
+                if (!Object.prototype.hasOwnProperty.call(metadata.packages, name)) metadata.packages[name] = { error: "read-failed" };
+                else if (metadata.packages[name].error !== undefined) console.warn("requirements: package=" + name + " availability=" + metadata.packages[name].error);
+            }
+            root.aurAvailability = metadata;
+            root.readAvailability();
         }
     }
 }

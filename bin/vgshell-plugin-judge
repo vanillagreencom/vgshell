@@ -11,8 +11,9 @@
 //       package PackageManagers.packageFor picks for this system from
 //       `vgshell pkg detect`, or `missing <id> <command>` when its `packages`
 //       names no manager present here; an optional one ends ` optional`.
-//       Detection runs once, and only when a missing requirement names a
-//       package.
+//       Detection runs once, and only when an unmet requirement names a
+//       package. An `unavailable-architecture` requirement keeps that state
+//       instead of `missing` and ends with `: <reason>` from the shared row.
 //   vgshell-plugin-judge tuis
 //       read the shell's `listTuis` reply on stdin and print it as
 //       `vgshell tui list` lines: one per listed floating TUI, its key, its
@@ -62,7 +63,13 @@
 //       [rows] }, session: { graphicalSession } }`, every enabled plugin
 //       keyed, in id order, one with no requirements by an empty list. The
 //       core's command requirements are looked up on PATH here; a plugin's are the
-//       scan's `missing`.
+//       scan's `missing`. Doctor also makes bounded read-only AUR RPC and
+//       .SRCINFO requests for missing or outdated AUR picks. A recipe that
+//       excludes this machine reads `unavailable-architecture`, with its
+//       shared `reason` instead of purpose in text and `architecture` and
+//       `reason` fields in JSON. Unknown metadata keeps the existing state
+//       and install offer; read errors name the affected packages and cause
+//       on stderr in both modes. `requirements` does not read AUR metadata.
 //   vgshell-plugin-judge unmet <id>
 //       read `bin/vgshell-scan` JSON on stdin and print, for plugin <id>, one
 //       `requires <name>[ (<package>)][ optional]` line per requirement
@@ -138,11 +145,12 @@ function listLines(reply) {
     const missing = [];
     for (const p of reply.plugins)
         for (const r of p.requirements)
-            if (r.state === "missing") missing.push({ id: p.id, requirement: r });
+            if (r.state === "missing" || r.state === "unavailable-architecture") missing.push({ id: p.id, requirement: r });
     const found = missing.some(m => Object.keys(m.requirement.packages).length > 0) ? detected([]) : null;
     for (const m of missing) {
         const pick = found === null ? null : logic.PackageManagers.packageFor(m.requirement.packages, found);
-        lines.push("missing " + m.id + " " + requirementText(m.requirement.name, pick, m.requirement.optional));
+        lines.push(m.requirement.state + " " + m.id + " " + requirementText(m.requirement.name, pick, m.requirement.optional)
+            + (m.requirement.state === "unavailable-architecture" ? ": " + m.requirement.reason : ""));
     }
     if (reply.scanError) lines.push("scan-error " + reply.scanError);
     return lines;
@@ -180,9 +188,30 @@ function versionsOf(commands) {
 // names those not found and ENABLED the plugins that count:
 // `{ versions, found }`, the versions and the holders of the commands
 // PluginLogic.versionCommands picks, the commands with a floor.
-function systemRead(owners, missing, enabled) {
+function systemRead(owners, missing, enabled, readAvailability = false) {
     const commands = logic.versionCommands(owners, missing, enabled);
-    return { versions: versionsOf(commands), found: managersFor(Object.keys(owners).map(id => owners[id].requirements), commands) };
+    const versions = versionsOf(commands);
+    const found = managersFor(Object.keys(owners).map(id => owners[id].requirements), commands);
+    if (readAvailability) {
+        const names = new Set(Object.keys(owners).flatMap(id => logic.requirementAurNames(owners[id], missing[id], versions, found)));
+        if (names.size > 0) {
+            const r = childProcess.spawnSync(process.execPath, [path.join(__dirname, "vgshell-pkg"), "availability", ...names], { encoding: "utf8" });
+            try {
+                if (r.error || r.status !== 0) throw new Error("read");
+                found.aurAvailability = JSON.parse(r.stdout);
+                if (found.aurAvailability.error)
+                    process.stderr.write("availability=unknown packages=" + [...names].join(",") + " reason=" + found.aurAvailability.error + "\n");
+                for (const name of names) {
+                    const error = found.aurAvailability.packages?.[name]?.error;
+                    if (error)
+                        process.stderr.write("availability=unknown package=" + name + " reason=" + error + "\n");
+                }
+            } catch (_) {
+                process.stderr.write("availability=unreadable\n");
+            }
+        }
+    }
+    return { versions, found };
 }
 
 // The report rows of REQUIREMENTS, a normalized list, of which MISSING
@@ -192,13 +221,14 @@ function systemRead(owners, missing, enabled) {
 // the package PackageManagers.installGroups picks for each from READ's
 // managers and holders.
 function reportRows(requirements, missing, read) {
-    const rows = logic.requirementRows({ requirements }, missing, read.versions);
+    const rows = logic.requirementRows({ requirements }, missing, read.versions, read.found);
     const picks = logic.PackageManagers.installGroups(rows, read.found).picks;
     return rows.map((row, i) => Object.assign(row, { package: picks[i] }));
 }
 
 function rowLine(row) {
-    return row.state + " " + requirementText(row.name, row.package, row.optional) + ": " + row.purpose;
+    return row.state + " " + requirementText(row.name, row.package, row.optional) + ": "
+        + (row.state === "unavailable-architecture" ? row.reason : row.purpose);
 }
 
 function readScan() {
@@ -269,7 +299,7 @@ function doctorReport(plugins, shipped, user, core) {
         owners[id] = plugins.get(id).manifest;
         missing[id] = plugins.get(id).missing;
     }
-    const read = systemRead(owners, missing, enabled);
+    const read = systemRead(owners, missing, enabled, true);
     const report = { core: reportRows(core.requirements, core.missing, read), plugins: {} };
     for (const id of enabled) report.plugins[id] = reportRows(owners[id].requirements, missing[id], read);
     return report;

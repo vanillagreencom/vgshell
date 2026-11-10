@@ -6322,17 +6322,7 @@ held=json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else []
 open(sys.argv[1],"w").write(json.dumps(held + [{"provider": "pi", "directory": sys.argv[2], "label": "setup"}]))
 PY
   cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
-  cat >"$sandbox/outdated-vgshell-pkg.stub" <<'EOF_PKG'
-#!/usr/bin/env node
-if (process.argv[2] === "detect" && process.argv[3] === "--json") {
-    process.stdout.write('{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[{"id":"mise","binary":"mise"}]}\n');
-    process.exit(0);
-}
-process.stderr.write("vgshell: refused: stub=vgshell-pkg\n");
-process.exit(70);
-EOF_PKG
-  chmod 755 "$sandbox/outdated-vgshell-pkg.stub"
-  cp -- "$sandbox/outdated-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[{"id":"mise","binary":"mise"}]}'
   tree_rescan "the outdated scene's stand-ins are scanned"
   brain="$(env -i PATH="$sandbox/outdated-no-path" HOME="$home" XDG_STATE_HOME="$home/.local/state" XDG_CONFIG_HOME="$home/.config" \
     XDG_DATA_HOME="$home/.local/share" "$node_bin" "$repo/shell/plugins/vgs.jarvis/backend/accounts.js" --tree "$repo" list |
@@ -6711,17 +6701,7 @@ scene_voice-setup() { # MODE
     stood+=("$command")
   done
   cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
-  cat >"$sandbox/voice-setup-vgshell-pkg.stub" <<'EOF_PKG'
-#!/usr/bin/env node
-if (process.argv[2] === "detect" && process.argv[3] === "--json") {
-    process.stdout.write('{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}\n');
-    process.exit(0);
-}
-process.stderr.write("vgshell: refused: stub=vgshell-pkg\n");
-process.exit(70);
-EOF_PKG
-  chmod 755 "$sandbox/voice-setup-vgshell-pkg.stub"
-  cp -- "$sandbox/voice-setup-vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}'
   voice_stand_ins_removed
   rm -f -- "${shim:?}/voxtype-audio-bridge"
   rescan "the Voice setup scene's commands are scanned"

@@ -97,8 +97,13 @@
 # its version read and its holder looked up as the shell does, so a command
 # below its floor is `outdated` and the package named is the one its
 # holder's manager provides; a command whose version cannot be read, and
-# every command of a disabled plugin, stays `present`. `doctor` prints the same
-# lines, each led by `core` or the plugin's id, for config/requirements.json
+# every command of a disabled plugin, stays `present`. `doctor` also reads
+# AUR recipe metadata for missing or outdated AUR picks through bounded
+# read-only RPC and .SRCINFO requests. A recipe that excludes this machine
+# reads `unavailable-architecture`, with its reason instead of purpose;
+# unknown metadata keeps the existing state and install offer, with read
+# errors naming the affected packages and cause on stderr in both modes.
+# Doctor's lines are each led by `core` or the plugin's id, for config/requirements.json
 # and every plugin the configuration enables, then one line, `session <present|missing|unknown>
 # uwsm-managed: <text>`, which says whether the session is uwsm-managed,
 # read from the user manager's graphical-session.target; an unmanaged one
@@ -109,9 +114,10 @@
 # floor the lowest version the plugin works with or null, and onRequest
 # whether the requirement's package installs on request: a list for `plugin
 # requirements`, and `{ core: [rows], plugins: { <id>: [rows] }, session:
-# { graphicalSession } }` for `doctor`. Both read the plugin directories,
-# PATH, D-Bus names and versions as the shell's scan does, and change
-# nothing.
+# { graphicalSession } }` for `doctor`, whose excluded rows also carry
+# `architecture` and `reason`. Both read the plugin directories, PATH,
+# D-Bus names and versions as the shell's scan does; only doctor reads
+# AUR metadata. Neither changes anything.
 #
 # `plugin settings` prints the settings the plugin the shell would hold
 # under <id> hands its service, panel and floating TUIs: its manifest's

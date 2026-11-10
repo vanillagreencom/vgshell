@@ -48,6 +48,7 @@ wa_browser_entry="$wa_apps/vgs-smoke-browser.desktop"
 wa_index_s=30
 wa_mime_before=unchanged
 wa_config_saved=false
+wa_curl_owned=false
 wa_snapshots="$(mktemp -d "$sandbox/webapps-snapshots.XXXXXX")"
 source "$repo/scripts/smoke/webapps-browsers.sh"
 
@@ -152,6 +153,10 @@ wa_unplant() {
     expect_poll "the shell has read the kept configuration" true ipc smoke configSettled
   fi
   ipc shell hide window vgs.settings >/dev/null
+  if [[ $wa_curl_owned == true ]]; then
+    rm -f -- "${shim:?}/curl.row" || return 1
+    wa_curl_owned=false
+  fi
 }
 smoke_row_abandon=(wa_unplant)
 
@@ -200,6 +205,48 @@ done
 wa_url="http://127.0.0.1:$wa_port/app/"
 wa_bare="http://127.0.0.1:$wa_port/bare/"
 wa_class="chrome-127.0.0.1__app_-Default"
+# The shared curl routes AUR first. This row's delegate reads only the
+# static server it acquired; real curl keeps the page/icon output contract.
+if python3 - "$shim/curl.row" "$shell_host_path/curl" "$wa_port" <<'PY_CURL'
+import os
+import sys
+
+target, real, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
+script = f"""#!/usr/bin/env python3
+import os
+import sys
+import urllib.parse
+
+args = sys.argv[1:]
+try:
+    url = urllib.parse.urlsplit(args[-1] if args else "")
+    allowed = (len(args) >= 2 and args[-2] == "--"
+               and url.scheme == "http" and url.hostname == "127.0.0.1"
+               and url.port == {port} and url.username is None and url.password is None)
+except ValueError:
+    allowed = False
+if not allowed:
+    print("webapps-curl-fixture: refused outside-owned-origin", file=sys.stderr)
+    sys.exit(70)
+os.execv({real!r}, [{real!r}, *args])
+"""
+fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
+try:
+    with os.fdopen(fd, "w") as stream:
+        os.fchmod(stream.fileno(), 0o700)
+        stream.write(script)
+except BaseException:
+    os.unlink(target)
+    raise
+PY_CURL
+then
+  wa_curl_owned=true
+else
+  fail "the Web Apps row could not acquire its loopback curl delegate"
+  wa_unplant
+  smoke_row_abandon=()
+  return 0
+fi
 
 wa_before="$(plugin_enabled "$wa_id")" || wa_before=unread
 wa_launcher_before="$(plugin_enabled vgs.launcher)" || wa_launcher_before=unread

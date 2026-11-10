@@ -16,6 +16,13 @@
 //   vgshell-pkg present <command>...
 //       one JSON line `{ present, missing }` naming each command found and
 //       not found on PATH; exit 0 when none is missing, 1 when one is
+//   vgshell-pkg availability <AUR name>...
+//       Doctor and plugin Setup's read-only recipe facts:
+//       `{ machine, packages: { name: { arches } | { error } } }`.
+//       machine is uname -m, null with error=machine-unreadable on failure.
+//       A failed metadata read keeps its error, never an empty arch list.
+//       One batched RPC lookup resolves package bases, then one bounded
+//       .SRCINFO read per base. No build, refresh, cache or install runs.
 //   vgshell-pkg plan install|reinstall|update|remove|upgrade <manager> [names...]
 //       one JSON line `{ manager, binary, action, elevate, steps,
 //       elevator }`: the argv of each step the action takes, in order,
@@ -225,6 +232,47 @@ function osRelease() {
         }
     }
     return "";
+}
+
+// AUR RPC v5 names PackageBase, not arch (https://aur.archlinux.org/rpc/openapi.json).
+// Read the base's declarative .SRCINFO, never execute its PKGBUILD.
+// These user-requested reads inherit the caller's environment transparently.
+function aurAvailability(names) {
+    const options = { encoding: "utf8", timeout: 6000, killSignal: "SIGKILL", maxBuffer: 1024 * 1024, cwd: process.env.HOME || "/" };
+    // Same machine source as vgs.devtools/bin/devtools::machineArch; no
+    // catalog architecture or package-name table can answer recipe support.
+    const arch = childProcess.spawnSync("uname", ["-m"], options);
+    const machineUnreadable = arch.error || arch.status !== 0 || !arch.stdout.trim();
+    const packages = Object.fromEntries(names.map(name => [name, { error: machineUnreadable ? "machine-unreadable" : "rpc-unreadable" }]));
+    if (machineUnreadable)
+        return { machine: null, packages, error: "machine-unreadable" };
+    const machine = arch.stdout.trim();
+    const read = url => {
+        const r = childProcess.spawnSync("curl", ["--disable", "--globoff", "--fail", "--silent", "--show-error", "--proto", "=https", "--max-time", "5", "--url", url], options);
+        return r.error || r.status !== 0 ? null : r.stdout;
+    };
+    const text = read("https://aur.archlinux.org/rpc/v5/info?" + names.map(name => "arg[]=" + encodeURIComponent(name)).join("&"));
+    let reply;
+    try { reply = JSON.parse(text); } catch (_) { return { machine, packages }; }
+    if (reply === null || reply.type !== "multiinfo" || !Array.isArray(reply.results)
+        || reply.resultcount !== reply.results.length) return { machine, packages };
+    const records = new Map();
+    for (const record of reply.results) {
+        if (record === null || !names.includes(record.Name) || !table.validName(record.PackageBase) || records.has(record.Name))
+            return { machine, packages };
+        records.set(record.Name, record.PackageBase);
+    }
+    const judge = require("./lib/qml-library.js").load(path.join(repo, "shell", "Core", "PackageReview.js"));
+    const sources = new Map();
+    for (const name of names) {
+        if (!records.has(name)) { packages[name] = { error: "package-unreadable" }; continue; }
+        const base = records.get(name);
+        if (!sources.has(base)) sources.set(base, read("https://aur.archlinux.org/cgit/aur.git/plain/.SRCINFO?h=" + encodeURIComponent(base)));
+        const source = sources.get(base);
+        const arches = source === null ? null : judge.srcinfoArchitectures(source, name, base);
+        packages[name] = arches === null ? { error: "srcinfo-unreadable" } : { arches };
+    }
+    return { machine, packages };
 }
 
 // Take the check lock, held until this process exits; the queries do not
@@ -782,6 +830,10 @@ function pick(action, manager) {
 const [verb, ...args] = process.argv.slice(2);
 main(async () => {
     switch (verb) {
+    case "availability":
+        if (!args.length || args.some(name => !table.validName(name))) usage("availability=names");
+        process.stdout.write(JSON.stringify(aurAvailability([...new Set(args)])) + "\n");
+        break;
     case "orphan-info":
         if (!args.length || args.some(n => !table.validName(n))) usage("orphan-info=names");
         process.stdout.write(JSON.stringify(require("./lib/pkg-review.js").orphanInfo(args)) + "\n");

@@ -71,6 +71,8 @@ Scope {
         }
         if (step(shown) !== "") return actionLabel(shown) + " opens a terminal. The package manager asks for your password there.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
+        if (shown.rows.some(row => row.state === "unavailable-architecture"))
+            return "A package recipe does not support this computer's architecture. The recipe must support it before VGS can install the package.";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
     }
