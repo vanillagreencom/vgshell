@@ -112,7 +112,7 @@ function ports(root, engine, state) {
                 // file fails the turn as a wire brain's stream error does.
                 wait("brain", () => {
                     record("brain-callback", e);
-                    if (fs.existsSync(path.join(root, "fail-brain"))) { done("brain-failed", { reason: "brain=stream-error" }); return; }
+                    if (fs.existsSync(path.join(root, "fail-brain"))) { done("brain-failed", { reason: "brain=stream-error", restart: { kind: "none", category: "other" } }); return; }
                     const words = path.join(root, "reply-text");
                     done("transcript", { role: "assistant", text: fs.existsSync(words) ? fs.readFileSync(words, "utf8").trim() : "scripted utterance", stage: "partial", rev: 1 });
                     done("play", { interruptible: true }); done("brain-done");
