@@ -2264,23 +2264,28 @@ fi
 # The row records, which outlive the run that wrote them; what they let a
 # run reuse is docs/architecture/validation.md § Selection. Each row that
 # ends appends one line to this worktree's <git-dir>/vgs-validated-rows:
-#   <run> <digest> <outcome> <secs> <name>
-# run is the validate process as run_name gives it; outcome is pass, fail,
-# skip (exit 77) or unproved; secs is - when unknown; name is row=<label>,
-# or smoke=<row> for a nested smoke row. digest is record_digest's, or - for
-# a row no digest binds, whose line keeps only its seconds. `<run> void`
-# withdraws every line of that run, whose tree changed while it ran. A row
-# whose newest line for its digest is a pass is reused. The
+#   <run> <digest> <point> <outcome> <secs> <name>
+# run is the validate process as run_name gives it; point is the branch
+# point the writing run read, or - when it read none; outcome is pass,
+# fail, skip (exit 77) or unproved; secs is - when unknown; name is
+# row=<label>, or smoke=<row> for a nested smoke row. digest is
+# record_digest's, or - for a row no digest binds, whose line keeps only
+# its seconds. `<run> void` withdraws every line of that run, whose tree
+# changed while it ran. A row whose newest line for its digest is a pass
+# is reused while the commits between that line's point and this run's
+# reach none of its inputs (record_holds). The
 # nested smoke's rows reach the file through the directory
 # VGS_SMOKE_RESULTS_DIR names, <git-dir>/vgs-validated-smoke/<run>, which
-# holds `<digest> <row>` lines in digests and the runner's per-row results
-# (scripts/qml-smoke.sh); smoke_collect turns them into lines when the row
-# ends, at validate's exit, or, after a KILL, at the next run's start.
+# holds `<digest> <point> <row>` lines in digests and the runner's per-row
+# results (scripts/qml-smoke.sh); smoke_collect turns them into lines when
+# the row ends, at validate's exit, or, after a KILL, at the next run's
+# start, so a line keeps the point of the run that wrote digests.
 record_file="" record_smoke_root="" record_run="" records_written=false
 reuse=off reuse_reason="" record_point="" record_validate="" record_untraced=""
 record_paths=() record_lines=()
 smoke_results_dir=""
-declare -A record_outcome=() record_secs=() reuse_count=() smoke_digests=()
+declare -A record_outcome=() record_at=() record_secs=() reuse_count=() smoke_digests=()
+declare -A record_moved_rows=() record_moved_smoke=()
 
 # run_name PID: pid-start-pidns, which no other process shares while PID
 # lives, or status 1 when /proc cannot read it.
@@ -2293,8 +2298,8 @@ run_name() { # PID
   printf '%s-%s-%s\n' "$1" "${fields[19]}" "${ns//[^0-9]/}"
 }
 
-record_append() { # RUN DIGEST OUTCOME SECS NAME
-  if printf '%s %s %s %s %s\n' "$@" 2>/dev/null >>"$record_file"; then records_written=true; return 0; fi
+record_append() { # RUN DIGEST POINT OUTCOME SECS NAME
+  if printf '%s %s %s %s %s %s\n' "$@" 2>/dev/null >>"$record_file"; then records_written=true; return 0; fi
   printf 'validate: row-records=unwritten path=%s\n' "$record_file" >&2
 }
 
@@ -2303,11 +2308,11 @@ record_outcome_of() { # STATUS
 }
 
 # records_load: read the newest outcome of each digest into record_outcome
-# and the newest seconds of each name into record_secs, past void runs. A
-# file over 5000 lines keeps its newest 2500, a few runs' worth; a lost
-# line costs a rerun.
+# and the point it was written at into record_at, and the newest seconds
+# of each name into record_secs, past void runs. A file over 5000 lines
+# keeps its newest 2500, a few runs' worth; a lost line costs a rerun.
 records_load() {
-  local run digest outcome secs name count=0
+  local run digest point outcome secs name count=0
   local -A void=()
   [[ -e $record_file ]] || return 0
   if ! while read -r run digest _; do
@@ -2316,9 +2321,9 @@ records_load() {
        done <"$record_file"; then
     printf 'validate: row-records=unreadable path=%s\n' "$record_file" >&2; return 0
   fi
-  while read -r run digest outcome secs name; do
+  while read -r run digest point outcome secs name; do
     [[ $digest != void && -z ${void[$run]-} && -n $name ]] || continue
-    [[ $digest == - ]] || record_outcome[$digest]=$outcome
+    [[ $digest == - ]] || record_outcome[$digest]=$outcome record_at[$digest]=$point
     [[ ! $secs =~ ^[0-9]+$ ]] || record_secs[$name]=$secs
   done <"$record_file"
   if ((count > 5000)); then
@@ -2349,9 +2354,9 @@ smoke_collect() { # DIR
     attempts+=("${numbered[@]}")
   done
   smoke_outcomes "${attempts[@]}"
-  while read -r digest row; do
-    [[ -n ${smoke_outcome[$row]-} ]] || continue
-    record_append "${dir##*/}" "$digest" "${smoke_outcome[$row]}" "${smoke_outcome_secs[$row]:--}" "smoke=$row"
+  while read -r digest point row; do
+    [[ -n $row && -n ${smoke_outcome[$row]-} ]] || continue
+    record_append "${dir##*/}" "$digest" "$point" "${smoke_outcome[$row]}" "${smoke_outcome_secs[$row]:--}" "smoke=$row"
   done <"$dir/digests"
   for attempt in "${attempts[@]}"; do
     chmod -R u+rwX -- "$attempt/results" "$attempt/partial" 2>/dev/null || true
@@ -2361,16 +2366,18 @@ smoke_collect() { # DIR
 }
 
 # record_digest NAME CONTEXT LINES: the sha256 of what a row's result rests
-# on: the selector, this file; the branch point; every changed path no row
-# maps that selects the whole area; the row itself, NAME; CONTEXT; and
-# LINES, the `<mode> <blob> <path>` of each path the row's inputs match
-# that differs from the branch point, a removed one with mode 000000. Every
-# other input holds the branch point's content, so equal digests mean
-# equal inputs.
+# on: the selector, this file; every changed path no row maps that selects
+# the whole area; the row itself, NAME; CONTEXT; and LINES, the
+# `<mode> <blob> <path>` of each path the row's inputs match that differs
+# from the branch point, a removed one with mode 000000. Every other input
+# holds the branch point's content, which the digest leaves to the point
+# its record line names: equal digests mean equal inputs once
+# record_holds finds that the commits between the two points change none
+# of the row's inputs.
 record_digest() { # NAME CONTEXT LINES
   local text sum
-  printf -v text 'validate-record 1\nvalidate=%s\npoint=%s\nuntraced:\n%sname=%s\n%s\ninputs:\n%s' \
-    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"
+  printf -v text 'validate-record 2\nvalidate=%s\nuntraced:\n%sname=%s\n%s\ninputs:\n%s' \
+    "$record_validate" "$record_untraced" "$1" "$2" "$3"
   sum="$(sha256sum <<<"$text")"
   printf '%s\n' "${sum%% *}"
 }
@@ -2389,6 +2396,67 @@ row_digest() { # I
     context="base=${base_commit:-none} scope=$scope"
   fi
   record_digest "row=${rows[$1]}" "$context" "$lines"
+}
+
+# record_moved KIND POINT: read once per POINT, the branch point a record
+# was written at, which rows the commits between it and record_point
+# reach: for KIND rows into record_moved_rows[POINT], the table rows
+# path_reach gives each path they change; for KIND smoke into
+# record_moved_smoke[POINT], the nested smoke rows smoke_path_reach gives
+# each against POINT, whose diff to this tree holds those commits' hunks.
+# The value is space-led and space-delimited; `all` when path_reach finds
+# a path that selects the whole area, which every digest binds as
+# record_untraced when the branch changes one, or when a smoke reach is
+# the whole harness or cannot be traced; `unreadable` when POINT names no
+# commit or the diff cannot be read.
+record_moved() { # rows|smoke POINT
+  local -n record_moved_set="record_moved_$1"
+  local point="$2" path reach=" "
+  local -a paths
+  [[ -z ${record_moved_set[$point]+set} ]] || return 0
+  if [[ ! $point =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] ||
+     ! mapfile -d '' -t paths < <(git diff-tree -r -z --name-only --no-renames "$point" "$record_point" -- 2>/dev/null) || ! wait "$!"; then
+    record_moved_set[$point]=unreadable; return 0
+  fi
+  for path in "${paths[@]}"; do
+    path_reach "$path"
+    [[ ${path_hit[$path]} != full ]] || { reach=all; break; }
+    if [[ $1 == rows ]]; then
+      reach+="${path_hit[$path]} "
+    else
+      smoke_path_reach "$point" "$path"
+      case "$smoke_reach" in
+        harness|untraced\ *) reach=all; break ;;
+        *) reach+="$smoke_reach " ;;
+      esac
+    fi
+  done
+  record_moved_set[$point]="$reach"
+}
+
+# record_holds DIGEST rows|smoke MEMBER...: whether the newest record of
+# DIGEST is a pass that holds for this run: one written at record_point,
+# or at a point whose commits to record_point reach none of the MEMBERs,
+# as record_moved reads them. For a smoke row the MEMBERs are its read
+# closure, whose inputs its digest binds. A pass that does not hold sets
+# record_miss to incoming or point-unreadable; anything else leaves it
+# empty.
+record_miss=""
+record_holds() { # DIGEST rows|smoke MEMBER...
+  local digest="$1" kind="$2" point member
+  local -n record_holds_moved="record_moved_$kind"
+  record_miss=""
+  [[ ${record_outcome[$digest]-} == pass ]] || return 1
+  point="${record_at[$digest]}"
+  [[ $point != "$record_point" ]] || return 0
+  record_moved "$kind" "$point"
+  case "${record_holds_moved[$point]}" in
+    unreadable) record_miss=point-unreadable; return 1 ;;
+    all) record_miss=incoming; return 1 ;;
+  esac
+  for member in "${@:3}"; do
+    [[ ${record_holds_moved[$point]} != *" $member "* ]] || { record_miss=incoming; return 1; }
+  done
 }
 
 # smoke_digests_read: set smoke_digests[ROW] for each nested smoke row
@@ -2498,7 +2566,7 @@ reuse_line() { # KIND SCOPE NAME [REASON]
 smoke_reuse() {
   local row digest
   local -a wanted
-  local -A keep=() asked=()
+  local -A keep=() asked=() missed=() closure=()
   if [[ -n $smoke_read_fault ]]; then
     printf 'validate: smoke-reuse=off reason=%s\n' "$smoke_read_fault" >&2; return 0
   fi
@@ -2507,13 +2575,20 @@ smoke_reuse() {
   for row in "${wanted[@]}"; do
     asked[$row]=1
     digest="${smoke_digests[$row]:--}"
-    if [[ $digest == - || " ${smoke_core[*]} " == *" $row "* || ${record_outcome[$digest]-} != pass ]]; then keep[$row]=1; fi
+    if [[ $digest == - || " ${smoke_core[*]} " == *" $row "* ]]; then keep[$row]=1; continue; fi
+    closure=([$row]=1)
+    smoke_close closure
+    if ! record_holds "$digest" smoke "${!closure[@]}"; then
+      keep[$row]=1
+      [[ -z $record_miss ]] || missed[$row]=$record_miss
+    fi
   done
   smoke_close keep
   for row in "${smoke_names[@]}"; do
     if [[ -n ${keep[$row]-} ]]; then
       if [[ ${smoke_digests[$row]} == - ]]; then reuse_line rerun smoke "smoke=$row" untraced
       elif [[ " ${smoke_core[*]} " == *" $row "* ]]; then reuse_line rerun smoke "smoke=$row" core
+      elif [[ -n ${missed[$row]-} ]]; then reuse_line rerun smoke "smoke=$row" "${missed[$row]}"
       else reuse_line rerun smoke "smoke=$row"; fi
     elif [[ -n ${asked[$row]-} ]]; then
       reuse_line reused smoke "smoke=$row"
@@ -2528,7 +2603,7 @@ smoke_reuse() {
   [[ $list_only != true && ${#smoke_names[@]} -gt 0 ]] || return 0
   smoke_results_dir="$record_smoke_root/$record_run"
   if ! mkdir -p -- "$smoke_results_dir" ||
-     ! for row in "${smoke_names[@]}"; do printf '%s %s\n' "${smoke_digests[$row]}" "$row"; done >"$smoke_results_dir/digests"; then
+     ! for row in "${smoke_names[@]}"; do printf '%s %s %s\n' "${smoke_digests[$row]}" "$record_point" "$row"; done >"$smoke_results_dir/digests"; then
     printf 'validate: row-records=unwritten path=%s\n' "$smoke_results_dir" >&2
     smoke_results_dir=""
   fi
@@ -2609,10 +2684,10 @@ for i in "${!rows[@]}"; do
   # bind each row's read closure; its own inputs bind neither the change
   # base its row selection reads nor the smoke rows' inputs another table
   # row owns, so it records no pass of its own.
-  digest=-
+  digest=- record_miss=""
   if [[ $reuse == on && ${row_traced[i]} == true && $command != scripts/qml-smoke.sh ]]; then
     digest="$(row_digest "$i")"
-    if [[ ${record_outcome[$digest]-} == pass ]]; then
+    if record_holds "$digest" rows "$i"; then
       reuse_line reused rows "row=$label"
       continue
     fi
@@ -2620,7 +2695,7 @@ for i in "${!rows[@]}"; do
   if [[ $reuse == on ]]; then
     if [[ $command == scripts/qml-smoke.sh ]]; then reuse_line rerun rows "row=$label" smoke-rows
     elif [[ $digest == - ]]; then reuse_line rerun rows "row=$label" untraced
-    else reuse_line rerun rows "row=$label"; fi
+    else reuse_line rerun rows "row=$label" ${record_miss:+"$record_miss"}; fi
   fi
   selected_count=$((selected_count + 1))
   if [[ $command == scripts/qml-smoke.sh ]]; then
@@ -2804,7 +2879,7 @@ while :; do
   for name in ${row_locks[k]}; do unset 'held[$name]'; done
   if [[ -n $record_file ]]; then
     IFS='|' read -r _ label _ <<<"${rows[selected[k]]}"
-    record_append "$record_run" "${row_digest[k]}" "$(record_outcome_of "$status")" "$((SECONDS - row_started[k]))" "row=$label"
+    record_append "$record_run" "${row_digest[k]}" "${record_point:--}" "$(record_outcome_of "$status")" "$((SECONDS - row_started[k]))" "row=$label"
     if [[ ${row_command[k]} == "scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then
       smoke_collect "$smoke_results_dir"
     fi

@@ -2834,8 +2834,8 @@ reuse_mutant direct scripts/validate '      lines+="${direct[$member]-}"' '     
 reuse_mutant closure scripts/validate '      lines+="${direct[$member]-}"' '      [[ $member != "$row" ]] || lines+="${direct[$member]-}"'
 reuse_mutant own-file scripts/validate 'for glob in "$file" "${smoke_globs[@]}"; do' 'for glob in "${smoke_globs[@]}"; do'
 reuse_mutant common scripts/validate $'      harness) common+="${record_lines[j]}"$\'\\n\' ;;' '      harness) ;;'
-reuse_mutant validate scripts/validate '    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"' '    "" "$record_point" "$record_untraced" "$1" "$2" "$3"'
-reuse_mutant untraced scripts/validate '    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"' '    "$record_validate" "$record_point" "" "$1" "$2" "$3"'
+reuse_mutant validate scripts/validate '    "$record_validate" "$record_untraced" "$1" "$2" "$3"' '    "" "$record_untraced" "$1" "$2" "$3"'
+reuse_mutant untraced scripts/validate '    "$record_validate" "$record_untraced" "$1" "$2" "$3"' '    "$record_validate" "" "$1" "$2" "$3"'
 reuse_mutant fault scripts/validate '  if [[ -n $smoke_read_fault ]]; then' '  if false; then'
 reuse_mutant row-lines scripts/validate '  record_digest "row=${rows[$1]}" "$context" "$lines"' '  record_digest "row=${rows[$1]}" "$context" ""'
 reuse_mutant void scripts/validate '  if [[ $end == "$pass_tree" ]]; then return 0; fi' '  return 0'
@@ -3047,6 +3047,108 @@ record_case() { # SPEC
   row_re "$name" "$d" 0 "" "${lines[@]}" || true
 }
 parallel_cases record_case record "${record_cases[@]}"
+test_area=qml test_args=()
+
+# A restack after a run that passed: trunk gains one commit that changes
+# the case's incoming path, the lane's commits move onto it, and the next
+# run lists what it reuses. Both kinds start with trunk at the fixture's
+# tip, so the lane's change alone differs from the branch point. In `unit`
+# the lane changes scripts/qml-unit.sh and both runs take the branch point
+# as their base, which the `%scope` row `qml unit controls` reads. In
+# `qml` trunk's `load` commit replaces the launcher's Panel.qml with one
+# that loads shell/Lib/Helper.qml, which no input line names; the lane
+# changes the notifications Panel.qml through reuse_fixture and the
+# launcher's after that commit, runs under `--changed HEAD`, and commits
+# its change before the restack. Variant `other` makes other read
+# launcher's file, on trunk, and the lane edit other's Panel.qml too.
+# .kendex-lock.json is a path no row maps that selects nothing;
+# new-source.bin is one that selects the whole area;
+# scripts/smoke/helper/click.c is a harness input; shell/Ui/Extra.qml is
+# an input of `qml unit tests` and shell/plugins/acme.launcher/Extra.qml
+# one of the launcher smoke row, neither of which the lane edits. Each
+# control is a copy of validate with one binding changed, keyed in the
+# restack_mutant_* tables: incoming holds a pass from any branch point,
+# point holds one only from its own, and scope binds no row to the base.
+declare -A restack_mutant_old=(
+  [incoming]='  [[ $point != "$record_point" ]] || return 0'
+  [point]='  [[ $point != "$record_point" ]] || return 0'
+  [scope]='      %scope) row_scoped[i]=true ;;'
+)
+declare -A restack_mutant_new=(
+  [incoming]='  return 0'
+  [point]='  [[ $point != "$record_point" ]] || return 0; return 1'
+  [scope]='      %scope) ;;'
+)
+# name|kind|variant|incoming path|mutant|wanted lines, ^ between them
+restack_cases=(
+  "a restack that changes no input of a table row reuses its pass|unit||.kendex-lock.json||%validate: reused secs=[0-9]+ row=qml unit tests$"
+  "control: a pass bound to its branch point reruns the table row after any restack|unit||.kendex-lock.json|point|%validate: rerun secs=[0-9]+ row=qml unit tests$"
+  "a restack that changes no input of a smoke row reuses its pass|qml||.kendex-lock.json||validate: reused secs=3 smoke=launcher^validate: reused secs=3 smoke=notifications"
+  "control: a pass bound to its branch point reruns the smoke row after any restack|qml||.kendex-lock.json|point|validate: rerun secs=3 smoke=launcher"
+  "a restack that changes a table row's input the lane did not edit reruns it|unit||shell/Ui/Extra.qml||%validate: rerun secs=[0-9]+ reason=incoming row=qml unit tests$"
+  "control: a record that no longer binds the incoming change reuses the table row|unit||shell/Ui/Extra.qml|incoming|%validate: reused secs=[0-9]+ row=qml unit tests$"
+  "a restack that changes a smoke row's input the lane did not edit reruns it|qml||shell/plugins/acme.launcher/Extra.qml||validate: rerun secs=3 reason=incoming smoke=launcher^validate: reused secs=3 smoke=notifications"
+  "control: a record that no longer binds the incoming change reuses the smoke row|qml||shell/plugins/acme.launcher/Extra.qml|incoming|validate: reused secs=3 smoke=launcher"
+  "a restack that changes a shell file a smoke row's input loads reruns it|qml||shell/Lib/Helper.qml||validate: rerun secs=3 reason=incoming smoke=launcher^validate: reused secs=3 smoke=notifications"
+  "control: a record that no longer binds the incoming change reuses the row that loads it|qml||shell/Lib/Helper.qml|incoming|validate: reused secs=3 smoke=launcher"
+  "a restack reruns a %scope row on its new base|unit||.kendex-lock.json||%validate: rerun secs=[0-9]+ row=qml unit controls$"
+  "control: a %scope row that binds no base is reused after a restack|unit||.kendex-lock.json|scope|%validate: reused secs=[0-9]+ row=qml unit controls$"
+  "a restack whose incoming path selects the whole area reruns a table row|unit||new-source.bin||%validate: rerun secs=[0-9]+ reason=incoming row=qml unit tests$"
+  "a restack whose incoming path selects the whole area reruns the smoke rows|qml||new-source.bin||validate: rerun secs=3 reason=incoming smoke=launcher^validate: rerun secs=3 reason=incoming smoke=notifications"
+  "a restack that changes a harness input reruns the smoke rows|qml||scripts/smoke/helper/click.c||validate: rerun secs=3 reason=incoming smoke=launcher^validate: rerun secs=3 reason=incoming smoke=notifications"
+  "a restack that changes an input of a row a smoke row reads reruns the reader|qml|other|shell/plugins/acme.launcher/Extra.qml||validate: rerun secs=3 reason=incoming smoke=other^validate: reused secs=3 smoke=notifications"
+)
+restack_case() { # SPEC
+  local name kind variant incoming mutant wanted d stand_in
+  local -a lines
+  IFS='|' read -r name kind variant incoming mutant wanted <<<"$1"
+  d="$tmp/restack-${name//[^a-z]/-}"
+  if [[ $kind == qml ]]; then
+    if [[ -n $mutant ]]; then
+      reuse_fixture "$d" scripts/validate "${restack_mutant_old[$mutant]}" "${restack_mutant_new[$mutant]}"
+    else
+      reuse_fixture "$d"
+    fi
+    mkdir -p "$d/shell/Lib"
+    printf 'clean\n' >"$d/shell/Lib/Helper.qml"
+    printf 'import qs.Lib\nHelper {}\n' >"$d/shell/plugins/acme.launcher/Panel.qml"
+    if [[ $variant == other ]]; then
+      plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh'
+    fi
+    "${base_env[@]}" git -C "$d" add -- shell/Lib/Helper.qml shell/plugins/acme.launcher/Panel.qml scripts/smoke/rows/other.sh
+    "${base_env[@]}" git -C "$d" commit -q -m load
+    printf 'lane\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+    [[ $variant != other ]] || printf 'lane\n' >>"$d/shell/plugins/acme.other/Panel.qml"
+  else
+    fresh "$d"
+    [[ -z $mutant ]] || plant "$d/scripts/validate" "${restack_mutant_old[$mutant]}" "${restack_mutant_new[$mutant]}"
+    for stand_in in scripts/qml-unit.sh scripts/test-qml-unit.sh; do
+      printf '#!/usr/bin/env bash\nexit 0\n' >"$d/$stand_in"
+      chmod +x "$d/$stand_in"
+    done
+    commit "$d" stand-ins
+  fi
+  "${base_env[@]}" git -C "$d" branch -q -f trunk HEAD
+  "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  if [[ $kind == qml ]]; then
+    reuse_cut "$d" - -
+  else
+    printf '# lane\n' >>"$d/scripts/qml-unit.sh"
+    (cd -- "$d" && exec "${base_env[@]}" bash scripts/validate unit) >"$d.first.log" 2>&1 || true
+  fi
+  commit "$d" lane
+  "${base_env[@]}" git -C "$d" checkout -q trunk
+  [[ $incoming != */* ]] || mkdir -p "$d/${incoming%/*}"
+  printf 'main\n' >>"$d/$incoming"
+  commit "$d" main
+  "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  "${base_env[@]}" git -C "$d" checkout -q feature
+  "${base_env[@]}" git -C "$d" rebase -q trunk
+  IFS='^' read -r -a lines <<<"$wanted"
+  test_area=$kind test_args=(--list)
+  row_re "$name" "$d" 0 "" "${lines[@]}"
+}
+parallel_cases restack_case restack "${restack_cases[@]}"
 test_area=qml test_args=()
 
 # A repository whose last repo pass is the commit `passed`, which a real
