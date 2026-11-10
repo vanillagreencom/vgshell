@@ -24,8 +24,9 @@
 # window first drawn after that to read as the text they draw, from the
 # copies the shell started with, and a restart to load a copy of the new
 # bytes. A last start clears the debt it raises.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan shell/assets/fonts/InterVariable.ttf shell/assets/fonts/JetBrainsMono-Variable.ttf shell/Commons/Theme.qml shell/Ui/foundation/Label.qml scripts/smoke/Probe.qml bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py
+# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan shell/assets/fonts/InterVariable.ttf shell/assets/fonts/JetBrainsMono-Variable.ttf shell/Commons/Theme.qml shell/Ui/foundation/Label.qml scripts/smoke/Probe.qml bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py scripts/smoke/fonts.sh
 set -euo pipefail
+source "$repo/scripts/smoke/fonts.sh"
 expected_errors+=('NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')
 drift="$home/.config/vgshell/plugins/acme.drift"
 drift_b="$home/.config/vgshell/plugins/acme.drift-b"
@@ -128,41 +129,7 @@ PY
 # runtime's vgshell/fonts at the inode its path names now, and maps no file
 # of the bundled font directory, deleted or not; else each difference.
 drift_copies() {
-  python3 - "$shell_qs_pid" "$drift_fonts" "$drift_copy_dir" <<'PY'
-import os, sys
-qs, bundled, private = sys.argv[1:]
-private = os.path.realpath(private)
-try:
-    with open(f"/proc/{qs}/environ", "rb") as fh:
-        env = dict(item.split(b"=", 1) for item in fh.read().split(b"\0") if b"=" in item)
-    with open(f"/proc/{qs}/maps") as fh:
-        rows = [line.split(None, 5) for line in fh.read().splitlines()]
-except OSError as exc:
-    print(f"unreadable={type(exc).__name__}")
-    sys.exit(0)
-files = [(parts[5].removesuffix(" (deleted)"), int(parts[4])) for parts in rows if len(parts) == 6]
-differences = []
-for name in ("VGSHELL_FONT_SANS", "VGSHELL_FONT_MONO"):
-    value = env.get(name.encode())
-    if value is None:
-        differences.append(f"{name}=unset")
-        continue
-    path = os.path.realpath(os.fsdecode(value))
-    if os.path.dirname(path) != private:
-        differences.append(f"{name}=outside:{path}")
-        continue
-    try:
-        inode = os.stat(path).st_ino
-    except OSError as exc:
-        differences.append(f"{name}=unreadable:{type(exc).__name__}")
-        continue
-    if (path, inode) not in files:
-        differences.append(f"{name}=unmapped")
-held = sorted({os.path.basename(path) for path, _ in files if os.path.dirname(path) == bundled})
-if held:
-    differences.append("bundled=" + ",".join(held))
-print(" ".join(differences) or "copies")
-PY
+  font_copies_read "$shell_qs_pid" "$drift_fonts" "$drift_copy_dir"
 }
 # drift_font_env NAME: the value of the shell's environment variable NAME,
 # `unset` when it has none.

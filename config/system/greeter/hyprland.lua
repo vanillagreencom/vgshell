@@ -73,9 +73,8 @@ hl.config({
     misc = { disable_hyprland_logo = true, disable_splash_rendering = true, force_default_wallpaper = 0 },
     animations = { enabled = false },
 })
--- The login screen loads the installed bundled fonts, which
--- shell/Commons/Theme.qml reads from these two variables; no runner makes
--- private copies for it as `vgshell run` does for the shell.
+-- The runner makes the greeter's own font copies before starting qs, so
+-- replacing the installed files cannot change a later window's fonts.
 hl.on("hyprland.start", function ()
-    hl.exec_cmd("VGSHELL_FONT_SANS=\"$VGS_GREETER_ROOT/shell/assets/fonts/InterVariable.ttf\" VGSHELL_FONT_MONO=\"$VGS_GREETER_ROOT/shell/assets/fonts/JetBrainsMono-Variable.ttf\" qs -p \"$VGS_GREETER_ROOT/shell/greeter.qml\"; hyprctl dispatch 'hl.dsp.exit()'")
+    hl.exec_cmd("\"$VGS_GREETER_ROOT/bin/vgshell\" greeter; hyprctl dispatch 'hl.dsp.exit()'")
 end)

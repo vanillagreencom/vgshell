@@ -526,7 +526,7 @@ rows=(
   "cli|lock before-sleep hook controls|scripts/test-lock-sleep-watch.sh|shell/plugins/vgs.lock/bin/sleep-watch"
   "cli|greeter helper controls|scripts/test-greeter-helpers.sh|scripts/vgshell-rows.sh shell/plugins/vgs.greeter/bin/*"
   "cli|greeter display handoff controls|node scripts/test-greeter-layout.js|bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/MonitorLogic.js"
-  "cli|greeter compositor controls|scripts/test-greeter-compositor.sh|scripts/vgshell-rows.sh config/system/greeter/hyprland.lua bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/MonitorLogic.js"
+  "cli|greeter compositor controls|scripts/test-greeter-compositor.sh|scripts/vgshell-rows.sh config/system/greeter/hyprland.lua bin/vgshell bin/lib/ipc-reply.sh shell/assets/fonts/* bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/MonitorLogic.js"
   "cli|vgshell lock controls|scripts/test-vgshell-lock.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-lock bin/lib/ipc-reply.sh"
   "cli|vgshell power controls|scripts/test-vgshell-power.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-power bin/lib/ipc-reply.sh shell/plugins/vgs.launcher/menu.json"
   "cli|floating TUI library controls|scripts/test-tui.sh|scripts/vgshell-rows.sh bin/lib/tui.sh bin/lib/hyprland-instance.sh bin/vgshell-tui bin/lib/logo.txt .agents/skills/vgs-plugin/templates/tui.sh"

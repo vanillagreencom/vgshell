@@ -35,6 +35,10 @@
 # `plugin update`, `plugin remove`, `plugin outdated`, `plugin requirements`,
 # `plugin settings` and `doctor` work with no shell running.
 #
+# `greeter` is the foreground entry used by config/system/greeter/hyprland.lua.
+# It makes private font copies under the greeter's XDG_STATE_HOME/fonts,
+# then execs the greeter root without taking the desktop's instance lock.
+#
 # `restart` checks the same floor first, so below it restart refuses as run
 # does and leaves the running shell alone. It refuses while the session is
 # locked, because the shell owns the lock client. Otherwise it sends TERM to
@@ -434,7 +438,7 @@ Commands:
   hypr       Connect the VGS Hyprland settings to hyprland.lua
   tui        Run a command in a VGS floating terminal
 
-Other commands: pid, ipc, log, version, edit, dictation, power
+Other commands: pid, ipc, log, version, edit, dictation, power, greeter
 
 Run 'vgshell <command> --help' for the options of one command.
 EOF_HELP
@@ -449,6 +453,14 @@ EOF_HELP
 Usage: vgshell run
 
 Run the shell in this terminal. Only one VGS shell runs per session.
+EOF_HELP
+      ;;
+    greeter) cat <<'EOF_HELP'
+Usage: vgshell greeter
+
+Run the login screen under its dedicated greetd compositor.
+Make private font copies in the greeter's state directory first.
+The VGS greeter compositor configuration uses this entry.
 EOF_HELP
       ;;
     restart) cat <<'EOF_HELP'
@@ -2462,8 +2474,8 @@ process.stdin.setEncoding("utf8").on("data", d => { text += d; }).on("end", () =
 
 # The bundled fonts the shell draws, as private copies for one start:
 # exports VGSHELL_FONT_SANS and VGSHELL_FONT_MONO, which
-# shell/Commons/Theme.qml loads, each naming a copy in the runtime
-# directory named by the SHA-256 of its bytes, and removes every other file
+# shell/Commons/Theme.qml loads, each naming a copy in the given font-only
+# directory named by the SHA-256 of its bytes, and removes every other entry
 # there. The main thread shapes text with the faces it opened at start,
 # while each window's render thread opens the font files again at its first
 # frame (Qt 6.12 QFontPrivate::engineForScript and the per-thread font
@@ -2472,11 +2484,12 @@ process.stdin.setEncoding("utf8").on("data", d => { text += d; }).on("end", () =
 # after an upgrade would draw the start's glyph numbers with the new font's
 # shapes. A copy changes only at a start, which is a new shell. The copy is
 # hashed after it is written, so its name always holds its own bytes. Runs
-# under the instance lock, so no shell reads a file it replaces or removes.
+# under the instance lock for the desktop, or before the greeter starts in
+# its own state directory, so no process reads a copy it replaces or removes.
 # A font that cannot be copied leaves its variable unset, which the shell
 # logs, and the runner logs the cause.
-font_copies() {
-  local dir="$rt_dir/vgshell/fonts" keep=() pair variable font part hash
+font_copies() { # FONT_ONLY_DIR
+  local dir="$1" keep=() pair variable font part hash
   mkdir -p -- "$dir" 9>&- || printf 'vgshell: font-copy=mkdir-failed dir=%s\n' "$dir" >&2
   for pair in VGSHELL_FONT_SANS:InterVariable.ttf VGSHELL_FONT_MONO:JetBrainsMono-Variable.ttf; do
     variable="${pair%%:*}"
@@ -2521,7 +2534,7 @@ shell_launch() {
       rm -rf -- "${stale:?}" 9>&-
     fi
   done
-  font_copies
+  font_copies "$rt_dir/vgshell/fonts"
   # Quickshell 0.3.1's Pipewire connects once, when a plugin first reads
   # it, and logs a failed first connection as an error and never tries
   # again; only a lost connection watches the runtime dir for a new
@@ -2648,6 +2661,17 @@ if help_requested "$cmd" "$@" && help_text "$cmd"; then
   exit 0
 fi
 case "$cmd" in
+  greeter)
+    if [[ $# -gt 0 ]]; then
+      refuse 2 "argument=$1" "The greeter entry takes no arguments."
+    fi
+    # greetd starts one compositor/greeter at a time. Its state root is
+    # greeter-owned (0700); this child holds fonts only, never other state
+    # or the desktop user's runtime files that font_copies would prune.
+    umask 077
+    font_copies "$state_home/fonts"
+    exec qs -p "$shell_dir/greeter.qml"
+    ;;
   start)
     if [[ $# -gt 0 ]]; then
       printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2

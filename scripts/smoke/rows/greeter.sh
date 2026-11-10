@@ -11,7 +11,11 @@
 # follow it, its control: the status is the step's reading, not a constant.
 # Disabling the plugin drops its status record and its hold.
 #
-# The core's greeter host: the row starts a second qs on shell/greeter.qml
+# The core's greeter host: the row starts bin/vgshell greeter, which makes
+# private content-named font copies in the greeter's state/fonts and execs
+# qs on shell/greeter.qml. Its /proc maps must name those copies and no
+# installed bundled font. A direct installed-font start is the must-fail
+# control for that observation. Both starts stay in the nested sandbox,
 # with VGS_GREETER_VIEW naming the plugin's view, XDG_DATA_DIRS naming two
 # fixture directories under scripts/smoke/fixtures/greeter, a theme
 # directory holding the fixture theme copy, `theme.json` and a
@@ -42,8 +46,9 @@
 # empty. The host's reads wait up to 20 s, 100 reads 0.2 s apart, for a qs
 # start with no compiled QML cache; every other reading is expect_poll's:
 # 25 reads 0.2 s apart.
-# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/GreeterSurface.qml shell/Core/MonitorLogic.js shell/Core/HyprctlReader.qml bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.greeter/* shell/greeter.qml shell/GreeterSurface.qml shell/Core/MonitorLogic.js shell/Core/HyprctlReader.qml bin/vgshell-greeter-layout bin/lib/greeter-layout.js bin/lib/qml-library.js bin/lib/judge-files.js shell/Core/SystemSteps.qml bin/vgshell-system config/system/greeter/* scripts/smoke/fixtures/greeter/* scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh bin/vgshell shell/assets/fonts/* scripts/smoke/fonts.sh
 set -euo pipefail
+source "$repo/scripts/smoke/fonts.sh"
 greeter_status() { ipc smoke statusValues vgs.greeter | py_reply 'import json,sys; v=json.load(sys.stdin).get("greeter"); print(json.dumps(v if v is None else [v["tone"], v.get("action"), v.get("available")]))'; }
 greeter_lent() { ipc smoke readInstance service vgs.greeter steps | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
 greeter_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([p for p in json.load(sys.stdin)["holders"].get("system", []) if p == "vgs.greeter"]))'; }
@@ -83,7 +88,7 @@ greeter_view="$repo/shell/plugins/vgs.greeter/Greeter.qml"
 greeter_log="$sandbox/greeter-host.log"
 mkdir -p -- "$sandbox/greeter-theme/vgshell" "$sandbox/greeter-state/vgshell"
 cp -- "$greeter_fixtures/theme/vgshell/theme.json" "$greeter_fixtures/theme/vgshell/background" "$sandbox/greeter-theme/vgshell/"
-greeter_env=("${shell_env[@]}" "${bundled_fonts[@]}" XDG_DATA_DIRS="$greeter_fixtures/share-a:$greeter_fixtures/share-b"
+greeter_env=("${shell_env[@]}" XDG_DATA_DIRS="$greeter_fixtures/share-a:$greeter_fixtures/share-b"
   XDG_CONFIG_HOME="$sandbox/greeter-theme" XDG_STATE_HOME="$sandbox/greeter-state")
 if "${shell_env[@]}" bash -c 'command -v startx' >/dev/null 2>&1; then xfce_state=available; else xfce_state=unavailable; fi
 # greeter_wait TEXT LOG PID: whether one line of LOG ends with TEXT within
@@ -112,11 +117,24 @@ greeter_stop() {
   wait "$1" 2>/dev/null || true
   expect_poll "the stopped host leaves no surface" 0 layer_count vgs:greeter
 }
+greeter_font_maps() {
+  font_copies_read "$greeter_pid" "$repo/shell/assets/fonts" "$sandbox/greeter-state/fonts"
+}
+greeter_installed_maps() {
+  local reading
+  reading="$(greeter_font_maps)" || return
+  if [[ $reading == *VGSHELL_FONT_SANS=outside:* && $reading == *VGSHELL_FONT_MONO=outside:* \
+    && $reading == *bundled=InterVariable.ttf,JetBrainsMono-Variable.ttf ]]; then
+    echo installed-rejected
+  else
+    printf '%s\n' "$reading"
+  fi
+}
 greeter_primary=SMOKE-GREETER
 greeter_main="$(hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
 expect "the nested compositor adds the saved primary output" ok create_output "$greeter_primary"
 printf '{"outputs":{},"primaryOutput":"%s"}\n' "$greeter_primary" >"$sandbox/greeter-theme/vgshell/displays.json"
-spawn_display "$greeter_log" "${greeter_env[@]}" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
+spawn_display "$greeter_log" "${greeter_env[@]}" VGS_GREETER_VIEW="$greeter_view" -- "$repo/bin/vgshell" greeter
 greeter_pid="$spawn_pid"
 if greeter_wait "greeter: sessions=3 preselected=wayland-sessions/hyprland-uwsm.desktop" "$greeter_log" "$greeter_pid"; then ok "the greeter host lists the sessions and preselects the uwsm-managed Hyprland session"; else fail "the greeter host's preselection line, log: $(tail -n 20 -- "$greeter_log")"; fi
 expect "the host accepts the plugin's view" 1 greeter_count "/shell/plugins/vgs.greeter/Greeter.qml screens=" "$greeter_log"
@@ -130,6 +148,7 @@ expect "the view lists the X entry, available only with startx" 1 greeter_lines 
 expect "the view lists no other session" 3 greeter_count "greeter: session id=" "$greeter_log"
 expect "the view refuses the file with no Exec by its path" 1 greeter_lines "greeter: refused: session=$greeter_fixtures/share-b/wayland-sessions/broken.desktop reason=exec-missing" "$greeter_log"
 expect_poll "the host builds one surface per screen" "$greeter_screens" layer_count vgs:greeter
+expect_poll "the greeter maps its private font copies and no installed bundled font" copies greeter_font_maps
 expect_poll "the login form uses the saved non-first output" 1 greeter_lines "greeter: interactive=$greeter_primary" "$greeter_log"
 expect "the two-screen host builds exactly one interactive session list" 1 greeter_count "greeter: sessions=" "$greeter_log"
 expect "the nested compositor unplugs the primary output" ok hypr output remove "$greeter_primary"
@@ -145,6 +164,19 @@ expect "the nested compositor removes the primary fixture" ok hypr output remove
 printf '{"outputs":{},"primaryOutput":""}\n' >"$sandbox/greeter-theme/vgshell/displays.json"
 greeter_screens="$monitors"
 
+# Must-fail control: same real greeter, bypassing only the production copy
+# step. Require both installed faces to be mapped, not a failed startup or
+# unreadable /proc result, before counting the counterexample as detected.
+greeter_installed_log="$sandbox/greeter-installed-fonts.log"
+spawn_display "$greeter_installed_log" "${greeter_env[@]}" "${bundled_fonts[@]}" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
+greeter_pid="$spawn_pid"
+if greeter_wait "greeter: sessions=3 preselected=wayland-sessions/hyprland-uwsm.desktop" "$greeter_installed_log" "$greeter_pid"; then
+  expect_poll "control: an installed-font greeter fails the private maps assertion" installed-rejected greeter_installed_maps
+else
+  fail "control: the installed-font greeter did not start, log=$greeter_installed_log"
+fi
+greeter_stop "$greeter_pid"
+
 # The next boot: the memory the view writes before a launch.
 greeter_user="$(id -un)"
 printf '{"lastUser":"%s","sessions":{"%s":"wayland-sessions/hyprland.desktop"}}\n' "$greeter_user" "$greeter_user" >"$sandbox/greeter-state/vgshell/greeter.json"
@@ -155,7 +187,7 @@ spawn "$sandbox/greetd-stand-in.log" "${shell_env[@]}" python3 "$greeter_fixture
 greetd_pid="$spawn_pid"
 for _ in $(seq 1 50); do [[ -S $greetd_sock ]] && break; sleep 0.1; done
 [[ -S $greetd_sock ]] || fail "the stand-in greetd's socket, log: $(tail -n 20 -- "$sandbox/greetd-stand-in.log")"
-spawn_display "$greeter_again_log" "${greeter_env[@]}" GREETD_SOCK="$greetd_sock" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
+spawn_display "$greeter_again_log" "${greeter_env[@]}" GREETD_SOCK="$greetd_sock" VGS_GREETER_VIEW="$greeter_view" -- "$repo/bin/vgshell" greeter
 greeter_pid="$spawn_pid"
 if greeter_wait "greeter: sessions=3 preselected=wayland-sessions/hyprland.desktop" "$greeter_again_log" "$greeter_pid"; then ok "the next start preselects the session the last user chose"; else fail "the greeter host's remembered preselection, log: $(tail -n 20 -- "$greeter_again_log")"; fi
 expect "the view finds the stand-in greetd" 1 greeter_lines "greeter: greetd=available" "$greeter_again_log"
@@ -201,7 +233,7 @@ wait "$greetd_pid" 2>/dev/null || true
 
 # Control: a view outside the plugin tree, reached through `..`.
 outside="$repo/shell/plugins/../../scripts/smoke/fixtures/greeter/Outside.qml"
-spawn_display "$sandbox/greeter-outside.log" "${greeter_env[@]}" VGS_GREETER_VIEW="$outside" -- qs -p "$repo/shell/greeter.qml"
+spawn_display "$sandbox/greeter-outside.log" "${greeter_env[@]}" VGS_GREETER_VIEW="$outside" -- "$repo/bin/vgshell" greeter
 outside_pid="$spawn_pid"
 outside_exit=0
 if ! greeter_ended "$outside_pid"; then

@@ -143,8 +143,9 @@ make_world() {
     printf 'printf "%%s\n" "instance=${HYPRLAND_INSTANCE_SIGNATURE:-} xdisplay=${DISPLAY:-} wayland-socket=${WAYLAND_SOCKET:-}" >%q\n' "$dir/client-env" >>"$dir/$tool" || return 1
     chmod 755 "$dir/$tool" || return 1
   done
-  mkdir -p -- "$dir/sandbox/bin" "$dir/sandbox/plugin/tui" "$dir/sandbox/repo/shell/plugins/vgs.jarvis/tui" || return 1
+  mkdir -p -- "$dir/sandbox/bin" "$dir/sandbox/plugin/tui" "$dir/sandbox/repo/bin" "$dir/sandbox/repo/shell/plugins/vgs.jarvis/tui" || return 1
   cp -- "$dir/sandbox/toplevel" "$dir/sandbox/bin/vgshell" || return 1
+  cp -- "$dir/sandbox/toplevel" "$dir/sandbox/repo/bin/vgshell" || return 1
   : >"$dir/sandbox/plugin/tui/clone-voice.sh" || return 1
   : >"$dir/sandbox/repo/shell/plugins/vgs.jarvis/tui/clone-voice.sh" || return 1
   printf '#!%s\nfor ((i=0; i<100; i++)); do [[ ! -e %q ]] || exit 0; sleep 0.01; done\nexit 1\n' \
@@ -193,6 +194,7 @@ run_world() {
     share_pipewire_dir="$rt_dir/share-pipewire" share_fixture="$sandbox/share-fixture"
     greeter_fixtures="$sandbox/greeter-fixtures" greeter_view="$sandbox/Greeter.qml" greeter_log="$sandbox/greeter.log"
     greeter_again_log="$sandbox/greeter-again.log" greetd_sock="$rt_dir/greetd.sock" outside="$sandbox/Outside.qml"
+    greeter_installed_log="$sandbox/greeter-installed.log"
     share_mode=dark share_window_list=fixture pages_copy_config="$sandbox/pages-config" pages_copy="$sandbox/pages-copy"
     capture_real_grim="$CASE_DIR/bin/grim" capture_surface_box="1,1 10x10" capture_state="$sandbox"
     clip_image="$sandbox/image.png" shell_pids_started=() timeout_s=1
@@ -341,9 +343,10 @@ helpers=(
   'bare instance|scripts/smoke/rows/instance-guard.sh|statement:spawn_display "$sandbox/bare.log"|spawn_display|:|qs|nonzero|spawn_display'
   'unguarded instance|scripts/smoke/rows/instance-guard.sh|fn:start_unguarded|spawn_display|start_unguarded @sandbox/unguarded.log @sandbox/tree label|qs|nonzero|spawn_display'
   'unpaged instance|scripts/smoke/rows/plugin-pages.sh|statement:  spawn_display "$sandbox/plugin-pages-unpaged.log"|spawn_display|:|qs|nonzero|spawn_display'
-  'greeter host|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_log"|spawn_display|:|qs|nonzero|spawn_display'
-  'greeter fake greetd|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_again_log"|spawn_display|:|qs|nonzero|spawn_display'
-  'greeter refused view|scripts/smoke/rows/greeter.sh|statement:spawn_display "$sandbox/greeter-outside.log"|spawn_display|:|qs|nonzero|spawn_display'
+  'greeter host|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_log"|spawn_display|:|@sandbox/repo/bin/vgshell|nonzero|spawn_display'
+  'greeter fake greetd|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_again_log"|spawn_display|:|@sandbox/repo/bin/vgshell|nonzero|spawn_display'
+  'greeter refused view|scripts/smoke/rows/greeter.sh|statement:spawn_display "$sandbox/greeter-outside.log"|spawn_display|:|@sandbox/repo/bin/vgshell|nonzero|spawn_display'
+  'greeter installed-font control|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_installed_log"|spawn_display|:|qs|nonzero|spawn_display'
   'original share picker|scripts/smoke/rows/share-picker.sh|statement:  spawn_display "$share_world/$share_mode-before.log"|spawn_display|:|bwrap|nonzero|spawn_display'
   'share portal backend|scripts/smoke/rows/share-picker.sh|statement:spawn_display "$share_world/backend.log"|spawn_display|:|@sandbox/backend-client|nonzero|spawn_display'
   'capture reference|scripts/smoke/rows/capture.sh|fn:capture_reference|nested_input_check|capture_reference probe|@bin/grim|nonzero|nested_input_check'
