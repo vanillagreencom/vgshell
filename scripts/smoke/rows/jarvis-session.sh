@@ -5,7 +5,7 @@
 # Controls retain duplicate-start detection, refused-home ownership and
 # model/since publication at these existing boundaries.
 # No latency ceiling. Reads poll once per nested IPC round trip.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* .agents/skills/jarvis/* scripts/fixtures/jarvis/session-package.py scripts/fixtures/jarvis/home.js shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -31,6 +31,10 @@ assert changed!=text
 service.write_text(changed)
 PYNOTIFY
 expected_errors+=("${dictation_absent_errors[@]}")
+# The session rows read the shell's ~/SmokeJarvis below; the daemon judges
+# its own world's, which each world it starts makes ready, so it logs no
+# home cause (jarvis_world_home).
+jarvis_world_home "$jarvis_fixture_tree" SmokeJarvis || fail "the daemon's fixture Jarvis home cannot be seeded"
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
 session_account="$home/.claude"
@@ -143,8 +147,8 @@ session_shell_start() { # TREE NAME
 jarvis_setup_requirements "$jarvis_fixture_shim"
 session_set "$(python3 -c 'import json,sys; print(json.dumps({"brain": sys.argv[1], "home": "~/SmokeJarvis"}))' "$session_brain")"
 session_shell_start "$jarvis_fixture_tree" no-package
-expect_poll "the home VGS laid out reads that it offers no session" \
-  '["Not offered in this home folder", "VGS made this Home folder without the Jarvis session program. Voice Jarvis works without it. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home)."]' session_row
+expect_poll "a folder that is no Jarvis home yet reads as a choice not made, linking its Set up" \
+  '["Optional", "Set up this home folder first in [Home folder](page:vgs.jarvis/Setup/setupHome)"]' session_row
 
 mkdir -p -- "$session_package/scripts"
 cp -- "$source_repo/scripts/fixtures/jarvis/session-package.py" "$session_package/scripts/jarvis-session"

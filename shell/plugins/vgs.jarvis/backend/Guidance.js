@@ -8,8 +8,10 @@
 // layer's { layer, bytes } in layer order, start the bytes of the whole
 // instructions, which the Jarvis page shows as tokens(). home is
 // the user's Jarvis home folder or null: a brain gets the base package's
-// persona and the home's AGENTS.md after the shipped layers, then the index of
-// its skills, each read on demand through the help tool, then memory/MEMORY.md,
+// persona and the home's whole AGENTS.md, the user's instructions, after the
+// shipped layers, then the index of its skills, the package's and the
+// skills its persona requires among them, each read on demand through the
+// help tool, then memory/MEMORY.md,
 // the memory bootstrap that points to the memory tools when they are offered,
 // then the path of the home's state/ folder, the one its file tools reach.
 // The voice model only reads the brain's words aloud and gets no
@@ -79,8 +81,12 @@ function homeLayers(home) {
         if (Buffer.byteLength(text) > budget) over.push(cause);
         return text.trim();
     };
-    const persona = whole(Home.baseSet(home) + "/" + Home.PACKAGE + "/persona.md", PERSONA_BUDGET, "guidance=persona-over-budget");
-    if (persona !== "") out.push(["home/persona", persona]);
+    const personaFile = Home.baseSet(home) + "/" + Home.PACKAGE + "/persona.md";
+    const persona = whole(personaFile, PERSONA_BUDGET, "guidance=persona-over-budget");
+    // The AGENTS.md the package's init writes routes to this file and says
+    // to use its text once it is loaded (jarvis-session init, KEN-4957), so
+    // naming the file here keeps the persona to one load.
+    if (persona !== "") out.push(["home/persona", "The text of " + personaFile + ", loaded for you:\n\n" + persona]);
     const agents = whole("AGENTS.md", AGENTS_BUDGET, "guidance=agents-over-budget");
     if (agents !== "")
         out.push(["home/AGENTS.md", "The user's own instructions for you, from their Jarvis home folder:\n\n" + agents]);
@@ -89,7 +95,9 @@ function homeLayers(home) {
     const index = listed.skills.map(skill => "- " + skill.topic + (skill.line === "" ? "" : ": " + skill.line)).join("\n");
     if (Buffer.byteLength(index) > SKILLS_BUDGET) over.push("guidance=skills-over-budget");
     if (index !== "")
-        out.push(["home/skills", "Skills in the user's Jarvis home folder. Read a skill with the help tool, by its topic, before you use it:\n\n" + index]);
+        out.push(["home/skills", "Skills in the user's Jarvis home folder. Read a skill with the help tool, by its topic, before you use it."
+            + " A file under .agents/skills/<name>/ that a text names is the topic base/<name> for its SKILL.md,"
+            + " base/<name>/<reference> for references/<reference>.md and base/<name>/workflows/<workflow> for workflows/<workflow>.md:\n\n" + index]);
     const memory = whole("memory/MEMORY.md", MEMORY_BUDGET, "guidance=memory-over-budget");
     if (memory !== "")
         out.push(["home/MEMORY.md", "The user's memory notes. When offered, use memory search before answering from memory, then memory read by id. Say which note the answer came from. The memory/MEMORY.md bootstrap:\n\n" + memory]);
@@ -97,23 +105,6 @@ function homeLayers(home) {
     // file tools take only absolute paths.
     out.push(["home/state", "Your state folder is " + path.join(home, Home.guard(home).open) + ". It is the one place in your home folder that your file tools can list, read and write. They refuse every other path in the home folder, and a search of the home folder itself."]);
     return { layers: out, over };
-}
-
-/**
- * The `## Personality` section of the home's AGENTS.md, which the Settings
- * page shows: {kind: "section", text} with its text up to the next heading
- * of level one or two, {kind: "missing"} for no such heading or no text
- * under it, of an AGENTS.md of any size. Every brain reads the section with
- * the rest of AGENTS.md through compose; this read only shows it.
- */
-function personality(home) {
-    const lines = Home.read(home, "AGENTS.md", null).text.split("\n");
-    const start = lines.findIndex(line => /^##\s+Personality\s*$/i.test(line.trim()));
-    if (start === -1) return { kind: "missing" };
-    const rest = lines.slice(start + 1);
-    const end = rest.findIndex(line => /^#{1,2}\s/.test(line));
-    const text = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
-    return text === "" ? { kind: "missing" } : { kind: "section", text };
 }
 
 /**
@@ -163,4 +154,4 @@ function compose(engine, brainClass, language, home = null) {
         withHome: folder => compose(engine, brainClass, language, folder) });
 }
 
-module.exports = { compose, personality, tokens };
+module.exports = { compose, tokens };

@@ -32,7 +32,7 @@ unreadable() {
 }
 tier="${1:-}"
 if [[ -z $tier ]]; then
-  # The model the page names, as setup-fleet.sh reads the home folder.
+  # The model the page names, as setup-home.sh reads the home folder.
   settings="$(vgs_tui_logged "$log" "$tree/bin/vgshell" plugin settings "$VGS_PLUGIN_ID")" || unreadable settings=unreadable
   tier="$(vgs_tui_logged "$log" python3 -I -c '
 import json, sys

@@ -1,5 +1,5 @@
 # Shared Jarvis smoke helpers and warning state for downstream rows.
-# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh packaging/jarvis-home/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh .agents/skills/jarvis/* scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 
 # A fixture selects disposable inputs; the leak owner never restores source
@@ -11,7 +11,8 @@ jarvis_fixture_copy() { # NAME SOURCE COMMANDS
   cp -R -- "$repo/scripts/fixtures/jarvis" "$sandbox/tree-$1/scripts/fixtures/jarvis" || return 1
   cp -- "$repo/scripts/lib/jarvis-env.sh" "$sandbox/tree-$1/scripts/lib/jarvis-env.sh" || return 1
   ln -s -- "$repo/scripts/smoke" "$sandbox/tree-$1/scripts/smoke" || return 1
-  cp -R -- "$repo/packaging/jarvis-home" "$sandbox/tree-$1/packaging/jarvis-home" || return 1
+  mkdir -p -- "$sandbox/tree-$1/.agents/skills" || return 1
+  cp -R -- "$repo/.agents/skills/jarvis" "$sandbox/tree-$1/.agents/skills/jarvis" || return 1
   rm -rf -- "$sandbox/tree-$1.commands" || return 1
   mkdir -p -- "$sandbox/tree-$1.commands" || return 1
   [[ -z $3 ]] || cp -R -- "$3/." "$sandbox/tree-$1.commands/" || return 1
@@ -48,6 +49,34 @@ jarvis_fixture_dictation_processes() {
 jarvis_fixture_resolves() {
   local shell_start_path="$jarvis_fixture_shim:$shim:$shell_host_path"
   shell_resolves "$@"
+}
+# The daemon resolves `~` against its J09 world's HOME, a fresh one at each
+# start (scripts/lib/jarvis-env.sh), and writes nothing in a home (D126).
+# jarvis_world_home TREE NAME points TREE's daemon at a lease that, inside
+# each world it starts, first makes ~/NAME a home Setup set up, without
+# kendex's lock, so the daemon judges that home ready. The world's launcher
+# still owns every child and stand-in. A row that also needs the shell's
+# side of ~/NAME makes it under $home itself.
+jarvis_world_home() { # TREE NAME
+  python3 - "$1.world-home.sh" "$1" "$2" "$1/shell/plugins/vgs.jarvis/Service.qml" "$sandbox/jarvis-world/lease.sh" <<'PYLEASE'
+from pathlib import Path
+import json,shlex,sys
+lease,tree,name,service,world=sys.argv[1:]
+seed='require(process.argv[1]).jarvisHome(process.env.HOME + "/" + process.argv[3], process.argv[2], { lock: false })'
+# prepare.js's world lease, with the seed run before the daemon: the
+# service pipe stays on descriptor 3 until the innermost shell.
+Path(lease).write_text('\n'.join(['#!/bin/bash','set -euo pipefail','exec 3<&0',
+    'exec bash "$1" "$2" -- bash -c \'node -e "$1" "$2" "$3" "$4" && shift 4 && exec node "$@" <&3 3<&-\' jarvis-world-home '
+    + shlex.join([seed, tree + "/scripts/fixtures/jarvis/home.js", tree, name]) + ' "$3" --tree "$4"','']))
+Path(lease).chmod(0o700)
+p=Path(service)
+assert not p.is_symlink()
+source=p.read_text(); old=json.dumps(world)
+assert source.count(old)==1
+changed=source.replace(old,json.dumps(lease))
+assert changed!=source
+p.write_text(changed)
+PYLEASE
 }
 # Every row that starts the Jarvis fixtures declares this set, as the
 # real daemon's fixtures provoke it: jarvis_provoked_errors is the one place.

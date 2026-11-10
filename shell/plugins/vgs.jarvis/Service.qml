@@ -35,7 +35,7 @@ Item {
     function textSessionReason() {
         const refusal = Session.sayRefusal(sessionState);
         if (refusal !== "down") return Composer.refusalText(refusal);
-        const setup = Gate.readiness(setupAnswer, homePathRead, homeRepair.result);
+        const setup = Gate.readiness(setupAnswer, homePathRead, homeRepair.result, shell.settings.mainHost !== "");
         const blocked = ["setupHome", "setupVoice", "setupModel"].map(key => setup[key])
             .find(row => row.tone === "warning" || row.tone === "danger");
         return blocked === undefined ? Composer.refusalText(refusal)
@@ -116,9 +116,21 @@ Item {
     // Survives daemon restarts and new conversations within this service.
     property var modelNotices: new Set()
     property var setupAnswer: ({ kind: "checking" })
-    // The daemon's last personality message, null before one: its row
-    // follows the status after it too (SetupGate.personalityRow).
-    property var personalityShown: null
+    // The daemon's last instructions message, null before one: its row
+    // follows the status after it too (SetupGate.instructionsRow).
+    property var instructionsShown: null
+    // The daemon's last home-drift message, null before one. The Home
+    // folder step shows it only while it ran for the folder the setting
+    // names now (SetupGate.driftKind).
+    property var driftShown: null
+    // A drift reading the Setup page's opening or a finished Update asked
+    // for, sent once the daemon is ready (deliverDrift).
+    property bool driftWanted: false
+    // Whether the Home folder step reads Done, before its drift reading:
+    // the Agent fleet row offers the home's setup route only then
+    // (SetupGate.fleetRoute), so a change publishes that row again.
+    property bool homeReady: false
+    onHomeReadyChanged: fleetRuntime.republish()
     // The daemon's last start-text message's size, null before one: its row
     // follows the status after it too.
     property var startTextShown: null
@@ -142,7 +154,7 @@ Item {
     property var homePathRead: ({ kind: "empty" })
     onHomePathReadChanged: {
         if (shell === null) return;
-        if (personalityShown !== null) publishPersonality();
+        if (instructionsShown !== null) publishInstructions();
         if (startTextShown !== null) publishStartText();
     }
     readonly property string selectedHome: shell === null ? "" : shell.settings.home
@@ -239,9 +251,21 @@ Item {
     // after that; reading it here starts the scan before a list request.
     readonly property int desktopEntryCount: DesktopEntries.applications.values.length
     // Each opening of the Jarvis Settings page judges the home again, so the
-    // Personality row reads AGENTS.md as it is now.
+    // Instructions row reads AGENTS.md as it is now.
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     onPageViewedChanged: if (pageViewed) hello()
+    // Each opening of its Setup tab asks for the home's package drift too
+    // (D126 "On Setup open"). A Voice start asks for none.
+    readonly property bool setupViewed: shell !== null && shell.status.viewedTab === "Setup"
+    onSetupViewedChanged: if (setupViewed) askDrift()
+    // The end of each Set up or clone run of the Home folder step: the home
+    // is judged again, so the step reads what the run made. A string, so
+    // only a changed end, not another screen's state, notifies.
+    readonly property string homeSetupEnds: shell === null ? "" : JSON.stringify(["setup-home", "clone-home"].map(name => {
+        const run = shell.tui.state[name];
+        return run === undefined || run === null ? null : run.endedAt;
+    }))
+    onHomeSetupEndsChanged: hello()
 
     onShellChanged: {
         refreshTextOffer();
@@ -298,7 +322,7 @@ Item {
                 if (choices !== "ok") console.warn("jarvis: choice=" + key + " " + choices);
             }
             // The Edit action's screen opens the file this answers.
-            shell.ipc.handle("personality-file", () => personalityFile());
+            shell.ipc.handle("instructions-file", () => instructionsFile());
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
             shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
             shell.ipc.handle("owner-asks-refresh", () => ownerAsksIntent("owner-asks-refresh", ""));
@@ -401,8 +425,11 @@ Item {
         const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
-        const values = Gate.readiness(merged, homePathRead, homeRepair.result);
-        values.setupHome = Gate.homeRepairResult(values.setupHome, homeRepair.result);
+        const values = Gate.readiness(merged, homePathRead, homeRepair.result, shell.settings.mainHost !== "");
+        homeReady = values.setupHome.tone === "ok";
+        const drift = Gate.driftKind(driftShown, homeMessage.current);
+        values.setupHome = Gate.homeDrift(values.setupHome, drift);
+        values.setupHome = Gate.homeRepairResult(values.setupHome, homeRepair.result, drift);
         values.homePath = homePathRead.kind === "ready" ? homePathRead.path : "";
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
@@ -449,7 +476,8 @@ Item {
         cause = "";
         lastDiagnostic = "";
         setupAnswer = { kind: "checking" };
-        personalityShown = null;
+        instructionsShown = null;
+        driftShown = null;
         startTextShown = null;
         voiceOffers = 0;
         audioHealth = { kind: "reading" };
@@ -473,7 +501,7 @@ Item {
         taskResponse = null;
         const idle = StatusPublication.write(shell.status, "tasks", 0);
         if (!shell.status.isOk(idle)) throw new Error("jarvis: " + idle);
-        for (const key of ["personality", "startText"]) {
+        for (const key of ["instructions", "startText"]) {
             const unread = StatusPublication.write(shell.status, key, { hidden: true });
             if (!shell.status.isOk(unread)) throw new Error("jarvis: " + unread);
         }
@@ -650,6 +678,16 @@ Item {
 
     function sendIntent(name) {
         send({ type: "intent", intent: name });
+    }
+
+    function askDrift() {
+        driftWanted = true;
+        deliverDrift();
+    }
+    function deliverDrift() {
+        if (!driftWanted || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        driftWanted = false;
+        sendIntent("home-drift");
     }
 
     function memoryIntent(name, text) {
@@ -867,7 +905,7 @@ Item {
         if (shell !== null) publishSetup(setupAnswer);
     }
 
-    function personalityFile() {
+    function instructionsFile() {
         return homePathRead.kind === "ready" ? homePathRead.path + "/AGENTS.md" : "refused: home=none";
     }
 
@@ -904,12 +942,12 @@ Item {
     }
 
 
-    // The Personality row from the last personality message and the last
+    // The Instructions row from the last instructions message and the last
     // status's causes, which say whether AGENTS.md is over its budget.
-    function publishPersonality() {
-        if (personalityShown === null) return true;
-        const reply = StatusPublication.write(shell.status, "personality",
-            Gate.personalityRow(personalityShown, setupAnswer.kind === "answered" ? setupAnswer.causes : [], homePathRead));
+    function publishInstructions() {
+        if (instructionsShown === null) return true;
+        const reply = StatusPublication.write(shell.status, "instructions",
+            Gate.instructionsRow(instructionsShown, setupAnswer.kind === "answered" ? setupAnswer.causes : [], homePathRead));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
         return reply === "ok";
     }
@@ -1393,9 +1431,14 @@ Item {
                     voiceOffers = message.voices.length;
                     continue;
                 }
-                if (message.type === "personality") {
-                    personalityShown = message.personality;
-                    if (!publishPersonality()) return;
+                if (message.type === "instructions") {
+                    instructionsShown = message.instructions;
+                    if (!publishInstructions()) return;
+                    continue;
+                }
+                if (message.type === "home-drift") {
+                    driftShown = message;
+                    if (!publishShellSetup()) return;
                     continue;
                 }
                 if (message.type === "start-text") {
@@ -1534,11 +1577,12 @@ Item {
                 if (!publish("info", message.daemon === "locked" ? "Jarvis is locked; microphone is off" : "Jarvis is ready; microphone is off")) return;
                 // A home text over its budget is a caution of the home step.
                 if (!publishSetup({ kind: "answered", causes: message.cautions.concat(message.causes) })) return;
-                if (!publishPersonality() || !publishStartText()) return;
+                if (!publishInstructions() || !publishStartText()) return;
                 sendTuiState();
                 queueIndicator();
                 refreshShell();
                 deliverMainHost();
+                deliverDrift();
                 refreshEchoCancel();
             }
         } catch (error) { broken(error.message); }
@@ -1742,13 +1786,19 @@ Item {
         onRefreshed: root.hello()
     }
     Jarvis.BrowserRuntime { shell: root.shell }
-    Jarvis.FleetRuntime { id: fleetRuntime; shell: root.shell }
+    Jarvis.FleetRuntime {
+        id: fleetRuntime
+        shell: root.shell
+        shape: value => Gate.fleetRoute(value, root.homeReady, root.shell.settings.mainHost !== "")
+    }
     Jarvis.HomeRepair {
         id: homeRepair
         shell: root.shell
         wanted: root.setupAnswer.kind === "answered" && root.setupAnswer.causes.indexOf("home=package") !== -1
         onResultChanged: if (root.shell !== null) root.publishShellSetup()
-        onRecheck: root.hello()
+        // A finished Repair or Update judges the home again and reads its
+        // drift again.
+        onRecheck: { root.hello(); root.askDrift(); }
     }
     Process {
         id: homePathProbe

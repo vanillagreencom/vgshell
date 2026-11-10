@@ -7,7 +7,7 @@
 # starts no agent, the vgs-diagnose skill is
 # copied into the agent's own skills folder where no file or only VGS's own
 # copy stands, a foreign file, a link and a linked folder are left as they
-# are with the prompt naming the shipped shared copy. unmute.sh: a yes asks the
+# are with the prompt naming the plugin's copy. unmute.sh: a yes asks the
 # service to unmute that program, a program already unmuted is done, and a
 # refusal ends the run failed with a sentence, never the reply's key. No run
 # reaches a real agent or the shell: each agent and vgshell is a stand-in
@@ -55,7 +55,7 @@ chmod 755 "$tools"/{claude,codex,copilot,pi,opencode,vgshell,gum}
 # The plugin as bin/vgshell-tui hands it to a script: a private copy.
 snapshot="$TMP_ROOT/snapshot"
 cp -R -- "$plugin" "$snapshot"
-shipped="$repo/bin/lib/../../packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md"
+shipped="$snapshot/skills/vgs-diagnose/SKILL.md"
 home="$TMP_ROOT/home"
 runtime="$TMP_ROOT/runtime"
 mkdir -p "$runtime"

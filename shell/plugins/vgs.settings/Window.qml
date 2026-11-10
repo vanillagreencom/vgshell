@@ -126,12 +126,24 @@ FocusScope {
     function rowOf(id) { return plugins.find(p => p.id === id) || null; }
 
     // A change while the window is hidden needs no resize, since the window
-    // maps at its implicit height. callLater runs one fit for the changes of
-    // one turn, such as a page's id and its tab
+    // maps at its implicit height. callLater runs one fit, and one report,
+    // for the changes of one turn, such as a page's id and its tab
     // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
-    onShownPageChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
-    // The core tells each plugin while its page is the one shown.
-    onPageChanged: shell.manager.viewPage(page)
+    onShownPageChanged: {
+        Qt.callLater(reportPage);
+        if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow);
+    }
+    // The core tells each plugin while its page is the one shown, and the
+    // tab it shows (shell.status.viewed and viewedTab), once both settle:
+    // show() sets the page before the tab, and a new row keeps the last
+    // tab by name (PluginPage onHasSetupChanged), so the page passes
+    // through the tab the last page showed. After close() the core hears
+    // no page again: the window host destroys the instance next
+    // (PluginSlot.unload), and a report still queued would outlive it.
+    property bool closed: false
+    function reportPage() {
+        if (!closed) shell.manager.viewPage(page, page === "" ? "" : detail.tab);
+    }
 
     // Resize the shown window to the shown page's height once Hyprland
     // answers and the page is laid out, so the last change wins. Hyprland
@@ -336,7 +348,10 @@ FocusScope {
         });
     }
 
-    function close() { shell.manager.viewPage(""); }
+    function close() {
+        closed = true;
+        shell.manager.viewPage("", "");
+    }
 
     function showList(reason) {
         page = "";

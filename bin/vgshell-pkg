@@ -69,16 +69,17 @@
 //       they end, it runs `vgshell plugin rescan`, whose `shell=` line follows
 //       them, so a running shell reports the requirements the change
 //       brought or took away; the exit status stays the steps'.
-//       For a verified-file row, `run install|update` first fetches and
-//       checks each named file as the user (bin/lib/pkg-file.js), then runs
+//       For a file row, a verified file or a release file, `run
+//       install|update` first fetches and checks each named file as the
+//       user (bin/lib/pkg-file.js), then runs
 //       the table's filePlan over the checked files; `run upgrade` does so
 //       for each installed package its check offers newer, and runs nothing
 //       when none is.
 //   vgshell-pkg file-check <manager>
-//       the update query of a verified-file row: `<name> <installed> ->
-//       <offered>` for each of its installed packages its repository's
-//       database offers newer, exit 0, 1 when none is, 2 when none of its
-//       packages is installed.
+//       the update query of a file row: `<name> <installed> -> <offered>`
+//       for each of its installed packages its repository's database or
+//       its pinned release offers newer, exit 0, 1 when none is, 2 when none
+//       of its packages is installed.
 //   vgshell-pkg review-settings
 //       open System Settings at Packages on a desktop; without a desktop,
 //       edit the shared review preference, agent and command in this terminal.

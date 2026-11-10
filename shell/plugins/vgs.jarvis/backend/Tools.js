@@ -37,7 +37,7 @@ const date = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
 // a workflow of one file name stay two topics (Home.js lists them). The
 // router offers a brain the topics present; this rule only bounds what a
 // call may name.
-const HELP_TOPICS = Object.freeze(["windows", "apps", "input", "clipboard", "media", "notify", "files", "shell", "vision", "browser"]);
+const HELP_TOPICS = Object.freeze(["windows", "apps", "input", "clipboard", "media", "notify", "files", "shell", "vision", "browser", "vgs-diagnose"]);
 const HOME_TOPIC = "(base|own)/([A-Za-z0-9][A-Za-z0-9_-]{0,47})(/(workflows/)?([A-Za-z0-9][A-Za-z0-9_-]{0,47}))?";
 const helpTopic = { type: "string", pattern: "^(?:" + HELP_TOPICS.join("|") + "|" + HOME_TOPIC.replace(/\(/g, "(?:") + ")$(?![\\s\\S])" };
 // A memory note as the home's memory/MEMORY.md routes to it: a path below

@@ -7,7 +7,8 @@
     "fd": "no official package",
     "rclone": "no official package",
     "voxtype": "no official package",
-    "voxtype-audio-bridge": "no official package"
+    "voxtype-audio-bridge": "no official package",
+    "kendex": "no official package"
   },
   "dnf": {
     "gpu-screen-recorder": "no official package",
@@ -24,6 +25,11 @@
       "reason": "no dnf repository package",
       "route": "upstream release voxtype-<version>-1.x86_64.rpm, https://github.com/peteonrails/voxtype/releases",
       "source": "README v1.1.0 line 34"
+    },
+    "kendex": {
+      "reason": "no dnf repository package",
+      "route": "upstream release kendex-<version>-1.<arch>.rpm through the rpm-file manager, https://github.com/vanillagreencom/kendex/releases",
+      "source": "kendex v1.20.0 release assets, read 2026-11-08"
     }
   },
   "nix": {

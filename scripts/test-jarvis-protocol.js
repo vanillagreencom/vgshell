@@ -68,7 +68,8 @@ const echoRefresh = { v: 1, type: "echo-cancel-refresh", gen: 0, revision: hello
 const homes = { v: 1, type: "homes", gen: 0, revision: hello.revision,
     homes: [{ id: "h012345abcdef", label: "~/Jarvis", value: "~/Jarvis" }], current: "~/Jarvis" };
 const voices = { v: 1, type: "voices", gen: 0, revision: hello.revision, voices: [{ label: "Heart, American English, female", value: "af_heart" }] };
-const personality = { v: 1, type: "personality", gen: 0, revision: hello.revision, personality: { kind: "section", lines: ["Calm."], more: false } };
+const instructions = { v: 1, type: "instructions", gen: 0, revision: hello.revision, instructions: { kind: "text", lines: ["Calm."], more: false } };
+const homeDrift = { v: 1, type: "home-drift", gen: 0, revision: hello.revision, home: "~/Jarvis", drift: { kind: "behind" } };
 // The start text's estimate: two home layers of the five, as an empty home
 // sends them.
 const startText = { v: 1, type: "start-text", gen: 0, revision: hello.revision,
@@ -121,7 +122,7 @@ for (const used of ["", fallback.used]) assert.equal(JSON.stringify(Protocol.acc
 const mainReach = { v: 1, type: "main-reach", gen: 0, revision: hello.revision, reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" } };
 for (const reach of [{ kind: "main" }, mainReach.reach, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" },
     { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" },
-    ...["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"].map(cause => ({ kind: "unavailable", host: "cachy", cause }))])
+    ...["no-home", "package", "not-set-up", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"].map(cause => ({ kind: "unavailable", host: "cachy", cause }))])
     assert.equal(JSON.stringify(Protocol.accept(changed(mainReach, { reach }), "daemon").reach), JSON.stringify(reach));
 // The choice's hand-off names the setting chosen; the daemon reads both settings itself.
 for (const chosen of ["mainHost", "home"])
@@ -248,18 +249,24 @@ const cases = [
     ["voices-bound", changed(voices, { voices: Array.from({ length: 65 }, (_, n) => ({ label: "V" + n, value: "v" + n })) }), "daemon", "voices"],
     ["voices-label", changed(voices, { voices: [{ label: "", value: "af_heart" }] }), "daemon", "voice"],
     ["voices-duplicate", changed(voices, { voices: voices.voices.concat(voices.voices) }), "daemon", "voice-duplicate"],
-    ["personality-direction", JSON.stringify(personality), "shell", "direction-personality"],
-    ["personality-kind", changed(personality, { personality: { kind: "granted" } }), "daemon", "personality-kind"],
-    // An AGENTS.md of any size shows its section: no kind says it is too long.
-    ["personality-too-large", changed(personality, { personality: { kind: "too-large" } }), "daemon", "personality-kind"],
-    ["personality-lines", changed(personality, { personality: { kind: "section", lines: Array(25).fill("Calm."), more: true } }), "daemon", "personality-lines"],
-    ["personality-control", changed(personality, { personality: { kind: "section", lines: ["Calm.\nBrief."], more: false } }), "daemon", "personality-lines"],
+    ["instructions-direction", JSON.stringify(instructions), "shell", "direction-instructions"],
+    ["instructions-kind", changed(instructions, { instructions: { kind: "granted" } }), "daemon", "instructions-kind"],
+    // An AGENTS.md of any size shows: no kind says it is too long.
+    ["instructions-too-large", changed(instructions, { instructions: { kind: "too-large" } }), "daemon", "instructions-kind"],
+    ["instructions-lines", changed(instructions, { instructions: { kind: "text", lines: Array(25).fill("Calm."), more: true } }), "daemon", "instructions-lines"],
+    ["instructions-control", changed(instructions, { instructions: { kind: "text", lines: ["Calm.\nBrief."], more: false } }), "daemon", "instructions-lines"],
     // The status judge refuses these too: a line separator and a C1 control.
-    ["personality-separator", changed(personality, { personality: { kind: "section", lines: ["Calm.\u2028Brief."], more: false } }), "daemon", "personality-lines"],
-    ["personality-c1", changed(personality, { personality: { kind: "section", lines: ["Calm.\u0085"], more: false } }), "daemon", "personality-lines"],
-    ["personality-empty-lines", changed(personality, { personality: { kind: "section", lines: [], more: false } }), "daemon", "personality-lines"],
-    ["personality-empty-line", changed(personality, { personality: { kind: "section", lines: [""], more: false } }), "daemon", "personality-lines"],
-    ["personality-more", changed(personality, { personality: { kind: "section", lines: ["Calm."], more: "yes" } }), "daemon", "personality-lines"],
+    ["instructions-separator", changed(instructions, { instructions: { kind: "text", lines: ["Calm.\u2028Brief."], more: false } }), "daemon", "instructions-lines"],
+    ["instructions-c1", changed(instructions, { instructions: { kind: "text", lines: ["Calm.\u0085"], more: false } }), "daemon", "instructions-lines"],
+    ["instructions-empty-lines", changed(instructions, { instructions: { kind: "text", lines: [], more: false } }), "daemon", "instructions-lines"],
+    ["instructions-empty-line", changed(instructions, { instructions: { kind: "text", lines: [""], more: false } }), "daemon", "instructions-lines"],
+    ["instructions-more", changed(instructions, { instructions: { kind: "text", lines: ["Calm."], more: "yes" } }), "daemon", "instructions-lines"],
+    // The package drift reading of one home, by kind alone.
+    ["home-drift-direction", JSON.stringify(homeDrift), "shell", "direction-home-drift"],
+    ["home-drift-kind", changed(homeDrift, { drift: { kind: "jarvis-behind" } }), "daemon", "home-drift-kind"],
+    ["home-drift-package", changed(homeDrift, { drift: { kind: "behind", package: "jarvis" } }), "daemon", "shape-home-drift"],
+    ["home-drift-home", changed(homeDrift, { home: "~/Jarvis\n" }), "daemon", "home-drift-home"],
+    ["home-drift-intent-field", changed(intent, { intent: "home-drift", home: "~/Jarvis" }), "shell", "shape-intent"],
     ["start-text-direction", JSON.stringify(startText), "shell", "direction-start-text"],
     ["start-text-shape", changed(startText, { bytes: 5720 }), "daemon", "shape-start-text"],
     ["start-text-size-shape", changed(startText, { size: { ...startText.size, bytes: 5720 } }), "daemon", "shape-start-text"],
@@ -565,23 +572,32 @@ assert.equal(Protocol.accept(changed(intent, { intent: "preview", voice: "marin"
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
 const multilineSay = changed(say, { text: "first line\nsecond line" });
 assert.equal(JSON.stringify(Protocol.accept(multilineSay, "shell")), multilineSay);
-for (const shown of [personality, { ...personality, personality: { kind: "none" } }, { ...personality, personality: { kind: "missing" } }, voices, { ...voices, voices: [] },
+for (const shown of [instructions, { ...instructions, instructions: { kind: "none" } }, { ...instructions, instructions: { kind: "empty" } },
+    { ...instructions, instructions: { kind: "unreadable" } }, voices, { ...voices, voices: [] },
+    ...["none", "checking", "current", "behind", "drift", "pending", "unknown", "kendex-missing", "malformed", "timeout", "failed"].map(kind => ({ ...homeDrift, drift: { kind } })),
+    { ...homeDrift, home: "", drift: { kind: "none" } },
+    // A home whose ~/ form is longer than a status line, as Home.resolve
+    // admits and homes.current carries.
+    { ...homeDrift, home: "~/" + "h".repeat(240) + "/Jarvis\u2028home" },
     startText, { ...startText, size: { kind: "unreadable" } }, { ...startText, size: { kind: "read", tokens: 1350, layers: [] } },
     { ...startText, size: { kind: "read", tokens: 9000, layers: ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"].map(layer => ({ layer, tokens: 100 })) } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(shown), "daemon")), JSON.stringify(shown));
-// The section's text as the wire carries it: blank lines dropped, a long
+// Setup's opening asks for the home's drift with no field of its own.
+assert.equal(Protocol.accept(changed(intent, { intent: "home-drift" }), "shell").intent, "home-drift");
+// The whole AGENTS.md as the wire carries it: blank lines dropped, a long
 // line cut at a space into pieces of 200, tabs as spaces, 24 pieces at most.
 {
     const long = Array(60).fill("word").join(" ");
-    const section = Protocol.personalitySection("Calm\tand brief.\n\n" + long + " " + long + "\n" + Array(30).fill("Line.").join("\n"));
+    const section = Protocol.instructionsText("Calm\tand brief.\n\n" + long + " " + long + "\n" + Array(30).fill("Line.").join("\n"));
     assert.deepEqual([section.lines[0], section.lines.length, section.more], ["Calm and brief.", 24, true]);
     assert.ok(section.lines.slice(1, 3).every(line => line.length <= 200 && !line.startsWith(" ") && !line.endsWith(" ")), "a long line splits at a space");
     assert.equal(section.lines.slice(1).join(" ").startsWith(long + " " + long), true, "no word is lost at a cut");
-    assert.equal(Protocol.accept(changed(personality, { personality: section }), "daemon").personality.lines.length, 24);
-    assert.equal(JSON.stringify(Protocol.personalitySection("Brief.")), JSON.stringify({ kind: "section", lines: ["Brief."], more: false }));
+    assert.equal(Protocol.accept(changed(instructions, { instructions: section }), "daemon").instructions.lines.length, 24);
+    assert.equal(JSON.stringify(Protocol.instructionsText("Brief.")), JSON.stringify({ kind: "text", lines: ["Brief."], more: false }));
+    assert.equal(JSON.stringify(Protocol.instructionsText(" \n\t\n")), JSON.stringify({ kind: "empty" }), "an AGENTS.md of blank lines is empty");
     // What the status judge refuses becomes a space, so a pasted line
     // separator never reaches Settings.
-    assert.equal(JSON.stringify(Protocol.personalitySection("Calm.\u2028Brief.\u0085")), JSON.stringify({ kind: "section", lines: ["Calm. Brief."], more: false }));
+    assert.equal(JSON.stringify(Protocol.instructionsText("Calm.\u2028Brief.\u0085")), JSON.stringify({ kind: "text", lines: ["Calm. Brief."], more: false }));
     // The copy of the status judge's rule is the judge's own.
     const SettingValues = load(path.join(__dirname, "../shell/Commons/SettingValues.js"));
     assert.equal(Protocol.STATUS_UNPRINTABLE.source, SettingValues.CONTROL_OR_SEPARATOR.source, "the wire refuses what the status judge refuses");
@@ -810,7 +826,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "hide", "show", "stop", "new-conversation", "voice-check", "owner-asks-refresh", "home-drift"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],
@@ -843,15 +859,18 @@ try {
         ["voices-bound", 'message.voices.length > VOICES_MAX) fail("voices");', 'false) fail("voices");', "voices-bound"],
         ["voices-label", 'fail("voice");', ';', "voices-label"],
         ["voices-duplicate", 'if (Object.prototype.hasOwnProperty.call(voiced, voice.value)) fail("voice-duplicate");', ';', "voices-duplicate"],
-        ["personality-direction", 'if (direction !== "daemon") fail("direction-personality");', ';', "personality-direction"],
-        ["personality-kind", 'fail("personality-kind");', ';', "personality-kind"],
-        ["personality-lines", 'shown.lines.length > PERSONALITY_LINES', 'false', "personality-lines"],
-        ["personality-control", '!shown.lines.every(line => statusLine(line, PERSONALITY_CHARS))', 'false', "personality-control"],
-        ["status-separators", "\\u007f-\\u009f\\u2028\\u2029]/;", "\\u007f]/;", "personality-separator"],
-        ["status-c1", "\\u007f-\\u009f\\u2028\\u2029]/;", "\\u007f\\u2028\\u2029]/;", "personality-c1"],
-        ["personality-empty-lines", "shown.lines.length < 1 || ", "", "personality-empty-lines"],
-        ["personality-empty-line", "value.length >= 1 && value.length <= max && !STATUS_UNPRINTABLE", "value.length <= max && !STATUS_UNPRINTABLE", "personality-empty-line"],
-        ["personality-more", ' || typeof shown.more !== "boolean")', ")", "personality-more"],
+        ["instructions-direction", 'if (direction !== "daemon") fail("direction-instructions");', ';', "instructions-direction"],
+        ["instructions-kind", 'fail("instructions-kind");', ';', "instructions-kind"],
+        ["instructions-lines", 'shown.lines.length > INSTRUCTIONS_LINES', 'false', "instructions-lines"],
+        ["instructions-control", '!shown.lines.every(line => statusLine(line, INSTRUCTIONS_CHARS))', 'false', "instructions-control"],
+        ["status-separators", "\\u007f-\\u009f\\u2028\\u2029]/;", "\\u007f]/;", "instructions-separator"],
+        ["status-c1", "\\u007f-\\u009f\\u2028\\u2029]/;", "\\u007f\\u2028\\u2029]/;", "instructions-c1"],
+        ["instructions-empty-lines", "shown.lines.length < 1 || ", "", "instructions-empty-lines"],
+        ["instructions-empty-line", "value.length >= 1 && value.length <= max && !STATUS_UNPRINTABLE", "value.length <= max && !STATUS_UNPRINTABLE", "instructions-empty-line"],
+        ["instructions-more", ' || typeof shown.more !== "boolean")', ")", "instructions-more"],
+        ["home-drift-direction", 'if (direction !== "daemon") fail("direction-home-drift");', ';', "home-drift-direction"],
+        ["home-drift-kind", 'if (HOME_DRIFT.indexOf(message.drift.kind) === -1) fail("home-drift-kind");', ';', "home-drift-kind"],
+        ["home-drift-shape", 'keys(message.drift, ["kind"], "home-drift");', ';', "home-drift-package"],
         ["homes-current", 'fail("home-current");', ';', "homes-current"],
         ["homes-id", 'fail("home-id");', ';', "homes-id"],
         ["homes-id-duplicate", 'if (Object.prototype.hasOwnProperty.call(seen, choice.id)) fail("home-id-duplicate");',
@@ -965,6 +984,8 @@ try {
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
     control("audit-fault-area", "!/^[a-z-]+=[a-z0-9-]{1,60}$/.test(row.cause)", "!/^(?:brain|net)=[a-z0-9-]{1,60}$/.test(row.cause)", faultRows);
+    control("home-drift-long-home", '!homeIdentity(message.home)', '!statusLine(message.home, 200)', logic =>
+        assert.doesNotThrow(() => logic.accept(JSON.stringify({ ...homeDrift, home: "~/" + "h".repeat(240) }), "daemon"), "a long home's drift reading"));
     control("voice-provider-gemini", '["local", "realtime", "gemini", "elevenlabs"]', '["local", "realtime", "elevenlabs"]', voiceProviders);
     control("voice-provider-elevenlabs", '["local", "realtime", "gemini", "elevenlabs"]', '["local", "realtime", "gemini"]', voiceProviders);
     control("memory-inbox-filter-bound", "size + next > MEMORY_INBOX_BYTES", "false", logic =>

@@ -313,7 +313,7 @@ function create({ environment, commandMs = COMMAND_MS, log = null }) {
  * from; main() answers whether this computer runs the main Jarvis, the one
  * place fleet.request hands a request to (ComputerHelp.create).
  */
-function install({ router, environment, home = () => null, main = () => true, answer = null, log = () => {} }) {
+function install({ router, environment, home = () => null, main = () => true, answer = null, log = () => {}, shared = {} }) {
     let registered = false;
     let current = null;
     let generation = null;
@@ -339,7 +339,7 @@ function install({ router, environment, home = () => null, main = () => true, an
         start(call, done) {
             try { done({ outcome: "completed", content: owner().guidance() }); }
             catch (error) { done({ outcome: "failed", content: error.message }); }
-        } }, home, environment, main, { answer, log });
+        } }, home, environment, main, { answer, log, shared });
     router.register("guidance", guidance);
     function register() {
         if (registered || closed) return;

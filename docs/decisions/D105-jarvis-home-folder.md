@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-09
 
-**Status**: Active (the one program of a home a brain's action starts → D120)
+**Status**: Active (the one program of a home a brain's action starts → D120; the VGS writer of the base package, its shipped render, ownership record and open-time layout or cleanup → [D126](D126-kendex-owns-the-jarvis-package.md))
 
 **Research**: the Jarvis plan attached to [VGS-1194](https://linear.app/vanillagreen/issue/VGS-1194)
 

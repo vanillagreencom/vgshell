@@ -313,7 +313,7 @@ const ROWS = [
         1, () => refused("extra=ddcutil field=runtimePackages channel=nix recipe=flake")],
     ["installer: a dropped English data package is refused", t => edit(t, "install.sh", "^(pacman .*?) tesseract-data-eng( .*)$", "$1$2"),
         1, () => refused("requirement=library:capture-english package=tesseract-data-eng want=runtime_packages channel=install-pacman recipe=pacman scope=core")],
-    ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^aur vgshell-quickshell vsys$", "aur vgshell-quickshell"),
+    ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^(aur .*?) vsys( .*)?$", "$1$2"),
         1, () => refused("requirement=vsys package=vsys want=runtime_packages channel=install-pacman recipe=pacman scope=vgs.agent-warden")],
     ["Debian installer: a dropped required package is refused", t => edit(t, "install.sh", "^(apt .*?) qrencode( .*)$", "$1$2"),
         1, () => refused("requirement=qrencode package=qrencode want=runtime_packages channel=install-apt recipe=apt scope=vgs.network")],

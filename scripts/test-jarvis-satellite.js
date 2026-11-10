@@ -65,7 +65,7 @@ world(async () => {
 
     async function live(Satellite) {
         const h = home();
-        let value = "", folder = h.folder;
+        let value = "", folder = h.folder, block = null;
         const published = [], logs = [], timers = [];
         const state = path.join(process.env.JARVIS_TEST_ROOT, "satellite-state");
         // The daemon's environment: what the package reads beside its argv,
@@ -73,7 +73,7 @@ world(async () => {
         const environment = { PATH: process.env.PATH, HOME: process.env.HOME, LANG: "C.UTF-8", XDG_STATE_HOME: state,
             SSH_AUTH_SOCK: "/run/user/1000/agent.sock", OPENAI_API_KEY: "sk-fixture", TMUX: "/scratch/tmux,1,0",
             VGSHELL_RUNNER_PID: "1", DISPLAY: ":9" };
-        const s = Satellite.create({ home: () => folder, mainHost: () => value, environment, acceptReach: Protocol.mainReach,
+        const s = Satellite.create({ home: () => folder, homeBlock: () => block, mainHost: () => value, environment, acceptReach: Protocol.mainReach,
             publish: reach => published.push(reach), log: line => logs.push(line),
             clock: { set: (fn, ms) => { timers.push(ms); return {}; }, clear() {} } });
         try {
@@ -211,19 +211,29 @@ world(async () => {
             assert.deepEqual(await forward("Old."), { outcome: "failed", content: "fleet-forward:package-old" });
 
             // The home's session command as SessionCommand.place finds it:
-            // a home VGS laid out ships none, so a Home choice naming a
-            // main hands it nowhere.
+            // a home kendex never installed the package in has none, so a
+            // Home choice naming a main hands it nowhere.
             h.remove();
             const calls = h.calls().length;
             await s.choose("home");
-            await until(() => published.at(-1).cause === "vgs-package", "a home without the package names its block");
-            assert.ok(logs.includes("jarvis: satellite=main-host cause=vgs-package"), "the skipped hand-off is logged by its block");
-            assert.deepEqual(await forward("Nowhere."), { outcome: "failed", content: "fleet-forward:vgs-package" });
+            await until(() => published.at(-1).cause === "not-set-up", "a home without the package names its block");
+            assert.ok(logs.includes("jarvis: satellite=main-host cause=not-set-up"), "the skipped hand-off is logged by its block");
+            assert.deepEqual(await forward("Nowhere."), { outcome: "failed", content: "fleet-forward:not-set-up" });
             assert.equal(h.calls().length, calls, "nothing runs in a home without the command");
 
             folder = null;
             s.refresh();
             await until(() => published.at(-1).cause === "no-home", "no home reads unavailable");
+            // A chosen folder Setup has yet to set up names Setup's block,
+            // never no-home, and runs nothing (D126).
+            block = "not-set-up";
+            s.refresh();
+            await until(() => published.at(-1).cause === "not-set-up", "a chosen home Setup has yet to set up names its block");
+            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "jarvis", cause: "not-set-up" });
+            assert.equal(h.calls().length, calls, "nothing runs for a home that is not set up");
+            block = null;
+            s.refresh();
+            await until(() => published.at(-1).cause === "no-home", "no folder chosen reads no-home again");
         } finally { await s.close(); }
     }
 
@@ -336,6 +346,7 @@ world(async () => {
         ["startup-origin", satelliteFile, 'choose("startup")', 'choose("mainHost")', Satellite => startup(Satellite, "queued startup becomes empty")],
         ["replay-loop", satelliteFile, "timer = null; refresh();", 'timer = null; choose("mainHost");', replayLoop],
         ["refusal-home", satelliteFile, " && rejected.folder === location.folder", "", handoff],
+        ["home-not-set-up", satelliteFile, 'block: homeBlock() ?? "no-home"', 'block: "no-home"', live],
         ["home-choice-hands-empty", satelliteFile, '                if (field !== "mainHost" && mainHost() === "") return;\n', "", live],
         ["ssh-agent", satelliteFile, "SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT)", "SessionCommand.callEnvironment(environment)", live],
         ["environment-pick", sessionFile, "for (const name of [...CALL_ENVIRONMENT, ...extra]) if (kept[name] !== undefined) picked[name] = kept[name];",

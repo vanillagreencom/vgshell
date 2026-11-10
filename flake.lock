@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "kendex": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1794080207,
+        "narHash": "sha256-w02eVjO4zOMSPndIo3HrfiV4Lpq4OOIcSfZJft27PwA=",
+        "owner": "vanillagreencom",
+        "repo": "kendex",
+        "rev": "31c92aa2ddb6e524806c66a7aaa2f039c894b716",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vanillagreencom",
+        "repo": "kendex",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1790578696,
@@ -16,8 +34,25 @@
         "type": "github"
       }
     },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1793726008,
+        "narHash": "sha256-jQp1wKvbwWdLBASTXkSi/VYmDJ5AbBi1WvcMt9HWJC8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "1d060086d60cb76a40cf37109f979d88a5bd6396",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
+        "kendex": "kendex",
         "nixpkgs": "nixpkgs"
       }
     }

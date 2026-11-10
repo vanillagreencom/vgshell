@@ -1,6 +1,6 @@
 // The core files the Jarvis backend reads: the account rule, the account
-// discovery, the anchored walk, the Codex account reader and the render of
-// the Jarvis package VGS ships. Plugin files
+// discovery, the anchored walk, the Codex account reader, and the one
+// shared skill file of the tree it reads in place. Plugin files
 // run from a published snapshot (D014), so no path relative to this file
 // reaches the core; each entry point hands use() the VGS tree it is given
 // as --tree before it loads Accounts.js, Denied.js or Files.js, and those
@@ -39,14 +39,6 @@ function folders() { return core().folders; }
 /** bin/lib/anchored.js: child and directory. */
 function anchored() { return core().anchored; }
 /**
- * The render of the Jarvis package VGS ships: kendex's install of it in a
- * home, which Home.js layout copies into a home kendex did not install it in.
- */
-function homeRender() {
-    if (tree === null) throw new Error("jarvis: tree=unset");
-    return path.join(tree, "packaging/jarvis-home");
-}
-/**
  * bin/lib/codex-account.js: account and read, loaded on first use, so only
  * a Codex account read loads it.
  */
@@ -55,4 +47,14 @@ function codexAccount() {
     return require(path.join(tree, "bin/lib/codex-account.js"));
 }
 
-module.exports = { use, accounts, folders, anchored, homeRender, codexAccount };
+/**
+ * Agent Debug's vgs-diagnose skill in the VGS tree, which a Diagnose
+ * handoff names and the help reader serves in place, read-only: nothing
+ * writes it into a home (D126).
+ */
+function diagnoseSkill() {
+    if (tree === null) throw new Error("jarvis: tree=unset");
+    return path.join(tree, "shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md");
+}
+
+module.exports = { use, accounts, folders, anchored, codexAccount, diagnoseSkill };

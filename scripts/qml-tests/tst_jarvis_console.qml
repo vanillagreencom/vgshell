@@ -660,7 +660,7 @@ Item {
                 { tag: "old", reach: unavailable("package-old"), shown: true, warning: true, link: "" },
                 { tag: "unanswering", reach: unavailable("package-unread"), shown: true, warning: true, link: "" },
                 { tag: "package", reach: unavailable("package"), shown: true, warning: true, link: "page:vgs.jarvis/Setup/sessionStart" },
-                { tag: "vgs-package", reach: unavailable("vgs-package"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" },
+                { tag: "not-set-up", reach: unavailable("not-set-up"), shown: true, warning: true, link: "page:vgs.jarvis/Setup/setupHome" },
                 { tag: "home-link", reach: unavailable("home-link"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" },
                 { tag: "no-home", reach: unavailable("no-home"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" }
             ];

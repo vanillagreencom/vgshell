@@ -20,6 +20,8 @@ var SOURCES = {
     nix: { label: "System", icon: "package" },
     aur: { label: "AUR", icon: "package-open" },
     "verified-file": { label: "Verified packages", icon: "package-check" },
+    "deb-file": { label: "Release packages", icon: "package-check" },
+    "rpm-file": { label: "Release packages", icon: "package-check" },
     flatpak: { label: "Flatpak", icon: "boxes" },
     mise: { label: "mise", icon: "wrench" },
     vgs: { label: "VGS", icon: "monitor" },

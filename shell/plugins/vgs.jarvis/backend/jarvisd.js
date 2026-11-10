@@ -50,8 +50,9 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const Home = require("./Home.js");
     const OwnerAsks = require("./OwnerAsks.js");
     const Satellite = require("./Satellite.js");
-    const FleetSetup = require("./fleet-setup.js");
     const Guidance = require("./Guidance.js");
+    const Drift = require("./Drift.js");
+    const Child = require("./Child.js");
     const { load } = require(path.join(process.argv[3], "bin/lib/qml-library.js"));
     const { commandFile, onPath } = require(path.join(process.argv[3], "bin/lib/judge-files.js"));
     const Protocol = load(path.join(__dirname, "../JarvisProtocol.js"));
@@ -96,42 +97,18 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     // setting names, or null, and state what the engine and help read.
     let homeFolder = { path: null, state: { kind: "none" } };
     let homes = [];
-    let fleetSetup = Promise.resolve();
-    const fleetController = new AbortController();
+    let drift = null;
 
-    function startFleetCutover() {
-        if (homeFolder.state.kind !== "ready") return;
-        const target = homeFolder.state.path;
-        // Only first hello produces an automatic attempt. The lock owner
-        // rechecks eligibility before it consumes the durable record.
-        try { if (Home.mailCutover(target) !== "eligible") return; }
-        catch (error) {
-            process.stderr.write("jarvis: fleet-setup=refused " + error.message + "\n");
-            return;
-        }
-        fleetSetup = FleetSetup.install(process.argv[3], target, true, process.env, fleetController.signal).then(result => {
-            if (ending) return;
-            if (result.kind !== "exited" || result.code !== 0) {
-                const key = result.kind === "exited" ? result.code === 75 ? "busy" : "install-failed" : result.reason;
-                process.stderr.write("jarvis: fleet-setup=" + key + "\n");
-                if (result.stderr) process.stderr.write(result.stderr);
-            }
-            if (Home.resolve(context.settings.home, process.env.HOME) !== target) return;
-            judgeSetup();
-        }).catch(error => {
-            if (!ending) process.stderr.write("jarvis: fleet-setup=refused " + error.message + "\n");
-        });
-    }
-
-    // Each judgement names the folder again and creates what it lacks; a
-    // refused folder holds the engine with its keyed cause, and the gate
-    // guards it while the setting names it.
+    // Each judgement names the folder again and writes nothing in it
+    // (D126): a folder Setup has not set up, like any refused folder, holds
+    // the engine with its keyed cause, and the gate guards it while the
+    // setting names it.
     function judgeHome(setting) {
         let folder = null;
         try {
             folder = Home.resolve(setting, process.env.HOME);
             if (folder === null) return { path: null, state: { kind: "none" } };
-            Home.layout(folder);
+            Home.judge(folder);
             return { path: folder, state: { kind: "ready", path: folder } };
         } catch (error) {
             const cause = /^jarvis: (home=[a-z-]{1,60})$/.exec(error.message)?.[1];
@@ -173,17 +150,25 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
         if (ownerAsks !== null) ownerAsks.setHome(homeFolder.state.kind === "ready" ? homeFolder.state.path : null);
-        const key = context.settings.mainHost + "\n" + (homeFolder.state.kind === "ready" ? homeFolder.state.path : "");
+        const key = context.settings.mainHost + "\n" + (homeFolder.state.kind === "ready" ? homeFolder.state.path : "") + "\n" + (homeBlock() ?? "");
         if (satellite !== null && key !== satelliteKey) {
             satelliteKey = key;
             satellite.refresh();
         }
         rememberHome();
         publishHomes();
-        publishPersonality();
+        publishInstructions();
+        if (drift !== null) drift.select(homeFolder.state.kind === "ready" ? homeFolder.state.path : null);
         publishStartText();
         configured(engine.configure(context.settings));
         scheduleMemoryReconcile();
+    }
+
+    // The block a chosen home Setup has yet to set up gives the satellite
+    // reading, as SessionCommand.place names it: a folder that is not there
+    // or lacks the package or a starting file (Home.judge).
+    function homeBlock() {
+        return homeFolder.state.kind === "refused" && ["home=missing", "home=not-set-up"].includes(homeFolder.state.cause) ? "not-set-up" : null;
     }
 
     function rememberHome() {
@@ -205,7 +190,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     }
 
     function teardown() {
-        fleetController.abort();
+        if (drift !== null) drift.close();
         if (ownerAsks !== null) ownerAsksClosed = ownerAsks.close();
         if (satellite !== null) satelliteClosed = satellite.close();
         if (voice !== null) voice.close();
@@ -433,19 +418,37 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         write({ v: 1, type: "voices", gen: runner.state.gen, revision: context.revision, voices });
     }
 
-    // The home's Personality section as the Settings page shows it, read
-    // again at each judgement: a hello follows the page's opening.
-    function publishPersonality() {
-        let personality = { kind: homeFolder.state.kind === "none" ? "none" : "unreadable" };
+    // The home's whole AGENTS.md, the user's instructions, as the Settings
+    // page shows it, read again at each judgement: a hello follows the
+    // page's opening.
+    function publishInstructions() {
+        let instructions = { kind: homeFolder.state.kind === "none" ? "none" : "unreadable" };
         if (homeFolder.state.kind === "ready") {
-            try {
-                const section = Guidance.personality(homeFolder.state.path);
-                personality = section.kind === "section" ? Protocol.personalitySection(section.text) : section;
-            } catch (error) {
+            try { instructions = Protocol.instructionsText(Home.read(homeFolder.state.path, "AGENTS.md", null).text); }
+            catch (error) {
                 if (!/^jarvis: home=[a-z-]{1,60}$/.test(error.message)) throw error;
             }
         }
-        write({ v: 1, type: "personality", gen: runner.state.gen, revision: context.revision, personality });
+        write({ v: 1, type: "instructions", gen: runner.state.gen, revision: context.revision, instructions });
+    }
+
+    // The package drift reading of the home it ran for: the service binds
+    // it to its own Home folder setting by this path.
+    function publishDrift(folder, reading) {
+        if (ending || context === null) return;
+        write({ v: 1, type: "home-drift", gen: runner.state.gen, revision: context.revision,
+            home: folder === null ? "" : Home.relativeHome(folder, process.env.HOME), drift: reading });
+    }
+
+    // The wall time of the last finished drift reading, which spaces the
+    // daily one across daemon restarts: { checkedAt }.
+    function readDriftTime() {
+        return readRecord("home-drift", "home-drift.json", 128, value => {
+            if (value === null || typeof value !== "object" || Array.isArray(value)
+                    || Object.keys(value).join(",") !== "checkedAt" || !Number.isSafeInteger(value.checkedAt))
+                throw new Error("jarvis: home-drift=record-shape");
+            return value.checkedAt;
+        }, null);
     }
 
     // About how many tokens each home layer and the whole start text cost,
@@ -571,6 +574,14 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 if (message.type === "intent" && message.intent === "main-host") {
                     intentIdentity(message);
                     void satellite.choose(message.chosen);
+                    continue;
+                }
+                // The Setup tab's opening, or a finished update, asks for the
+                // selected home's package drift (Drift.js); another tab of the
+                // Jarvis page and a Voice start never do.
+                if (message.type === "intent" && message.intent === "home-drift") {
+                    intentIdentity(message);
+                    drift.request();
                     continue;
                 }
                 if (message.type === "intent" && message.intent === "task-open") {
@@ -715,6 +726,20 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         } });
                     homes = readHomes();
                     publishHomes();
+                    drift = Drift.create({ run: Child.run, kendex: () => commandFile("kendex"), environment: process.env,
+                        clock: { wallNow: Date.now, set: clock.set, clear: clock.clear },
+                        load: () => {
+                            try { return readDriftTime(); }
+                            catch (error) {
+                                // An unreadable time reads the home again now and
+                                // replaces the record; it skips no reading.
+                                if (!/^jarvis: home-drift=/.test(error.message)) throw error;
+                                process.stderr.write(error.message + "\n");
+                                return null;
+                            }
+                        },
+                        store: at => storeRecord("home-drift", "home-drift.json", { checkedAt: at }),
+                        publish: publishDrift, log: line => process.stderr.write(line + "\n") });
                     const auditFailures = rows => {
                         if (!ending) write({ v: 1, type: "audit-failures", gen: runner.state.gen,
                             revision: context.revision, rows });
@@ -765,9 +790,10 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     });
                     browser = Browser.install({ router, environment: process.env, main: () => context.settings.mainHost === "",
                         answer: item => voice.answer(item), log: line => process.stderr.write(line + "\n"),
+                        shared: { "vgs-diagnose": require("./Core.js").diagnoseSkill() },
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     satellite = Satellite.create({ environment: process.env, acceptReach: Protocol.mainReach,
-                        home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
+                        home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null, homeBlock,
                         mainHost: () => context.settings.mainHost, log: line => process.stderr.write(line + "\n"),
                         publish: reach => {
                             if (!ending) write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
@@ -868,7 +894,6 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 judgeSetup();
                 audio.refreshEcho();
                 write({ v: 1, type: "echo-cancel", gen: runner.state.gen, revision: context.revision, ...audio.echoRoute });
-                if (first) startFleetCutover();
                 if (memory !== null) writeMemoryInbox();
                 if (first) void audio.discover().catch(error => {
                     if (!ending) audio.fault(error.message);
@@ -888,7 +913,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         refuse(74, "jarvis: " + channel + "=" + error.code);
         // Node's standard output can retain a blocked write after destroy.
         // Audio exits first; a failed pipe cannot keep the daemon alive.
-        void Promise.all([released, fleetSetup, ownerAsksClosed, satelliteClosed]).then(() => process.exit(74));
+        void Promise.all([released, ownerAsksClosed, satelliteClosed]).then(() => process.exit(74));
     }
     process.stdout.on("error", error => ioFailed("stdout", error));
     process.stdin.on("error", error => ioFailed("stdin", error));
@@ -897,7 +922,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (ending) return;
         ending = true;
         teardown();
-        void Promise.all([audio.close("lease"), fleetSetup, ownerAsksClosed, satelliteClosed]).then(() => process.exit(process.exitCode ?? 0));
+        void Promise.all([audio.close("lease"), ownerAsksClosed, satelliteClosed]).then(() => process.exit(process.exitCode ?? 0));
     }
     process.once("SIGTERM", terminate);
     process.once("SIGINT", terminate);

@@ -39,7 +39,7 @@ const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis",
 // run under node.
 const keyNav = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget,
-    spelledTalk: null,
+    spelledTalk: null, driftShown: null, homeMessage: { homes: [], current: "" },
     ShortcutLabels: { keyCaps: key => keyNav.keyCaps(key, keyNav.symbolNames(judge.CAPTURE_KEY_NAMES)) },
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
 // LocalTier's reading with no local voice model wanted or ready, as the
@@ -104,7 +104,7 @@ function verifyEditAction(script, root) {
     const library = path.join(root, "edit-lib"), log = path.join(root, "edit.log");
     const realLibrary = path.join(__dirname, "..", "bin/lib/tui.sh");
     fs.writeFileSync(library, 'source "' + realLibrary + '"\nvgs_tui_close_prompt() { printf "close %s\\n" "$1" >> "$SCREEN_LOG"; }\n');
-    fs.writeFileSync(path.join(root, "vgshell"), '#!/bin/bash\n[[ $# == 6 && $1 == ipc && $2 == call && $3 == vgs.jarvis && $4 == invoke && $5 == personality-file && -z $6 ]] || exit 2\nprintf "personality-file\\n" >> "$SCREEN_LOG"\nprintf "%s\\n" "$FILE"\n', { mode: 0o700 });
+    fs.writeFileSync(path.join(root, "vgshell"), '#!/bin/bash\n[[ $# == 6 && $1 == ipc && $2 == call && $3 == vgs.jarvis && $4 == invoke && $5 == instructions-file && -z $6 ]] || exit 2\nprintf "instructions-file\\n" >> "$SCREEN_LOG"\nprintf "%s\\n" "$FILE"\n', { mode: 0o700 });
     for (const name of ["nvim", "nano", "code", "codium"])
         fs.writeFileSync(path.join(root, name), '#!/bin/bash\nprintf "' + name + ' %s\\n" "$*" >> "$SCREEN_LOG"\nprintf "editor: error=fixture\\n" >&2\nexit "$EDIT_STATUS"\n', { mode: 0o700 });
     const file = "/home/user/Jarvis/AGENTS.md";
@@ -123,7 +123,7 @@ function verifyEditAction(script, root) {
                 VISUAL: visual, EDITOR: editor, EDIT_STATUS: String(code), VGS_TEST_RUN: "1" } });
         assert.equal(result.status, code, name + ": status");
         const calls = fs.readFileSync(log, "utf8").trim().split("\n");
-        assert.deepEqual(calls, ["personality-file", ...(expected ? [expected] : []), ...(code ? ["close " + code] : [])], name + ": calls");
+        assert.deepEqual(calls, ["instructions-file", ...(expected ? [expected] : []), ...(code ? ["close " + code] : [])], name + ": calls");
         if (expected) assert.equal(result.stderr, "editor: error=fixture\n", name + ": real editor error");
         else assert.notEqual(result.stderr, "", name + ": missing home cause");
     }
@@ -140,31 +140,33 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
         const judged = judge.validateManifest(source, path.dirname(file));
         assert.equal(judged.ok, true);
         for (const [missing, expected] of [[[], []], [["gum"], ["gum"]], [["gio"], []], [["gio", "gum"], ["gum"]]]) {
-            assert.deepEqual(Array.from(judge.tuiMissingRequirements(judged.manifest, "edit-personality", missing)), expected);
-            const request = judge.tuiRunFor(judged.manifest, true, "/snapshot", { launcher: "present", busy: [], run: "fixture" }, "edit-personality", missing);
+            assert.deepEqual(Array.from(judge.tuiMissingRequirements(judged.manifest, "edit-instructions", missing)), expected);
+            const request = judge.tuiRunFor(judged.manifest, true, "/snapshot", { launcher: "present", busy: [], run: "fixture" }, "edit-instructions", missing);
             assert.equal(request.ok, true);
             assert.equal(request.kind || "launch", expected.length ? "install" : "launch");
         }
     }
     verifyEditRequirements(raw);
     const withoutPicker = structuredClone(raw);
-    withoutPicker.tui["edit-personality"].requires = ["gio"];
+    withoutPicker.tui["edit-instructions"].requires = ["gio"];
     assert.throws(() => verifyEditRequirements(withoutPicker), assert.AssertionError);
     console.log("test-jarvis-setup-gate: control=edit-picker-requirement rejected=true");
 }
 
 // A step the user may take sits on Setup as an Optional step, never as a
-// fact on Details: the installs, API keys, Account search and Personality.
+// fact on Details: the installs, API keys, Account search and Instructions.
 {
     const OPTIONAL = [
         ["keyStore", "Add key"],
         ["accountSearch", "Accounts"],
-        ["personality", "Edit"],
+        ["instructions", "Edit"],
         ["input", "Check input"],
         ["browser", "Set up browser"],
-        ["setupFleet", "Install mail tool"]
+        ["setupFleet", "Set up"]
     ];
     const values = Object.fromEntries(OPTIONAL.map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
+    // The Agent fleet row names one of its declared routes (fleetRoute).
+    values.setupFleet.action = "setup";
     values.setupVoice = { tone: "ok", text: "Ready", action: "check" };
     const status = judge.statusRows(manifest, values);
     const tuis = judge.listedTuis(manifest);
@@ -415,7 +417,9 @@ const READINESS = [
 const DONE_ACTION = { setupVoice: false, setupModel: undefined };
 // The home folder's causes: Home.js's and Guidance.js's. One without a hint
 // of its own takes the step's.
-const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "home=text", "home=package", "guidance=home-skills-too-large"];
+const HOME_CAUSES = ["home=link", "home=path", "home=missing", "home=not-set-up", "home=text", "home=package", "guidance=home-skills-too-large"];
+// The Home folder step's action for each cause of HOME_CAUSES that offers one.
+const HOME_CAUSE_ACTIONS = { "home=text": "agents", "guidance=home-skills-too-large": "skills", "home=missing": "setup", "home=not-set-up": "setup" };
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out",
     "brain=pi-update"];
@@ -1144,11 +1148,12 @@ function verifyReadiness(gate) {
     assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], "stopped");
     assert.deepEqual([stopped.setupHome, checking.setupHome], [{ tone: "warning", text: "Not checked" }, { tone: "warning", text: "Not checked" }], "Home stays pending before the daemon checks it");
     // A refused home folder is the step to do. Editable user files offer
-    // the named file action; the voice and AI model stay done.
+    // the named file action, a folder that is no Jarvis home yet Set up;
+    // the voice and AI model stay done.
     HOME_CAUSES.forEach(cause => {
         const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupHome.tone, got.setupHome.action, got.setupHome.lines, got.setupVoice.tone, got.setupModel.tone],
-            ["warning", "warning", cause === "home=text" ? "agents" : cause === "guidance=home-skills-too-large" ? "skills" : undefined, undefined, "ok", "ok"], cause);
+            ["warning", "warning", HOME_CAUSE_ACTIONS[cause], undefined, "ok", "ok"], cause);
         assert.equal(typeof got.setupHome.hint === "string" && got.setupHome.hint !== "" && !/=/.test(got.setupHome.hint), true,
             cause + ": a plain hint, no keyed cause on screen");
     });
@@ -1302,8 +1307,8 @@ const SESSION_CONTRACT = {
 // that fixes it, and the blocks that wait only on a choice or that the home
 // cannot offer, which read in the info tone.
 const SESSION_BLOCK_ACTIONS = { "no-account": "none", "not-app": "none", "no-home": "none", package: "repair:repair-home",
-    "vgs-package": "none", unread: "retry:start-session", "home-link": "none", "home-kind": "none", "home-unreadable": "none" };
-const SESSION_INFO_BLOCKS = ["no-account", "not-app", "no-home", "vgs-package"];
+    "not-set-up": "none", unread: "retry:start-session", "home-link": "none", "home-kind": "none", "home-unreadable": "none" };
+const SESSION_INFO_BLOCKS = ["no-account", "not-app", "no-home", "not-set-up"];
 const SESSION_TONES = { running: "ok", starting: "info", "handing-over": "info", stopping: "info", stopped: "info", off: "info", failed: "danger" };
 // The ISO 8601 offset of the local zone at AT, so a time reads back as the
 // same local clock.
@@ -1364,11 +1369,15 @@ function verifySession(gate) {
         assert.equal(typeof value.text === "string" && value.text !== "" && typeof value.hint === "string" && value.hint !== "", true, block + ": the row has its words");
         if (action === "none") assert.notEqual(pageReference.parse(value.hint).page, "", block + ": the hint links the page that fixes it");
     }
-    // The no-home hint links the Home folder field, as the Personality row
-    // does, whose badge already says no folder is chosen.
+    // The no-home hint links the Home folder field, as the Instructions row
+    // does, whose badge already says no folder is chosen. A folder that is
+    // no Jarvis home yet links the Home folder step, whose Set up makes it
+    // one.
     const homeless = plain(gate.sessionStart(true, { kind: "blocked", block: "no-home" })).hint;
     assert.deepEqual([oneSentence(homeless), homeless.includes("[Home folder](page:vgs.jarvis/Settings/home)"), /home folder/.test(homeless)], [true, true, false],
         "no-home: the hint is one sentence that links the Home folder field");
+    const notSetUp = pageReference.parse(plain(gate.sessionStart(false, { kind: "blocked", block: "not-set-up" })).hint);
+    assert.deepEqual([notSetUp.page, notSetUp.tab], ["vgs.jarvis", "Setup/setupHome"], "not-set-up: the hint links the Home folder step");
     assert.throws(() => gate.sessionStart(true, { kind: "blocked", block: "unknown" }), { message: "jarvis-setup: session=unknown" });
     for (const result of [{ kind: "failed" }, { kind: "answer", state: "running", reason: "launching", detail: "", names: null }, { kind: "other" }]) {
         const value = plain(gate.sessionStart(true, result));
@@ -1620,8 +1629,8 @@ function verifyHintStops(gate) {
 // (JarvisProtocol SETUP_CAUTIONS), by the file the caution names. It holds
 // no step: the summary reads Ready and the Home folder step Done, with a
 // hint that names each text over its budget, beside other steps' causes
-// too. The Personality row the shipped service publishes shows its section,
-// with a line while AGENTS.md is over its budget.
+// too. The Instructions row the shipped service publishes shows the whole
+// AGENTS.md, with a line while it is over its budget.
 const OVER_BUDGET_FILES = { "guidance=persona-over-budget": "/.agents/skills/jarvis/persona.md", "guidance=agents-over-budget": "/AGENTS.md",
     "guidance=skills-over-budget": "/skills/", "guidance=memory-over-budget": "/memory/MEMORY.md", "guidance=start-over-budget": "/" };
 function verifyOverBudget(gate, serviceSource) {
@@ -1654,43 +1663,203 @@ function verifyOverBudget(gate, serviceSource) {
     assert.equal(typeof all.setupHome.info, "string", "all cautions keep their reason info");
     assert.equal(all.setupHome.file, "/home/user/Fixture/", "several cautions offer the chosen folder");
     assert.equal(judge.statusWrite(manifest, {}, "setupHome", all.setupHome).ok, true, "the judge accepts the step that names every text");
-    const section = { kind: "section", lines: ["Calm."], more: false };
+    // The daemon's instructions message for each kind (JarvisProtocol
+    // instructionsText): the whole file's non-blank lines, headings
+    // included.
+    const text = { kind: "text", lines: ["# Jarvis", "Answer in short sentences.", "## Tools"], more: false };
     for (const [label, shown, causes, want] of [
-        ["a section", section, [], ["ok", "Set", undefined, "done"]],
-        ["a section of an AGENTS.md over its budget", section, ["guidance=agents-over-budget"], ["ok", "Set", 1, "done"]],
-        ["no section in an AGENTS.md over its budget", { kind: "missing" }, ["guidance=agents-over-budget"], ["info", "No Personality section", 1, "optional"]],
-        ["a section beside another text over its budget", section, ["guidance=memory-over-budget"], ["ok", "Set", undefined, "done"]],
+        ["the whole file", text, [], ["ok", "Set", 3, "done"]],
+        ["a file with more lines than the message holds", { ...text, more: true }, [], ["ok", "Set", 4, "done"]],
+        ["a file over its budget", text, ["guidance=agents-over-budget"], ["ok", "Set", 4, "done"]],
+        ["a file beside another text over its budget", text, ["guidance=memory-over-budget"], ["ok", "Set", 3, "done"]],
+        ["an empty file", { kind: "empty" }, [], ["info", "Your instructions are empty", undefined, "optional"]],
         ["no home", { kind: "none" }, [], ["info", "No home folder", undefined, "unavailable"]],
-        ["unreadable instructions", { kind: "unreadable" }, [], ["warning", "Instructions cannot be read", undefined, "unavailable"]]]) {
+        ["a home Jarvis cannot read", { kind: "unreadable" }, [], ["info", "Cannot be read", undefined, "unavailable"]]]) {
         const values = {};
         const shell = { status: { isOk: judge.statusReplyOk, set: (key, value) => {
-            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the Personality row is accepted");
+            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the Instructions row is accepted");
             values[key] = value;
             return "ok";
         } } };
-        serviceCall(serviceSource, "publishPersonality", { shell, personalityShown: shown, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, setupAnswer: { kind: "answered", causes } }, gate);
-        const row = plain(values.personality);
-        const step = judge.statusRows(manifest, values).find(entry => entry.key === "personality");
+        serviceCall(serviceSource, "publishInstructions", { shell, instructionsShown: shown, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, setupAnswer: { kind: "answered", causes } }, gate);
+        const row = plain(values.instructions);
+        const step = judge.statusRows(manifest, values).find(entry => entry.key === "instructions");
         assert.deepEqual([row.tone, row.text, row.lines?.length, settings.stepReading(step, jarvisOn)], want, label);
-        if (shown.kind === "section") assert.equal(row.hint, "Calm.", label + ": the section shows");
+        const offered = plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, values, "instructions"));
+        assert.deepEqual(offered, shown.kind === "text" || shown.kind === "empty" ? { ok: true, kind: "tui", name: "edit-instructions" }
+            : { ok: false, answer: "refused: action=instructions reason=not-offered" }, label + ": Edit opens the whole file while there is one");
+        if (shown.kind === "text") {
+            const over = causes.includes("guidance=agents-over-budget") ? 1 : 0;
+            assert.deepEqual(row.lines.slice(over, over + shown.lines.length), shown.lines, label + ": every line of the file shows, headings included");
+            assert.equal(pageReference.file(pageReference.parse(row.hint).page), "/home/user/Fixture/AGENTS.md", label + ": the row names the home's AGENTS.md");
+        }
+        if (shown.kind === "empty") assert.equal(pageReference.file(pageReference.parse(row.hint).page), "/home/user/Fixture/AGENTS.md", label + ": the row names the empty file");
         if (shown.kind === "none") assert.deepEqual(settingLinks(row.hint), ["home"], label + ": the row links the Home folder setting");
+        if (shown.kind === "unreadable") assert.deepEqual([pageReference.parse(row.hint).page, pageReference.parse(row.hint).tab], ["vgs.jarvis", "Setup/setupHome"],
+            label + ": the row defers to the Home folder step");
         if (causes.includes("guidance=agents-over-budget")) {
-            assert.equal(typeof row.info === "string" && row.info.length > 0, true, label + ": the Personality caution has info");
-            assert.equal(pageReference.file(pageReference.parse(row.info).page), "/home/user/Fixture/AGENTS.md", label + ": the Personality caution links the chosen file");
+            assert.equal(typeof row.info === "string" && row.info.length > 0, true, label + ": the Instructions caution has info");
+            assert.equal(pageReference.file(pageReference.parse(row.info).page), "/home/user/Fixture/AGENTS.md", label + ": the Instructions caution links the chosen file");
         }
     }
+    // The row reads no section of the file: the retired missing-heading
+    // reading is no kind of the message.
+    assert.throws(() => gate.instructionsRow({ kind: "missing" }, [], { kind: "ready", path: "/home/user/Fixture" }), { message: "jarvis-setup: instructions=missing unexpected" });
+}
+
+// The Home folder step beside the home's package drift reading (D126,
+// backend/Drift.js): [the reading's kind, the step's reading on Setup, the
+// screen or route its action opens, null for none, whether the step adds a
+// line]. Only `behind` offers Update, which runs kendex's refresh in the
+// Repair window; a missing kendex links the tools review, whose required
+// step holds the install; every reading that is no answer stays visible
+// beside Done and never reads as current.
+const DRIFT_STEPS = {
+    none: ["done", null, false], checking: ["done", null, true], current: ["done", null, true],
+    behind: ["todo", "repair-home", true], drift: ["done", null, true], pending: ["done", null, true],
+    unknown: ["done", null, true], "kendex-missing": ["done", null, true], malformed: ["done", null, true],
+    timeout: ["done", null, true], failed: ["done", null, true]
+};
+const DRIFT_HOME = { kind: "ready", path: "/home/user/Fixture" };
+function verifyHomeDrift(gate, serviceSource) {
+    const kinds = Array.from(protocol.HOME_DRIFT);
+    for (const required of ["none", "current", "behind", "kendex-missing", "unknown", "pending"])
+        assert.ok(kinds.includes(required), required + ": a drift kind the wire carries");
+    assert.deepEqual(kinds.slice().sort(), Object.keys(DRIFT_STEPS).sort(), "a step for each drift kind the wire carries");
+    const done = plain(readiness(gate, { kind: "answered", causes: [] })).setupHome;
+    const currentLine = plain(gate.homeDrift(done, "current")).lines.at(-1);
+    const lacking = judge.requirementRows(judge.requirementOwner(manifest, { nvidia: { state: "present" } }), ["kendex"], {});
+    for (const [kind, [reading, route, line]] of Object.entries(DRIFT_STEPS)) {
+        const value = plain(gate.homeDrift(done, kind));
+        assert.equal(judge.statusWrite(manifest, {}, "setupHome", value).ok, true, kind + ": the judge accepts the Home folder step");
+        const status = judge.statusRows(manifest, { setupHome: value });
+        const step = status.find(entry => entry.key === "setupHome");
+        assert.equal(settings.stepReading(step, jarvisOn), reading, kind + ": the step's reading");
+        assert.equal((value.lines || []).length, line ? 1 : 0, kind + ": the reading's line");
+        if (line && kind !== "current") assert.notEqual(value.lines.at(-1), currentLine, kind + ": the reading never reads as current");
+        const request = plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: value }, "setupHome"));
+        assert.equal(request.ok ? request.name : null, route, kind + ": the action the step offers");
+        if (kind === "kendex-missing") {
+            const link = pageReference.parse(value.hint);
+            assert.deepEqual([link.page, link.tab], ["vgs.jarvis", "Setup"], kind + ": the step links the required tools");
+            const tools = settingsRows(settings.setupSections(judge.listedTuis(manifest), status, lacking, jarvisOn)).find(item => item.key === "required-tools");
+            assert.equal(tools?.button?.kind, "tools", kind + ": the required tools step offers the install");
+        }
+    }
+    // A step that is not Done keeps its own reading and action.
+    const refused = plain(readiness(gate, { kind: "answered", causes: ["home=package"] })).setupHome;
+    assert.deepEqual(plain(gate.homeDrift(refused, "behind")), refused, "a home to repair keeps its step beside a reading");
+    assert.throws(() => gate.homeDrift(done, "fixture"), { message: "jarvis-setup: home-drift=fixture unexpected" });
+    // The service shows a reading only for the home the daemon judges now,
+    // as its homes message names it: [label, the message, that home, the
+    // kind].
+    const behind = folder => ({ v: 1, type: "home-drift", gen: 0, revision: 1, home: folder, drift: { kind: "behind" } });
+    for (const [label, message, current, want] of [
+        ["the selected home", behind("~/Fixture"), "~/Fixture", "behind"],
+        ["a late result for an old home", behind("~/Old"), "~/Fixture", "none"],
+        ["a result while no home is judged ready", behind("~/Fixture"), "", "none"],
+        ["no reading yet", null, "~/Fixture", "none"],
+        ["a result for no home", behind(""), "", "none"]]) {
+        assert.equal(gate.driftKind(message, current), want, label);
+    }
+    // The shipped service: a home-drift message is kept and publishes the
+    // Home folder step, which shows it only for the selected folder.
+    const receive = serviceSource.match(/^                if \(message\.type === "home-drift"\) \{\n[\s\S]*?^                \}$/m);
+    const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(receive && publishSetup, "the service reads and publishes the drift reading");
+    for (const [label, folder, mainHost, want] of [["the selected home", "~/Fixture", "", "update"], ["a late result for an old home", "~/Old", "", undefined]]) {
+        const values = {};
+        const context = { ...SERVICE_IMPORTS, Gate: gate, localTier: TIER_IDLE, homeRepair: { result: { kind: "unavailable" } }, homePathRead: DRIFT_HOME, dictationState: null,
+            homeMessage: { homes: [], current: "~/Fixture" },
+            voiceProvider: "local", accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "answered", causes: [] },
+            voiceStep: null, sessionStart: { result: null }, localRuntime: { setupCause: "", republish: () => true },
+            shell: { manifest, shortcut: { keys: null }, settings: { voiceProvider: "local", holdToTalk: true, voiceAccount: "", startAtBoot: false, mainHost },
+                requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
+                    assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
+                    values[key] = value;
+                    return "ok";
+                } } } };
+        context.publishShellSetup = () => vm.runInNewContext("(" + publishSetup[0] + ")", context)(context.setupAnswer);
+        vm.runInNewContext("(function() { for (const message of [" + JSON.stringify(behind(folder)) + "]) {\n" + receive[0] + "\n} })", context)();
+        assert.equal(context.driftShown.home, folder, label + ": the service keeps the last reading");
+        assert.equal(values.setupHome.action, want, label + ": the Home folder step");
+    }
+    // The Setup tab's opening and a finished Repair or Update ask for a
+    // reading, once the daemon is ready; the page's opening on another tab
+    // judges the home again and asks for none, and nor does a Voice start.
+    const opened = serviceSource.match(/^    onPageViewedChanged: (.*)$/m);
+    const setupBinding = serviceSource.match(/^    readonly property bool setupViewed: (.*)$/m);
+    const setupOpened = serviceSource.match(/^    onSetupViewedChanged: (.*)$/m);
+    assert.ok(setupBinding && setupOpened, "the service follows the Setup tab");
+    for (const [tab, want] of [["Setup", true], ["Settings", false], ["Details", false], ["", false]])
+        assert.equal(vm.runInNewContext(setupBinding[1], { shell: { status: { viewed: tab !== "", viewedTab: tab } } }), want,
+            JSON.stringify(tab) + ": the Setup tab shows");
+    const recheck = serviceSource.match(/^        onRecheck: (.*)$/m);
+    const ask = serviceSource.match(/^    function askDrift\(\) \{\n[\s\S]*?^    \}/m);
+    const deliver = serviceSource.match(/^    function deliverDrift\(\) \{\n[\s\S]*?^    \}/m);
+    const intent = serviceSource.match(/^    function intent\(name\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(opened && recheck && ask && deliver && intent, "the service's drift requests");
+    const service = lifetime => {
+        const sent = [];
+        const root = { shell: { status: {} }, lifetime: { kind: lifetime }, cause: "", child: { running: true }, driftWanted: false, sessionState: {},
+            sendIntent: name => sent.push(name), hello: () => sent.push("hello") };
+        vm.runInNewContext("(function() { with(root) { root.askDrift = " + ask[0] + "; root.deliverDrift = " + deliver[0] + "; } })()", { root });
+        return { root, sent };
+    };
+    for (const [label, handler, shown, want] of [
+        ["the Jarvis page opens", opened[1], true, ["hello"]],
+        ["the Jarvis page closes", opened[1], false, []],
+        ["the Setup tab opens", setupOpened[1], true, ["home-drift"]],
+        ["the Setup tab closes", setupOpened[1], false, []],
+        ["a Repair or Update ends", recheck[1], true, ["hello", "home-drift"]]]) {
+        const { root, sent } = service("ready");
+        vm.runInNewContext("(function() { with(root) { " + handler + " } })()", { root: Object.assign(root, { pageViewed: shown, setupViewed: shown }) });
+        assert.deepEqual(sent, want, label);
+    }
+    const starting = service("starting");
+    vm.runInNewContext("(function() { with(root) { " + setupOpened[1] + " } })()", { root: Object.assign(starting.root, { setupViewed: true }) });
+    assert.deepEqual(starting.sent, [], "a request before the daemon is ready waits");
+    starting.root.lifetime = { kind: "ready" };
+    starting.root.deliverDrift();
+    starting.root.deliverDrift();
+    assert.deepEqual(starting.sent, ["home-drift"], "the waiting request goes once the daemon is ready, once");
+    for (const name of ["talk-down", "talk-up"]) {
+        const { root, sent } = service("ready");
+        const run = vm.runInNewContext("(function() { with(root) { return (" + intent[0] + "); } })()", { ...SERVICE_IMPORTS, root, Gate: gate });
+        run(name);
+        assert.deepEqual(sent, [name], name + ": a Voice start asks for no drift reading");
+    }
+}
+
+// A folder that is no Jarvis home yet: Set up makes it one, or, while
+// Main Jarvis host names another computer, the step offers a copy of that
+// computer's home, and the hint links the setting that changes the route.
+function verifyHomeSetup(gate) {
+    for (const cause of ["home=missing", "home=not-set-up"])
+        for (const [main, action, tui] of [[false, "setup", "setup-home"], [true, "clone", "clone-home"]]) {
+            const label = cause + (main ? " beside a main" : "");
+            const value = plain(gate.readiness({ kind: "answered", causes: [cause] }, DRIFT_HOME, undefined, main).setupHome);
+            assert.equal(judge.statusWrite(manifest, {}, "setupHome", value).ok, true, label + ": the judge accepts the step");
+            assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: value }, "setupHome")), { ok: true, kind: "tui", name: tui },
+                label + ": the step's action");
+            assert.deepEqual(Array.from(manifest.tui[tui].args), [action === "setup" ? "new" : "clone"], label + ": the screen's mode");
+            const links = [value.hint, value.info].filter(text => text !== undefined).map(text => pageReference.parse(text)).filter(link => link.page !== "");
+            assert.deepEqual(links.map(link => link.tab), ["Settings/mainHost"], label + ": the other route's setting is linked");
+        }
 }
 
 // Production path and editor-completion callbacks, with no filesystem or
 // desktop access. The Home gate owns refusal; this code only opens its path.
 function verifyHomeActions(gate, source) {
-    const personalityFile = source.match(/^    function personalityFile\(\) \{\n[\s\S]*?^    \}/m);
-    assert.ok(personalityFile, "the service exposes the selected-home file");
+    const instructionsFile = source.match(/^    function instructionsFile\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(instructionsFile, "the service exposes the selected-home file");
+    const invoked = fs.readFileSync(path.join(path.dirname(file), manifest.tui["edit-instructions"].script), "utf8").match(/ipc call vgs\.jarvis invoke ([a-z-]+) ''/);
+    assert.ok(invoked && source.includes('shell.ipc.handle("' + invoked[1] + '", () => instructionsFile());'), "Edit asks the service's handler for the file");
     for (const home of [{ kind: "empty" }, { kind: "reading" }, { kind: "failed" },
         { kind: "ready", path: "/home/user/My folder (chosen)/é#%notes" }]) {
         const context = { homePathRead: home };
-        vm.runInNewContext(personalityFile[0], context);
-        assert.equal(context.personalityFile(), home.kind === "ready" ? home.path + "/AGENTS.md" : "refused: home=none",
+        vm.runInNewContext(instructionsFile[0], context);
+        assert.equal(context.instructionsFile(), home.kind === "ready" ? home.path + "/AGENTS.md" : "refused: home=none",
             home.kind + ": the refused home does not need a ready-home message");
         for (const [cause, action, suffix] of [["home=text", "agents", "/AGENTS.md"],
             ["guidance=home-skills-too-large", "skills", "/skills/"]]) {
@@ -1738,6 +1907,8 @@ function verifyHomeActions(gate, source) {
         ["read", {}, "ready"], ["failed process", { code: 1 }, "failed"],
         ["timeout", { timedOut: true }, "failed"], ["invalid output", { output: "{" }, "failed"],
         ["wrong owner", { output: JSON.stringify({ kind: "other", folder: "/fixture", lastRepair: null }) }, "failed"],
+        ["no repair route", { output: JSON.stringify({ kind: "setup", folder: "/fixture", lastRepair: null }) }, "ready"],
+        ["the retired install route", { output: JSON.stringify({ kind: "install", folder: "/fixture", lastRepair: null }) }, "failed"],
         ["pending read", { pending: true }, "reading"], ["changed selection", { selected: "~/previous" }, "reading"]]) {
         const calls = [], warnings = [];
         const { pending = false, ...probe } = change;
@@ -1766,21 +1937,37 @@ function verifyHomeActions(gate, source) {
             refresh: () => calls.push("current-path"), recheck: () => calls.push("home-check") });
         assert.deepEqual(calls, endedAt === null ? [] : ["current-path", "home-check"], "repair end checks the current selected Home");
     }
-    for (const [kind, installPlan] of [["home", undefined], ["install", { kind: "run" }], ["install", { kind: "by-hand" }]]) {
-        for (const lastRepair of [null, { kind: "complete" }, { kind: "failed", cause: kind === "home" ? "refresh-failed" : "install-failed", code: 1 },
-            { kind: "failed", cause: "install-failed", code: 69 }]) {
-            const home = { kind: "ready", path: "/home/user/Fixture", repair: { kind, installPlan, folder: "/home/user/Fixture", lastRepair } };
+    // A partial package kendex installed takes Repair; one kendex never
+    // installed takes Set up (fleet-setup.js repair-status). A failed Repair
+    // stays named beside a Done step with no drift reading yet.
+    const PACKAGE_ROUTES = { home: ["repair", "repair-home"], setup: ["setup", "setup-home"] };
+    for (const kind of Object.keys(PACKAGE_ROUTES)) {
+        for (const lastRepair of [null, { kind: "complete" }, { kind: "failed", cause: "refresh-failed", code: 1 }, { kind: "failed", cause: "not-set-up" }]) {
+            const home = { kind: "ready", path: "/home/user/Fixture", repair: { kind, folder: "/home/user/Fixture", lastRepair } };
             for (const causes of [["home=package"], []]) {
                 const normal = plain(gate.readiness({ kind: "answered", causes }, home, home).setupHome);
-                const value = plain(gate.homeRepairResult(normal, home));
-                assert.equal(value.action, causes.length ? "repair" : undefined, kind + ": only damaged Home offers repair");
+                const value = plain(gate.homeRepairResult(normal, home, "none"));
+                assert.equal(value.action, causes.length ? PACKAGE_ROUTES[kind][0] : undefined, kind + ": only a damaged Home offers its route");
                 assert.equal(value.tone, causes.length ? "warning" : "ok", kind + ": the normal Home check owns readiness");
-                const notice = installPlan?.kind === "by-hand" && lastRepair?.code === 69;
-                assert.equal(value.hint !== normal.hint, lastRepair?.kind === "failed" && !notice, kind + ": only an attempted failed repair adds its cause");
+                assert.equal(value.hint !== normal.hint, kind === "home" && lastRepair?.kind === "failed",
+                    kind + ": only a failed Repair of a kendex package names its cause, until a current reading");
                 assert.equal(judge.statusWrite(manifest, {}, "setupHome", value).ok, true, kind + ": the repaired row is accepted");
                 if (causes.length) assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: value }, "setupHome")),
-                    { ok: true, kind: "tui", name: "repair-home" }, kind + ": Repair opens the declared floating TUI");
+                    { ok: true, kind: "tui", name: PACKAGE_ROUTES[kind][1] }, kind + ": the step opens its declared floating TUI");
             }
+        }
+    }
+    // A failed Update stays named beside every drift reading but a current
+    // one: a reading that still offers Update, a non-answer or none yet
+    // leaves the cause named (jarvis.md, the repair and drift rules).
+    // [the reading's kind, whether the failed run stays named].
+    {
+        const home = { kind: "ready", path: "/home/user/Fixture", repair: { kind: "home", folder: "/home/user/Fixture", lastRepair: { kind: "failed", cause: "refresh-failed", code: 1 } } };
+        const done = plain(gate.readiness({ kind: "answered", causes: [] }, home, home).setupHome);
+        for (const [kind, named] of [["behind", true], ["current", false], ["failed", true], ["none", true], ["timeout", true], ["unknown", true]]) {
+            const drifted = plain(gate.homeDrift(done, kind));
+            assert.equal(plain(gate.homeRepairResult(drifted, home, kind)).hint !== drifted.hint, named,
+                kind + ": only a failed Repair of a kendex package names its cause, until a current reading");
         }
     }
     const end = source.match(/^    onHomeEditEndedAtChanged: (.*)$/m);
@@ -1996,6 +2183,8 @@ function verify(gate) {
     verifyLocalSetup(gate);
     verifyHomeActions(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyOverBudget(gate, fs.readFileSync(serviceFile, "utf8"));
+    verifyHomeDrift(gate, fs.readFileSync(serviceFile, "utf8"));
+    verifyHomeSetup(gate);
     verifyLimitPresentation(gate);
     verifySession(gate);
     verifyOneSessionJudgement(gate);
@@ -2060,31 +2249,26 @@ function verify(gate) {
     assert.deepEqual(plain(update), { ok: false, answer: "refused: action=setupModel reason=not-offered" }, "a Pi below its floor offers no step on the AI model row");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: false, answer: "refused: action=browserDriver reason=undeclared" }, "the driver row declares no step");
-    // The Agent fleet row: hidden with no home, done with the home's mail
-    // tool, else offering its setup terminal, whose press asks for kendex
-    // or another command that terminal needs first.
-    for (const [label, home, tool, shown, offered] of FLEET) {
-        const value = plain(gate.fleetStep(home, tool));
-        assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, label + ": the manifest judge accepts the row");
-        const row = judge.statusRows(judged, { setupFleet: value }).find(entry => entry.key === "setupFleet");
-        assert.equal(row !== undefined, shown, label + ": the row shows");
-        if (!shown) continue;
-        assert.deepEqual([value.tone, row.action.offered, row.action.tui, row.action.label], [offered ? "info" : "ok", offered, offered ? "setup-fleet" : "", judged.status.setupFleet.action.label],
-            label + ": the row offers its setup");
-        assert.deepEqual(plain(judge.tuiRunFor(judged, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-fleet", ["kendex"])),
-            { ok: true, kind: "install", commands: ["kendex"] }, label + ": its press without kendex asks for it");
-    }
+    verifyFleetRoute(gate, judged);
+    verifyHomeRouteTools(judged);
+    // Its control: a Repair screen that asks for node alone, whose press
+    // without kendex runs and fails in the window.
+    const nodeOnly = judge.validateManifest(JSON.parse(changedManifest(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"),
+        raw => { raw.tui["repair-home"].requires = ["node"]; })), path.dirname(file)).manifest;
+    assert.throws(() => verifyHomeRouteTools(nodeOnly), assert.AssertionError, "a Repair screen that asks for node alone turns the check red");
     verifySetupButtons(gate, judged);
     verifyClonedVoice(gate, judged);
-    // Its control: the manifest with a launcher entry for the fleet TUI,
-    // which the manager then lists in every state.
+    // Its control: the manifest with a launcher entry for the home setup
+    // TUI, which the manager then lists in every state.
     const listed = plain(judged);
-    listed.tui["setup-fleet"].entry = { label: "Install kendex", icon: "workflow", group: "Jarvis" };
-    assert.throws(() => verifySetupButtons(gate, listed), assert.AssertionError, "a listed fleet TUI turns the check red");
-    assert.deepEqual(plain(judge.tuiMissingRequirements(judged, "setup-fleet", ["kendex", "git", "tmux"])), ["git", "kendex"],
+    listed.tui["setup-home"].entry = { label: "Set up home", icon: "workflow", group: "Jarvis" };
+    assert.throws(() => verifySetupButtons(gate, listed), assert.AssertionError, "a listed home setup TUI turns the check red");
+    assert.deepEqual(plain(judge.tuiMissingRequirements(judged, "setup-home", ["kendex", "git", "tmux"])), ["git", "kendex"],
         "the setup terminal needs git and kendex");
-    for (const command of ["git", "kendex"])
-        assert.equal(judged.requirements.find(row => row.name === command).optional, true, command + " is optional: Jarvis works without the fleet");
+    // kendex is the one writer of the Jarvis package (D126), so Jarvis
+    // requires it; git only sets up or copies a home.
+    assert.deepEqual(["git", "kendex"].map(command => judged.requirements.find(row => row.name === command).optional), [true, false],
+        "git is optional and kendex required");
     verifyCheckedReader(gate, fs.readFileSync(localRuntimeFile, "utf8"));
     verifyVoiceStepRepublish(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyCheckFailures(gate);
@@ -2446,7 +2630,7 @@ const CONTROLS = [
     ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes, home),", "setupHome: HOME_READY,", "the caution has a reason info"],
     ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
         "var causes = answer.causes;", "over its budget reads Ready"],
-    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],\n            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a section of an AGENTS.md over its budget"],
+    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"].concat(value.lines),\n            info: budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a file over its budget"],
     ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
     ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    return value;\n}\nvar HOME_UNCHECKED', 'delete value.action;\n    }\n    return value;\n}\nvar HOME_UNCHECKED', "the caution carries its file action"],
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',
@@ -2456,7 +2640,7 @@ const CONTROLS = [
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
-    ["the home causes share one reading", "out.setupHome = homeStep(cause, home, repair);", "out.setupHome = { tone: \"warning\", text: \"To do\", hint: HOME_STEP_TODO };"],
+    ["the home causes share one reading", "out.setupHome = homeStep(cause, home, repair, main === true);", "out.setupHome = { tone: \"warning\", text: \"To do\", hint: HOME_STEP_TODO };"],
     ["the completed Home folder step disappears", 'var HOME_READY = { tone: "ok", text: "Done" };', "var HOME_READY = { hidden: true };"],
     ["the unchecked Home folder reads Done", 'var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };', 'var HOME_UNCHECKED = { tone: "ok", text: "Done" };'],
     ["the home folder action loses its path", '        value.file = home.path + HOME_FILES[value.action];\n    }\n    if (home.kind === "ready")',
@@ -2508,11 +2692,11 @@ const CONTROLS = [
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
     ["the no-home hint names its Settings path", "No session can start until [Home folder](page:vgs.jarvis/Settings/home)", "No session can start until [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)", "no-home: the hint is one sentence that links the Home folder field"],
-    ["the no-home hint repeats the Personality badge", "No session can start until [Home folder]", "No session can start without a home folder: choose one in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
+    ["the no-home hint repeats the Instructions badge", "No session can start until [Home folder]", "No session can start without a home folder: choose one in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
     ["the no-home hint has more than one sentence", "No session can start until [Home folder]", "No session can start. Choose a folder in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
-    ["a choice not made reads as a fault", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"vgs-package\"];", "var SESSION_CHOICES = [];", "the tone and the action"],
+    ["a choice not made reads as a fault", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"not-set-up\"];", "var SESSION_CHOICES = [];", "the tone and the action"],
     ["boot choices read as optional", '!wanted && SESSION_CHOICES.indexOf(result.block)', 'SESSION_CHOICES.indexOf(result.block)', "no-account: the tone and the action"],
-    ["a missing package reads optional", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"vgs-package\"];", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"vgs-package\", \"package\"];", "package: the tone and the action"],
+    ["a missing package reads optional", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"not-set-up\"];", "var SESSION_CHOICES = [\"no-account\", \"not-app\", \"no-home\", \"not-set-up\", \"package\"];", "package: the tone and the action"],
     ["a Ready summary ignores the session", "    if (setup.tone !== \"ok\" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;",
         "    return setup;", "one judgement of the session"],
     ["the session drops the summary's caution", 'hint: setup.hint === undefined ? fault : joinedHint([setup.hint, fault])', "hint: fault",
@@ -2526,7 +2710,22 @@ const CONTROLS = [
         "ends as the copy rule says"],
     ["the stopped notice takes the hint's one sentence as it is", "message: sentence(problem.action),", "message: problem.action,", "notice's message ends as a sentence"],
     ["joined hints run on with no full stop between them", "hints.map(sentence).join", "hints.join", "keeps the summary and its caution, a sentence of its own"],
-    ["Local writes a key", "    if (voice === null) return null;\n", "", "Local"]
+    ["Local writes a key", "    if (voice === null) return null;\n", "", "Local"],
+    ["a late drift result shows for another home", 'return message !== null && current !== "" && message.home === current ? message.drift.kind : "none";', 'return message !== null ? message.drift.kind : "none";', "a late result for an old home"],
+    ["the fleet row ignores the main computer", "return Object.assign({}, value, { action: homeSetupRoute(main) });", 'return Object.assign({}, value, { action: "setup" });', "beside a main: the route the row offers"],
+    ["the fleet row offers setup before the home is ready", '    if (!homeReady) return { tone: "info", text: "Needs a Jarvis home", available: false, hint: FLEET_HOME_FIRST };\n', "", "beside a Home folder to do: the route the row offers"],
+    ["a package kendex never installed ignores the main computer", "var route = homeSetupRoute(main === true);", 'var route = "setup";', "a package kendex never installed beside a main: the home's setup route"],
+    ["a current reading keeps a failed run's cause", 'if (value.tone === "ok" && kind === "current" || home.kind !== "ready"', 'if (home.kind !== "ready"', "names its cause, until a current reading"],
+    ["a reading that is no answer drops a failed run's cause", 'if (value.tone === "ok" && kind === "current" || home.kind !== "ready"', 'if (value.tone === "ok" || home.kind !== "ready"', "names its cause, until a current reading"],
+    ["an unknown reading reads as current", 'unknown: "kendex could not check every package in this home folder",', 'unknown: "Packages up to date",', "unknown: the reading never reads as current"],
+    ["behind offers no Update", 'var update = { tone: "warning", text: TO_DO, lines: lines, action: "update" };', "var update = { tone: \"warning\", text: TO_DO, lines: lines };", "behind: the action the step offers"],
+    ["a missing kendex reads as current", '    "kendex-missing": "kendex is not installed",', '    "kendex-missing": "Packages up to date",', "kendex-missing: the reading never reads as current"],
+    ["a missing kendex links no tools", '    if (kind === "kendex-missing") return Object.assign({}, value, { lines: lines, hint: TOOLS_HINT });\n', "", "kendex-missing: the step links the required tools"],
+    ["the instructions drop the file's first line", "lines: shown.more ? shown.lines.concat([INSTRUCTIONS_MORE]) : shown.lines.slice() }", "lines: shown.lines.slice(1) }", "the whole file"],
+    ["an empty file offers no Edit", 'text: "Your instructions are empty", hint: "Write them in " + file + " with Edit", action: true }', 'text: "Your instructions are empty", hint: "Write them in " + file + " with Edit", available: false }', "an empty file"],
+    ["a folder that is no home offers no Set up", '    "home=not-set-up": { setup: true },\n', "", "home=not-set-up"],
+    ["a main's home is never offered", 'return homeSetupRoute(main) === "clone" ? { tone: "warning", text: TO_DO, action: "clone", hint: HOME_CLONE }', 'return false ? { tone: "warning", text: TO_DO, action: "clone", hint: HOME_CLONE }', "beside a main: the step's action"],
+    ["a folder that is no home is a session fault", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home", "not-set-up"];', 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', "not-set-up: the tone and the action"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
@@ -2538,7 +2737,7 @@ try {
     fs.writeFileSync(wrongAction, fs.readFileSync(microphoneAction, "utf8").replace("invoke check-microphone", "invoke talk-down"));
     assert.throws(() => verifyMicrophoneAction(wrongAction, temp), assert.AssertionError);
     console.log("test-jarvis-setup-gate: control=microphone-action-target rejected=true");
-    const editAction = path.join(path.dirname(file), "tui/edit-personality.sh");
+    const editAction = path.join(path.dirname(file), "tui/edit-instructions.sh");
     verifyEditAction(editAction, temp);
     console.log("test-jarvis-setup-gate: case=edit-screen passed=true");
     for (const [name, script, verify, needle, replacement] of [
@@ -2609,7 +2808,15 @@ try {
         ["home-path-not-invalidated", 'homePathRead = { kind: selectedHome === "" ? "empty" : "reading" };', 'if (false) homePathRead = { kind: selectedHome === "" ? "empty" : "reading" };', verifyHomeActions],
         ["home-path-stale", 'if (homePathProbe.selected !== selectedHome) { resolveHomePath(); return; }', 'if (false && homePathProbe.selected !== selectedHome) { resolveHomePath(); return; }', verifyHomeActions],
         ["home-path-failed-accepted", 'homePathRead = homePathProbe.code === 0 && !homePathProbe.timedOut', 'homePathRead = true || homePathProbe.code === 0 && !homePathProbe.timedOut', verifyHomeActions],
-        ["voice-route-fixed", 'Gate.voiceRoute(voiceProvider, Providers.cloudVoice(voiceProvider))', 'Gate.voiceRoute("local", null)', verifyVoiceRoute]]) {
+        ["voice-route-fixed", 'Gate.voiceRoute(voiceProvider, Providers.cloudVoice(voiceProvider))', 'Gate.voiceRoute("local", null)', verifyVoiceRoute],
+        ["edit-ipc-unregistered", 'shell.ipc.handle("instructions-file", () => instructionsFile());', 'shell.ipc.handle("notes-file", () => instructionsFile());', verifyHomeActions],
+        ["drift-unbound", "const drift = Gate.driftKind(driftShown, homeMessage.current);", 'const drift = driftShown === null ? "none" : driftShown.drift.kind;', verifyHomeDrift],
+        ["drift-setup-open-unasked", "onSetupViewedChanged: if (setupViewed) askDrift()", "onSetupViewedChanged: if (setupViewed) void 0", verifyHomeDrift],
+        ["drift-any-page-open", "onPageViewedChanged: if (pageViewed) hello()", "onPageViewedChanged: if (pageViewed) { hello(); askDrift(); }", verifyHomeDrift],
+        ["drift-any-tab", 'readonly property bool setupViewed: shell !== null && shell.status.viewedTab === "Setup"', "readonly property bool setupViewed: shell !== null && shell.status.viewed", verifyHomeDrift],
+        ["drift-update-unasked", "onRecheck: { root.hello(); root.askDrift(); }", "onRecheck: { root.hello(); }", verifyHomeDrift],
+        ["drift-before-ready", 'if (!driftWanted || shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running) return;', "if (!driftWanted || shell === null) return;", verifyHomeDrift],
+        ["drift-at-voice-start", "        sendIntent(name);\n    }\n\n    function newConversation", "        askDrift();\n        sendIntent(name);\n    }\n\n    function newConversation", verifyHomeDrift]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to replace must occur once");
         assert.throws(() => check(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
@@ -2908,7 +3115,7 @@ try {
         // The no-home row as main shipped it before VGS-1520: Cannot start in
         // the warning tone beside a Ready summary that names no session.
         let shipped = source;
-        for (const [needle, replacement] of [['var SESSION_CHOICES = ["no-account", "not-app", "no-home", "vgs-package"];', "var SESSION_CHOICES = [];"],
+        for (const [needle, replacement] of [['var SESSION_CHOICES = ["no-account", "not-app", "no-home", "not-set-up"];', "var SESSION_CHOICES = [];"],
             ['    if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;', "    return setup;"]]) {
             assert.equal(shipped.split(needle).length, 2, "the no-home control's text occurs once");
             shipped = shipped.replace(needle, () => replacement);
@@ -2941,18 +3148,67 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log("test-jarvis-setup-gate: ok");
-// The fleet setup terminal opens from the Agent fleet step alone: in
-// MANIFEST, a judged manifest, the launcher lists no fleet TUI, the step is
-// an Optional step of the Setup tab that hides while no home is chosen and
-// is never a Details fact, and the offered step draws its button, whose
-// press the core turns into that terminal, kendex missing or not: the press
-// asks for it first.
+// Every screen that runs kendex in the home, its setup, its clone and its
+// Repair or Update, asks for each command its run needs before it opens, in
+// JUDGED, a judged manifest: a press with one of them missing raises the
+// install notice, never a run that fails in its window.
+function verifyHomeRouteTools(judged) {
+    for (const screen of ["setup-home", "clone-home", "repair-home"])
+        for (const command of ["node", "kendex", "python3", "setpriv", "flock"])
+            assert.deepEqual(plain(judge.tuiRunFor(judged, true, "/sources", { launcher: "present", busy: [], run: "test" }, screen, [command])),
+                { ok: true, kind: "install", commands: [command] }, screen + " without " + command + ": its press asks for it");
+}
+// The Agent fleet row over JUDGED, a judged manifest: hidden with no home,
+// done with the home's mail tool, else, beside a Home folder step that is
+// not Done, a link to that step, which owns the setup route, and beside a
+// Done one the same route that step takes (homeSetupRoute), under that
+// step's label: the clone while Main Jarvis host names another computer,
+// so a satellite is never offered a new home of its own. The route's press
+// without kendex asks for it first. A partial package kendex never
+// installed takes the same route on the Home folder step.
+function verifyFleetRoute(gate, judged) {
+    const SCREENS = { setup: "setup-home", clone: "clone-home" };
+    for (const [label, home, tool, shown] of FLEET)
+        for (const homeReady of [true, false])
+            for (const main of [false, true]) {
+                const name = label + (homeReady ? "" : " beside a Home folder to do") + (main ? " beside a main" : "");
+                const value = plain(gate.fleetRoute(gate.fleetStep(home, tool), homeReady, main));
+                assert.equal(judge.statusWrite(judged, {}, "setupFleet", value).ok, true, name + ": the manifest judge accepts the row");
+                const row = judge.statusRows(judged, { setupFleet: value }).find(entry => entry.key === "setupFleet");
+                assert.equal(row !== undefined, shown, name + ": the row shows");
+                if (!shown) continue;
+                const request = plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { setupFleet: value }, "setupFleet"));
+                const route = tool === null && homeReady ? (main ? "clone" : "setup") : null;
+                assert.equal(request.ok ? request.name : null, route === null ? null : SCREENS[route], name + ": the route the row offers");
+                if (tool === null && !homeReady) {
+                    const link = pageReference.parse(value.hint);
+                    assert.deepEqual([link.page, link.tab, settings.stepReading(row, jarvisOn)], ["vgs.jarvis", "Setup/setupHome", "unavailable"],
+                        name + ": the row links the Home folder step");
+                }
+                if (route === null) continue;
+                assert.equal(judged.status.setupFleet.actions[route].label, judged.status.setupHome.actions[route].label, name + ": the Home folder step's label");
+                assert.deepEqual(plain(judge.tuiRunFor(judged, true, "/sources", { launcher: "present", busy: [], run: "test" }, SCREENS[route], ["kendex"])),
+                    { ok: true, kind: "install", commands: ["kendex"] }, name + ": its press without kendex asks for it");
+            }
+    for (const main of [false, true]) {
+        const home = { kind: "ready", path: "/home/user/Fixture", repair: { kind: "setup", folder: "/home/user/Fixture", lastRepair: null } };
+        const value = plain(gate.readiness({ kind: "answered", causes: ["home=package"] }, home, home, main).setupHome);
+        assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { setupHome: value }, "setupHome")),
+            { ok: true, kind: "tui", name: main ? "clone-home" : "setup-home" }, "a package kendex never installed" + (main ? " beside a main" : "") + ": the home's setup route");
+    }
+}
+// The Agent fleet step offers the home's Set up, whose Jarvis bundle holds
+// the mail tool: in MANIFEST, a judged manifest, the launcher lists no
+// home setup TUI, the step is an Optional step of the Setup tab that hides
+// while no home is chosen and is never a Details fact, and the offered step
+// draws its button, whose press the core turns into that terminal, kendex
+// missing or not: the press asks for it first.
 function verifySetupButtons(gate, manifest) {
     for (const [label, home, tool, shown, offered] of FLEET)
         for (const missing of [[], ["kendex"]]) {
             const tuis = judge.listedTuis(manifest);
-            assert.equal(tuis.some(tui => tui.name === "setup-fleet"), false, label + ": the launcher lists no fleet setup");
-            const value = plain(gate.fleetStep(home, tool));
+            assert.equal(tuis.some(tui => tui.name === "setup-home"), false, label + ": the launcher lists no home setup");
+            const value = plain(gate.fleetRoute(gate.fleetStep(home, tool), true, false));
             const status = judge.statusRows(manifest, { setupFleet: value });
             const row = settingsRows(settings.setupSections(tuis, status)).find(item => item.key === "setupFleet");
             assert.equal(detailActionRows(status).some(item => item.key === "setupFleet"), false, label + ": no fleet fact on Details");
@@ -2960,8 +3216,8 @@ function verifySetupButtons(gate, manifest) {
             assert.equal(row !== undefined && row.button !== null && row.button.enabled, offered,
                 label + ": only the shown fleet step offers its action, missing " + missing);
             if (offered)
-                assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-fleet" },
-                    label + ": the row's press opens the fleet setup");
+                assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupFleet: value }, "setupFleet")), { ok: true, kind: "tui", name: "setup-home" },
+                    label + ": the row's press opens the home's Set up");
         }
 }
 // Local voice, browser and input screens offered by more than one page row.
@@ -3044,7 +3300,7 @@ function verifyCheckFailures(gate) {
     for (const [key, labelPath, shape] of [
         ["localRuntime", null, value => gate.localVoiceStep(value, "local", voiceDone)],
         ["browser", ["action", "label"], value => value],
-        ["setupFleet", ["action", "label"], value => value],
+        ["setupFleet", ["actions", "setup", "label"], value => gate.fleetRoute(value, true, false)],
         ["clonedVoiceSetup", ["actions", "setup", "label"], value => gate.clonedVoiceStep(value, "local")]]) {
         const label = labelPath === null ? null : labelPath.reduce((at, name) => at[name], raw.status[key]);
         for (const kind of ["failed", "unreadable", "timeout"]) {

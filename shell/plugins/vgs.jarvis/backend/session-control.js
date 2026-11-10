@@ -29,7 +29,7 @@
 //     (accepted); `unapplied`, a block, is added when the selection failed
 //     its check and the session that lives stays as it is
 //   { kind: "blocked", block }  "no-account", "not-app", "no-home",
-//     "package", "vgs-package", "home-link", "home-kind" or
+//     "package", "not-set-up", "home-link", "home-kind" or
 //     "home-unreadable" (SessionCommand.place): no call can be made; or
 //     "unread": the command's status ran outside its contract
 //   { kind: "failed" }  the command ran outside its contract

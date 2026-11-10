@@ -6,8 +6,8 @@
 #   update-source.sh <source> [-y]
 #
 # <source> is a status row's `source`: the primary package manager's id,
-# aur, verified-file, flatpak, mise, vgs, plugins or themes. -y skips the
-# start question.
+# aur, verified-file, deb-file, rpm-file, flatpak, mise, vgs, plugins or
+# themes. -y skips the start question.
 set -Eeuo pipefail
 # shellcheck source=SCRIPTDIR/pipeline.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/pipeline.sh"

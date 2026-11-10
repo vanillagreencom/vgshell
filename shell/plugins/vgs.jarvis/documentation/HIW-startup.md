@@ -29,7 +29,7 @@ Neither choice replaces a session that is already running. [How does work contin
 
 The Jarvis session row on Setup shows Jarvis's state, its model and when it started. When Jarvis cannot start, the row names the cause and its fix, such as Repair for a damaged package or a link to Home folder. While Start Jarvis at boot is on, a session that could not start at sign-in shows as a warning.
 
-A Jarvis home that VGS made itself has no Jarvis package, so it cannot run Jarvis. Jarvis Voice still works in it. [What belongs in my Jarvis home?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-home.md) explains a home that the Jarvis package sets up.
+A folder that Setup has not set up cannot run Jarvis or Jarvis Voice. Set up in the Home folder step makes it a Jarvis home. On a second computer, the step copies your main computer's home instead. [What belongs in my Jarvis home?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-home.md) explains a home that the Jarvis package sets up.
 
 ## Your choices
 

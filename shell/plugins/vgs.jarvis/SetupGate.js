@@ -157,6 +157,8 @@ function homeReference(name, home, suffix) {
 // The daemon's home refusal names the change and, for editable user files,
 // the core file action. The service supplies the selected folder's path.
 var HOME_TODO = {
+    "home=missing": { setup: true },
+    "home=not-set-up": { setup: true },
     "home=link": { hint: "A file in your Home folder is a shortcut to another place. Jarvis does not follow shortcuts. Replace it with the real file, or choose another [Home folder](page:vgs.jarvis/Settings/home)." },
     "home=path": { hint: "Jarvis cannot use this folder: choose a [Home folder](page:vgs.jarvis/Settings/home) inside your own home directory" },
     "home=text": { hint: "Your instructions are not plain text: save them as plain text", action: "agents" },
@@ -166,8 +168,30 @@ var HOME_TODO = {
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or choose another [Home folder](page:vgs.jarvis/Settings/home)";
 var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/", memory: "/memory/MEMORY.md", persona: "/.agents/skills/jarvis/persona.md", folder: "/", state: "/state/" };
-function homeStep(cause, home, repair) {
-    if (cause === "home=package") return homePackageStep(repair);
+// A folder that is not a Jarvis home yet, by its cause: Set up makes it one
+// (backend/fleet-setup.js setup). While Main Jarvis host names another
+// computer, MAIN, the home is a copy of that computer's home instead, so
+// the step offers the clone, and its hint names the way to a new home.
+var HOME_SETUP = {
+    "home=missing": "This folder does not exist yet: Set up makes it a new Jarvis home",
+    "home=not-set-up": "This folder is not a complete Jarvis home: Set up adds the Jarvis package and your starting files"
+};
+var HOME_SETUP_INFO = "Set up makes the Home folder a Jarvis home. kendex installs the Jarvis package in it, and the package writes your starting files."
+    + " To use the home of your main Jarvis on another computer, name that computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost).";
+var HOME_CLONE = "Your main Jarvis runs on another computer, so this computer uses a copy of its home."
+    + " To set up a new home here, choose This computer in [Main Jarvis host](page:vgs.jarvis/Settings/mainHost).";
+// The one route that makes the Home folder a Jarvis home, the action every
+// step that offers it names: the clone while MAIN, else Set up.
+function homeSetupRoute(main) {
+    return main ? "clone" : "setup";
+}
+function homeSetupStep(cause, main) {
+    return homeSetupRoute(main) === "clone" ? { tone: "warning", text: TO_DO, action: "clone", hint: HOME_CLONE }
+        : { tone: "warning", text: TO_DO, action: "setup", hint: HOME_SETUP[cause], info: HOME_SETUP_INFO };
+}
+function homeStep(cause, home, repair, main) {
+    if (cause === "home=package") return homePackageStep(repair, main);
+    if (Object.prototype.hasOwnProperty.call(HOME_TODO, cause) && HOME_TODO[cause].setup === true) return homeSetupStep(cause, main);
     var value = Object.assign({ tone: "warning", text: TO_DO },
         Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : { hint: HOME_STEP_TODO });
     if (value.action !== undefined) {
@@ -186,34 +210,90 @@ function homeStep(cause, home, repair) {
     }
     return value;
 }
-// Home.js judges the writer. VGS restores its install, and Kendex restores
-// the Home it already owns. Neither route transfers ownership.
-function homePackageStep(home) {
+// A partial Jarvis package (fleet-setup.js repair-status): kendex restores
+// the package it installed (`home`), and a package kendex never installed
+// (`setup`) has no Repair, so the home's setup route (homeSetupRoute, by
+// MAIN) is its way on. Neither route transfers ownership.
+var PACKAGE_SETUP = {
+    setup: "kendex did not install the Jarvis package in this folder. Set up installs it. Or choose another [Home folder](page:vgs.jarvis/Settings/home).",
+    clone: "kendex did not install the Jarvis package in this folder. Use a copy of your main computer's home, or choose another [Home folder](page:vgs.jarvis/Settings/home)."
+};
+function homePackageStep(home, main) {
     if (home === undefined || home.kind !== "ready") return { tone: "warning", text: TO_DO, hint: home !== undefined && home.kind === "reading"
         ? "Jarvis is checking how to repair your Home folder"
         : "Jarvis could not check the repair route. Choose another [Home folder in Settings](page:vgs.jarvis/Settings/home)." };
-    return { tone: "warning", text: TO_DO, action: "repair", hint: home.repair.kind === "install"
-        ? home.repair.installPlan !== undefined && home.repair.installPlan.kind === "by-hand"
-            ? "The VGS install is missing Jarvis files. Repair shows the required steps. Or choose another [Home folder](page:vgs.jarvis/Settings/home)."
-            : "The VGS install is missing Jarvis files. Repair restores VGS. Or choose another [Home folder](page:vgs.jarvis/Settings/home)."
-        : "Repair restores missing Home files with Kendex. Or choose another [Home folder](page:vgs.jarvis/Settings/home)." };
+    if (home.repair.kind === "setup") {
+        var route = homeSetupRoute(main === true);
+        return { tone: "warning", text: TO_DO, action: route, hint: PACKAGE_SETUP[route] };
+    }
+    return { tone: "warning", text: TO_DO, action: "repair", hint: "Repair restores missing Home files with kendex. Or choose another [Home folder](page:vgs.jarvis/Settings/home)." };
 }
-// The normal Home check owns Done or To do. A failed repair adds its cause
-// without replacing that check or removing the route to another folder.
-function homeRepairResult(value, home) {
-    if (home.kind !== "ready" || home.repair === undefined || home.repair.lastRepair === null || home.repair.lastRepair.kind !== "failed") return value;
+// The normal Home check owns Done or To do. A failed Repair or Update adds
+// its cause to VALUE, the step with its drift reading KIND (driftKind,
+// homeDrift), without replacing that check or removing the route to
+// another folder. Only a Done step whose reading is `current` is past that
+// run: any other reading, an Update offer, a non-answer or none yet, leaves
+// the cause named. A step that offers Repair or Update sends the user to
+// that window; a Done step offers neither, so it names the route that comes
+// back, Update once a reading is behind (homeDrift). A folder kendex never
+// set up offers its setup route, not Repair, so a Repair that failed there
+// adds nothing.
+function homeRepairResult(value, home, kind) {
+    if (value.tone === "ok" && kind === "current" || home.kind !== "ready" || home.repair === undefined || home.repair.kind !== "home"
+        || home.repair.lastRepair === null || home.repair.lastRepair.kind !== "failed") return value;
     var failed = home.repair.lastRepair;
-    // self repair exits 69 after showing a by-hand notice. It attempted no
-    // reinstall, so the step keeps its required-steps hint without a failure.
-    if (failed.cause === "install-failed" && failed.code === 69 && home.repair.installPlan !== undefined && home.repair.installPlan.kind === "by-hand") return value;
-    var reason = failed.cause === "refresh-failed" ? "Kendex refresh failed."
-        : failed.cause === "install-failed" ? "VGS install repair failed."
+    var reason = failed.cause === "refresh-failed" ? "kendex refresh failed."
+        : failed.cause === "not-set-up" ? "kendex did not install the Jarvis package in this folder, so Repair cannot restore it."
         : failed.cause === "timeout" ? "Repair timed out."
         : failed.cause === "cancelled" ? "Repair was cancelled."
         : "The repair did not finish.";
-    return Object.assign({}, value, { hint: joinedHint((value.hint === undefined ? [] : [value.hint]).concat([reason + " Check the repair window."])) });
+    var next = value.tone === "ok" ? " If kendex finds a package update, this step shows Update." : " Check the repair window.";
+    return Object.assign({}, value, { hint: joinedHint((value.hint === undefined ? [] : [value.hint]).concat([reason + next])) });
 }
 var HOME_READY = { tone: "ok", text: "Done" };
+
+// The package drift reading of a ready Home folder (backend/Drift.js), by
+// its kind, as the line the Done step adds. Only `behind` has an action:
+// Update runs kendex's refresh in the Repair window. kendex judges every
+// package of the home, and the one it finds behind need not be Jarvis.
+// A reading that is no answer, such as `unknown` or `pending`, stays
+// visible as such, never current, beside Done: the home itself is set up,
+// and the required step offers no action for it, so it does not read To do.
+// A missing kendex links the required tools, whose own step reads To do.
+var TOOLS_HINT = "Review missing or outdated tools in [Setup](page:vgs.jarvis/Setup)";
+var DRIFT_LINES = {
+    "kendex-missing": "kendex is not installed",
+    checking: "Checking for package updates",
+    current: "Packages up to date",
+    behind: "A package in this home folder has an update",
+    drift: "kendex found a change in this home folder's packages that it does not update by itself. Keep or undo the change in the Home folder.",
+    pending: "kendex is still comparing this home folder's packages",
+    unknown: "kendex could not check every package in this home folder",
+    malformed: "VGS could not read kendex's package check",
+    failed: "VGS could not read kendex's package check",
+    timeout: "kendex's package check took too long"
+};
+// The drift kind of MESSAGE, the daemon's last `home-drift` message or
+// null, for CURRENT, the `current` of its last `homes` message: the ready
+// home it judged, in the `~/path` form both messages take from
+// Home.relativeHome, "" for none. "none" unless the reading ran for that
+// home: a reading of a folder the daemon no longer judges is dropped.
+function driftKind(message, current) {
+    return message !== null && current !== "" && message.home === current ? message.drift.kind : "none";
+}
+// The Home folder step VALUE with the drift reading KIND (driftKind): a
+// step that is not Done keeps its own reading.
+function homeDrift(value, kind) {
+    if (kind === "none" || value.tone !== "ok") return value;
+    if (!Object.prototype.hasOwnProperty.call(DRIFT_LINES, kind)) throw new Error("jarvis-setup: home-drift=" + kind + " unexpected");
+    var lines = (value.lines === undefined ? [] : value.lines).concat([DRIFT_LINES[kind]]);
+    if (kind === "kendex-missing") return Object.assign({}, value, { lines: lines, hint: TOOLS_HINT });
+    if (kind !== "behind") return Object.assign({}, value, { lines: lines });
+    var update = { tone: "warning", text: TO_DO, lines: lines, action: "update" };
+    if (value.hint !== undefined) update.hint = value.hint;
+    if (value.info !== undefined) update.info = value.info;
+    return update;
+}
 // The home texts over their size budget (JarvisProtocol SETUP_CAUTIONS),
 // by the name the Home folder step gives each. Jarvis loads each whole and
 // answers, so the summary stays Ready and the step Done, with an info that
@@ -259,26 +339,29 @@ function startTextInfo(layers, causes, home) {
         return homeReference(file.name, home, HOME_FILES[file.action]);
     }).join(", ") + ".";
 }
-// The Personality row from SHOWN, the daemon's personality message, and
-// CAUSES, its last answer's, an optional Setup step: the section as the
-// row's hint, Done with Edit; or what keeps it from showing, Not available
-// (`available: false`) where Edit cannot help, its hint saying what does.
-// The hint holds at most PluginLogic's STATUS_HINT_MAX of 200 characters, so
-// a longer or cut section ends in "…". An AGENTS.md over its budget adds a
-// line and keeps the row's reading: Jarvis still reads it whole.
-function personalityRow(shown, causes, home) {
-    var joined = shown.kind === "section" ? shown.lines.join(" ") : "";
-    var cut = joined.length > 200 || shown.more === true;
-    var value = shown.kind === "section" ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
+// The Instructions row from SHOWN, the daemon's instructions message, and
+// CAUSES, its last answer's, an optional Setup step: the home's whole
+// AGENTS.md as the row's lines, its non-blank lines up to the daemon's
+// bound (JarvisProtocol INSTRUCTIONS_LINES), with Edit; a last line says
+// when the file holds more. Without a home the row links the Home folder
+// field, and a home Jarvis cannot read defers to the Home folder step,
+// which says what to change. An AGENTS.md over its budget adds a line and
+// keeps the row's reading: Jarvis still reads it whole.
+var INSTRUCTIONS_MORE = "More lines follow in AGENTS.md";
+function instructionsRow(shown, causes, home) {
+    var file = homeReference("AGENTS.md", home, "/AGENTS.md");
+    var value = shown.kind === "text" ? { tone: "ok", text: "Set", hint: "From " + file + " in your Home folder", action: true,
+            lines: shown.more ? shown.lines.concat([INSTRUCTIONS_MORE]) : shown.lines.slice() }
+        : shown.kind === "empty" ? { tone: "info", text: "Your instructions are empty", hint: "Write them in " + file + " with Edit", action: true }
         : shown.kind === "none" ? { tone: "info", text: "No home folder", available: false,
             hint: "Choose where to keep your instructions with [Home folder](page:vgs.jarvis/Settings/home)" }
-        : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
-            hint: "Add a Personality section to " + homeReference("AGENTS.md", home, "/AGENTS.md") + " with Edit",
-            info: "Press Edit. Add the heading ## Personality on its own line. Write how Jarvis should talk below it." }
-        : { tone: "warning", text: "Instructions cannot be read", available: false, hint: "Check " + homeReference("AGENTS.md", home, "/AGENTS.md") };
-    if ((shown.kind === "section" || shown.kind === "missing") && causes.indexOf("guidance=agents-over-budget") !== -1)
-        return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],
-            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });
+        : shown.kind === "unreadable" ? { tone: "info", text: "Cannot be read", available: false,
+            hint: "Complete the [Home folder](page:vgs.jarvis/Setup/setupHome) step first" }
+        : null;
+    if (value === null) throw new Error("jarvis-setup: instructions=" + shown.kind + " unexpected");
+    if (shown.kind === "text" && causes.indexOf("guidance=agents-over-budget") !== -1)
+        return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"].concat(value.lines),
+            info: budgetInfo(["guidance=agents-over-budget"], home) });
     return value;
 }
 
@@ -541,9 +624,10 @@ function modelDone(value, choices, brain) {
 // while the daemon has not answered, { kind: "stopped" } once it stopped
 // for good, { kind: "problem", cause } after a failed start, or
 // { kind: "answered", causes } from its status, as { setup, setupHome,
-// setupVoice, setupModel }. No value holds a keyed cause: the service
-// log keeps it.
-function readiness(answer, home, repair) {
+// setupVoice, setupModel }. MAIN is true while Main Jarvis host names
+// another computer (homeSetupStep). No value holds a keyed cause: the
+// service log keeps it.
+function readiness(answer, home, repair, main) {
     switch (answer.kind) {
     case "checking":
         return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
@@ -572,7 +656,7 @@ function readiness(answer, home, repair) {
             var name = STEP_NAMES[REQUIRED[step]];
             if (open.indexOf(name) === -1) open.push(name);
             if (REQUIRED[step] === "setupHome") {
-                out.setupHome = homeStep(cause, home, repair);
+                out.setupHome = homeStep(cause, home, repair, main === true);
                 return;
             }
             // ElevenLabs's voices are being read: the voice is chosen once
@@ -772,36 +856,50 @@ function echoCancellation(provider, reading) {
     return { setup: setup, route: route };
 }
 
-// The Agent fleet row (the manifest's setupFleet) for HOME, the home folder
-// the setting names or null, and TOOL, the kendex mail tool Home.mailTool
-// finds there or null: hidden while no home is chosen, which the home row
-// covers, and done once the tool is found; else offering its setup, which the
-// core withholds behind the requirement notice while kendex is missing.
+// The Agent fleet reading (backend/fleet-setup.js status) for HOME, the
+// home folder the setting names or null, and TOOL, the kendex mail tool
+// Home.mailTool finds there or null: hidden while no home is chosen, which
+// the home row covers, done once the tool is found, else wanting the
+// home's setup, whose Jarvis bundle holds the mail tool (fleetRoute).
 function fleetStep(home, tool) {
     if (home === null) return { hidden: true };
     if (tool !== null) return DONE;
     return { tone: "info", text: "Optional", action: true };
 }
+// The Agent fleet row (the manifest's setupFleet) from VALUE, the reading
+// fleetStep or a failed check (checkFailure) gave, beside the Home folder
+// step: HOME_READY true while that step reads Done, before its drift
+// reading. Until then the row links that step, which owns the setup route;
+// a Done home without the mail tool offers the same route as that step
+// (homeSetupRoute, by MAIN), under the same label. The core withholds it
+// behind the requirement notice while one of its tools is missing.
+var FLEET_HOME_FIRST = "Set up this home folder first in [Home folder](page:vgs.jarvis/Setup/setupHome)";
+function fleetRoute(value, homeReady, main) {
+    if (value.hidden === true || value.action !== true) return noAction(value);
+    if (!homeReady) return { tone: "info", text: "Needs a Jarvis home", available: false, hint: FLEET_HOME_FIRST };
+    return Object.assign({}, value, { action: homeSetupRoute(main) });
+}
 
 // The Jarvis session row (the manifest's sessionStart): what the Jarvis
 // package's session command answers, in the page's words. Each sentence is
 // the owner's (VGS-1439, 2026-10-12; the no-home one, which links the Home
-// folder field as the Personality row does and leaves that row's badge the
+// folder field as the Instructions row does and leaves that row's badge the
 // one place the Home group says no folder is chosen, VGS-1785).
 var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder";
 // Each block of session-control.js, by its row: { text, hint, action },
 // `action` the row's action, absent where the hint's link is the way on.
-// A home Kendex installed lacks its session program until Repair restores
-// it; one VGS laid out ships none (Home.layout), so the row says so and
-// that the voice works without it, and links the Home folder for a Kendex
-// home. A command that ran outside its contract reads again on Retry. A
-// way to the program Jarvis cannot follow is the Home folder's to fix.
+// A home kendex installed lacks its session program until Repair restores
+// it. A folder kendex never set up as a Jarvis home has none, so the row
+// links the Home folder step, whose Set up makes it one; until then the
+// session is a choice not made. A command that ran outside its contract
+// reads again on Retry. A way to the program Jarvis cannot follow is the
+// Home folder's to fix.
 var SESSION_BLOCKS = {
     "no-account": { text: "Optional", hint: "No session can start without an account: [choose an app as the Account under AI model](page:vgs.jarvis/Settings/brain)" },
     "not-app": { text: "Optional", hint: "No session can start with an API key or a local model: [choose an app as the Account under AI model](page:vgs.jarvis/Settings/brain)" },
     "no-home": { text: "Optional", hint: "No session can start until [Home folder](page:vgs.jarvis/Settings/home) sets a folder" },
-    "package": { text: "Cannot start", hint: "This home folder's Jarvis package has no session program. Repair restores it with Kendex.", action: "repair" },
-    "vgs-package": { text: "Not offered in this home folder", hint: "VGS made this Home folder without the Jarvis session program. Voice Jarvis works without it. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home)." },
+    "package": { text: "Cannot start", hint: "This home folder's Jarvis package has no session program. Repair restores it with kendex.", action: "repair" },
+    "not-set-up": { text: "Optional", hint: "Set up this home folder first in [Home folder](page:vgs.jarvis/Setup/setupHome)" },
     "unread": { text: "Cannot start", hint: "The Jarvis session program did not answer as expected. Try again.", action: "retry" },
     "home-link": { text: "Cannot start", hint: HOME_TODO["home=link"].hint },
     "home-kind": { text: "Cannot start", hint: HOME_STEP_TODO },
@@ -811,7 +909,7 @@ var SESSION_BLOCKS = {
 // the home cannot offer: the session is optional (Start Jarvis at boot is
 // off at first), so these read in the info tone while boot start is off;
 // boot start on makes every block a warning to fix (sessionSummary).
-var SESSION_CHOICES = ["no-account", "not-app", "no-home", "vgs-package"];
+var SESSION_CHOICES = ["no-account", "not-app", "no-home", "not-set-up"];
 var SESSION_FAILED = "Jarvis did not start";
 // PluginLogic STATUS_HINT_MAX, the longest hint a status row takes.
 var SESSION_HINT_MAX = 200;

@@ -567,7 +567,7 @@ jarvis_local_rows=$'python3 scripts/test-jarvis-local.py\nscripts/check-jarvis-l
 jarvis_local_tools_plan=$'python3 scripts/check-readme-images.py\npython3 scripts/test-jarvis-local.py\npython3 scripts/test-jarvis-setup.py\nscripts/check-jarvis-local.sh\npython3 scripts/test-jarvis-local-speech.py\nscripts/check-jarvis-local-speech.sh\nscripts/test-jarvis-selftest.sh'$'\nscripts/test-validate.sh'
 jarvis_env_plan=$'node scripts/test-jarvis-env.js\n'"$repo_plan"
 jarvis_helper_plan=$'node scripts/test-jarvis-env.js\npython3 scripts/test-jarvis-local.py\npython3 scripts/test-jarvis-setup.py\nscripts/check-jarvis-local.sh\npython3 scripts/test-jarvis-local-speech.py\nscripts/check-jarvis-local-speech.sh\n'"$repo_plan"
-jarvis_policy_rows=$'node scripts/test-jarvis-tools.js\nnode scripts/test-jarvis-policy.js\nnode scripts/test-jarvis-redact.js\nnode scripts/test-jarvis-release.js\nnode scripts/test-jarvis-net.js\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-denied.js\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-home-repair.js\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-mcp.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex-protocol.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot-protocol.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-child.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\n'
+jarvis_policy_rows=$'node scripts/test-jarvis-tools.js\nnode scripts/test-jarvis-policy.js\nnode scripts/test-jarvis-redact.js\nnode scripts/test-jarvis-release.js\nnode scripts/test-jarvis-net.js\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-elevenlabs.js\nnode scripts/test-jarvis-denied.js\nnode scripts/test-jarvis-home.js\nnode scripts/test-jarvis-drift.js\nnode scripts/test-jarvis-home-repair.js\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-audit.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-mcp.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex-protocol.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot-protocol.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-sandbox.js\nnode scripts/test-jarvis-child.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\n'
 jarvis_audio_rows=$'node scripts/test-jarvis-audio.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-playback.js\nnode scripts/test-jarvis-playback-pipewire.js\n'
 jarvis_accounts_rows=$'node scripts/test-jarvis-accounts.js\nnode scripts/test-jarvis-accounts-tui.js\nnode scripts/test-jarvis-account-verify.js\n'
 jarvis_secrets_plan=$'node scripts/test-jarvis-net.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows$repo_plan"
@@ -894,13 +894,13 @@ if area in ["cli", "offline", "all"] and command not in lines and any(fnmatch.fn
     else:
         raise AssertionError("no later consumer in expected plan: " + file)
 home = "node scripts/test-jarvis-home.js"
-home_input = (file.startswith(("shell/plugins/vgs.jarvis/backend/", "shell/Core/", "packaging/jarvis-home/"))
+home_input = (file.startswith(("shell/plugins/vgs.jarvis/backend/", "shell/Core/", ".agents/skills/jarvis/"))
               or file in {"shell/plugins/vgs.jarvis/manifest.json", "shell/plugins/vgs.jarvis/Session.js",
                           "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/plugins/vgs.jarvis/AccountProviders.js",
                           "shell/Ui/icons/Lucide.js", "shell/Commons/SettingValues.js", "shell/Commons/DesktopLaunch.js",
                           "shell/Commons/AccountDirectories.js", "bin/lib/qml-library.js", "bin/lib/judge-files.js",
                           "bin/lib/anchored.js", "bin/lib/account-folders.js", "scripts/fixtures/jarvis/policy.js",
-                          "scripts/lib/jarvis-env.sh", "scripts/fixtures/jarvis/core.js"})
+                          "scripts/lib/jarvis-env.sh", "scripts/fixtures/jarvis/core.js", "scripts/fixtures/jarvis/home.js"})
 if area in ["cli", "offline", "all"] and home not in lines and home_input:
     earlier = {"session", "session-runner", "widget", "setup-gate", "protocol", "conversation", "tools", "requests",
                "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic", "live", "elevenlabs", "denied"}
@@ -914,14 +914,14 @@ if area in ["cli", "offline", "all"] and home not in lines and home_input:
 # The session control suite's row follows the Home row, and its inputs are among
 # the Home suite's.
 repair = "node scripts/test-jarvis-home-repair.js"
-repair_input = (file.startswith("packaging/jarvis-home/") or file in {
+repair_input = (file.startswith(".agents/skills/jarvis/") or file in {
     "shell/plugins/vgs.jarvis/backend/Home.js", "shell/plugins/vgs.jarvis/backend/Tools.js",
     "shell/plugins/vgs.jarvis/backend/Core.js", "shell/plugins/vgs.jarvis/backend/Child.js",
     "shell/plugins/vgs.jarvis/backend/fleet-setup.js", "shell/plugins/vgs.jarvis/backend/audio-child.py",
     "shell/plugins/vgs.jarvis/tui/repair-home.sh", "bin/lib/qml-library.js", "bin/lib/anchored.js",
     "bin/lib/account-folders.js", "bin/lib/codex-account.js", "shell/Commons/AccountDirectories.js",
     "scripts/fixtures/jarvis/policy.js", "scripts/fixtures/jarvis/core.js",
-    "scripts/fixtures/jarvis/bounded.js", "scripts/lib/jarvis-env.sh"})
+    "scripts/fixtures/jarvis/bounded.js", "scripts/lib/jarvis-env.sh", "scripts/fixtures/jarvis/home.js"})
 if area in ["cli", "offline", "all"] and repair not in lines and repair_input:
     lines.insert(lines.index(home) + 1 if home in lines else 0, repair)
 session = "node scripts/test-jarvis-session-control.js"

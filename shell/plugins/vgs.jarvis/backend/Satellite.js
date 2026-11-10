@@ -112,12 +112,14 @@ function reading(answer, value, acceptReach) {
 }
 
 /**
- * create({home, mainHost, environment, publish, acceptReach, log}) builds the owner.
- * home() answers the ready home folder or null; mainHost() the Main Jarvis
+ * create({home, homeBlock, mainHost, environment, publish, acceptReach, log}) builds the owner.
+ * home() answers the ready home folder or null; homeBlock() answers, while
+ * home() is null, "not-set-up" for a chosen folder Setup has yet to set up
+ * (D126), else null for no folder; mainHost() the Main Jarvis
  * host setting; environment is the daemon's; publish(reach) receives each
  * reading; acceptReach is the wire's main-reach judge.
  */
-function create({ home, mainHost, environment, publish, acceptReach, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
+function create({ home, homeBlock = () => null, mainHost, environment, publish, acceptReach, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
     let last = null;
     let controller = null;
     let timer = null;
@@ -136,7 +138,7 @@ function create({ home, mainHost, environment, publish, acceptReach, log, clock 
     // "blocked", block} (SessionCommand.place).
     function locate() {
         const folder = home();
-        if (folder === null) return { kind: "blocked", block: "no-home" };
+        if (folder === null) return { kind: "blocked", block: homeBlock() ?? "no-home" };
         try { return place(folder, environment.HOME); }
         catch (error) {
             log("jarvis: satellite=place cause=" + (error.code || "unexpected"));

@@ -159,10 +159,14 @@ case "$1 $2" in
   "pkg ensure-helper") [ ! -e "$FIX/fail-ensure-helper" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
-  "pkg file-check") [ ! -e "$FIX/unused-verified-file" ] || exit 2; exit 1 ;;
+  "pkg file-check") [ ! -e "$FIX/unused-file-source" ] || exit 2; exit 1 ;;
   "pkg plan")
     case "$4" in
       pacman) echo "{\"manager\":\"pacman\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-Syu\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
+      apt) echo "{\"manager\":\"apt\",\"binary\":\"apt-get\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"apt-get\",\"update\"],[\"apt-get\",\"full-upgrade\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
+      dnf) echo "{\"manager\":\"dnf\",\"binary\":\"dnf5\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"dnf5\",\"upgrade\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
+      deb-file) echo "{\"manager\":\"deb-file\",\"binary\":\"apt-get\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"apt-get\",\"install\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
+      rpm-file) echo "{\"manager\":\"rpm-file\",\"binary\":\"dnf5\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"dnf5\",\"upgrade\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
       verified-file) echo "{\"manager\":\"verified-file\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-U\",\"--needed\",\"--\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
       flatpak) echo "{\"manager\":\"flatpak\",\"binary\":\"flatpak\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"flatpak\",\"update\"]],\"elevator\":null}" ;;
       mise) echo "{\"manager\":\"mise\",\"binary\":\"mise\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"env\",\"MISE_MINIMUM_RELEASE_AGE=0\",\"mise\",\"upgrade\"]],\"elevator\":null}" ;;
@@ -1539,10 +1543,32 @@ row_verified_file() {
   pipeline update-source.sh verified-file
   assert "the verified-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
   assert "its one step is the verified-file upgrade" has_call "vgshell pkg run upgrade --manager verified-file"
-  touch "$fix/unused-verified-file"
+  touch "$fix/unused-file-source"
   pipeline update.sh -y
   assert "Update all leaves out a verified-file source with nothing installed" no_call "vgshell pkg plan upgrade verified-file"
   assert "and runs no verified-file upgrade" no_call "vgshell pkg run upgrade --manager verified-file"
+}
+# A release-file update the check shows runs in Update all and alone, as a
+# verified file's does, and Update all leaves it out while none of its
+# packages is installed.
+row_release_file() {
+  reset_fix
+  printf '{"primary":{"id":"apt","binary":"apt-get"},"overlays":[{"id":"deb-file","binary":"apt-get"}],"sources":[]}\n' >"$fix/detect.json"
+  pipeline update.sh -y
+  assert "Update all runs the deb-file upgrade" has_call "vgshell pkg run upgrade --manager deb-file"
+  pipeline update-source.sh deb-file
+  assert "the deb-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
+  assert "its one step is the deb-file upgrade" has_call "vgshell pkg run upgrade --manager deb-file"
+  printf '{"primary":{"id":"dnf","binary":"dnf5"},"overlays":[{"id":"rpm-file","binary":"dnf5"}],"sources":[]}\n' >"$fix/detect.json"
+  PIPE_PATH="$snapper_dir" pipeline update-source.sh rpm-file
+  assert "the rpm-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
+  assert "its one step is the rpm-file upgrade" has_call "vgshell pkg run upgrade --manager rpm-file"
+  assert "it replaces packages, so a snapshot comes first" before "sudo snapper -c root create -c number -d VGS update" "vgshell pkg run upgrade --manager rpm-file"
+  printf '{"primary":{"id":"apt","binary":"apt-get"},"overlays":[{"id":"deb-file","binary":"apt-get"}],"sources":[]}\n' >"$fix/detect.json"
+  touch "$fix/unused-file-source"
+  pipeline update.sh -y
+  assert "Update all leaves out a release-file source with nothing installed" no_call "vgshell pkg plan upgrade deb-file"
+  assert "and runs no deb-file upgrade" no_call "vgshell pkg run upgrade --manager deb-file"
 }
 # log_tui KEYS [ARG...]: tui/log.sh as `pipeline` runs a script, on a
 # pseudo-terminal whose input stays open. With KEYS `yes` a key is typed
@@ -1777,7 +1803,7 @@ if [[ $# -gt 0 ]]; then
 fi
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -1917,9 +1943,13 @@ control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true |
 control log-elsewhere 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/update.log"' 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/other.log"' row_log
 control log-absent-opens '[[ -f $log ]] || _updates_refuse 1' '[[ -n $log ]] || _updates_refuse 1' row_log tui/log.sh
 control log-closes-unread "trap 'status=\$?; [[ \$status == 0 ]] || vgs_tui_close_prompt \"\$status\"' EXIT" ':' row_log tui/log.sh
-control verified-file-left-out 'for arg in verified-file flatpak mise; do' 'for arg in flatpak mise; do' row_verified_file
+control verified-file-left-out 'for arg in verified-file deb-file rpm-file flatpak mise; do' 'for arg in deb-file rpm-file flatpak mise; do' row_verified_file
+control release-file-left-out 'for arg in verified-file deb-file rpm-file flatpak mise; do' 'for arg in verified-file flatpak mise; do' row_release_file
+control release-file-unknown '      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in' '      verified-file|flatpak|mise) _updates_in' row_release_file
+control release-file-no-snapshot 'if _updates_file_source "$step_source"; then upgrades=1; fi' 'if [[ $step_source == verified-file ]]; then upgrades=1; fi' row_release_file
+control release-file-unused-kept '  [[ $1 == verified-file || $1 == deb-file || $1 == rpm-file ]]' '  [[ $1 == verified-file ]]' row_release_file
 control verified-file-unused-kept '        [[ $status != 2 ]] || continue' '        :' row_verified_file
-control verified-file-unknown '      verified-file|flatpak|mise) _updates_in' '      flatpak|mise) _updates_in' row_verified_file
+control verified-file-unknown '      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in' '      deb-file|rpm-file|flatpak|mise) _updates_in' row_verified_file
 control unknown-source-unchecked '_updates_refuse 2 "source=$only reason=unknown"' \
   ': 2 "source=$only reason=unknown"' row_source
 

@@ -32,10 +32,11 @@
 #      names its reason in the plan box and runs nothing
 #   8. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
 #      the session
-#   9. verified files, Flatpak and mise: `vgshell pkg run upgrade --manager
-#      verified-file|flatpak|mise`; verified-file replaces packages, so it
-#      takes the snapshot and the orphan step as the system step does, and
-#      Update all takes it only while one of its packages is installed
+#   9. verified and release files, Flatpak and mise: `vgshell pkg run
+#      upgrade --manager verified-file|deb-file|rpm-file|flatpak|mise`; a
+#      file source replaces packages, so it takes the snapshot and the
+#      orphan step as the system step does, and Update all takes it only
+#      while one of its packages is installed
 #  10. each plugin, then each theme, behind its upstream:
 #      `vgshell plugin|theme update <id>`, which shows its diff and asks
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
@@ -748,12 +749,18 @@ _updates_in() { # WORD LIST...
   return 1
 }
 
+# Whether SOURCE is a file row of the package table, whose packages are
+# files VGS fetches: verified files and release files.
+_updates_file_source() { # SOURCE
+  [[ $1 == verified-file || $1 == deb-file || $1 == rpm-file ]]
+}
+
 # updates_main all ARG... | updates_main source SOURCE ARG...: the pipeline
 # over every source, or over SOURCE alone, named as a status row names it:
-# the primary manager's id, aur, verified-file, flatpak, mise, vgs, plugins
-# or themes. The ARGs after SOURCE are -y alone; update-source.sh passes
-# its SOURCE twice, once here and once among the entry script's own ARGs,
-# which the log runs it again with.
+# the primary manager's id, aur, verified-file, deb-file, rpm-file,
+# flatpak, mise, vgs, plugins or themes. The ARGs after SOURCE are -y
+# alone; update-source.sh passes its SOURCE twice, once here and once
+# among the entry script's own ARGs, which the log runs it again with.
 _updates_main() {
 
   local state
@@ -814,14 +821,14 @@ _updates_main() {
   if [[ $mode == all ]]; then
     run=(vgs)
     if [[ -n $primary ]]; then run+=("$primary"); fi
-    for arg in verified-file flatpak mise; do
+    for arg in verified-file deb-file rpm-file flatpak mise; do
       _updates_in "$arg" "${present[@]}" || continue
-      # The verified-file source is present wherever pacman is; it joins
-      # only while one of its packages is installed, which its check
-      # answers with any status but 2, as the window lists it.
-      if [[ $arg == verified-file ]]; then
+      # A file source is present wherever its primary is; it joins only
+      # while one of its packages is installed, which its check answers
+      # with any status but 2, as the window lists it.
+      if _updates_file_source "$arg"; then
         status=0
-        "$_updates_vgshell" pkg file-check verified-file >/dev/null 2>&1 || status=$?
+        "$_updates_vgshell" pkg file-check "$arg" >/dev/null 2>&1 || status=$?
         [[ $status != 2 ]] || continue
       fi
       run+=("$arg")
@@ -832,9 +839,9 @@ _updates_main() {
     case "$only" in
       vgs|plugins|themes) ;;
       aur) [[ $aur_here == 1 ]] || _updates_refuse 1 "source=aur reason=absent" ;;
-      verified-file|flatpak|mise) _updates_in "$only" "${present[@]}" || _updates_refuse 1 "source=$only reason=absent" ;;
+      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in "$only" "${present[@]}" || _updates_refuse 1 "source=$only reason=absent" ;;
       "$primary") ;;
-      *) _updates_refuse 2 "source=$only reason=unknown" "a source is the primary manager's id, aur, verified-file, flatpak, mise, vgs, plugins or themes" ;;
+      *) _updates_refuse 2 "source=$only reason=unknown" "a source is the primary manager's id, aur, verified-file, deb-file, rpm-file, flatpak, mise, vgs, plugins or themes" ;;
     esac
     run=("$only")
   fi
@@ -863,6 +870,7 @@ _updates_main() {
       vgs|plugins|themes) kept+=("$id"); continue ;;
       aur) if [[ ${#aur_command[@]} -gt 0 ]]; then kept+=(aur); continue; fi; label="AUR, last" ;;
       verified-file) label="Verified packages" ;;
+      deb-file|rpm-file) label="Release packages" ;;
       flatpak) label=Flatpak ;;
       mise) label=mise ;;
       *) label=System ;;
@@ -924,8 +932,11 @@ _updates_main() {
   # A snapshot and the VGS version check guard every step that replaces
   # packages: the upgrades, the system's and the AUR's, and the vgshell-git
   # rebuild. The orphans follow the upgrades alone.
-  local upgrades=0 rebuild=0 replaces=0
-  if _updates_in aur "${run[@]}" || _updates_in verified-file "${run[@]}" || { [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; }; then upgrades=1; fi
+  local upgrades=0 rebuild=0 replaces=0 step_source
+  if _updates_in aur "${run[@]}" || { [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; }; then upgrades=1; fi
+  for step_source in "${run[@]}"; do
+    if _updates_file_source "$step_source"; then upgrades=1; fi
+  done
   if _updates_in vgs "${run[@]}" && [[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1; fi
   if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi
   local snapshot_line="" snapshot_tool=""

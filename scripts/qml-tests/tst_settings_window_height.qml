@@ -103,6 +103,10 @@ Item {
         description: Array(14).fill("This sentence makes the description of the plugin long enough to wrap over several lines of the Details tab.").join(" ")
     })
 
+    // A second page with a Setup tab: one setup step.
+    readonly property var setupRow: pluginRow({ id: "acme.setup", name: "Setup steps",
+        status: PluginLogic.statusRows({ status: { step: { type: "state", label: "Step", setup: true } } }, {}) })
+
     readonly property var fewRows: [shortRow, longRow, detailedRow]
     readonly property var manyRows: {
         const rows = fewRows.slice();
@@ -114,11 +118,12 @@ Item {
         id: fakeManager
         property var plugins: root.fewRows
         property var installFailures: ({})
-        // The page the window reported shown, each report in order.
+        // The page the window reported shown, and its tab, each report in
+        // order.
         property var viewed: []
         property var panes: []
         function rescan() { return "ok"; }
-        function viewPage(id) { viewed = viewed.concat([id]); }
+        function viewPage(id, tab) { viewed = viewed.concat([[id, tab]]); }
         function openPane(id) { panes = panes.concat([id]); return "ok"; }
     }
 
@@ -271,16 +276,63 @@ Item {
                 "the requested Keys section is drawn below the pinned tabs in the viewport");
         }
 
-        // The core tells a plugin while its page is shown: the window
-        // reports the page it shows, the list as none, and none as it closes.
+        // The core tells a plugin while its page is shown, and on which tab:
+        // the window reports the page and the tab it shows, the list as
+        // none, and none as it closes, also after a page shown in the
+        // closing turn.
         function test_the_window_reports_the_page_it_shows() {
             const window = opened(JSON.stringify({ plugin: "acme.short" }));
-            compare(fakeManager.viewed, ["acme.short"], "an opened page is reported");
+            tryCompare(fakeManager, "viewed", [["acme.short", "Settings"]], 5000, "an opened page is reported with its tab");
             window.showList(Qt.OtherFocusReason);
-            compare(fakeManager.viewed, ["acme.short", ""], "the list shows no plugin's page");
+            tryCompare(fakeManager, "viewed", [["acme.short", "Settings"], ["", ""]], 5000, "the list shows no plugin's page");
             window.show("acme.long", Qt.OtherFocusReason);
             window.close();
-            compare(fakeManager.viewed, ["acme.short", "", "acme.long", ""], "a closing window shows none");
+            wait(0);
+            compare(fakeManager.viewed, [["acme.short", "Settings"], ["", ""], ["", ""]], "a closing window shows none");
+        }
+
+        // Each tab the page switches to is reported, so a plugin can read
+        // what only its Setup tab shows while that tab shows.
+        function test_the_window_reports_each_tab_it_shows() {
+            const window = opened(JSON.stringify({ plugin: "acme.long" }));
+            const p = parts(window);
+            compare(p.tabs.model, ["Settings", "Setup", "Details"]);
+            const last = () => fakeManager.viewed[fakeManager.viewed.length - 1];
+            p.tabs.currentIndex = 1;
+            tryVerify(() => JSON.stringify(last()) === JSON.stringify(["acme.long", "Setup"]), 5000, "the Setup tab is reported");
+            p.tabs.currentIndex = 2;
+            tryVerify(() => JSON.stringify(last()) === JSON.stringify(["acme.long", "Details"]), 5000, "the Details tab is reported");
+            window.showList(Qt.OtherFocusReason);
+            tryVerify(() => JSON.stringify(last()) === JSON.stringify(["", ""]), 5000, "the list reports no tab");
+        }
+
+        // A page opens on the tab it names, and the window reports the page
+        // with that tab alone, never with the tab the last page showed,
+        // which a new page keeps by name until its open moves it: Jarvis
+        // reads its package drift on its Setup tab's opening (D126), so a
+        // Setup tab the page only passed through would start a check.
+        // [the page Setup shows first, whether the list shows between,
+        // the page then opened on Settings].
+        function test_an_opened_page_reports_only_its_settled_tab_data() {
+            return [
+                { tag: "the same page from the list", target: "acme.long", list: true },
+                { tag: "another page from the list", target: "acme.setup", list: true },
+                { tag: "another page from a page", target: "acme.setup", list: false }
+            ];
+        }
+        function test_an_opened_page_reports_only_its_settled_tab(data) {
+            fakeManager.plugins = root.fewRows.concat([root.setupRow]);
+            const window = opened(JSON.stringify({ plugin: "acme.long", tab: "Setup" }));
+            tryCompare(fakeManager, "viewed", [["acme.long", "Setup"]], 5000, "a page opened on Setup is reported on Setup alone");
+            if (data.list) {
+                window.showList(Qt.OtherFocusReason);
+                tryCompare(fakeManager, "viewed", [["acme.long", "Setup"], ["", ""]], 5000, "the list shows no plugin's page");
+            }
+            fakeManager.viewed = [];
+            compare(window.openPlugin(data.target, Qt.OtherFocusReason, "Settings"), "ok");
+            tryCompare(fakeManager, "viewed", [[data.target, "Settings"]], 5000, "the page is reported on Settings alone");
+            wait(0);
+            compare(fakeManager.viewed, [[data.target, "Settings"]], "no later report follows");
         }
 
         function test_a_short_page_takes_its_content_height() {

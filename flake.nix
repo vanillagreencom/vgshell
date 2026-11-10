@@ -2,12 +2,17 @@
   description = "VGS, a desktop shell for Hyprland on Quickshell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # The kendex command Jarvis requires, kendex's own flake package (D126).
+  # Its nixpkgs stays its own: kendex builds with a newer rustc than a
+  # followed nixpkgs may carry.
+  inputs.kendex.url = "github:vanillagreencom/kendex";
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, kendex }:
     let
       inherit (nixpkgs) lib;
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: lib.genAttrs systems (system: f (nixpkgs.legacyPackages.${system}.extend (final: prev: {
+        kendex-cli = kendex.packages.${system}.kendex-cli;
         quickshell = prev.quickshell.overrideAttrs (old: {
           pname = "vgshell-quickshell";
           version = "0.3.2.r7.g2b4501a";
@@ -57,6 +62,7 @@
         pkgs.hyprland
         pkgs.imagemagick
         pkgs.iproute2
+        pkgs.kendex-cli
         pkgs.less
         pkgs.libnotify
         pkgs.libsecret

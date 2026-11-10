@@ -139,7 +139,7 @@ var MANAGERS = [
         // system keyring (lib/libalpm/be_package.c:729-771); without one,
         // `LocalFileSigLevel = Optional` installs it unsigned.
         files: {
-            dir: "/var/cache/vgshell/pkgfile", sigDir: "/var/cache/vgshell/pkgsig",
+            kind: "verified", dir: "/var/cache/vgshell/pkgfile", sigDir: "/var/cache/vgshell/pkgsig",
             steps: [
                 ["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "{fetched}", "{file}"],
                 ["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "{fetchedSig}", "{sig}"],
@@ -149,6 +149,7 @@ var MANAGERS = [
             // signatures go. "{older}" matches `<name>-<pkgver>-<pkgrel>-
             // <arch>.pkg.tar.<ext>[.sig]`, none of which holds a hyphen, so
             // it never matches another package whose name extends this one.
+            older: "{name}-[^-/]+-[^-/]+-[^-/]+\\.pkg\\.tar\\.[a-z0-9]+(\\.sig)?",
             prune: [["find", "{dir}", "{sigDir}", "-maxdepth", "1", "-type", "f", "-regextype", "posix-extended", "-regex", "{older}",
                 "!", "-name", "{filename}", "!", "-name", "{sigName}", "-delete"]],
             // Each repository: its database's URL with "{arch}" for pacman's
@@ -158,6 +159,63 @@ var MANAGERS = [
             repositories: [
                 { name: "omarchy-edge", url: "https://pkgs.omarchy.org/edge/{arch}/omarchy.db", key: "config/keys/40DFB630FF42BCFFB047046CF0134EE680CAC571.gpg",
                     fingerprint: "40DFB630FF42BCFFB047046CF0134EE680CAC571", packages: ["gliff"] }
+            ]
+        }
+    },
+    // A release file: one package its upstream publishes only as a release
+    // asset, which no repository apt or dnf reads holds, so a dependency on
+    // it could not resolve. Each row pins one release of each package it
+    // takes: its download address, version and, per architecture, the
+    // asset's file and SHA-256. bin/lib/pkg-file.js downloads the asset for
+    // this system's architecture as the user and refuses it unless its
+    // SHA-256 is the pinned one and the package file names the package,
+    // version and architecture pinned, all before any root step. Root then
+    // copies it, mode 0600 as for a verified file, into a folder only root
+    // writes, and the manager installs that copy, its dependencies from the
+    // system's own repositories. No repository is added. The check prints
+    // `arrow` lines for an installed package older than its pin and exits 2
+    // while none is installed; an installed one newer than the pin is left
+    // alone. kendex (D126): the v1.20.0 release assets, digests read from
+    // the release on 2026-11-08 and checked against the downloaded files.
+    {
+        id: "deb-file", role: "overlay", family: [], release: null, requires: "apt", binaries: ["apt-get"], elevate: true,
+        check: [{ binary: null, argv: ["{pkg}", "file-check", "deb-file"], exits: { "0": "updates", "1": "none", "2": "unused" }, parser: "arrow", timeout: 120 }],
+        // apt-get(8): an argument holding a slash is a package file.
+        install: [["{bin}", "install", "{names}"]],
+        reinstall: null,
+        update: [["{bin}", "install", "{names}"]],
+        remove: null, upgrade: [["{bin}", "install"]], ignore: null, owner: null, installed: null, removable: null,
+        picker: { install: null, remove: null },
+        files: {
+            kind: "release", format: "deb", dir: "/var/cache/vgshell/pkgfile",
+            steps: [["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "{fetched}", "{file}"]],
+            older: "{name}_[^_/]+_[^_/]+\\.deb",
+            prune: [["find", "{dir}", "-maxdepth", "1", "-type", "f", "-regextype", "posix-extended", "-regex", "{older}", "!", "-name", "{filename}", "-delete"]],
+            releases: [
+                { name: "kendex", url: "https://github.com/vanillagreencom/kendex/releases/download/v1.20.0/", version: "1.20.0", assets: {
+                    amd64: { file: "kendex_1.20.0_amd64.deb", sha256: "ad360192fcdb1413399e7325f7d9890f7964d5709f42e2c395f98ccb6b06e0c1" },
+                    arm64: { file: "kendex_1.20.0_arm64.deb", sha256: "31e343d917c818cec84485ff4501831e64767c82fabc600b8f83e02ce02e94f7" } } }
+            ]
+        }
+    },
+    {
+        id: "rpm-file", role: "overlay", family: [], release: null, requires: "dnf", binaries: ["dnf5", "dnf"], elevate: true,
+        check: [{ binary: null, argv: ["{pkg}", "file-check", "rpm-file"], exits: { "0": "updates", "1": "none", "2": "unused" }, parser: "arrow", timeout: 120 }],
+        // dnf(8): install and upgrade take a local package file's path.
+        install: [["{bin}", "install", "{names}"]],
+        reinstall: null,
+        update: [["{bin}", "upgrade", "{names}"]],
+        remove: null, upgrade: [["{bin}", "upgrade"]], ignore: null, owner: null, installed: null, removable: null,
+        picker: { install: null, remove: null },
+        files: {
+            kind: "release", format: "rpm", dir: "/var/cache/vgshell/pkgfile",
+            steps: [["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "{fetched}", "{file}"]],
+            older: "{name}-[^-/]+-[^-/]+\\.[a-z0-9_]+\\.rpm",
+            prune: [["find", "{dir}", "-maxdepth", "1", "-type", "f", "-regextype", "posix-extended", "-regex", "{older}", "!", "-name", "{filename}", "-delete"]],
+            releases: [
+                { name: "kendex", url: "https://github.com/vanillagreencom/kendex/releases/download/v1.20.0/", version: "1.20.0", assets: {
+                    x86_64: { file: "kendex-1.20.0-1.x86_64.rpm", sha256: "ebecca4bfc79b1d99500ad6a7dfc2a29ab4f1a83d8c3775470017366ee5e4410" },
+                    aarch64: { file: "kendex-1.20.0-1.aarch64.rpm", sha256: "64768f82f39c491c3f4346f244d2bffe05f1af2571fdfebd4ba99090d5d911e2" } } }
             ]
         }
     },
@@ -510,11 +568,12 @@ function planOwed(id, missing, outdated, onPath, config) {
     return update;
 }
 
-// The steps ACTION, install or update, takes for verified-file row ID over
-// FILES, each `{ name, fetched, fetchedSig, filename, key }`
-// bin/lib/pkg-file.js checked as the user: each file's `files.steps`, then
-// plan's steps over the root-owned copies, then each file's `files.prune`,
-// as plan answers; IGNORED and CONFIG are plan's.
+// The steps ACTION, install or update, takes for file row ID, a verified
+// file or a release file, over FILES, each `{ name, fetched, filename }`
+// and for a verified file `fetchedSig` and `key`, that bin/lib/pkg-file.js
+// checked as the user: each file's `files.steps`, then plan's steps over
+// the root-owned copies, then each file's `files.prune`, as plan answers;
+// IGNORED and CONFIG are plan's.
 function filePlan(id, action, files, onPath, ignored, config) {
     var spec = managerRow(id).files;
     var copies = files.map(function (f) { return spec.dir + "/" + f.filename; });
@@ -524,7 +583,7 @@ function filePlan(id, action, files, onPath, ignored, config) {
     files.forEach(function (f, i) {
         var fill = { "{fetched}": f.fetched, "{fetchedSig}": f.fetchedSig, "{file}": copies[i], "{sig}": spec.sigDir + "/" + f.filename + ".sig", "{key}": f.key,
             "{dir}": spec.dir, "{sigDir}": spec.sigDir, "{filename}": f.filename, "{sigName}": f.filename + ".sig",
-            "{older}": ".*/" + f.name.replace(/[.+*?^$()|[\]{}\\]/g, "\\$&") + "-[^-/]+-[^-/]+-[^-/]+\\.pkg\\.tar\\.[a-z0-9]+(\\.sig)?" };
+            "{older}": ".*/" + spec.older.replace("{name}", f.name.replace(/[.+*?^$()|[\]{}\\]/g, "\\$&")) };
         var filled = function (step) { return step.map(function (token) { return Object.prototype.hasOwnProperty.call(fill, token) ? fill[token] : token; }); };
         before = before.concat(spec.steps.map(filled));
         after = after.concat(spec.prune.map(filled));

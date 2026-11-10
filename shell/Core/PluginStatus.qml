@@ -32,11 +32,23 @@ Singleton {
 
     readonly property var empty: Object.freeze({})
 
-    // The id of the plugin whose Settings page is shown, "" for none: the
-    // Settings window reports it (the manager's viewPage), and each plugin
-    // reads it as `shell.status.viewed`, so it reads what only its page
-    // shows while that page is open instead of on a poll.
-    property string viewed: ""
+    // The plugin whose Settings page is shown and the tab that page shows,
+    // as { id, tab }, "" for both while none is shown: the Settings window
+    // reports both (the manager's viewPage, view), and each plugin reads
+    // them as `shell.status.viewed` and `shell.status.viewedTab`
+    // (viewedTabOf), so it reads what only its page, or one tab of it,
+    // shows while it is open instead of on a poll. One value holds both, so
+    // a bound reader never reads one page beside the tab another showed.
+    property var viewing: ({ id: "", tab: "" })
+    readonly property string viewed: viewing.id
+    function view(id, tab) {
+        viewing = { id: id, tab: tab };
+    }
+    // The tab plugin ID's page shows, "" while another page or none is
+    // shown: no plugin reads another's tab.
+    function viewedTabOf(id) {
+        return viewing.id === id ? viewing.tab : "";
+    }
 
     // Plugin id -> { choices status key -> handler }: what each plugin runs
     // when the Settings page opens the select that key feeds, so it reads

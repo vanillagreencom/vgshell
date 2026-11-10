@@ -11,12 +11,13 @@ const BLOCKS = { link: "home-link", kind: "home-kind", unreadable: "home-unreada
 
 /**
  * The home folder SETTING names under USER with its session command, as
- * { folder, command }, or { kind: "blocked", block }: "no-home" for no
- * folder; for a folder without the command, "package" in a home Kendex
- * installed, whose Repair restores it, and "vgs-package" in one VGS laid
- * out, whose render ships none (Home.packageOwner); "home-link",
- * "home-kind" or "home-unreadable" for a way to it that Jarvis cannot
- * follow.
+ * { folder, command }, or { kind: "blocked", block }: "no-home" for an
+ * empty or refused setting; "not-set-up" for a folder the setting names
+ * that is not there, which Setup makes (D126); for a folder without the
+ * command, "package" in a home kendex installed the Jarvis package in,
+ * whose Repair restores it, and "not-set-up" in one it did not, whose
+ * Setup installs it (Home.packageInstalled); "home-link", "home-kind" or
+ * "home-unreadable" for a way to it that Jarvis cannot follow.
  */
 function place(setting, user) {
     let folder = null;
@@ -25,17 +26,20 @@ function place(setting, user) {
         // A setting the daemon refuses is the home row's to show.
         if (!/^jarvis: home=/.test(error.message)) throw error;
     }
-    if (folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()) return { kind: "blocked", block: "no-home" };
+    if (folder === null) return { kind: "blocked", block: "no-home" };
+    const found = fs.statSync(folder, { throwIfNoEntry: false });
+    if (found === undefined) return { kind: "blocked", block: "not-set-up" };
+    if (!found.isDirectory()) return { kind: "blocked", block: "home-kind" };
     const command = Home.sessionCommand(folder);
     if (command.kind === "found") return { folder, command: command.path };
     if (command.kind !== "absent") return { kind: "blocked", block: BLOCKS[command.kind] };
-    let owner;
-    try { owner = Home.packageOwner(folder); }
+    let installed;
+    try { installed = Home.packageInstalled(folder); }
     catch (error) {
         if (!/^jarvis: home=/.test(error.message)) throw error;
         return { kind: "blocked", block: "home-unreadable" };
     }
-    return { kind: "blocked", block: owner === "kendex" ? "package" : "vgs-package" };
+    return { kind: "blocked", block: installed ? "package" : "not-set-up" };
 }
 
 /**

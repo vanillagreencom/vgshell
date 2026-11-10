@@ -68,7 +68,7 @@ function freshSuite(tree, suite, root) {
         "shell/plugins/vgs.jarvis/backend/session-runner.js",
         "shell/plugins/vgs.jarvis/backend/jarvisd.js", "shell/plugins/vgs.jarvis/backend/Tasks.js",
         "shell/plugins/vgs.jarvis/backend/task-event", "shell/plugins/vgs.jarvis/manifest.json",
-        "scripts/fixtures/jarvis/scripted.js", "scripts/fixtures/jarvis/fleet.js", "shell/plugins/vgs.jarvis/backend/Audio.js",
+        "scripts/fixtures/jarvis/scripted.js", "scripts/fixtures/jarvis/fleet.js", "scripts/fixtures/jarvis/home.js", "shell/plugins/vgs.jarvis/backend/Audio.js",
         "shell/plugins/vgs.jarvis/backend/audio-child.py", "scripts/fixtures/jarvis/audio.js",
         "scripts/fixtures/jarvis/audio-tool.py", "scripts/fixtures/jarvis/desktop.js", "scripts/fixtures/jarvis/desktop-driver.js", "scripts/fixtures/jarvis/desktop-tool.py",
         "scripts/fixtures/jarvis/vision.js", "scripts/fixtures/jarvis/vision-tool.py",
@@ -80,8 +80,8 @@ function freshSuite(tree, suite, root) {
         { recursive: true });
     for (const beside of ["AccountProviders.js", "manifest.json"])
         fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", beside), path.join(clone, "shell/plugins/vgs.jarvis", beside));
-    // The render a home layout copies (backend/Core.js homeRender).
-    fs.cpSync(path.join(tree, "packaging/jarvis-home"), path.join(clone, "packaging/jarvis-home"), { recursive: true });
+    // The package a ready home holds (fixtures/jarvis/home.js).
+    fs.cpSync(path.join(tree, ".agents/skills/jarvis"), path.join(clone, ".agents/skills/jarvis"), { recursive: true });
     fs.mkdirSync(path.join(clone, "scripts/fixtures/jarvis-claude"), { recursive: true });
     for (const name of ["claude", "stream-json.schema.json"])
         fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-claude", name), path.join(clone, "scripts/fixtures/jarvis-claude", name));
@@ -299,10 +299,28 @@ function transcripts(file) {
     fs.writeFileSync(file, changed);
 }
 
+// The one kendex on the daemon's J09 PATH, which holds no host command
+// (scripts/lib/jarvis-env.sh): the daemon reads a ready home's package
+// drift through `kendex check` (backend/Drift.js) when a home is selected
+// and when Setup opens. It answers that check, run as Drift.js runs it,
+// with the clean report kendex serializes (CheckReport,
+// crates/core/src/drift/report.rs, kendex 6c00d3e19), so every row and
+// scene reads a ready home as current, whatever the host installs, and
+// nothing is logged; it refuses any other call.
+function kendexStandin(directory) {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, "kendex"), `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.join(" ") !== "check --scope project --report-only --json") process.exit(9);
+process.stdout.write(JSON.stringify({ status: "clean", sections: [], snapshotAgeSecs: 0 }) + "\\n");
+`, { mode: 0o755 });
+}
+
 function service(sourceTree, tree, root) {
     require("./keys-world.js").standins(path.join(root, "standins"));
     standins(path.join(root, "standins"));
     require("./accounts-world.js").standins(path.join(root, "standins"));
+    kendexStandin(path.join(root, "standins"));
     const launcher = path.join(sourceTree, "scripts/lib/jarvis-env.sh");
     // Generated Process commands clear their environment. Carry the owned
     // fixture scratch in argv before each J09 launcher, including the lease.

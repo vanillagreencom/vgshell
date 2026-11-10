@@ -32,7 +32,7 @@
 # SCENE is gallery, gallery-callouts, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-reach, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, ai-usage-hide, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-reach, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, jarvis-home, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, ai-usage-hide, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-primary, displays-override, agent-debug, add-widget or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -206,9 +206,12 @@
 # and outdated packages, over a stand-in bin/vgshell-pkg
 # that answers pacman, paru and mise whatever the host runs, and that
 # notice once a run of its step that changed nothing has ended, taken only
-# when named; jarvis-fleet is the Settings tab's Setup section with a
-# Jarvis home folder chosen that holds no kendex mail tool, taken only
-# when named; jarvis-causes plants each Jarvis start cause and
+# when named; jarvis-fleet is the Settings tab's Setup section with an
+# empty Jarvis home folder chosen, its session row and the console's main
+# Jarvis line for it, taken only when named; jarvis-home is the Jarvis
+# page's instructions and session rows over a home whose AGENTS.md holds a
+# Personality section, the Home folder step beside its package drift
+# readings and the console's main Jarvis line, taken only when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
 # automations captures its real list, editor, history and notifications;
 # where the tree has a network requirement, it also captures the switch,
@@ -649,7 +652,7 @@ while [[ $# -gt 0 ]]; do
     jarvis-restart) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
 
-    link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -834,7 +837,7 @@ scene_ships() {
     tooltip-link) scene_ships bar ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     elevenlabs-voices) [[ $manager_scene == settings && $has_tab_pages == true ]] && tree_has shell/plugins/vgs.jarvis/backend/ElevenLabs.js 'async function voices(' && ships_plugin vgs.jarvis ;;
-    jarvis-setup|jarvis-home-repair|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    jarvis-setup|jarvis-home-repair|jarvis-fleet|jarvis-home|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     ai-usage|ai-usage-states|ai-usage-hide) ships_plugin vgs.ai-usage ;;
@@ -4978,9 +4981,10 @@ jarvis_anchor() {
 a, b = (json.loads(v) for v in sys.argv[1:3])
 print(int(b[1] - a["bar"][1] + a["contentY"]))' "$area" "$box"
 }
-# jarvis_anchor_shot NAME TYPE TEXT: the page scrolled to TYPE TEXT, taken.
+# jarvis_anchor_shot NAME TYPE TEXT [MARGIN]: the page scrolled to MARGIN
+# pixels, 12 by default, above TYPE TEXT, taken.
 jarvis_anchor_shot() {
-  local top margin=12
+  local top margin="${4:-12}"
   if top="$(jarvis_anchor "$2" "$3")"; then
     ipc smoke scrollTo "$settings_kind" vgs.settings "$((top - margin))" >/dev/null || fail "the scroll to the Jarvis page's $3 failed"
     park_pointer
@@ -5127,11 +5131,26 @@ scene_jarvis-reach() { # MODE
   expect "Jarvis disables after the forwarding warning" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "Jarvis is gone after the forwarding warning" absent ipc smoke jarvisProcess
 }
-# Each Home repair state uses the selected revision's own status rules.
-# The before revision has no repair result formatter and keeps its refusal.
+# Each Home repair state uses the selected revision's own status rules:
+# a partial package kendex installed (home), one kendex never installed
+# (setup), a failed Repair and a completed one, and a failed Repair beside
+# a Done step with an unknown drift reading and with none. A revision with
+# no repair result formatter keeps its one refusal.
 scene_jarvis-home-repair() { # MODE
   local state rows key value name
-  local -a home_states=(home install byhand failed complete)
+  local -a home_states=(home setup failed complete done-failed-unknown done-failed-none)
+  # A partial package kendex never installed has its own route only in a
+  # tree with the Home folder step's Set up; before it, that state draws
+  # the Repair view the home state already shows.
+  grep -q '^function homeSetupStep' "$repo/shell/plugins/vgs.jarvis/SetupGate.js" || home_states=(home failed complete done-failed-unknown done-failed-none)
+  # A tree before the drift reading draws no drift line, so its two
+  # Done-plus-failed states are one view: capture it once, as
+  # done-failed-unknown, which both after states pair with.
+  if ! grep -q '^function homeDrift' "$repo/shell/plugins/vgs.jarvis/SetupGate.js"; then
+    local -a drawn=()
+    for state in "${home_states[@]}"; do [[ $state == done-failed-none ]] || drawn+=("$state"); done
+    home_states=("${drawn[@]}")
+  fi
   # The older revision has one package-refusal view for all three cases.
   # Capture that distinct view once; all after cases pair with this before.
   if ! node - "$repo" <<'JSHOMEVERSION'
@@ -5157,11 +5176,20 @@ const [tree, state, folder] = process.argv.slice(2);
 const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
 const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
 const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
-const home = { kind: "ready", path: folder, repair: { kind: state === "install" || state === "byhand" ? "install" : "home", folder,
-    installPlan: state === "byhand" ? { kind: "by-hand", method: "nix", reason: "nix" } : { kind: "run" },
-    lastRepair: state === "failed" ? { kind: "failed", cause: "refresh-failed", code: 1 } : null } };
-const values = gate.readiness({ kind: "answered", causes: state === "complete" ? [] : ["home=package"] }, home, home);
-if (typeof gate.homeRepairResult === "function") values.setupHome = gate.homeRepairResult(values.setupHome, home);
+const done = state === "complete" || state.startsWith("done-failed-");
+const home = { kind: "ready", path: folder, repair: { kind: state === "setup" ? "setup" : "home", folder,
+    lastRepair: state === "failed" || state.startsWith("done-failed-") ? { kind: "failed", cause: "refresh-failed", code: 1 } : null } };
+const values = gate.readiness({ kind: "answered", causes: done ? [] : ["home=package"] }, home, home);
+// The step as Service.qml composes it: the daemon's home-drift message for
+// the home its homes message names (Home.relativeHome's `~/path` form),
+// then the drift line, then the last run's cause. A tree before the drift
+// reading has neither function and draws the run's cause alone.
+const reading = state === "done-failed-unknown" ? "unknown" : "none";
+const relative = "~/" + path.basename(folder);
+const kind = typeof gate.driftKind === "function"
+    ? gate.driftKind(reading === "none" ? null : { home: relative, drift: { kind: reading } }, relative) : reading;
+if (typeof gate.homeDrift === "function") values.setupHome = gate.homeDrift(values.setupHome, kind);
+if (typeof gate.homeRepairResult === "function") values.setupHome = gate.homeRepairResult(values.setupHome, home, kind);
 for (const key of ["setup", "setupHome"]) console.log(key + "\t" + JSON.stringify(values[key]));
 JSHOMEREPAIR
 )" || { fail "Home repair state $state is unreadable"; continue; }
@@ -5169,7 +5197,12 @@ JSHOMEREPAIR
       expect "the Home repair $state $key value publishes" ok ipc smoke heldStatusSet "$key" "$value"
     done <<<"$rows"
     name="jarvis-home-repair-$1-$state"
-    jarvis_anchor_shot "$name" SectionHeader Setup
+    # A Done step sorts after the open ones, below the first screen, so its
+    # shot anchors on the step's own label.
+    case $state in
+      complete|done-failed-*) jarvis_anchor_shot "$name" Label "$(jarvis_status_label setupHome)" 96 ;;
+      *) jarvis_anchor_shot "$name" SectionHeader Setup ;;
+    esac
     clone_record "$name" settings
     page_state_record "$name" "$1" vgs.jarvis
   done
@@ -6064,10 +6097,36 @@ open(sys.argv[1],"w").write(json.dumps(value))
 PY
   expect "the Jarvis home folder setting is delivered" ok ipc shell reloadConfig
 }
-# The Setup section with a home folder chosen whose kendex mail tool is
-# absent, where the tree offers its Agent fleet row.
+# The daemon's J09 world gives it a HOME of its own, so a folder the scene
+# makes under the sandbox HOME is not the daemon's. jarvis_home_lease_on
+# runs the daemon with the sandbox HOME, as rows/jarvis-home-repair.sh
+# does, until jarvis_home_lease_off puts the world's lease back. The world
+# still owns every child and stand-in.
+jarvis_home_lease_on() {
+  local lease="$sandbox/jarvis-world/lease.sh"
+  cp -- "$lease" "$sandbox/jarvis-home-lease-before" || return 1
+  python3 - "$lease" "$home" <<'PYLEASE'
+from pathlib import Path
+import shlex,sys
+Path(sys.argv[1]).write_text('\n'.join(['#!/bin/bash','set -euo pipefail','exec 3<&0',
+    'exec bash "$1" "$2" -- bash -c \'export HOME="$1"; shift; exec node "$@" <&3 3<&-\' jarvis-home '+shlex.quote(sys.argv[2])+' "$3" --tree "$4"','']))
+PYLEASE
+}
+jarvis_home_lease_off() {
+  cp -- "$sandbox/jarvis-home-lease-before" "$sandbox/jarvis-world/lease.sh"
+}
+# The Setup section with an empty home folder chosen, which holds no
+# kendex mail tool, where the tree offers its Agent fleet row, then the
+# Jarvis session row and the console's main Jarvis line for that folder.
+# A tree from before D126 lays its own package out in the folder; a later
+# tree reads it as no Jarvis home yet. Where the tree's Home folder step
+# offers the main computer's home, that step is planted as it reads while
+# Main Jarvis host names another computer, so no read leaves the sandbox.
 scene_jarvis-fleet() { # MODE
-  local config="$home/.config/vgshell/shell.json"
+  local config="$home/.config/vgshell/shell.json" folder="$home/jarvis-home" rows key value
+  rm -rf -- "${folder:?}"
+  mkdir -p -- "$folder"
+  jarvis_home_lease_on || fail "the Jarvis daemon's sandbox HOME lease is not written"
   jarvis_home_setting "$config" "~/jarvis-home"
   expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
@@ -6081,11 +6140,157 @@ scene_jarvis-fleet() { # MODE
   expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
   page_setup
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
-  jarvis_anchor_shot "jarvis-fleet-$1" SectionHeader Setup
+  expect_poll "the Jarvis session row reads the folder" reported jarvis_session_reported
+  # The Home folder step reads Done in a tree that lays its package out,
+  # and Done sorts after the open steps, so the shot anchors on that step.
+  jarvis_anchor_shot "jarvis-fleet-$1" Label "$(jarvis_status_label setupHome)" 96
+  jarvis_anchor_shot "jarvis-fleet-$1-session" Label "$(jarvis_status_label sessionStart)" 96
+  expect "the Jarvis status provider is held for the main computer's home" held ipc smoke holdStatus service vgs.jarvis
+  rows="$("$node_bin" - "$repo" "$folder" <<'JSCLONE'
+const path = require("node:path");
+const [tree, folder] = process.argv.slice(2);
+const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
+// A tree without the step's clone route has no such state to plant.
+if (typeof gate.homeSetupStep === "function")
+    console.log("setupHome\t" + JSON.stringify(gate.readiness({ kind: "answered", causes: ["home=not-set-up"] }, { kind: "ready", path: folder }, undefined, true).setupHome));
+JSCLONE
+)" || fail "the main computer's Home folder step is unreadable"
+  while IFS=$'\t' read -r key value; do
+    [[ -n $key ]] || continue
+    expect "the main computer's Home folder step publishes" ok ipc smoke heldStatusSet "$key" "$value"
+  done <<<"$rows"
+  jarvis_anchor_shot "jarvis-fleet-$1-main" Label "$(jarvis_status_label setupHome)" 96
   settings_close
+  expect "the Jarvis console opens on the folder" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the Jarvis console maps on the folder" 1 window_count Jarvis
+  expect_poll "the console reads the main Jarvis route for the folder" unavailable jarvis_reach_kind
+  park_pointer
+  take_posed "jarvis-fleet-$1-console"
+  expect "the Jarvis console hides" ok ipc shell hide window vgs.jarvis
+  expect_poll "the Jarvis console is gone" 0 window_count Jarvis
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
   jarvis_home_setting "$config" ""
+  jarvis_home_lease_off
+  rm -rf -- "${folder:?}"
+}
+# The label the tree's manifest gives status entry KEY.
+jarvis_status_label() { # KEY
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"][sys.argv[2]]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json" "$1"
+}
+# Whether the Jarvis service has published status entry sessionStart.
+jarvis_session_reported() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("sessionStart"); print("reported" if isinstance(v, dict) and "text" in v else "pending")'
+}
+# The kind of the daemon's main Jarvis reading the console draws.
+jarvis_reach_kind() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("mainReach"); print(v.get("kind", "pending") if isinstance(v, dict) else "pending")'
+}
+
+# The Jarvis page over a Jarvis home whose AGENTS.md holds a Personality
+# section among other instructions, and which kendex's lock does not name:
+# the row that shows the home's instructions and the Jarvis session row,
+# then, where the tree reads its package drift, the Home folder step
+# beside each reading, and last the console's main Jarvis line. A tree from before D126 lays its own
+# package out in the folder and shows the section alone; a later tree
+# shows the whole file of a home Setup set up (scripts/fixtures/jarvis/
+# home.js). The daemon reads the drift of a ready home at once, through
+# the J09 world's kendex stand-in (scripts/fixtures/jarvis/prepare.js),
+# whose clean report reads current; the behind and kendex-missing
+# readings are planted through the held provider, shaped by the tree's
+# own SetupGate.
+scene_jarvis-home() { # MODE
+  local config="$home/.config/vgshell/shell.json" folder="$home/jarvis-instructions" label rows key value kind
+  local instructions=false
+  grep -q '^function instructionsRow' "$repo/shell/plugins/vgs.jarvis/SetupGate.js" && instructions=true
+  rm -rf -- "${folder:?}"
+  if "$instructions"; then
+    "$node_bin" -e 'require(process.argv[1]).jarvisHome(process.argv[2], process.argv[3], { lock: false })' \
+      "$repo/scripts/fixtures/jarvis/home.js" "$folder" "$repo" || fail "the Jarvis home fixture is not made"
+  else
+    mkdir -p -- "$folder"
+  fi
+  cat >"$folder/AGENTS.md" <<'AGENTS'
+# Jarvis home
+
+Read `.agents/skills/jarvis/persona.md` and follow it.
+
+## Personality
+
+Calm and brief. Answer in short, plain sentences.
+
+## Work
+
+Ask before you send a message for me.
+Keep notes in memory when I say remember.
+AGENTS
+  jarvis_home_lease_on || fail "the Jarvis daemon's sandbox HOME lease is not written"
+  jarvis_home_setting "$config" "~/jarvis-instructions"
+  expect "enabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the Jarvis daemon answers hello without a restart" ready jarvis_started
+  for _ in $(seq 1 25); do [[ $(notice_shown) != null ]] && break; sleep 0.2; done
+  close_notices
+  expect "the Settings window opens for the Jarvis page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the Jarvis page" 1 settings_count
+  expect "the window opens the Jarvis page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "the Jarvis page is shown" '"vgs.jarvis"' settings_page
+  page_details
+  expect_poll "the Jarvis page shows its daemon ready" True jarvis_page_ready
+  page_setup
+  expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
+  key=personality
+  ! "$instructions" || key=instructions
+  label="$(jarvis_status_label "$key")" || fail "the instructions row's label is unreadable"
+  expect_poll "the home's instructions row reads the file" Set jarvis_status_text "$key"
+  # The row's label sits under the tab strip at the usual margin.
+  jarvis_anchor_shot "jarvis-home-$1-instructions" Label "$label" 96
+  expect_poll "the Jarvis session row reads the home" reported jarvis_session_reported
+  jarvis_anchor_shot "jarvis-home-$1-session" Label "$(jarvis_status_label sessionStart)" 96
+  if "$instructions"; then
+    expect_poll "the daemon's own drift reading reaches the Home folder step" lines jarvis_home_lines
+    # A Done step sorts after the open ones, so each shot anchors on it.
+    jarvis_anchor_shot "jarvis-home-$1-drift-current" Label "$(jarvis_status_label setupHome)" 96
+    expect "the Jarvis status provider is held for the drift readings" held ipc smoke holdStatus service vgs.jarvis
+    for kind in behind kendex-missing; do
+      rows="$("$node_bin" - "$repo" "$folder" "$kind" <<'JSDRIFT'
+const path = require("node:path");
+const [tree, folder, kind] = process.argv.slice(2);
+const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
+const values = gate.readiness({ kind: "answered", causes: [] }, { kind: "ready", path: folder });
+console.log("setupHome\t" + JSON.stringify(gate.homeDrift(values.setupHome, kind)));
+JSDRIFT
+)" || { fail "the $kind drift reading is unreadable"; continue; }
+      while IFS=$'\t' read -r key value; do
+        expect "the $kind drift reading publishes" ok ipc smoke heldStatusSet "$key" "$value"
+      done <<<"$rows"
+      jarvis_anchor_shot "jarvis-home-$1-drift-$kind" Label "$(jarvis_status_label setupHome)" 96
+    done
+  fi
+  settings_close
+  expect "the Jarvis console opens on the home" ok ipc shell summon window vgs.jarvis '{}'
+  expect_poll "the Jarvis console maps on the home" 1 window_count Jarvis
+  expect_poll "the console reads the main Jarvis route for the home" unavailable jarvis_reach_kind
+  park_pointer
+  take_posed "jarvis-home-$1-console"
+  expect "the Jarvis console hides" ok ipc shell hide window vgs.jarvis
+  expect_poll "the Jarvis console is gone" 0 window_count Jarvis
+  expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
+  jarvis_home_setting "$config" ""
+  jarvis_home_lease_off
+  rm -rf -- "${folder:?}"
+}
+# The text of status entry KEY of the Jarvis service, or "pending".
+jarvis_status_text() { # KEY
+  ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get(sys.argv[1]); print(v["text"] if isinstance(v, dict) and "text" in v else "pending")' "$1"
+}
+# "lines" once the Home folder step draws a reading's line.
+jarvis_home_lines() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("setupHome"); print("lines" if isinstance(v, dict) and v.get("lines") else "pending")'
 }
 
 # A command below its version floor on the Jarvis page. The daemon's world

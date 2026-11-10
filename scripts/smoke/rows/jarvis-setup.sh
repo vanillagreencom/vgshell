@@ -40,7 +40,7 @@
 # The fleet reader checks again when the daemon publishes homes after setup,
 # without a settings write, requirement scan or terminal completion. A copy
 # that drops that refresh retains its earlier optional reading.
-# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js bin/lib/dbus_wire.py shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: scripts/fixtures/jarvis/audio-tool.py shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-local-speech/standin.py scripts/smoke/rows/jarvis.sh bin/vgshell-tui bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js bin/lib/qml-library.js bin/vgshell-scan shell/Core/Registry.qml shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/capabilities.sh scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/home.js .agents/skills/jarvis/* bin/lib/dbus_wire.py shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -1071,7 +1071,18 @@ row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id
 print(json.dumps({"id":"vgs.jarvis","key":"home","value":row.get("home","")}))
 PYHOME
 )" || { fail "the fleet refresh case cannot read the previous home setting"; return 1; }
+# Homes Setup set up, without kendex's lock, so the session row reads a
+# choice not made: the daemon writes nothing in a home (D126).
+setup_ready_home() { # FOLDER
+  "$node_bin" -e 'require(process.argv[1]).jarvisHome(process.argv[2], process.argv[3], { lock: false })' \
+    "$repo/scripts/fixtures/jarvis/home.js" "$1" "$repo"
+}
+setup_ready_home "$setup_fleet_home" || { fail "the fleet refresh fixture home is not made"; return 1; }
 mkdir -p -- "$setup_fleet_home/.git" "${setup_fleet_tool%/*}"
+# The shell's fleet reader reads the folder above; the daemon judges its
+# own world's ~/Setup Fleet, which each world it starts makes ready.
+jarvis_world_home "$jarvis_fixture_tree" "Setup Fleet" || { fail "the fleet refresh case cannot seed the daemon's home"; return 1; }
+jarvis_rescan
 setup_fleet_value() {
   status_row vgs.jarvis setupFleet | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["value"]))'
 }
@@ -1083,8 +1094,10 @@ setup_fleet_publish() {
   message="$(ipc smoke readInstance service vgs.jarvis homeMessage)" || return 1
   ipc smoke invokeInstance service vgs.jarvis receive "$message"$'\n'
 }
-setup_fleet_optional='{"tone": "info", "text": "Optional", "action": true}'
-setup_fleet_done='{"tone": "ok", "text": "Done", "action": false}'
+# The ready fixture home's Home folder step reads Done, so the row offers
+# that step's route, Set up while Main Jarvis host is empty (fleetRoute).
+setup_fleet_optional='{"tone": "info", "text": "Optional", "action": "setup"}'
+setup_fleet_done='{"tone": "ok", "text": "Done"}'
 expect "select the fleet refresh fixture home" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"home","value":"~/Setup Fleet"}'
 expect_poll "the daemon accepts the fleet refresh fixture home" '~/Setup Fleet' setup_fleet_current
 expect_poll "without the canonical reader fleet setup is optional" "$setup_fleet_optional" setup_fleet_value
@@ -1120,9 +1133,11 @@ setup_fleet_refresh_control() {
    echo "$failures")
 }
 expect "dropping the homes refresh breaks the fleet consumer read" 1 local_control_count setup_fleet_refresh_control
+# Restore the home while this tree's daemon still makes ~/Setup Fleet: the
+# fresh tree's daemon would judge it missing.
+expect "restore the previous home after the fleet refresh case" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
 setup_select
 jarvis_rescan
-expect "restore the previous home after the fleet refresh case" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
 rm -rf -- "${setup_fleet_home:?}"
 # File actions use the shell's selected path even when the daemon refuses
 # its contents. Keep this daemon's test home aligned with the shell's scratch
@@ -1145,6 +1160,7 @@ PYHOME
 jarvis_rescan
 jarvis_enable
 setup_home_dir="$home/Setup file é#%notes"
+setup_ready_home "$setup_home_dir" || { fail "the file-action fixture home is not made"; return 1; }
 setup_home_setting='{"id":"vgs.jarvis","key":"home","value":"~/old/../Setup file é#%notes/"}'
 expect "select a home whose path needs the canonical resolver" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_home_setting"
 setup_home_path() {

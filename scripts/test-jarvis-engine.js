@@ -748,7 +748,9 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/artifacts.json"), path.join(kit.folder, "artifacts.json"));
     for (const [file, needle, replacement] of edits) {
         const name = path.join(kit.folder, file), original = fs.readFileSync(name, "utf8");
-        assert.equal(original.split(needle).length, 2, "one loading control match");
+        // A plain Error: a stale needle fails the control's harness, never
+        // reads as the AssertionError that detection is.
+        if (original.split(needle).length !== 2) throw new Error("loading control: " + file + " needle matches " + (original.split(needle).length - 1) + " times");
         fs.writeFileSync(name, original.replace(needle, replacement));
     }
     const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "loading-"));
@@ -782,7 +784,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
+        settings: { home: ending === "home-missing" ? "~/absent-" + path.basename(root) : "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
         keys: { talk: null, stop: null, confirm: null, deny: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -790,6 +792,19 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     try {
         hello(ending === "locked");
         await settled(() => status() && s(), () => childDone, "shipped daemon publishes admission: " + error);
+        if (ending === "home-missing") {
+            // A home Setup has not made holds the engine while the local
+            // voice loads: each step's cause, the home's first, crosses the
+            // wire, and the ready voice leaves the home's alone.
+            assert.deepEqual(status().causes, ["home=missing", "speech=local-loading"]);
+            assert.equal(s().gate.kind, "down");
+            await until(() => starts().length === 1, "the held engine still loads its local voice");
+            fs.writeFileSync(path.join(local, "ready-gate"), "R");
+            await settled(() => status().causes.length === 1, () => childDone, "the ready voice keeps the home's cause: " + error);
+            assert.deepEqual(status().causes, ["home=missing"]);
+            tryPassed = true;
+            return;
+        }
         if (ending.startsWith("check-")) {
             await until(() => starts().length === 1, "the setup check has one local speech owner");
             fs.writeFileSync(path.join(local, "ready-gate"), "R");
@@ -4044,19 +4059,21 @@ async function groupDaemonSpeech(root, server) {
 
 async function groupDaemonLoading(root, server) {
     let controls = 0;
-    for (const ending of ["ready", "stop", "lock", "lease", "fault", "locked", "missing", "brain", "device", "check-ready", "check-silent", "check-not-heard"])
+    for (const ending of ["ready", "stop", "lock", "lease", "fault", "locked", "missing", "brain", "device", "home-missing", "check-ready", "check-silent", "check-not-heard"])
         await loadingTalk(server, ending);
     for (const [name, file, needle, replacement] of [
-        ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
-        ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"], cautions };', 'return { kind: "ready", cautions };'],
-        ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
-        ["loading starts a second child", "backend/ChainedEngine.js", 'if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);', 'if (plan.speech.lifetime === "daemon") startSpeech(plan.speech);'],
+        ["loading admission removed", "backend/jarvisd.js", ' || lastConfiguration.kind === "loading"', ""],
+        ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause, causes: [cause], cautions };', 'return { kind: "ready", cautions };'],
+        ["loading ignores presented indicator", "Session.js", ': s.indicator.kind === "shown");', ": true);"],
+        ["loading starts a second child", "backend/ChainedEngine.js", 'if (daemonSpeech === null) startSpeech(row);', "startSpeech(row);"],
         ["replacement loading unpublished", "backend/ChainedEngine.js", 'daemonSpeech = owner;\n        configured(configuration());', 'daemonSpeech = owner;'],
         ["ready timeout reads ready", "backend/ChainedEngine.js", ' || (speechState.kind === "starting" && error.code === "ready-timeout")', ""],
         ["loading cancellation replays", "backend/ChainedEngine.js", '                conversation.collection.utterance?.abort();\n                conversation.collection = null;',
-            '                conversation.collection = null;']
+            '                conversation.collection = null;'],
+        ["loading leads the home's cause", "backend/ChainedEngine.js", "causes: [...home, cause, ...rest]", "causes: [cause, ...home, ...rest]"]
     ]) {
-        const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : name === "ready timeout reads ready" ? "held" : "ready";
+        const ending = name === "loading cancellation replays" ? "stop" : name === "replacement loading unpublished" ? "fault" : name === "ready timeout reads ready" ? "held"
+            : name === "loading leads the home's cause" ? "home-missing" : "ready";
         await assert.rejects(() => loadingTalk(server, ending, [[file, needle, replacement]]), assert.AssertionError, name);
         console.log("control=" + name + " detected");
         controls++;

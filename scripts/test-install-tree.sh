@@ -64,33 +64,15 @@ check "the core input resolver is installed" test -e "$dest/usr/share/vgshell/bi
 check "Jarvis input guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/input.md"
 check "Jarvis screen guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/computer/vision.md"
 check "installed computer help reads its packaged files" "$node_bin" -e 'const h=require(process.argv[1]).create(); if(JSON.stringify(h.topics())!==JSON.stringify(["input","shell","vision"]))process.exit(1); h.start({id:"help",args:{topic:"input"}},r=>{if(r.outcome!=="completed"||!r.content.includes("input.text"))process.exit(1)}); h.start({id:"help",args:{topic:"shell"}},r=>{if(r.outcome!=="completed"||!r.content.includes("shell.argv"))process.exit(1)}); h.start({id:"help",args:{topic:"vision"}},r=>{if(r.outcome!=="completed"||!r.content.includes("vision.area"))process.exit(1)});' "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/ComputerHelp.js"
+check "installed help reads Agent Debug's diagnosis skill in place" "$node_bin" -e 'const h=require(process.argv[1]).create(undefined, null, () => null, {}, () => true, { shared: { "vgs-diagnose": process.argv[2] } }); if(!h.topics().includes("vgs-diagnose"))process.exit(1); h.start({id:"help",args:{topic:"vgs-diagnose"}},r=>{if(r.outcome!=="completed"||!r.content.startsWith("---\nname: vgs-diagnose\n"))process.exit(1)});' "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/ComputerHelp.js" "$dest/usr/share/vgshell/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md"
 check "Jarvis runtime guidance is installed" test -e "$dest/usr/share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/core.md"
-# The installed jarvis skill is the base package of every Jarvis home: the
-# checkout's kendex render of the Jarvis package, with no
-# project-instructions block of this repository's own. Only grep's no-match
-# status passes; a read error fails.
-holds_no_project_instructions() { # FILE
-  local rc=0
-  grep -qF -- 'kendex:project-instructions' "$1" || rc=$?
-  [[ $rc == 1 ]]
-}
-installed_skill="$dest/usr/share/vgshell/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md"
-check "the installed jarvis skill equals the checkout's render" cmp -s -- "$installed_skill" "$repo/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md"
-check "the installed render keeps its lock" cmp -s -- "$dest/usr/share/vgshell/packaging/jarvis-home/.kendex-lock.json" "$repo/packaging/jarvis-home/.kendex-lock.json"
-check "the shared diagnosis skill is installed" cmp -s -- "$dest/usr/share/vgshell/packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md" "$repo/packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md"
-check "the former plugin-owned skill is absent" test ! -e "$dest/usr/share/vgshell/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md"
+# kendex installs the Jarvis package in each home (D126): the tree ships
+# no copy of it.
+check "no Jarvis package copy is installed" test ! -e "$dest/usr/share/vgshell/packaging/jarvis-home"
+check "Agent Debug's diagnosis skill is installed" cmp -s -- "$dest/usr/share/vgshell/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md" "$repo/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md"
 for fixture in acme.handoff acme.handoff-sender; do
   check "the test-only $fixture is not installed" test ! -e "$dest/usr/share/vgshell/shell/plugins/$fixture"
 done
-check "the installed jarvis skill carries no project instructions" holds_no_project_instructions "$installed_skill"
-planted_skill="$tmp/planted-SKILL.md"
-cp -- "$installed_skill" "$planted_skill"
-printf '\n<!-- kendex:project-instructions:start -->\n## Project Instructions\n\nPlanted policy.\n<!-- kendex:project-instructions:end -->\n' >>"$planted_skill"
-if holds_no_project_instructions "$planted_skill"; then
-  fail "control: a planted project-instructions block passes the marker check"
-else
-  ok "control: a planted project-instructions block fails the marker check"
-fi
 browser_standins="$tmp/browser-standins"
 mkdir -p -- "$browser_standins"
 cp -- "$repo/scripts/fixtures/jarvis/browser.py" "$browser_standins/agent-browser"

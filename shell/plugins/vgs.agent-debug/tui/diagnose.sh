@@ -11,10 +11,13 @@
 # AGENT is claude, codex, copilot, pi or opencode. A fact the service could
 # not give is `-`. The prompt names the run record of a failed task, never
 # its lines, and tells the agent to use the vgs-diagnose skill, which this
-# script copies from VGS's shared Home render into the agent's skills folder:
+# script copies from the plugin into the agent's own skills folder first:
 # only where no file stands or where the file there is one VGS wrote, a
 # regular file whose front matter carries `source: vgshell`, and never
-# through a link. Elsewhere the prompt names the shipped copy. The agent
+# through a link. Elsewhere the prompt names the plugin's copy, which
+# bin/vgshell-tui keeps until the agent exits, since the agent takes this
+# script's place. Jarvis reads the same file in place as its help topic
+# vgs-diagnose; nothing writes it into a Jarvis home (D126). The agent
 # starts in a folder of its own under the runtime
 # dir, which holds none of the user's files, so it asks before it reads any
 # file of the home folder.
@@ -52,7 +55,7 @@ esac
 # offered.
 command -v "$agent" >/dev/null || { vgs_tui_error "$name is not installed. Choose an installed agent on the Agent Debug page in Settings."; exit 1; }
 
-shipped="${VGS_TUI_LIB%/*}/../../packaging/jarvis-home/skills/own/vgs-diagnose/SKILL.md"
+shipped="${VGS_PLUGIN_DIR:?}/skills/vgs-diagnose/SKILL.md"
 folder="$skills/vgs-diagnose"
 copy="$folder/SKILL.md"
 # Whether FILE is a copy VGS wrote: a regular file, not a link, whose front

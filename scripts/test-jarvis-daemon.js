@@ -11,6 +11,7 @@ const { once } = require("node:events");
 const { freshSuite, shellState } = require("./fixtures/jarvis/prepare.js");
 const { runBounded, hungWorldControl } = require("./fixtures/jarvis/bounded.js");
 const { REPLY: scriptedReply, instrument, chainedEngine } = require("./fixtures/jarvis/scripted.js");
+const { jarvisHome } = require("./fixtures/jarvis/home.js");
 const { standins } = require("./fixtures/jarvis/audio.js");
 const desktopFixture = require("./fixtures/jarvis/desktop.js");
 const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-driver.js");
@@ -117,9 +118,9 @@ async function inside() {
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
             const keepHomes = expected.some(frame => frame.type === "homes");
-            // The Voice offers, the Personality row and the start text's size
-            // each judgement sends.
-            const shownTypes = ["voices", "personality", "start-text"];
+            // The Voice offers, the instructions row, the home's drift and the
+            // start text's size each judgement sends.
+            const shownTypes = ["voices", "instructions", "home-drift", "start-text"];
             const keepShown = expected.some(frame => shownTypes.includes(frame.type));
             const publicFrames = frames.filter(frame => ["task-list", "audit-failures"].includes(frame.type));
             for (const frame of frames.filter(frame => frame.type === "owner-asks")) {
@@ -298,18 +299,24 @@ async function inside() {
     await control("audit-startup-list", "auditFailures(audit.failures());", "void audit;", startup);
     await control("task-startup-list", 'write({ v: 1, type: "task-list", gen: runner.state.gen,',
         'void ({ v: 1, type: "task-list", gen: runner.state.gen,', startup);
-    // The home folder each hello names, on one daemon: it makes what a new
-    // folder lacks, a folder it refuses leads the status causes with its own
-    // keyed cause, and a text over its budget is one of the status cautions,
-    // never a cause. No hello follows an edit inside the folder, so a
-    // request made while the folder holds the engine judges it again; any
-    // other request sends no status.
+    // The home folder each hello names, on one daemon: it writes nothing in
+    // a folder (D126); a folder it refuses, one Setup has not set up among
+    // them, leads the status causes with its own keyed cause, and a text
+    // over its budget is one of the status cautions, never a cause. No hello
+    // follows an edit inside the folder, so a request made while the folder
+    // holds the engine judges it again; any other request sends no status.
     async function homeStatus(file) {
         const base = fs.realpathSync(process.env.HOME);
-        const made = path.join(base, "home-made"), linked = path.join(base, "home-linked");
-        for (const folder of [made, linked]) fs.rmSync(folder, { recursive: true, force: true });
-        fs.mkdirSync(linked);
-        fs.symlinkSync(base, path.join(linked, "skills"));
+        const missing = path.join(base, "home-missing"), chosen = path.join(base, "home-chosen");
+        const linked = path.join(base, "home-linked");
+        for (const folder of [missing, chosen, linked]) fs.rmSync(folder, { recursive: true, force: true });
+        // Every run of this case, its controls' among them, starts with the
+        // daily drift reading due: no reading time is recorded (Drift.js).
+        fs.rmSync(path.join(hello.directories.state, "home-drift.json"), { force: true });
+        fs.mkdirSync(chosen);
+        jarvisHome(linked, tree);
+        fs.rmSync(path.join(linked, "state"), { recursive: true });
+        fs.symlinkSync(base, path.join(linked, "state"));
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -319,14 +326,15 @@ async function inside() {
         child.stderr.on("data", data => { err += data; });
         const closed = once(child, "close");
         const frames = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line));
-        const statuses = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.causes);
-        const cautions = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.cautions);
-        // The Personality row each judgement of the folder sends.
-        const shown = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "personality").map(frame => frame.personality);
-        const personality = () => shown().at(-1);
+        const statuses = () => frames().filter(frame => frame.type === "status").map(frame => frame.causes);
+        const cautions = () => frames().filter(frame => frame.type === "status").map(frame => frame.cautions);
+        // The instructions row each judgement of the folder sends: the home's
+        // whole AGENTS.md.
+        const shown = () => frames().filter(frame => frame.type === "instructions").map(frame => frame.instructions);
+        const instructions = () => shown().at(-1);
         // The start text's size each judgement sends: the home layers it
         // names, or unreadable.
-        const sizes = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "start-text").map(frame => frame.size);
+        const sizes = () => frames().filter(frame => frame.type === "start-text").map(frame => frame.size);
         const sizeLayers = () => {
             const size = sizes().at(-1);
             assert.ok(size !== undefined, "a judgement sends the start text's size");
@@ -334,7 +342,7 @@ async function inside() {
         };
         // The Voice offers, sent when they change: with no local setup the
         // local provider offers none, however many hellos follow.
-        const offered = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "voices").map(frame => frame.voices);
+        const offered = () => frames().filter(frame => frame.type === "voices").map(frame => frame.voices);
         const send = message => child.stdin.write(JSON.stringify(message) + "\n");
         const named = setting => ({ ...hello, settings: { ...hello.settings, home: setting } });
         const others = reply(false, 0).causes;
@@ -356,67 +364,116 @@ async function inside() {
             });
             assert.deepEqual(statuses(), seen);
         };
+        // The satellite reading's cause names Setup for a chosen folder
+        // Setup has yet to set up, and no-home only while no folder is chosen.
+        const reachCause = async want => {
+            for (let wait = 0; frames().filter(frame => frame.type === "main-reach").at(-1)?.reach.cause !== want; wait++) {
+                assert.ok(wait < 300 && child.exitCode === null, "main-reach names " + want + ": " + JSON.stringify(frames().filter(frame => frame.type === "main-reach").at(-1)));
+                await new Promise(resolve => setTimeout(resolve, 10)); // Polls the daemon's output.
+            }
+        };
         try {
             await step([hello], [others]);
-            assert.deepEqual(personality(), { kind: "none" }, "no home, no Personality section");
+            await reachCause("no-home");
+            assert.deepEqual(instructions(), { kind: "none" }, "no home, no instructions");
             assert.deepEqual(sizeLayers(), [], "no home, no home layer in the start text");
             assert.ok(sizes().at(-1).tokens > 0, "the shipped guidance alone has a size");
             assert.deepEqual(offered(), [[]], "a provider whose voices cannot be read offers none");
-            await step([intent("talk-down"), named("~/home-made")], [others]);
-            assert.deepEqual(personality(), { kind: "missing" }, "a new AGENTS.md has no Personality section");
+            await step([named("~/home-missing")], [["home=missing", ...others]]);
+            await reachCause("not-set-up");
+            assert.equal(fs.existsSync(missing), false, "a judgement makes no folder");
+            assert.deepEqual(instructions(), { kind: "unreadable" }, "a refused folder shows no instructions");
+            await step([named("~/home-chosen")], [["home=not-set-up", ...others]]);
+            await reachCause("not-set-up");
+            assert.deepEqual(fs.readdirSync(chosen), [], "and writes nothing in a folder Setup has not set up");
+            // A request while that folder holds the engine judges it again,
+            // and a home Setup has set up meanwhile takes it. The daemon
+            // reads the home it takes, so the folder stays in place.
+            jarvisHome(chosen, tree);
+            await step([{ ...intent("say"), text: "fixture request" }, named("~/home-chosen")], [others, others]);
+            assert.deepEqual(instructions(), { kind: "text", lines: [fs.readFileSync(path.join(chosen, "AGENTS.md"), "utf8").trim()], more: false },
+                "the instructions are the home's whole AGENTS.md");
             const bare = sizes().at(-1);
-            assert.deepEqual(["AGENTS.md", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
-                ".claude/settings.json", ".codex/config.toml", ".agents/skills/jarvis/SKILL.md", ".agents/skills/jarvis/persona.md"].filter(name => !fs.existsSync(path.join(made, name))), [], "the second hello makes the layout");
-            fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193) + "\n## Personality\nCalm.\n");
-            await step([named("~/home-made")], [others]);
-            assert.deepEqual([cautions().at(-1), personality()], [["guidance=agents-over-budget"], { kind: "section", lines: ["Calm."], more: false }],
-                "an AGENTS.md over its budget is a caution of a ready folder, and shows its section");
+            fs.writeFileSync(path.join(chosen, "AGENTS.md"), "## Notes\nCalm.\n" + "x".repeat(8193) + "\n");
+            await step([named("~/home-chosen")], [others]);
+            assert.deepEqual(cautions().at(-1), ["guidance=agents-over-budget"], "an AGENTS.md over its budget is a caution of a ready folder");
+            // The Setup page shows the file's lines up to the protocol's
+            // bound (JarvisProtocol.js INSTRUCTIONS_LINES and _CHARS).
+            const Protocol = require(path.join(tree, "bin/lib/qml-library.js")).load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
+            assert.deepEqual(instructions(), { kind: "text", more: true,
+                lines: ["## Notes", "Calm."].concat(Array(Protocol.INSTRUCTIONS_LINES - 2).fill("x".repeat(Protocol.INSTRUCTIONS_CHARS))) },
+                "and shows every line from its first, each heading a line, up to the bound");
             // The layer is 8,283 bytes with its heading: about 2,110 tokens at
             // the recorded ratio. The upper bounds fail a size sent in bytes.
             const agentsTokens = layerTokens(sizes().at(-1), "home/AGENTS.md");
             assert.ok(agentsTokens > 2000 && agentsTokens < 2300, "an AGENTS.md over its budget is counted whole, in tokens: " + agentsTokens);
             const grown = sizes().at(-1).tokens - bare.tokens;
             assert.ok(grown > 2000 && grown < 2300, "and the whole start text grows with it, in tokens: " + grown);
-            fs.writeFileSync(path.join(made, "AGENTS.md"), "# Short again\n\n## Personality\nCalm\u2028and brief.\n");
-            await step([intent("talk-down"), named("~/home-made")], [others]);
+            fs.writeFileSync(path.join(chosen, "AGENTS.md"), "# Short again\n\nCalm\u2028and brief.\n");
+            await step([intent("talk-down"), named("~/home-chosen")], [others]);
             assert.deepEqual(cautions().at(-1), [], "a text back within its budget is no caution");
             await step([named("~/home-linked")], [["home=link", ...others]]);
-            assert.deepEqual(shown().slice(-2), [{ kind: "section", lines: ["Calm and brief."], more: false }, { kind: "unreadable" }],
-                "each judgement reads the section again, a pasted line separator as a space, and a refused folder shows none");
+            assert.deepEqual(shown().slice(-2), [{ kind: "text", lines: ["# Short again", "Calm and brief."], more: false }, { kind: "unreadable" }],
+                "each judgement reads the file again, a pasted line separator as a space, and a refused folder shows none");
             assert.equal(sizeLayers(), "unreadable", "a refused folder has no size");
-            fs.rmSync(path.join(linked, "skills"));
-            await step([{ ...intent("say"), text: "fixture request" }, named("/etc/vgs-jarvis-home")], [others, ["home=path", ...others]]);
+            assert.equal(fs.lstatSync(path.join(linked, "state")).isSymbolicLink(), true, "a refused folder keeps its link");
+            await step([{ ...intent("say"), text: "fixture request" }, named("/etc/vgs-jarvis-home")], [["home=link", ...others], ["home=path", ...others]]);
             child.stdin.end();
             assert.deepEqual(await closed, [0, null], err);
         } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
         assert.deepEqual(statuses(), seen, "one status a hello, and one for each request made over a folder that held the engine");
         assert.deepEqual(offered(), [[]], "unchanged offers are not sent again");
-        assert.equal(err, "jarvis: home=link\njarvis: home=path\n");
-        assert.equal(fs.existsSync(path.join(linked, "skills/own")), true, "the repaired folder got its layout");
+        assert.equal(err, "jarvis: home=missing\njarvis: home=not-set-up\njarvis: home=link\njarvis: home=link\njarvis: home=path\n");
         assert.equal(fs.existsSync("/etc/vgs-jarvis-home"), false);
+        // A ready home's package drift is read once, and with no kendex on
+        // the world's PATH it reads as missing, never current (Drift.js); a
+        // refused folder, the chosen one before Setup set it up among them,
+        // is never read.
+        assert.deepEqual(frames().filter(frame => frame.type === "home-drift" && frame.home !== "").map(frame => [frame.home, frame.drift.kind]),
+            [["~/home-chosen", "none"], ["~/home-chosen", "kendex-missing"]], "only the ready home's drift is read, once, and kendex's absence is shown");
         cases++;
     }
     const fleet = require("./fixtures/jarvis/fleet.js");
-    await fleet.verify(daemon, tree, hello);
+    await fleet.verify(daemon, tree);
     {
-        const copy = daemonCopy("fleet-release");
-        const module = path.join(path.dirname(copy), "fleet-setup.js");
-        const source = fs.readFileSync(module, "utf8");
-        const needle = "    try { Home.release(folder); }";
-        assert.equal(source.split(needle).length, 2);
-        fs.writeFileSync(module, source.replace(needle, "    try { void Home; }"));
-        await assert.rejects(() => fleet.verify(copy, tree, hello), assert.AssertionError);
-        controls++;
-        console.log("control=fleet-installer-release detected");
+        // The home routes keep their order, never convert a project and read
+        // success back: a copy without each guard turns its own case red.
+        for (const [name, only, needle, replacement] of [
+            ["fleet-outside-projects", "setup-refusals", "    outsideProjects(folder);\n    fs.mkdirSync(folder, { recursive: true });", "    fs.mkdirSync(folder, { recursive: true });"],
+            ["fleet-read-back", "setup-step-fails", "    await initialize(folder, env, signal);\n    readBack(folder);\n    return 0;\n}\n\n// Whether the history",
+                "    await initialize(folder, env, signal);\n    return 0;\n}\n\n// Whether the history"],
+            ["fleet-main-host-set", "setup-main-host", '    if (main !== "") fail("main-host-set main=" + JSON.stringify(main));\n', ""],
+            ["fleet-linked-home", "setup-linked", "    const own = real(folder);\n", "    const own = path.resolve(folder);\n"],
+            ["fleet-clone-history", "clone-history", '            if (credentialsInHistory(folder)) fail("credentials-committed");\n', ""],
+            ["fleet-clone-history-all", "clone-history", '"log", "--all", "--full-history", "-1"', '"log", "--full-history", "-1"'],
+            ["fleet-clone-history-full", "clone-history", '"log", "--all", "--full-history", "-1"', '"log", "--all", "-1"'],
+            ["fleet-clone-removed", "clone-history", "            removeClone(folder, found === null);\n            throw error;\n", "            throw error;\n"],
+            ["fleet-clone-retry", "clone-retry", "            removeClone(folder, found === null);\n            throw error;\n", "            throw error;\n"],
+            ["fleet-clone-hangup", "clone-hangup", 'const CANCEL_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"];', 'const CANCEL_SIGNALS = ["SIGTERM", "SIGINT"];'],
+            ["fleet-clone-agent", "clone", 'environment(source, verb === "clone-worker" ? ["SSH_AUTH_SOCK"] : [])', "environment(source)"],
+            ["fleet-clone-resume", "clone-resume", "        if (workTree(folder) !== real(folder) || !installedIn(folder)", "        if (true || workTree(folder) !== real(folder) || !installedIn(folder)"],
+            ["fleet-clone-resume-history", "clone-resume", " || credentialsInHistory(folder))\n", ")\n"],
+            ["fleet-clone-resume-tracked", "clone-resume", " || credentialsTracked(folder)", ""],
+            ["fleet-main-host-read-back", "clone-read-back", '    if (report.JARVIS_MAIN_HOST !== main) fail("main-host-unset cause=read-back");\n', ""],
+            ["fleet-main-host-read", "clone-read-back", '    if (stored.code !== 0) fail("main-host-read cause=exit=" + stored.code);\n', ""]]) {
+            const copy = daemonCopy(name);
+            const module = path.join(path.dirname(copy), "fleet-setup.js");
+            const original = fs.readFileSync(module, "utf8");
+            assert.equal(original.split(needle).length - 1, 1, name + " mutation match");
+            fs.writeFileSync(module, original.replace(needle, replacement));
+            await assert.rejects(() => fleet.verify(copy, tree, only), assert.AssertionError, name + " must turn red");
+            controls++;
+            console.log("control=" + name + " detected");
+        }
     }
-    await control("fleet-first-hello", "                if (first) startFleetCutover();", "                startFleetCutover();", file => fleet.verify(file, tree, hello));
-    await control("fleet-selected-home", "            if (Home.resolve(context.settings.home, process.env.HOME) !== target) return;", "", file => fleet.verify(file, tree, hello));
     await homeStatus(daemon);
-    await control("home-layout", "            Home.layout(folder);\n", "", homeStatus);
+    await control("home-writes-nothing", "            Home.judge(folder);\n", "            require(\"node:fs\").mkdirSync(folder, { recursive: true }); Home.judge(folder);\n", homeStatus);
     await control("voices-write", 'write({ v: 1, type: "voices", gen: runner.state.gen, revision: context.revision, voices });', "void voices;", homeStatus);
     await control("voices-change-only", "if (signature === publishedVoices) return;", "", homeStatus);
-    await control("personality-section", 'personality = section.kind === "section" ? Protocol.personalitySection(section.text) : section;',
-        "void section;", homeStatus);
+    await control("instructions-whole", 'try { instructions = Protocol.instructionsText(Home.read(homeFolder.state.path, "AGENTS.md", null).text); }',
+        'try { instructions = Protocol.instructionsText(Home.read(homeFolder.state.path, "AGENTS.md", null).text.split("\\n")[0]); }', homeStatus);
+    await control("reach-not-set-up", "? homeFolder.state.path : null, homeBlock,\n", "? homeFolder.state.path : null,\n", homeStatus);
+    await control("drift-selected", "        if (drift !== null) drift.select(homeFolder.state.kind === \"ready\" ? homeFolder.state.path : null);\n", "", homeStatus);
     await control("start-text-each-judgement", "        publishStartText();\n        configured(", "        configured(", homeStatus);
     await control("start-text-total-tokens", "tokens: Guidance.tokens(read.start),", "tokens: read.start,", homeStatus);
     await control("start-text-layer-tokens", "tokens: Guidance.tokens(layer.bytes) }", "tokens: layer.bytes }", homeStatus);
@@ -426,8 +483,8 @@ async function inside() {
     await control("home-rejudged", " && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();", " && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) void judgeSetup;", homeStatus);
     await control("home-rejudged-held", ' && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();', ') judgeSetup();', homeStatus,
         error => error instanceof assert.AssertionError && error.operator === "deepStrictEqual"
-            && error.actual?.length === 3 && error.expected?.length === 2);
-    console.log("test-jarvis-daemon: control=home-rejudged-held killed reason=extra-status got=3 want=2");
+            && error.actual?.length === error.expected?.length + 1);
+    console.log("test-jarvis-daemon: control=home-rejudged-held killed reason=extra-status");
     // Homes offered to Settings are daemon state records, never files below
     // a Jarvis home: startup publishes the saved list, an accepted home joins
     // homes.json and the homes message. A refused folder clears current
@@ -438,9 +495,10 @@ async function inside() {
         const accepted = path.join(base, "homes/accepted/Jarvis");
         const refused = path.join(base, "homes/refused/Jarvis");
         for (const folder of [prior, accepted, refused]) fs.rmSync(folder, { recursive: true, force: true });
-        fs.mkdirSync(path.join(refused, "skills"), { recursive: true });
-        fs.rmSync(path.join(refused, "skills"), { recursive: true });
-        fs.symlinkSync(base, path.join(refused, "skills"));
+        jarvisHome(accepted, tree);
+        jarvisHome(refused, tree);
+        fs.rmSync(path.join(refused, "state"), { recursive: true });
+        fs.symlinkSync(base, path.join(refused, "state"));
         fs.mkdirSync(hello.directories.state, { recursive: true });
         const record = path.join(hello.directories.state, "homes.json");
         fs.writeFileSync(record, JSON.stringify({ homes: [prior] }) + "\n", { mode: 0o600 });
@@ -510,6 +568,7 @@ async function inside() {
         assert.equal(longValue.length > 60 && longValue.length <= 200, true, "long home fixture fits the value wire");
         fs.rmSync(path.join(base, "homes"), { recursive: true, force: true });
         fs.rmSync(path.dirname(outside), { recursive: true, force: true });
+        jarvisHome(long, tree);
         const named = (setting, state) => ({ ...hello, settings: { ...hello.settings, home: setting },
             directories: { ...hello.directories, state } });
         const start = state => {
@@ -1625,68 +1684,31 @@ async function inside() {
         console.log("test-jarvis-daemon: control=bubble-chained-caption killed");
     }
     // The user removes the package from a home while the service runs, and
-    // no hello follows: the first request after it judges the home once. A
-    // home VGS laid out gets the render VGS ships again, at its own paths,
-    // and the request gets the scripted reply. A home kendex installed the
-    // package in, as its lock names the package's skill, is kendex's to
-    // restore: VGS writes no base package file there, records only its
-    // product skill, and the request fails on the home's absent package.
+    // no hello follows: the first request after it judges the home once,
+    // holds the engine on the home Setup has to set up again, and restores
+    // nothing: kendex is the package's one writer (D126).
     const renderGates = path.join(root, "render-gates");
     const renderHome = path.join(fs.realpathSync(process.env.HOME), "home-render");
-    const shipped = path.join(tree, "packaging/jarvis-home");
-    // The render's harness folders, read from the render itself.
-    const HARNESS = [".agents", ".claude/skills", ".claude/agents", ".codex/agents"];
-    const tracked = folder => fs.readdirSync(folder, { recursive: true }).sort()
-        .map(name => [name, fs.statSync(path.join(folder, name)).isFile() ? fs.readFileSync(path.join(folder, name), "utf8") : null]);
-    const vgsFiles = () => [".vgs-package.json", ...HARNESS].filter(name => fs.existsSync(path.join(renderHome, name)));
-    const renderRemoved = (file, owner) => conversation(file, async w => {
+    const renderRemoved = file => conversation(file, async w => {
         fs.rmSync(renderHome, { recursive: true, force: true });
-        fs.mkdirSync(renderHome);
-        if (owner === "kendex") {
-            fs.cpSync(path.join(shipped, ".agents/skills/jarvis"), path.join(renderHome, ".agents/skills/jarvis"), { recursive: true });
-            fs.writeFileSync(path.join(renderHome, ".kendex-lock.json"), JSON.stringify({ version: 11, entries: { "skill:jarvis:codex":
-                { kind: "skill", name: "jarvis", harness: "codex", emitted: { kind: "skill", name: "jarvis", paths: [".agents/skills/jarvis"] } } } }) + "\n");
-        }
+        jarvisHome(renderHome, tree);
         w.raw({ ...hello, settings: { ...hello.settings, home: "~/home-render" } });
         await w.wait(m => m.state.settings.home === "~/home-render" && m.state.gate.kind === "up");
-        if (owner === "kendex") {
-            assert.deepEqual(vgsFiles(), [".vgs-package.json", ".agents"], "the hello keeps kendex's base render");
-            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(renderHome, ".vgs-package.json"), "utf8")),
-                { files: ["skills/own/vgs-diagnose/SKILL.md"] }, "VGS records only its product skill, not kendex's base paths");
-        }
-        else for (const folder of HARNESS)
-            assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + ": the hello lays the render out");
         const judged = w.messages.filter(m => m.type === "status").length;
         fs.rmSync(path.join(renderHome, ".agents"), { recursive: true });
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
         await w.holdUp();
-        if (owner === "kendex") {
-            const down = await w.wait(m => m.state.gate.kind === "down" || m.state.fault.kind !== "none");
-            assert.deepEqual([down.state.gate, down.state.fault], [{ kind: "down", reason: "unconfigured" }, { kind: "none" }],
-                "the request after kendex's render is removed holds the engine");
-            await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-            const statuses = w.messages.filter(m => m.type === "status");
-            assert.equal(statuses.length, judged + 1, "the request judges the home once");
-            assert.equal(statuses.at(-1).causes[0], "home=absent", "the home is refused for its absent package");
-            assert.deepEqual(vgsFiles(), [".vgs-package.json"], "VGS does not restore kendex's missing base");
-            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(renderHome, ".vgs-package.json"), "utf8")),
-                { files: ["skills/own/vgs-diagnose/SKILL.md"] }, "the refused request claims no kendex base path");
-            return;
-        }
-        await w.wait(m => m.phase === "thinking" || m.state.fault.kind !== "none");
-        fs.writeFileSync(path.join(renderGates, "reply"), "");
-        const ended = await w.wait(m => m.state.fault.kind !== "none" || m.phase === "speaking" && m.state.turn.kind === "none");
-        assert.deepEqual(ended.state.fault, { kind: "none" }, "the first request after the removal gets an answer");
-        assert.ok(w.messages.some(m => m.type === "transcript" && m.role === "assistant" && m.stage === "final"
-            && m.text.endsWith(scriptedReply)), "the answer is the brain's reply");
-        assert.equal(w.messages.filter(m => m.type === "status").length, judged + 1, "the request judges the home once");
-        for (const folder of HARNESS)
-            assert.deepEqual(tracked(path.join(renderHome, folder)), tracked(path.join(shipped, folder)), folder + " holds the shipped render");
-        await w.closeTalk(renderGates);
+        const down = await w.wait(m => m.state.gate.kind === "down" || m.state.fault.kind !== "none");
+        assert.deepEqual([down.state.gate, down.state.fault], [{ kind: "down", reason: "unconfigured" }, { kind: "none" }],
+            "the request after the package is removed holds the engine");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
-    }, true, 0, owner === "kendex" ? "jarvis: home=absent" : "", null, hello.settings.sounds, {}, true);
-    for (const [name, needle, replacement, owner = "vgs"] of [["render-removed", null, null], ["render-removed-kendex", null, null, "kendex"],
+        const statuses = w.messages.filter(m => m.type === "status");
+        assert.equal(statuses.length, judged + 1, "the request judges the home once");
+        assert.equal(statuses.at(-1).causes[0], "home=not-set-up", "the home waits for Setup");
+        assert.equal(fs.existsSync(path.join(renderHome, ".agents")), false, "VGS restores no package file");
+    }, true, 0, "jarvis: home=not-set-up", null, hello.settings.sounds, {}, true);
+    for (const [name, needle, replacement] of [["render-removed", null, null],
         ["render-removed-unjudged", 'if (error.message !== "jarvis: home=absent") throw error; }\n        rejudge();\n',
             'if (error.message !== "jarvis: home=absent") throw error; }\n']]) {
         fs.rmSync(renderGates, { recursive: true, force: true });
@@ -1694,12 +1716,11 @@ async function inside() {
         instrument(file, renderGates);
         const engineFile = path.join(path.dirname(file), "ChainedEngine.js");
         chainedEngine(engineFile);
-        if (needle === null) { await renderRemoved(file, owner); continue; }
+        if (needle === null) { await renderRemoved(file); continue; }
         const engineSource = fs.readFileSync(engineFile, "utf8");
         assert.equal(engineSource.split(needle).length - 1, 1, name + " mutation match");
         fs.writeFileSync(engineFile, engineSource.replace(needle, replacement));
-        await assert.rejects(() => renderRemoved(file, owner), error => error instanceof assert.AssertionError
-            && error.message.startsWith("the first request after the removal gets an answer"), name + " must turn red");
+        await assert.rejects(() => renderRemoved(file), error => error instanceof assert.AssertionError, name + " must turn red");
         controls++;
         console.log("test-jarvis-daemon: control=" + name + " killed");
     }

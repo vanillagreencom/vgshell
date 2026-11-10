@@ -821,17 +821,19 @@ repair_source="$tmp/repair-source"; source_tree "$repair_source" "$version_text"
 rm -f -- "$stubs/pacman" "$stubs/rpm" "$stubs/dnf" "$stubs/dnf5" "$stubs/paru" "$stubs/yay"
 repair_checkout="$tmp/repair-checkout"; cp -R -- "$repair_source" "$repair_checkout"
 g init -q "$repair_checkout"; g -C "$repair_checkout" add -A; g -C "$repair_checkout" commit -qm repair
-repair_persona=packaging/jarvis-home/.agents/skills/jarvis/persona.md
-repair_original="$(cat "$repair_checkout/$repair_persona")"
-rm -- "$repair_checkout/$repair_persona"
+# A shipped file vgshell self never loads: self.js loads the package table
+# at startup, so a repair could not run without it.
+repair_file=themes/README
+repair_original="$(cat "$repair_checkout/$repair_file")"
+rm -- "$repair_checkout/$repair_file"
 printf 'edited\n' >"$repair_checkout/config/shell.json"
 inst_env=()
 INST_BIN="$repair_checkout/bin/vgshell" on_terminal n self repair
 check "declining checkout repair keeps edited files" test "$(cat "$repair_checkout/config/shell.json")" == edited
-check "declining checkout repair keeps missing files absent" test ! -e "$repair_checkout/$repair_persona"
+check "declining checkout repair keeps missing files absent" test ! -e "$repair_checkout/$repair_file"
 INST_BIN="$repair_checkout/bin/vgshell" on_terminal y self repair
 check "checkout repair restores the same commit without an upstream" test "$term_status" == 0
-check "checkout repair restores a missing Jarvis file" test "$(cat "$repair_checkout/$repair_persona")" == "$repair_original"
+check "checkout repair restores a missing shipped file" test "$(cat "$repair_checkout/$repair_file")" == "$repair_original"
 
 repair_data="$tmp/repair-data"; mkdir -p "$repair_data/vgshell"
 install_tree "$repair_source" "$repair_data/vgshell/$version_text"
@@ -845,7 +847,7 @@ repair_sum="$(sha256sum "$www/dl/$repair_archive" | cut -d' ' -f1)"
 printf '%s  %s\n' "$repair_sum" "$repair_archive" >"$www/dl/repair-sums"
 printf '{"tag_name":"v%s","assets":[{"name":"%s","browser_download_url":"%s/dl/%s"},{"name":"SHA256SUMS","browser_download_url":"%s/dl/repair-sums"}]}\n' \
   "$version_text" "$repair_archive" "$api" "$repair_archive" "$api" >"$www/repos/vanillagreencom/vgshell/releases/tags/v$version_text"
-rm -- "$repair_data/vgshell/$version_text/$repair_persona"
+rm -- "$repair_data/vgshell/$version_text/$repair_file"
 inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data")
 repair_base_env=("${base_env[@]}")
 base_env+=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data")
@@ -858,14 +860,14 @@ INST_BIN="$repair_data/vgshell/current/bin/vgshell" on_terminal y self repair
 rt_empty="$repair_empty_runtime"
 if [[ $term_status != 78 ]]; then cat "$tmp/out" >&2; fi
 check "curl repair reaches the existing restart refusal" test "$term_status" == 78
-check "curl repair restores a missing Jarvis file" test "$(cat "$repair_data/vgshell/current/$repair_persona")" == "$repair_original"
+check "curl repair restores a missing shipped file" test "$(cat "$repair_data/vgshell/current/$repair_file")" == "$repair_original"
 check "curl repair retains the previous selected tree" test -d "$repair_data/vgshell/$version_text"
 check "failed restart retains the distinct running tree" test -d "$repair_data/vgshell/0.0.8/shell"
 check "curl repair publishes a new tree" test "$(readlink "$repair_data/vgshell/current")" != "$version_text"
 base_env=("${repair_base_env[@]}")
 
 repair_package="$tmp/repair-package"; cp -R -- "$repair_source" "$repair_package"
-rm -- "$repair_package/$repair_persona"
+rm -- "$repair_package/$repair_file"
 cat >"$repair_package/bin/vgshell-pkg" <<'REPAIR_PKG'
 const fs=require("node:fs"),path=require("node:path");
 const root=path.resolve(__dirname,".."),args=process.argv.slice(2);
@@ -881,16 +883,16 @@ else if(args.join(" ")==="run reinstall --manager aur vgshell") {
  const proof=require("node:child_process").spawnSync(process.execPath,[bridge,"--proof",path.join(root,"review-proof.jsonl"),"--route","self-repair",...args],{stdio:"inherit",env:{PATH:"/usr/bin:/bin",TMPDIR:path.dirname(root)}});
  if(proof.status!==0)process.exit(proof.status||1);
  if(fs.existsSync(path.join(root,"no-helper"))) process.exit(9);
- fs.copyFileSync(path.join(root,"baseline-persona"),path.join(root,"packaging/jarvis-home/.agents/skills/jarvis/persona.md"));
+ fs.copyFileSync(path.join(root,"baseline-file"),path.join(root,"themes/README"));
  fs.writeFileSync(path.join(root,"reinstall.json"),JSON.stringify(args));
 } else process.exit(99);
 REPAIR_PKG
 printf '%s\n' "$repo/scripts/fixtures/pkg-review/route-owner.js" >"$repair_package/review-bridge"
-cp -- "$repair_source/$repair_persona" "$repair_package/baseline-persona"
+cp -- "$repair_source/$repair_file" "$repair_package/baseline-file"
 inst_env=()
 INST_BIN="$repair_package/bin/vgshell" on_terminal y self repair
 check "package repair runs the AUR owner's reinstall" test "$term_status" == 0
-check "package reinstall restores missing Jarvis files" test "$(cat "$repair_package/$repair_persona")" == "$repair_original"
+check "package reinstall restores missing shipped files" test "$(cat "$repair_package/$repair_file")" == "$repair_original"
 check "package repair calls the reinstall action" test -s "$repair_package/reinstall.json"
 
 for helper_case in declined failed installed; do

@@ -114,16 +114,16 @@ const DETECT_ROWS = [
     ["paru is preferred to yay", "ID=endeavouros\nID_LIKE=arch\n", ["pacman", "yay", "paru"],
         { primary: pacman, overlays: [{ id: "aur", binary: "paru" }, { id: "verified-file", binary: "pacman" }], sources: [] }],
     ["Debian 14", DEBIAN_14, ["apt-get", "flatpak"],
-        { primary: { id: "apt", binary: "apt-get" }, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
+        { primary: { id: "apt", binary: "apt-get" }, overlays: [{ id: "deb-file", binary: "apt-get" }, { id: "flatpak", binary: "flatpak" }], sources: [] }],
     ["Debian 13 has no primary", "ID=debian\nVERSION_ID=\"13\"\nVERSION_CODENAME=trixie\n", ["apt-get", "flatpak"],
         { primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
     ["Debian with no release field has no primary", "ID=debian\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
     ["Ubuntu has no primary", "ID=ubuntu\nID_LIKE=debian\nVERSION_ID=\"26.04\"\nVERSION_CODENAME=resolute\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
     ["a derivative of Debian 14 has no primary", "ID=acme\nID_LIKE=\"other debian\"\nVERSION_CODENAME=forky\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
     ["Fedora prefers dnf5; an AUR helper without pacman is no overlay", "ID=fedora\n", ["dnf5", "dnf", "paru"],
-        { primary: { id: "dnf", binary: "dnf5" }, overlays: [], sources: [] }],
+        { primary: { id: "dnf", binary: "dnf5" }, overlays: [{ id: "rpm-file", binary: "dnf5" }], sources: [] }],
     ["a Fedora derivative with dnf alone", "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n", ["dnf"],
-        { primary: { id: "dnf", binary: "dnf" }, overlays: [], sources: [] }],
+        { primary: { id: "dnf", binary: "dnf" }, overlays: [{ id: "rpm-file", binary: "dnf" }], sources: [] }],
     ["NixOS", "ID=nixos\n", ["nix"], { primary: { id: "nix", binary: "nix" }, overlays: [], sources: [] }],
     ["a binary alone makes no primary", "ID=arch\n", ["apt-get"], { primary: null, overlays: [], sources: [] }],
     ["no os-release keeps overlays and sources", "", ["pacman", "paru", "flatpak", "mise"],
@@ -187,6 +187,15 @@ const PLAN_ROWS = [
     ["a verified file updates with -U", "verified-file", "update", ["/c/gliff-1-1-x86_64.pkg.tar.zst"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-U", "--needed", "--", "/c/gliff-1-1-x86_64.pkg.tar.zst"]] }],
     ["a verified-file upgrade names -U for its plan", "verified-file", "upgrade", [], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-U", "--needed", "--"]] }],
     ...["reinstall", "remove"].map(action => ["verified-file " + action + " is unsupported", "verified-file", action, ["gliff"], ["pacman"], "manager=verified-file action=" + action + " reason=unsupported"]),
+    // apt-get(8) reads an argument holding a slash as a package file; dnf(8)
+    // installs and upgrades a local package file by its path.
+    ["a release deb installs through apt-get", "deb-file", "install", ["/c/kendex_1.20.0_amd64.deb"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "/c/kendex_1.20.0_amd64.deb"]] }],
+    ["a release deb updates through apt-get install", "deb-file", "update", ["/c/kendex_1.20.0_amd64.deb"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "/c/kendex_1.20.0_amd64.deb"]] }],
+    ["a deb-file upgrade names apt-get install for its plan", "deb-file", "upgrade", [], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install"]] }],
+    ["a release rpm installs through dnf5", "rpm-file", "install", ["/c/kendex-1.20.0-1.x86_64.rpm"], ["dnf5", "dnf"], { binary: "dnf5", elevate: true, steps: [["dnf5", "install", "/c/kendex-1.20.0-1.x86_64.rpm"]] }],
+    ["a release rpm updates through dnf upgrade", "rpm-file", "update", ["/c/kendex-1.20.0-1.x86_64.rpm"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade", "/c/kendex-1.20.0-1.x86_64.rpm"]] }],
+    ["an rpm-file upgrade names dnf upgrade for its plan", "rpm-file", "upgrade", [], ["dnf5"], { binary: "dnf5", elevate: true, steps: [["dnf5", "upgrade"]] }],
+    ...["deb-file", "rpm-file"].flatMap(manager => ["reinstall", "remove"].map(action => [manager + " " + action + " is unsupported", manager, action, ["kendex"], ["apt-get", "dnf5"], "manager=" + manager + " action=" + action + " reason=unsupported"])),
     ["an unknown manager", "zypper", "install", ["gum"], ["zypper"], "manager=zypper reason=unknown"],
     ["a manager whose binary is absent", "dnf", "install", ["gum"], [], "manager=dnf reason=absent binaries=dnf5,dnf"],
     ["a name that starts with a dash", "pacman", "install", ["-Sy"], ["pacman"], "name=\"-Sy\" reason=grammar"],
@@ -352,6 +361,8 @@ const CHECK_ROWS = [
     ["nix has no query", "nix", "nix", { skipped: "no-check" }],
     ["flatpak lists its updates", "flatpak", "flatpak", q(["flatpak", "remote-ls", "--updates", "--columns=application,branch"], ROWS, "flatpak", 120)],
     ["a verified file's check is vgshell-pkg's", "verified-file", "pacman", q(["{pkg}", "file-check", "verified-file"], { "0": "updates", "1": "none", "2": "unused" }, "arrow", 120)],
+    ["a release deb's check is vgshell-pkg's", "deb-file", "apt-get", q(["{pkg}", "file-check", "deb-file"], { "0": "updates", "1": "none", "2": "unused" }, "arrow", 120)],
+    ["a release rpm's check is vgshell-pkg's", "rpm-file", "dnf5", q(["{pkg}", "file-check", "rpm-file"], { "0": "updates", "1": "none", "2": "unused" }, "arrow", 120)],
     ["mise waives the release-age cooldown", "mise", "mise", q(["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "outdated", "--json"], ROWS, "mise", 120)]
 ];
 
@@ -624,6 +635,112 @@ function verifyFileSource(tmp) {
     return failures;
 }
 
+// The release-file source as the user meets it: stub curl, dpkg, dpkg-deb,
+// dpkg-query and rpm, each answering what its man page states, over an
+// asset written here; the version comparisons order as sort -V does. The
+// shipped pins refuse a file of other bytes; a copy of the table whose pin
+// names this asset's digest proves the accepted path, and the identity and
+// architecture refusals behind it. Both read a copy of pkg-file.js, which
+// a control edits through EDIT, [needle, replacement].
+let releaseRuns = 0;
+function verifyReleaseSource(tmp, edit = null) {
+    const failures = [], cp = require("node:child_process"), crypto = require("node:crypto");
+    const root = path.join(tmp, "release-" + ++releaseRuns), fix = path.join(root, "fix"), stubs = path.join(root, "stubs"), runtime = path.join(root, "runtime");
+    for (const dir of [fix, stubs, runtime]) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const stub = (name, body) => fs.writeFileSync(path.join(stubs, name), "#!/bin/sh\n" + body + "\n", { mode: 0o755 });
+    stub("curl", "for a; do [ \"$p\" = --output ] && o=$a; p=$a; done; cp -- \"$FIX/${p##*/}\" \"$o\" || exit 22");
+    const sortV = "newest=$(printf '%s\\n%s\\n' \"$a\" \"$b\" | sort -V | tail -n 1)";
+    stub("dpkg", "case $1 in --print-architecture) echo \"$ARCH\" ;; --compare-versions) [ \"$3\" = gt ] || exit 99; a=$2 b=$4; " + sortV
+        + "; [ \"$a\" != \"$b\" ] && [ \"$newest\" = \"$a\" ] ;; *) exit 99 ;; esac");
+    stub("dpkg-deb", "[ \"$1\" = --field ] || exit 99; printf 'Package: %s\\nVersion: %s\\nArchitecture: %s\\n' \"$ID_NAME\" \"$ID_VERSION\" \"$ID_ARCH\"");
+    stub("dpkg-query", "[ \"$1\" = -W ] || exit 99; [ -n \"$INSTALLED\" ] || { echo \"dpkg-query: no packages found matching kendex\" >&2; exit 1; }; echo \"$STATE $INSTALLED\"");
+    stub("rpm", "case $1 in -E) echo \"$ARCH\" ;; --eval) a=$(printf '%s' \"$2\" | sed -n 's/^%{lua:print(rpm.vercmp(\"\\([^\"]*\\)\",\"\\([^\"]*\\)\"))}$/\\1/p'); "
+        + "b=$(printf '%s' \"$2\" | sed -n 's/^%{lua:print(rpm.vercmp(\"\\([^\"]*\\)\",\"\\([^\"]*\\)\"))}$/\\2/p'); [ -n \"$a\" ] || exit 99; " + sortV
+        + "; if [ \"$a\" = \"$b\" ]; then echo 0; elif [ \"$newest\" = \"$a\" ]; then echo 1; else echo -1; fi ;; -qp) printf '%s %s %s\\n' \"$ID_NAME\" \"$ID_VERSION\" \"$ID_ARCH\" ;; -q) [ -n \"$INSTALLED\" ] || { echo \"package kendex is not installed\"; exit 1; }; echo \"$INSTALLED\" ;; *) exit 99 ;; esac");
+    const PATH = process.env.PATH;
+    const world = extra => Object.assign(process.env, { PATH: stubs + path.delimiter + PATH, FIX: fix, XDG_RUNTIME_DIR: runtime,
+        ARCH: "amd64", ID_NAME: "kendex", ID_VERSION: "1.20.0", ID_ARCH: "amd64", INSTALLED: "", STATE: "installed" }, extra);
+    // Two copies of the user's side and the table it reads: one with the
+    // shipped pins, and one whose pins name the assets written here.
+    const tree = name => {
+        const at = path.join(root, name);
+        for (const file of ["bin/lib/pkg-file.js", "bin/lib/judge-files.js", "bin/lib/qml-library.js", "shell/Core/PackageManagers.js"]) {
+            fs.mkdirSync(path.join(at, path.dirname(file)), { recursive: true });
+            fs.copyFileSync(path.join(__dirname, "..", file), path.join(at, file));
+        }
+        if (edit !== null) {
+            const file = path.join(at, "bin/lib/pkg-file.js"), source = fs.readFileSync(file, "utf8");
+            if (source.split(edit[0]).length !== 2) failures.push("release control: the text to replace is not named once");
+            fs.writeFileSync(file, source.replace(edit[0], () => edit[1]));
+        }
+        return at;
+    };
+    const copy = tree("pinned"), shippedCopy = tree("shipped");
+    const table = load(TABLE);
+    let copied = fs.readFileSync(path.join(copy, "shell/Core/PackageManagers.js"), "utf8");
+    for (const id of ["deb-file", "rpm-file"]) for (const asset of Object.values(table.managerRow(id).files.releases[0].assets)) {
+        const bytes = "release asset " + asset.file + "\n";
+        fs.writeFileSync(path.join(fix, asset.file), bytes);
+        const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+        if (copied.split(asset.sha256).length !== 2) failures.push("release: the pin " + asset.sha256 + " is not named once");
+        copied = copied.replace(asset.sha256, digest);
+    }
+    fs.writeFileSync(path.join(copy, "shell/Core/PackageManagers.js"), copied);
+    const outcome = (owner, id) => {
+        try { return owner.fetch(id, "kendex", fs.mkdtempSync(path.join(root, "f-"))); }
+        catch (error) { return error.first === undefined ? { thrown: error.message } : error.first.split(" ")[0]; }
+    };
+    const shipped = require(path.join(shippedCopy, "bin/lib/pkg-file.js"));
+    const pinned = require(path.join(copy, "bin/lib/pkg-file.js"));
+    for (const [name, id, extra, owner, want] of [
+        ["the shipped pin refuses other bytes", "deb-file", {}, shipped, "sha256=mismatch"],
+        ["the shipped pin refuses other rpm bytes", "rpm-file", { ARCH: "x86_64", ID_ARCH: "x86_64" }, shipped, "sha256=mismatch"],
+        ["an installed newer version is never replaced", "deb-file", { INSTALLED: "1.21.0" }, shipped, "version=older"],
+        ["an architecture the release lacks", "deb-file", { ARCH: "i386" }, pinned, "release=unsupported"],
+        ["a file of another package", "deb-file", { ID_NAME: "other" }, pinned, "identity=mismatch"],
+        ["a file of another version", "rpm-file", { ARCH: "x86_64", ID_ARCH: "x86_64", ID_VERSION: "1.19.0" }, pinned, "identity=mismatch"],
+        ["a file of another architecture", "deb-file", { ID_ARCH: "arm64" }, pinned, "identity=mismatch"],
+        ["an unreadable installed version", "rpm-file", { ARCH: "x86_64", INSTALLED: "two words" }, pinned, "installed=unreadable"]
+    ]) {
+        world(extra);
+        const got = outcome(owner, id);
+        if (got !== want) failures.push("release: " + name + ": got " + JSON.stringify(got));
+    }
+    for (const [name, id, extra, file] of [["the pinned deb", "deb-file", {}, "kendex_1.20.0_amd64.deb"],
+        ["the pinned arm64 deb over a removed one's configuration", "deb-file", { ARCH: "arm64", ID_ARCH: "arm64", INSTALLED: "1.20.0", STATE: "config-files" }, "kendex_1.20.0_arm64.deb"],
+        ["the pinned rpm over an older install", "rpm-file", { ARCH: "aarch64", ID_ARCH: "aarch64", INSTALLED: "1.19.2" }, "kendex-1.20.0-1.aarch64.rpm"]]) {
+        world(extra);
+        const got = outcome(pinned, id);
+        if (got?.filename !== file || got.name !== "kendex" || !fs.existsSync(got.fetched)) failures.push("release: " + name + " is not fetched: " + JSON.stringify(got));
+    }
+    // The check: an installed version older than the pin is an update, the
+    // pin itself and a newer one are none, and nothing installed is unused.
+    for (const [name, id, extra, status, stdout] of [["older deb", "deb-file", { INSTALLED: "1.19.0" }, 0, "kendex 1.19.0 -> 1.20.0\n"],
+        ["current deb", "deb-file", { INSTALLED: "1.20.0" }, 1, ""], ["newer rpm", "rpm-file", { INSTALLED: "1.21.0" }, 1, ""],
+        ["nothing installed", "rpm-file", {}, 2, ""], ["configuration alone", "deb-file", { INSTALLED: "1.19.0", STATE: "config-files" }, 2, ""]]) {
+        world(extra);
+        const r = cp.spawnSync(process.execPath, [path.join(__dirname, "..", "bin", "vgshell-pkg"), "file-check", id], { encoding: "utf8", env: process.env });
+        if (r.status !== status || r.stdout !== stdout) failures.push("release check: " + name + ": got " + r.status + " " + JSON.stringify(r.stdout) + " " + r.stderr);
+    }
+    process.env.PATH = PATH;
+    // The prune step keeps the new file and another package whose name
+    // extends this one's, and removes the older file, for each format.
+    for (const [id, keep, older] of [["deb-file", ["kendex_1.20.0_amd64.deb", "kendex-app_1.0_amd64.deb"], "kendex_1.19.0_amd64.deb"],
+        ["rpm-file", ["kendex-1.20.0-1.x86_64.rpm", "kendex-app-1.0-1.x86_64.rpm"], "kendex-1.19.0-1.x86_64.rpm"]]) {
+        const dir = path.join(root, "cache-" + id), files = table.managerRow(id).files;
+        fs.mkdirSync(dir);
+        for (const file of [...keep, older]) fs.writeFileSync(path.join(dir, file), "");
+        const plan = table.filePlan(id, "update", [{ name: "kendex", fetched: "/u/f", filename: keep[0] }], () => true).plan;
+        const prune = plan.steps[plan.steps.length - 1].map(arg => arg === files.dir ? dir : arg);
+        cp.execFileSync(prune[0], prune.slice(1));
+        const kept = fs.readdirSync(dir).sort();
+        if (!same(kept, [...keep].sort())) failures.push("release prune " + id + ": the cache keeps " + JSON.stringify(kept));
+        if (!same(plan.steps[0], ["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "/u/f", files.dir + "/" + keep[0]]))
+            failures.push("release " + id + ": root copies the checked file first: " + JSON.stringify(plan.steps[0]));
+    }
+    return failures;
+}
+
 function verifyOutcomes(t) {
     const failures = [];
     for (const [name, manager, binary, status, stdout, want, stderr = ""] of OUTCOME_ROWS) {
@@ -676,7 +793,7 @@ const CONTROLS = [
     ["table", "nix is offered an install", TABLE, "installs: managerRow(order[i].id).install !== null", "installs: true"],
     ["table", "a signature sits beside the file pacman installs", TABLE, 'sigDir: "/var/cache/vgshell/pkgsig"', 'sigDir: "/var/cache/vgshell/pkgfile"'],
     ["table", "a mise update keeps the installed version", TABLE, "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names.map(function (name) { return name + \"@latest\"; }));", "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names);"],
-    ["rule:update steps", "a manager that installs has no update", TABLE, "update: [[\"{bin}\", \"upgrade\", \"{names}\"]],", "update: null,"],
+    ["rule:update steps", "a manager that installs has no update", TABLE, "        // version.\n        update: [[\"{bin}\", \"upgrade\", \"{names}\"]],", "        // version.\n        update: null,"],
     ["table", "a removable name may start with a dash", TABLE, "if (query !== \"owner\" && !validName(value))", "if (query === \"installed\" && !validName(value))"],
     ["table", "a query's answer ignores its pattern", TABLE, "return m === null ? null : m[1];", "return stdout.split(\"\\n\")[0];"],
     ["table", "mise roots never hold a command", TABLE, "if (pathHolds(root, realPath)) return names[i];", "if (false) return names[i];"],
@@ -716,6 +833,18 @@ function main() {
     try {
         report("table", verifyTable(load(TABLE)));
         report("file source", verifyFileSource(tmp));
+        report("release source", verifyReleaseSource(tmp));
+        // Each control removes one of pkg-file.js's release guards from the
+        // copies verifyReleaseSource reads, and the row that guard holds
+        // must fail.
+        for (const [label, needle, row] of [
+            ["release sha256", '    if (crypto.createHash("sha256").update(fs.readFileSync(fetched)).digest("hex") !== asset.sha256)\n', "the shipped pin refuses other bytes"],
+            ["release identity", '    if (tool(format.identity(fetched), "identity=unreadable name=" + name, other) !== format.expected(release, arch))\n', "a file of another package"],
+            ["release downgrade", '    if (current !== null && newer(id, current, release.version))\n', "an installed newer version is never replaced"]]) {
+            const failures = verifyReleaseSource(tmp, [needle, "    if (false)\n"]);
+            if (failures.some(failure => failure.includes("release control:"))) report("control", [label + ": the text to replace is not named once"]);
+            else if (!failures.some(failure => failure.includes(row))) report("control", [label + ": the release source passed on a copy without that guard"]);
+        }
         CONTROLS.forEach((control, index) => runControl(tmp, control, index));
         if (failed) process.exitCode = 1;
         else console.log("test-vgshell-pkg-table: ok detect=" + DETECT_ROWS.length + " ids=" + ID_ROWS.length + " plans=" + PLAN_ROWS.length + " ignores=" + IGNORE_ROWS.length + " queries=" + QUERY_ROWS.length + " answers=" + ANSWER_ROWS.length + " pickers=" + PICKER_ROWS.length + " elevators=" + ELEVATOR_ROWS.length + " picks=" + PACKAGE_FOR_ROWS.length + " groups=" + INSTALL_GROUP_ROWS.length + " parses=" + PARSE_ROWS.length + " checks=" + CHECK_ROWS.length + " outcomes=" + OUTCOME_ROWS.length + " controls=" + CONTROLS.length);

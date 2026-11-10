@@ -4,6 +4,7 @@
 // No live session, real HOME, credential or network is used.
 "use strict";
 const { assert, fs, path, tree, world, seed, mutant, fsFault, fsFaultAsync } = require("./fixtures/jarvis/policy.js");
+const { jarvisHome: readyHome } = require("./fixtures/jarvis/home.js");
 const cp = require("node:child_process");
 const { once } = require("node:events");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
@@ -918,7 +919,11 @@ world(async () => {
         fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
         fs.writeFileSync(path.join(folder, name), text);
     }
-    fs.symlinkSync(daemonHome, path.join(daemonLinked, "skills"));
+    // Each is a home Setup set up; the refused one reaches its memory index
+    // through a link, which the judgement refuses.
+    for (const folder of [daemonHome, daemonLinked]) readyHome(folder, tree);
+    fs.rmSync(path.join(daemonLinked, "memory"), { recursive: true });
+    fs.symlinkSync(path.join(daemonHome, "memory"), path.join(daemonLinked, "memory"));
     // A home that offers fleet.request on the main: its own repository, the
     // kendex mail tool, which logs any run, and the Jarvis session's
     // mailbox; and the package stand-in as its session command, whose
@@ -930,6 +935,7 @@ world(async () => {
         fs.writeFileSync(path.join(fleetHome, name), text);
     }
     fs.chmodSync(path.join(fleetHome, ".agents/skills/mailbox/scripts/lane-mail"), 0o755);
+    readyHome(fleetHome, tree);
     for (const folder of [".git", "tmp/lane-mail/overseer", ".agents/skills/jarvis/scripts"]) fs.mkdirSync(path.join(fleetHome, folder), { recursive: true });
     fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/satellite-package.py"), path.join(fleetHome, ".agents/skills/jarvis/scripts/jarvis-session"));
     fs.chmodSync(path.join(fleetHome, ".agents/skills/jarvis/scripts/jarvis-session"), 0o755);
@@ -1062,7 +1068,7 @@ world(async () => {
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
-        ["help-home-browser", ["Browser.js", "        } }, home, environment, main, { answer, log });\n", "        } }, undefined, environment, main, { answer, log });\n"]]]) {
+        ["help-home-browser", ["Browser.js", "        } }, home, environment, main, { answer, log, shared });\n", "        } }, undefined, environment, main, { answer, log, shared });\n"]]]) {
         const dropped = await daemon(control, [edit]);
         assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
         controls++;
@@ -1079,7 +1085,7 @@ world(async () => {
     cases++;
     for (const [control, edit] of [
         ["fleet-gate-daemon", ["jarvisd.js", 'environment: process.env, main: () => context.settings.mainHost === "",', "environment: process.env,"]],
-        ["fleet-gate-browser", ["Browser.js", "        } }, home, environment, main, { answer, log });\n", "        } }, home, environment, undefined, { answer, log });\n"]]]) {
+        ["fleet-gate-browser", ["Browser.js", "        } }, home, environment, main, { answer, log, shared });\n", "        } }, home, environment, undefined, { answer, log, shared });\n"]]]) {
         const dropped = await daemon(control, [edit], "~/fleet-home", null, "cachy");
         assert.throws(() => fleetWithheld(dropped), assert.AssertionError, control + " control turns red");
         controls++;

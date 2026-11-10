@@ -420,7 +420,6 @@ PY
 source_tree() { # DIR VERSION_TEXT
   mkdir -p "$1/shell/Core" "$1/config" "$1/themes" "$1/packaging"
   cp -R -- "$repo/bin" "$1/"
-  cp -R -- "$repo/packaging/jarvis-home" "$1/packaging/"
   cp -- "$repo/shell/Core/PackageManagers.js" "$1/shell/Core/"
   cp -- "$repo/config/shell.json" "$1/config/"
   cp -- "$repo/packaging/install-system.sh" "$1/packaging/"
