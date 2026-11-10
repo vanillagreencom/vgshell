@@ -289,7 +289,16 @@ Item {
 
         Words {
             id: words
-            look: root.look
+            window: root.look.words.lines
+            stepDuration: root.look.words.step
+            fadeDuration: root.look.words.fade
+            liftDuration: root.look.words.lift
+            newestInk: root.look.ink.words
+            olderInk: root.look.ink.words
+            newestOpacity: root.look.words.newest
+            middleOpacity: root.look.words.middle
+            oldestOpacity: root.look.words.oldest
+            shadow: root.look.shadow
             x: overlay.centre - width / 2
             width: overlay.promptWidth
             height: visible ? implicitHeight : 0

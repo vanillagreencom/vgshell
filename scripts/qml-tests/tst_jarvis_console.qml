@@ -93,6 +93,31 @@ Item {
             ShortcutLabels.names = root.savedShortcutNames;
         }
 
+        // An open from Jarvis's reply card names its answer: the console
+        // puts the answer's top under the top fade band and marks it, not
+        // at the end, where a newest answer taller than the view ends.
+        function test_an_open_at_an_answer_places_its_top_and_marks_it() {
+            const values = root.values({});
+            const session = values.detail.conversationId;
+            const long = Array(400).fill("word").join(" ");
+            const row = (gen, role, text, at) => ({ gen: gen, role: role, text: text, stage: "final", at: at, session: session, startedAt: 1 });
+            values.conversation = [row(1, "user", "first question", 10), row(1, "assistant", "first answer", 20),
+                row(2, "user", "second question", 30), row(2, "assistant", long, 40)];
+            jarvisConsole.shell = root.shellWith(values);
+            jarvisConsole.open(JSON.stringify({ answer: { gen: 2, at: 40 } }));
+            const view = collect(jarvisConsole, n => n.fadeExtent !== undefined && n.contentY !== undefined, [])[0];
+            const answer = collect(jarvisConsole, n => n.sender === "Jarvis" && n.bodyText === long, [])[0];
+            verify(answer.height > view.height, "the answer is taller than the view");
+            tryVerify(() => answer.marked, 2000, "the console marks the answer");
+            tryCompare(jarvisConsole, "placement", "held");
+            // The mark shows as the answer is placed; the view takes its last
+            // place once the window settles its height.
+            tryVerify(() => answer.mapToItem(view.contentItem, 0, 0).y - view.contentY === view.clipPadding + view.fadeExtent, 2000,
+                "the answer's top stands under the top fade band");
+            verify(view.contentY < view.contentHeight - view.height, "the view is not at its end");
+            compare(collect(jarvisConsole, n => n.sender !== undefined && n.marked === true, []).length, 1, "only the answer is marked");
+        }
+
         function test_handoff_is_unsent_and_preserves_occupied_draft() {
             const sent = [];
             const shell = root.shellWith(root.values({}));

@@ -12,13 +12,29 @@ import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 // they need is laid out; a caption that grows inside its last drawn word
 // keeps its words, and one that changes an earlier word starts over;
 // motion scale 0 shows the text whole; each line draws over the look's
-// text shadow.
+// text shadow. Words takes plain values: the bubble's are its look's, as
+// `words` below is handed them; tst_jarvis_reply_card.qml reads the reply
+// card's real Words and tst_jarvis_overlay.qml the bubble's.
 Item {
     id: root
     width: 400
     height: 200
 
-    Words { id: words; width: 380; look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT) }
+    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    Words {
+        id: words
+        width: 380
+        window: root.look.words.lines
+        stepDuration: root.look.words.step
+        fadeDuration: root.look.words.fade
+        liftDuration: root.look.words.lift
+        newestInk: root.look.ink.words
+        olderInk: root.look.ink.words
+        newestOpacity: root.look.words.newest
+        middleOpacity: root.look.words.middle
+        oldestOpacity: root.look.words.oldest
+        shadow: root.look.shadow
+    }
 
     TestCase {
         name: "jarvis-words"
@@ -52,11 +68,11 @@ Item {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             words.text = text;
             tryVerify(() => words.settled && words.count === 81, 1000);
-            verify(words.lineCount > words.look.words.lines, "the caption is longer than the window: " + words.lineCount);
-            verify(words.start > 0 && words.lines.length <= words.look.words.lines + 1,
+            verify(words.lineCount > root.look.words.lines, "the caption is longer than the window: " + words.lineCount);
+            verify(words.start > 0 && words.lines.length <= root.look.words.lines + 1,
                 "only the tail is laid out: start=" + words.start + " lines=" + words.lines.length);
             const shown = drawn();
-            compare(shown.length, words.look.words.lines);
+            compare(shown.length, root.look.words.lines);
             const bottom = shown[shown.length - 1];
             compare(bottom.y + bottom.height, words.implicitHeight, "the newest line sits at the bottom");
             verify(textOf(bottom).endsWith("end"), "the bottom line ends the caption: " + textOf(bottom));
@@ -81,9 +97,9 @@ Item {
                 verify(slot.layer.enabled, "the line draws through a layer");
                 const effect = effects.find(found => found.source !== null && found.source !== undefined && found.source.sourceItem === slot);
                 verify(effect !== undefined, "an effect draws the line");
-                compare(String(effect.shadowColor), String(Qt.color(words.look.shadow.color)));
-                compare(effect.shadowOpacity, words.look.shadow.opacity);
-                compare(effect.blurMax, words.look.shadow.blur);
+                compare(String(effect.shadowColor), String(Qt.color(root.look.shadow.color)));
+                compare(effect.shadowOpacity, root.look.shadow.opacity);
+                compare(effect.blurMax, root.look.shadow.blur);
             }
         }
 

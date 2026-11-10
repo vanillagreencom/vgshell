@@ -60,22 +60,38 @@ Item {
             readonly property var candidates: observeItems()
             readonly property string candidateKey: JSON.stringify(candidates)
             onCandidateKeyChanged: invalidateFrame()
+            readonly property var covers: observeCovers()
+            onCoversChanged: Layers.setBarCovers(observationHost, covers)
             onVisibleChanged: invalidateFrame()
             onBackingWindowVisibleChanged: invalidateFrame()
             Component.onCompleted: {
                 observationHost = host.hostKey;
                 widgetSetChanged();
             }
-            Component.onDestruction: invalidateFrame()
+            Component.onDestruction: {
+                invalidateFrame();
+                Layers.setBarCovers(observationHost, []);
+            }
 
             function invalidateFrame() {
                 frameEpoch++;
                 Layers.setBarFrame(observationHost, []);
             }
 
+            // The rows of Plugins.built for the core's bar widgets on this bar.
+            function widgetRows() {
+                return (Plugins.built[host.hostKey] || []).filter(row => row.origin === "core" && row.kind === "bar-widget");
+            }
+
+            // Those rows while this bar is mapped on its own screen; none
+            // otherwise, so nothing is observed on an unmapped bar.
+            function mappedWidgetRows() {
+                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
+                return widgetRows();
+            }
+
             function widgetSetChanged() {
-                const current = (Plugins.built[host.hostKey] || [])
-                    .filter(row => row.origin === "core" && row.kind === "bar-widget").map(row => row.instance);
+                const current = widgetRows().map(row => row.instance);
                 if (current.length === observedWidgets.length && current.every((item, i) => item === observedWidgets[i])) return;
                 observedWidgets = current;
                 invalidateFrame();
@@ -108,16 +124,32 @@ Item {
 
             function observeItems() {
                 const transform = windowTransform;
-                if (!visible || !backingWindowVisible || !host.screenPresent || screen !== host.screen) return [];
                 const out = [];
-                for (const row of Plugins.built[host.hostKey] || []) {
-                    if (row.origin !== "core" || row.kind !== "bar-widget") continue;
+                for (const row of mappedWidgetRows()) {
                     const widget = row.instance;
                     const item = widget.presentationItem;
                     if (!(item instanceof BarItem) || !whole(item, widget) || widget.presentationKey === "") continue;
                     const dot = item.stateDotItem;
                     out.push({ plugin: row.id, revision: row.revision, output: screen.name,
                         key: widget.presentationKey, dot: dot !== null && whole(dot, item) ? item.stateDot : "" });
+                }
+                return out;
+            }
+
+            // Each widget's declared cover, a box in this window, which
+            // spans its output from the output's top edge (anchors above):
+            // `x` across the output, `top` and `bottom` counted down from
+            // this bar's bottom edge. The popup that draws the box follows its
+            // anchor and empties the box as it closes (PassivePopup).
+            function observeCovers() {
+                const out = [];
+                for (const row of mappedWidgetRows()) {
+                    // A malformed widget can be published before createWidget rejects it.
+                    if (!(row.instance instanceof BarWidget)) continue;
+                    const cover = row.instance.cover;
+                    if (!(cover.width > 0 && cover.height > 0)) continue;
+                    out.push({ output: screen.name, x: cover.x, width: cover.width,
+                        top: cover.y - height, bottom: cover.y + cover.height - height });
                 }
                 return out;
             }

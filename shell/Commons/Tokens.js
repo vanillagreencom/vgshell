@@ -292,6 +292,12 @@ var TOKENS = {
         flyout: {
             travel: { duration: duration("{motion.duration.fast}"), easing: easing("{motion.easing.standard}") },
             slide: length("{space.lg}")
+        },
+        // Text revealed word by word, as Jarvis's words: one word each
+        // `step`, a pace per item as `list.stagger` is, not the length of
+        // one transition, which `duration` holds.
+        reveal: {
+            step: duration(180)
         }
     },
 
@@ -1035,6 +1041,25 @@ var TOKENS = {
         gap: length("{stack.inline}"),
         saved: color("{color.success}"),
         duration: number(1600, 0, 60000)
+    },
+
+    // Jarvis's reply card under the bar J shows for `duration`
+    // milliseconds after its answer settles, a count that motion does not
+    // scale, as `osd.duration`.
+    replyCard: {
+        duration: number(6000, 0, 60000)
+    },
+
+    // A message row keeps its avatar and text `paddingX` in from each side
+    // and `paddingY` from its top and bottom, marked or not, so its mark
+    // moves nothing and clears every edge. A marked row, such as the
+    // answer a console opens at, stands on `mark` for `markHold`
+    // milliseconds, a count that motion does not scale, then fades.
+    messageRow: {
+        paddingX: length("{stack.inline}"),
+        paddingY: length("{stack.inline}"),
+        mark: color("{listItem.selected}"),
+        markHold: number(2000, 0, 60000)
     },
 
     // A confirmation card: `gap` separates its title, message, content and

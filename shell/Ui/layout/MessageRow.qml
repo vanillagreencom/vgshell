@@ -7,6 +7,14 @@ import qs.Ui
 // source link stands apart from the small secondary buttons that answer it.
 // Buttons take { id, label, disabledReason }; each keeps the shared reason,
 // keyboard and focus behavior. The row itself takes no click or focus.
+// The avatar and text stand `messageRow.paddingX` in from each side and
+// `messageRow.paddingY` from the top and bottom.
+// `bodyLines` cuts the body at that many lines with an ellipsis (0 keeps
+// it whole); `bodyTruncated` says it was cut, and then `cutHint`, when
+// set, says under it how to read the rest. `bodyComponent` draws an item
+// in the body's place, such as Jarvis's words as it speaks them. `marked`
+// stands the row on the `messageRow.mark` plate, its whole box, fading in
+// and out over `motion.duration.slow`.
 Item {
     id: root
 
@@ -21,10 +29,16 @@ Item {
     property string stateTone: "neutral"
     property string above: ""
     property var actions: []
+    property int bodyLines: 0
+    readonly property bool bodyTruncated: bodyLabel.truncated
+    property Component bodyComponent: null
+    property string cutHint: ""
+    property bool marked: false
     readonly property Item linkControl: sourceLink
     readonly property real avatarSize: Theme.size.control.sm
-    readonly property real paddingY: Theme.stack.inline
-    readonly property real contentX: avatarSize + Theme.stack.group
+    readonly property real paddingY: Theme.messageRow.paddingY
+    readonly property real paddingX: Theme.messageRow.paddingX
+    readonly property real contentX: paddingX + avatarSize + Theme.stack.group
 
     signal sourceActivated()
     signal actionTriggered(string id)
@@ -33,8 +47,18 @@ Item {
 
     implicitHeight: content.implicitHeight + 2 * paddingY
 
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.listItem.radius
+        color: Theme.messageRow.mark
+        opacity: root.marked ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.motion.duration.slow } }
+    }
+
     AvatarGroup {
         id: avatar
+        x: root.paddingX
         y: root.paddingY
         size: root.avatarSize
         initialsShare: Theme.text.hint.size / root.avatarSize
@@ -51,7 +75,7 @@ Item {
         id: content
         x: root.contentX
         y: root.paddingY
-        width: Math.max(0, root.width - x)
+        width: Math.max(0, root.width - x - root.paddingX)
         spacing: Theme.row.lineGap
 
         Label {
@@ -113,12 +137,31 @@ Item {
             wrapMode: Text.Wrap
         }
         Label {
+            id: bodyLabel
             visible: root.bodyText !== ""
             width: parent.width
             role: "body"
+            // Undefined resets Text's own maximum, no cap.
+            maximumLineCount: root.bodyLines > 0 ? root.bodyLines : undefined
+            elide: root.bodyLines > 0 ? Text.ElideRight : Text.ElideNone
             text: root.bodyText
             textFormat: Text.PlainText // Source text can contain markup.
             wrapMode: Text.Wrap
+        }
+        Label {
+            visible: root.bodyTruncated && root.cutHint !== ""
+            width: parent.width
+            role: "hint"
+            text: root.cutHint
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+        }
+        Loader {
+            id: bodySlot
+            active: root.bodyComponent !== null
+            visible: active
+            width: parent.width
+            sourceComponent: root.bodyComponent
         }
         LinkText {
             id: sourceLink

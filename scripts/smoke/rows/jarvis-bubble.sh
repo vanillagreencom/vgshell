@@ -7,8 +7,9 @@
 # after the look settles: each moving state swaps one within 0.2 s, read
 # again until it does (the motion model), and at motion scale 0, which
 # stills every state, the fault's look swaps none over 3 s, counted once
-# the layer is quiet, and none within the moving states' 0.2 s, so a
-# reader that counts nothing fails the moving states and a still state
+# a requested Qt frame is acknowledged and the layer is quiet, and none
+# within the moving states' 0.2 s, so a reader that counts nothing fails
+# the moving states and a still state
 # fails them. The quiet wait reads the moving fault as swapped, and a
 # redraw planted after it fails the still reading.
 # The waiting orb swaps at most its look's frame rate over 2 s, and
@@ -258,8 +259,9 @@ console.log(easing.length === 0 ? orb.phase : orb.phase + ":easing=" + easing.jo
 JS
 }
 # `quiet` when the Jarvis layer window the probe watches swaps no frame
-# over 3 s, counted from the first moment the window is quiet: two reads
-# 0.1 s apart that agree, within 20 such reads. A change that just
+# over 3 s, after acknowledging a requested Qt frame and then finding the
+# window quiet: two reads 0.1 s apart that agree, within 20 such reads.
+# A change that just
 # happened, such as a theme flip, redraws the layer a few times however
 # short its scaled transition is, so the count waits for those swaps
 # rather than for a duration. `swapped` when the window swaps inside the
@@ -267,7 +269,16 @@ JS
 # state reads `quiet`. A PLANT command runs between the quiet wait and the
 # count, where the control plants a redraw.
 jarvis_bubble_still() { # [PLANT...]
-  local before after reads quiet=false
+  local before after reads request quiet=false failures=0 behaviour_failures=0
+  # expect reads this helper in a subshell; its admission keeps the normal
+  # poll bound, while a control's additional subshell keeps the short bound.
+  local smoke_poll_scope=$((smoke_poll_scope + 1))
+  request="$(ipc smoke layerFrameRequest)" || return 1
+  [[ $request =~ ^pending:([1-9][0-9]*)$ ]] || { printf 'frame-admission=%s\n' "$request"; return 1; }
+  # Probe owns the fresh Qt-frame acknowledgement. Its passive status poll
+  # requests no further frame, so only the admission drives a redraw.
+  expect_poll "the watched Jarvis layer acknowledges its requested Qt frame" ready ipc smoke layerFrameStatus "${BASH_REMATCH[1]}" >&2 || return 1
+  ((failures == 0)) || return 1
   before="$(ipc smoke layerFrames)" || return 1
   for reads in $(seq 1 20); do
     sleep 0.1
@@ -288,6 +299,11 @@ jarvis_bubble_still() { # [PLANT...]
   [[ $before =~ ^[0-9]+$ && $after =~ ^[0-9]+$ ]] || { echo "unreadable before=$before after=$after"; return; }
   printf '        jarvis_layer_frames_before=%s after=%s interval_s=3\n' "$before" "$after" >&2
   if ((after == before)); then echo quiet; else echo swapped; fi
+}
+jarvis_bubble_disconnected_still_control() {
+  local reading status=0
+  reading="$(jarvis_bubble_still)" || status=$?
+  printf 'status=%s reading=%s\n' "$status" "$reading"
 }
 # `advancing` when the Jarvis layer window the probe watches swaps a frame
 # within 0.2 s, read after the look's transition and two frames at 60 Hz,
@@ -1006,6 +1022,9 @@ printf '%s\n' '{"schemaVersion":1,"name":"jarvis-bubble-motion-off","tokens":{"m
 mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
 expect_poll "the theme stills motion for the motion-off reading" 0 ipc smoke themeValue motion.scale
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
+expect "control: disconnect the Jarvis layer observer before admission" ok ipc smoke layerFrameListening false
+expect "control: the still reader refuses a disconnected observer" 'status=1 reading=frame-admission=refused:disconnected' jarvis_bubble_disconnected_still_control
+expect "restore the Jarvis layer observer before the still reading" ok ipc smoke layerFrameListening true
 expect "control: at motion scale 0 the fault's orb swaps no frame over 3 s" quiet jarvis_bubble_still
 expect "control: at motion scale 0 the advancing reader reads stopped over the fault's look" stopped jarvis_bubble_advancing
 expect "control: a redraw after the quiet wait fails the same still reader" swapped jarvis_bubble_still jarvis_bubble_flip_mode
@@ -1205,7 +1224,10 @@ jarvis_key_stop_assertion
 jarvis_bubble_begin
 jarvis_key_gate device-lost
 expect_poll "hidden device loss enters the real retry fault" retrying jarvis_key_state fault
-expect_poll "the hidden fault keeps its required text and field" required jarvis_bubble_hidden required
+# The reply card under the J shows the fault first, and the overlay's
+# hidden-orb fault line steps aside until the card's hold ends (VGS-2339).
+expect_poll "the reply card holds the hidden fault, so the overlay stays quiet" quiet jarvis_bubble_hidden quiet
+expect_poll "the hidden fault keeps its required text and field once the card hides" required jarvis_bubble_hidden required
 jarvis_bubble_before="$(jarvis_key_received count)"
 jarvis_bubble_menu_choose "Show Jarvis" Label role bodyStrong || fail "the hidden fault's menu Show is delivered"
 expect_poll "Show from the required fault restores the orb choice" shown jarvis_key_state visibility
@@ -1254,7 +1276,7 @@ jarvis_disable
 for jarvis_bubble_mutant in geometry console console-close focus words role lines head generation look approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_select
   jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Bubble.qml"
-  if [[ $jarvis_bubble_mutant == lines || $jarvis_bubble_mutant == head ]]; then
+  if [[ $jarvis_bubble_mutant == head ]]; then
     jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/Words.qml"
   fi
   [[ $jarvis_bubble_mutant != look ]] || jarvis_bubble_mutation_file="$jarvis_fixture_tree/shell/plugins/vgs.jarvis/ParticleOrb.qml"
@@ -1275,7 +1297,7 @@ needle,replacement={
     "focus": ("screen.name === service.focusedOutput", "true"),
     "words": ('caption !== null && caption.role', "false && caption.role"),
     "role": ('&& caption.role === "assistant" &&', "&&"),
-    "lines": ("readonly property int window: look.words.lines", "readonly property int window: look.words.lines + 1"),
+    "lines": ("window: root.look.words.lines", "window: root.look.words.lines + 1"),
     "head": ("y: (root.window - 1 - index) * root.lineBox + root.lift", "y: index * root.lineBox + root.lift"),
     "generation": ("caption.gen === state.gen", "true"),
     "look": ("readonly property var tone: look.state[phase]", "readonly property var tone: look.state.idle"),

@@ -34,6 +34,14 @@ Item {
     readonly property real sideInset: gap - look.stack.pad
     readonly property real topInset: gap - look.card.gap
     readonly property real bottomInset: gap - look.card.gap - look.stack.tail
+    // A top stack starts below a box a bar widget draws under the bar on
+    // this screen across the column's span, such as Jarvis's reply card,
+    // its top gap below that box's bottom: both count from the bar's
+    // bottom edge, where this layer starts (Layers.barCovers).
+    readonly property real coverBottom: fromBottom || service === null || screen === null ? 0
+        : service.barCovers.filter(c => c.output === screen.name && c.x < column.x + column.width && c.x + c.width > column.x)
+            .reduce((low, c) => Math.max(low, c.bottom), 0)
+    readonly property real stackTop: topInset + coverBottom
 
     ColumnLayout {
         id: column
@@ -41,7 +49,7 @@ Item {
         x: stack.side === "left" ? stack.sideInset
             : stack.side === "right" ? stack.width - width - stack.sideInset
             : Math.round((stack.width - width) / 2)
-        y: stack.fromBottom ? stack.height - height - stack.bottomInset : stack.topInset
+        y: stack.fromBottom ? stack.height - height - stack.bottomInset : stack.stackTop
         // Each slot carries its own gap, scaled by its morph, so the rows
         // close up smoothly when one goes.
         spacing: 0
@@ -49,7 +57,7 @@ Item {
         CardScroll {
             id: scroll
             look: stack.look
-            maxHeight: stack.height - stack.look.stack.far - (stack.fromBottom ? stack.bottomInset : stack.topInset)
+            maxHeight: stack.height - stack.look.stack.far - (stack.fromBottom ? stack.bottomInset : stack.stackTop)
             fromEnd: stack.fromBottom
             scrollObjectName: "notificationScrollBar"
             Layout.alignment: Qt.AlignHCenter

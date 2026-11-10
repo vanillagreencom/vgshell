@@ -355,6 +355,7 @@ f share/vgshell/shell/Ui/overlay/Menu.qml
 f share/vgshell/shell/Ui/overlay/MenuItem.qml
 f share/vgshell/shell/Ui/overlay/ModalDialog.qml
 f share/vgshell/shell/Ui/overlay/OverlayState.qml
+f share/vgshell/shell/Ui/overlay/PassivePopup.qml
 f share/vgshell/shell/Ui/overlay/Popover.qml
 f share/vgshell/shell/Ui/overlay/Tooltip.qml
 f share/vgshell/shell/Ui/qmldir
@@ -521,6 +522,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/Keys.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalTier.qml
 f share/vgshell/shell/plugins/vgs.jarvis/ParticleOrb.qml
+f share/vgshell/shell/plugins/vgs.jarvis/ReplyCard.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Service.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Session.js
 f share/vgshell/shell/plugins/vgs.jarvis/SessionStart.qml

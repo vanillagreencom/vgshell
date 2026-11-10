@@ -15,7 +15,10 @@ import "Session.js" as Session
 // click opens too (WidgetView.menuEntries): the microphone's and the
 // voice's mute, Stop and Key hints, each intent sent through the service's
 // IPC handler of its name and Key hints opening its page through
-// shell.surfaces.openPage, as the overlay's menu does. It is one BarItem.
+// shell.surfaces.openPage, as the overlay's menu does. It is one BarItem,
+// with Jarvis's reply card (ReplyCard.qml) under it: while the card shows,
+// the J's tooltip, which would open over it, stays closed, and the card's
+// box is this widget's `cover`.
 BarWidget {
     id: root
 
@@ -81,9 +84,17 @@ BarWidget {
         tone: root.toneColor(root.view.tone)
         stateDot: root.view.stateDot
         count: root.hasAsks ? String(root.ownerAsks.activeCount) : ""
-        tooltip: root.view.tooltip
-        tooltipDetails: root.view.tooltipDetails
+        tooltip: reply.drawing ? "" : root.view.tooltip
+        tooltipDetails: reply.drawing ? [] : root.view.tooltipDetails
         onTooltipPageActivated: (page, tab) => root.frame.openPage(page, tab)
         onClicked: root.openConsole()
+    }
+
+    cover: reply.placedBox
+
+    ReplyCard {
+        id: reply
+        parent: item
+        shell: root.shell
     }
 }

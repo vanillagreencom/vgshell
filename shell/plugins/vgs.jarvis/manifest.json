@@ -130,6 +130,7 @@
     "sessionModes": {"type": "choices", "label": "Sessions at boot", "hidden": true},
     "level": {"type": "data", "label": "Audio levels"},
     "transcript": {"type": "data", "label": "Transcript"},
+    "replyCard": {"type": "data", "label": "Reply card"},
     "conversation": {"type": "data", "label": "Conversation"},
     "memoryInbox": {"type": "data", "label": "Memory inbox"},
     "homePath": {"type": "data", "label": "Chosen home path"},

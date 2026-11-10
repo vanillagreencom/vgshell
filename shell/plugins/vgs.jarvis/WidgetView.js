@@ -419,3 +419,44 @@ function stateView(values, voice) {
     default: refuse("phase", detail.phase);
     }
 }
+
+// Whether conversation row ROW is the answer {gen, at} a reply card names.
+function isAnswer(row, answer) {
+    return answer !== null && row.role === "assistant" && row.gen === answer.gen && row.at === answer.at;
+}
+
+// Whether Jarvis has finished the turn in STATE: its turn no longer thinks
+// and its words are no longer spoken. A running tool and a held request run
+// inside the thinking turn, whose phase reads acting or confirming, and keep
+// its caption open, so its words are not the whole answer yet.
+function turnSettled(state) {
+    return state.turn.kind !== "thinking" && state.turn.kind !== "cancelling" && Session.phaseOf(state) !== "speaking";
+}
+
+// What Jarvis's reply card under the bar J shows (Service.qml), or null:
+// the card's whole decision, which the card only draws. While Jarvis Voice
+// is muted or the orb is hidden: a fault in its plain words (`fault`,
+// {title, action}), or the newest row of conversation SESSION when it is
+// Jarvis's, drawn as the words Jarvis speaks while the voice speaks
+// CAPTION, the transcript status (`follow`), or as the answer otherwise.
+// `key` names one card, so a new answer replaces it; `answer` is the row
+// the console opens at, null for a fault; `settled` is whether the turn has
+// finished, when the card's hold may start. VOICE is the cloud voice the
+// fault words name (AccountProviders.cloudVoice).
+function replyCard(log, state, session, caption, voice) {
+    if (state === null || !Array.isArray(log)) return null;
+    var muted = state.voiceMute.kind === "on";
+    if (!muted && state.visibility.kind !== "hidden") return null;
+    var phase = Session.phaseOf(state);
+    if (phase === "error") {
+        var words = faultText(state.fault, state.engine.kind, voice);
+        return { key: "fault:" + state.gen + ":" + state.fault.reason, answer: null, mode: "fault",
+            fault: { title: words.title, action: words.action }, settled: true };
+    }
+    var rows = log.filter(function (row) { return row.session === session; });
+    var last = rows.length === 0 ? null : rows[rows.length - 1];
+    if (last === null || last.role !== "assistant") return null;
+    var speaking = !muted && phase === "speaking" && caption !== null && caption.role === "assistant" && caption.gen === last.gen;
+    return { key: last.gen + ":" + last.at, answer: { gen: last.gen, at: last.at }, mode: speaking ? "follow" : "answer",
+        fault: null, settled: turnSettled(state) };
+}

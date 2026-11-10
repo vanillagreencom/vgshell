@@ -114,6 +114,9 @@ jarvis-widget
 # resets Jarvis at its start and end, so no row after it reads its state.
 jarvis-desktop
 jarvis-console
+# After jarvis-console, on its own fixture tree; it leaves Jarvis disabled
+# and the stock shell started.
+jarvis-reply
 instance-guard
 diagnostics
 supervise

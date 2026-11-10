@@ -249,7 +249,54 @@ FocusScope {
         askProblem = "";
         refreshAsks();
         Qt.callLater(() => root.composerFocus.forceActiveFocus());
-        Qt.callLater(followEnd);
+        // An open from Jarvis's reply card names its answer.
+        placeAt(payload.answer === undefined ? null : payload.answer);
+        Qt.callLater(() => root.keepPlace("open"));
+    }
+    // Where the transcript view stands: "end", at its newest row; "pending",
+    // at the answer an open from Jarvis's reply card named, which waits for
+    // its row's and the view's first height, since a new console opens before
+    // its window maps; "held", that answer's top under the top fade band, as
+    // far as the end allows, marked for `messageRow.markHold`, and placed
+    // again as the window settles its height. keepPlace() puts the view
+    // there on each change that can move it.
+    property string placement: "end"
+    property var markedAnswer: null
+    Timer { id: markTimer; interval: Theme.messageRow.markHold; onTriggered: root.placeAt(null) }
+    function placeAt(answer) {
+        markedAnswer = answer;
+        placement = answer === null ? "end" : "pending";
+        if (answer === null) markTimer.stop();
+    }
+    function answerItem() {
+        const index = markedAnswer === null ? -1 : transcriptRows.findIndex(row => WidgetView.isAnswer(row, markedAnswer));
+        return index < 0 ? null : transcriptList.itemAt(index);
+    }
+    // TRIGGER is what moved: "open", "tab", "rows", "content" or "view".
+    // At the end, a content change follows only a view already at its end,
+    // and a view change moves nothing.
+    function keepPlace(trigger) {
+        if (tab !== 0) return;
+        if (placement === "end") {
+            if (trigger === "view" || trigger === "content" && !atEnd) return;
+            followEnd();
+            return;
+        }
+        const item = answerItem();
+        const view = layout.scrollArea;
+        if (item === null) {
+            placeAt(null);
+            followEnd();
+            return;
+        }
+        if (placement === "pending") {
+            if (!(view.height > 0) || !(item.height > 0)) return;
+            placement = "held";
+            markTimer.restart();
+        }
+        const at = item.mapToItem(view.contentItem, 0, 0);
+        const top = at.y - view.clipPadding - view.fadeExtent;
+        view.contentY = Math.max(0, Math.min(view.contentHeight - view.height, top));
     }
 
     function close() {}
@@ -273,7 +320,7 @@ FocusScope {
         layout.scrollArea.contentY = 0;
         const control = tab === 0 ? composerFocus : tab === 1 ? asksBody : historySearch;
         control.forceActiveFocus(consoleTabs.activeFocus ? consoleTabs.focusReason : Qt.TabFocusReason);
-        if (tab === 0) Qt.callLater(followEnd);
+        Qt.callLater(() => root.keepPlace("tab"));
     }
 
     // Handle Backtab and Tab with Shift before the control's native traversal.
@@ -483,7 +530,7 @@ FocusScope {
         view.contentY = Math.max(0, view.contentHeight - view.height);
     }
 
-    onTranscriptRowsChanged: if (tab === 0) Qt.callLater(followEnd)
+    onTranscriptRowsChanged: Qt.callLater(() => root.keepPlace("rows"))
     // A view at its end stays there while rows and memory cards lay out, so
     // the newest card shows whole; a view the user scrolled up stays put.
     property bool atEnd: true
@@ -493,7 +540,8 @@ FocusScope {
             const view = layout.scrollArea;
             root.atEnd = view.contentY >= view.contentHeight - view.height - 1;
         }
-        function onContentHeightChanged() { if (root.tab === 0 && root.atEnd) Qt.callLater(root.followEnd); }
+        function onContentHeightChanged() { Qt.callLater(() => root.keepPlace("content")); }
+        function onHeightChanged() { Qt.callLater(() => root.keepPlace("view")); }
     }
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: Math.floor(OverlayState.windowRoom(screen).height)
@@ -601,10 +649,12 @@ FocusScope {
             spacing: Theme.stack.row
 
             Repeater {
+                id: transcriptList
                 model: root.transcriptRows
                 MessageRow {
                     required property var modelData
                     width: layout.contentWidth
+                    marked: root.placement === "held" && WidgetView.isAnswer(modelData, root.markedAnswer)
                     sender: root.speaker(modelData.role)
                     timeText: modelData.at === undefined ? "Listening" : root.when(modelData.at)
                     initials: modelData.role === "user" ? "Y" : ""
