@@ -33,6 +33,12 @@ The AI model works with windows, workspaces, applications, files, the clipboard,
 
 File actions reach only your home directory. They never reach your keys and passwords, your browser profiles, your app accounts or VGS's own files, and in your Jarvis home they reach only its `state` folder.
 
+## Web questions and cost
+
+When the conversation already uses your stored OpenAI key, the AI model can answer live web and news questions with one search. The question goes to OpenAI and its search service. The answer includes its sources. Fleet and account requests still go to Jarvis.
+
+Weekly OpenAI spend cap on Settings stops search when Jarvis Voice's counted spend over the last seven days reaches your amount. Voice keeps working. An in-progress search can take the total above the cap. Jarvis Voice keeps usage counts and priced costs in its private audit; a response with missing usage or an unknown price stays unpriced. The report's cost is the priced subtotal, not a claim about unpriced calls or other clients using your key. Your OpenAI dashboard owns the project's separate monthly hard limit.
+
 ## The action check
 
 Every action passes one check before it runs, whether the AI model asks for it or the app asks permission for one of its own steps.

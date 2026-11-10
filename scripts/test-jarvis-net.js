@@ -2,7 +2,8 @@
 // Synthetic HTTP endpoints and RFC 6455 section 5 frames, 2026-09-30.
 // All traffic, including the synthetic non-loopback address, stays in J09.
 "use strict";
-const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
+const { assert, fs, path, tree, world, mutant, pluginCopy } = require("./fixtures/jarvis/policy.js");
+const SearchFixture = require("./fixtures/jarvis/search.js");
 const { standins } = require("./fixtures/jarvis/keys-world.js");
 const http = require("node:http");
 const sockets = require("node:net");
@@ -39,6 +40,9 @@ world(async () => {
                 const [, , status, destination] = request.url.split("/");
                 response.writeHead(Number(status), { Location: destination === "same" ? "/echo" : second + "/echo" });
                 response.end();
+            } else if (request.url === "/search") {
+                response.writeHead(200, { "Content-Type": "application/json" });
+                response.end(JSON.stringify(SearchFixture.response()));
             } else if (request.url === "/stream") {
                 response.writeHead(200, { "Content-Type": "text/event-stream" });
                 response.write("data: pending\n\n");
@@ -159,6 +163,30 @@ world(async () => {
         assert.equal(connections.length, count, "malformed credentials open no socket");
     }
     try {
+        await pluginCopy(path.join(tree, "shell/plugins/vgs.jarvis/backend/WebSearch.js"),
+            [['const URL = "https://api.openai.com/v1/responses";', 'const URL = ' + JSON.stringify(first + "/search") + ";"]],
+            async folder => {
+                const Search = require(path.join(folder, "backend/WebSearch.js"));
+                const { door, recipients } = owner(Net, Policy, first, null);
+                let executor, requests = 0;
+                const audit = require("../shell/plugins/vgs.jarvis/backend/Audit.js").create({
+                    state: fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "search-net-")) });
+                const secret = Buffer.from("search-door-key");
+                const lifetime = Search.install({ router: { register(_id, value) { executor = value; } },
+                    cap: () => 25, audit,
+                    conversation: () => ({ key: { reference: { origin: first }, secrets: { lookup: () => secret } },
+                        net: { request(item, options, grants) { requests++; return door.request(item, options, grants); } },
+                        release: item => Policy.release(item, recipients), grants: () => [], transfer: (_item, start) => start() }) });
+                try {
+                    const answer = await new Promise(resolve => executor.start({ id: "web.search", args: { query: "news?" } },
+                        resolve, () => ({ kind: "allow" }), { labels: ["speech"] }));
+                    assert.equal(answer.outcome, "completed");
+                    assert.equal(requests, 1, "search opens its socket only through the conversation's net door");
+                    assert.equal(records.at(-1).url, "/search");
+                    assert.equal(records.at(-1).headers.authorization, "Bearer search-door-key");
+                    assert.equal(secret.every(byte => byte === 0), true);
+                } finally { lifetime.close(); audit.close(); }
+            });
         const { door } = owner();
         await consume(door, speech, { url: first + "/echo", key });
         assert.equal(records.at(-1).headers.authorization, "Bearer synthetic-key");

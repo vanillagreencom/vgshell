@@ -10,11 +10,12 @@ function fail(code) { throw new Error("jarvis: brain=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function optionalString(value) { return value === undefined || typeof value === "string"; }
 
-function chunkOf(data) {
+function chunkOf(data, usage) {
     let value;
     try { value = JSON.parse(data); } catch { fail("chunk-json"); }
     if (!plain(value)) fail("chunk-shape");
     if (Object.hasOwn(value, "error")) fail("stream-error");
+    usage(value.usage, value.service_tier);
     if (!Array.isArray(value.choices) || value.choices.length > 1) fail("chunk-shape");
     if (value.choices.length === 0) return null;
     const choice = value.choices[0];
@@ -82,17 +83,25 @@ function imagePart(image) {
         ? { type: "image_url", image_url: { url: "data:" + image.type + ";base64," + image.decision.content.toString("base64") } }
         : { type: "text", text: image.decision.content };
 }
-function reader(names) {
+function reader(names, usage = () => {}) {
     const calls = assembler(names);
     let text = "";
     let finish = null;
+    let tier;
     return event => {
         if (event.event !== "message") fail("chunk-shape");
         if (event.data === "[DONE]") {
             const reason = outcome(finish, calls.count);
             return { kind: "complete", text, calls: calls.complete(), reason };
         }
-        const chunk = chunkOf(event.data);
+        // include_usage's final chunk has no choice. It still bills, and
+        // reaches the usage owner before the ordinary choice parser.
+        // https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
+        // stream_options.include_usage, read 2026-11-10.
+        const chunk = chunkOf(event.data, (counts, currentTier) => {
+            if (currentTier !== undefined) tier = currentTier;
+            if (counts !== undefined && counts !== null) usage(counts, tier);
+        });
         if (chunk === null) return { kind: "continue" };
         if (finish !== null) fail("chunk-order");
         for (const fragment of chunk.fragments) calls.add(fragment);

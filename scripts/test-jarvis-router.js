@@ -17,6 +17,23 @@ world(async () => {
     const Audit = require(path.join(backend, "Audit.js"));
     const Denied = require(path.join(backend, "Denied.js"));
     const fixtures = seed();
+    const search = require("./fixtures/jarvis/search.js");
+    const searchFile = path.join(backend, "WebSearch.js");
+    search.eligibility();
+    await search.execution();
+    await mutant(searchFile, "search-cap", "usage.total.costUsd >= limit", "false", search.execution);
+    await mutant(searchFile, "search-no-store", 'include: ["web_search_call.action.sources"], store: false', 'include: ["web_search_call.action.sources"], store: true', search.execution);
+    await mutant(searchFile, "search-billable-count", "value?.tool_usage?.web_search?.num_requests ?? null", "1", search.execution);
+    await mutant(searchFile, "search-send-authority", 'if (check().kind !== "allow")', "if (false)", search.execution);
+    await mutant(searchFile, "search-lease-turn", "await setImmediate(undefined, { signal });", "void signal;", search.execution);
+    await mutant(searchFile, "search-recipient", "return null;\n}", 'return { reference: { provider: "openai", origin: "https://api.openai.com" } };\n}',
+        (logic, folder) => search.eligibility(logic, require(path.join(folder, "Policy.js"))));
+    console.log("control=search-cap detected");
+    console.log("control=search-no-store detected");
+    console.log("control=search-billable-count detected");
+    console.log("control=search-send-authority detected");
+    console.log("control=search-lease-turn detected");
+    console.log("control=search-recipient detected");
     const cleanups = [];
     let controls = 0;
     function make(implementation = Router, session = Session, options = {}) {
@@ -44,7 +61,7 @@ world(async () => {
         const router = implementation.create({ session, state: () => runner.state,
             dispatch: e => runner.dispatch(e), context: () => ({
                 profile: options.profile ?? "standard", locked, get denied() { return denied(); } }),
-            audit, result: value => results.push(value) });
+            audit, result: value => results.push(value), release: options.release });
         Object.assign(ports, router.ports);
         for (const executor of ["windows", "compositor", "files", "input", "sandbox", "browser", "harness", "vision"]) {
             if (executor === "browser" && options.browser) continue;
@@ -322,6 +339,38 @@ esac
     const text = { text: "fixture text" };
     const held = w => { assert.equal(w.call("shell.argv", shell).kind, "held"); w.show(); w.time(700); };
     const cases = [
+        ["search-failure-source", async implementation => {
+            const w = make(implementation, Session, { release: () => true });
+            w.router.register("web", { commands: [], timeoutMs: 1000, cancellable: false,
+                start(_call, done) { done({ outcome: "failed", content: "failed: Local cap reached." }); } });
+            await w.call("web.search", { query: "news?" });
+            assert.deepEqual(w.results.at(-1).results[0].item.labels, ["desktop"],
+                "local cap/status failures need no grant to send web-page content");
+        }],
+        ["search-result-envelope", async implementation => {
+            const w = make(implementation, Session, { release: () => true });
+            w.router.register("web", { commands: [], timeoutMs: 1000, cancellable: false,
+                start(_call, done) { done({ outcome: "completed", content: JSON.stringify({ answer: "x".repeat(20000),
+                    citations: [{ title: "News", url: "https://example.test/news" }] }) }); } });
+            await w.call("web.search", { query: "news?" });
+            assert.equal(w.results.at(-1).outcome, "failed", "an oversized citation envelope fails rather than becoming clipped JSON");
+        }],
+        ["search-offer", implementation => {
+            const Search = require(searchFile);
+            const w = make(implementation);
+            let key = null;
+            const lifetime = Search.install({ router: w.router, conversation: () => ({ key }), audit: w.audit,
+                cap: () => 25 });
+            try {
+                assert.equal(w.router.offer().some(row => row.id === "web.search"), false,
+                    "Local voice and a non-OpenAI brain have no selected OpenAI key");
+                key = { reference: { origin: "https://api.openai.com", provider: "openai" } };
+                const offered = w.router.offer().find(row => row.id === "web.search");
+                assert.deepEqual(offered.parameters.required, ["query"]);
+                key = null;
+                assert.deepEqual(w.call("web.search", { query: "news?" }), { kind: "refuse", reason: "executor-unavailable" });
+            } finally { lifetime.close(); }
+        }],
         ["lazy-denied", implementation => {
             const w = make(implementation);
             assert.equal(w.call("windows.list").kind, "proposed");
@@ -964,6 +1013,8 @@ esac
         for (const [name, check] of cases) { await check(Router); console.log("case=" + name + " passed"); }
         const byName = name => cases.find(row => row[0] === name)[1];
         const controlsTable = [
+            ["search-failure-source", 'e.outcome === "failed" && Tools.TABLE[value.call.id].failureSource !== undefined', "false", "search-failure-source"],
+            ["search-result-envelope", 'Tools.TABLE[value.call.id].structured === true && Buffer.byteLength(answer.content) > RESULT_BYTES', "false", "search-result-envelope"],
             ["readiness-type", '(executor.available !== undefined && typeof executor.available !== "function")', 'false', "readiness-type"],
             ["readiness-literal", 'executor.available() === true', 'executor.available()', "readiness-literal"],
             ["help-topic-enum", 'parameters.properties.topic = { type: "string", enum: topics };', "", "home-help"],

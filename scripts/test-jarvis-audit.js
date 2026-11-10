@@ -9,6 +9,81 @@ const RedactFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Redact.js")
 const PrivateFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Private.js");
 
 world(() => {
+    const Usage = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Usage.js"));
+    const UsageCli = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/usage.js"));
+    const usageFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Usage.js");
+    const realtimeUsage = { input_tokens: 132, output_tokens: 121,
+        input_token_details: { text_tokens: 119, audio_tokens: 13, image_tokens: 0, cached_tokens: 64,
+            cached_tokens_details: { text_tokens: 64, audio_tokens: 0, image_tokens: 0 } },
+        output_token_details: { text_tokens: 30, audio_tokens: 91 } };
+    function prices(logic) {
+        for (const [event, cost, counts] of [
+            [{ call: "realtime", model: "gpt-realtime-2.1", usage: realtimeUsage }, 0.0072056, { inputAudio: 13, cachedText: 64 }],
+            [{ call: "transcription", model: "gpt-live-transcribe", usage: { type: "duration", seconds: 60 } }, 0.017, { seconds: 60 }],
+            [{ call: "search", model: "gpt-4.1-mini", tier: "default", searches: 1, usage: { input_tokens: 100, output_tokens: 50, input_tokens_details: { cached_tokens: 20 } } }, 0.013314, { input: 100, searchContent: 8000 }],
+            [{ call: "search", model: "gpt-4.1-mini", tier: "priority", searches: 1, usage: { input_tokens: 100, output_tokens: 50, input_tokens_details: { cached_tokens: 20 } } }, null, { input: 100 }],
+            [{ call: "realtime", model: "gpt-realtime-2.1" }, null, null],
+            [{ call: "search", model: "unknown", usage: { input_tokens: 1, output_tokens: 1 } }, null, { input: 1 }],
+            [{ call: "transcription", model: "gpt-live-transcribe", usage: { type: "tokens", input_tokens: 13, output_tokens: 9, input_token_details: { audio_tokens: 13 } } }, null, { inputAudio: 13 }],
+            [{ call: "realtime", model: "gpt-realtime-2.1", usage: { ...realtimeUsage, input_token_details: { ...realtimeUsage.input_token_details, cached_tokens: 1 } } }, null, { input: 132 }]
+        ]) {
+            const row = logic.record(event);
+            assert.equal(row.pricing, cost === null ? "unpriced" : "priced");
+            if (cost === null) assert.equal(row.costUsd, null, "unknown never becomes a zero price");
+            else assert.ok(Math.abs(row.costUsd - cost) < 1e-12, JSON.stringify(row));
+            if (counts === null) assert.equal(row.tokens, null);
+            else for (const [key, count] of Object.entries(counts)) assert.equal(row.tokens[key], count, key);
+        }
+    }
+    prices(Usage);
+    mutant(usageFile, "cached-price", "(input - cached) * rates[0]", "input * rates[0]", prices);
+    mutant(usageFile, "standard-tier", 'row.tier !== "default"', "false", prices);
+    console.log("control=usage-cached-price detected");
+    console.log("control=usage-standard-tier detected");
+    const usageState = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "usage-window-"));
+    const until = Date.UTC(2026, 10, 10, 12), since = until - 7 * 86400000;
+    let wall = since - 1;
+    const usageWriter = Audit.create({ state: usageState, now: () => wall });
+    const eventUsage = { call: "transcription", model: "gpt-live-transcribe", usage: { type: "duration", seconds: 60,
+        transcript: "PRIVATE transcript", key: "PRIVATE key" } };
+    try {
+        for (const time of [since - 1, since, until]) {
+            wall = time;
+            assert.equal(usageWriter.usage(eventUsage).kind, "recorded");
+        }
+        assert.equal(usageWriter.usage({ call: "search", model: "gpt-4.1-mini" }).kind, "recorded");
+        const report = UsageCli.main(["--state", usageState], {}, until);
+        assert.equal(report.rows.length, 3, "the seven-day boundary includes its exact start, never earlier rows");
+        assert.deepEqual([report.total.calls, report.total.priced, report.total.unpriced, report.total.costUsd],
+            [3, 2, 1, 0.034]);
+        assert.deepEqual([report.byCall.transcription.calls, report.byTool.voice.tokens.seconds], [2, 120]);
+        assert.equal(JSON.stringify(report).includes("PRIVATE"), false, "usage holds no provider content");
+        for (const file of fs.readdirSync(path.join(usageState, "audit"))) {
+            const log = path.join(usageState, "audit", file);
+            assert.equal(fs.statSync(log).mode & 0o777, 0o600);
+            assert.equal(fs.readFileSync(log, "utf8").includes("PRIVATE"), false);
+        }
+        const latest = path.join(usageState, "audit/2026-11-10.jsonl");
+        fs.appendFileSync(latest, '{"kind":"usage"');
+        assert.throws(() => Audit.readUsage({ state: usageState, now: until }), /audit=usage-read/, "a partial file is unread, not zero spend");
+    } finally { usageWriter.close(); }
+    function missingUsage(logic) {
+        const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "usage-missing-"));
+        const writer = logic.create({ state, now: () => until });
+        try {
+            assert.equal(writer.usage(eventUsage).kind, "recorded");
+            fsFault("writeSync", () => { const error = new Error("planted ledger failure"); error.code = "EIO"; throw error; }, () => {
+                assert.equal(writer.usage(eventUsage).kind, "refuse");
+            });
+            assert.equal(writer.usage(eventUsage).kind, "recorded", "the filesystem recovers");
+            const window = writer.usageWindow();
+            assert.equal(window.complete, false, "a recovered append cannot reconstruct missing usage");
+            assert.equal(window.total.calls, 2, "only actually recorded calls are reported");
+        } finally { writer.close(); }
+    }
+    missingUsage(Audit);
+    mutant(file, "usage-missing-latch", "usageIncomplete = true", "usageIncomplete = false", missingUsage);
+    console.log("control=usage-missing-latch detected");
     const base = process.env.XDG_STATE_HOME;
     const today = Date.parse("2026-09-30T12:00:00.000Z");
     let serial = 0;

@@ -21,6 +21,7 @@ function encode(frame, label) {
     }
     const chunk = Object.hasOwn(frame, "usage") ? { ...BASE, choices: [], usage: frame.usage }
         : { ...BASE, choices: [{ index: 0, delta: frame.delta, finish_reason: frame.finish_reason }] };
+    if (Object.hasOwn(frame, "service_tier")) chunk.service_tier = frame.service_tier;
     pinned("CreateChatCompletionStreamResponse", chunk, label);
     return "data: " + JSON.stringify(chunk) + "\n\n";
 }

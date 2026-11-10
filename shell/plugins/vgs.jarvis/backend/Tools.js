@@ -60,6 +60,7 @@ const sha256 = { type: "string", pattern: "^[0-9a-f]{64}$(?![\\s\\S])" };
 // number and "{name}" in a value becomes that word.
 const TABLE = {
     "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: helpTopic } },
+    "web.search": { sentence: "Search the web for {query}", effect: "read", executor: "web", command: null, schema: { query: text },     source: "web", failureSource: "desktop", origin: true, outbound: "query", structured: true },
     "memory.search": { sentence: "Search memory notes for {query}", effect: "read", executor: "memory", command: null, schema: { query: text, title: text, alias: text, since: date, until: date }, optional: ["title", "alias", "since", "until"], source: "home", labelled: true },
     "memory.read": { sentence: "Read memory notes {ids}", effect: "read", executor: "memory", command: null, schema: { ids: { type: "array", minItems: 1, maxItems: MEMORY_BATCH, items: notePath } }, source: "home", labelled: true },
     "memory.propose": { sentence: "Add memory note {id}", effect: "reversible", executor: "memory", command: null, schema: { id: notePath, text: memoryText }, origin: true },

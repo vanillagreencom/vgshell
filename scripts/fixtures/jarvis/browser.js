@@ -61,7 +61,7 @@ async function daemonLease(ending, removeClose = false) {
         fs.writeFileSync(file, mutant);
     }
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
+        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25 },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
@@ -151,7 +151,7 @@ async function daemonStartup(browserFile) {
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
     fs.copyFileSync(browserFile, path.join(folder, "backend/Browser.js"));
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
+        settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25 },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),

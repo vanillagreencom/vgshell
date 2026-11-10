@@ -784,7 +784,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: ending === "home-missing" ? "~/absent-" + path.basename(root) : "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
+        settings: { home: ending === "home-missing" ? "~/absent-" + path.basename(root) : "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25 },
         keys: { talk: null, stop: null, confirm: null, deny: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;

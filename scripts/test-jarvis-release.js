@@ -5,7 +5,13 @@ const { assert, path, tree, world, mutant } = require("./fixtures/jarvis/policy.
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Policy.js");
 const Policy = require(file);
 
-world(() => {
+world(async () => {
+    const search = require("./fixtures/jarvis/search.js");
+    const routerFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/ToolRouter.js");
+    await search.release(require(routerFile));
+    await mutant(routerFile, "file-query-label", 'Policy.item(value.call.args[row.outbound], [...conversationLabels])',
+        'Policy.item(value.call.args[row.outbound], ["speech"])', router => search.release(router));
+    console.log("control=file-query-label detected");
     const local = { kind: "local", provider: "local-speech", account: "" };
     const remote = { kind: "network", provider: "brain", account: "fixture", origin: "https://brain.example" };
     const loopback = { ...remote, origin: "http://127.0.0.1:11434" };

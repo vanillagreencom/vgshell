@@ -7,7 +7,7 @@ const http = require("node:http");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 const privateKey = "fixture-secret-private";
 const chat = { choices: [{ message: { role: "assistant", content: "OK" }, finish_reason: "length" }],
-    usage: { completion_tokens: 1 } };
+    usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13 } };
 const messages = { type: "message", role: "assistant", content: [{ type: "text", text: "OK" }], usage: { output_tokens: 1 } };
 
 world(async () => {
@@ -49,10 +49,15 @@ world(async () => {
     async function verified(folder, provider = "openai", origin = "https://api.openai.com", model = "") {
         const { judge, id } = account(folder, provider, origin);
         const before = calls.length;
+        const usage = () => require(path.join(plugin, "backend/Audit.js")).readUsage({ state: directory }).rows;
+        const usageBefore = usage().length;
         assert.deepEqual(await judge.verify(id, "user", undefined, model), { kind: "verified" });
         assert.equal(calls.length, before + 1, "one inference request");
         assert.equal(judge.accounts.find(item => item.id === id).state.kind, "verified");
         assert.equal(JSON.stringify(judge.status()).includes(privateKey), false);
+        assert.equal(usage().length, usageBefore + (provider === "openai" ? 1 : 0));
+        if (provider === "openai") assert.deepEqual([usage().at(-1).call, usage().at(-1).tokens.input, usage().at(-1).tokens.output],
+            ["verify", 12, 1], "the explicit Verify response is counted too");
         return calls.at(-1);
     }
     try {
@@ -127,14 +132,15 @@ world(async () => {
 
         const badOrigin = async folder => {
             const pair = account(folder, "openai", "http://localhost:11434");
-            const count = attempts;
+            const count = attempts, lookedUp = callLog().length;
             assert.deepEqual(await pair.judge.verify(pair.id, "user"),
                 { kind: "unavailable", reason: "network-key-origin" });
+            assert.equal(callLog().length, lookedUp, "an origin mismatch cannot read a key");
             assert.equal(attempts, count, "an origin mismatch cannot start fetch");
         };
         await badOrigin(plugin);
-        await mutant("backend/Accounts.js", "verify-key-origin", "key = { origin: ref.origin, value",
-            "key = { origin: target.origin, value", badOrigin);
+        await mutant("backend/Accounts.js", "verify-key-origin", "Net.assertKeyTarget(target.url, ref.origin);",
+            "void [target.url, ref.origin];", badOrigin);
         controls++; cases++;
 
         const doorUse = async folder => {

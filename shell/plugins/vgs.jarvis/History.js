@@ -33,6 +33,7 @@ function tasks(rows, query) {
 // These labels preserve what failed without inventing a target or filename.
 function operation(row) {
     var labels = {
+        "web.search": "Searching the web",
         "help": "Reading help", "memory.search": "Searching memory notes", "memory.read": "Reading memory notes",
         "memory.propose": "Adding a memory note", "memory.replace": "Replacing a memory note",
         "fleet.request": "Sending a fleet request", "fleet.forward": "Forwarding a request to your main Jarvis",

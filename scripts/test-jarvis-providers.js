@@ -137,7 +137,9 @@ let controls = 0;
 // name is not found.
 // The Gemini Live and ElevenLabs rows document no such field, so their
 // requests, ElevenLabs's sentences and voice list both, carry none.
-const NO_STORE_SITES = ["Accounts.js:request", "Accounts.js:request", "ElevenLabs.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WireBrain.js:request"];
+// WebSearch's store:false request is held by test-jarvis-router.js's hosted
+// search contract and its search-no-store control.
+const NO_STORE_SITES = ["Accounts.js:request", "Accounts.js:request", "ElevenLabs.js:request", "ElevenLabs.js:request", "GeminiLive.js:websocket", "Realtime.js:websocket", "WebSearch.js:request", "WireBrain.js:request"];
 function doorSites(sources) {
     const holders = new Set(sources.flatMap(([, text]) => [...text.matchAll(/\b(\w+) = Net\.create\(/g)].map(match => match[1])));
     assert.ok(holders.has("door") && holders.has("net"), "door holders are discovered");

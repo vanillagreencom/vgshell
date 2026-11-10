@@ -11,7 +11,7 @@ const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: false, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
-    cloudVision: "ask", privateWindows: "bitwarden, incognito", mainHost: "" }, directories: {
+    cloudVision: "ask", privateWindows: "bitwarden, incognito", mainHost: "", weeklyOpenaiCap: 25 }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
 keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
@@ -38,6 +38,10 @@ const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manif
 // service also keeps the two Start Jarvis at boot settings
 // (SessionStart.qml): the daemon reads no session.
 const kept = ["localTier", "startAtBoot", "bootSession"];
+for (const weeklyOpenaiCap of [0, 25, 10000])
+    assert.equal(Protocol.accept(JSON.stringify({ ...hello, settings: { ...hello.settings, weeklyOpenaiCap } }), "shell").settings.weeklyOpenaiCap, weeklyOpenaiCap);
+for (const weeklyOpenaiCap of [-1, 10001, "25", null])
+    assert.throws(() => Protocol.accept(JSON.stringify({ ...hello, settings: { ...hello.settings, weeklyOpenaiCap } }), "shell"), /weekly-openai-cap/);
 assert.deepEqual(Object.keys(manifest.settings).filter(key => !kept.includes(key)).concat(["sounds", "dictation"]).sort(), Object.keys(hello.settings).sort());
 assert.deepEqual([Object.keys(manifest.sounds), manifest.sounds.feedback.own !== undefined], [["feedback"], true]);
 assert.deepEqual([manifest.settings.cloudVision, manifest.schema.cloudVision.options.map(option => option.value)], ["ask", ["ask", "allow", "never"]]);
@@ -889,8 +893,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
-            'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");',
+            'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -992,8 +996,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
-        'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");',
+        'if (false) keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

@@ -834,13 +834,14 @@ class Accounts {
         const ref = account.source.kind === "keyring" ? account.source.reference : null;
         const origin = ref === null ? account.source.origin : ref.origin;
         const target = Net.endpoint(origin + row.probe.path);
-        return this.released(account, row.id, target.origin, JSON.stringify(body), async ({ selected, item, grants, start }) => {
+        return this.released(account, row.id, target.origin, JSON.stringify(body), async ({ selected, item, grants, start, usage }) => {
             const door = Net.create(selected);
-            let keyBytes, response;
+            let keyBytes, response, counted = false;
             const signal = AbortSignal.timeout(PROBE_MS);
             try {
                 let key;
                 if (ref !== null) {
+                    Net.assertKeyTarget(target.url, ref.origin);
                     keyBytes = this.secrets.lookup(ref);
                     const value = keyBytes.toString("utf8");
                     key = { origin: ref.origin, value, header: row.probe.header, prefix: row.probe.prefix };
@@ -851,6 +852,10 @@ class Accounts {
                 if (response.kind !== "response") fail("verify=release-refused");
                 if (!response.response.ok) fail("verify=http-" + response.response.status);
                 const result = await this.reply(response.response, "verify");
+                if (row.id === "openai") {
+                    counted = true;
+                    usage({ call: "verify", model, account: ref?.account, tier: result.service_tier, usage: result.usage });
+                }
                 let text, tokens;
                 switch (row.probe.driver) {
                 case "chat":
@@ -878,9 +883,13 @@ class Accounts {
                 }
                 return (typeof text === "string" && text.trim() !== "") || (Number.isSafeInteger(tokens) && tokens > 0);
             } finally {
-                response?.close();
-                door.close();
-                keyBytes?.fill(0);
+                try {
+                    if (row.id === "openai" && response?.kind === "response" && !counted) usage({ call: "verify", model, account: ref?.account });
+                } finally {
+                    response?.close();
+                    door.close();
+                    keyBytes?.fill(0);
+                }
             }
         });
     }
@@ -917,7 +926,9 @@ class Accounts {
                 if (saved.kind !== "recorded") fail("verify=audit-unavailable");
                 fail("verify=release-refused");
             }
-            const proven = await transfer({ selected, item, grants, start: send => {
+            const proven = await transfer({ selected, item, grants, usage: event => {
+                if (audit.usage(event).kind !== "recorded") fail("verify=audit-unavailable");
+            }, start: send => {
                 const started = audit.before(event, send);
                 if (started.kind !== "started") fail("verify=audit-unavailable");
                 return started.value;

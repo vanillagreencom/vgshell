@@ -55,7 +55,7 @@ function sentence(call, scope) {
  * final is false only for a timeout whose actual completion is still to come.
  * A generation change clears grants. Each new turn starts with clean taint.
  */
-function create({ session, state, dispatch, context, audit, result, routed = () => {} }) {
+function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null }) {
     const registry = new Map();
     let pending = null;
     let grants = new Set();
@@ -253,18 +253,37 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         value.executor = available(refined);
         if (value.executor === null) return refuse(value, "executor-unavailable");
         const decision = judge(value);
-        if (decision instanceof Promise) {
+        if (row.outbound !== undefined) {
+            // Release asks before an action occupies Session's serial slot.
+            // This is the engine's existing content judge/approval owner,
+            // not an executor approval or a second action-policy table.
             pending = value;
-            return decision.then(answer => {
-                if (closed || pending !== value) return { kind: "refuse", reason: "router-closed" };
-                pending = null;
-                dispatch({ type: "deadline", gen: turn.gen, op: turn.op });
-                const current = state();
-                if (current.gen !== turn.gen || current.turn.kind !== "thinking" || current.turn.op !== turn.op)
-                    return refuse(value, "stale-turn");
-                return propose(value, answer);
+            const item = Policy.item(value.call.args[row.outbound], [...conversationLabels]);
+            return Promise.resolve(decision).then(async judged => {
+                if (judged.kind === "refuse") return judged;
+                if (release === null || !await release(item, turn)) return { kind: "refuse", reason: "release-withheld" };
+                return judged;
+            }).then(judged => resumed(value, judged), () => {
+                if (pending === value) pending = null;
+                return refuse(value, "release-failed");
             });
         }
+        if (decision instanceof Promise) {
+            pending = value;
+            return decision.then(answer => resumed(value, answer));
+        }
+        return propose(value, decision);
+    }
+
+    // Both asynchronous admissions resume through the same live-turn judge.
+    function resumed(value, decision) {
+        if (closed || pending !== value) return { kind: "refuse", reason: "router-closed" };
+        pending = null;
+        const turn = value.turn;
+        dispatch({ type: "deadline", gen: turn.gen, op: turn.op });
+        const current = state();
+        if (current.gen !== turn.gen || current.turn.kind !== "thinking" || current.turn.op !== turn.op)
+            return refuse(value, "stale-turn");
         return propose(value, decision);
     }
 
@@ -363,6 +382,10 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                             || (answer.image !== undefined && (answer.outcome !== "completed" || answer.image === null
                                 || answer.image.type !== "image/png" || !(answer.image.bytes instanceof Uint8Array))))
                         throw new Error("jarvis: router=outcome");
+                    // A hosted answer's citation envelope is useful only
+                    // whole. A clipped JSON result would silently lose links.
+                    if (Tools.TABLE[value.call.id].structured === true && Buffer.byteLength(answer.content) > RESULT_BYTES)
+                        answer = { outcome: "failed", content: "failed: The tool result is too large to return with all its sources." };
                     value.answer = answer;
                     done(answer.outcome);
                 }, input => {
@@ -394,6 +417,10 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);
             const written = record(value, value.decision.kind, e.outcome);
             let labels = value.refined.source === null ? [] : [value.refined.source];
+            // Search failures contain only local cap/transport facts: its
+            // executor never reads a provider's failed-response body.
+            if (e.outcome === "failed" && Tools.TABLE[value.call.id].failureSource !== undefined)
+                labels = [Tools.TABLE[value.call.id].failureSource];
             if (written.kind !== "refuse" && value.answer?.labels !== undefined) {
                 if (value.refined.labelled !== true) throw new Error("jarvis: router=labels");
                 labels = Policy.labels(value.answer.labels);

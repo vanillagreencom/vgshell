@@ -12,6 +12,7 @@ world(() => {
     const toolsSource = fs.readFileSync(file, "utf8");
     const cases = [
         ["help", { topic: "files" }, "read"],
+        ["web.search", { query: "What is today's news?" }, "read", "web"],
         ["memory.search", { query: "team" }, "read", "home"],
         ["memory.read", { ids: ["facts/My team.md"] }, "read", "home"],
         ["memory.propose", { id: "facts/new.md", text: "Remember this." }, "reversible"],
@@ -101,6 +102,7 @@ world(() => {
         assert.deepEqual(result, { kind: "refuse", reason });
     };
     const badArgs = [
+        ["web.search", {}], ["web.search", { query: "" }], ["web.search", { query: "news", url: "https://example.test" }],
         ["files.read", { path: "relative" }], ["input.text", { text: "" }],
         ["input.text", { text: "nul\0text" }], ["windows.move", { window, x: 0.5, y: 1 }],
         ["windows.resize", { window, width: 0, height: 1 }],

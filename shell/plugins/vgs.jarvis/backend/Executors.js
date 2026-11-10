@@ -7,6 +7,7 @@ const Tools = require("./Tools.js");
 const Desktop = require("./Desktop.js");
 const DesktopSession = require("./DesktopSession.js");
 const Vision = require("./Vision.js");
+const WebSearch = require("./WebSearch.js");
 
 const OWNERS = { clipboard: Desktop, media: Desktop, notify: Desktop };
 
@@ -19,7 +20,7 @@ const OWNERS = { clipboard: Desktop, media: Desktop, notify: Desktop };
  * Vision.install's own. close releases installed lifetimes after the router
  * closes; command cancellation stays with the router.
  */
-function register(router, { find, environment, clock, desktop, vision }) {
+function register(router, { find, environment, clock, desktop, vision, web }) {
     const session = DesktopSession.install({ router, ...desktop });
     const lifetimes = [session];
     for (const [id, owner] of Object.entries(OWNERS)) {
@@ -37,6 +38,7 @@ function register(router, { find, environment, clock, desktop, vision }) {
     lifetimes.push(Vision.install({ router, session, find, environment, clock,
         onScreen: desktop.Dispatch.onScreen, workspaceKey: desktop.Dispatch.workspaceKey,
         ...vision }));
+    if (web !== undefined) lifetimes.push(WebSearch.install({ router, ...web }));
     return { close() { for (const lifetime of lifetimes) lifetime.close(); } };
 }
 

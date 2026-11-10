@@ -27,7 +27,7 @@ function textItem(item) {
 }
 
 /** Own one wire conversation. The protocol object is supplied only by drivers. */
-function create({ provider, model, net, recipients, key }, protocol) {
+function create({ provider, model, net, recipients, key, usage = () => {} }, protocol) {
     Providers.assertRow(provider);
     Policy.assertRecipients(recipients);
     if (provider.driver !== protocol.driver) fail("driver");
@@ -133,6 +133,7 @@ function create({ provider, model, net, recipients, key }, protocol) {
         }
         const labels = [...new Set(sent.flatMap(item => item.labels))];
         const body = JSON.stringify({ ...protocol.request(model, context.instructions, messages),
+            ...(provider.id === "openai" ? { stream_options: { include_usage: true } } : {}),
             ...(context.tools.length === 0 ? {} : { tools: context.tools }), ...provider.noStore });
         if (Buffer.byteLength(body) > REQUEST_BYTES) fail("request-limit");
         return { item: labels.length === 0 ? null : Policy.item(body, labels), sent,
@@ -178,6 +179,13 @@ function create({ provider, model, net, recipients, key }, protocol) {
 
         async function stream() {
             let answer = null;
+            let counted = false;
+            const count = (value, tier) => {
+                if (provider.id !== "openai" || counted) return;
+                counted = true;
+                usage({ call: "chat", model, account: key?.reference.account, usage: value,
+                    ...(tier === undefined ? {} : { tier }) });
+            };
             try {
                 if (request.item === null) fail("release-empty");
                 const options = { url: provider.base + protocol.path, signal: controller.signal,
@@ -196,7 +204,7 @@ function create({ provider, model, net, recipients, key }, protocol) {
                 }
                 if (!/^text\/event-stream\s*(;|$)/i.test(response.headers.get("content-type") ?? "")) fail("content-type");
                 const parser = Sse.reader(SSE_LIMITS);
-                const consume = protocol.reader(context.names);
+                const consume = protocol.reader(context.names, count);
                 const body = response.body.getReader();
                 for (;;) {
                     let read;
@@ -228,8 +236,12 @@ function create({ provider, model, net, recipients, key }, protocol) {
                     state = controller.signal.aborted ? { kind: "cancelled" } : { kind: "failed", error };
                 wake();
             } finally {
-                if (answer !== null && answer.kind === "response") answer.close();
-                ended();
+                try {
+                    if (answer?.kind === "response" && !counted) count(undefined);
+                } finally {
+                    if (answer !== null && answer.kind === "response") answer.close();
+                    ended();
+                }
             }
         }
         const events = {

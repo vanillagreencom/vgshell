@@ -6,6 +6,7 @@ const path = require("node:path");
 const Tools = require("./Tools.js");
 const Redact = require("./Redact.js");
 const Private = require("./Private.js");
+const Usage = require("./Usage.js");
 
 const LINE_BYTES = 4 * 1024;
 const STORE_BYTES = 64 * 1024 * 1024;
@@ -153,6 +154,74 @@ function problem(record) {
 }
 
 /**
+ * The audit owner's read-only usage window, shared by admission and the
+ * delegate's report command. Open held directories so neither a replaced day
+ * nor a linked audit directory can turn a usage read into another file read.
+ * A missing store is a new installation; unread or pruned data is not zero.
+ */
+function readUsage({ state, now = Date.now(), since = now - 7 * DAY_MS, until = now }) {
+    if (![since, until].every(Number.isFinite) || since > until || until - since > 7 * DAY_MS) fail("usage-window");
+    let parent, directory;
+    try {
+        parent = fs.openSync(state, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+        directory = fs.openSync("/proc/self/fd/" + parent + "/audit",
+            fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+    } catch (error) {
+        if (parent !== undefined) fs.closeSync(parent);
+        if (error.code !== "ENOENT") fail("usage-read");
+        return { since: new Date(since).toISOString(), until: new Date(until).toISOString(), rows: [],
+            ...Usage.summarize([]), complete: true };
+    }
+    const rows = [];
+    let total = 0, complete = true;
+    try {
+        const base = "/proc/self/fd/" + directory;
+        const entries = fs.opendirSync(base);
+        try {
+            let entry;
+            while ((entry = entries.readSync()) !== null) {
+                const day = dateOf(entry.name);
+                if (day > until || day + DAY_MS <= since) continue;
+                const fd = fs.openSync(path.join(base, entry.name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+                try {
+                    const stat = fs.fstatSync(fd);
+                    regular(stat);
+                    total += stat.size;
+                    if (total > STORE_BYTES) fail("store-size");
+                    const buffer = Buffer.alloc(64 * 1024);
+                    let tail = "", count;
+                    while ((count = fs.readSync(fd, buffer, 0, buffer.length, null)) !== 0) {
+                        // Keep bytes across reads for other rows' UTF-8 text.
+                        tail += buffer.subarray(0, count).toString("latin1");
+                        let end;
+                        while ((end = tail.indexOf("\n")) !== -1) {
+                            if (end + 1 > LINE_BYTES) fail("line-size");
+                            const line = tail.slice(0, end);
+                            tail = tail.slice(end + 1);
+                            if (line === "") continue;
+                            let row;
+                            try { row = JSON.parse(Buffer.from(line, "latin1").toString("utf8")); } catch { fail("seed-json"); }
+                            const time = Date.parse(row.time);
+                            if (!Number.isFinite(time)) fail("seed-time");
+                            if (row.kind === "prune" && row.args?.reason === "size"
+                                    && Date.parse(row.args.date + "T00:00:00.000Z") + DAY_MS > since) complete = false;
+                            if (time < since || time > until || row.kind !== "usage") continue;
+                            rows.push(Usage.stored(row));
+                        }
+                        if (tail.length > LINE_BYTES) fail("line-size");
+                    }
+                    if (tail.length !== 0) fail("partial-line");
+                } finally { fs.closeSync(fd); }
+            }
+        } finally { entries.closeSync(); }
+        rows.sort((a, b) => a.time.localeCompare(b.time));
+        return { since: new Date(since).toISOString(), until: new Date(until).toISOString(), rows,
+            ...Usage.summarize(rows), complete };
+    } catch { fail("usage-read"); }
+    finally { fs.closeSync(directory); fs.closeSync(parent); }
+}
+
+/**
  * Acquire the daemon's only writer for an absolute Jarvis state directory.
  * auditDays is the manifest owner's setting; now returns wall-clock ms.
  * Creation converts an unversioned store once, then reads the newest daily
@@ -173,6 +242,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     let seedError = null;
     let migrations = 0;
     let causeCurrent = false;
+    let usageIncomplete = false;
 
     function replace(file, lines, previous = null) {
         const candidate = path.join(state, ".audit-migrate-" + process.pid + "-" + (++migrations));
@@ -420,6 +490,18 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
         record,
         /** Record one conversation fault: what VGS did about which cause. */
         fault: event => written(time => faultRecord(event, time)),
+        /** Usage has no content, only the one price owner's numeric projection. */
+        usage(event) {
+            const result = written(time => ({ time, kind: "usage", ...Usage.record(event) }));
+            // A later successful append cannot reconstruct this lost usage.
+            // Keep search held for this writer; voice teardown stays independent.
+            if (result.kind !== "recorded") usageIncomplete = true;
+            return result;
+        },
+        usageWindow() {
+            const window = readUsage({ state, now: now() });
+            return usageIncomplete ? { ...window, complete: false } : window;
+        },
         failures,
         /**
          * Persist a pending authorized action/release before invoking start.
@@ -446,4 +528,4 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     });
 }
 
-module.exports = { create };
+module.exports = { create, readUsage };

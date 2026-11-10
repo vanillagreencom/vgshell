@@ -30,7 +30,7 @@ function releaseHeld(clock, state, send) {
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
-    cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" }, directories: {
+    cloudVision: "ask", privateWindows: "bitwarden", mainHost: "", weeklyOpenaiCap: 25 }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
 keys: { talk: "SUPER+code:44", deny: null, stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
@@ -1842,6 +1842,8 @@ async function inside() {
         + "                        desktop: { Dispatch, Launch, request: requests.send, clock,\n"
         + '                            environment: hyprctlEnvironment(), commands: ["gio"].filter(onPath) },\n'
         + "                        // The engine exists before the first turn that could route a capture.\n"
+        + '                        web: { conversation: () => engine?.release.search() ?? null, audit,\n'
+        + '                            cap: () => context.settings.weeklyOpenaiCap },\n'
         + '                        vision: { directory: path.join(context.directories.runtime, "vision"), state: () => runner.state,\n'
         + '                            route: () => engine.images() ? "image" : "text",\n'
         + "                            privateWindows: () => context.settings.privateWindows } });";

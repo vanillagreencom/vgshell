@@ -401,7 +401,7 @@ world(async () => {
     // speaks inside the delegation; ackLine distinguishes a fixed progress
     // line from a reply. protocol is the adapter: REALTIME or GEMINI.
     function rig(kit, { key = "own", holdToTalk = true, synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
-        ack, ackLine = true, wallEpoch = 0 } = {}) {
+        ack, ackLine = true, wallEpoch = 0, usage = () => {} } = {}) {
         const clock = manual(wallEpoch);
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
             source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
@@ -438,6 +438,7 @@ world(async () => {
                 get bufferedAmount() { return w.backlog === null ? channel.bufferedAmount : w.backlog; } };
         } };
         const engine = Adapter.create({ provider: kit.Providers.select(protocol.row), clock,
+            usage,
             captionLimit: Protocol.TRANSCRIPT_CHARS, log: line => w.logs.push(line),
             conversation: e => ({ net, key: key === null ? null : { secrets, reference }, language: "", voice,
                 preview: e.preview === true ? PREVIEW_LINE : null,
@@ -998,6 +999,49 @@ world(async () => {
         const all = JSON.stringify([w.state, w.logs, w.transcripts, w.delegations, conn === undefined ? [] : conn.events]);
         assert.equal(all.includes(KEY), false, "no key in state, log, transcript or frame");
         assert.equal(all.includes(PRIVATE), false, "no provider message text");
+    }
+
+    async function usageRows(kit) {
+        const state = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "live-usage-"));
+        const audit = require(path.join(backend, "Audit.js")).create({ state });
+        const write = event => assert.equal(audit.usage(event).kind, "recorded");
+        // The spend cap gates search alone. A voice whose priced spend is
+        // already $25 must still hear, speak and count the next response.
+        write({ call: "realtime", model: MODEL, usage: { input_tokens: 0, output_tokens: 390625,
+            input_token_details: {}, output_token_details: { audio_tokens: 390625 } } });
+        const w = rig(kit, { usage: write });
+        try {
+            w.dispatch("talk-down");
+            const conn = await main.accept(w);
+            await REALTIME.open(conn);
+            const heard = script("turn", -1);
+            heard.usage = { type: "duration", seconds: 60 };
+            conn.send(heard);
+            await until(() => w.delegations.length === 1, "the transcription still reaches the brain at the cap");
+            assert.equal(say(w, "A priced answer."), true);
+            await conn.event(SPEAK);
+            REALTIME.begin(conn);
+            const done = script("done-old");
+            done.response.usage = { input_tokens: 132, output_tokens: 121,
+                input_token_details: { text_tokens: 119, audio_tokens: 13, cached_tokens: 64,
+                    cached_tokens_details: { text_tokens: 64, audio_tokens: 0 } },
+                output_token_details: { text_tokens: 30, audio_tokens: 91 } };
+            conn.send(done);
+            await until(() => audit.usageWindow().total.calls === 3, "the received response is counted");
+            const report = audit.usageWindow();
+            assert.equal(report.byCall.realtime.calls, 2);
+            assert.equal(report.byCall.transcription.calls, 1);
+            assert.ok(Math.abs(report.total.costUsd - 25.0242056) < 1e-10);
+            assert.notEqual(w.state.conversation.kind, "ended", "counting past the search cap does not stop voice");
+            assert.equal(say(w, "A second answer."), true);
+            await conn.event(SPEAK);
+            REALTIME.begin(conn, "resp_failed");
+            const cancelled = script("done-old");
+            Object.assign(cancelled.response, { id: "resp_failed", status: "cancelled" });
+            conn.send(cancelled);
+            await until(() => audit.usageWindow().total.calls === 4, "a failed response without usage is still counted");
+            assert.equal(audit.usageWindow().total.unpriced, 1);
+        } finally { audit.close(); w.dispatch("stop"); }
     }
 
     async function roundTrip(kit) {
@@ -2079,7 +2123,7 @@ world(async () => {
         try {
             send({ type: "hello", settings: { home: "", sounds: false, holdToTalk: true, microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", mainHost: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", mainHost: "", weeklyOpenaiCap: 25, voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+J", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", deny: null,
                     console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } });
             if (only === "wrong-key") {
@@ -2780,6 +2824,9 @@ world(async () => {
         console.log("control=" + name + " detected");
     }
     try {
+        await usageRows(kitFrom(backend));
+        await control("realtime-usage", 'usage({ call: "realtime", usage: response.usage });',
+            'void response.usage;', folder => usageRows(kitFrom(folder)));
         for (const check of Object.values(cases)) await check(kitFrom(backend));
         for (const name of SHARED) await cases[name](kitFrom(backend), GEMINI);
         await release(kitFrom(backend, [withheld]));

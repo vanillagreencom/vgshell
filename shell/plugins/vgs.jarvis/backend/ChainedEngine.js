@@ -28,6 +28,7 @@ const GeminiLive = require("./GeminiLive.js");
 const ElevenLabs = require("./ElevenLabs.js");
 const TaskVoice = require("./TaskVoice.js");
 const Redact = require("./Redact.js");
+const WebSearch = require("./WebSearch.js");
 
 // Speech adapter rows in selection order. A row is {select({settings,
 // accounts, directories})} answering {kind:"ready", recipients, voices,
@@ -618,6 +619,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         return daemonSpeech;
     }
 
+    function usage(event) {
+        const result = audit.usage(event);
+        if (result.kind !== "recorded") log("jarvis: engine=usage-write cause=" + result.cause);
+    }
+
     function releaseEvent(c, identity, labels, decision, outcome) {
         return { kind: "release", gen: identity.gen, op: identity.op, tool: "release",
             args: { labels, recipients: c.recipients }, effect: RELEASE_EFFECT, decision, confirmed: "none", outcome };
@@ -713,6 +719,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const duplex = duplexOf(plan.speech.id);
             if (duplex !== null) {
                 c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
+                    usage: event => usage({ account: c.plan.speech.key.reference.account, ...event }),
                     log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,
                         preview: e.preview === true ? PREVIEW_LINE : null,
                         grants: () => c.grants, transfer: (item, start) => streamTransfer(c, e, item, start) }) });
@@ -1371,6 +1378,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (conversation !== c) return false;
         c.brainOwner.value = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
             model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
+            usage,
             account: c.plan.brain.account, gen: c.gen, harness,
             modelFallback: c.entry + 1 === c.plan.entries.length, modelUsed });
         const tools = router.offer();
@@ -2223,6 +2231,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             else if (idleAt === null && clock !== undefined) idleAt = clock.now();
         },
         release: {
+            async query(item, identity) {
+                const c = conversation;
+                if (c === null || c.gen !== identity.gen) return false;
+                const decision = Policy.release(item, c.recipients, c.grants);
+                if (decision.kind === "ask") await requestRelease(c, identity, decision.needed);
+                return conversation === c && state().turn.kind === "thinking" && state().turn.op === identity.op
+                    && Policy.release(item, c.recipients, c.grants).kind === "send";
+            },
             confirmed: e => decided(e, true),
             ended: e => decided(e, false),
             refused(e) {
@@ -2232,6 +2248,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const result = audit.record({ ...releaseEvent(c, pending.identity, pending.labels, "withhold", "cancelled"),
                     refusal: e.reason });
                 if (result.kind !== "recorded") throw new Error("jarvis: audit=write cause=" + result.cause);
+            },
+            /** The current generation's search borrows no authority from a plan. */
+            search() {
+                const c = conversation;
+                if (c === null) return null;
+                const key = WebSearch.keyFor({ recipients: c.recipients, brain: c.plan.brain, speech: c.plan.speech });
+                return { key, net: c.net, grants: () => c.grants,
+                    release: item => Policy.release(item, c.recipients, c.grants),
+                    transfer: (item, start) => transfer(c, c.turn, item, start) };
             },
             async prepare(value, recipients) {
                 const c = conversation;

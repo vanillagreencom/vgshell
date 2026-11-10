@@ -519,8 +519,10 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/Tasks.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ToolBridge.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/ToolRouter.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Tools.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/Usage.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Vision.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/VoiceRollover.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/WebSearch.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/WireBrain.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/audio-child.py
@@ -552,6 +554,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/speech.md
 f share/vgshell/shell/plugins/vgs.jarvis/backend/skills/voice/turns.md
 f share/vgshell/shell/plugins/vgs.jarvis/backend/task-event
 f share/vgshell/shell/plugins/vgs.jarvis/backend/task-run.py
+f share/vgshell/shell/plugins/vgs.jarvis/backend/usage.js
 f share/vgshell/shell/plugins/vgs.jarvis/fixtures/PROVENANCE
 f share/vgshell/shell/plugins/vgs.jarvis/fixtures/probe.txt
 f share/vgshell/shell/plugins/vgs.jarvis/fixtures/probe.wav

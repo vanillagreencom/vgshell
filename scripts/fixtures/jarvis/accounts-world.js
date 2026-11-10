@@ -213,7 +213,7 @@ async function mutant(relative, name, needle, replacement, check) {
     fs.mkdirSync(path.join(folder, "tui"));
     for (const file of ["AccountProviders.js", "AccountStatus.js", "manifest.json", "backend/Accounts.js", "backend/Core.js",
         "backend/Secrets.js", "backend/accounts.js",
-        "tui/accounts.sh", "tui/sign-in.sh", "backend/net.js", "backend/Policy.js", "backend/Audit.js", "backend/Private.js", "backend/Redact.js",
+        "tui/accounts.sh", "tui/sign-in.sh", "backend/net.js", "backend/Policy.js", "backend/Audit.js", "backend/Usage.js", "backend/Private.js", "backend/Redact.js",
         "backend/Tools.js", "backend/ClaudeCode.js", "backend/Providers.js", "backend/CodexHarness.js",
         "backend/CopilotHarness.js", "backend/CopilotAcp.js", "backend/CodexAppServer.js", "backend/HarnessProgram.js",
         "backend/PiHarness.js", "backend/PiRpc.js"])

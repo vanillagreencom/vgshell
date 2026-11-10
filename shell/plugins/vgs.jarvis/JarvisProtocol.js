@@ -527,7 +527,9 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");
+        keys(message.settings, ["holdToTalk", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost", "weeklyOpenaiCap"], "settings");
+        if (typeof message.settings.weeklyOpenaiCap !== "number" || !Number.isFinite(message.settings.weeklyOpenaiCap)
+                || message.settings.weeklyOpenaiCap < 0 || message.settings.weeklyOpenaiCap > 10000) fail("weekly-openai-cap");
         if (!["local", "realtime", "gemini", "elevenlabs"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");

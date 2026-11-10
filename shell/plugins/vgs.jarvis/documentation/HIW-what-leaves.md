@@ -23,6 +23,10 @@ Local voice keeps speech on your computer. OpenAI Realtime sends speech to OpenA
 
 Screen to cloud on Settings chooses Ask, Allow or Never for sending screen images or text outside your computer. Private windows chooses which windows Jarvis Voice paints black before it sends a screenshot.
 
+## Web search
+
+When OpenAI already receives the conversation through your selected AI account or Realtime voice, Jarvis Voice can send a search question to OpenAI and its search service. It uses that same stored key. A plain spoken question needs no extra approval. A question derived from a file, screen or web page follows the conversation's release choices. The answer keeps its source titles and links.
+
 ## Keys and forwards
 
 Your provider keys stay in your desktop keyring. Jarvis Voice sends a key only to the address it was stored for.

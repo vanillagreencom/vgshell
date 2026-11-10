@@ -126,7 +126,7 @@ async function vocabulary(clock, signal) {
  * The one narrowing door for a server message. Returns a tagged event or
  * throws a keyed error. An error event's message text is never read.
  */
-function eventOf(data) {
+function eventOf(data, usage = () => {}) {
     if (typeof data !== "string") fail("frame-binary");
     if (data.length > FRAME_CHARS) fail("frame-size");
     let value;
@@ -157,6 +157,7 @@ function eventOf(data) {
         if (value.delta !== undefined && typeof value.delta !== "string") fail("frame-shape");
         return { kind: "hearing", item: identity(value.item_id), text: value.delta ?? "" };
     case "conversation.item.input_audio_transcription.completed":
+        usage({ call: "transcription", model: TRANSCRIBE, usage: value.usage });
         if (typeof value.transcript !== "string") fail("frame-shape");
         if (value.transcript.length > TURN_CHARS) fail("turn-size");
         return { kind: "heard", item: identity(value.item_id), text: value.transcript };
@@ -175,6 +176,7 @@ function eventOf(data) {
         return { kind: "said", id: identity(value.response_id), text: value.delta };
     case "response.done": {
         const response = plain(value.response) ? value.response : {};
+        usage({ call: "realtime", usage: response.usage });
         const id = identity(response.id);
         if (response.status !== "completed") {
             // The provider's cause: a failed response's error, an incomplete one's reason.
@@ -219,7 +221,7 @@ function eventOf(data) {
  * events.interrupted({id, text}) hands the engine a cap-cut reply's heard
  * prefix after Audio acknowledges its completed native response marks.
  */
-function create({ provider, clock, conversation, captionLimit, log }) {
+function create({ provider, clock, conversation, captionLimit, log, usage = () => {} }) {
     Providers.assertRow(provider);
     if (provider.driver !== "openai-realtime") fail("driver");
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
@@ -494,7 +496,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function receive(session, data) {
         if (session.state.kind === "ended") return;
         let event;
-        try { event = eventOf(data); } catch (error) { failed(session, reasonOf(error)); return; }
+        try {
+            event = eventOf(data, event => usage({ model: new URL(provider.base).searchParams.get("model"), ...event }));
+        } catch (error) { failed(session, reasonOf(error)); return; }
         const kind = session.state.kind;
         try {
             if (kind !== "running" && !["created", "started", "ignored"].includes(event.kind)) fail("event-order");

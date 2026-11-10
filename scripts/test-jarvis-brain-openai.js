@@ -166,7 +166,7 @@ world(async () => {
         { id: "files.read", description: "Read a file.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }
     ];
     function open(kit, { id = "custom", base = null, voice = null, key = null, profile = "standard", cloudVision = "ask",
-        wrap = door => door, tools = TOOLS } = {}) {
+        wrap = door => door, tools = TOOLS, usage = () => {} } = {}) {
         const provider = kit.Providers.select(id, base === null ? "" : base + "/" + ++conversations);
         const recipients = kit.Policy.recipients({ conversation: "fixture", profile, cloudVision,
             brain: { kind: "network", provider: id, account: "fixture", origin: kit.Net.endpoint(provider.base).origin },
@@ -174,7 +174,7 @@ world(async () => {
                 : { kind: "network", provider: "voice", account: "fixture", origin: voice }] });
         const door = kit.Net.create(recipients);
         doors.push(door);
-        const brain = kit.Brain.create({ provider, model: "fixture-model", net: wrap(door), recipients, key });
+        const brain = kit.Brain.create({ provider, model: "fixture-model", net: wrap(door), recipients, key, usage });
         brain.start({ instructions: "Fixture guidance.", tools });
         return { brain, recipients, provider };
     }
@@ -479,7 +479,7 @@ world(async () => {
     // recording door that answers with the text script. The real door and its
     // origin-bound key judge have their own suite.
     const cloud = {
-        openai: ["https://api.openai.com/v1/chat/completions", { store: false }],
+        openai: ["https://api.openai.com/v1/chat/completions", { store: false, stream_options: { include_usage: true } }],
         openrouter: ["https://openrouter.ai/api/v1/chat/completions", { provider: { data_collection: "deny" } }],
         groq: ["https://api.groq.com/openai/v1/chat/completions", {}],
         cerebras: ["https://api.cerebras.ai/v1/chat/completions", {}],
@@ -489,14 +489,18 @@ world(async () => {
     async function cloudRows(kit) {
         const store = new kit.Secrets.Secrets(path.join(childEnv.XDG_STATE_HOME, "vgshell/jarvis"), childEnv);
         for (const [id, [url, extensions]] of Object.entries(cloud)) {
-            const sent = [];
+            const sent = [], counted = [];
+            const used = { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 };
             const wrap = () => ({ request: async (item, options) => {
                 sent.push({ item, options });
-                const body = fixtures.scripts.text.frames.map(frame => encode(frame, id)).join("");
+                const frames = structuredClone(fixtures.scripts.text.frames);
+                if (id === "openai") frames[0].service_tier = "default";
+                const body = frames.map(frame => encode(frame, id)).join("");
                 return { kind: "response", response: new Response(body, { headers: { "content-type": "text/event-stream" } }), close() {} };
             } });
             const origin = new URL(url).origin;
-            const { brain } = open(kit, { id, key: { secrets: store, reference: kit.Secrets.ownReference(id, "fixture", origin) }, wrap });
+            const { brain } = open(kit, { id, key: { secrets: store, reference: kit.Secrets.ownReference(id, "fixture", origin) }, wrap,
+                usage: event => counted.push(event) });
             assert.deepEqual((await drain(brain.send(user(kit)))).events.at(-1), { kind: "done", reason: "stop" }, id);
             const [{ item, options }] = sent;
             assert.deepEqual([options.url, options.key.origin, options.key.header, options.key.prefix, options.key.value],
@@ -505,6 +509,8 @@ world(async () => {
             const { model, messages, stream, tools, ...rest } = body;
             assert.deepEqual(rest, extensions, id + " no-store fields");
             pinned("CreateChatCompletionRequest", { model, messages, stream, tools }, id);
+            assert.deepEqual(counted, id === "openai" ? [{ call: "chat", model: "fixture-model", account: "fixture", usage: used, tier: "default" }] : [],
+                "only OpenAI's own response enters its spend record");
         }
     }
 

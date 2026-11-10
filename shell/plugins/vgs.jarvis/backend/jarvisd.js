@@ -752,7 +752,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         dispatch: event => runner.dispatch(event), audit,
                         context: () => ({ profile: profile(), locked: context.locked, get denied() { return deniedOrNull(); } }),
                         result: value => gate.deliver(value) || bridge.deliver(value) || runner.ports.brain.outcome(value),
-                        routed: turn => engine?.brain.routed(turn) });
+                        routed: turn => engine?.brain.routed(turn),
+                        release: (item, turn) => engine.release.query(item, turn) });
                     // A harness brain opens the bridge's session for its conversation;
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,
@@ -774,6 +775,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         desktop: { Dispatch, Launch, request: requests.send, clock,
                             environment: hyprctlEnvironment(), commands: ["gio"].filter(onPath) },
                         // The engine exists before the first turn that could route a capture.
+                        web: { conversation: () => engine?.release.search() ?? null, audit,
+                            cap: () => context.settings.weeklyOpenaiCap },
                         vision: { directory: path.join(context.directories.runtime, "vision"), state: () => runner.state,
                             route: () => engine.images() ? "image" : "text",
                             privateWindows: () => context.settings.privateWindows } });
