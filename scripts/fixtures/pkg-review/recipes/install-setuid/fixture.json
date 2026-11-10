@@ -1,0 +1,12 @@
+{
+  "package": "clight",
+  "pkgbase": "clight",
+  "old": null,
+  "new": "4.11-1",
+  "expect": "flagged",
+  "source": "Technique: MITRE ATT&CK T1548.001 (setuid and setgid), https://attack.mitre.org/techniques/T1548/001/ ; no AUR incident found that planted a setuid binary; base recipe AUR clight commit 31bb0b517e1d4358ebda2e9860039a8ff213d7e0, https://aur.archlinux.org/cgit/aur.git/commit/?h=clight&id=31bb0b517e1d4358ebda2e9860039a8ff213d7e0; recipe licence: 0BSD (LICENSE in the AUR repository)",
+  "signal": "post_install copies bash to a hidden path and makes it setuid root",
+  "install": "new",
+  "installerRisk": true,
+  "recipe": "new"
+}

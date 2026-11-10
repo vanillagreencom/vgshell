@@ -1,0 +1,27 @@
+pkgbase = lsfg-vk
+	pkgdesc = Lossless Scaling Frame Generation on Linux
+	pkgver = 2.0.0
+	pkgrel = 2
+	url = https://lsfg-vk.dev
+	install = lsfg-vk.install
+	arch = x86_64
+	license = CC-BY-NC-ND-4.0
+	checkdepends = appstream
+	makedepends = cmake
+	makedepends = desktop-file-utils
+	makedepends = git
+	depends = hicolor-icon-theme
+	depends = qt6-base
+	depends = qt6-declarative
+	depends = vulkan-icd-loader
+	source = git+https://git.lsfg-vk.dev/lsfg-vk.git#tag=2.0.0
+	sha256sums = 150b29e94f257797cab7e79d1649477da09f0830af361f944395490dcbfbf11e
+
+pkgname = lsfg-vk
+	optdepends = lib32-lsfg-vk: 32-bit support
+
+pkgname = lib32-lsfg-vk
+	pkgdesc = Lossless Scaling Frame Generation on Linux (32-bit)
+	depends = lib32-gcc-libs
+	depends = lib32-vulkan-icd-loader
+	depends = lsfg-vk

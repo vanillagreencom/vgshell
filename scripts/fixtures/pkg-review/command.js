@@ -2,7 +2,7 @@
 // Safe production-entry stand-ins: this PATH contains every reachable
 // package, credential and agent command, and never delegates a mutation.
 "use strict";
-const fs=require("node:fs"),path=require("node:path");
+const fs=require("node:fs"),path=require("node:path"),cp=require("node:child_process");
 const name=path.basename(process.argv[1]),args=process.argv.slice(2),originalArgs=args.slice(),root=process.env.REVIEW_WORLD;
 const log=(kind,extra={})=>fs.appendFileSync(path.join(root,"calls.jsonl"),JSON.stringify({kind,name,args:originalArgs,...extra})+"\n");
 if(name==="gum"){
@@ -156,6 +156,10 @@ if(name==="snapper"){
  if(args.includes("list-configs"))console.log("config,subvolume\nroot,/");else log("snapshot");process.exit(0);
 }
 if(name==="git"){
+ if(JSON.stringify(args.slice(-4))===JSON.stringify(["ls-files","--cached","-z","--"])){
+  const r=cp.spawnSync("/usr/bin/git",args,{env:process.env,stdio:"inherit",timeout:30000});
+  if(r.error)throw r.error;process.exit(r.status===null?1:r.status);
+ }
  const dest=path.resolve(process.cwd(),args.at(-1));fs.mkdirSync(dest,{recursive:true});
  fs.writeFileSync(path.join(dest,".SRCINFO"),"pkgbase = paru\npkgname = paru\n");fs.writeFileSync(path.join(dest,"PKGBUILD"),"pkgname=paru\n");process.exit(0);
 }

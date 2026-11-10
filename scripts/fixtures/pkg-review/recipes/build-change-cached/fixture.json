@@ -1,0 +1,11 @@
+{
+  "package": "ludusavi",
+  "pkgbase": "ludusavi",
+  "old": "0.31.0-1",
+  "new": "0.31.0-2",
+  "expect": "clean",
+  "source": "AUR ludusavi commit c16bcb49eafc1a631590a513fe7927e44284df30, https://aur.archlinux.org/cgit/aur.git/commit/?h=ludusavi&id=c16bcb49eafc1a631590a513fe7927e44284df30; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy: commit ad67fd5891394d0e84dd6f04b3af9b15b219fc26; an ordinary build change: adds the zstd dependency and ZSTD_SYS_USE_PKG_CONFIG=1 in build()",
+  "install": "none",
+  "installerRisk": false,
+  "recipe": "changed"
+}

@@ -477,4 +477,5 @@ if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; ex
 if [[ $chooser_status == 77 ]]; then echo "test-vgshell-pkg-run: status=not-measured missing=user-namespaces"; exit 77; fi
 "$node_bin" "$repo/scripts/fixtures/pkg-review/runtime-test.js"
 "$node_bin" "$repo/scripts/fixtures/pkg-review/failure-test.js"
+"$node_bin" "$repo/scripts/fixtures/pkg-review/recipes-test.js"
 echo "test-vgshell-pkg-run: ok"

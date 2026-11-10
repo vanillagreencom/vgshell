@@ -1,0 +1,11 @@
+{
+  "package": "bitwarden-bin",
+  "pkgbase": "bitwarden-bin",
+  "old": "2026.10.2-1",
+  "new": "2026.10.3-1",
+  "expect": "clean",
+  "source": "AUR bitwarden-bin commit 05f3801cd8acc44dbd5c295acfb415dfe8849008, https://aur.archlinux.org/cgit/aur.git/commit/?h=bitwarden-bin&id=05f3801cd8acc44dbd5c295acfb415dfe8849008; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy and installed install script: commit cdc2a8a363526249c045cd35d72afde648b46708; a pkgver and checksum bump, install script unchanged",
+  "install": "unchanged",
+  "installerRisk": false,
+  "recipe": "changed"
+}

@@ -1,0 +1,11 @@
+{
+  "package": "aircrack-ng-git",
+  "pkgbase": "aircrack-ng-git",
+  "old": "1.7.r4705.g3e1b99a0-1",
+  "new": "1.7.r4706.gf333a6a7-1",
+  "expect": "clean",
+  "source": "AUR aircrack-ng-git commit a08ec2198d73c1a74b516345ed392fb24c97bc02, https://aur.archlinux.org/cgit/aur.git/commit/?h=aircrack-ng-git&id=a08ec2198d73c1a74b516345ed392fb24c97bc02; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy: commit 31147bb4374d74d511936f27120cc6f4b427b7f7; a -git package (git source, SKIP checksum) whose update bumps only pkgver",
+  "install": "none",
+  "installerRisk": false,
+  "recipe": "changed"
+}

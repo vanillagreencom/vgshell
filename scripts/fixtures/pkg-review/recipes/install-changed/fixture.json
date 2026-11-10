@@ -1,0 +1,11 @@
+{
+  "package": "mullvad-vpn-bin",
+  "pkgbase": "mullvad-vpn-bin",
+  "old": "2025.1-3",
+  "new": "2025.3-1",
+  "expect": "clean",
+  "source": "AUR mullvad-vpn-bin commit a6f3ccb038a279c75f597faf87793cb358928470, https://aur.archlinux.org/cgit/aur.git/commit/?h=mullvad-vpn-bin&id=a6f3ccb038a279c75f597faf87793cb358928470; recipe licence: 0BSD (LICENSE in the AUR repository); added in this commit; cached copy and installed install script: commit 77203db7b1fbe09409e56f42f991ecb9992e7f21; the install script changes in an ordinary way (commit 7053192705a12d05346e470896102770e82f64d6 wraps its systemctl calls in a systemd check)",
+  "install": "changed",
+  "installerRisk": false,
+  "recipe": "changed"
+}

