@@ -339,7 +339,7 @@
 # `system` runs bin/vgshell-system, which holds the closed table of system
 # steps and states its output and refusals. `apply` and `undo` ask one
 # question and run sudo, so each needs a terminal; the core floating TUI
-# `core/system` runs `vgshell system apply <step>` when a plugin's status
+# `core/system` runs `vgshell system apply <step> [value]` when a plugin's status
 # action names the step: docs/architecture/commands-are-data.md § System steps.
 #
 # `tui present` hands argv, never a shell string, to `bin/vgshell-tui launch`
@@ -617,7 +617,7 @@ Usage: vgshell system <subcommand> [arguments]
 
 Subcommands:
   status [--json]      Show each one-time system step's state
-  apply <step>         Show and apply a system step
+  apply <step> [value] Show and apply a system step
   undo <step>          Undo only what VGS changed for the step
 EOF_HELP
       ;;

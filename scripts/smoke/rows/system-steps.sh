@@ -92,6 +92,26 @@ expect "a disabled fake USB hub needs the wake step" "needed wake-mismatch" syst
 devices_usb_wake enabled
 expect "live fake USB wake permissions make the step ready without a rule" "ready granted" system_wake_status
 devices_usb_wake remove
+# Reuse the device owner's existing stand-in and reply registry for
+# loginctl too. Neither name can reach a real login service.
+system_logind_fixture() {
+  mkdir -p "$devices_sysfs_root/class/input/input-vgs-lid/capabilities"
+  printf '1\n' >"$devices_sysfs_root/class/input/input-vgs-lid/capabilities/sw"
+  ln -sfn -- "$shim/systemctl" "$devices_system_root/usr/bin/loginctl"
+  device_reply systemctl 0 "" is-active --quiet systemd-logind.service
+  device_reply systemctl 0 poweroff show-session --property=HandlePowerKey --value --no-pager
+  device_reply systemctl 0 suspend show-session --property=HandleLidSwitch --value --no-pager
+}
+system_logind_status() {
+  "${sandbox_env[@]}" "$repo/bin/vgshell" system status --json | py_reply 'import json,sys
+s=json.load(sys.stdin)["steps"]
+print(json.dumps({key: s[key] for key in ("power-key", "lid-switch")}, sort_keys=True))'
+}
+expect "button policy without a private loginctl is unknown, never a host reading" \
+  '{"lid-switch": {"present": false, "reason": "logind-unavailable", "state": "unknown", "value": null, "values": ["suspend", "hibernate", "ignore"]}, "power-key": {"present": true, "reason": "logind-unavailable", "state": "unknown", "value": null, "values": ["poweroff", "suspend", "hibernate", "ignore"]}}' system_logind_status
+system_logind_fixture
+expect "both button steps expose their root-owned sets and fake live properties" \
+  '{"lid-switch": {"present": true, "reason": "live", "state": "ready", "value": "suspend", "values": ["suspend", "hibernate", "ignore"]}, "power-key": {"present": true, "reason": "live", "state": "ready", "value": "poweroff", "values": ["poweroff", "suspend", "hibernate", "ignore"]}}' system_logind_status
 # The Fedora repository step resolves only inside this isolated system
 # tree. Without its package manager it cannot touch a host repository.
 system_engine_repository() {

@@ -320,7 +320,74 @@ function keyClashResets(ctx, check) {
     }
 }
 
+function systemValueActions(ctx, check) {
+    const steps = ctx.systemUnknown("no-device");
+    steps["power-key"] = { state: "ready", reason: "live", values: ["poweroff", "suspend", "hibernate", "ignore"], value: "poweroff", present: true };
+    steps["lid-switch"] = { state: "ready", reason: "live", values: ["suspend", "hibernate", "ignore"], value: "suspend", present: true };
+    const done = { code: 0, status: 0 };
+    const report = ctx.systemReport(done, JSON.stringify({ steps }), "");
+    check("system value report keeps the root-owned sets and live values", report, { steps, line: "" });
+    for (const [name, patch] of [
+        ["repeated value", { values: ["suspend", "suspend"] }],
+        ["no set", { values: [] }],
+        ["non-string member", { values: ["suspend", 1] }],
+        ["no live reading", { value: undefined }],
+        ["non-boolean presence", { present: "yes" }],
+        ["command text", { values: ["suspend; true"] }]
+    ]) {
+        const malformed = Object.assign({}, steps, { "power-key": Object.assign({}, steps["power-key"], patch) });
+        check("system value report refuses " + name, ctx.systemReport(done, JSON.stringify({ steps: malformed }), "").steps, ctx.systemUnknown("probe-failed"));
+    }
+    for (const [name, patch] of [
+        ["effective value", { value: "suspend" }],
+        ["set", { values: ["ignore"] }],
+        ["lid presence", { present: false }]
+    ]) check("system revision sees changed " + name, ctx.systemStepsEqual(steps, Object.assign({}, steps, { "power-key": Object.assign({}, steps["power-key"], patch) })), false);
+    const lent = ctx.systemStateOf(steps, ["power-key"]);
+    lent["power-key"].values.push("reboot");
+    check("system lent sets cannot change the held set", steps["power-key"].values, ["poweroff", "suspend", "hibernate", "ignore"]);
+
+    const manifest = { status: { choice: { type: "state", action: { label: "Apply", system: "power-key" } } }, requirements: [] };
+    const value = { tone: "warning", text: "Saved", action: true, actionValue: "suspend" };
+    const request = ctx.statusActionRequest(manifest, "fixture", true, { choice: value }, "choice");
+    check("system status action takes its published saved value", request, { ok: true, kind: "system", args: ["apply", "power-key", "suspend"] });
+    check("system status accepts an action value for its apply", ctx.statusWrite(manifest, {}, "choice", value).ok, true);
+    const tuiManifest = { status: { choice: { type: "state", action: { label: "Open", tui: "open" } } }, requirements: [] };
+    check("a TUI action cannot carry a system value", ctx.statusWrite(tuiManifest, {}, "choice", value).ok, false);
+
+    // Execute the manager's shipped system branch, with a terminal recorder
+    // and the production report judge, so refusal proves no TUI is opened.
+    const manager = CAPABILITIES_SOURCE.match(/\n    function managerStep\(id, request, ctx, done\) \{([\s\S]*?)\n    \}\n/);
+    const opened = [];
+    const managerStep = vm.runInNewContext("(function (id, request, ctx, done) {" + manager[1] + "\n})", {
+        Logic: ctx,
+        systemSteps: { actionRequest: args => ctx.systemActionRequest(args, report.steps), probe: () => {} },
+        tuis: { openCore: (name, args) => { opened.push([name, Array.from(args)]); return "ok"; } }
+    });
+    for (const [name, args, accepted] of [
+        ["saved choice", request.args, true],
+        ["lid choice", ["apply", "lid-switch", "ignore"], true],
+        ["plain step unchanged", ["apply", "disk-sleep"], true],
+        ["undo unchanged", ["undo", "power-key"], true],
+        ["missing value", ["apply", "power-key"], false],
+        ["empty value", ["apply", "power-key", ""], false],
+        ["unlisted value", ["apply", "power-key", "reboot"], false],
+        ["a power-only value on the lid", ["apply", "lid-switch", "poweroff"], false],
+        ["command text", ["apply", "power-key", "suspend; true"], false],
+        ["extra argv", ["apply", "power-key", "suspend", "ignore"], false],
+        ["value on a step without a set", ["apply", "disk-sleep", "suspend"], false],
+        ["value on undo", ["undo", "power-key", "suspend"], false]
+    ]) {
+        opened.length = 0;
+        const answer = managerStep("fixture", { kind: "system", args }, {});
+        check("system manager admission: " + name, [answer === "ok", opened], [accepted, accepted ? [["system", args]] : []]);
+    }
+    check("system action before a report is refused", ctx.systemActionRequest(["apply", "power-key", "ignore"], null).ok, false);
+    check("system action after a failed report is refused", ctx.systemActionRequest(["apply", "power-key"], ctx.systemUnknown("probe-failed")).ok, false);
+}
+
 function suite(ctx, configLogic, check) {
+    systemValueActions(ctx, check);
     keyClashResets(ctx, check);
     keySettings(ctx, check);
     conversationMigration(configLogic, check);
@@ -3352,6 +3419,7 @@ openRoutes(load(LOGIC), report, bundled);
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["system action values must come from the root report", "entry.values.indexOf(args[2]) === -1", "false"],
     ["a saved non-default holder offers reset", "&& defaults.indexOf(normalized) === -1;", "&& false;", "key clash reset:"],
     ["shared key hints keep Settings navigation in its view", 'return (hasOwn(names, p.id) ? names[p.id] : p.id) + " (" + p.shortcut + ")";',
         'return "[Settings/Keys](page:" + p.id + "/Settings/Keys)";', "key clash reset:"],

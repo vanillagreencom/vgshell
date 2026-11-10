@@ -539,7 +539,9 @@ Singleton {
         switch (request.kind) {
         case "tui": return tuis.runFor(id, request.name, request.args, ctx, done);
         case "system": {
-            const reply = tuis.openCore("system", request.args, end => {
+            const admitted = systemSteps.actionRequest(request.args);
+            if (!admitted.ok) return admitted.answer;
+            const reply = tuis.openCore("system", admitted.args, end => {
                 systemSteps.probe();
                 if (done !== undefined) done(end);
             });

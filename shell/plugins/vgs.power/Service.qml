@@ -116,6 +116,10 @@ Item {
     readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesInterface) !== -1
     readonly property var diskSleepStep: shell === null ? undefined : shell.system.state["disk-sleep"]
+    readonly property string buttonsKey: JSON.stringify(shell === null ? null : {
+        key: shell.system.state["power-key"], lid: shell.system.state["lid-switch"],
+        powerKeyAction: shell.settings.powerKeyAction, lidAction: shell.settings.lidAction
+    })
     // Wake on LAN is a setting of each wired NetworkManager connection,
     // which NetworkManager hands the device when it activates the
     // connection (act_stage2_config in src/core/devices/nm-device-ethernet.c,
@@ -167,6 +171,10 @@ Item {
         profileWatch.running = true;
         prepareForSleepWatch.running = true;
         shell.status.handleRefresh("sleepActions", () => { root.readSleepActions(); return "ok"; });
+        for (const key of ["keyActions", "lidActions"]) shell.status.handleRefresh(key, () => {
+            root.readSleepActions();
+            return root.shell.system.refresh();
+        });
         readSleepActions();
         syncWake();
         publish();
@@ -175,6 +183,7 @@ Item {
     }
     onViewKeyChanged: publish()
     onDiskSleepStepChanged: publish()
+    onButtonsKeyChanged: publishButtons()
     onWakeStepChanged: syncWake()
     onBluetoothKeyChanged: syncWake()
     onBluetoothWakeChanged: publish()
@@ -354,6 +363,47 @@ Item {
         const shown = allowed.hibernate === true || allowed["suspend-then-hibernate"] === true
             || Logic.sleepMethod(sleepAction, allowed) === "";
         report("hibernate", shown ? "present" : "absent");
+        publishButtons();
+    }
+
+    function buttonLabel(value) {
+        const labels = { poweroff: "Shut down", suspend: "Sleep", hibernate: "Hibernate", ignore: "Do nothing" };
+        return labels[value] || "Another system action";
+    }
+
+    function publishButtons() {
+        if (shell === null) return;
+        const key = shell.system.state["power-key"];
+        const lid = shell.system.state["lid-switch"];
+        report("lid", lid && lid.present === true ? "present" : "absent");
+        for (const item of [
+            { step: key, choices: "keyActions", applied: "powerKeyApplied", setup: "powerKey", saved: shell.settings.powerKeyAction },
+            { step: lid, choices: "lidActions", applied: "lidApplied", setup: "lidSwitch", saved: shell.settings.lidAction }
+        ]) {
+            const step = item.step;
+            report(item.choices, step && step.values ? step.values.filter(value => value !== "hibernate" || allowed.hibernate === true)
+                .map(value => ({ value: value, label: buttonLabel(value) })) : []);
+            report(item.applied, step && step.present === false ? "No lid detected"
+                : !step || step.value === null || step.value === undefined ? "Could not check" : buttonLabel(step.value));
+            if (!step) continue;
+            if (step.present === false) {
+                report(item.setup, { hidden: true });
+                continue;
+            }
+            const supported = step.values && step.values.indexOf(item.saved) !== -1 && (item.saved !== "hibernate" || allowed.hibernate === true);
+            if (!supported || ["unknown", "denied", "absent"].indexOf(step.state) !== -1) {
+                report(item.setup, { tone: "warning", text: "Not available", available: false, action: false,
+                    hint: step.state === "unknown" ? "VGS could not read the login service. Open [Settings](page:vgs.power/Settings) to check again."
+                        : step.state === "denied"
+                        ? "Another file manages this choice. VGS leaves it unchanged."
+                        : "Choose an available action in [Settings](page:vgs.power/Settings) first." });
+                continue;
+            }
+            const matches = step.value === item.saved;
+            report(item.setup, matches ? { tone: "ok", text: "Applied", action: false }
+                : { tone: "warning", text: step.state === "nixos" ? "Needs your NixOS configuration" : "Saved choice not applied",
+                    action: true, actionValue: item.saved });
+        }
     }
 
     function resumeFromSleep(line) {
@@ -383,6 +433,7 @@ Item {
     // write changes nothing.
     function publish() {
         if (shell === null) return;
+        publishButtons();
         report("power", root.view);
         report("battery", battery.present ? "present" : "absent");
         report("profiles", battery.present && profile.available ? "present" : "absent");

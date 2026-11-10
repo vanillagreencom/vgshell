@@ -47,7 +47,7 @@
     "tui": ["pane"]
   },
   "idleStages": { "displayOff": { "seconds": "displayOffSeconds" }, "sleep": { "seconds": "sleepAfterSeconds" } },
-  "systemSteps": ["disk-sleep", "wake-sources"],
+  "systemSteps": ["disk-sleep", "wake-sources", "power-key", "lid-switch"],
   "defaultSection": "right",
   "pane": {
     "group": "Hardware",
@@ -128,6 +128,8 @@
     "displayOffSeconds": 600,
     "sleepAfterSeconds": 0,
     "sleepAction": "suspend",
+    "powerKeyAction": "poweroff",
+    "lidAction": "suspend",
     "lowThreshold": 20,
     "criticalThreshold": 10,
     "chargerProfile": "performance",
@@ -138,6 +140,22 @@
     "stayAwakeMinutes": 60
   },
   "schema": {
+    "powerKeyAction": {
+      "type": "string",
+      "label": "Power button",
+      "description": "Save a choice, then apply it on [Setup](page:vgs.power/Setup)",
+      "optionsFrom": "keyActions",
+      "group": "Buttons"
+    },
+    "lidAction": {
+      "type": "string",
+      "label": "Close the lid",
+      "description": "Save a choice, then apply it on [Setup](page:vgs.power/Setup)",
+      "info": "The login service handles the lid. A dock, an external display or an application can prevent the selected lid action.",
+      "optionsFrom": "lidActions",
+      "shownWhen": "lid",
+      "group": "Buttons"
+    },
     "displayOffSeconds": {
       "type": "number",
       "label": "Turn displays off",
@@ -312,6 +330,43 @@
     }
   },
   "status": {
+    "keyActions": {
+      "type": "choices",
+      "label": "Power button actions"
+    },
+    "lidActions": {
+      "type": "choices",
+      "label": "Lid actions"
+    },
+    "lid": {
+      "type": "presence",
+      "label": "Lid",
+      "hidden": true
+    },
+    "powerKeyApplied": {
+      "type": "text",
+      "label": "Power button applied"
+    },
+    "lidApplied": {
+      "type": "text",
+      "label": "Lid applied"
+    },
+    "powerKey": {
+      "type": "state",
+      "label": "Power button choice",
+      "setup": true,
+      "group": "Buttons",
+      "hint": "Saving a choice does not change how the button acts",
+      "action": { "label": "Apply", "system": "power-key" }
+    },
+    "lidSwitch": {
+      "type": "state",
+      "label": "Lid choice",
+      "setup": "optional",
+      "group": "Buttons",
+      "hint": "Docking and applications can still prevent the selected lid action",
+      "action": { "label": "Apply", "system": "lid-switch" }
+    },
     "actions": {
       "type": "data",
       "label": "Power actions"

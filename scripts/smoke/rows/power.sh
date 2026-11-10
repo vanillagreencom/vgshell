@@ -572,6 +572,46 @@ print(json.dumps([run for run in runs if any(word in methods for word in run)]))
 power_sleep_count() { power_sleep_calls | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 power_sleep_choices() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps([row["value"] for row in json.load(sys.stdin).get("sleepActions", [])]))'; }
 power_sleep_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin).get("hibernate", "unreported"))'; }
+power_button_choices() { ipc smoke statusValues vgs.power | py_reply 'import json,sys
+s=json.load(sys.stdin); print(json.dumps([[v["value"] for v in s.get(key, [])] for key in ("keyActions", "lidActions")]))'; }
+power_button_action() { ipc smoke statusValues vgs.power | py_reply 'import json,sys
+s=json.load(sys.stdin).get("powerKey", {}); print(json.dumps([s.get("action", False), s.get("actionValue")]))'; }
+power_button_override() { if [[ -e $devices_system_root/etc/systemd/logind.conf.d/60-vgs-power-key.conf || -L $devices_system_root/etc/systemd/logind.conf.d/60-vgs-power-key.conf ]]; then echo present; else echo absent; fi; }
+power_button_live() { system_logind_status | py_reply 'import json,sys; print(json.load(sys.stdin)["power-key"]["value"])'; }
+power_buttons_check() {
+  expect "Settings opens Power's saved button choices" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect_poll "the default power button choice needs no Apply" '[false, null]' power_button_action
+  expect_poll "an input lid exposes its Settings field" shown power_sleep_field vgs.settings lidAction
+  terminal_stand_in
+  terminal_ready "power button choice"
+  forget_record
+  settings_press --type Select "Shut down" Field "Power button" || fail "the power button choice did not open"
+  type_keys -k Home -k Down -k Return || fail "choosing Sleep for the power button failed"
+  expect_poll "choosing Sleep saves suspend" '"suspend"' power_setting powerKeyAction
+  expect_poll "the saved change offers Apply with its current value" '[true, "suspend"]' power_button_action
+  expect "saving a choice alone opens no root terminal" absent recorded
+  expect "saving a choice leaves the fake live policy alone" poweroff power_button_live
+  expect "saving a choice writes no privileged override" absent power_button_override
+  settings_setup
+  hold_runs
+  settings_press --type RowAction Apply StatusLine "Power button choice" || fail "the Setup Apply press failed"
+  expect_poll "Setup Apply opens the existing core TUI with the saved suspend value" \
+    "$(core_words core/system "System setup" org.vgs.tui system apply power-key suspend)" recorded
+  # The terminal only records argv. Plant the new property for the re-probe;
+  # no root operation or real logind reload runs in this row.
+  device_reply systemctl 0 suspend show-session --property=HandlePowerKey --value --no-pager
+  release_runs
+  expect_run_end "the button choice core/system run ends" core/system
+  expect_poll "fresh applied state withdraws Apply" '[false, null]' power_button_action
+  settings_details
+  expect_poll "Details reports the applied power button choice read-only" '"Sleep"' \
+    ipc smoke readMatchingDescendant window vgs.settings StatusLine label "Power button applied" text
+  expect "the button choice returns to its default saved preference" ok power_idle_set vgs.power powerKeyAction '"poweroff"'
+  system_logind_fixture
+  rescan "rescan restores the fake default button policy"
+  expect_poll "the restored default matches without Apply" '[false, null]' power_button_action
+  settings_page_close vgs.power
+}
 power_sleep_problem() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; value=json.load(sys.stdin).get("sleepProblem"); print("reported" if isinstance(value,str) and value.strip() else "clear")'; }
 power_sleep_field() { # PLUGIN KEY: a drawn field, with the timer anchoring the page
   ipc smoke itemValues window "$1" Field label,visible | py_reply 'import json,sys
@@ -601,6 +641,7 @@ power_sleep_after_idle() {
   expect "Power enables behind its sleep transport fence" ok ipc shell setPluginEnabled vgs.power true
   expect "the display timer is Never during sleep checks" ok power_idle_set vgs.power displayOffSeconds 0
   expect_poll "only suspend is offered without hibernation support" '["suspend"]' power_sleep_choices
+  expect_poll "button choices omit hibernate without a yes from logind" '[["poweroff", "suspend", "ignore"], ["suspend", "ignore"]]' power_button_choices
   expect_poll "hibernation support reads absent" absent power_sleep_presence
   expect_poll "Settings hides the unsupported action field" hidden power_sleep_field vgs.settings sleepAction
   expect "System Settings opens the Sleep section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
@@ -625,6 +666,7 @@ power_sleep_after_idle() {
   printf 'yes\n' >"$power_sleep_replies/CanSuspendThenHibernate"
   expect "Power reads the hibernation-capable stand-in" ok ipc shell setPluginEnabled vgs.power true
   expect_poll "each yes capability offers its action" '["suspend", "hibernate", "suspend-then-hibernate"]' power_sleep_choices
+  expect_poll "button choices offer hibernate only after logind answers yes" '[["poweroff", "suspend", "hibernate", "ignore"], ["suspend", "hibernate", "ignore"]]' power_button_choices
   expect_poll "hibernation support reads present" present power_sleep_presence
   expect_poll "Settings shows the supported action field" shown power_sleep_field vgs.settings sleepAction
   expect "the pane opens with hibernation supported" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
@@ -994,6 +1036,7 @@ power_main() {
   power_logind_start
   smoke_row_abandon=(power_logind_stop)
   expect "Power's system step resolves in the fake tree" prefixed devices_system_tree
+  system_logind_fixture
   devices_usb_wake disabled
   local mac name class allowed path
   while read -r mac name class allowed; do
@@ -1226,6 +1269,7 @@ EOF_STAND
   expect_poll "Down and Return in the list store 25 percent" 25 power_setting lowThreshold
   expect_poll "Low battery alert marks 25 percent while the other lists keep their defaults" '[3, 0, 2, 1]' power_pane_choices Select
   expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
+  power_buttons_check
   expect "disabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim false
   expect "disabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away false
   power_move_away "$power_dim_dir"

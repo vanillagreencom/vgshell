@@ -3,7 +3,7 @@
 # plugin's status action can ask for.
 #
 #   vgshell-system status [--json]   probe every step and print its state
-#   vgshell-system apply <step>      show the step's root commands, ask once, run them through sudo
+#   vgshell-system apply <step> [value] show the step's root commands, ask once, run them through sudo
 #   vgshell-system undo <step>       show the commands that revert what VGS changed for the step,
 #                                 ask once, run them through sudo
 #
@@ -25,6 +25,16 @@
 #   wake-sources         install config/system/udev/90-vgs-wake.rules, then reload
 #                        udev and trigger USB change events; enables keyboards,
 #                        mice, Bluetooth controllers and every USB hub
+#   power-key, lid-switch
+#                        apply one value from the step's `status --json`
+#                        `values` list through a logind drop-in. A matching
+#                        default writes nothing; selecting the default removes
+#                        only VGS's recorded override. Reload synchronously,
+#                        never restart logind, then read the live property.
+#                        The JSON reading adds `value` (null when unread),
+#                        `values` and `present` (null when unread). `ready`
+#                        here means a live policy reading, not agreement with
+#                        the preference a plugin saved.
 #   i2c-dev              `modprobe i2c-dev`, then `udevadm settle`; the ddcutil package's
 #                        own udev rule and modules-load.d file grant the access and
 #                        load it at boot
@@ -364,6 +374,7 @@ disk_rule_dest="$rules_dir/69-vgs-disk-sleep.rules"
 systemd_dir="$prefix/etc/systemd"
 resolved_conf_dir="$systemd_dir/resolved.conf.d"
 dns_dropin="$resolved_conf_dir/60-vgs-dns.conf"
+logind_conf_dir="$systemd_dir/logind.conf.d"
 resolv_conf="$prefix/etc/resolv.conf"
 resolved_stub=/run/systemd/resolve/stub-resolv.conf
 # Omarchy's servers, TLS names and Quad9 fallback, comma-joined as nmcli
@@ -380,8 +391,18 @@ declare -A dns_ipv4=([cloudflare]='1.1.1.1#cloudflare-dns.com,1.0.0.1#cloudflare
 declare -A dns_ipv6=([cloudflare]='2606:4700:4700::1111#cloudflare-dns.com,2606:4700:4700::1001#cloudflare-dns.com' [google]='2001:4860:4860::8888#dns.google,2001:4860:4860::8844#dns.google')
 
 # The closed table, in the order status prints it.
-steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups service-sshd tailscale-operator tailscale-account-add greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources dns-cloudflare dns-google dns-custom vpn-kill-switch)
+steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups service-sshd tailscale-operator tailscale-account-add greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources dns-cloudflare dns-google dns-custom vpn-kill-switch power-key lid-switch)
+# Only this table owns accepted action values. Shell consumers read it from
+# status --json; neither a manifest nor plugin text supplies root commands.
+declare -A step_values=([power-key]='poweroff suspend hibernate ignore' [lid-switch]='suspend hibernate ignore')
+declare -A logind_property=([power-key]=HandlePowerKey [lid-switch]=HandleLidSwitch)
+declare -A logind_default=([power-key]=poweroff [lid-switch]=suspend)
+action_value=
 declare -A step_description=(
+  [apply:power-key]='Apply the saved power button choice through the login service. Reload its configuration without restarting the service.'
+  [undo:power-key]='Remove the power button choice VGS installed and reload the login service. The remaining system configuration takes effect.'
+  [apply:lid-switch]='Apply the saved lid choice through the login service. Docking and inhibitors can still change how the lid acts.'
+  [undo:lid-switch]='Remove the lid choice VGS installed and reload the login service. The remaining system configuration takes effect.'
   [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
   [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
   [apply:disk-sleep]='Allow hard disks to sleep after 30 minutes without disk activity. This installs a disk rule and applies it to connected hard disks.'
@@ -464,6 +485,12 @@ known_step() { # NAME
   return 1
 }
 
+value_valid() { # STEP VALUE
+  local value
+  for value in ${step_values[$1]-}; do [[ $value == "$2" ]] && return 0; done
+  return 1
+}
+
 # Sets unit to service STEP's systemd unit.
 unit_of() { # STEP
   case "$1" in
@@ -525,6 +552,65 @@ sha256_of() { # FILE
 # it, the `fix=` value and the English lines that follow, both empty unless
 # the probe sets them.
 set_probe() { probe_state="$1" probe_reason="$2" probe_fix="" probe_hint=(); }
+
+# SW_LID is bit zero of Linux input's switch bitmap, independent of the
+# chassis type. ACPI exposes lids separately on machines without that input.
+# https://github.com/torvalds/linux/blob/v6.17/include/uapi/linux/input-event-codes.h
+# https://github.com/torvalds/linux/blob/v6.17/drivers/acpi/button.c
+lid_present() {
+  local file bits unreadable=0
+  for file in "$prefix"/proc/acpi/button/lid/*/state; do [[ -f $file ]] && return 0; done
+  for file in "$sys"/class/input/input*/capabilities/sw; do
+    IFS= read -r bits <"$file" || { unreadable=1; continue; }
+    [[ $bits =~ ^($hex|[[:space:]])+$ ]] || { unreadable=1; continue; }
+    [[ $bits =~ [13579bBdDfF]$ ]] && return 0
+  done
+  ((unreadable == 0)) || return 2
+  return 1
+}
+
+# loginctl show-session without an id reads the Manager, not a session:
+# https://github.com/systemd/systemd/blob/v259/src/login/loginctl.c
+# show_session() reads live properties,
+# never infer effective policy from drop-in bytes.
+logind_read() { # STEP
+  live_value=
+  command -v loginctl >/dev/null && command -v systemctl >/dev/null || return 1
+  # A property request must not activate a stopped login service.
+  systemctl is-active --quiet systemd-logind.service 2>/dev/null || return 1
+  live_value="$(loginctl show-session "--property=${logind_property[$1]}" --value --no-pager 2>/dev/null)" || return 1
+  [[ $live_value =~ ^$lower($lower|-)*$ ]]
+}
+
+logind_destination() { destination="$logind_conf_dir/60-vgs-$1.conf"; } # STEP
+
+probe_logind() { # STEP
+  local recorded="" status=0 lid_status=0
+  probe_value= probe_present=true
+  if [[ $1 == lid-switch ]]; then
+    lid_present || lid_status=$?
+    case "$lid_status" in
+      0) ;;
+      1) probe_present=false ;;
+      *) probe_present=null; set_probe unknown lid-unreadable; return ;;
+    esac
+  fi
+  logind_read "$1" || { set_probe unknown logind-unavailable; return; }
+  probe_value="$live_value"
+  if [[ $probe_present == false ]]; then set_probe absent no-lid; return; fi
+  logind_destination "$1"
+  if read_record "$1"; then recorded="${record[dropin]-}"; fi
+  if [[ -e $destination || -L $destination ]]; then
+    [[ -n $recorded ]] || { set_probe denied foreign; return; }
+    file_holds "$destination" "$recorded" || status=$?
+    case "$status" in
+      0) ;;
+      1) set_probe denied foreign; return ;;
+      *) set_probe unknown dropin-unreadable; return ;;
+    esac
+  fi
+  set_probe ready live
+}
 
 # The vendor:product of a HID device's uevent, lower case, `none` when it
 # names no HID_ID; 1 when the file cannot be read.
@@ -1330,6 +1416,7 @@ probe() { # STEP
     apple-displays) probe_apple_displays ;;
     disk-sleep) probe_disk_sleep ;;
     wake-sources) probe_wake_sources ;;
+    power-key|lid-switch) probe_logind "$1" ;;
     i2c-dev) probe_i2c_dev ;;
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
     service-cups) probe_cups ;;
@@ -1376,6 +1463,11 @@ detect_or_refuse() {
 
 nixos_snippet() { # STEP
   case "$1" in
+    power-key|lid-switch)
+      # nixpkgs nixos-26.05:
+      # nixos/modules/system/boot/systemd/logind.nix.
+      printf 'services.logind.settings.Login.%s = "%s";\n' "${logind_property[$1]}" "$action_value"
+      ;;
     apple-displays|wake-sources)
       printf 'services.udev.extraRules = %s\n' "''"
       local source="$rule_source"
@@ -1454,6 +1546,7 @@ read_record() { # STEP
     reboot-notice) allowed=' uid link hooks-dir ' ;;
     voxtype-engine|vgs-quickshell-repository) allowed=' uid enabled ' ;;
     dns) allowed=' uid provider ipv4 ipv6 dropin dropin-dir ' ;;
+    power-key|lid-switch) allowed=' uid value dropin ' ;;
     *) refuse 1 "internal=record step=$1" ;;
   esac
   while IFS= read -r line || [[ -n $line ]]; do
@@ -1469,6 +1562,7 @@ read_record() { # STEP
       boot|deferred) [[ $value =~ ^($hex|-){36}$ ]] ;;
       target) [[ $value =~ ^($lower|$digit|[@._:-])+\.target$ ]] ;;
       provider) [[ $value == cloudflare || $value == google || $value == custom ]] ;;
+      value) value_valid "$name" "$value" ;;
       ipv4|ipv6) [[ $value == - || $value =~ $dns_list_pattern ]] ;;
       profile-*) [[ $value =~ $dns_saved_pattern ]] ;;
       prior-*) [[ $value =~ $dns_prior_pattern ]] ;;
@@ -1476,6 +1570,9 @@ read_record() { # STEP
     record[$key]="$value"
   done <"$file" || refuse 1 "record=unreadable path=$file"
   [[ -n ${record[uid]+set} ]] || refuse 1 "record=malformed path=$file"
+  if [[ -n ${step_values[$name]-} ]]; then
+    [[ -n ${record[value]-} && -n ${record[dropin]-} ]] || refuse 1 "record=malformed path=$file"
+  fi
   [[ ${record[uid]} == "$uid" ]] || refuse 1 "record=other-uid uid=${record[uid]} path=$file" "another account applied this step; only it can undo it"
 }
 
@@ -1711,6 +1808,47 @@ owned_dir() { # DIR
     dir="${dir%/*}"
     dir="${dir:-/}"
   done
+}
+
+undo_logind() { # STEP
+  local recorded="" rm systemctl
+  owned_dir "$logind_conf_dir"
+  logind_destination "$1"
+  if read_record "$1"; then recorded="${record[dropin]}"; fi
+  dest_state_of "$destination" "$recorded"
+  [[ -n $recorded ]] || return 0
+  program rm rm
+  program systemctl systemctl
+  [[ $dest_state == none ]] || cmd "$rm" -f -- "$destination"
+  # Type=notify-reload completes only after logind acknowledges its reload.
+  # https://github.com/systemd/systemd/blob/v259/units/systemd-logind.service.in
+  # Never fall back to restart.
+  cmd "$systemctl" reload systemd-logind.service
+  if [[ $mode == run ]]; then
+    logind_read "$1" || refuse 1 "state=unknown reason=logind-unavailable step=$1"
+    [[ -z $action_value || $live_value == "$action_value" ]] ||
+      refuse 1 "state=ready reason=value-mismatch step=$1" "the remaining login service configuration does not use this default"
+  fi
+  record_drop "$1"
+}
+
+apply_logind() { # STEP
+  local recorded="" text hash install systemctl
+  if [[ $action_value == "${logind_default[$1]}" ]]; then undo_logind "$1"; return; fi
+  owned_dir "$logind_conf_dir"
+  logind_destination "$1"
+  if read_record "$1"; then recorded="${record[dropin]}"; fi
+  dest_state_of "$destination" "$recorded"
+  text="# Written by vgshell system apply $1; vgshell system undo $1 removes it.
+[Login]
+${logind_property[$1]}=$action_value"
+  text_sum "$text"; hash="$sum"
+  program install install
+  program systemctl systemctl
+  record_put "$1" "uid=$uid"$'\n'"value=$action_value"$'\n'"dropin=$hash"
+  [[ -d $logind_conf_dir ]] || cmd "$install" -d -m 0755 -o root -g root -- "$logind_conf_dir"
+  if [[ $dest_state != own || $recorded != "$hash" ]]; then put_text "$destination" "$text"; fi
+  cmd "$systemctl" reload systemd-logind.service
 }
 
 apply_greeter() {
@@ -2162,6 +2300,7 @@ plan() { # VERB STEP
   case "$2" in
     apple-displays|wake-sources) "$1_udev_rule" "$2" ;;
     disk-sleep) "$1_disk_sleep" ;;
+    power-key|lid-switch) "$1_logind" "$2" ;;
     i2c-dev) "$1_i2c_dev" ;;
     service-bluetooth|service-tailscaled|service-cups|service-sshd) "$1_service" "$2" ;;
     greeter) "$1_greeter" ;;
@@ -2284,9 +2423,17 @@ tailscale_transaction() { # apply|undo STEP
 # ---------------------------------------------------------------- verbs
 
 json_status() {
-  local step out="" sep=""
+  local step out="" sep="" extra values value value_sep
   for step in "${steps[@]}"; do
-    out+="$sep\"$step\":{\"state\":\"${state_of[$step]}\",\"reason\":\"${reason_of[$step]}\"}"
+    extra=
+    if [[ -n ${step_values[$step]-} ]]; then
+      values= value_sep=
+      for value in ${step_values[$step]}; do values+="$value_sep\"$value\""; value_sep=,; done
+      value=null
+      [[ -z ${value_of[$step]} ]] || value="\"${value_of[$step]}\""
+      extra=",\"values\":[$values],\"value\":$value,\"present\":${present_of[$step]}"
+    fi
+    out+="$sep\"$step\":{\"state\":\"${state_of[$step]}\",\"reason\":\"${reason_of[$step]}\"$extra}"
     sep=,
   done
   printf '{"steps":{%s}}\n' "$out"
@@ -2300,6 +2447,7 @@ json_status() {
 # (nixos_snippet). NetworkManager's absence stays absent: the DNS lines do
 # not install it.
 nixos_grants() { # STEP
+  if [[ -n ${step_values[$1]-} && $probe_state == ready ]]; then return 0; fi
   [[ $1 != tailscale-account-add ]] || return 1
   [[ $probe_state != needed ]] || return 0
   case "$1 $probe_state $probe_reason" in
@@ -2315,10 +2463,11 @@ nixos_grants() { # STEP
 probe_all() {
   local step
   local -a granted=()
-  declare -gA state_of=() reason_of=()
+  declare -gA state_of=() reason_of=() value_of=() present_of=()
   for step in "${steps[@]}"; do
     probe "$step"
     state_of[$step]="$probe_state" reason_of[$step]="$probe_reason"
+    if [[ -n ${step_values[$step]-} ]]; then value_of[$step]="$probe_value" present_of[$step]="$probe_present"; fi
     if nixos_grants "$step"; then granted+=("$step"); fi
   done
   ((${#granted[@]} > 0)) || return 0
@@ -2340,8 +2489,9 @@ verb_status() { # [--json]
   done
 }
 
-verb_apply() { # STEP
+verb_apply() { # STEP [VALUE]
   local step="$1"
+  if [[ -n ${step_values[$step]-} ]]; then verb_apply_value "$step" "$2"; return; fi
   probe "$step"
   case "$probe_state" in
     # dns-custom asks for its servers again: the ones typed may differ
@@ -2389,6 +2539,35 @@ verb_apply() { # STEP
   printf 'ok system=%s state=ready\n' "$step"
 }
 
+verb_apply_value() { # STEP VALUE
+  local step="$1"
+  action_value="$2"
+  probe "$step"
+  [[ $probe_state == ready ]] || refuse 1 "state=$probe_state reason=$probe_reason step=$step"
+  detect_or_refuse
+  if [[ $detected_system == nix ]]; then
+    printf 'ok system=%s skipped=nixos-config\n' "$step"
+    nixos_snippet "$step"
+    return
+  fi
+  logind_destination "$step"
+  # A saved choice alone changes nothing. An effective default never
+  # creates a drop-in; choosing it later removes only the owned override.
+  if [[ $probe_value == "$action_value" && ($action_value != "${logind_default[$step]}" || (! -e $destination && ! -e $record_dir/$step)) ]]; then
+    printf 'ok system=%s state=ready\n' "$step"
+    return
+  fi
+  if [[ $action_value == "${logind_default[$step]}" && ! -e $destination && ! -e $record_dir/$step ]]; then
+    refuse 1 "state=denied reason=default-managed-elsewhere step=$step" "the remaining system configuration does not use this default; VGS leaves it unchanged"
+  fi
+  confirm_and_run apply "$step"
+  probe "$step"
+  [[ $probe_state == ready ]] || refuse 1 "state=$probe_state reason=$probe_reason step=$step"
+  [[ $probe_value == "$action_value" ]] ||
+    refuse 1 "state=$probe_state reason=value-mismatch step=$step" "the live login service did not report the saved choice"
+  printf 'ok system=%s state=ready\n' "$step"
+}
+
 verb_undo() { # STEP
   local step="$1"
   detect_or_refuse
@@ -2400,6 +2579,13 @@ verb_undo() { # STEP
   if [[ $step == tailscale-operator || $step == tailscale-account-add ]]; then
     tailscale_transaction undo "$step"
     return
+  fi
+  if [[ -n ${step_values[$step]-} ]]; then
+    owned_dir "$logind_conf_dir"
+    logind_destination "$step"
+    local recorded=""
+    if read_record "$step"; then recorded="${record[dropin]}"; fi
+    dest_state_of "$destination" "$recorded"
   fi
   if ! read_record "$step"; then
     printf 'ok system=%s state=untouched\n' "$step"
@@ -2425,8 +2611,14 @@ main() {
       (($# == 0)) || [[ $# == 1 && $1 == --json ]] || bad_invocation "argument=$(printf '%q' "$1")"
       ;;
     apply|undo)
-      (($# == 1)) || bad_invocation "count=$# verb=$verb"
+      (($# > 0)) || bad_invocation "count=$# verb=$verb"
       known_step "$1" || bad_invocation "step=$(printf '%q' "$1")"
+      if [[ $verb == apply && -n ${step_values[$1]-} ]]; then
+        (($# == 2)) || bad_invocation "count=$# verb=$verb"
+        value_valid "$1" "$2" || bad_invocation "value=$(printf '%q' "$2") step=$1"
+      else
+        (($# == 1)) || bad_invocation "count=$# verb=$verb"
+      fi
       ;;
     *) bad_invocation "verb=$(printf '%q' "$verb")" ;;
   esac

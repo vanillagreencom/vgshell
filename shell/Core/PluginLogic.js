@@ -242,7 +242,7 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // user chose, such as a file in a folder picked in Settings. A folder's
 // path ends in `/`, as editRoute reads it; any other path opens in the
 // editor, which refuses a folder.
-var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available", "info", "file"];
+var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "actionValue", "aside", "available", "info", "file"];
 // The `action` a Setup step's value names for the one install action,
 // which no entry declares: it names that action over a declared action of
 // the same name.
@@ -338,7 +338,7 @@ var STATUS_SOURCE_ACTION = "source";
 // prints them, and the states a probe reads each one in. The script is the
 // table's owner; scripts/test-vgshell-system.sh reads its status back against
 // this list.
-var SYSTEM_STEPS = ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "service-sshd", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources", "dns-cloudflare", "dns-google", "dns-custom", "vpn-kill-switch"];
+var SYSTEM_STEPS = ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "service-sshd", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources", "dns-cloudflare", "dns-google", "dns-custom", "vpn-kill-switch", "power-key", "lid-switch"];
 var SYSTEM_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
 // A probe's reason: a short key of lower case letters and dashes.
 var SYSTEM_REASON_PATTERN = /^[a-z][a-z-]{0,39}$/;
@@ -1156,8 +1156,10 @@ function systemUnknown(reason) {
 // What the SystemSteps owner holds after one run of `bin/vgshell-system
 // status --json`, COMPLETION { code, status } or null for a run that never
 // started, STDOUT its output: { steps, line }. `steps` maps every step of
-// SYSTEM_STEPS to { state, reason }, a state of SYSTEM_STATES and a reason
-// SYSTEM_REASON_PATTERN admits. A run that gives no such report reads
+// SYSTEM_STEPS to { state, reason }, plus values, value and present for a
+// value step. The root owns the sets; a live value need not be a choice
+// VGS offers, and null marks an unread value or device presence.
+// A run that gives no such report reads
 // every step `unknown` with reason `probe-failed`, never ready, and `line`
 // is the log line naming why: `system: probe=unstarted`, `system:
 // probe=failed exit=<code> status=<status> <first stderr line>`, or
@@ -1184,28 +1186,67 @@ function systemReport(completion, stdout, stderr) {
     for (var i = 0; i < SYSTEM_STEPS.length; i++) {
         var step = SYSTEM_STEPS[i];
         var entry = doc.steps[step];
-        if (!isPlainObject(entry) || Object.keys(entry).length !== 2 || SYSTEM_STATES.indexOf(entry.state) === -1 ||
+        if (!isPlainObject(entry) || (entry.values === undefined
+            ? Object.keys(entry).length !== 2 || hasOwn(entry, "value") || hasOwn(entry, "present")
+            : Object.keys(entry).some(function (key) { return ["state", "reason", "values", "value", "present"].indexOf(key) === -1; })) || SYSTEM_STATES.indexOf(entry.state) === -1 ||
             typeof entry.reason !== "string" || !SYSTEM_REASON_PATTERN.test(entry.reason))
             return failed("system: probe=malformed reason=step step=" + step);
         steps[step] = { state: entry.state, reason: entry.reason };
+        if (hasOwn(entry, "values") || hasOwn(entry, "value") || hasOwn(entry, "present")) {
+            if (!Array.isArray(entry.values) || entry.values.length === 0 || !entry.values.every(function (value, index) {
+                return typeof value === "string" && SYSTEM_REASON_PATTERN.test(value) && entry.values.indexOf(value) === index;
+            }) || (entry.value !== null && (typeof entry.value !== "string" || !SYSTEM_REASON_PATTERN.test(entry.value))) || (entry.present !== null && typeof entry.present !== "boolean"))
+                return failed("system: probe=malformed reason=step step=" + step);
+            steps[step].values = entry.values.slice();
+            steps[step].value = entry.value;
+            steps[step].present = entry.present;
+        }
     }
     return { steps: steps, line: "" };
 }
 
-// Whether two `steps` of systemReport read the same states and reasons.
+// Whether two reports read the same policy, value sets and device presence.
 function systemStepsEqual(a, b) {
     return SYSTEM_STEPS.every(function (step) {
-        return a[step].state === b[step].state && a[step].reason === b[step].reason;
+        return a[step].state === b[step].state && a[step].reason === b[step].reason
+            && JSON.stringify(a[step].values) === JSON.stringify(b[step].values)
+            && a[step].value === b[step].value && a[step].present === b[step].present;
     });
 }
 
-// The states the `system` capability lends a plugin: one { state, reason }
-// of STEPS per step of DECLARED, its manifest's `systemSteps`, in that
-// order, each a copy.
+// The readings the `system` capability lends a plugin: one copy of STEPS
+// per step of DECLARED, its manifest's `systemSteps`, in that order.
 function systemStateOf(steps, declared) {
     var out = {};
-    declared.forEach(function (step) { out[step] = { state: steps[step].state, reason: steps[step].reason }; });
+    declared.forEach(function (step) { out[step] = { state: steps[step].state, reason: steps[step].reason };
+        if (steps[step].values !== undefined) {
+            out[step].values = steps[step].values.slice();
+            out[step].value = steps[step].value;
+            out[step].present = steps[step].present;
+        }
+    });
     return out;
+}
+
+// The latest root-table report alone admits a value. Even a plugin whose
+// published action is syntactically valid cannot add argv to a plain step
+// or omit, invent or pass extra values to a value step.
+function systemActionRequest(args, steps) {
+    var refused = function (reason) { return { ok: false, answer: "refused: system=action reason=" + reason }; };
+    if (!Array.isArray(args) || args.length < 2 || ["apply", "undo"].indexOf(args[0]) === -1 || SYSTEM_STEPS.indexOf(args[1]) === -1)
+        return refused("arguments");
+    var entry = steps === null ? undefined : steps[args[1]];
+    if (entry === undefined || ["probe-failed", "probe-timeout"].indexOf(entry.reason) !== -1)
+        return refused("unreported");
+    var takesValue = entry !== undefined && Array.isArray(entry.values);
+    if (args[0] === "undo" || !takesValue) {
+        if (args.length !== 2) return refused("extra-value");
+    } else if (args.length !== 3 || typeof args[2] !== "string" || entry.values.indexOf(args[2]) === -1) {
+        return refused("value");
+    }
+    // A failed probe has no value sets, so it cannot authorize a value
+    // request. Plain steps retain their existing two-argument contract.
+    return { ok: true, args: args.slice() };
 }
 
 // The longest timed grant the core TUI `sudo-grant` takes, in minutes;
@@ -1492,6 +1533,7 @@ function statusValueFits(type, value, folderProperty) {
             && infoError(value.info, "", true) === ""
             && (value.file === undefined || (typeof value.file === "string" && editArgs(value.file).ok))
             && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string")
+            && (value.actionValue === undefined || typeof value.actionValue === "string")
             && (value.aside === undefined || typeof value.aside === "boolean")
             && (value.available === undefined || value.available === false);
     }
@@ -1658,8 +1700,13 @@ function statusWrite(manifest, values, key, value) {
 // Setup keeps it after completion; an optional step is hidden while it
 // does not apply, such as a repair with nothing to repair. A `state` value
 // carries `file` exactly while the action it offers is a file action
-// declared `file: true`, whose path it is.
+// declared `file: true`, whose path it is. actionValue belongs only to an
+// offered system apply; the latest root report judges its membership.
 function statusDeclarationFits(manifest, entry, value) {
+    if (entry.type === "state" && value.actionValue !== undefined) {
+        var valueAction = statusActionOffered(entry, value);
+        if (valueAction === null || valueAction.system === undefined) return false;
+    }
     if (entry.type === "state") {
         if (entry.setup === true && statusStateHidden(value)) return false;
         if (value.aside !== undefined && entry.aside === undefined) return false;
@@ -2008,7 +2055,8 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
 // status entry KEY of plugin MANIFEST, null for an id no plugin has,
 // ENABLED and VALUES its published values: { ok: true, kind: "tui", name } to open the plugin's own
 // TUI NAME, { ok: true, kind: "system", args } to open the core TUI
-// `core/system` with ARGS, `apply` or `undo` and its declared step,
+// `core/system` with ARGS, `apply` or `undo`, its declared step and, for
+// an apply, the published actionValue when present,
 // { ok: true, kind: "file", path } to open PATH (editRoute) as the
 // plugin's own run, the action's declared path or, for `file: true`, the
 // published value's `file`, or { ok: false,
@@ -2063,8 +2111,11 @@ function statusActionRequest(manifest, id, enabled, values, key, row, rowAction)
         return { ok: false, answer: statusActionRefusal(key, "not-offered") };
     if (action.dictation !== undefined)
         return { ok: true, kind: "core", name: "dictation-setup" };
-    if (action.system !== undefined)
+    if (action.system !== undefined) {
+        if (values[key].actionValue !== undefined)
+            return { ok: true, kind: "system", args: ["apply", action.system, values[key].actionValue] };
         return { ok: true, kind: "system", args: ["apply", action.system] };
+    }
     if (action.undo !== undefined)
         return { ok: true, kind: "system", args: ["undo", action.undo] };
     if (action.file !== undefined)

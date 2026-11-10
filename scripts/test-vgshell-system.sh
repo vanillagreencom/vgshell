@@ -163,7 +163,17 @@ case "\$1 \$2" in
   "enable "*) touch "\$u/\$2.enabled" ;;
   "disable "*) rm -f "\$u/\$2.enabled" ;;
   "stop "*) rm -f "\$u/\$2.active" ;;
-  "reload "*) [ ! -e "\$u/\$2.no-reload" ] ;;
+  "reload "*)
+    [ ! -e "\$u/\$2.no-reload" ] || exit 1
+    if [ "\$2" = systemd-logind.service ] && [ ! -e "$tmp/logind-stale" ]; then
+      : >"$tmp/logind-values"
+      for spec in power-key:HandlePowerKey:poweroff lid-switch:HandleLidSwitch:suspend; do
+        step="\${spec%%:*}"; rest="\${spec#*:}"; prop="\${rest%%:*}"; value="\${rest#*:}"
+        file="$root/etc/systemd/logind.conf.d/60-vgs-\$step.conf"
+        if [ -f "\$file" ]; then value="\$(sed -n "s/^\$prop=//p" "\$file")"; fi
+        printf '%s=%s\n' "\$prop" "\$value" >>"$tmp/logind-values"
+      done
+    fi ;;
   "restart "*) touch "\$u/\$2.active" ;;
   "daemon-reload ") ;;
   "get-default ") if [ -e "\$u/default-target" ]; then cat "\$u/default-target"; else echo graphical.target; fi ;;
@@ -171,6 +181,16 @@ case "\$1 \$2" in
   *) exit 64 ;;
 esac
 EOF
+# No request can reach the host login service. This fake reads only the
+# state the fake synchronous reload above publishes.
+cat >"$bin/loginctl" <<EOF
+#!/bin/sh
+[ -f "$tmp/logind-values" ] || exit 1
+[ "\$1" = show-session ] && [ "\$3 \$4" = "--value --no-pager" ] || exit 64
+case "\$2" in --property=HandlePowerKey|--property=HandleLidSwitch) ;; *) exit 64 ;; esac
+sed -n "s/^\${2#--property=}=//p" "$tmp/logind-values"
+EOF
+chmod +x "$bin/loginctl"
 # getent answers one greeter account, the one $tmp/greeter-name names, else
 # `greeter`; none while $tmp/no-greeter exists, and it fails while
 # $tmp/getent-fail exists.
@@ -456,6 +476,7 @@ fresh() {
   rm -f -- "${root:?}/usr/sbin/hdparm"
   rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/wrapper-caps" "$tmp/capture-probes" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
   rm -f -- "$tmp/wake-expected"
+  rm -f -- "$tmp/logind-values" "$tmp/logind-stale"
   rm -f -- "${bin:?}/nmcli" "${tmp:?}/nm.json" "${tmp:?}/nmcli.log" "${tmp:?}/nm-down" "${tmp:?}/nm-modify-fails" "${tmp:?}/nm-reapply-refused"
 }
 wake_fixture() {
@@ -495,6 +516,12 @@ disk_fixture() {
   mkdir -p "$executable_dir"
   printf '#!/bin/sh\nexit 97\n' >"$executable_dir/hdparm"
   chmod 0755 "$executable_dir/hdparm"
+}
+logind_fixture() {
+  mkdir -p "$root/proc/acpi/button/lid/LID0"
+  printf 'state: open\n' >"$root/proc/acpi/button/lid/LID0/state"
+  printf 'HandlePowerKey=poweroff\nHandleLidSwitch=suspend\n' >"$tmp/logind-values"
+  touch "$tmp/units/systemd-logind.service.active"
 }
 # NixOS activation publishes its generated wrapper directory through bin.
 capture_wrapper="$root/run/wrappers/wrappers.fixture/bandwhich"
@@ -568,7 +595,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"service-sshd":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"},"dns-cloudflare":{"state":"absent","reason":"networkmanager-missing"},"dns-google":{"state":"absent","reason":"networkmanager-missing"},"dns-custom":{"state":"absent","reason":"networkmanager-missing"},"vpn-kill-switch":{"state":"%s","reason":"%s"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"service-sshd":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"},"dns-cloudflare":{"state":"absent","reason":"networkmanager-missing"},"dns-google":{"state":"absent","reason":"networkmanager-missing"},"dns-custom":{"state":"absent","reason":"networkmanager-missing"},"vpn-kill-switch":{"state":"%s","reason":"%s"},"power-key":{"state":"unknown","reason":"logind-unavailable","values":["poweroff","suspend","hibernate","ignore"],"value":null,"present":true},"lid-switch":{"state":"unknown","reason":"logind-unavailable","values":["suspend","hibernate","ignore"],"value":null,"present":false}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -827,6 +854,16 @@ run "a step name with a path is refused" 2 "vgs-system: refused: step=../apple-d
 run "status takes only --json" 2 "vgs-system: refused: argument=x" status x
 check "a refused invocation runs no sudo" no_sudo
 check "a refused invocation asks nothing" test ! -e "$tmp/gum.log"
+for value_step in power-key lid-switch; do
+  run "a value step requires its value: $value_step" 2 "vgs-system: refused: count=1 verb=apply" apply "$value_step"
+  run "a value step rejects extra arguments: $value_step" 2 "vgs-system: refused: count=3 verb=apply" apply "$value_step" ignore extra
+  for invalid in "" reboot 'suspend; true' $'ignore\npoweroff'; do
+    run "a value step rejects an unlisted value: $value_step [$invalid]" 2 "vgs-system: refused: value=$(printf '%q' "$invalid") step=$value_step" apply "$value_step" "$invalid"
+  done
+done
+run "lid has no poweroff choice" 2 "vgs-system: refused: value=poweroff step=lid-switch" apply lid-switch poweroff
+check "invalid values never authorize sudo" no_sudo
+check "invalid values never ask a root question" test ! -e "$tmp/gum.log"
 
 # status: each probe reads real access, in table order.
 run "status reads every step" 0 "" status --json
@@ -911,6 +948,84 @@ run_tty "an unattended apply is still asked" 1 apply apple-displays
 check "the unattended apply asked gum" test -e "$tmp/gum.log"
 check "the unattended decline runs no sudo" no_sudo
 tty_env=()
+
+# All policy writes and reloads below stay in the existing scratch-root
+# boundary. These assertions prove no real daemon or session continuity.
+for value_step in power-key lid-switch; do
+  fresh
+  check "$value_step without logind is unknown" test "$(step_state "$value_step")" == "unknown logind-unavailable"
+  run "$value_step cannot apply without a live reading" 1 "vgs-system: refused: state=unknown reason=logind-unavailable step=$value_step" apply "$value_step" ignore
+  check "$value_step unknown state runs no sudo" no_sudo
+  logind_fixture
+  rm -- "$tmp/units/systemd-logind.service.active"
+  check "$value_step cannot activate a stopped daemon for a property reading" test "$(step_state "$value_step")" == "unknown logind-unavailable"
+  touch "$tmp/units/systemd-logind.service.active"
+  if [[ $value_step == power-key ]]; then default=poweroff; choices='suspend hibernate ignore'; property=HandlePowerKey
+  else default=suspend; choices='hibernate ignore'; property=HandleLidSwitch
+  fi
+  value_dropin="$root/etc/systemd/logind.conf.d/60-vgs-$value_step.conf"
+  run "$value_step untouched default needs no terminal" 0 "" apply "$value_step" "$default"
+  check "$value_step untouched default writes no override or record" test ! -e "$value_dropin" -a ! -e "$records/$value_step"
+  check "$value_step untouched default uses no sudo" no_sudo
+  for choice in $choices; do
+    run_tty "$value_step applies $choice through the fake reload" 0 apply "$value_step" "$choice"
+    check "$value_step records $choice" grep -qxF "value=$choice" "$records/$value_step"
+    check "$value_step writes only its selected property" grep -qxF "$property=$choice" "$value_dropin"
+    check "$value_step reads the fresh live choice" grep -qxF "$property=$choice" "$tmp/logind-values"
+  done
+  check "$value_step never restarts logind" test "$(grep -c '^restart systemd-logind.service$' "$tmp/systemctl.log" || true)" == 0
+  run_tty "$value_step choosing the default undoes its override" 0 apply "$value_step" "$default"
+  check "$value_step default undo removes its file and record" test ! -e "$value_dropin" -a ! -e "$records/$value_step"
+  check "$value_step default undo reloads the underlying policy" grep -qxF "$property=$default" "$tmp/logind-values"
+  run_tty "$value_step applies before explicit undo" 0 apply "$value_step" ignore
+  run_tty "$value_step explicit undo" 0 undo "$value_step"
+  check "$value_step explicit undo removes only the owned override" test ! -e "$value_dropin" -a ! -e "$records/$value_step"
+  fresh; logind_fixture
+  printf 'HandlePowerKey=ignore\nHandleLidSwitch=ignore\n' >"$tmp/logind-values"
+  run "$value_step never overwrites another default policy" 1 "vgs-system: refused: state=denied reason=default-managed-elsewhere step=$value_step" apply "$value_step" "$default"
+  check "$value_step default conflict runs no sudo" no_sudo
+  fresh; logind_fixture
+  run_tty "$value_step applies before an administrator edits its file" 0 apply "$value_step" ignore
+  printf 'foreign\n' >"$value_dropin"
+  run "$value_step refuses an edited owned file on apply" 1 "vgs-system: refused: state=denied reason=foreign step=$value_step" apply "$value_step" "$default"
+  run "$value_step refuses an edited owned file on undo" 1 "vgs-system: refused: destination=foreign path=$value_dropin" undo "$value_step"
+  check "$value_step keeps the edited file and ownership record" test -e "$value_dropin" -a -e "$records/$value_step"
+  for kind in file symlink; do
+    fresh; logind_fixture
+    mkdir -p "$root/etc/systemd/logind.conf.d"
+    printf 'foreign\n' >"$tmp/foreign"
+    if [[ $kind == file ]]; then cp "$tmp/foreign" "$value_dropin"; else ln -s "$tmp/foreign" "$value_dropin"; fi
+    run "$value_step refuses a foreign $kind on apply" 1 "vgs-system: refused: state=denied reason=foreign step=$value_step" apply "$value_step" ignore
+    if [[ $kind == file ]]; then refusal=foreign; else refusal=symlink; fi
+    run "$value_step refuses a foreign $kind on undo" 1 "vgs-system: refused: destination=$refusal path=$value_dropin" undo "$value_step"
+    check "$value_step keeps the foreign $kind unchanged" cmp -s "$tmp/foreign" "$value_dropin"
+    check "$value_step foreign $kind refusal runs no sudo" no_sudo
+  done
+  fresh; logind_fixture
+  touch "$tmp/logind-stale"
+  run_tty "$value_step never reports success from file bytes alone" 1 apply "$value_step" ignore
+  check "$value_step failed live confirmation keeps the recovery record" grep -qxF 'value=ignore' "$records/$value_step"
+  fresh; logind_fixture
+  touch "$tmp/units/systemd-logind.service.no-reload"
+  run_tty "$value_step refuses a failed synchronous reload" 1 apply "$value_step" ignore
+  check "$value_step failed reload keeps its undo record" test -e "$records/$value_step"
+  check "$value_step failed reload never falls back to restart" test "$(grep -c '^restart systemd-logind.service$' "$tmp/systemctl.log" || true)" == 0
+  fresh; logind_fixture
+  run_nixos "$value_step on NixOS is snippet only" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply "$value_step" ignore
+  check "$value_step NixOS snippet carries the selected value" out_has "services.logind.settings.Login.$property = \"ignore\";"
+  check "$value_step NixOS changes no scratch file" untouched
+  check "$value_step NixOS uses no sudo" no_sudo
+done
+fresh; logind_fixture
+rm -rf -- "$root/proc/acpi/button/lid"
+check "lid policy does not infer a lid from chassis type" test "$(step_state lid-switch)" == "absent no-lid"
+mkdir -p "$root/sys/class/input/input0/capabilities"
+printf '1\n' >"$root/sys/class/input/input0/capabilities/sw"
+check "an input SW_LID device offers lid policy without ACPI" test "$(step_state lid-switch)" == "ready live"
+printf '2\n' >"$root/sys/class/input/input0/capabilities/sw"
+check "another switch bit is not a lid" test "$(step_state lid-switch)" == "absent no-lid"
+chmod 0000 "$root/sys/class/input/input0/capabilities/sw"
+check "an unreadable lid capability is unknown, not absent" test "$(step_state lid-switch)" == "unknown lid-unreadable"
 
 # Disk sleep reads only sysfs and installed bytes; no command opens a disk.
 fresh
@@ -2243,6 +2358,10 @@ control() { # NAME NEEDLE REPLACEMENT
   place "$copy"
   fresh
 }
+control logind-value-open 'value_valid "$1" "$2" || bad_invocation' 'true || bad_invocation'
+logind_fixture
+run_tty "the value-open mutant reaches a root write with an unlisted action" 1 apply power-key reboot
+check "control: missing value admission breaks the no-sudo assertion" test "$(no_sudo && echo green || echo red)" == red
 control disk-rotational-blind '      1) found=1 ;;' '      0|1) found=1 ;;'
 disk_fixture
 printf '0\n' >"$root/sys/block/sda/queue/rotational"

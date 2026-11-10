@@ -12,14 +12,14 @@ import "PluginLogic.js" as Logic
 // time. PluginLogic.systemReport judges each report, and a run that gives
 // none reads every step unknown. Until the first run ends no step has a
 // reading, so a plugin's `state` holds none of its steps. `revision` rises
-// when a report changes a step's state or reason, so a plugin binds to it.
+// when a report changes a reading or value set, so a plugin binds to it.
 Scope {
     id: root
 
     // Whether any plugin holds `system`; Capabilities binds it.
     property bool active: false
-    // Every step of PluginLogic.SYSTEM_STEPS as { state, reason }, replaced
-    // whole when a report changes it; null until the first run ends.
+    // Every step of PluginLogic.SYSTEM_STEPS, with root-reported value sets
+    // and live properties where present; null until the first run ends.
     property var steps: null
     property int revision: 0
     property int probes: 0
@@ -39,19 +39,26 @@ Scope {
         function onScanFinished() { if (root.active) root.probe(); }
     }
 
-    // `state`: the calling plugin's declared steps, each { state, reason },
+    // `state`: the calling plugin's declared steps and root-owned value sets,
     // one frozen copy per read, and none before the first report;
     // `revision`: the count of changed reports. Both are bindable.
     function provider(ctx) {
         return {
             get state() {
                 const out = root.steps === null ? {} : Logic.systemStateOf(root.steps, ctx.manifest.systemSteps);
-                for (const step of Object.keys(out)) Object.freeze(out[step]);
+                for (const step of Object.keys(out)) {
+                    if (out[step].values !== undefined) Object.freeze(out[step].values);
+                    Object.freeze(out[step]);
+                }
                 return Object.freeze(out);
             },
             get revision() { return root.revision; },
             refresh: done => root.refresh(ctx, done)
         };
+    }
+
+    function actionRequest(args) {
+        return Logic.systemActionRequest(args, steps);
     }
 
     // A request during a probe belongs to the following probe. Revision
