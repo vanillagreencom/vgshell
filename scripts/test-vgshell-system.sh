@@ -2464,7 +2464,9 @@ control nixos-unit-blind '    "service-"*" absent unit-missing") return 0 ;;' ' 
 touch "$tmp/units/bluetooth.service.missing"
 run_nixos "the nixos-unit-blind mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
 check "the nixos-unit-blind mutant reads a missing bluetooth.service absent" test "$(nixos_step_state service-bluetooth)" == "absent unit-missing"
-control verify-blind '  [[ $probe_state == ready ]] ||' '  true ||'
+control verify-blind '  [[ $probe_state == ready ]] ||
+    refuse 1 "state=$probe_state reason=$probe_reason step=$step"' '  true ||
+    refuse 1 "state=$probe_state reason=$probe_reason step=$step"'
 touch "$tmp/units/sshd.service.no-start"
 run_tty "the verify-blind mutant reports success while sshd does not run" 0 apply service-sshd
 control disable-blind '  [[ -z ${record[enabled]+set} ]] || cmd "$systemctl" disable "$unit"' '  cmd "$systemctl" disable "$unit"'
@@ -2472,7 +2474,7 @@ touch "$tmp/units/bluetooth.service.enabled"
 run_tty "the disable-blind mutant applies" 0 apply service-bluetooth
 run_tty "the disable-blind mutant undoes" 0 undo service-bluetooth
 check "the disable-blind mutant disables a unit VGS did not enable" grep -qxF -- "-- $(p systemctl) disable bluetooth.service" "$tmp/sudo.log"
-control foreign-blind '  [[ -n $2 && $sum == "$2" ]] ||' '  true ||'
+control foreign-blind '  [[ (-n $2 && $sum == "$2") || (-n ${3-} && $sum == "${3-}") ]] ||' '  true ||'
 printf 'someone else\n' >"$rule"
 run_tty "the foreign-blind mutant applies over a foreign rule" 0 apply apple-displays
 check "the foreign-blind mutant overwrites the foreign rule" cmp -s -- "$rule_src" "$rule"
@@ -2487,7 +2489,7 @@ tty_env=()
 control plan-blind '  [[ $shown == "$planned" ]] ||' '  true ||'
 printf '#!/bin/sh\ntouch %q\n' "$tmp/units/bluetooth.service.enabled" >"$tmp/gum-hook"; chmod +x "$tmp/gum-hook"
 run_tty "the plan-blind mutant runs a plan it did not show" 0 apply service-bluetooth
-control uid-blind '  [[ ${record[uid]} == "$uid" ]] ||' '  true ||'
+control uid-blind '  if [[ ${record[uid]} != "$uid" ]]; then' '  if false; then'
 mkdir -p "$records"; printf 'uid=4242\nenabled=1\n' >"$records/service-bluetooth"
 run_tty "the uid-blind mutant undoes another uid's record" 0 undo service-bluetooth
 control boot-blind '  [[ -z ${record[started]+set} || ${record[boot]} != "$boot" ]] ||' '  [[ -z ${record[started]+set} ]] ||'

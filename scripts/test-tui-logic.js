@@ -1701,6 +1701,9 @@ function managerSuite(source, logic, check) {
         { answer: "ok", runs: [["acme.rows", "add", "absent"]] });
     const systemRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.system/manifest.json"), "utf8"));
     const systemManifest = logic.validateManifest(systemRaw, "/q").manifest;
+    const steps = logic.systemUnknown("no-device");
+    steps["apple-displays"] = { state: "needed", reason: "hidraw-denied" };
+    const systemReport = logic.systemReport({ code: 0, status: 0 }, JSON.stringify({ steps }), "");
     const systemScenario = mode => {
         const lifetime = load(path.join(CORE, "Lifetime.js")).create(error => { throw error; });
         const scope = { onDispose: lifetime.register, get active() { return lifetime.active; } };
@@ -1711,7 +1714,7 @@ function managerSuite(source, logic, check) {
             Logic: logic, Error: Error, JSON: JSON,
             Registry: { has: () => true, manifests: { "acme.system": systemManifest }, isEnabled: () => true },
             PluginStatus: { valuesOf: () => ({ apple: { tone: "warning", text: "needed", action: true } }) },
-            systemSteps: { probe: () => probes++ },
+            systemSteps: { actionRequest: args => logic.systemActionRequest(args, systemReport.steps), probe: () => probes++ },
             tuis: { openCore: (name, args, done) => { end = done; return mode === "busy" ? "refused: tui=core/system reason=busy" : "ok"; } },
             scope, finished: result => delivered.push(result)
         });
