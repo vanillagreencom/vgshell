@@ -10,7 +10,7 @@
 # is read twice: the tool's own outcome, and Hyprland's state read by the
 # row. No latency ceiling is measured: outcome and state reads poll every
 # 200 ms (expect_poll); the driver polls its call file every 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh shell/plugins/vgs.jarvis/backend/skills/*.md
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
@@ -165,8 +165,41 @@ x = area_x + max(0, math.floor((area_w - w) / 2))
 y = area_y + max(0, math.floor((area_h - h) / 2))
 print(x, y, w, h)' "$1"
 }
+# The driver presses Talk as Hold to talk does: held past Session's tap
+# bound, its release closes capture and the utterance becomes the turn
+# (desktop-driver.js). The plugin's default opens a conversation instead,
+# where the utterance ends only when capture closes for another reason, so
+# a call can wait out its turn in collecting. The driver's cases select Hold
+# to talk and give the user file back its value after them.
+jd_hold_file="$home/.config/vgshell/shell.json"
+jd_hold_read() { # the user file's Jarvis holdToTalk as JSON, or absent
+  python3 -c 'import json,sys
+rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.jarvis"]
+print(json.dumps(rows[0]["holdToTalk"]) if rows and "holdToTalk" in rows[0] else "absent")' "$jd_hold_file"
+}
+jd_hold_write() { # JSON value, or absent to remove the key
+  user_config_write python3 - "$jd_hold_file" "$1" <<'PY'
+import json,sys
+value=json.load(open(sys.argv[1]))
+rows=value.setdefault("plugins", [])
+row=next((r for r in rows if r["id"] == "vgs.jarvis"), None)
+if row is None:
+    row={"id": "vgs.jarvis"}; rows.append(row)
+if sys.argv[2] == "absent":
+    row.pop("holdToTalk", None)
+else:
+    row["holdToTalk"]=json.loads(sys.argv[2])
+print(json.dumps(value))
+PY
+  expect "the desktop row's Hold to talk ($1) reloads" ok ipc shell reloadConfig
+}
+jd_hold_sent() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print("pending" if d is None else json.dumps(d["state"]["settings"]["holdToTalk"]))'; }
+jd_hold_before="$(jd_hold_read)" || jd_hold_before=unreadable
+expect "the user file's Hold to talk is readable" True python3 -c 'import sys; print(sys.argv[1] != "unreadable")' "$jd_hold_before"
+jd_hold_write true
 
 jarvis_enable
+expect_poll "the driver's daemon runs Hold to talk" true jd_hold_sent
 expect "the service hands the daemon this session's Hyprland signature" "$signature" jd_signature
 if open_toplevel "$sandbox/jarvis-desktop-target.log" smoke.jarvis-desktop target; then
   jd_target_pid="$toplevel_pid"
@@ -203,18 +236,19 @@ if open_toplevel "$sandbox/jarvis-desktop-target.log" smoke.jarvis-desktop targe
     expect "Hyprland shows the target restored" 0 jd_client "$jd_target" fullscreen
 
     # A dispatcher that answers ok and moves nothing is not a completed
-    # tool. The read-back defect must fail this same assertion once.
+    # tool. The read-back defect must fail this same assertion once, by
+    # reporting the dropped dispatch completed; jd_dropped_outcome keeps the
+    # outcome so the control can tell that failure from any other.
     jd_dropped() {
-      local outcome
       jd_hyprctl jarvis-noop
       jd_call windows.focus "{\"window\": \"$jd_other\"}"
       for _ in $(seq 1 50); do
-        outcome="$(jd_result "$jd_id" outcome)"
-        [[ $outcome == pending ]] || break
+        jd_dropped_outcome="$(jd_result "$jd_id" outcome)"
+        [[ $jd_dropped_outcome == pending ]] || break
         sleep 0.2
       done
       jd_hyprctl real
-      expect "a dropped dispatch is not reported completed" failed printf '%s' "$outcome"
+      expect "a dropped dispatch is not reported completed" failed printf '%s' "$jd_dropped_outcome"
     }
     jd_dropped
     expect "the dropped focus left Hyprland unchanged" '["smoke.jarvis-desktop", "target"]' active_window
@@ -231,8 +265,8 @@ p.write_text(s.replace(line, ""))
 PY
     jarvis_rescan
     jarvis_enable
-    jd_control_count="$( (failures=0 row_class=behaviour; jd_dropped >"$sandbox/jarvis-desktop-control.log"; echo "$failures") )"
-    expect "control: a read-back that never waits fails the dropped dispatch once" 1 printf '%s' "$jd_control_count"
+    jd_control_count="$( (failures=0 row_class=behaviour; jd_dropped >"$sandbox/jarvis-desktop-control.log"; echo "$failures $jd_dropped_outcome") )"
+    expect "control: a read-back that never waits fails the dropped dispatch once, as completed" "1 completed" printf '%s' "$jd_control_count"
     jd_control_count="$( (failures=0 row_class=behaviour; expect "the service hands the daemon this session's Hyprland signature" "$signature" jd_signature >"$sandbox/jarvis-desktop-signature-control.log"; echo "$failures") )"
     expect "control: a service that drops the signature fails its hand-over once" 1 printf '%s' "$jd_control_count"
     jarvis_disable
@@ -311,6 +345,13 @@ expect "the daemon read Hyprland and never dispatched" none \
 expect "every routed call was proposed" none \
   python3 -c 'import json,sys; rows=[json.loads(l) for l in open(sys.argv[1])]; bad=[r for r in rows if "route" in r and r["route"] != "proposed"]; print("none" if not bad else bad[:3])' \
   "$jd_driver/results.jsonl"
+if [[ $jd_hold_before != unreadable ]]; then
+  jd_hold_write "$jd_hold_before"
+  # The shell rewrites the whole user file from what it last read, so a
+  # later write could put true back before the reread; an absent key reads
+  # as the plugin default, false (manifest.json).
+  expect_poll "the daemon runs the restored Hold to talk" "$([[ $jd_hold_before == absent ]] && echo false || echo "$jd_hold_before")" jd_hold_sent
+fi
 
 # The fast path: scripted capture, brain and playback ports, the real
 # chained engine, router, Policy, audit and executors, and no driver.
