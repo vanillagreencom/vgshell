@@ -1,6 +1,6 @@
 # Google Drive
 
-VGS keeps folders on this computer in step with Google Drive. Moves, renames and removals follow changes on either side. It runs every hour while you are logged in, also while VGS is closed.
+VGS syncs folders on this computer with Google Drive. Choose copy-only sync or two-way sync that follows moves, renames and removals on either side. It runs every hour while you are logged in, also while VGS is closed.
 
 ![The Google Drive page in Settings](../../../docs/images/plugins/vgs.google-drive-page.webp)
 
@@ -8,9 +8,10 @@ VGS keeps folders on this computer in step with Google Drive. Moves, renames and
 
 - Folder pairs: each pair joins one Google Drive folder and one folder on this computer.
 - Sync every hour while you are logged in, and at once with Sync now.
-- Two-way sync is on by default. A local removal sends the Drive copy to Trash. A Drive-side removal keeps the local bytes in the recovery folder for 30 days.
-- Within one pair, ordinary-file moves and renames reach the other side. Between pairs, VGS copies the file to its destination and removes the old copy after both pairs run; this is not one physical rename.
-- Google Docs, Sheets, Slides and Drawings stay on Drive. Download-only Word, Excel, PowerPoint and SVG copies use a separate folder, offered from the flyout. Edit and rename native documents on Drive.
+- Set Two-way sync in Settings. VGS keeps saved choices. A one-time update check keeps existing pairs on copy-only sync when no choice was saved; fresh installs start with two-way selected.
+- With two-way on, a local removal sends the Drive copy to Trash. A Drive-side removal keeps the local bytes in the recovery folder for 30 days.
+- With two-way on, ordinary-file moves and renames reach the other side. Between pairs, VGS copies the file to its destination and removes the old copy after both pairs run; this is not one physical rename.
+- Google Docs, Sheets, Slides and Drawings stay on Drive. With two-way on, download-only Word, Excel, PowerPoint and SVG copies use a separate folder, offered from the flyout. Edit and rename native documents on Drive.
 - When both sides changed, the newer file wins. VGS keeps a losing local version in recovery for 30 days; a resolved losing Drive version goes to Trash. If neither version is newer, both changed files stay for you to choose. A removal made while the other side edits a file can preserve the edit.
 - Google controls Trash and revision retention. Emptying Trash can remove its recovery. For ordinary overwrites, Google may remove a revision after 30 days or 100 newer versions. To retain it, select Keep forever in [Manage versions](https://support.google.com/drive/answer/2409045).
 - Turning two-way sync off selects copy-only runs: newer files copy both ways, and removed files return at the next sync. Changing the switch itself changes no files and keeps pauses.
@@ -26,13 +27,15 @@ Open the Google Drive page in Settings and select Setup. Take the steps in their
 1. At the top, Open the step-by-step guide opens [Get your Google Drive keys](#get-your-google-drive-keys). Follow it to make your Client ID and Client secret in Google Cloud.
 2. Under Google Cloud keys, select Add key beside Client ID and beside Client secret, and paste each key into its masked field. The Client ID ends in `.apps.googleusercontent.com`. The Client secret starts with `GOCSPX-`. VGS stores every key in your keyring.
 3. Under Sign in to Google, select Sign in. Google opens in your browser. Step 6 of the guide says what to select on each Google screen.
-4. Under First folder pair, select Add a folder pair and choose a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap. The hourly schedule turns on with the first folder pair, but two-way sync waits for initialization.
-5. With Jarvis, settle earlier removed files, moves, unknown one-sided files and old native-document copies. Keep other writers paused while you review. Already-restored equal files still need your decision; VGS cannot infer your intent from an old note. Jarvis establishes matching access files in the folders. Select Initialize two-way sync on Setup, choose the pair, review the roots and preview, and confirm only when the wanted folders match. This action does not clear a pair's pause. A failed or canceled action does not permit an automatic initialization.
+4. Under First folder pair, select Add a folder pair and choose a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap. The hourly schedule turns on with the first folder pair.
+5. If Two-way sync is on, a pair that needs setup stays stopped. The notice names the affected folders. Select Set up two-way sync from the notice or flyout to open that pair's setup, or choose a pair when several need it. The same action on the Setup tab always asks you to choose a pair. Keep other writers paused. Review earlier removals and moves, make the ordinary files match in both folders, then review the roots and preview. Confirm only when the preview shows the changes you want; No is selected first. Setup keeps the pair's pause. A failed or canceled setup must be reviewed and confirmed again.
 6. Under Tools, select Review all missing or outdated tools when a tool is missing.
 
-After an actual copy-only run, or a change to the account, roots or sync policy, two-way sync waits for this review and initialization again. An unused off/on toggle can reuse valid initialization. A run that would remove more than half of either folder stops for an owner-reviewed preview and one-run allowance; VGS never raises that limit automatically.
+The setup preview lists missing access files to create in both folders and unchanged Google document download copies to move into the separate download folder. VGS keeps their subfolders. It moves only copies that match their saved sync record, and never replaces an existing download or discards a file. Edited or unknown copies and duplicate names on Drive stop setup with paths and instructions. Declining the preview creates no access files and moves no copies.
 
-Native exports in the separate download folder can keep old names after a Drive-side rename or removal. Off keeps the earlier in-folder download behavior. Before returning to On, settle these in-folder exports with Jarvis; they must not enter the ordinary-file sync.
+After an actual copy-only run, or a change to the account, folders or sync rules, two-way sync waits for this review and setup again. An unused off/on toggle can reuse a completed setup. A run that would remove more than half of either folder stops for an owner-reviewed preview and one-run allowance; VGS never raises that limit automatically.
+
+Google document copies in the separate download folder can keep old names after a Drive-side rename or removal. Copy-only sync downloads these copies into the synced folder; the setup preview handles them before two-way sync starts.
 
 The Settings tab lists your folder pairs. Remove beside a pair stops its sync after you confirm. Sign out, on the Setup tab, stops the sync and removes the sign-in from your keyring. Either way, your files stay on this computer and in Google Drive. Disabling the plugin does not stop the hourly sync.
 

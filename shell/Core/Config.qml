@@ -349,7 +349,7 @@ Singleton {
     // Quickshell 0.3.1 src/io/fileview.cpp: updatePath, text and waitForJob:
     // https://github.com/quickshell-mirror/quickshell/blob/v0.3.1/src/io/fileview.cpp.
     // This short read belongs to the same writer and catches edits the watcher
-    // has not delivered before the editor's compare-and-write request.
+    // has not delivered before a conditional write.
     FileView {
         id: reviewCompare
         path: root.userPath
@@ -358,6 +358,28 @@ Singleton {
         property string state: "pending"
         onLoaded: state = "loaded"
         onLoadFailed: error => { state = error === FileViewError.FileNotFound ? "absent" : "unreadable"; }
+    }
+
+    function compareUserFile(expectedText) {
+        if (!ready || (userState !== "loaded" && userState !== "absent")) return "unavailable";
+        reviewCompare.state = "pending";
+        reviewCompare.reload();
+        reviewCompare.text();
+        reviewCompare.waitForJob();
+        if (reviewCompare.state !== "loaded" && reviewCompare.state !== "absent") return "unreadable";
+        const current = reviewCompare.state === "absent" ? null : reviewCompare.text();
+        return current !== expectedText || userText !== expectedText ? "changed" : "";
+    }
+
+    // Startup migrations may set a value only where the user saved none.
+    // Manifest defaults are never evidence of a saved preference.
+    // A disk edit not yet delivered by the watcher refuses without writing.
+    function writeSettingIfAbsent(manifest, key, value) {
+        const compared = compareUserFile(userText);
+        if (compared !== "") return "refused: user-config=" + compared + " path=" + userPath;
+        const saved = Logic.pluginRow(user, manifest.id);
+        if (saved !== undefined && Logic.hasOwn(saved, key)) return "ok";
+        return writeUser(Logic.withSetting(user, manifest, key, value, effective));
     }
 
     function packageReviewWrite(requestJson) {
@@ -369,13 +391,8 @@ Singleton {
         if (!ready || (userState !== "loaded" && userState !== "absent")) return "refused: package-review=user-config-unavailable";
         const edit = ConfigLogic.withPackageReview(user, request.settings);
         if (!edit.ok) return "refused: package-review=invalid-settings";
-        reviewCompare.state = "pending";
-        reviewCompare.reload();
-        reviewCompare.text();
-        reviewCompare.waitForJob();
-        if (reviewCompare.state !== "loaded" && reviewCompare.state !== "absent") return "refused: package-review=user-config-unreadable";
-        const current = reviewCompare.state === "absent" ? null : reviewCompare.text();
-        if (current !== request.expectedText || userText !== request.expectedText) return "refused: package-review=user-config-changed";
+        const compared = compareUserFile(request.expectedText);
+        if (compared !== "") return "refused: package-review=user-config-" + compared;
         return writeUser(edit.config);
     }
 

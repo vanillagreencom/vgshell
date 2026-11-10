@@ -63,6 +63,7 @@ Item {
     property bool statusReady: false
     // Settings owns the choice. The runner's control is only its mirror.
     readonly property var twoWaySync: selectedMode()
+    property string modeAdmission: "pending"
     property var modeConfirmed: null
     property bool modeInFlight: false
     property bool syncPending: false
@@ -107,7 +108,6 @@ Item {
             root.probe();
             return "ok";
         });
-        mirrorMode();
         refresh();
         probe();
     }
@@ -190,7 +190,7 @@ Item {
     }
 
     function mirrorMode() {
-        if (shell === null || modeInFlight) return;
+        if (shell === null || (modeAdmission !== "mirroring" && modeAdmission !== "ready") || modeInFlight) return;
         const selected = selectedMode();
         if (modeConfirmed === selected) {
             flushSync();
@@ -203,7 +203,7 @@ Item {
         // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
         // Coalesce changes while this serialized write runs. Only its
         // successful answer permits a Sync now request.
-        client.request(["set-two-way", selected ? "true" : "false"], (ok, out, line, code) => {
+        client.request(["service-mode", selected ? "true" : "false"], (ok, out, line, code) => {
             root.modeInFlight = false;
             if (root.heldAnswer(code, line)) {
                 root.modeConfirmed = null;
@@ -212,19 +212,41 @@ Item {
             if (!ok) {
                 root.modeConfirmed = null;
                 root.syncPending = false;
-                root.failed("set-two-way", line);
+                root.failed("service-mode", line);
                 return;
             }
             root.modeConfirmed = selected;
-            root.succeeded("set-two-way");
+            root.succeeded("service-mode");
             root.publish();
             root.refresh();
             root.mirrorMode();
         });
     }
 
+    // The runner admits an empty install before its first pair is added.
+    // Existing pairs need this service to preserve a saved choice or write
+    // Off before the first mode mirror. The core compares fresh
+    // user-file bytes, so even a choice its watcher has not read is safe.
+    // Do this before any mirror, including a shellChanged during the write.
+    function admitMode() {
+        if (modeAdmission !== "pending" || record === null || !Logic.pairListValid(record)) return;
+        modeAdmission = "writing";
+        if (record.copyModeMigration) {
+            const reply = shell.configure.setIfAbsent("twoWaySync", false);
+            if (reply !== "ok") {
+                modeAdmission = "pending";
+                failed("mode-migration", reply);
+                held.restart();
+                return;
+            }
+        }
+        succeeded("mode-migration");
+        modeAdmission = "mirroring";
+        mirrorMode();
+    }
+
     function flushSync() {
-        if (!syncPending || modeInFlight || modeConfirmed !== selectedMode()) return;
+        if (!syncPending || modeAdmission !== "ready" || modeInFlight || modeConfirmed !== selectedMode()) return;
         syncPending = false;
         if (statusRead.kind === "unreadable") return;
         client.request(["start"], (ok, out, line, code) => {
@@ -256,6 +278,11 @@ Item {
         }
         statusRead = { kind: "loaded", record: judged.record };
         succeeded("status");
+        admitMode();
+        if (modeAdmission === "mirroring" && modeConfirmed === selectedMode() && record.twoWaySync === selectedMode()) {
+            modeAdmission = "ready";
+            flushSync();
+        }
         if (record.twoWaySync !== selectedMode()) {
             modeConfirmed = null;
             mirrorMode();
@@ -272,10 +299,14 @@ Item {
 
     function publish() {
         if (shell === null) return;
+        // The first record predates the mode admission. Do not show an
+        // upgrade as stopped before the runner has accepted the saved mode.
+        const admittedRecord = modeAdmission === "ready" ? record : null;
+        if (record !== null && admittedRecord === null && problem === "" && heldReason === "") return;
         // A later control failure or success cannot erase an unreadable
         // status result. Only the watch's next accepted read replaces it.
         const failure = statusRead.kind === "unreadable" ? Logic.problemText("status", statusRead.line) : Logic.problemText(problem, problemLine);
-        const values = Logic.statusValues(record, presence, failure, heldReason, Date.now(), Paths.home);
+        const values = Logic.statusValues(admittedRecord, presence, failure, heldReason, Date.now(), Paths.home);
         const selected = selectedMode();
         if (values.cloud !== undefined) values.cloud.modePending = modeInFlight || modeConfirmed !== selected || record.twoWaySync !== selected;
         const next = Object.assign({}, reported);
@@ -294,6 +325,7 @@ Item {
     // record the key, whether the core delivered the notification or
     // dropped it by its own rule.
     function notifyOnce() {
+        if (modeAdmission !== "ready" || modeConfirmed !== selectedMode() || record.twoWaySync !== selectedMode()) return;
         if (record.attention === null) {
             notifiedKey = "";
             return;
@@ -303,7 +335,14 @@ Item {
         notifiedKey = key;
         const message = Logic.notification(record);
         if (message !== null) {
-            const reply = shell.notify.send({ title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" });
+            const options = { title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" };
+            if (message.action !== undefined) options.actions = [{ id: "setup", label: message.action.label }];
+            const pressed = message.action === undefined ? undefined : action => {
+                if (action !== "setup" || message.action === undefined) return;
+                const opened = root.shell.tui.run(message.action.tui, message.action.args);
+                if (opened !== "ok") root.failed("initialize", opened);
+            };
+            const reply = shell.notify.send(options, pressed);
             if (reply !== "ok") console.warn("google-drive: notify " + reply);
         }
         client.request(["attention-seen", key], (ok, out, line) => {

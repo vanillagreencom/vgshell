@@ -73,7 +73,7 @@ Item {
                 { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(now - hour), needs: "nothing", key: "00000000000000a2" },
                 { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(now - hour), needs: "nothing", key: "00000000000000a3" }
             ];
-            const record = Object.assign({ state: "idle", paused: false, twoWaySync: false, units: "stale", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, pairs: [pair], conflicts: conflicts, needsYou: 1, dismissed: dismissed || [], attention: { reasons: ["conflicts", "units-stale"], key: "0123456789abcdef", notified: false }, writtenAt: iso(now) }, typeof over === "function" ? over(pair) : over || {});
+            const record = Object.assign({ state: "idle", paused: false, twoWaySync: false, copyModeMigration: false, units: "stale", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, pairs: [pair], conflicts: conflicts, needsYou: 1, dismissed: dismissed || [], attention: { reasons: ["conflicts", "units-stale"], key: "0123456789abcdef", notified: false }, writtenAt: iso(now) }, typeof over === "function" ? over(pair) : over || {});
             const parsed = Logic.parseStatus(JSON.stringify(record));
             verify(parsed.ok, "the stub record is one the runner writes: " + JSON.stringify(parsed));
             return Logic.cloudValue(parsed.record, "");
@@ -87,7 +87,7 @@ Item {
                     root.record(["edit", file]);
                     if (done !== undefined) done(Object.prototype.hasOwnProperty.call(root.editEnds, file) ? root.editEnds[file] : "ok");
                     return "ok";
-                }, run: name => root.record(["tui", name]) },
+                }, run: (name, args) => root.record(["tui", name, args]) },
                 surfaces: { openPage: (page, tab) => root.record(["openPage", page, tab]), hide: kind => root.record(["hide", kind]) }
             };
         }
@@ -423,14 +423,20 @@ Item {
             }
         }
 
-        function test_initialization_callout_opens_setup_not_sync() {
-            useCloud(twoWayCloud([], "initialization-required"));
+        function test_stopped_callout_opens_setup_for_its_folders_data() {
+            return [{ tag: "one", count: 1, args: ["docs"] }, { tag: "several", count: 2, args: [] }];
+        }
+
+        function test_stopped_callout_opens_setup_for_its_folders(data) {
+            const value = twoWayCloud([], "initialization-required");
+            if (data.count > 1) value.pairs.push(Object.assign({}, value.pairs[0], { id: "inbox", label: "Agent uploads" }));
+            useCloud(value);
             compare(panel.footer.shown, false);
             const fix = control(panel.callout.action.label);
             tabTo(fix);
             root.calls = [];
             keyClick(Qt.Key_Return);
-            compare(root.calls, [["openPage", "vgs.google-drive", "Setup"], ["hide", "panel"]]);
+            compare(root.calls, [["tui", "initialize", data.args], ["hide", "panel"]]);
         }
 
         function test_completed_rename_opens_destination() {

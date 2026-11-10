@@ -55,7 +55,7 @@ var STATE_VIEW = {
     paused: { text: "Paused", tone: "info", icon: "cloud-off" },
     offline: { text: "Offline", tone: "warning", icon: "cloud-off" },
     "authorization-required": { text: "Sign-in needed", tone: "danger", icon: "cloud-alert" },
-    "initialization-required": { text: "Initialization needed", tone: "warning", icon: "cloud-alert" },
+    "initialization-required": { text: "Sync stopped", tone: "warning", icon: "cloud-alert" },
     error: { text: "Sync failed", tone: "danger", icon: "cloud-alert" },
     "not-set-up": { text: "Not set up", tone: "warning", icon: "cloud" }
 };
@@ -79,7 +79,7 @@ var ERROR_TEXT = {
     "secret-tool-failed": "VGS cannot read your keyring.",
     "secret-tool-timeout": "VGS cannot read your keyring.",
     interrupted: "The last sync stopped before it finished.",
-    "initialization-required": "Settle earlier removals and native-document copies with Jarvis, then initialize the matching folders on Setup.",
+    "initialization-required": "Sync stopped because two-way sync is not set up. Select Set up two-way sync to review and confirm the changes.",
     "baseline-evidence-unreadable": "VGS cannot read the earlier sync records. Keep the folders paused and review them before initialization.",
     "deletion-limit": "The sync would remove more than half of a folder, so it stopped. Review the removals or large rename with Jarvis before a one-run allowance.",
     "bisync-recovery-required": "The two-way sync history cannot be recovered. Review the folders with Jarvis, then initialize them again on Setup.",
@@ -87,14 +87,14 @@ var ERROR_TEXT = {
 };
 var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next sync.";
 var INITIALIZATION_REASONS = {
-    "baseline-missing": "No two-way baseline exists",
+    "baseline-missing": "Two-way sync is not set up",
     "roots-changed": "The paired folders changed",
     "policy-changed": "The sync policy changed",
     "filters-changed": "The file filters changed",
-    "history-missing": "The two-way history is missing",
-    "history-unreadable": "The two-way history cannot be read",
+    "history-missing": "The saved two-way sync records are missing",
+    "history-unreadable": "The saved two-way sync records cannot be read",
     "identity-changed": "The account or a folder changed",
-    "native-export-in-sync-root": "A native-document copy is inside a sync folder"
+    "native-export-in-sync-root": "A Google document download copy is inside a sync folder"
 };
 // A missing sign-in, the token's credential-absent.
 var SIGNED_OUT_TEXT = "Google Drive is not signed in. [Sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).";
@@ -229,7 +229,9 @@ var PROBLEM_TEXT = {
     resume: "VGS could not resume the Google Drive sync.",
     status: "VGS could not read the Google Drive status.",
     probe: "VGS could not check the Google Drive keys.",
-    "set-two-way": "VGS could not save the sync mode for the hourly runner. Sync now is held until this succeeds.",
+    "service-mode": "VGS could not save the sync mode for the hourly runner. Sync now is held until this succeeds.",
+    "mode-migration": "VGS could not save the sync choice for these folder pairs. Sync now waits until VGS can save it.",
+    initialize: "VGS could not open the two-way sync setup window.",
     dismiss: "VGS could not remove the file from the list."
 };
 
@@ -332,6 +334,7 @@ function parseStatus(text) {
     if (STATES.indexOf(doc.state) === -1) return { ok: false, error: "status=state" };
     if (typeof doc.paused !== "boolean") return { ok: false, error: "status=paused" };
     if (typeof doc.twoWaySync !== "boolean") return { ok: false, error: "status=twoWaySync" };
+    if (typeof doc.copyModeMigration !== "boolean") return { ok: false, error: "status=copyModeMigration" };
     if (UNITS.indexOf(doc.units) === -1) return { ok: false, error: "status=units" };
     if (!isTime(doc.lastSuccess) || !isTime(doc.staleAfter)) return { ok: false, error: "status=time" };
     if (!errorOk(doc.lastError)) return { ok: false, error: "status=lastError" };
@@ -774,21 +777,42 @@ function accountValue(presence, record) {
 }
 
 function initializationValue(cloud, presence) {
-    if (!cloud.twoWaySync) return { tone: "info", text: "Copy-only selected", available: false, hint: "Turn on Two-way sync on Settings before initialization" };
+    if (!cloud.twoWaySync) return { tone: "info", text: "Copy-only selected", available: false, hint: "Turn on [Two-way sync on Settings](page:vgs.google-drive/Settings/twoWaySync) before setup" };
     if (!pairListValid(cloud)) return { tone: "warning", text: "Folder list needed", available: false, hint: "Start the folder pair list again on Setup first" };
     if (cloud.pairs.length === 0) return { tone: "info", text: "Folder pair needed", available: false, hint: "Add a folder pair on Settings first" };
     if (cloud.pairs.some(function (p) { return p.state === "running"; }))
         return { tone: "info", text: "Operation running", available: false, hint: "Wait for the current operation to finish" };
     if (presence === null || presences(presence).some(function (p) { return p !== "present"; }))
         return { tone: "info", text: "Sign-in needed", available: false, hint: "Add the keys and sign in on Setup first" };
-    var required = cloud.pairs.filter(function (p) { return p.initialization.state === "required"; });
+    var required = setupPairs(cloud);
     if (required.length > 0)
-        return { tone: "warning", text: "Initialization needed", action: true, hint: ERROR_TEXT["initialization-required"],
+        return { tone: "warning", text: "Sync stopped", action: true, hint: ERROR_TEXT["initialization-required"],
             lines: required.slice(0, LINES_MAX).map(function (p) {
                 var reason = p.initialization.reason;
-                return p.label + ": " + (hasOwn(INITIALIZATION_REASONS, reason) ? INITIALIZATION_REASONS[reason] : "Review the folders before initialization");
+                return cut(p.label + ": sync stopped. " + (hasOwn(INITIALIZATION_REASONS, reason) ? INITIALIZATION_REASONS[reason] : "The folders need setup again"), ROW_TEXT_MAX);
             }) };
-    return { tone: "ok", text: "Initialized", hint: "Each run checks the account and folders again before two-way sync" };
+    return { tone: "ok", text: "Ready", hint: "Each run checks the account and folders again before two-way sync" };
+}
+
+// Both raw runner records and published cloud values carry these fields.
+// A single stopped pair goes straight to its setup; several use the TUI's
+// chooser, which reads the current pair list again when it opens.
+function setupPairs(cloud) {
+    return cloud.twoWaySync ? cloud.pairs.filter(function (p) {
+        return p.state !== "running" && p.initialization.state === "required";
+    }) : [];
+}
+
+function setupAction(pairs) {
+    return { label: "Set up two-way sync", tui: "initialize", args: pairs.length === 1 ? [pairs[0].id] : [] };
+}
+
+function stoppedFolders(pairs) {
+    return pairs.map(function (p) { return p.label; }).join(", ");
+}
+
+function setupMessage(pairs) {
+    return "Sync stopped for " + stoppedFolders(pairs) + ". Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm.";
 }
 
 // The values the service publishes (the manifest's `status`): from the
@@ -958,8 +982,10 @@ function problemCallout(cloud, now) {
             return { tone: "danger", title: "The folder pair list cannot be read", text: pairListProblem(error) + " " + PAIRS_STOPPED, action: { label: "Start the list again", tui: "reset-pairs" } };
         return { tone: "danger", title: error !== null && error.operation === "exports" ? "Native-document copies did not finish" : "Google Drive could not sync", text: errorText(error), action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };
     }
-    if (head.cause === "initialization-required") return { tone: "warning", title: "Two-way sync needs initialization",
-        text: ERROR_TEXT["initialization-required"], action: { label: "Open Setup", tab: "Setup" } };
+    if (head.cause === "initialization-required") {
+        var required = setupPairs(cloud);
+        return { tone: "warning", title: "Folder sync stopped", text: setupMessage(required), action: setupAction(required) };
+    }
     if (head.cause === "not-set-up") return CALLOUTS["not-set-up"];
     if (cloud.state === "offline") return CALLOUTS.offline;
     if (cloud.units === "stale") return CALLOUTS.stale;
@@ -1102,7 +1128,9 @@ function footerView(cloud) {
 }
 
 // The notification RECORD asks for while it needs the user, or null:
-// { title, message, tone }.
+// { title, message, tone, action? }. A setup action has the same TUI and
+// argv as the callout. The core caps notification messages at 600 chars;
+// the popover and Setup lines retain the complete stopped-folder list.
 function notification(record) {
     if (record.attention === null) return null;
     var reasons = record.attention.reasons;
@@ -1110,8 +1138,20 @@ function notification(record) {
         return { title: "Google Drive needs a sign-in", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
     if (reasons.indexOf("error") !== -1)
         return { title: "Google Drive sync failed", message: errorText(record.lastError), tone: "danger" };
-    if (reasons.indexOf("initialization-required") !== -1)
-        return { title: "Google Drive needs initialization", message: ERROR_TEXT["initialization-required"], tone: "warning" };
+    if (reasons.indexOf("initialization-required") !== -1) {
+        var required = setupPairs(record);
+        var message = setupMessage(required);
+        if (message.length > 600) {
+            var names = [], remaining = required.length;
+            for (var pair of required) {
+                if ((names.concat([pair.label]).join(", ")).length > 350) break;
+                names.push(pair.label);
+                remaining--;
+            }
+            message = "Sync stopped for " + names.join(", ") + " and " + remaining + " more folders. Two-way sync needs setup. Select Set up two-way sync to choose a folder and review the changes before you confirm.";
+        }
+        return { title: "Google Drive folder sync stopped", message: message, tone: "warning", action: setupAction(required) };
+    }
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". " + NEEDS_HINT, tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)

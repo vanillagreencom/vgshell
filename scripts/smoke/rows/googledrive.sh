@@ -90,7 +90,7 @@ cs_use() { # HOME RUNTIME RUNNER
   cs_mirror="$1/googledrive/docs"
   cs_state="$1/.local/state/vgshell/google-drive"
   mkdir -p -- "$cs_drive"
-  cs set-two-way false >/dev/null
+  cs service-mode false >/dev/null
 }
 cs() {
   env -i HOME="$cs_home" PATH="$shell_start_path" LANG=C.UTF-8 XDG_RUNTIME_DIR="$cs_rt" XDG_CONFIG_HOME="$cs_home/.config" \

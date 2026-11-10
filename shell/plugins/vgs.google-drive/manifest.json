@@ -10,7 +10,7 @@
   "icon": "cloud-sync",
   "kinds": ["service", "bar-widget", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
-  "capabilities": ["ipc", "notify", "secrets", "status", "surfaces", "tui"],
+  "capabilities": ["configure", "ipc", "notify", "secrets", "status", "surfaces", "tui"],
   "defaultSection": "right",
   "requirements": [
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": false, "purpose": "Runs the sync and reads its status"},
@@ -30,17 +30,17 @@
     "reset-pairs": { "script": "tui/reset-pairs.sh", "title": "Start the folder pair list again", "requires": ["node", "gum"] },
     "connect": { "script": "tui/connect.sh", "title": "Sign in to Google", "requires": ["node", "rclone", "secret-tool", "xdg-open", "curl"] },
     "sign-out": { "script": "tui/sign-out.sh", "title": "Sign out of Google Drive", "requires": ["node", "secret-tool"] },
-    "initialize": { "script": "tui/initialize.sh", "title": "Initialize two-way sync", "requires": ["node", "rclone", "flock", "secret-tool", "gum"] }
+    "initialize": { "script": "tui/initialize.sh", "title": "Set up two-way sync", "requires": ["node", "rclone", "flock", "secret-tool", "gum"] }
   },
   "settings": { "twoWaySync": true },
   "schema": {
     "twoWaySync": { "type": "boolean", "label": "Two-way sync", "group": "Sync",
       "description": "On: changes on either side update the other. Off: copy newer files both ways; removed files return.",
-      "info": "On sends local removals to Drive Trash and keeps Drive-side removals in local recovery. First settle earlier removals and native-document copies, then select Initialize two-way sync on Setup. This switch changes no files and preserves pauses. An Off copy run requires initialization again before On. Native documents stay on Drive; download-only copies use a separate folder." }
+      "info": "On sends local removals to Drive Trash and keeps Drive-side removals in local recovery. A folder that needs setup stops syncing until you select Set up two-way sync and confirm its preview. The preview includes missing access files and moving unchanged Google document download copies into a separate folder. This switch changes no files and preserves pauses. A copy-only run requires setup again before two-way sync. An update keeps existing folder pairs on copy-only sync unless you saved a choice." }
   },
   "setupGuide": {"title": "Google Drive needs keys from your own Google account", "text": "It is free and takes about 5 minutes in Google Cloud.", "link": "Open the step-by-step guide", "readme": "get-your-google-drive-keys"},
   "status": {
-    "sync": {"type": "state", "label": "Google Drive sync", "info": "On follows ordinary-file moves, renames and removals on either side. Local removals go to Drive Trash. Drive-side removals and replaced local versions stay in local recovery for 30 days. First settle earlier removals and native-document copies, then select Initialize two-way sync on Setup. Off copies newer files both ways and restores removed files at the next sync."},
+    "sync": {"type": "state", "label": "Google Drive sync", "info": "On follows ordinary-file moves, renames and removals on either side. Local removals go to Drive Trash. Drive-side removals and replaced local versions stay in local recovery for 30 days. A folder that needs setup stops syncing until you select Set up two-way sync and confirm its preview. Off copies newer files both ways and restores removed files at the next sync."},
     "lastSync": {"type": "time", "label": "Last sync"},
     "account": {"type": "state", "label": "Account", "plain": true},
     "pairs": {"type": "rows", "label": "Folder pairs", "settings": true, "icon": "folder-sync", "hint": "Each pair keeps one Google Drive folder and one folder on this computer the same. Remove stops the sync of a pair and deletes no file.", "action": {"label": "Add a folder pair", "tui": "add-pair"}, "rowActions": {"initialize": {"label": "Initialize", "tui": "initialize"}, "remove": {"label": "Remove", "tui": "remove-pair", "tone": "danger"}}},
@@ -50,7 +50,7 @@
     "connection": {"type": "state", "label": "Sign in to Google", "setup": true, "hint": "Google opens in your browser and asks you to allow access to Google Drive", "info": "Sign in lets VGS read and change the files in your Google Drive. It syncs only your folder pairs. With two-way sync, local removals go to Drive Trash. Signing in changes no synced file. Google says it has not verified the app. It is your own app, so select Advanced, then Go to VGS.", "actions": {"signIn": {"label": "Sign in", "tui": "connect"}, "again": {"label": "Sign in again", "tui": "connect"}, "signOut": {"label": "Sign out", "tui": "sign-out", "tone": "danger", "icon": "log-out"}}},
     "firstPair": {"type": "state", "label": "First folder pair", "setup": true, "hint": "Choose the first folders to keep on this computer and in Google Drive. The hourly sync turns on with them.", "action": {"label": "Add a folder pair", "tui": "add-pair"}},
     "pairList": {"type": "state", "label": "Folder pair list", "setup": true, "action": {"label": "Start the folder pair list again", "tui": "reset-pairs"}},
-    "initialization": {"type": "state", "label": "Two-way initialization", "setup": true, "hint": "Settle earlier removals and native-document copies with Jarvis first. Keep other writers paused. The folders must match before you confirm.", "action": {"label": "Initialize two-way sync", "tui": "initialize"}},
+    "initialization": {"type": "state", "label": "Two-way sync setup", "setup": true, "hint": "Sync stays stopped for folders that need setup until you compare them and confirm the preview.", "info": "Pause changes to both folders during setup. VGS compares ordinary files, previews missing access files and moves unchanged Google document download copies to a separate folder only after you confirm. It refuses edited copies, different ordinary files and duplicate names on Drive, and names what to change.", "action": {"label": "Set up two-way sync", "tui": "initialize"}},
     "schedule": {"type": "state", "label": "Hourly sync", "setup": true, "action": {"label": "Set up again", "tui": "setup"}}
   },
   "secrets": { "service": "vgs-google-drive", "label": "VGS Google Drive" }

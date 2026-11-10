@@ -14,6 +14,11 @@ Item {
     id: root
 
     property var writes: []
+    property var savedChoice: undefined
+    property var configured: []
+    property string configureReply: "ok"
+    property var notifications: []
+    property var tuiCalls: []
 
     Component {
         id: serviceComponent
@@ -28,6 +33,11 @@ Item {
 
         function init() {
             root.writes = [];
+            root.savedChoice = undefined;
+            root.configured = [];
+            root.configureReply = "ok";
+            root.notifications = [];
+            root.tuiCalls = [];
             ProcessRegistry.clear();
             service = createTemporaryObject(serviceComponent, root);
             verify(service !== null);
@@ -35,9 +45,18 @@ Item {
                 settings: { twoWaySync: true },
                 manifest: { settings: { twoWaySync: true } },
                 secrets: { revision: 0 },
-                tui: { state: {} },
+                configure: { setIfAbsent: (key, value) => {
+                    root.configured.push([key, value]);
+                    if (root.configureReply !== "ok") return root.configureReply;
+                    if (root.savedChoice === undefined) {
+                        root.savedChoice = value;
+                        selected(value);
+                    }
+                    return "ok";
+                } },
+                tui: { state: {}, run: (name, args) => { root.tuiCalls.push([name, args]); return "ok"; } },
                 ipc: { handle: () => {} },
-                notify: { send: () => "ok" },
+                notify: { send: (options, done) => { root.notifications.push({ options, done }); return "ok"; } },
                 surfaces: { summon: () => "ok" },
                 status: { values: {}, isOk: PluginLogic.statusReplyOk, set: (key, value) => { root.writes = root.writes.concat([{ key: key, value: value }]); return "ok"; } }
             };
@@ -50,7 +69,7 @@ Item {
 
         function running(verb) {
             const found = ProcessRegistry.runningWithVerb(verb);
-            if (verb === "set-two-way") verify(found.length === 1, "the selected mode must reach the serialized runner before Sync now");
+            if (verb === "service-mode") verify(found.length === 1, "the selected mode must reach the serialized runner before Sync now");
             return found.length === 1 ? found[0] : null;
         }
 
@@ -72,14 +91,21 @@ Item {
             const probe = JSON.stringify({ credentials: ["client-id", "client-secret", "token"].map(account => ({ account, presence: "absent", needed: true })) });
             for (let calls = 0; running("status") !== null || running("probe") !== null; calls++) {
                 verify(calls < 20, "startup reads drain without another operation");
-                if (running("status") !== null) running("status").finish(0, 0, "", "");
-                else running("probe").finish(0, 0, probe, "");
+                if (running("status") !== null) {
+                    running("status").finish(0, 0, "", "");
+                    if (service.modeAdmission === "mirroring" && service.modeConfirmed !== null) {
+                        const rec = pausedRecord();
+                        rec.twoWaySync = service.selectedMode();
+                        rec.pairs[0].route = rec.twoWaySync ? "two-way" : "copy";
+                        service.accept(JSON.stringify(rec));
+                    }
+                } else running("probe").finish(0, 0, probe, "");
             }
         }
 
         function pausedRecord() {
             const iso = "2026-11-07T20:00:00Z";
-            return { state: "paused", paused: true, twoWaySync: true, units: "installed",
+            return { state: "paused", paused: true, twoWaySync: true, copyModeMigration: false, units: "installed",
                 lastSuccess: iso, staleAfter: null, lastError: null,
                 pairs: [{ id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "paused",
                     route: "two-way", operation: "two-way", initialization: { state: "ready", reason: null },
@@ -88,21 +114,135 @@ Item {
                 conflicts: [], needsYou: 0, dismissed: [], attention: null };
         }
 
+        function admitDefault() {
+            compare(ProcessRegistry.runningWithVerb("service-mode").length, 0, "status precedes the first mirror");
+            settleReads();
+            service.accept(JSON.stringify(pausedRecord()));
+        }
+
+        function needsSetup() {
+            const rec = pausedRecord();
+            rec.paused = false;
+            rec.state = "initialization-required";
+            rec.pairs[0].state = rec.state;
+            rec.pairs[0].operation = null;
+            rec.pairs[0].initialization = { state: "required", reason: "baseline-missing" };
+            rec.attention = { reasons: [rec.state], key: "0123456789abcdef", notified: false };
+            return rec;
+        }
+
+        function test_existing_pairs_preserve_a_saved_choice_before_first_mirror_data() {
+            return [{ tag: "unsaved", saved: undefined, want: false }, { tag: "saved-off", saved: false, want: false }, { tag: "saved-on", saved: true, want: true }];
+        }
+
+        function test_existing_pairs_preserve_a_saved_choice_before_first_mirror(data) {
+            settleReads();
+            root.savedChoice = data.saved;
+            selected(data.saved);
+            service.act(["start"]);
+            compare(running("start"), null, "sync waits for admission");
+            const old = needsSetup();
+            old.copyModeMigration = true;
+            service.accept(JSON.stringify(old));
+            compare(root.configured, [["twoWaySync", false]]);
+            compare(root.savedChoice, data.want);
+            compare(running("service-mode").command.slice(1), ["service-mode", data.want ? "true" : "false"]);
+            compare(root.notifications.length, 0, "the pre-admission record sends no stopped notice");
+            compare(lastValue("cloud"), undefined, "the pre-admission record is not published");
+            running("service-mode").finish(0, 0, "", "");
+            compare(running("start"), null, "sync waits for the confirmed status");
+            settleReads();
+            compare(service.modeAdmission, "ready");
+            compare(lastValue("cloud").twoWaySync, data.want);
+            compare(root.notifications.length, 0, "an admitted copy route raises no setup notice");
+            compare(running("start") !== null, true);
+            running("start").finish(0, 0, "", "");
+        }
+
+        function test_fresh_install_and_first_pair_keep_on() {
+            settleReads();
+            const empty = pausedRecord();
+            empty.pairs = [];
+            service.accept(JSON.stringify(empty));
+            compare(root.configured, []);
+            compare(running("service-mode").command.slice(1), ["service-mode", "true"]);
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            service.accept(JSON.stringify(needsSetup()));
+            compare(root.configured, [], "a later first pair does not repeat migration");
+            compare(service.selectedMode(), true);
+        }
+
+        // expected-log: google-drive: refused: user-config=unwritable -- admission retries without releasing the mirror or queued sync
+        function test_failed_admission_waits_for_a_later_successful_write() {
+            settleReads();
+            root.configureReply = "refused: user-config=unwritable";
+            const old = needsSetup();
+            old.copyModeMigration = true;
+            service.act(["start"]);
+            service.accept(JSON.stringify(old));
+            compare(service.modeAdmission, "pending");
+            compare(ProcessRegistry.runningWithVerb("service-mode").length, 0);
+            compare(running("start"), null);
+            compare(root.notifications.length, 0);
+            root.configureReply = "ok";
+            service.accept(JSON.stringify(old));
+            compare(running("service-mode").command.slice(1), ["service-mode", "false"]);
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            compare(service.modeAdmission, "ready");
+            compare(root.savedChoice, false);
+            compare(running("start") !== null, true);
+            running("start").finish(0, 0, "", "");
+        }
+
+        function test_a_setting_choice_survives_the_next_mismatching_status() {
+            admitDefault();
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            selected(false);
+            service.accept(JSON.stringify(pausedRecord()));
+            compare(service.selectedMode(), false);
+            compare(running("service-mode").command.slice(1), ["service-mode", "false"]);
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            const current = pausedRecord();
+            current.twoWaySync = false;
+            current.pairs[0].route = "copy";
+            service.accept(JSON.stringify(current));
+            compare(service.modeConfirmed, false);
+            compare(service.selectedMode(), false);
+        }
+
+        function test_stopped_notice_opens_the_same_pair_as_the_callout() {
+            admitDefault();
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            const rec = needsSetup();
+            const expected = Logic.problemCallout(Logic.cloudValue(rec, ""), Date.now()).action;
+            service.accept(JSON.stringify(rec));
+            compare(root.notifications.length, 1);
+            compare(root.notifications[0].options.actions, [{ id: "setup", label: expected.label }]);
+            root.notifications[0].done("setup", "delivered");
+            compare(root.tuiCalls, [[expected.tui, expected.args]]);
+        }
+
         function test_setting_mirror_and_switch_only_data() {
             return [{ tag: "on", value: true }, { tag: "off", value: false }, { tag: "manifest-default", value: undefined }];
         }
 
         function test_setting_mirror_and_switch_only(data) {
-            compare(running("set-two-way").command.slice(1), ["set-two-way", "true"], "startup mirrors the manifest's default On");
-            running("set-two-way").finish(0, 0, "", "");
+            admitDefault();
+            compare(running("service-mode").command.slice(1), ["service-mode", "true"], "startup mirrors the manifest's default On");
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             service.accept(JSON.stringify(pausedRecord()));
             settleReads();
             const before = JSON.stringify(service.record);
             selected(data.value);
             if (data.value === false) {
-                compare(running("set-two-way").command.slice(1), ["set-two-way", "false"]);
-                running("set-two-way").finish(0, 0, "", "");
+                compare(running("service-mode").command.slice(1), ["service-mode", "false"]);
+                running("service-mode").finish(0, 0, "", "");
                 settleReads();
             }
             compare(service.modeConfirmed, data.value === false ? false : true);
@@ -114,19 +254,21 @@ Item {
             return [{ tag: "nonzero", code: 1, status: 0 }, { tag: "crashed", code: 0, status: 1 }];
         }
 
-        // expected-log: google-drive: set-two-way exit= -- a nonzero or crashed mirror is surfaced, not treated as a runnable mode
+        // expected-log: google-drive: service-mode exit= -- a nonzero or crashed mirror is surfaced, not treated as a runnable mode
         function test_failed_mirror_blocks_sync_until_success(data) {
+            admitDefault();
             service.act(["start"]);
             compare(running("start"), null);
-            running("set-two-way").finish(data.code, data.status, "", "mirror-write-failed");
+            running("service-mode").finish(data.code, data.status, "", "mirror-write-failed");
             settleReads();
             compare(running("start"), null);
             compare(service.modeConfirmed, null);
-            compare(service.problem, "set-two-way");
+            compare(service.problem, "service-mode");
+            compare(lastSync().tone, "danger", "the mirror failure stays visible while startup waits");
             service.act(["start"]);
-            compare(running("set-two-way").command.slice(1), ["set-two-way", "true"]);
+            compare(running("service-mode").command.slice(1), ["service-mode", "true"]);
             compare(running("start"), null);
-            running("set-two-way").finish(0, 0, "", "");
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             compare(running("start").command.slice(1), ["start"]);
             running("start").finish(0, 0, "", "");
@@ -134,15 +276,18 @@ Item {
         }
 
         function test_latest_setting_is_mirrored_before_queued_sync() {
-            running("set-two-way").finish(0, 0, "", "");
+            admitDefault();
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            service.refresh();
             compare(running("status") !== null, true, "an earlier read holds the serialized runner");
             service.act(["start"]);
             selected(false);
             compare(running("start"), null);
             settleReads();
-            compare(running("set-two-way").command.slice(1), ["set-two-way", "false"]);
+            compare(running("service-mode").command.slice(1), ["service-mode", "false"]);
             compare(running("start"), null, "a queued start must re-admit after a later Settings change");
-            running("set-two-way").finish(0, 0, "", "");
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             compare(running("start").command.slice(1), ["start"]);
             compare(service.modeConfirmed, false);
@@ -150,12 +295,13 @@ Item {
         }
 
         function test_rapid_toggle_uses_latest_effective_setting() {
+            admitDefault();
             selected(false);
             service.act(["start"]);
             selected(true);
-            compare(running("set-two-way").command.slice(1), ["set-two-way", "true"]);
+            compare(running("service-mode").command.slice(1), ["service-mode", "true"]);
             compare(running("start"), null);
-            running("set-two-way").finish(0, 0, "", "");
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             compare(running("start").command.slice(1), ["start"]);
             compare(service.modeConfirmed, true);
@@ -163,7 +309,8 @@ Item {
         }
 
         function test_initialize_tui_completion_refreshes_status() {
-            running("set-two-way").finish(0, 0, "", "");
+            admitDefault();
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             service.shell = Object.assign({}, service.shell, { tui: { state: { initialize: { endedAt: "2026-11-07T21:00:00Z" } } } });
             compare(running("status") !== null, true, "the declared initialization TUI end triggers the existing refresh owner");
@@ -171,9 +318,10 @@ Item {
         }
 
         // expected-log: google-drive: status record refused: status=not-json -- malformed state withdraws the previously successful snapshot
-        // expected-log: google-drive: set-two-way exit=1 -- a mirror failure must not replace the unresolved read failure
+        // expected-log: google-drive: service-mode exit=1 -- a mirror failure must not replace the unresolved read failure
         function test_unreadable_status_withdraws_success() {
-            running("set-two-way").finish(0, 0, "", "");
+            admitDefault();
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             service.accept(JSON.stringify(pausedRecord()));
             settleReads();
@@ -188,10 +336,10 @@ Item {
             compare(running("start"), null, "unreadable state does not start a sync");
             selected(false);
             service.act(["start"]);
-            running("set-two-way").finish(1, 0, "", "mirror-write-failed");
+            running("service-mode").finish(1, 0, "", "mirror-write-failed");
             settleReads();
             service.act(["start"]);
-            running("set-two-way").finish(0, 0, "", "");
+            running("service-mode").finish(0, 0, "", "");
             settleReads();
             compare(service.record, null, "a successful control mirror is not a readable status");
             compare(lastSync().tone, "danger");
@@ -207,7 +355,6 @@ Item {
         // expected-log: google-drive: status exit=75 google-drive: refused: migration=held reason=old-service-activating -- the service logs the hold once when it begins
         function test_held_rename_is_asked_again() {
             const held = "google-drive: refused: migration=held reason=old-service-activating\n";
-            running("set-two-way").finish(0, 0, "", "");
             tryVerify(() => running("status") !== null);
             running("status").finish(Logic.RUNNER_HELD, 0, "", held);
             compare(service.heldReason, "old-sync");

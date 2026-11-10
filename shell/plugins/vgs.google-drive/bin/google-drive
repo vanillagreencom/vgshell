@@ -50,8 +50,8 @@
 //       `systemctl --user start --no-block` of the service: Sync now.
 //   google-drive pause|resume [--pair <id>]
 //       prints `paused=<id|all>` or `resumed=<id|all>`.
-//   google-drive set-two-way true|false
-//       mirrors the manifest setting into control.json for the hourly service;
+//   google-drive service-mode true|false
+//       private Service mirror of Settings into control.json for the hourly service;
 //       changes no data, baseline or pause; prints `two-way=<value>`.
 //   google-drive initialize --pair <id>
 //       the declared initialization TUI's explicit equal-set comparison,
@@ -160,7 +160,7 @@ const FAILURE_STATES = {
     "initialization-required": "initialization-required",
     offline: "offline"
 };
-const USAGE = "usage: google-drive run [--pair <id>] | initialize --pair <id> | set-two-way true|false | status [--quiet] | attention-seen <key> | dismiss <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: google-drive run [--pair <id>] | initialize --pair <id> | status [--quiet] | attention-seen <key> | dismiss <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("google-drive: refused: " + first + "\n" + USAGE + "\n");
@@ -502,6 +502,7 @@ function readControl() {
         const dismissed = read.value.dismissed;
         return { paused: read.value.paused, pausedPairs: read.value.pausedPairs, notifiedKey: typeof read.value.notifiedKey === "string" ? read.value.notifiedKey : null,
             dismissed: Array.isArray(dismissed) && dismissed.every(k => typeof k === "string" && CONFLICT_KEY.test(k)) ? dismissed : [],
+            modeAdmitted: read.value.modeAdmitted,
             twoWaySync: read.value.twoWaySync === undefined ? true : read.value.twoWaySync };
     }
     if (read.kind === "absent") return { paused: false, pausedPairs: [], notifiedKey: null, dismissed: [], twoWaySync: true };
@@ -509,6 +510,20 @@ function readControl() {
     // the user set is never lost to a damaged file.
     log("control=" + (read.kind === "bad" ? read.reason : "shape") + " paused=assumed");
     return { paused: true, pausedPairs: [], notifiedKey: null, dismissed: [], twoWaySync: true, error: read.kind === "bad" ? read.reason : "shape" };
+}
+
+// Decide once before pair-add can turn an empty install into one with pairs.
+// Only Service admits existing pairs after confirming the saved Settings choice.
+function migrateModeIfNeeded() {
+    withStateLock(() => {
+        const raw = readJson(controlFile);
+        if (raw.kind === "ok" && plain(raw.value) && hasOwn(raw.value, "modeAdmitted")) return;
+        const control = readControl();
+        if (control.error) return;
+        const pairs = readPairs();
+        if (pairs.error !== null) return;
+        writeJson(controlFile, Object.assign(control, { modeAdmitted: pairs.pairs.length === 0 }));
+    });
 }
 
 function isPaused(control, id) {
@@ -1204,6 +1219,11 @@ function nextInventory(pair, listing, before, held) {
         // whenever a local file exists. A later local save then reads as a
         // local change against this Drive state, not as both sides changed.
         const baseline = { size: item.Size, mtimeMs: modTime, hash: md5, id: item.ID || null, export: exportItem || undefined };
+        // copy --update skips a newer local edit. Certify exported bytes
+        // only at the downloaded timestamp; otherwise retain earlier proof.
+        if (exportItem) Object.assign(baseline, Math.floor(st.mtimeMs) === modTime
+            ? { size: st.size, mtimeMs: modTime, hash: md5File(path.join(pair.local, item.Path)), id: item.ID || null, export: true }
+            : old && old.export ? old : baseline);
         if (old === undefined) added += 1;
         else if (old.size !== baseline.size || old.mtimeMs !== baseline.mtimeMs || old.export !== baseline.export) updated += 1;
         entries[item.Path] = baseline;
@@ -1331,12 +1351,12 @@ function ordinaryArgs(pair) {
     return ["--filter-from", bisyncFilters(pair), "--drive-skip-gdocs", "--disable", "ListR"];
 }
 
-function bisyncArgs(pair, backup) {
+function bisyncArgs(pair, backup, filters = bisyncFilters(pair)) {
     return ["bisync", pair.local, remotePath(pair),
         "--workdir", path.join(pairDir(pair.id), "bisync"),
         "--compare", "size,modtime,checksum", "--track-renames", "--track-renames-strategy", "hash",
         "--conflict-resolve", "newer", "--conflict-loser", "delete", "--backup-dir1", backup,
-        "--filters-file", bisyncFilters(pair), "--drive-skip-gdocs",
+        "--filters-file", filters, "--drive-skip-gdocs",
         "--check-access", "--create-empty-src-dirs", "--max-delete", "50",
         "--resilient", "--recover", "--max-lock", "2m", "--disable", "ListR", "--verbose"];
 }
@@ -1384,7 +1404,7 @@ function pairIdentity(pair, env, secrets, lock, address) {
             return { ok: false, kind: "identity-unreadable" };
         const matches = items.filter(item => item.Path === name);
         if (matches.length !== 1 || matches[0].IsDir !== true || typeof matches[0].ID !== "string" || matches[0].ID === "")
-            return { ok: false, kind: "identity-unknown" };
+            return { ok: false, kind: matches.length > 1 ? "listing-ambiguous" : "identity-unknown", path: REMOTE + ":" + (parent ? parent + "/" : "") + name };
         remoteIdentity = matches[0].ID;
         parent = parent === "" ? name : parent + "/" + name;
     }
@@ -1416,7 +1436,7 @@ function readListing(root, args, env, secrets, lock) {
     for (const item of items) {
         if (!plain(item) || !relativePath(item.Path)
             || names.has(item.Path) || typeof item.IsDir !== "boolean" || !Number.isFinite(item.Size))
-            return { ok: false, kind: "listing-ambiguous" };
+            return { ok: false, kind: "listing-ambiguous", path: plain(item) && relativePath(item.Path) ? root + "/" + item.Path : root };
         names.add(item.Path);
     }
     return { ok: true, items: items };
@@ -1448,39 +1468,67 @@ function baselineEvidence(pair) {
         return { ok: false, kind: "baseline-evidence-unreadable" };
     const records = state.kind === "absent" ? [] : state.value.records;
     const entries = inventory.kind === "absent" ? {} : inventory.value.entries;
-    return { ok: true, records: records, exports: Object.keys(entries).filter(rel => entries[rel].export === true),
+    return { ok: true, records: records, entries: entries, exports: Object.keys(entries).filter(rel => entries[rel].export === true),
         fingerprint: JSON.stringify([state.kind === "absent" ? null : state.value, entries]) };
 }
 
-function equalSet(pair, env, secrets, lock, address, evidence) {
+function equalSet(pair, env, secrets, lock, address, evidence, prepare = false) {
     const identity = pairIdentity(pair, env, secrets, lock, address);
     if (!identity.ok) return identity;
     const native = nativeListing(pair, env, secrets, lock);
     if (!native.ok) return native;
-    const collision = nativeCollision(pair, native.items, evidence.exports);
-    if (collision !== null) return { ok: false, kind: "native-export-in-sync-root", path: collision };
+    const moves = [];
+    for (const rel of new Set(native.items.filter(i => !i.IsDir && i.Size === -1).map(i => i.Path).concat(evidence.exports))) {
+        const source = path.join(pair.local, rel);
+        if (!fs.existsSync(source)) continue;
+        const base = evidence.entries[rel];
+        const st = fs.lstatSync(source);
+        // Historical native listings stored unknown size/MD5. Matching the
+        // recorded download time permits a preserving move, never disposal.
+        const historical = base && (base.size === -1 || base.hash === null);
+        const matchesDownload = base && base.export === true && base.mtimeMs === Math.floor(st.mtimeMs)
+            && (historical || base.size === st.size && md5File(source) === base.hash);
+        if (!prepare || !st.isFile() || !matchesDownload)
+            return { ok: false, kind: "native-export-in-sync-root", path: source };
+        const destination = path.join(pairDir(pair.id), "exports", rel);
+        if (exists(destination)) return { ok: false, kind: "export-destination-exists", path: destination };
+        moves.push({ path: rel, source: source, destination: destination, size: st.size, mtimeMs: Math.floor(st.mtimeMs), hash: md5File(source) });
+    }
+    const args = ordinaryArgs(pair).concat(moves.flatMap(move => ["--exclude", rcloneFilterLiteral(move.path)]));
     const listings = [];
     for (const root of [pair.local, remotePath(pair)]) {
-        const listing = readListing(root, ordinaryArgs(pair), env, secrets, lock);
+        const listing = readListing(root, root === pair.local ? args : ordinaryArgs(pair), env, secrets, lock);
         if (!listing.ok) return listing;
         if (listing.items.some(i => !i.IsDir && (i.Size < 0 || !/^[0-9a-f]{32}$/.test(listedMd5(i) || ""))))
-            return { ok: false, kind: "comparison-incomplete" };
+            return { ok: false, kind: "comparison-incomplete", path: root };
         listings.push(listing.items.sort((a, b) => a.Path.localeCompare(b.Path)));
     }
     const view = items => items.map(i => [i.Path, i.IsDir, i.IsDir ? null : i.Size, i.IsDir ? null : listedMd5(i)]);
-    if (JSON.stringify(view(listings[0])) !== JSON.stringify(view(listings[1]))) return { ok: false, kind: "folders-differ" };
-    if (!listings[0].some(i => !i.IsDir && path.posix.basename(i.Path) === "RCLONE_TEST"))
-        return { ok: false, kind: "access-file-missing" };
+    if (listings.some(items => items.some(i => i.Path === "RCLONE_TEST" && i.IsDir)))
+        return { ok: false, kind: "access-path-occupied", path: pair.local + "/RCLONE_TEST and " + remotePath(pair) + "/RCLONE_TEST" };
+    const sentinels = listings.map(items => items.find(i => !i.IsDir && i.Path === "RCLONE_TEST"));
+    const hasAccess = listings.every(items => items.some(i => !i.IsDir && path.posix.basename(i.Path) === "RCLONE_TEST"));
+    const access = hasAccess ? null : { source: sentinels[0] ? "local" : sentinels[1] ? "remote" : "new" };
+    const comparison = access && access.source !== "new" ? listings.map(items => items.filter(i => i.Path !== "RCLONE_TEST")) : listings;
+    if (JSON.stringify(view(comparison[0])) !== JSON.stringify(view(comparison[1]))) {
+        const paths = new Set(listings.flatMap(items => items.map(i => i.Path)));
+        const differing = Array.from(paths).filter(rel => JSON.stringify(view(listings[0].filter(i => i.Path === rel))) !== JSON.stringify(view(listings[1].filter(i => i.Path === rel))));
+        return { ok: false, kind: "folders-differ", path: differing.map(rel => pair.local + "/" + rel + " and " + remotePath(pair) + "/" + rel).join(", ") };
+    }
+    if (access && !prepare) return { ok: false, kind: "access-file-missing", path: pair.local + "/RCLONE_TEST and " + remotePath(pair) + "/RCLONE_TEST" };
     // check's combined report is a documented machine interface. Its exit
     // plus all '=' rows prove two-direction equality; --one-way is not used.
-    const checked = rclone(["check", pair.local, remotePath(pair), "--combined", "-"].concat(ordinaryArgs(pair)), env, secrets, lock);
+    const checked = rclone(["check", pair.local, remotePath(pair), "--combined", "-"].concat(args,
+        access && access.source !== "new" ? ["--exclude", "/RCLONE_TEST"] : []), env, secrets, lock);
     if (!checked.ok) return checked;
-    const matched = checked.stdout.trimEnd().split("\n");
-    const paths = listings[0].filter(i => !i.IsDir).map(i => i.Path).sort();
+    const matched = checked.stdout.trimEnd() === "" ? [] : checked.stdout.trimEnd().split("\n");
+    const paths = comparison[0].filter(i => !i.IsDir).map(i => i.Path).sort();
     if (matched.some(line => !line.startsWith("= ")) || JSON.stringify(matched.map(line => line.slice(2)).sort()) !== JSON.stringify(paths))
         return { ok: false, kind: "comparison-incomplete" };
-    return { ok: true, binding: identity.binding,
-        fingerprint: JSON.stringify([identity.binding, listings, native.items.sort((a, b) => a.Path.localeCompare(b.Path)), evidence.fingerprint]) };
+    const nativeView = native.items.filter(i => !i.IsDir && i.Size === -1).sort((a, b) => a.Path.localeCompare(b.Path));
+    const fingerprint = items => JSON.stringify([identity.binding, items.map(list => list.map(i => [i.Path, i.IsDir, i.Size, listedMd5(i), i.IsDir ? null : Date.parse(i.ModTime)])), nativeView, evidence.fingerprint]);
+    return { ok: true, binding: identity.binding, moves: moves, access: access, listings: listings,
+        fingerprint: fingerprint(listings), fingerprintFor: fingerprint };
 }
 
 function recoveryDirectory(pair) {
@@ -1593,6 +1641,34 @@ function runPairTwoWay(pair, state, env, secrets, lock, address) {
     return Object.assign(state, { state: "idle", lastSuccess: now(), lastError: null, changes: null });
 }
 
+function initializeRefusal(result, pair) {
+    const location = result.path || pair.local + " and " + remotePath(pair);
+    let action;
+    switch (result.kind) {
+    case "listing-ambiguous": action = "Rename or remove the duplicate names in Drive before trying again"; break;
+    case "native-export-in-sync-root": action = "Keep any edits by moving this download copy outside the synced folder yourself; its saved download record does not match"; break;
+    case "export-destination-exists": action = "Choose where to keep both download copies; the export destination already exists"; break;
+    case "folders-differ": action = "Make both folders contain the same ordinary files and bytes before trying again"; break;
+    case "access-file-missing": action = "Run setup again to create the missing access files"; break;
+    case "access-path-occupied": action = "Move the folder named RCLONE_TEST aside so setup can create its access file"; break;
+    case "copy-selected": action = "Turn on Two-way sync before running this setup"; break;
+    case "credential-absent": case "credential-locked": case "credential-unavailable":
+    case "authorization-required": action = "Sign in to Google Drive and unlock your keyring before trying again"; break;
+    case "local-root-missing": action = "Restore the local folder before trying again"; break;
+    case "identity-unknown": case "identity-unreadable": action = "Check the signed-in account and choose an existing, uniquely named Drive folder"; break;
+    case "baseline-evidence-unreadable": action = "Restore readable saved sync records before trying again; they were kept"; break;
+    case "control-unreadable": action = "Restore readable saved sync controls before trying again"; break;
+    case "comparison-incomplete": case "listing-unreadable": action = "Make every file readable and available for a complete comparison before trying again"; break;
+    case "comparison-changed": case "control-changed": case "filters-changed": case "roots-changed": case "account-changed":
+        action = "Keep these folders, account and sync settings unchanged, then review setup again"; break;
+    case "confirmation-failed": action = "Open setup in a terminal and answer the confirmation again"; break;
+    case "preparation-failed": action = "Make this location writable, then review setup again; any copies already moved were kept"; break;
+    default: action = "Check the connection and file access, then review setup again";
+    }
+    process.stdout.write(action + ": " + location + ".\n");
+    refuse("initialize=" + result.kind + " path=" + JSON.stringify(location));
+}
+
 function initializeVerb(words) {
     const id = pairOption(words);
     if (id === null) bad("pair=missing");
@@ -1604,27 +1680,37 @@ function initializeVerb(words) {
     if (fd === null) { process.stdout.write("pair=" + id + " result=busy\n"); process.exit(EXIT_BUSY); }
     try {
         const control = readControl();
-        if (control.error) refuse("initialize=control-unreadable");
-        if (!control.twoWaySync) refuse("initialize=copy-selected");
+        if (control.error) initializeRefusal({ kind: "control-unreadable" }, pair);
+        if (!control.twoWaySync) initializeRefusal({ kind: "copy-selected" }, pair);
         const evidence = baselineEvidence(pair);
-        if (!evidence.ok) refuse("initialize=" + evidence.kind);
+        if (!evidence.ok) initializeRefusal(evidence, pair);
         const credential = readCredential();
-        if (credential.kind !== "found") refuse("initialize=credential-" + credential.kind);
+        if (credential.kind !== "found") initializeRefusal({ kind: "credential-" + credential.kind }, pair);
         const env = rcloneEnv(credential.values);
         const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
         // A failed explicit attempt requires a fresh comparison and consent.
         // Keep rclone history in place for investigation, never erase it.
-        withStateLock(() => { writePairState(id, Object.assign(readPairState(id), { baseline: null })); writeStatus(); });
         const reviewedEvidence = baselineEvidence(pair);
-        if (!reviewedEvidence.ok) refuse("initialize=" + reviewedEvidence.kind);
+        if (!reviewedEvidence.ok) initializeRefusal(reviewedEvidence, pair);
         process.stdout.write("Local folder: " + pair.local + "\nGoogle Drive folder: " + pair.remote
             + "\nEarlier records (evidence, not removal instructions):\n" + JSON.stringify(reviewedEvidence.records, null, 2) + "\n");
         writeAtomic(bisyncFilters(pair), BISYNC_FILTERS);
-        const before = equalSet(pair, env, secrets, fd, credential.address, reviewedEvidence);
-        if (!before.ok) refuse("initialize=" + before.kind);
+        const before = equalSet(pair, env, secrets, fd, credential.address, reviewedEvidence, true);
+        if (!before.ok) initializeRefusal(before, pair);
+        for (const move of before.moves) process.stdout.write("Move download copy: " + move.source + " -> " + move.destination + "\n");
+        if (before.access) process.stdout.write("Create access file: " + pair.local + "/RCLONE_TEST and " + remotePath(pair) + "/RCLONE_TEST\n");
         const backup = recoveryDirectory(pair);
-        const preview = rclone(bisyncArgs(pair, backup).concat(["--resync", "--resync-mode", "newer", "--dry-run"]), env, secrets, fd);
-        if (!preview.ok) refuse("initialize=preview-failed");
+        const previewFilters = path.join(pairDir(pair.id), "initialize-preview-filters.txt");
+        writeAtomic(previewFilters, BISYNC_FILTERS + before.moves.map(move => "- " + rcloneFilterLiteral(move.path) + "\n").join("")
+            + (before.access && before.access.source !== "new" ? "- /RCLONE_TEST\n" : ""));
+        let preview;
+        // v1.75.2 cmd/bisync/resync.go checks access even during dry-run.
+        // The preview lists planned creation; the real run checks both files.
+        const previewArgs = bisyncArgs(pair, backup, previewFilters).filter(arg => !before.access || arg !== "--check-access");
+        try { preview = rclone(previewArgs.concat(["--resync", "--resync-mode", "newer", "--dry-run"]), env, secrets, fd); }
+        finally { fs.rmSync(previewFilters, { force: true }); }
+        process.stdout.write(preview.stderr);
+        if (!preview.ok) initializeRefusal({ kind: "preview-failed" }, pair);
         // The declaration's TUI owns this visible terminal. No unattended
         // mode, argv --yes, or setting write supplies initialization consent.
         const promptEnv = { VGS_TUI_LIB: process.env.VGS_TUI_LIB || "" };
@@ -1633,21 +1719,62 @@ function initializeVerb(words) {
         const confirmed = run("/usr/bin/bash", [path.join(__dirname, "..", "tui", "initialize-confirm.sh")],
             { stdio: ["inherit", "inherit", "inherit"], env: childEnv(promptEnv) });
         if (confirmed.status === 1) return;
-        if (confirmed.status !== 0) refuse("initialize=confirmation-failed");
+        if (confirmed.status !== 0) initializeRefusal({ kind: "confirmation-failed" }, pair);
         const currentControl = readControl();
         if (currentControl.error || !currentControl.twoWaySync || isPaused(currentControl, id) !== isPaused(control, id))
-            refuse("initialize=control-changed");
-        if (readText(bisyncFilters(pair)) !== BISYNC_FILTERS) refuse("initialize=filters-changed");
+            initializeRefusal({ kind: "control-changed" }, pair);
+        if (readText(bisyncFilters(pair)) !== BISYNC_FILTERS) initializeRefusal({ kind: "filters-changed" }, pair);
         const currentPair = readPairs().pairs.find(p => p.id === id);
-        if (JSON.stringify(currentPair) !== JSON.stringify(pair)) refuse("initialize=roots-changed");
+        if (JSON.stringify(currentPair) !== JSON.stringify(pair)) initializeRefusal({ kind: "roots-changed" }, pair);
         const currentCredential = readCredential();
         if (currentCredential.kind !== "found" || currentCredential.address !== credential.address
             || CREDENTIAL_PARTS.some(part => currentCredential.values[part] !== credential.values[part]))
-            refuse("initialize=account-changed");
+            initializeRefusal({ kind: "account-changed" }, pair);
         const afterEvidence = baselineEvidence(pair);
-        if (!afterEvidence.ok) refuse("initialize=" + afterEvidence.kind);
+        if (!afterEvidence.ok) initializeRefusal(afterEvidence, pair);
+        const rechecked = equalSet(pair, env, secrets, fd, credential.address, afterEvidence, true);
+        if (!rechecked.ok) initializeRefusal(rechecked, pair);
+        if (before.fingerprint !== rechecked.fingerprint || JSON.stringify(before.moves) !== JSON.stringify(rechecked.moves)
+            || JSON.stringify(before.access) !== JSON.stringify(rechecked.access))
+            initializeRefusal({ kind: "comparison-changed" }, pair);
+        for (const move of before.moves) {
+            try {
+                fs.mkdirSync(path.dirname(move.destination), { recursive: true, mode: 0o700 });
+                // COPYFILE_EXCL refuses an occupied export path, including across
+                // filesystems. Keep the source if the exclusive copy fails.
+                fs.copyFileSync(move.source, move.destination, fs.constants.COPYFILE_EXCL);
+                fs.utimesSync(move.destination, move.mtimeMs / 1000, move.mtimeMs / 1000);
+            } catch (error) {
+                initializeRefusal({ kind: error.code === "EEXIST" ? "export-destination-exists" : "preparation-failed", path: move.destination }, pair);
+            }
+            try {
+                if (md5File(move.source) !== move.hash || Math.floor(fs.statSync(move.source).mtimeMs) !== move.mtimeMs)
+                    initializeRefusal({ kind: "comparison-changed", path: move.source }, pair);
+                fs.unlinkSync(move.source);
+            } catch (_error) { initializeRefusal({ kind: "preparation-failed", path: move.source }, pair); }
+        }
+        const expected = before.listings.map(items => items.slice());
+        if (before.access) {
+            const file = path.join(pair.local, "RCLONE_TEST");
+            const remote = remotePath(pair) + "/RCLONE_TEST";
+            let item;
+            if (before.access.source === "new") {
+                try { fs.writeFileSync(file, "VGS Google Drive access check\n", { flag: "wx", mode: 0o600 }); }
+                catch (_error) { initializeRefusal({ kind: "preparation-failed", path: file }, pair); }
+                const st = fs.statSync(file);
+                item = { Path: "RCLONE_TEST", IsDir: false, Size: st.size, Hashes: { md5: md5File(file) }, ModTime: new Date(st.mtimeMs).toISOString() };
+            } else item = before.listings[before.access.source === "local" ? 0 : 1].find(i => i.Path === "RCLONE_TEST");
+            // rclone copyto --ignore-existing skips every occupied destination
+            // (rclone.org/flags/#copy); the exact recheck below judges its bytes.
+            const copied = rclone(["copyto", before.access.source === "remote" ? remote : file,
+                before.access.source === "remote" ? file : remote, "--ignore-existing", "--disable", "ListR"], env, secrets, fd);
+            if (!copied.ok) initializeRefusal(copied, pair);
+            for (const items of expected) if (!items.some(i => i.Path === "RCLONE_TEST")) items.push(item);
+        }
+        for (const items of expected) items.sort((a, b) => a.Path.localeCompare(b.Path));
         const after = equalSet(pair, env, secrets, fd, credential.address, afterEvidence);
-        if (!after.ok || before.fingerprint !== after.fingerprint) refuse("initialize=" + (after.ok ? "comparison-changed" : after.kind));
+        if (!after.ok) initializeRefusal(after, pair);
+        if (after.fingerprint !== before.fingerprintFor(expected)) initializeRefusal({ kind: "comparison-changed" }, pair);
         let state = readPairState(id);
         state.baseline = null;
         state.route = "two-way";
@@ -1675,7 +1802,7 @@ function initializeVerb(words) {
         } else state = failed(state, result.kind, { operation: "initialize", exit: result.exit, mayHaveChanged: true });
         state.startedAt = null;
         withStateLock(() => { writePairState(id, state); writeStatus(); });
-        if (!result.ok) refuse("initialize=" + result.kind);
+        if (!result.ok) initializeRefusal(result, pair);
         process.stdout.write("initialized=" + id + "\n");
     } finally {
         fs.closeSync(fd);
@@ -2018,6 +2145,7 @@ function renderStatus() {
     return {
         state: state,
         twoWaySync: control.twoWaySync,
+        copyModeMigration: control.modeAdmitted === false,
         paused: control.paused,
         units: units,
         lastSuccess: lastSuccess,
@@ -2618,18 +2746,18 @@ function pauseVerb(words, paused) {
             ? { paused: paused, pausedPairs: paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }
             : { paused: control.paused, pausedPairs: control.pausedPairs.filter(id => id !== only).concat(paused ? [only] : []), notifiedKey: control.notifiedKey };
         if (control.error) refuse("control=" + control.error);
-        writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync }));
+        writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed, twoWaySync: control.twoWaySync, modeAdmitted: control.modeAdmitted }));
         writeStatus();
     });
     process.stdout.write((paused ? "paused=" : "resumed=") + (only === null ? "all" : only) + "\n");
 }
 
-function setTwoWayVerb(words) {
+function serviceModeVerb(words) {
     if (words.length !== 1 || !["true", "false"].includes(words[0])) bad("two-way=boolean");
     withStateLock(() => {
         const control = readControl();
         if (control.error) refuse("control=" + control.error);
-        writeJson(controlFile, Object.assign(control, { twoWaySync: words[0] === "true" }));
+        writeJson(controlFile, Object.assign(control, { twoWaySync: words[0] === "true", modeAdmitted: true }));
         writeStatus();
     });
     process.stdout.write("two-way=" + words[0] + "\n");
@@ -2726,12 +2854,13 @@ if (verb === "migrate") {
 const renamed = migrateRenameIfNeeded();
 migratePairListIfNeeded();
 const converted = migratePairStatesIfNeeded();
+migrateModeIfNeeded();
 migrateStatusIfNeeded(renamed || converted);
-if (verb !== "install" && verb !== "set-two-way" && verb !== "initialize") refreshStaleInstallIfNeeded();
+if (verb !== "install" && verb !== "service-mode" && verb !== "initialize") refreshStaleInstallIfNeeded();
 switch (verb) {
 case "run": runVerb(rest); break;
 case "initialize": initializeVerb(rest); break;
-case "set-two-way": setTwoWayVerb(rest); break;
+case "service-mode": serviceModeVerb(rest); break;
 case "status": statusVerb(rest); break;
 case "attention-seen": attentionSeenVerb(rest); break;
 case "dismiss": dismissVerb(rest); break;

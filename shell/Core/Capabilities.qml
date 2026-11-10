@@ -147,6 +147,7 @@ Singleton {
         },
         configure: ctx => ({
             set: (key, value) => Plugins.writeSetting(ctx.id, key, value),
+            setIfAbsent: (key, value) => Plugins.writeSettingIfAbsent(ctx.id, key, value),
             unset: key => Plugins.clearSetting(ctx.id, key)
         }),
         idle: idleWatches.provider,

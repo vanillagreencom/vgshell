@@ -90,7 +90,13 @@ case "\$1" in
     [[ \$mode != install-failed ]] || echo "install=failed systemctl=missing" ;;
   pair-remove) echo "removed=\$2" ;;
   sign-out) echo "signed-out=\$2" ;;
-  initialize) echo "initialized=\$3" ;;
+  initialize)
+    if [[ \$mode == initialize-fail ]]; then
+      echo 'Rename or remove the duplicate names in Drive before trying again: vgsdrive:Docs/reports/photo.jpg.'
+      echo 'google-drive: refused: initialize=listing-ambiguous path="vgsdrive:Docs/reports/photo.jpg"' >&2
+      exit 1
+    fi
+    echo "initialized=\$3" ;;
 esac
 SH
 chmod 755 "$tools/gum" "$plugin/bin/google-drive"
@@ -222,6 +228,12 @@ case_initialize_routes_the_selected_pair() {
   tui "$1" "" "" nope
   [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]]
 }
+case_initialize_keeps_the_runners_explanation() {
+  tui "$1" initialize-fail "" docs
+  [[ $status == 1 && $calls == '[["pairs", "--lines"], ["initialize", "--pair", "docs"]]' ]] &&
+    shows 'Rename or remove the duplicate names in Drive before trying again: vgsdrive:Docs/reports/photo.jpg.' &&
+    ! shows 'initialize=listing-ambiguous' && grep -q -F 'initialize=listing-ambiguous' -- "$log"
+}
 case_refuses_an_argument() {
   local script
   for script in setup add-pair connect sign-out; do
@@ -241,6 +253,7 @@ CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_con
   case_remove_pair_removes_the_named_after_yes:remove-pair case_remove_pair_refuses_a_bad_id:remove-pair case_reset_pairs_runs_after_yes:reset-pairs case_reset_pairs_reads_this_runs_refusal:reset-pairs
   case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
   case_initialize_routes_the_selected_pair:initialize
+  case_initialize_keeps_the_runners_explanation:initialize
   case_refuses_an_argument:setup)
 copy_scripts
 for entry in "${CASES[@]}"; do
@@ -260,6 +273,10 @@ CONTROL_CASES+=(case_initialize_routes_the_selected_pair)
 CONTROL_SCRIPTS+=(initialize)
 CONTROL_NEEDLES+=('"$runner" initialize --pair "$selected"')
 CONTROL_REPLACEMENTS+=('"$runner" status --pair "$selected"')
+CONTROL_CASES+=(case_initialize_keeps_the_runners_explanation)
+CONTROL_SCRIPTS+=(initialize)
+CONTROL_NEEDLES+=('"$runner" initialize --pair "$selected" 2>>"$log"')
+CONTROL_REPLACEMENTS+=('"$runner" initialize --pair "$selected"')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"

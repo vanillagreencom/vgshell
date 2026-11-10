@@ -6,4 +6,4 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
 unset VGS_TUI_UNATTENDED
-vgs_tui_confirm "Have you settled all earlier removals and native exports, and paused other writers? Initialize these equal folders?" --default=false
+vgs_tui_confirm "Have you reviewed the preview and paused other writers? Create the listed access files, move the listed download copies, and start two-way sync?" --default=false
