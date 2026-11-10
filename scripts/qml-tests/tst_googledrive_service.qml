@@ -187,6 +187,7 @@ Item {
             compare(root.notifications.length, 0);
             root.configureReply = "ok";
             service.accept(JSON.stringify(old));
+            settleReads();
             compare(running("service-mode").command.slice(1), ["service-mode", "false"]);
             running("service-mode").finish(0, 0, "", "");
             settleReads();

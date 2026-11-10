@@ -517,7 +517,10 @@ function readControl() {
 function migrateModeIfNeeded() {
     withStateLock(() => {
         const raw = readJson(controlFile);
-        if (raw.kind === "ok" && plain(raw.value) && hasOwn(raw.value, "modeAdmitted")) return;
+        if (raw.kind === "ok" && plain(raw.value) && hasOwn(raw.value, "modeAdmitted")) {
+            if (typeof raw.value.modeAdmitted !== "boolean") refuse("control=mode-admission-shape");
+            return;
+        }
         const control = readControl();
         if (control.error) return;
         const pairs = readPairs();
@@ -1748,7 +1751,7 @@ function initializeVerb(words) {
                 initializeRefusal({ kind: error.code === "EEXIST" ? "export-destination-exists" : "preparation-failed", path: move.destination }, pair);
             }
             try {
-                if (md5File(move.source) !== move.hash || Math.floor(fs.statSync(move.source).mtimeMs) !== move.mtimeMs)
+                if (md5File(move.destination) !== move.hash || md5File(move.source) !== move.hash || Math.floor(fs.statSync(move.source).mtimeMs) !== move.mtimeMs)
                     initializeRefusal({ kind: "comparison-changed", path: move.source }, pair);
                 fs.unlinkSync(move.source);
             } catch (_error) { initializeRefusal({ kind: "preparation-failed", path: move.source }, pair); }
@@ -2085,6 +2088,10 @@ function renderStatus() {
         const stored = readPairState(pair.id);
         let state = stored.state;
         let lastError = stored.lastError;
+        if (!control.twoWaySync && state === "initialization-required") {
+            state = "idle";
+            if (lastError !== null && lastError.kind === "initialization-required") lastError = null;
+        }
         const initializationReason = bindingReason(pair, stored)
             || (lastError !== null && lastError.kind === "initialization-required" ? lastError.reason : null);
         if (control.twoWaySync && !plain(stored.baseline) && !baselineEvidence(pair).ok) {

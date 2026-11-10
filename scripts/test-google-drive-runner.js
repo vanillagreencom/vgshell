@@ -2766,7 +2766,11 @@ function caseModeAdmission(runner) {
     const before = status(old, runner);
     assert.equal(before.copyModeMigration, true, "existing pairs need Settings admission");
     assert.equal(before.twoWaySync, true, "admission metadata never overrides the Settings mirror");
+    assert.equal(cli(old, ["run"], runner).stdout, "pair=docs result=initialization-required\n", "a timer can arrive before Service admission");
     assert.equal(cli(old, ["service-mode", "false"], runner).status, 0);
+    const off = status(old, runner);
+    assert.equal(off.pairs[0].state, "idle", "copy mode withdraws the former setup hold");
+    assert.equal(off.attention, null, "copy mode withdraws the former setup notice before its next run");
     runOk(old, runner);
     const admitted = status(old, runner);
     assert.equal(admitted.copyModeMigration, false);
@@ -2787,7 +2791,7 @@ function caseInitializationPreparation(runner, only) {
         addPair(w, runner);
         seedEqual(w, "Docs", w.mirror);
         for (const root of [w.mirror, path.join(w.drive, "Docs")]) fs.unlinkSync(path.join(root, "RCLONE_TEST"));
-        const rel = "reports/Plan [draft].docx";
+        const rel = "reports/Plan.docx";
         write(path.join(w.stub, "exports"), rel + "\n");
         drive(w, rel, "downloaded native document\n", 1700000000);
         runOk(w, runner);
@@ -3214,6 +3218,9 @@ async function controls() {
     await twoWayControl("existing pairs need Settings admission",
         'modeAdmitted: pairs.pairs.length === 0', 'modeAdmitted: true',
         caseModeAdmission, "existing pairs need Settings admission");
+    await twoWayControl("copy mode withdraws the former setup hold",
+        '!control.twoWaySync && state === "initialization-required"', 'false',
+        caseModeAdmission, "copy mode withdraws the former setup hold");
     await twoWayControl("ordinary operation attribution",
         "    bisyncRecords(pair, state, result, backup);",
         "    bisyncRecords(pair, state, result, backup, \"initialize\");",

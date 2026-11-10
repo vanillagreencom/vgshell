@@ -204,7 +204,8 @@ for name, fixture, cause in [(name, fixture, None) for name, fixture in fixtures
     result = subprocess.run([node, str(repo / "shell/plugins/vgs.google-drive/bin/google-drive"),
                              "initialize", "--pair", "two-way"], env=env,
                             capture_output=True, text=True, timeout=120)
-    state = json.loads((home / ".local/state/vgshell/google-drive/pairs/two-way/state.json").read_text())
+    state_file = home / ".local/state/vgshell/google-drive/pairs/two-way/state.json"
+    state = json.loads(state_file.read_text()) if state_file.exists() else {"baseline": None}
     if cause is None:
         assert result.returncode == 0 and result.stdout.endswith("initialized=two-way\n"), (
             name, result.returncode, result.stdout, result.stderr)
