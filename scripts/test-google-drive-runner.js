@@ -233,6 +233,10 @@ const all = args[1] === "--all";
 const rest = args.slice(all ? 2 : 1);
 if (args[0] !== "search" || !keyed(rest, 0)) process.exit(2);
 const account = rest[3];
+if (fs.existsSync(stub + "/observe-attention")) {
+    const status = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(w.state, "status.json"))}, "utf8"));
+    fs.appendFileSync(stub + "/attention-renders", JSON.stringify(status) + "\\n");
+}
 const locked = fs.existsSync(path.join(store, account + ".locked"));
 let found = items(account);
 if (locked && found.length === 0) found = [account];
@@ -2761,7 +2765,7 @@ function caseInitializationAttention(runner) {
     const photos = path.join(w.home, "mirror", "photos");
     const rows = [
         { ids: ["docs"], change: () => {} },
-        { ids: ["docs", "photos"], change: () => {
+        { ids: ["docs", "photos"], run: true, change: () => {
             seedEqual(w, "Photos", photos);
             addPair(w, runner, { id: "photos", label: "Photos", remote: "Photos", local: photos });
         } },
@@ -2772,11 +2776,27 @@ function caseInitializationAttention(runner) {
         row.change();
         const record = status(w, runner);
         assert.deepEqual(record.pairs.filter(p => p.state === "initialization-required").map(p => p.id).sort(), row.ids);
+        assert.notEqual(record.attention, null, "stopped pair set changes attention");
         assert.deepEqual(record.attention.reasons, ["initialization-required"]);
         assert.notEqual(record.attention.key, previous, "stopped pair set changes attention");
         assert.equal(record.attention.notified, false, "changed stopped pair set has not been notified");
         assert.equal(cli(w, ["attention-seen", record.attention.key], runner).status, 0);
         assert.deepEqual(status(w, runner).attention, Object.assign({}, record.attention, { notified: true }), "unchanged stopped pair set stays notified");
+        if (row.run) {
+            assert.ok(record.pairs.every(p => p.lastError === null), "the first ordinary run has no saved failure");
+            write(path.join(w.stub, "observe-attention"), "");
+            const out = cli(w, ["run"], runner);
+            assert.equal(out.status, 1, out.stderr);
+            const renders = jsonLines(path.join(w.stub, "attention-renders"));
+            const running = new Set(renders.flatMap(r => r.pairs.filter(p => p.state === "running").map(p => p.id)));
+            assert.deepEqual([...running].sort(), row.ids, "ordinary run observed both producer steps");
+            for (const during of renders) {
+                assert.deepEqual(during.pairs.filter(p => p.initialization.state === "required").map(p => p.id).sort(), row.ids);
+                assert.deepEqual(during.attention, Object.assign({}, record.attention, { notified: true }), "ordinary run keeps setup attention");
+            }
+            assert.deepEqual(status(w, runner).attention, Object.assign({}, record.attention, { notified: true }), "ordinary run keeps setup attention after both holds");
+            fs.unlinkSync(path.join(w.stub, "observe-attention"));
+        }
         previous = record.attention.key;
     }
 }
@@ -3236,9 +3256,13 @@ async function twoWayControl(name, from, to, fn, assertion) {
 
 async function controls() {
     await twoWayControl("setup attention includes the stopped pair set",
-        'standing.filter(s => s.state === "initialization-required").map(s => s.pair)',
-        'standing.filter(s => false).map(s => s.pair)',
+        'pairs.filter(p => p.initialization.state === "required")',
+        'pairs.filter(p => false)',
         caseInitializationAttention, "stopped pair set changes attention");
+    await twoWayControl("ordinary run keeps setup attention",
+        'pairs.filter(p => p.initialization.state === "required")',
+        'pairs.filter(p => p.state === "initialization-required")',
+        caseInitializationAttention, "ordinary run keeps setup attention");
     await twoWayControl("planned comparison ignores directory metadata",
         'items.map(list => view(list, true))',
         'items.map(list => list.map(i => [i.Path, i.IsDir, i.Size, listedMd5(i), i.IsDir ? null : Date.parse(i.ModTime)]))',
@@ -3370,7 +3394,10 @@ async function controls() {
     await mustFail("attention-seen writes", mutant("attention-seen writes", "writeJson(controlFile, Object.assign(readControl(), { notifiedKey: words[0] }));", ""), caseAttention);
     await mustFail("nothing to clear", mutant("nothing to clear", "if (out.status === 1 && out.stderr === \"\") return;", ""), caseAuthorize);
     await mustFail("running pair stands", mutant("running pair stands", "p.state === \"running\" && p.lastError !== null ? failureState(p.lastError.kind) : p.state", "p.state"), caseRunKey);
-    await mustFail("cause by pair id", mutant("cause by pair id", ".sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);", ".sort((a, b) => String(b.lastError.at).localeCompare(String(a.lastError.at))).slice(0, 1);"), caseRunKey);
+    await mustFail("cause by pair id", mutant("cause by pair id",
+        'const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)\n        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);',
+        'const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)\n        .sort((a, b) => String(b.lastError.at).localeCompare(String(a.lastError.at))).slice(0, 1);'),
+        caseRunKey);
     await mustFail("re-arm", mutant("re-arm", "if (control.notifiedKey !== null) writeJson(controlFile, Object.assign(control, { notifiedKey: null }));", ""), caseAttention);
     await mustFail("sign-out notified", mutant("sign-out notified", "if (after !== null && (before === null || before.notified)) writeJson(", "if (false) writeJson("), caseSignOut);
     await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);

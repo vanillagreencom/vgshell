@@ -228,11 +228,14 @@ Item {
                 : build(shippedCard);
             card.summary = "Google Drive folder sync stopped";
             card.body = "Sync stopped for Documents and Agent uploads. Two-way sync needs setup.";
+            card.hintIcon = "cloud-alert";
+            tryCompare(card, "showsSlot", true);
             card.actions = [{ id: "setup", label: "Set up two-way sync" }, { id: "dismiss", label: "Dismiss" }];
             card.showActions = true;
             tryCompare(parts(card).tray, "opacity", 1);
             card.settleHeight();
             const part = parts(card);
+            verify(card.trayReserve > 0, "the holder retains either tray layout while actions draw");
             if (row.control) {
                 verify(part.title.truncated && part.body.truncated, "the control exposes the unreadable notification");
                 card.destroy();
@@ -253,6 +256,9 @@ Item {
             scene.height = card.fullHeight + 2 * card.pad;
             mouseClick(setup);
             compare(selected, ["setup"], "the readable action remains reachable");
+            card.showActions = false;
+            tryCompare(part.tray, "opacity", 0);
+            compare(card.trayReserve, 0, "the holder releases the tray only after its fade");
             card.destroy();
             scene.height = scene.look.card.maxHeight;
         }

@@ -94,7 +94,9 @@ Item {
     readonly property real textWidth: contentWidth - (showsSlot ? mediaSlot.implicitWidth + look.card.gapIcon : 0)
     readonly property bool trayBelow: !captionMode && tray.width + look.tray.gap > textWidth - tray.width
     readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0)
-    readonly property real trayReserve: trayShown || tray.visible ? (trayBelow ? 0 : Math.max(0, tray.width + look.tray.gap + pad - textColumn)) : 0
+    // Holders use a nonzero reserve to retain the card through its fade,
+    // regardless of whether the tray takes horizontal or vertical space.
+    readonly property real trayReserve: trayShown || tray.visible ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
     readonly property real trayBottomReserve: trayBelow && (trayShown || tray.visible) ? tray.height + look.tray.gap : 0
     readonly property string title: showsBadge ? enrichment.title : summary
 
@@ -161,7 +163,7 @@ Item {
             id: textBlock
             rowCard: card
             Layout.fillWidth: true
-            Layout.rightMargin: card.trayReserve
+            Layout.rightMargin: card.trayBelow ? 0 : card.trayReserve
             Layout.alignment: Qt.AlignVCenter
         }
     }

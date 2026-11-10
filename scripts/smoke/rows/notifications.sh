@@ -1426,17 +1426,16 @@ note_card_reading() { # LABEL SUMMARY
 # boxes of the card's visible title, its visible body and its visible
 # pills, in one coordinate space. A text's box is its whole laid-out width,
 # so a box that ends before a pill holds every glyph of that text. Prints
-# `clear` when every text box that shares rows with a pill ends at or
-# before that pill's left edge, `overlap` when one runs past it, `no-pill`
-# while no pill shows and `apart` when no body box shares rows with a pill,
-# a reading that cannot show the fault. A state word, such as `absent`,
-# prints as it is.
+# `clear` when text and pills do not overlap, including a tray below the
+# message, `overlap` when text runs under a pill, and `no-pill` while no
+# pill shows. An empty text reading is not clearance evidence. A state
+# word, such as `absent`, prints as it is.
 pill_clear_value() {
   py_reply 'import json,sys
 v = json.load(sys.stdin)
 if not v["pills"]: print("no-pill"); sys.exit()
+if not v["texts"] + v["bodies"]: print("text-absent"); sys.exit()
 rows = lambda a, b: a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
-if not any(rows(b, p) for b in v["bodies"] for p in v["pills"]): print("apart"); sys.exit()
 under = [1 for r in v["texts"] + v["bodies"] for p in v["pills"] if rows(r, p) and r[0] + r[2] > p[0] + 0.5 and r[0] < p[0] + p[2]]
 print("overlap" if under else "clear")'
 }
@@ -1607,8 +1606,10 @@ expect_poll "a card past its most lines stops at its maximum height with its tex
 expect "the pill predicate passes text that ends before the pill" clear pill_clear_value <<<'{"texts": [[20, 14, 300, 18]], "bodies": [[20, 34, 300, 30]], "pills": [[340, 30, 66, 28]]}'
 expect "control: the pill predicate refuses a body under the pill" overlap pill_clear_value <<<'{"texts": [[20, 14, 300, 18]], "bodies": [[20, 34, 380, 30]], "pills": [[340, 30, 66, 28]]}'
 expect "control: the pill predicate refuses a title under the pill" overlap pill_clear_value <<<'{"texts": [[20, 30, 380, 18]], "bodies": [[20, 50, 300, 30]], "pills": [[340, 30, 66, 28]]}'
-expect "the pill predicate reads a body beside no pill as unable to show the fault" apart pill_clear_value <<<'{"texts": [[20, 14, 380, 18]], "bodies": [[20, 80, 380, 18]], "pills": [[340, 30, 66, 28]]}'
-expect_poll "a hovered action card ends its text before its pills" clear layer_pill_clear "Hover geometry"
+expect "the pill predicate passes text and pills on separate rows" clear pill_clear_value <<<'{"texts": [[20, 14, 380, 18]], "bodies": [[20, 80, 380, 18]], "pills": [[340, 30, 66, 28]]}'
+expect "control: a separate body does not hide a title under a pill" overlap pill_clear_value <<<'{"texts": [[20, 30, 380, 18]], "bodies": [[20, 80, 380, 18]], "pills": [[340, 30, 66, 28]]}'
+expect "control: absent text cannot prove pill clearance" text-absent pill_clear_value <<<'{"texts": [], "bodies": [], "pills": [[340, 30, 66, 28]]}'
+expect_poll "a hovered action card keeps its text clear of its pills" clear layer_pill_clear "Hover geometry"
 expect_poll "a card with an image keeps its round slot at the pad and ends its text on the column" ok checked_space Pictured slot
 expect_poll "a Slack faces card keeps its round slot at the pad and ends its text on the column" ok checked_space "[acme] in ada, grace, alan, edsger, barbara" slot
 for glass_card in "one-line:Even one" "two-line:Even two" "clamped:Even max"; do
@@ -2713,7 +2714,7 @@ python3 - "$card_qml" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-needle = "            Layout.rightMargin: card.trayReserve\n"
+needle = "            Layout.rightMargin: card.trayBelow ? 0 : card.trayReserve\n"
 assert text.count(needle) == 1, "the text column's reservation occurs once"
 open(path, "w").write(text.replace(needle, ""))
 PY
@@ -4648,6 +4649,9 @@ fade_active_states() { # MODE
       fade_inventory || return
       expect_poll "the $1 $state $edge selects its current middle row" "$fade_middle" panel_selected_summary
       expect_poll "the $1 $state $edge selects its current middle key" "$fade_middle_key" panel_selected_key
+      # Selection can grow an action tray and queue the panel's reveal.
+      # Finish that real layout before deliberately placing ink in a band.
+      fade_capture_layout "fade-active-$1-$state-$edge-ready-items.json" || return
       fade_position_active "$edge" || return
       if [[ $state == keyboard-focus ]]; then
         type_keys -k Right || return
@@ -4712,11 +4716,32 @@ panel_sheet_card() { # MODE SUMMARY
 # One sweep frame: the pointer DY below the top of RECT, which the card
 # OWNER's slot alone then holds.
 panel_sheet_sweep() { # MODE FRAME RECT DY OWNER
-  local x y want
+  local x y want evidence prior_failures="$failures"
   read -r x y < <(panel_point "$3" - "$4") || return
   hover "$x" "$y" || return
   want="$(python3 -c 'import json,sys;print(json.dumps([sys.argv[1]]))' "$5")" || return
   expect_poll "the $1 sheet sweep frame $2 hovers one card" "$want" panel_hovered_faces
+  if [[ $failures != "$prior_failures" ]]; then
+    # Keep the actual slot tree and native cursor before the later shot
+    # settles layout. Parent indices link each card to its hover slot.
+    # These sequential advisory reads neither retry nor excuse the check.
+    if evidence="$(mktemp -d "$smoke_log_dir/notifications-sheet-$1-$2.XXXXXX")"; then
+      printf 'mode=%s\nframe=%s\nowner=%s\nrequested=%s,%s\ninput-card=%s\ndy=%s\n' \
+        "$1" "$2" "$5" "$x" "$y" "$3" "$4" >"$evidence/request.txt" ||
+        printf 'panel-sheet: evidence request unavailable\n' >&2
+      ipc smoke descendantGeometry panel vgs.notifications >"$evidence/items.json" 2>"$evidence/items.stderr" ||
+        printf 'panel-sheet: evidence slot geometry unavailable\n' >&2
+      hypr -j cursorpos >"$evidence/cursor.json" 2>"$evidence/cursor.stderr" ||
+        printf 'panel-sheet: evidence cursor unavailable\n' >&2
+      surface_box vgs:panel >"$evidence/surface.json" 2>"$evidence/surface.stderr" ||
+        printf 'panel-sheet: evidence surface geometry unavailable\n' >&2
+      panel_current_view >"$evidence/view.json" 2>"$evidence/view.stderr" ||
+        printf 'panel-sheet: evidence view geometry unavailable\n' >&2
+      printf 'panel-sheet: failure-evidence=%s\n' "$evidence" >&2
+    else
+      printf 'panel-sheet: failure evidence directory unavailable\n' >&2
+    fi
+  fi
   panel_sheet_shot "$1" "sweep-$2"
 }
 # The frames of the labelled sheet, in one theme: the panel at rest as it

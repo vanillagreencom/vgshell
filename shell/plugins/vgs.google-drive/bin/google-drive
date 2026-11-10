@@ -2135,9 +2135,12 @@ function renderStatus() {
     // Only a review record that needs the user asks for attention: one that
     // needs nothing, such as a file the sync put back, needs no action.
     const needing = conflicts.filter(c => c.needs === "you");
+    // An ordinary run changes execution state, not which pairs need setup.
+    const setup = control.twoWaySync ? pairs.filter(p => p.initialization.state === "required")
+        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : [];
     const reasons = [];
     if (standing.some(s => s.state === "authorization-required")) reasons.push("authorization-required");
-    if (standing.some(s => s.state === "initialization-required")) reasons.push("initialization-required");
+    if (setup.length > 0) reasons.push("initialization-required");
     if (read.error !== null || standing.some(s => s.state === "error")) reasons.push("error");
     if (needing.length > 0) reasons.push("conflicts");
     if (units === "stale") reasons.push("units-stale");
@@ -2148,8 +2151,6 @@ function renderStatus() {
     // every failing or setup-stopped pair's, by pair id.
     const cause = read.error !== null ? [["pairs-invalid", null, null, read.error]]
         : failing.map(p => [p.lastError.kind, p.id, p.lastError.account || null, p.lastError.detail || null]);
-    const setup = standing.filter(s => s.state === "initialization-required").map(s => s.pair)
-        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     cause.push(...setup.map(p => ["initialization-required", p.id, p.initialization.reason]));
     const key = crypto.createHash("sha256").update(JSON.stringify([reasons, needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
     const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
