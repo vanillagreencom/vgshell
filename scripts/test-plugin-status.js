@@ -1229,7 +1229,7 @@ const CONTROLS = [
     ["a placeholder entry has no unset offer", "var unset = entry.placeholder === undefined && index === 0", "var unset = index === 0"],
     ["a hideEmpty entry with no offer has an empty model", "if (entry.hideEmpty === true && offered.length === 0) return model;", ""],
     ["a write needs a declared key", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key))\n        return refused(\"undeclared\");", "if (false)\n        return refused(\"undeclared\");"],
-    ["a write needs a value of its type", "if (!statusValueFits(manifest.status[key].type, value) ||", "if ("],
+    ["a write needs a value of its type", "if (!statusValueFits(manifest.status[key].type, value, manifest.status[key].folderProperty) ||", "if ("],
     ["a write fits the size ceiling", "if (bytes > STATUS_MAX_BYTES)", "if (false)"],
     ["a malformed key is named as JSON", "STATUS_KEY_PATTERN.test(key) ? key : JSON.stringify(String(key));\n    return \"refused: status=\"", "STATUS_KEY_PATTERN.test(key) ? key : String(key);\n    return \"refused: status=\""],
     ["a presence is one of the set", "if (type === \"presence\") return typeof value === \"string\" && hasOwn(STATUS_PRESENCE_TONES, value);", "if (type === \"presence\") return typeof value === \"string\";"],

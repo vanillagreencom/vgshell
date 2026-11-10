@@ -668,7 +668,7 @@ var UNREADABLE_ROW = { id: "unreadable", label: "The folder pair list cannot be 
 function pairsValue(cloud, now, home) {
     if (!pairListValid(cloud)) return [UNREADABLE_ROW];
     return cloud.pairs.slice(0, LINES_MAX).map(function (p) {
-        return { id: p.id, label: cut(p.label, ROW_LABEL_MAX), secondary: cut(pairFolders(p, home), ROW_TEXT_MAX), state: pairState(p, now),
+        return { id: p.id, label: cut(p.label, ROW_LABEL_MAX), local: p.local, secondary: cut(pairFolders(p, home), ROW_TEXT_MAX), state: pairState(p, now),
             actions: cloud.twoWaySync && p.state !== "running" && p.initialization.state === "required" ? ["initialize", "remove"] : ["remove"] };
     });
 }

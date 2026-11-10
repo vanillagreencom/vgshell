@@ -183,7 +183,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // list a page draws full width under its label, each row with its own
 // actions.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows", "rows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions", "plain", "sourceAction"];
+var STATUS_ENTRY_KEYS = ["folderProperty", "type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions", "plain", "sourceAction"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -264,7 +264,8 @@ var STATUS_CHOICE_KEYS = ["label", "value"];
 // printable `secondary` line of at most STATUS_TEXT_MAX; an optional
 // `state`, STATUS_ROW_STATE_KEYS, a tone of STATUS_STATE_TONES and a
 // printable `text` of at most STATUS_LABEL_MAX; and optional `actions`,
-// the names of the entry's `rowActions` this row offers, each once.
+// the names of the entry's `rowActions` this row offers, each once. A
+// declared `folderProperty` admits one additional, optional folder path.
 var STATUS_ROW_KEYS = ["id", "label", "secondary", "state", "actions"];
 var STATUS_ROW_STATE_KEYS = ["tone", "text"];
 // The tones of a row's state that need the user: a page draws such a state
@@ -971,7 +972,7 @@ function statusEntryActions(entry) {
 }
 
 // The first defect of status entry ENTRY's rows keys, AT its path, or "":
-// `icon` and `rowActions` only on a `rows` entry, which takes no `group`,
+// `icon`, `folderProperty` and `rowActions` only on a `rows` entry, which takes no `group`,
 // since its label heads a section of its own. `icon` names the mark of
 // the shipped Lucide set each row leads with. `rowActions` is an object of
 // one or more actions by STATUS_KEY_PATTERN name, each one
@@ -980,6 +981,8 @@ function statusEntryActions(entry) {
 // as its one argument, and a listed screen opens with none.
 function statusRowsEntryError(entry, at, tui, system, capabilities) {
     if (entry.type !== "rows") {
+        if (entry.folderProperty !== undefined)
+            return at + ".folderProperty needs type rows";
         if (entry.icon !== undefined)
             return at + ".icon needs type rows, whose rows it leads";
         if (entry.rowActions !== undefined)
@@ -990,6 +993,9 @@ function statusRowsEntryError(entry, at, tui, system, capabilities) {
         return at + ".group cannot be on a rows entry; its label heads a section of its own";
     if (entry.icon !== undefined && (typeof entry.icon !== "string" || !hasOwn(Lucide.ICONS, entry.icon)))
         return at + ".icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(entry.icon);
+    if (entry.folderProperty !== undefined && (typeof entry.folderProperty !== "string" || !STATUS_KEY_PATTERN.test(entry.folderProperty)
+        || STATUS_ROW_KEYS.indexOf(entry.folderProperty) !== -1))
+        return at + ".folderProperty must name an additional row property matching " + STATUS_KEY_PATTERN.source;
     if (entry.rowActions === undefined)
         return "";
     if (!isPlainObject(entry.rowActions) || Object.keys(entry.rowActions).length === 0)
@@ -1436,7 +1442,7 @@ function isPlainJson(value) {
 // Unix epoch, from 0; `data` plain JSON; `choices` a bounded list of labeled,
 // distinct, non-empty string ids; `rows` a list statusRowFits admits row by
 // row, at most STATUS_LIST_MAX long, no id twice.
-function statusValueFits(type, value) {
+function statusValueFits(type, value, folderProperty) {
     if (type === "presence") return typeof value === "string" && hasOwn(STATUS_PRESENCE_TONES, value);
     if (type === "presenceList") {
         if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;
@@ -1496,7 +1502,7 @@ function statusValueFits(type, value) {
         if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;
         var rowIds = [];
         for (var w = 0; w < value.length; w++) {
-            if (!statusRowFits(value[w]) || rowIds.indexOf(value[w].id) !== -1) return false;
+            if (!statusRowFits(value[w], folderProperty) || rowIds.indexOf(value[w].id) !== -1) return false;
             rowIds.push(value[w].id);
         }
         return true;
@@ -1505,16 +1511,18 @@ function statusValueFits(type, value) {
 }
 
 // Whether ROW is one row of a `rows` value: plain JSON holding only
-// STATUS_ROW_KEYS, an `id` the core may hand a TUI as one argument
+// STATUS_ROW_KEYS and the entry's optional FOLDER_PROPERTY, an `id` the core may hand a TUI as one argument
 // (tuiArgsValid), a printable `label` of at most STATUS_LABEL_MAX, and when
 // present a printable `secondary` of at most STATUS_TEXT_MAX, a `state` of
 // STATUS_ROW_STATE_KEYS with a tone of STATUS_STATE_TONES and a printable
 // `text` of at most STATUS_LABEL_MAX, and `actions`, a list of distinct
 // STATUS_KEY_PATTERN names. Unique ids are a list-level rule in
 // statusValueFits; that each action is declared, statusDeclarationFits'.
-function statusRowFits(row) {
+function statusRowFits(row, folderProperty) {
     if (!isPlainObject(row) || !isPlainJson(row)) return false;
-    if (Object.keys(row).some(function (key) { return STATUS_ROW_KEYS.indexOf(key) === -1; })) return false;
+    if (Object.keys(row).some(function (key) { return STATUS_ROW_KEYS.indexOf(key) === -1 && key !== folderProperty; })) return false;
+    if (folderProperty !== undefined && hasOwn(row, folderProperty)
+        && (typeof row[folderProperty] !== "string" || !editArgs(row[folderProperty]).ok)) return false;
     var state = row.state;
     return typeof row.id === "string" && tuiArgsValid([row.id])
         && isPrintableLine(row.label, STATUS_LABEL_MAX)
@@ -1623,7 +1631,7 @@ function statusWrite(manifest, values, key, value) {
             if (kept[c] !== key) cleared[kept[c]] = values[kept[c]];
         return { ok: true, values: frozenJson(cleared), bytes: SettingValues.utf8Bytes(JSON.stringify(cleared)) };
     }
-    if (!statusValueFits(manifest.status[key].type, value) || !statusDeclarationFits(manifest, manifest.status[key], value))
+    if (!statusValueFits(manifest.status[key].type, value, manifest.status[key].folderProperty) || !statusDeclarationFits(manifest, manifest.status[key], value))
         return refused("type");
     var next = {};
     var keys = Object.keys(values);
@@ -1767,7 +1775,8 @@ function statusTone(type, value) {
 // access }, `hint`, `info` and `secret` "" when the item omits them, `tone`
 // its presence's, and `access` what the page offers for its secret,
 // SECRET_ACCESS by its presence, "" for an item without one; a `rows`
-// value's rows each as { id, label, secondary, state, tone, chip, actions },
+// value's rows each as { id, label, secondary, folder, state, tone, chip, actions },
+// `folder` the declared folder property's path or "" while absent,
 // `secondary` and `state`, the state's text, "" when the row omits them,
 // `tone` the state's badge tone, "" for none, `chip` whether the state
 // needs the user, a tone of STATUS_ROW_CHIP_TONES, which a page draws as a
@@ -1782,6 +1791,7 @@ function statusRowValue(entry, value) {
             id: row.id,
             label: row.label,
             secondary: row.secondary === undefined ? "" : row.secondary,
+            folder: entry.folderProperty !== undefined && hasOwn(row, entry.folderProperty) ? row[entry.folderProperty] : "",
             state: row.state === undefined ? "" : row.state.text,
             tone: tone === "" ? "" : STATUS_STATE_TONES[tone],
             chip: STATUS_ROW_CHIP_TONES.indexOf(tone) !== -1,

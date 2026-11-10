@@ -414,6 +414,11 @@ function suite(ctx, configLogic, check) {
     const rowsRaw = () => JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.rows/manifest.json"), "utf8"));
     for (const [name, plant, refusal] of [
         ["the fixture's Settings list of rows with Add and Remove", m => m, ""],
+        ["a declared local folder property", m => { m.status.pairs.folderProperty = "local"; }, ""],
+        ["a folder property on a state", m => { m.status.state = { type: "state", label: "State", folderProperty: "local" }; }, "status.state.folderProperty needs type rows"],
+        ["a folder property of the wrong type", m => { m.status.pairs.folderProperty = true; }, "status.pairs.folderProperty must name an additional row property"],
+        ["an empty folder property", m => { m.status.pairs.folderProperty = ""; }, "status.pairs.folderProperty must name an additional row property"],
+        ["a folder property replacing a row's identity", m => { m.status.pairs.folderProperty = "id"; }, "status.pairs.folderProperty must name an additional row property"],
         ["a row action that names no declared TUI", m => { m.status.pairs.rowActions.remove.tui = "gone"; }, "status.pairs.rowActions.remove.tui must name a script of the manifest's tui key"],
         ["a row action that opens a system step", m => { m.capabilities.push("system"); m.systemSteps = ["i2c-dev"]; m.status.pairs.rowActions.remove = { label: "Remove", system: "i2c-dev" }; }, "status.pairs.rowActions.remove must name a tui"],
         ["a row action that opens a listed screen", m => { m.tui.remove.entry = { label: "Remove a pair", icon: "trash", group: "Rows" }; }, "status.pairs.rowActions.remove.tui must name a script with no entry"],
@@ -520,9 +525,26 @@ function suite(ctx, configLogic, check) {
     const rowsRow = ctx.statusRows(rowsManifest, published)[0];
     check("rows: the Status row carries each row, its chip and its row actions", [rowsRow.settings, rowsRow.icon, rowsRow.declaredTuis, rowsRow.action, rowsRow.value], [true, "folder-sync", ["add", "remove"],
         { label: "Add a folder pair", icon: "", tone: "", offered: true, tui: "add" }, [
-            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", state: "1 to review", tone: "warning", chip: true, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
-            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", state: "Up to date", tone: "success", chip: false, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
-            { id: "c", label: "C", secondary: "", state: "", tone: "", chip: false, actions: [] }]]);
+            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", folder: "", state: "1 to review", tone: "warning", chip: true, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
+            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", folder: "", state: "Up to date", tone: "success", chip: false, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
+            { id: "c", label: "C", secondary: "", folder: "", state: "", tone: "", chip: false, actions: [] }]]);
+    const foldersRaw = rowsRaw();
+    foldersRaw.status.pairs.folderProperty = "local";
+    const foldersManifest = ctx.validateManifest(foldersRaw, "/p").manifest;
+    for (const [name, manifest, extra, accepted] of [
+        ["absolute path with spaces", foldersManifest, { local: "/home/me/Drive/My docs (1)" }, true],
+        ["home-relative path", foldersManifest, { local: "~/Drive/Docs" }, true],
+        ["absent path keeps a diagnostic row passive", foldersManifest, {}, true],
+        ["empty path", foldersManifest, { local: "" }, false],
+        ["non-string path", foldersManifest, { local: 1 }, false],
+        ["parent traversal", foldersManifest, { local: "/home/me/../other" }, false],
+        ["control character", foldersManifest, { local: "/home/me/\nDocs" }, false],
+        ["undeclared folder property", rowsManifest, { local: "/home/me/Docs" }, false]
+    ]) {
+        const result = ctx.statusWrite(manifest, {}, "pairs", [pair("a", extra)]);
+        check("rows folder: " + name, result.ok, accepted);
+        if (accepted) check("rows folder projection: " + name, ctx.statusRows(manifest, result.values)[0].value[0].folder, extra.local === undefined ? "" : extra.local);
+    }
     // The act on a row: [name, enabled, values, row, row action, answer].
     for (const [name, enabled, values, row, rowAction, want] of [
         ["a row's Remove opens its TUI with the row's id", true, published, "b", "remove", { ok: true, kind: "tui", name: "remove", args: ["b"] }],
@@ -3236,6 +3258,7 @@ const CONTROLS = [
     ["connection keys declare nothing Setup never draws", 'if (undrawn !== undefined) return at + "." + undrawn', 'if (false) return at + "." + undrawn'],
     ["status has one place", '(setupStep(entry) !== "" ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1', 'false'],
     ["a row action may open no tui", "if (entry.rowActions[names[i]].tui === undefined)", "if (false)"],
+    ["a row's declared folder ignores its path judge", 'typeof row[folderProperty] !== "string" || !editArgs(row[folderProperty]).ok', "false"],
     ["a row action may open a listed screen", "if (isPlainObject(tui[entry.rowActions[names[i]].tui].entry))", "if (false)"],
     ["a published row needs no id", 'return typeof row.id === "string" && tuiArgsValid([row.id])', "return true"],
     ["two rows may share an id", " || rowIds.indexOf(value[w].id) !== -1", ""],
@@ -3285,7 +3308,7 @@ const CONTROLS = [
     ["builtin registration appears once", 'if (seenBuiltins.indexOf(entry.id) !== -1) return false;', ''],
     ["builtin and plugin entries keep declared order", '}).map(clone);\n    });\n    // Temporary mounts', '}).map(clone).reverse();\n    });\n    // Temporary mounts'],
     ["a schema entry may declare a link", '"tooltip", "link", "options"', '"tooltip", "options"'],
-    ["a status entry may declare a link", 'var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link",', 'var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info",'],
+    ["a status entry may declare a link", 'var STATUS_ENTRY_KEYS = ["folderProperty", "type", "label", "group", "hint", "info", "link",', 'var STATUS_ENTRY_KEYS = ["folderProperty", "type", "label", "group", "hint", "info",'],
     ["a status hint link is judged", 'var statusLink = linkError(entry, at, "hint");', 'var statusLink = "";'],
     ["a status hint link reads the hint", 'linkError(entry, at, "hint")', 'linkError(entry, at, "label")'],
     ["a description link is an object", 'if (!isPlainObject(link))\n        return at + ".link must be an object";', 'if (false)\n        return at + ".link must be an object";'],

@@ -9,8 +9,9 @@ import "../../shell/plugins/vgs.settings"
 // A `rows` status entry on the actual Settings window: PluginLogic makes
 // the manager rows from the acme.rows fixture's entry, and the page draws
 // the list full width under its label on the tab the manifest names, one
-// ListItem per published row. A row takes no click: no hover fill, no
-// press and no pointing hand. Its state reads as plain text while calm and
+// ListItem per published row. A declared folder makes its row clickable
+// with the shared hover and keyboard-focus plate. Other rows stay passive.
+// Its state reads as plain text while calm and
 // as a chip while it needs the user, and its Remove draws the trash mark
 // alone, its text naming the row as its tooltip and accessible name, with
 // its own hover, hand, keyboard focus and click, which hands the manager
@@ -26,7 +27,7 @@ Item {
     readonly property var screen: ({ name: "DP-1", x: 0, y: 0, width: 1920, height: 1080 })
     // acme.rows's status entry, on Settings as it ships, and as a list of
     // facts on Details.
-    readonly property var pairsEntry: ({ type: "rows", label: "Folder pairs", settings: true, icon: "folder-sync",
+    readonly property var pairsEntry: ({ type: "rows", label: "Folder pairs", settings: true, icon: "folder-sync", folderProperty: "local",
         hint: "Each pair keeps one Google Drive folder and one folder on this computer the same",
         action: { label: "Add a folder pair", tui: "add" },
         rowActions: { remove: { label: "Remove", tui: "remove", tone: "danger" } } })
@@ -35,8 +36,8 @@ Item {
     readonly property var detailsEntry: ({ type: "rows", label: "Folder pairs", icon: "folder-sync",
         action: { label: "Add a folder pair", tui: "add" }, rowActions: { remove: { label: "Remove", tui: "remove", tone: "danger" } } })
     readonly property var pairs: [
-        { id: "documents", label: "Documents", secondary: "Drive/Documents ⇄ ~/Drive/Documents", state: { tone: "warning", text: "1 to review" }, actions: ["remove"] },
-        { id: "uploads", label: "Agent uploads", secondary: "Drive/VGS/Uploads ⇄ ~/agents/uploads", state: { tone: "ok", text: "Up to date" }, actions: ["remove"] },
+        { id: "documents", label: "Documents", local: "/home/me/Drive/My docs (1)", secondary: "Drive/Documents ⇄ ~/Drive/Documents", state: { tone: "warning", text: "1 to review" }, actions: ["remove"] },
+        { id: "uploads", label: "Agent uploads", local: "/srv/uploads", secondary: "Drive/VGS/Uploads ⇄ ~/agents/uploads", state: { tone: "ok", text: "Up to date" }, actions: ["remove"] },
         { id: "taxes", label: "Taxes", secondary: "Drive/Finance/Taxes ⇄ ~/Documents/Taxes", state: { tone: "ok", text: "Up to date" }, actions: ["remove"] }
     ]
     // The manager row of plugin ID over its status ENTRY, which publishes
@@ -74,12 +75,18 @@ Item {
     }
     QtObject { id: fakeCompositor; function readWindows(done) {} }
     QtObject {
+        id: fakeTui
+        property var opens: []
+        function edit(path) { opens = opens.concat([path]); return "ok"; }
+    }
+    QtObject {
         id: fakeShell
         readonly property var manager: fakeManager
         readonly property var compositor: fakeCompositor
         readonly property var manifest: ({ id: "vgs.settings", name: "Plugins" })
         readonly property var screens: ({ current: root.screen, all: [root.screen] })
         readonly property var shortcut: ({ capture: null })
+        readonly property var tui: fakeTui
     }
     Component { id: windowComponent; Window { shell: fakeShell } }
     UnitCase {
@@ -90,7 +97,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.acts = []; fakeManager.enables = []; fakeManager.actionReply = "ok"; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.acts = []; fakeManager.enables = []; fakeManager.actionReply = "ok"; fakeTui.opens = []; }
         // The theme loads with the first window; a test that stilled motion
         // puts it back.
         function cleanup() { if (UnitTheme.source !== null) UnitTheme.reset(); }
@@ -109,7 +116,7 @@ Item {
         function listOf(window) { return onTab(window, RowsList)[0]; }
         function lines(window) { return descendants(listOf(window)).filter(item => item instanceof ListItem && item.visible); }
         function actionsOf(line) { return descendants(line).filter(item => item instanceof RowAction && item.visible); }
-        function addOf(window) { return descendants(listOf(window)).find(item => item instanceof RowAction && item.visible && item.text === "Add a folder pair"); }
+        function addOf(window) { return descendants(listOf(window)).find(item => item instanceof Button && item.visible && item.text === "Add a folder pair"); }
         // Qt takes the cursor over an item from a handler of the item that
         // sets a cursor shape and is hovered; with none, the arrow shows.
         function showsHand(item, x) {
@@ -123,7 +130,7 @@ Item {
             compare(onTab(window, RowsList).length, 1, "the list stands on the tab its manifest names");
             compare(listOf(window).title, "Folder pairs");
             const drawn = lines(window);
-            compare(drawn.map(line => [line.text, line.secondary, line.iconName, line.clickable]), root.pairs.map(pair => [pair.label, pair.secondary, "folder-sync", false]));
+            compare(drawn.map(line => [line.text, line.secondary, line.iconName, line.clickable]), root.pairs.map(pair => [pair.label, pair.secondary, "folder-sync", pair.local !== undefined]));
             compare(drawn.map(line => line.width), drawn.map(() => listOf(window).width), "each row is as wide as the list");
             // A state that needs the user is a chip; a calm one plain text.
             const chips = drawn.map(line => descendants(line).filter(item => item instanceof Badge && item.visible).map(chip => [chip.text, chip.tone]));
@@ -134,13 +141,14 @@ Item {
             compare(drawn.map(line => actionsOf(line).map(action => [action.text, action.removesItem, action.Accessible.name])),
                 root.pairs.map(pair => [["Remove " + pair.label, true, "Remove " + pair.label]]));
             verify(addOf(window) !== undefined, "Add stands under the list");
+            compare(addOf(window).variant, "secondary");
             // The trash ink, not its square, ends on the list's edge.
             const inkEnds = drawn.map(line => {
                 const mark = descendants(actionsOf(line)[0]).find(item => item instanceof Icon && item.visible);
                 return Math.round(mark.mapToItem(listOf(window), mark.painted[2], 0).x);
             });
             compare(inkEnds, drawn.map(() => Math.round(listOf(window).width)), "each trash mark's ink ends on the list's edge");
-            verify(addOf(window).mapToItem(null, 0, 0).y > drawn[drawn.length - 1].mapToItem(null, 0, drawn[drawn.length - 1].height).y, "Add is under the last row");
+            compare(addOf(window).mapToItem(null, 0, 0).y - drawn[drawn.length - 1].mapToItem(null, 0, drawn[drawn.length - 1].height).y, Theme.stack.heading, "Add has section spacing above it");
             compare(onTab(window, LinkText).map(text => text.text).filter(text => text === root.pairsEntry.hint).length, 1, "the hint reads under the list");
         }
 
@@ -149,14 +157,19 @@ Item {
             const remove = actionsOf(lines(window)[1])[0];
             mouseClick(remove);
             compare(fakeManager.acts, [["acme.rows", "pairs", "uploads", "remove"]], "Remove acts on its own row");
+            compare(fakeTui.opens, [], "Remove never opens the folder");
+            remove.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(fakeTui.opens, [], "keyboard Remove never opens the folder");
+            compare(fakeManager.acts[1], ["acme.rows", "pairs", "uploads", "remove"]);
             mouseClick(addOf(window));
-            compare(fakeManager.acts[1], ["acme.rows", "pairs", undefined, undefined], "Add acts on the entry");
+            compare(fakeManager.acts[2], ["acme.rows", "pairs", undefined, undefined], "Add acts on the entry");
         }
 
         function test_a_row_takes_no_hover_and_its_action_keeps_its_own() {
             const window = opened("acme.rows", "Settings");
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            const line = lines(window)[0];
+            const line = lines(window)[2];
             const at = line.textStart + 1;
             mouseMove(line, at, line.height / 2);
             tryCompare(line, "hovered", true);
@@ -172,7 +185,37 @@ Item {
             remove.forceActiveFocus(Qt.TabFocusReason);
             compare(remove.activeFocus, true, "Remove takes keyboard focus");
             keyClick(Qt.Key_Space);
-            compare(fakeManager.acts, [["acme.rows", "pairs", "documents", "remove"]], "Space runs Remove on its row");
+            compare(fakeManager.acts, [["acme.rows", "pairs", "taxes", "remove"]], "Space runs Remove on its row");
+            compare(fakeTui.opens, []);
+        }
+
+        function test_folder_row_activation_data() {
+            return [{ tag: "click", key: 0 }, { tag: "Return", key: Qt.Key_Return }, { tag: "Enter", key: Qt.Key_Enter }];
+        }
+        function test_folder_row_activation(data) {
+            const window = opened("acme.rows", "Settings");
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            const line = lines(window)[0];
+            if (data.key === 0) {
+                verify(showsHand(line, line.textStart + 1));
+                mouseMove(line, line.textStart + 3, line.height / 2);
+                tryCompare(line.cursor, "placed", line);
+                compare(line.cursor.background.color, Theme.listItem.selected);
+                mouseClick(line, line.textStart + 1, line.height / 2);
+            } else {
+                mouseMove(window, 1, 1);
+                // The fake editor opens no window. Give keyboard entry its
+                // own focus transition, not the preceding click's focus.
+                window.forceActiveFocus(Qt.OtherFocusReason);
+                line.forceActiveFocus(Qt.TabFocusReason);
+                tryCompare(line, "visualFocus", true);
+                tryCompare(line.cursor, "target", line);
+                compare(line.cursor.shown, true);
+                compare(line.cursor.background.color, Theme.listItem.selected, "focus uses the same standard plate as hover");
+                keyClick(data.key);
+            }
+            compare(fakeTui.opens, ["/home/me/Drive/My docs (1)/"]);
+            compare(fakeManager.acts, [], "opening is not a Remove or Add action");
         }
 
         // The list reads the reply of its last press: a row whose row
@@ -211,10 +254,10 @@ Item {
             compare(pageOf(window).tab, data.tab);
             compare(lines(window).length, 0);
             verify(descendants(listOf(window)).some(item => item instanceof Label && item.visible && item.text === data.text), "the list reads " + data.text);
-            const under = descendants(listOf(window)).filter(item => item instanceof RowAction && item.visible).map(action => action.text);
+            const under = descendants(listOf(window)).filter(item => item instanceof Button && item.visible).map(action => action.text);
             compare(under, data.action === "" ? [] : [data.action]);
             if (data.action.indexOf("Turn on") !== 0) return;
-            mouseClick(descendants(listOf(window)).find(item => item instanceof RowAction && item.visible));
+            mouseClick(descendants(listOf(window)).find(item => item instanceof Button && item.visible));
             compare(fakeManager.enables, [[data.id, true]], "Turn on turns the plugin on");
         }
 

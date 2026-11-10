@@ -534,7 +534,9 @@ function verify(L) {
     ];
     for (const [label, local, home, line] of folders) {
         const rec = well({ pairs: [Object.assign({}, DOCS, { local })] });
-        same(L.statusValues(rec, null, "", "", NOW, home).pairs[0].secondary, line, label + ": the Settings row");
+        const row = L.statusValues(rec, null, "", "", NOW, home).pairs[0];
+        same(row.secondary, line, label + ": the Settings row");
+        same(row.local, local, label + ": opening keeps the exact local folder");
     }
     same(L.statusValues(well({ state: "not-set-up", pairs: [] }), null, "", "", NOW, HOME).pairs, [], "no pair, no row");
     const unreadable = L.statusValues(invalid(), null, "", "", NOW, HOME).pairs;

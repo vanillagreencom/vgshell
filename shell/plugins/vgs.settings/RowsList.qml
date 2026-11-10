@@ -9,9 +9,10 @@ import "Steps.js" as Steps
 // per published row, led by the entry's `icon`, with the row's label, its
 // secondary line and, at its end, its state, as plain text for a calm state
 // and as a chip for one that needs the user (`chip`), then its row actions.
-// A row takes no click (ContentRow), so it draws no hover, no press and no
-// pointing hand; each row action is a RowAction with its own hover,
-// pointer, keyboard focus and click. A danger action that removes its row
+// A row with a declared folder opens it through the page's file-reference
+// route; ListCursor owns its hover and keyboard-focus plate. Other rows
+// stay passive. Each row action keeps its own focus and click.
+// A danger action that removes its row
 // draws the trash mark alone (RowAction's `removesItem`), its text, which
 // names the row, its tooltip and accessible name. The rows are the groups
 // of one GroupList, divided as a section's groups are. Under the list stand
@@ -49,6 +50,7 @@ Section {
     visible: entry !== null
     title: entry === null ? "" : entry.label
     info: entry === null ? "" : entry.info
+    rowSpacing: Theme.stack.heading
 
     GroupList {
         id: list
@@ -68,6 +70,14 @@ Section {
                 id: line
                 required property var modelData
                 width: list.width
+                clickable: modelData.folder !== ""
+                cursor: clickable ? plate : null
+                focusPolicy: clickable ? Qt.StrongFocus : Qt.NoFocus
+                highlighted: clickable && visualFocus
+                onActiveFocusChanged: if (activeFocus) plate.disarm()
+                Keys.onReturnPressed: if (clickable) clicked()
+                Keys.onEnterPressed: if (clickable) clicked()
+                onClicked: if (clickable) root.pageActivated("file:" + encodeURIComponent(modelData.folder + "/"), "")
                 rightPadding: -actions.overhang
                 iconName: root.entry === null ? "" : root.entry.icon
                 text: modelData.label
@@ -112,6 +122,9 @@ Section {
         }
     }
 
+    ListCursor { id: plate; parent: list }
+    onViewChanged: plate.rebuilt()
+
     Label {
         width: root.width
         visible: text !== ""
@@ -119,32 +132,35 @@ Section {
         text: root.view.text
     }
 
-    RowAction {
-        visible: root.view.add !== null
-        text: root.view.add === null ? "" : root.view.add.label
-        tone: root.view.add === null || root.view.add.tone === "" ? "accent" : root.view.add.tone
-        markName: root.view.add === null ? "" : root.view.add.icon
-        onClicked: root.press(root.view.add)
-    }
-
-    LinkText {
+    Column {
         width: root.width
-        visible: root.entry !== null && root.entry.hint !== ""
-        role: "hint"
-        text: root.entry === null ? "" : root.entry.hint
-        link: root.entry === null || root.entry.link === null ? "" : root.entry.link.text
-        color: Theme.text.hint.color
-        wrapMode: Text.Wrap
-        onActivated: root.openLink(root.entry.link)
-        onPageActivated: (page, tab) => root.pageActivated(page, tab)
-    }
+        spacing: Theme.stack.row
+        Button {
+            visible: root.view.add !== null
+            variant: "secondary"
+            text: root.view.add === null ? "" : root.view.add.label
+            iconName: root.view.add === null ? "" : root.view.add.icon
+            onClicked: root.press(root.view.add)
+        }
+        LinkText {
+            width: root.width
+            visible: root.entry !== null && root.entry.hint !== ""
+            role: "hint"
+            text: root.entry === null ? "" : root.entry.hint
+            link: root.entry === null || root.entry.link === null ? "" : root.entry.link.text
+            color: Theme.text.hint.color
+            wrapMode: Text.Wrap
+            onActivated: root.openLink(root.entry.link)
+            onPageActivated: (page, tab) => root.pageActivated(page, tab)
+        }
 
-    Label {
-        width: root.width
-        visible: text !== ""
-        role: "hint"
-        color: Theme.color.danger
-        text: root.reply
-        wrapMode: Text.Wrap
+        Label {
+            width: root.width
+            visible: text !== ""
+            role: "hint"
+            color: Theme.color.danger
+            text: root.reply
+            wrapMode: Text.Wrap
+        }
     }
 }

@@ -149,6 +149,7 @@ FIELDS = (
 # The keys the judge admits that the check does not read, and why: an
 # identifier, a path or a value no one reads as prose.
 EXEMPT = (
+    ("status", "*", "folderProperty"),  # A row property identifier, never prose.
     ("schema", "*", "underKey"),  # A declared shortcut identifier, never prose.
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("unplacedSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("splitFrom",), ("idleStages",),
