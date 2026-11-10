@@ -69,7 +69,7 @@ function program({ program: p, directory, env, cwd, model, config }, listener) {
  * and permission handling, and ended(error). The session keeps session/new's
  * result as `created`, which carries the program's model list.
  */
-async function open({ program: p, directory, env, runtime, model, bridge }, hooks) {
+async function open({ program: p, directory, env, runtime, model, bridge, clock = Harness.CLOCK }, hooks) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "copilot-"));
     // Copilot drops a stdio server sent in session/new (CopilotAcp.sessionNew),
@@ -85,7 +85,7 @@ async function open({ program: p, directory, env, runtime, model, bridge }, hook
         // A handshake failure rejects its pending call instead.
         else if (session !== null) hooks.ended(value.error);
     });
-    const timer = setTimeout(() => child.close(), HANDSHAKE_MS);
+    const timer = clock.set(() => child.abort(new Error("jarvis: brain=copilot-start-timeout")), HANDSHAKE_MS);
     try {
         Copilot.agent(await child.call(id => Copilot.initialize(id)), p);
         const created = await child.call(n => Copilot.sessionNew(n, { cwd }));
@@ -95,7 +95,7 @@ async function open({ program: p, directory, env, runtime, model, bridge }, hook
         await child.close();
         fs.rmSync(cwd, { recursive: true, force: true });
         throw error;
-    } finally { clearTimeout(timer); }
+    } finally { clock.clear(timer); }
 }
 
 async function shut(session) {
@@ -117,7 +117,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
     const p = COPILOT;
     if (!account || account.kind !== "cli" || typeof account.directory !== "string") fail("account");
     if (!harness) fail("unwired");
-    const { bridge, gate, env, runtime } = harness;
+    const { bridge, gate, env, runtime, clock } = harness;
     let instructions = null;
     let opening = null;
     let launch = null;
@@ -149,7 +149,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
             const opened = await open({ program: p, directory: account.directory, env, runtime: runtime(), model,
-                bridge: launch }, { event, request, ended: error => { ended ??= error; active?.fault(error); } });
+                bridge: launch, clock }, { event, request, ended: error => { ended ??= error; active?.fault(error); } });
             if (closed) { await shut(opened); fail("closed"); }
             session = opened;
             return opened;
@@ -249,6 +249,9 @@ function create({ provider, model, recipients, account, gen, harness }) {
                 current.waiters.clear();
             } });
         Object.assign(current, { push: handle.push, fault: handle.fault, cancel: handle.cancel,
+            // ACP SDK 1.7.0 schema PromptResponse carries StopReason, not an
+            // HTTP status. Never infer one from vendor text or opaque _meta:
+            // https://unpkg.com/@agentclientprotocol/sdk@1.7.0/schema/schema.json
             complete(stop) {
                 handle.finish(stop === "end_turn" ? { kind: "complete" } : stop === "cancelled" ? { kind: "cancelled" }
                     : { kind: "failed", error: new Error("jarvis: brain=copilot-stop-" + stop) });

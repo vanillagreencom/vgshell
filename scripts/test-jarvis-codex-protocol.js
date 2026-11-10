@@ -138,7 +138,7 @@ world(() => {
         assert.deepEqual(patch.filter(v => v.kind === "notification" && v.event.kind === "delta").map(v => v.event),
             [{ kind: "delta", threadId, turnId, itemId: "msg_resp_3", delta: "Done." }]);
         assert.deepEqual(patch.filter(v => v.kind === "notification" && v.event.kind === "turn-completed").map(v => v.event),
-            [{ kind: "turn-completed", threadId, turnId, status: "completed" }]);
+            [{ kind: "turn-completed", threadId, turnId, status: "completed", httpStatus: null }]);
         assert.ok(patch.some(v => v.kind === "notification" && v.event.kind === "other" && v.event.method === "turn/diff/updated"));
         const mcp = flows.mcp.map(entry => entry.value);
         assert.deepEqual(mcp.find(v => v.kind === "request").request,
@@ -200,7 +200,7 @@ world(() => {
             turn: { id: "u", items: [], status, error: null, ...extra } } });
         refused(() => logic.accept(completed("inProgress")), "turn-status", "a completed turn in progress");
         assert.deepEqual(logic.accept(completed("failed", { error: { message: "usage limit" } })).event,
-            { kind: "turn-completed", threadId: "t", turnId: "u", status: "failed" });
+            { kind: "turn-completed", threadId: "t", turnId: "u", status: "failed", httpStatus: null });
         refused(() => logic.accept("x".repeat(Codex.LINE_BYTES)), "line-size", "a line past the bound");
         assert.equal(logic.accept(JSON.stringify({ id: 1, result: "x".repeat(Codex.LINE_BYTES - 32) })).kind, "response");
         refused(() => logic.accept("{"), "json", "unreadable");

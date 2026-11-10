@@ -152,18 +152,18 @@ function programEnd(setup) {
 const CAUSES = Object.freeze([
     [/^brain=stream-(?:failed|truncated)$/, () => cause("transient", "reply-cut", true)],
     // The provider's error event names no class: it is read unread.
-    [/^brain=stream-error$/, () => cause("unknown", "other", true)],
+    [/^brain=stream-error$/, () => UNKNOWN],
     // A local server that is down refuses its connection too: setup to the user.
     [/^net=request$/, () => cause("transient", "connection", true, { needs: "remote" })],
-    [/^brain=harness-api-error status=([0-9]+)$/, ([, status]) => Number(status) >= 500 ? SERVICE
+    [/^brain=(?:harness-api-error|codex-turn-failed|http) status=([0-9]+)$/, ([, status]) => Number(status) === 408 || Number(status) >= 500 ? SERVICE
         : [401, 402, 403, 429].includes(Number(status)) ? ACCOUNT : UNKNOWN],
-    [/^brain=http status=([0-9]+)$/, ([, status]) => Number(status) >= 500 ? SERVICE : UNKNOWN],
     [/^brain=([a-z-]+) status=([0-9]+)$/, ([, name, status]) => WIRE_CAUSES.get(name + " " + status) ?? PERMANENT],
     [/^brain=harness-model-refused(?: |$)/, () => cause("refused-model", "model", true)],
     [/^brain=copilot-signed-out(?: |$)/, () => ACCOUNT],
     [/^brain=harness-ended(?: |$)/, () => cause("transient", "app-stopped", true, { ended: true })],
     [/^brain=harness-exit(?: |$)/, programEnd(/ (?:code=127|cause=\S+)$/)],
     [/^brain=(?:codex|copilot|pi)-exited(?: |$)/, programEnd(/ code=127 | cause=(?:home-missing|not-started)$/)],
+    [/^brain=(?:codex|copilot|pi)-start-timeout$/, () => cause("transient", "app-stopped", true, { ended: true })],
     [/^brain=(?:codex|copilot|pi)-start(?: |$)/, () => SETUP],
     [/^(?:brain=(?:content-type|no-key|model-required)|net=(?:redirect|key-origin|key-plaintext))$/, () => SETUP],
     [/^jarvis-keys: /, () => SETUP],

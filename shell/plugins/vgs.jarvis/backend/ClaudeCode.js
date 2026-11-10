@@ -126,6 +126,10 @@ function messageOf(line) {
                 status: Number.isSafeInteger(value.api_error_status) ? value.api_error_status : 0 }
                 : { kind: "result", outcome: "success" };
         }
+        // SDKResultError has errors (provider text), not api_error_status;
+        // only SDKResultSuccess above supplies that optional typed field.
+        // @anthropic-ai/claude-agent-sdk 0.3.287, package/sdk.d.ts:
+        // https://unpkg.com/@anthropic-ai/claude-agent-sdk@0.3.287/sdk.d.ts
         if (RESULT_ERRORS.includes(value.subtype)) return { kind: "result", outcome: value.subtype };
         return fail("harness-result");
     case "control_response":

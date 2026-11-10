@@ -976,6 +976,7 @@ async function cases(kit, server, only = null, mutation = false) {
         ["wire-401", { kind: "status", status: 401 }],
         ["wire-402", { kind: "status", status: 402 }],
         ["wire-403", { kind: "status", status: 403 }],
+        ["wire-408", { kind: "status", status: 408 }],
         ["wire-429", { kind: "status", status: 429 }],
         ["wire-500", { kind: "status", status: 500 }],
         ["wire-503", { kind: "status", status: 503 }],
@@ -3539,7 +3540,14 @@ function restartTable(Engine) {
         ["brain=timeout status=504", clean, "restart", "service"],
         ["brain=overloaded status=529", clean, "restart", "service"],
         ["brain=http status=502", clean, "restart", "service"],
+        ["brain=http status=408", clean, "restart", "service"],
         ["brain=harness-api-error status=503", clean, "restart", "service"],
+        ["brain=harness-api-error status=408", clean, "restart", "service"],
+        ["brain=codex-turn-failed status=503", clean, "restart", "service"],
+        ["brain=codex-turn-failed status=408", clean, "restart", "service"],
+        ["brain=codex-turn-failed status=503", { ...clean, acted: true }, "none", "service"],
+        ...["codex", "copilot", "pi"].map(name => ["brain=" + name + "-start-timeout",
+            { acted: false, answered: false, remote: false }, "restart", "app-stopped"]),
         ["brain=provider-error status=500", { ...clean, acted: true }, "none", "service"],
         ["brain=harness-ended", { acted: false, answered: false, remote: false }, "restart", "app-stopped"],
         ["brain=harness-exit code=1", clean, "restart", "app-stopped"],
@@ -3554,6 +3562,8 @@ function restartTable(Engine) {
         ["brain=billing status=402", clean, "none", "account"],
         ["brain=forbidden status=403", clean, "none", "account"],
         ["brain=harness-api-error status=401", clean, "none", "account"],
+        ["brain=codex-turn-failed status=401", clean, "none", "account"],
+        ["brain=codex-turn-failed status=429", clean, "none", "account"],
         ["brain=copilot-signed-out", clean, "none", "account"],
         ["brain=harness-model-refused model=fable", clean, "none", "model"],
         ["brain=not-found status=404", clean, "none", "model"],
@@ -3574,12 +3584,17 @@ function restartTable(Engine) {
         // Unknown: the cause lost its provider's class or status.
         ["brain=stream-error", clean, "none", "other"],
         ["brain=harness-api-error status=0", clean, "none", "other"],
-        ["brain=http status=408", clean, "none", "other"],
+        ["brain=http status=400", clean, "none", "other"],
+        ["brain=codex-turn-failed status=0", clean, "none", "other"],
+        ["brain=codex-turn-failed status=400", clean, "none", "other"],
         ["brain=codex-turn-failed", clean, "none", "other"],
         ["brain=pi-stop-error", clean, "none", "other"],
         ["brain=copilot-stop-max_tokens", clean, "none", "other"],
+        ["brain=copilot-stop-max_turn_requests", clean, "none", "other"],
         ["brain=harness-error-during-execution", clean, "none", "other"],
         ["brain=copilot-closed", clean, "none", "other"],
+        ["brain=codex-closed", clean, "none", "other"],
+        ["brain=pi-closed", clean, "none", "other"],
         // Permanent: judges, invariants, refusals and every unlisted cause.
         ["brain=context-limit", clean, "none", "other"],
         ["brain=refusal", clean, "none", "other"],
@@ -3594,16 +3609,22 @@ function restartTable(Engine) {
 }
 // The failover answers the cause table keeps (failoverCause before the table).
 function failoverTable(Engine) {
-    for (const cause of ["brain=stream-failed", "brain=stream-truncated", "brain=stream-error", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
+    for (const cause of ["brain=stream-failed", "brain=stream-truncated", "net=request", "brain=http status=502", "brain=harness-api-error status=403",
+        "brain=http status=408", "brain=harness-api-error status=408", "brain=codex-turn-failed status=503",
+        "brain=codex-turn-failed status=408", "brain=codex-turn-failed status=401", "brain=codex-turn-failed status=429",
+        "brain=codex-start-timeout", "brain=copilot-start-timeout", "brain=pi-start-timeout",
         "brain=harness-api-error status=429", "brain=harness-model-refused model=fable",
         "brain=harness-exit code=1", "brain=codex-exited code=1 signal=null", "brain=copilot-signed-out",
         "brain=harness-exit code=127", "brain=harness-exit cause=ENOENT", "brain=pi-exited code=127 signal=null", "brain=harness-ended",
         "brain=rate-limited status=429", "brain=overloaded status=529"])
         assert.equal(Engine.failoverCause(cause), true, cause);
     for (const cause of ["brain=refusal", "brain=finish reason=content-filter",
-        "brain=context-limit", "brain=harness-tool name=bad", "brain=not-found status=404", "brain=http status=408",
+        "brain=context-limit", "brain=harness-tool name=bad", "brain=not-found status=404", "brain=http status=400",
         "brain=harness-api-error status=0", "brain=content-type", "brain=codex-start cause=EACCES", "brain=pi-stop-error",
-        "brain=copilot-closed", "brain=unauthorized status=500", "net=redirect"])
+        "brain=codex-turn-failed", "brain=codex-turn-failed status=0", "brain=codex-turn-failed status=400",
+        "brain=copilot-stop-max_tokens", "brain=copilot-stop-max_turn_requests", "brain=harness-error-during-execution",
+        "brain=codex-closed", "brain=copilot-closed", "brain=pi-closed", "brain=stream-error",
+        "brain=unauthorized status=500", "net=redirect"])
         assert.equal(Engine.failoverCause(cause), false, cause);
 }
 // The shipped daemon's audit port logs a refused fault row by its key and
@@ -3946,13 +3967,20 @@ async function groupSelection(root, server) {
     failoverTable(Fixture.copy(root).Engine);
     restartTable(Fixture.copy(root).Engine);
     for (const [name, needle, replacement] of [
+        ["start-timeout-cause",
+            '[/^brain=(?:codex|copilot|pi)-start-timeout$/, () => cause("transient", "app-stopped", true, { ended: true })]',
+            '[/^brain=(?:codex|copilot|pi)-start-timeout$/, () => UNKNOWN]'],
+        ["provider-status-cause", "Number(status) >= 500 ? SERVICE", "false ? SERVICE"],
+        ["request-timeout-cause", "Number(status) === 408 || ", ""],
+        ["unknown-failover", 'const UNKNOWN = cause("unknown", "other", false);', 'const UNKNOWN = cause("unknown", "other", true);'],
+        ["unknown-restart", 'const UNKNOWN = cause("unknown", "other", false);', 'const UNKNOWN = cause("transient", "other", false);'],
         ["restart-acted", "judged.class === \"transient\" && !facts.acted && ", "judged.class === \"transient\" && "],
         ["restart-needs", "(judged.needs === null || facts[judged.needs] === true)", "true"],
         ["restart-quota", "[\"rate-limited 429\", ACCOUNT]", "[\"rate-limited 429\", SERVICE]"],
-        ["restart-stream-error", "[/^brain=stream-error$/, () => cause(\"unknown\", \"other\", true)]", "[/^brain=stream-error$/, () => cause(\"transient\", \"reply-cut\", true)]"],
+        ["restart-stream-error", "[/^brain=stream-error$/, () => UNKNOWN]", "[/^brain=stream-error$/, () => cause(\"transient\", \"reply-cut\", true)]"],
         ["restart-setup-exit", "programEnd(/ code=127 | cause=(?:home-missing|not-started)$/)", "programEnd(/ cause=(?:home-missing|not-started)$/)"]]) {
         const { Engine } = Fixture.copy(root, [[needle, replacement]]);
-        assert.throws(() => restartTable(Engine), assert.AssertionError, name + " must turn red");
+        assert.throws(() => { restartTable(Engine); failoverTable(Engine); }, assert.AssertionError, name + " must turn red");
         console.log("control=" + name + " detected");
         controls++;
     }

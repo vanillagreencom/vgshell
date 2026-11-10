@@ -222,4 +222,4 @@ process.stdin.on("data", chunk => {
         handle(message);
     }
 });
-process.stdin.on("end", () => { if (!scenario.hang) process.exit(0); });
+process.stdin.on("end", () => { if (!scenario.hang || scenario.exitOnEof) process.exit(0); });

@@ -12,6 +12,7 @@ const Check = require("./fixtures/schema-check.js");
 const excerpt = require("./fixtures/jarvis-codex/app-server.schema.json");
 const { load } = require("../bin/lib/qml-library.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
+const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const { jarvisHome } = require("./fixtures/jarvis/home.js");
 const cp = require("node:child_process");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
@@ -126,7 +127,7 @@ world(async () => {
             brain: { kind: "network", provider: "codex", account: "fixture", origin: "https://chatgpt.com" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         const brain = Harness.create({ model: options.model ?? "", effort: options.effort ?? "", recipients, account: { kind: "cli", directory: account },
-            gen: runner.state.gen, harness: { bridge, gate, env, runtime: () => runtime } });
+            gen: runner.state.gen, harness: { bridge, gate, env, runtime: () => runtime, clock: options.clock } });
         brain.start({ instructions: "Be brief.", tools: [] });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
         const installEngine = value => {
@@ -377,6 +378,46 @@ world(async () => {
                 await assert.rejects(drain(w.say("x")), { message }, label);
                 assert.deepEqual(received("turn/start"), [], label + " starts no turn");
                 await until(() => fs.readdirSync(w.runtime).every(name => !name.startsWith("codex-")), label + " removes its directory");
+            }
+        },
+        async handshakeHang(folder) {
+            for (const exitOnEof of [true, false]) {
+                scenario({ hang: "handshake", exitOnEof });
+                const time = clock();
+                const w = make(folder, { clock: time });
+                const pending = drain(w.say("x"));
+                let settled = false;
+                pending.then(() => { settled = true; }, () => { settled = true; });
+                await until(() => received("initialize").length === 1, "the real program receives its handshake");
+                time.advance(29999);
+                await turn();
+                assert.equal(settled, false, "the handshake retains its 30 s bound");
+                time.advance(1);
+                await assert.rejects(pending, { message: "jarvis: brain=codex-start-timeout" });
+                assert.deepEqual(received("turn/start"), []);
+                await until(() => fs.readdirSync(w.runtime).every(name => !name.startsWith("codex-")), "timeout removes its directory");
+            }
+        },
+        async providerFault(folder) {
+            // CodexErrorInfo's upstream structured variants, never the text
+            // that a provider can fill with content or credentials.
+            const note = "fixture-secret-private status=503";
+            for (const [info, status] of [
+                [{ httpConnectionFailed: { httpStatusCode: 408 } }, 408],
+                [{ responseStreamConnectionFailed: { httpStatusCode: 401 } }, 401],
+                [{ responseStreamDisconnected: { httpStatusCode: 429 } }, 429],
+                [{ responseTooManyFailedAttempts: { httpStatusCode: 503 } }, 503],
+                [{ responseStreamDisconnected: { httpStatusCode: null } }, null],
+                ["usageLimitExceeded", null], [null, null]
+            ]) {
+                scenario({ turns: [[{ complete: "failed", error: { message: note, additionalDetails: note, codexErrorInfo: info } }]] });
+                const w = make(folder);
+                const message = "jarvis: brain=codex-turn-failed" + (status === null ? "" : " status=" + status);
+                await assert.rejects(drain(w.say("x")), { message });
+                validWrites();
+                w.brain.close();
+                // Verify consumes the same narrowed completion as a conversation.
+                await assert.rejects(w.Harness.probe({ directory: account, env, runtime: w.runtime, model: "", text: "OK" }), { message });
             }
         },
         // An exit names its cause in one keyed word and carries no text of the program's log.
@@ -846,6 +887,9 @@ world(async () => {
         }
         let controls = 0;
         for (const [name, relative, edits, row] of [
+            ["handshake-cause", "backend/CodexHarness.js",
+                [['started.program.abort(new Error("jarvis: brain=codex-start-timeout"))', "started.program.close()"]], "handshakeHang"],
+            ["provider-status", "backend/CodexAppServer.js", [["httpStatus: httpStatus(error)", "httpStatus: null"]], "providerFault"],
             ["retained-cancel-owner", "backend/ChainedEngine.js",
                 [["if (pending && pending.gen === e.gen && pending.owner === e.target)", "if (false)"]], "retainedTimeout"],
             ["retained-authority", "backend/ChainedEngine.js",
@@ -869,7 +913,7 @@ world(async () => {
             ["feature-judged", "backend/CodexHarness.js", [["Codex.features(await p.call(id => Codex.featureList(id, thread)));",
                 "await p.call(id => Codex.featureList(id, thread));"]], "lockdown"],
             ["foreign-servers", "backend/CodexHarness.js", [["const foreign = Codex.servers(", "const foreign = [] || Codex.servers("]], "turn"],
-            ["bridge-launch", "backend/CodexHarness.js", [["instructions, bridge: launch }", "instructions, bridge: null }"]], "bridge"],
+            ["bridge-launch", "backend/CodexHarness.js", [["instructions, bridge: launch, clock }", "instructions, bridge: null, clock }"]], "bridge"],
             ["release", "backend/HarnessProgram.js", [["const decision = Policy.release(item, recipients, grants);",
                 "const decision = { kind: \"send\", content: item.content };"]], "release"],
             ["release-empty", "backend/CodexHarness.js", [['if (labels.length === 0) fail("release-empty");', ""]], "release"],
@@ -907,7 +951,7 @@ world(async () => {
             ["handoff-route", "backend/Accounts.js", [['case "codex":', 'case "codex-removed":']], "verify"],
             ["chosen-model", "backend/CodexHarness.js", [["Codex.threadStart(id, { cwd, model, effort,", 'Codex.threadStart(id, { cwd, model: "", effort,']], "chosen"],
             ["chosen-effort", "backend/CodexHarness.js", [["Codex.threadStart(id, { cwd, model, effort,", 'Codex.threadStart(id, { cwd, model, effort: "",']], "chosen"],
-            ["effort-handed", "backend/CodexHarness.js", [["runtime: runtime(), model, effort,\n                instructions, bridge: launch }", 'runtime: runtime(), model, effort: "",\n                instructions, bridge: launch }']], "chosen"],
+            ["effort-handed", "backend/CodexHarness.js", [["runtime: runtime(), model, effort,\n                instructions, bridge: launch, clock }", 'runtime: runtime(), model, effort: "",\n                instructions, bridge: launch, clock }']], "chosen"],
             ["models-no-thread", "backend/CodexHarness.js", [["async started => ({ started,\n", "async started => ({ started, thread: await started.program.call(id => Codex.configRead(id, started.cwd)),\n"]], "models"],
             ["models-offers", "backend/CodexHarness.js", [["offers: Harness.offers(Codex.models(await started.program.call(id => Codex.modelList(id)))) }));",
                 "offers: Codex.models(await started.program.call(id => Codex.modelList(id))) }));"]], "models"],

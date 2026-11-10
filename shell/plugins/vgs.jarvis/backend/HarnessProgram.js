@@ -16,6 +16,7 @@ const CLOSE_MS = 2000;
 const MODELS_MS = 20000;
 // The end of the program's log, in characters, a brain's cause judge reads at its exit.
 const LOG_CHARS = 4096;
+const CLOCK = Object.freeze({ set: setTimeout, clear: clearTimeout });
 
 /**
  * The one judge of a model name: "" for the program's own default, or at
@@ -144,6 +145,8 @@ function program({ name, argv, env, extra, cwd, accept, lineBytes, refused, caus
         write,
         /** End the program with error; the turn it serves fails with it. */
         abort(error) { end(error); },
+        // This local lease closure has no provider status. Only accept() can
+        // read a vendor protocol; the close deadline never infers its cause.
         /** Close stdin, the program's lease; KILL it if it outlives CLOSE_MS. */
         close() {
             if (ended === null) child.stdin.end();
@@ -264,4 +267,4 @@ function stream({ run, interrupt, settled, detach }) {
     return { handle, events };
 }
 
-module.exports = { program, release, stream, isModel, isEffort, offers, MODELS_MS };
+module.exports = { program, release, stream, isModel, isEffort, offers, MODELS_MS, CLOCK };

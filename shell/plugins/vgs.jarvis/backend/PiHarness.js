@@ -92,7 +92,7 @@ function version(env, timeout = VERSION_MS) {
  * own. hooks: {event(event), request(id, request, session)},
  * and ended(error).
  */
-async function open({ directory, env, runtime, model, effort, instructions, bridge }, hooks) {
+async function open({ directory, env, runtime, model, effort, instructions, bridge, clock = Harness.CLOCK }, hooks) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "pi-"));
     let session = null;
@@ -116,7 +116,7 @@ async function open({ directory, env, runtime, model, effort, instructions, brid
             // A handshake failure rejects its pending call instead.
             else if (session !== null) hooks.ended(value.error);
         });
-        timer = setTimeout(() => p.close(), HANDSHAKE_MS);
+        timer = clock.set(() => p.abort(new Error("jarvis: brain=pi-start-timeout")), HANDSHAKE_MS);
         const current = await p.call(id => Pi.state(id));
         if (bridge !== null) Pi.compactionOff(current);
         if (model !== "") await p.call(id => Pi.setModel(id, Pi.model(model)));
@@ -127,7 +127,7 @@ async function open({ directory, env, runtime, model, effort, instructions, brid
         await p?.close();
         fs.rmSync(cwd, { recursive: true, force: true });
         throw error;
-    } finally { clearTimeout(timer); }
+    } finally { clock.clear(timer); }
 }
 
 async function shut(session) {
@@ -159,7 +159,7 @@ function create({ provider, model, effort, recipients, account, gen, harness }) 
     if (!harness) fail("unwired");
     if (model !== "") Pi.model(model);
     if (effort !== "") Pi.level(effort);
-    const { bridge, env, runtime } = harness;
+    const { bridge, env, runtime, clock } = harness;
     let instructions = null;
     let opening = null;
     let launch = null;
@@ -194,7 +194,7 @@ function create({ provider, model, effort, recipients, account, gen, harness }) 
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
             const opened = await open({ directory: account.directory, env, runtime: runtime(), model, effort, instructions,
-                bridge: launch }, { event, request, ended: error => { ended ??= error; (running ?? active)?.fault(error); } });
+                bridge: launch, clock }, { event, request, ended: error => { ended ??= error; (running ?? active)?.fault(error); } });
             if (closed) { await shut(opened); fail("closed"); }
             session = opened;
             return opened;
@@ -242,6 +242,9 @@ function create({ provider, model, effort, recipients, account, gen, harness }) 
         Object.assign(current, { push: handle.push, fault: handle.fault, cancel: handle.cancel,
             // A cancel is acknowledged whatever the run's end; a run Pi
             // aborted on its own fails as one.
+            // pi-ai 1.1.0 dist/types.d.ts AssistantMessage has stopReason and
+            // errorMessage but no HTTP status. Its text stays unread:
+            // https://unpkg.com/@earendil-works/pi-ai@1.1.0/dist/types.d.ts
             settled(aborted) {
                 handle.finish(!aborted && current.stop === "stop" ? { kind: "complete" }
                     : { kind: "failed", error: new Error("jarvis: brain=pi-stop-" + (aborted ? "aborted" : current.stop ?? "none")) });

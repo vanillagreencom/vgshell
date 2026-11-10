@@ -127,7 +127,7 @@ process.stdin.on("data", chunk => {
         handle(message);
     }
 });
-process.stdin.on("end", () => { if (!scenario.hang) process.exit(0); });
+process.stdin.on("end", () => { if (!scenario.hang || scenario.exitOnEof) process.exit(0); });
 
 function handle(message) {
     if (message.method === undefined) { answers.get(message.id)?.(message); answers.delete(message.id); return; }

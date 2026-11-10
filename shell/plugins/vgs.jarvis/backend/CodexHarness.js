@@ -40,14 +40,14 @@ async function shut(session) {
  * The program in a new private folder under runtime, initialized, as
  * started {program, cwd}: where a thread and a model list read both begin.
  * listener(value, started) receives what the program sends. use(started)
- * runs under the bound: a program that outlives ms is closed, and when the
+ * runs under the bound: a program that outlives ms faults, and when the
  * start or use fails the program ends and its folder goes.
  */
-async function start({ directory, env, runtime }, listener, ms, use) {
+async function start({ directory, env, runtime }, listener, ms, use, clock = Harness.CLOCK) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
     const started = { program: program({ directory, env, cwd }, value => listener(value, started)), cwd };
-    const timer = setTimeout(() => started.program.close(), ms);
+    const timer = clock.set(() => started.program.abort(new Error("jarvis: brain=codex-start-timeout")), ms);
     try {
         await started.program.call(id => Codex.initialize(id));
         started.program.write(Codex.initialized());
@@ -55,7 +55,7 @@ async function start({ directory, env, runtime }, listener, ms, use) {
     } catch (error) {
         await shut(started);
         throw error;
-    } finally { clearTimeout(timer); }
+    } finally { clock.clear(timer); }
 }
 
 /**
@@ -63,7 +63,7 @@ async function start({ directory, env, runtime }, listener, ms, use) {
  * hooks: {event(event), request(id, request, session)} for the owner's
  * turn and approval handling, and ended(error).
  */
-function open({ directory, env, runtime, model, effort, instructions, bridge }, hooks) {
+function open({ directory, env, runtime, model, effort, instructions, bridge, clock }, hooks) {
     let session = null;
     return start({ directory, env, runtime }, (value, started) => {
         if (value.kind === "notification") hooks.event(value.event);
@@ -77,7 +77,7 @@ function open({ directory, env, runtime, model, effort, instructions, bridge }, 
         Codex.features(await p.call(id => Codex.featureList(id, thread)));
         session = { program: p, thread, cwd };
         return session;
-    });
+    }, clock);
 }
 
 /**
@@ -91,7 +91,7 @@ function create({ model, effort, recipients, account, gen, harness }) {
     Policy.assertRecipients(recipients);
     if (!account || account.kind !== "cli" || typeof account.directory !== "string") fail("account");
     if (!harness) fail("unwired");
-    const { bridge, gate, env, runtime } = harness;
+    const { bridge, gate, env, runtime, clock } = harness;
     let instructions = null;
     let opening = null;
     let launch = null;
@@ -123,7 +123,7 @@ function create({ model, effort, recipients, account, gen, harness }) {
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
             const opened = await open({ directory: account.directory, env, runtime: runtime(), model, effort,
-                instructions, bridge: launch }, { event, request, ended: error => { ended ??= error; active?.fault(error); } });
+                instructions, bridge: launch, clock }, { event, request, ended: error => { ended ??= error; active?.fault(error); } });
             if (closed) { await shut(opened); fail("closed"); }
             session = opened;
             return opened;
@@ -169,7 +169,7 @@ function create({ model, effort, recipients, account, gen, harness }) {
             break;
         }
         case "error": break;
-        case "turn-completed": turn.complete(e.status); break;
+        case "turn-completed": turn.complete(e); break;
         case "turn-started": case "other": break;
         default: fail("event-kind");
         }
@@ -227,9 +227,10 @@ function create({ model, effort, recipients, account, gen, harness }) {
                 current.waiters.clear();
             } });
         Object.assign(current, { push: handle.push, fault: handle.fault, cancel: handle.cancel,
-            complete(status) {
+            complete({ status, httpStatus }) {
                 handle.finish(status === "completed" ? { kind: "complete" } : status === "interrupted" ? { kind: "cancelled" }
-                    : { kind: "failed", error: new Error("jarvis: brain=codex-turn-" + status) });
+                    : { kind: "failed", error: new Error("jarvis: brain=codex-turn-" + status
+                        + (httpStatus === null ? "" : " status=" + httpStatus)) });
             } });
 
         async function run() {
@@ -299,7 +300,8 @@ async function probe({ directory, env, runtime, model, text }) {
             if (e.kind === "delta") reply += e.delta;
             else if (e.kind === "item-completed" && e.item.kind === "message") reply = e.item.text;
             else if (e.kind === "turn-completed")
-                if (e.status === "completed") settle.resolve(); else settle.reject(new Error("jarvis: brain=codex-turn-" + e.status));
+                if (e.status === "completed") settle.resolve(); else settle.reject(new Error("jarvis: brain=codex-turn-" + e.status
+                    + (e.httpStatus === null ? "" : " status=" + e.httpStatus)));
         },
         // A probe thread offers no tool, so it admits no request.
         request(id, value, current) { current?.program.write(Codex.answer(id, value, false)); },

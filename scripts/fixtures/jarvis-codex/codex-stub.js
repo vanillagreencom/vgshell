@@ -4,7 +4,8 @@
 // the app-server subset Jarvis uses on stdio and replays a scenario the test
 // writes to $XDG_STATE_HOME/codex-scenario.json:
 //   { servers: {name: config}, thread: {overrides}, features: [extra feature rows],
-//     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool,
+//     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool | "handshake",
+//     exitOnEof: bool (a hung handshake exits on EOF instead of staying alive),
 //     crash: "handshake" | "thread" (exit 3 at that request, after writing stderr: "text"),
 //     models: a model/list result in place of the recorded one,
 //     refuse: method (answered with a JSON-RPC error),
@@ -94,7 +95,7 @@ async function turn(id, steps) {
         else if (step.mcp) await mcp(step.mcp);
         else if (step.interrupt) await new Promise(resolve => { interrupted = resolve; });
         else if (step.complete) write({ method: "turn/completed", params: { threadId: THREAD,
-            turn: { id, items: [], status: step.complete, error: step.complete === "failed" ? { message: "fixture failure" } : null } }, emittedAtMs: 1 });
+            turn: { id, items: [], status: step.complete, error: step.complete === "failed" ? step.error ?? { message: "fixture failure" } : null } }, emittedAtMs: 1 });
     }
 }
 
@@ -111,7 +112,7 @@ process.stdin.on("data", chunk => {
         handle(message);
     }
 });
-process.stdin.on("end", () => { if (!scenario.hang) process.exit(0); });
+process.stdin.on("end", () => { if (!scenario.hang || scenario.exitOnEof) process.exit(0); });
 
 function crash() {
     if (scenario.stderr !== undefined) fs.writeSync(2, scenario.stderr);
@@ -125,6 +126,10 @@ function handle(message) {
     switch (message.method) {
     case "initialize":
         if (scenario.crash === "handshake") crash();
+        if (scenario.hang === "handshake") {
+            if (!scenario.exitOnEof) setInterval(() => {}, 1000);
+            return;
+        }
         respond({ ...reply("patch", line => line.id === 1), codexHome: process.env.CODEX_HOME });
         return;
     case "initialized": return;

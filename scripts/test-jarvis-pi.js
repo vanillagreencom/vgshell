@@ -12,6 +12,7 @@ const Check = require("./fixtures/schema-check.js");
 const excerpt = require("./fixtures/jarvis-pi/rpc.schema.json");
 const { load } = require("../bin/lib/qml-library.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
+const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const cp = require("node:child_process");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 // A key planted in the user's own Pi setup and in the daemon's environment.
@@ -100,7 +101,7 @@ world(async () => {
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         const create = (value = bridge) => Harness.create({ provider: Providers.select("pi"), model: options.model ?? "",
             effort: options.effort ?? "", recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
-            harness: { bridge: value, env, runtime: () => runtime } });
+            harness: { bridge: value, env, runtime: () => runtime, clock: options.clock } });
         const brain = create();
         brain.start({ instructions: "Be brief.", tools: [] });
         owners.push(() => { brain.close(); bridge.close(); audit.close(); });
@@ -320,7 +321,7 @@ world(async () => {
         // Only a reply that stopped completes a turn.
         async stops(folder) {
             for (const stop of ["error", "length"]) {
-                scenario({ turns: [[chunk("Part"), { stop }]] });
+                scenario({ leak: true, turns: [[chunk("Part"), { stop }]] });
                 const w = make(folder);
                 await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=pi-stop-" + stop });
                 for (const owner of owners.splice(0)) owner();
@@ -384,13 +385,24 @@ world(async () => {
             await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=pi-refused command=prompt" });
         },
         async handshakeHang(folder) {
-            scenario({ hang: "handshake", turns: [[{ stop: "stop" }]] });
-            const w = make(shortBounds(folder));
-            try {
-                await assert.rejects(drain(w.say("x")), { message: /^jarvis: brain=pi-(closed|exited code=null signal=SIGKILL)$/ });
-                assert.deepEqual(received("prompt"), []);
-                await noProgramOrDir(w.runtime, "hung handshake");
-            } finally { killLivePrograms(); }
+            for (const exitOnEof of [true, false]) {
+                scenario({ hang: "handshake", exitOnEof, turns: [[{ stop: "stop" }]] });
+                const time = clock();
+                const w = make(folder, { clock: time });
+                const pending = drain(w.say("x"));
+                let settled = false;
+                pending.then(() => { settled = true; }, () => { settled = true; });
+                try {
+                    await until(() => received("get_state").length === 1, "the real program receives its handshake");
+                    time.advance(29999);
+                    await turn();
+                    assert.equal(settled, false, "the handshake retains its 30 s bound");
+                    time.advance(1);
+                    await assert.rejects(pending, { message: "jarvis: brain=pi-start-timeout" });
+                    assert.deepEqual(received("prompt"), []);
+                    await noProgramOrDir(w.runtime, "hung handshake");
+                } finally { killLivePrograms(); }
+            }
         },
         // A close during the handshake ends the turn cancelled and leaves nothing.
         async closeHandshake(folder) {
@@ -505,7 +517,7 @@ world(async () => {
             await assert.rejects(Harness.models({ directory: account, env, runtime }), { message: "jarvis: brain=pi-level-list" });
             const short = require(path.join(shortBounds(folder), "backend/PiHarness.js"));
             scenario({ hang: "handshake" });
-            await assert.rejects(bounded(short.menu({ directory: account, env, runtime })), { message: /^jarvis: brain=pi-(closed|exited code=null signal=SIGKILL)$/ });
+            await assert.rejects(bounded(short.menu({ directory: account, env, runtime })), { message: "jarvis: brain=pi-start-timeout" });
             killLivePrograms();
             validWrites();
         },
@@ -666,7 +678,7 @@ world(async () => {
             ["effort-judged", H, [['if (effort !== "") Pi.level(effort);', ""]], "model"],
             ["effort-closed", R, [['if (!LEVELS.includes(value)) fail("effort");', ""]], "model"],
             ["release-empty", H, [['if (labels.length === 0) fail("release-empty");', ""]], "release"],
-            ["bridge-launch", H, [["instructions,\n                bridge: launch }", "instructions,\n                bridge: null }"]], "bridge"],
+            ["bridge-launch", H, [["instructions,\n                bridge: launch, clock }", "instructions,\n                bridge: null, clock }"]], "bridge"],
             ["tripwire", H, [['if (e.kind === "tool" && !e.bridge && session !== null) {', "if (false) {"]], "builtin"],
             ["tripwire-ends", H, [["session.program.abort(error);", ""]], "builtin"],
             ["start-judged", R, [['case "tool_execution_start":', 'case "tool_execution_end":']], "builtin"],
@@ -676,7 +688,7 @@ world(async () => {
             ["dialog-cancel", H, [['case "dialog": current.program.write(Pi.cancelDialog(id)); return;', 'case "dialog": return;']], "dialog"],
             ["refusal-command", H, [['refused: call => new Error("jarvis: brain=pi-refused command=" + call.method)',
                 'refused: () => new Error("jarvis: brain=pi-refused")']], "refused"],
-            ["handshake-timer", H, [["timer = setTimeout(() => p.close(), HANDSHAKE_MS);", "timer = null;"]], "handshakeHang"],
+            ["handshake-timer", H, [['p.abort(new Error("jarvis: brain=pi-start-timeout"))', "p.close()"]], "handshakeHang"],
             ["directory-removal", H, [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
                 "    await session.program.close();"]], "close"],
             ["bridge-close", H, [["launch?.close();", ""]], "close"],

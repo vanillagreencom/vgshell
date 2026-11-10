@@ -196,6 +196,19 @@ function scope(params) {
     return { threadId: params.threadId, turnId: params.turnId };
 }
 
+// CodexErrorInfo forwards HTTP status only on these structured variants.
+// Other variants and null carry no status; message/additionalDetails are
+// provider text and never become a cause.
+// https://github.com/openai/codex/blob/df82e2fe0ab2757fa676927d2ade4deea437df72/codex-rs/app-server-protocol/schema/typescript/v2/CodexErrorInfo.ts
+function httpStatus(error) {
+    const info = error?.codexErrorInfo;
+    if (!plain(info)) return null;
+    const detail = info.httpConnectionFailed ?? info.responseStreamConnectionFailed
+        ?? info.responseStreamDisconnected ?? info.responseTooManyFailedAttempts;
+    const status = detail?.httpStatusCode;
+    return Number.isSafeInteger(status) && status >= 100 && status <= 599 ? status : null;
+}
+
 function notification(method, params) {
     switch (method) {
     case "turn/started": case "turn/completed": {
@@ -205,7 +218,7 @@ function notification(method, params) {
         if (!["completed", "interrupted", "failed"].includes(status)) fail("turn-status");
         const error = params.turn.error;
         if (error !== undefined && error !== null && (!plain(error) || !string(error.message))) fail("message");
-        return { kind: "turn-completed", threadId: params.threadId, turnId: params.turn.id, status };
+        return { kind: "turn-completed", threadId: params.threadId, turnId: params.turn.id, status, httpStatus: httpStatus(error) };
     }
     case "item/started": case "item/completed":
         return { kind: method === "item/started" ? "item-started" : "item-completed", ...scope(params), item: item(params.item) };

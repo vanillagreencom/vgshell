@@ -16,6 +16,7 @@ const Check = require("./fixtures/schema-check.js");
 const excerpt = require("./fixtures/jarvis-copilot/acp.schema.json");
 const { load } = require("../bin/lib/qml-library.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
+const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const cp = require("node:child_process");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 const PARAMS = { "initialize": "InitializeRequest", "session/new": "NewSessionRequest", "session/prompt": "PromptRequest",
@@ -130,7 +131,7 @@ world(async () => {
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
         const create = (value = bridge) => Harness.create({ provider: Providers.select("copilot"), model: options.model ?? "", effort: options.effort ?? "",
             recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
-            harness: { bridge: value, gate, env, runtime: () => runtime } });
+            harness: { bridge: value, gate, env, runtime: () => runtime, clock: options.clock } });
         const brain = create();
         brain.start({ instructions: "Be brief.", tools: [] });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
@@ -187,13 +188,6 @@ world(async () => {
         }
         return copy;
     }
-    const shortBounds = folder => copied(folder, { "backend/CopilotHarness.js": [
-        ["const HANDSHAKE_MS = 30000;", "const HANDSHAKE_MS = 20;"],
-        ["const PROBE_MS = 60000;", "const PROBE_MS = 20;"]
-    ], "backend/HarnessProgram.js": [
-        ["const CLOSE_MS = 2000;", "const CLOSE_MS = 20;"]
-    ] });
-
     const CASES = {
         async suspendResume(folder) {
             scenario({ turns: [[chunk("First."), { stop: "end_turn" }], [chunk("Second."), { stop: "end_turn" }]] });
@@ -449,14 +443,31 @@ world(async () => {
             }
         },
         async handshakeHang(folder) {
-            const copied = shortBounds(folder);
-            scenario({ hang: "handshake", turns: [[{ stop: "end_turn" }]] });
-            const w = make(copied);
-            try {
-                await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=copilot-closed" });
-                assert.deepEqual(received("session/prompt"), []);
-                await noProgramOrDir(w.runtime, "hung handshake");
-            } finally { killLivePrograms(); }
+            for (const exitOnEof of [true, false]) {
+                scenario({ hang: "handshake", exitOnEof, turns: [[{ stop: "end_turn" }]] });
+                const time = clock();
+                const w = make(folder, { clock: time });
+                const pending = drain(w.say("x"));
+                let settled = false;
+                pending.then(() => { settled = true; }, () => { settled = true; });
+                try {
+                    await until(() => received("initialize").length === 1, "the real program receives its handshake");
+                    time.advance(29999);
+                    await turn();
+                    assert.equal(settled, false, "the handshake retains its 30 s bound");
+                    time.advance(1);
+                    await assert.rejects(pending, { message: "jarvis: brain=copilot-start-timeout" });
+                    assert.deepEqual(received("session/prompt"), []);
+                    await noProgramOrDir(w.runtime, "hung handshake");
+                } finally { killLivePrograms(); }
+            }
+        },
+        async stops(folder) {
+            for (const stop of ["max_tokens", "max_turn_requests", "refusal"]) {
+                scenario({ turns: [[{ stop }]] });
+                const w = make(folder);
+                await assert.rejects(drain(w.say("x")), { message: "jarvis: brain=copilot-stop-" + stop });
+            }
         },
         async closeHandshake(folder) {
             const folderCopy = copied(folder, { "backend/CopilotHarness.js": [
@@ -710,11 +721,12 @@ world(async () => {
             ["model-flag", H, [['...(model === "" ? [] : ["--model", model])', "...[]"]], "model"],
             ["agent-check", H, [["Copilot.agent(await child.call(id => Copilot.initialize(id)), p);", "await child.call(id => Copilot.initialize(id));"]], "handshake"],
             ["signed-out-key", H, [["value.code === -32000 ? ", "false ? "]], "handshake"],
-            ["handshake-timer", H, [["const timer = setTimeout(() => child.close(), HANDSHAKE_MS);", "const timer = null;"]], "handshakeHang"],
+            ["handshake-timer", H, [['child.abort(new Error("jarvis: brain=copilot-start-timeout"))', "child.close()"]], "handshakeHang"],
+            ["stop-complete", H, [['stop === "end_turn" ? { kind: "complete" }', 'stop !== "cancelled" ? { kind: "complete" }']], "stops"],
             ["close-handshake", H, [["active?.cancel();", ""]], "closeHandshake"],
             ["unterminated-line", S, [['if (Buffer.byteLength(tail) >= lineBytes) fail("line-size");', ""]], "lineSize"],
             ["event-session", H, [["e.sessionId !== session.id || ", ""]], "foreignSession"],
-            ["bridge-launch", H, [["model,\n                bridge: launch }", "model,\n                bridge: null }"]], "bridge"],
+            ["bridge-launch", H, [["model,\n                bridge: launch, clock }", "model,\n                bridge: null, clock }"]], "bridge"],
             ["effort-flag", H, [['...(model === "" ? [] : ["--model", model])],', '...(model === "" ? [] : ["--model", model]), "--reasoning-effort", "high"],']], "model"],
             ["model-judged", H, [['if (!Harness.isModel(model)) fail("model");', ""]], "model"],
             ["models-efforts", "backend/CopilotAcp.js", [['label: entry.name, efforts: [], effort: ""', 'label: entry.name, efforts: ["high"], effort: ""']], "models"],

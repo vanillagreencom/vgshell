@@ -414,6 +414,10 @@ world(async () => {
         ["results", async folder => {
             for (const [steps, key] of [
                 [[{ result: "api-error" }], "harness-api-error status=429"],
+                [[{ result: "api-error", status: 503 }], "harness-api-error status=503"],
+                [[{ result: "api-error", status: 408 }], "harness-api-error status=408"],
+                [[{ result: "api-error", status: null }], "harness-api-error status=0"],
+                [[{ result: "error_during_execution", errorText: "status=503 fixture-secret-private" }], "harness-error-during-execution"],
                 [[{ result: "error_max_turns" }], "harness-error-max-turns"],
                 [[{ exit: 5 }], "harness-exit code=5"],
                 [[{ raw: "not json" }], "harness-json"],
