@@ -655,7 +655,7 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
   geometry expect "Cancel leaves the launcher in its slot" "$offbar_start" ipc smoke instanceGeometry "$offbar_key" vgs.launcher
   expect "the launcher's drag off the bar writes nothing" unchanged offbar_unchanged
   # One drag off the bar asks every time, with a window under the release
-  # point that held the keyboard before the drag: 20 drags each of the
+  # point while the notice keeps the keyboard: 20 drags each of the
   # rightmost widget and the launcher, along the bar and then far below
   # the bar's middle, over the window. When the press grab ended at that
   # release, the window took the keyboard back and Qt closed the question
@@ -682,22 +682,22 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
     done
     echo held
   }
-  # offbar_repeat ID LEG: the 20 drags of ID, each from its centre, LEG
+  # offbar_repeat ID LEG [COUNT]: 20 drags by default, each from its centre, LEG
   # along the bar, then to the release point, with Escape closing each
   # question before the next drag. A drag counts only from the bug's
-  # precondition: `N:not-focused` when the window does not hold the
+  # precondition: `N:not-focused` when the notice does not hold the
   # keyboard within 5 s before drag N, and `N:question-open` when Escape
   # leaves drag N's question open, so the next reading is its own.
   offbar_repeat() {
-    local id="$1" leg="$2" n box x y reading focused misses=()
-    for n in $(seq 1 20); do
+    local id="$1" leg="$2" offbar_attempts="${3:-20}" n box x y reading focused misses=()
+    for n in $(seq 1 "$offbar_attempts"); do
       focused=""
       for _ in $(seq 1 50); do
-        focused="$(active_window)" || focused=""
-        [[ $focused == '["smoke.other", "Other window"]' ]] && break
+        focused="$(ipc smoke noticeFocused)" || focused=""
+        [[ $focused == true ]] && break
         sleep 0.1
       done
-      [[ $focused == '["smoke.other", "Other window"]' ]] || { misses+=("$n:not-focused"); continue; }
+      [[ $focused == true ]] || { misses+=("$n:not-focused"); continue; }
       box="$(ipc smoke instanceGeometry "$offbar_key" "$id")" || { misses+=("$n:box-unread"); continue; }
       read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2), int(b[1]+b[3]/2))' <<<"$box") || { misses+=("$n:box-unparsed"); continue; }
       hover "$((x + 1))" "$y" || { misses+=("$n:hover-failed"); continue; }
@@ -725,9 +725,9 @@ boxes=[c["at"]+c["size"] for c in json.load(sys.stdin) if c["pid"]==pid and c["m
 print(len(boxes)==1 and boxes[0][0]<=x<boxes[0][0]+boxes[0][2] and boxes[0][1]<=y<boxes[0][1]+boxes[0][3])' "$offbar_release_x" "$offbar_far" "$other_pid"
   }
   if open_other "$sandbox/bar-offbar-other.log"; then
-    # Mapping the window need not focus it; a click on it does.
+    # The click reaches the window, but the notice keeps the keyboard.
     click "$offbar_release_x" "$offbar_far" || fail "the click on the window below the bar failed"
-    expect_poll "the window below the bar holds the keyboard before the repeated drags" '["smoke.other", "Other window"]' active_window
+    expect_poll "the notice keeps the keyboard before the repeated drags over a window" true ipc smoke noticeFocused
     expect "the window below the bar lies under the repeated drags' release point" True offbar_window_under
     expect "20 drags of the rightmost widget off the bar over a window each ask and hold the remove question" '[]' offbar_repeat "$offbar_right" -24
     expect "20 drags of the launcher off the bar over a window each ask and hold the remove question" '[]' offbar_repeat vgs.launcher 24
@@ -1816,17 +1816,17 @@ expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
 # the copy's own timer counts, and a click on the words opens Settings on
 # that page and tab. No tooltip takes the keyboard: the welcome this shell
 # holds up keeps it while the tooltip is open under the pointer and after
-# it closes. The bar holds the keyboard only while a press holds a widget,
-# so the copy has its bar window take it, which is that reading's control:
-# the welcome then loses the keyboard. A real drag of the copy out and back
-# to its own place is that press: its grab hands the bar the keyboard
-# (Plugins.dragStart), and after the release the welcome holds it again,
+# it closes. Making the bar focusable cannot take the keyboard from the
+# Exclusive notice, nor can a Tab reach the bar's tooltip. A real drag of
+# the copy out and back keeps the pointer grab (Plugins.dragStart), and
+# after the release the welcome holds the keyboard again,
 # as it does after a release far below the bar once Escape closes the
 # remove question that release opens.
 # The notice keeps Exclusive keyboard focus after each drag. A click on a
 # client outside its card still reaches that client, but keys stay with the
 # notice. The OnDemand copy is the native keyboard check's opposite control.
-# With the item focused as a Tab focuses it, Tab takes the link and Enter
+# The OnDemand copy also proves the opposite tooltip and repeated-drag
+# focus readings. With its bar item focused, Tab takes the link and Enter
 # opens the same page. A tooltip with no link closes when the pointer
 # leaves its item. The control's tooltip draws the link and closes on the
 # click, and Settings stays closed.
@@ -2001,17 +2001,14 @@ then
   for tiplink_step in 0 1; do
     read -r tiplink_x tiplink_y < <(tiplink_bar_corner "$tiplink_step") && [[ $tiplink_x =~ ^[0-9]+$ ]] && hover "$tiplink_x" "$tiplink_y" || fail "moving the pointer onto the bar failed"
   done
-  expect_poll "the item holds the focus a Tab gives" true tiplink_call acme.tiplink focusItem
-  expect_poll "control: a bar window that holds the keyboard takes it from the welcome" false ipc smoke noticeFocused
-  expect_poll "keyboard focus opens the item's tooltip" true tiplink_read acme.tiplink tooltipOpen
+  expect_poll "the bar's focus request cannot focus its item over the notice" false tiplink_call acme.tiplink focusItem
+  expect_poll "a focusable bar leaves the keyboard with the notice" true ipc smoke noticeFocused
+  expect_poll "the unfocused bar item opens no keyboard tooltip" false tiplink_read acme.tiplink tooltipOpen
   expect "no link is current before Tab" -1 tiplink_read acme.tiplink currentLine
   type_keys -k Tab || fail "sending Tab to the bar failed"
-  expect_poll "Tab makes the link current" 1 tiplink_read acme.tiplink currentLine
-  expect "Tab left the focus on the item" true tiplink_read acme.tiplink itemFocused
-  type_keys -k Return || fail "sending Enter to the bar failed"
-  expect_poll "Enter on the link opens Settings on the page and tab it names" '"acme.idle/Setup"' tiplink_shown
-  expect_poll "Enter closes the tooltip" false tiplink_read acme.tiplink tooltipOpen
-  tiplink_hide_settings "the keyboard's link"
+  expect_poll "Tab on the notice makes no bar tooltip link current" -1 tiplink_read acme.tiplink currentLine
+  expect "Tab leaves the bar item unfocused" false tiplink_read acme.tiplink itemFocused
+  expect "Tab leaves actual keyboard focus in the notice" true ipc smoke noticeFocused
   expect "the bar window gives the keyboard back" ok tiplink_call acme.tiplink holdKeyboard false
   expect "the copy forgets the keyboard's answer" ok tiplink_call acme.tiplink forget
   rest_pointer || fail "resting the pointer after the keys failed"
@@ -2051,7 +2048,22 @@ then
     expect_poll "control: the notice without Exclusive uses on-demand mode" on-demand ipc smoke noticeKeyboardMode
     open_other "$sandbox/bar-notice-control-other.log" || fail "control: the fixture window below the notice maps"
     tiplink_fixture_click "control: " on-demand
+    expect "control: the repeated-drag focus reader rejects a notice without the keyboard" '["1:not-focused"]' offbar_repeat "$offbar_right" -24 1
     close_other "control: the fixture below the notice exits after the click"
+    expect "control: the bar window requests the keyboard without Exclusive" ok tiplink_call acme.tiplink holdKeyboard true
+    for tiplink_step in 0 1; do
+      read -r tiplink_x tiplink_y < <(tiplink_bar_corner "$tiplink_step") && [[ $tiplink_x =~ ^[0-9]+$ ]] && hover "$tiplink_x" "$tiplink_y" || fail "control: moving the pointer onto the bar failed"
+    done
+    expect_poll "control: without Exclusive the bar item gains actual focus" true tiplink_call acme.tiplink focusItem
+    expect_poll "control: without Exclusive the bar takes the notice's keyboard" false ipc smoke noticeFocused
+    expect_poll "control: keyboard focus opens the item's tooltip without Exclusive" true tiplink_read acme.tiplink tooltipOpen
+    type_keys -k Tab || fail "control: sending Tab to the bar failed"
+    expect_poll "control: Tab makes the tooltip link current without Exclusive" 1 tiplink_read acme.tiplink currentLine
+    type_keys -k Return || fail "control: sending Enter to the tooltip link failed"
+    expect_poll "control: Enter opens Settings on the linked page and tab" '"acme.idle/Setup"' tiplink_shown
+    expect_poll "control: Enter closes the tooltip" false tiplink_read acme.tiplink tooltipOpen
+    tiplink_hide_settings "the control's keyboard link"
+    expect "control: the bar releases its keyboard request" ok tiplink_call acme.tiplink holdKeyboard false
     stop_shell
   fi
   start_shell "$repo" "$sandbox/bar-grab-restored.log" || fail "the shell returns after the on-demand notice control"

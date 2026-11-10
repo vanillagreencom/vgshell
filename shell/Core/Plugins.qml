@@ -459,8 +459,14 @@ Singleton {
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
         endPressGrab();
         const window = bar.QsWindow.window;
-        barPressGrab = pressGrabComponent.createObject(item, { windows: [window], layer: window.WlrLayershell, owner: item });
-        barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;
+        // A visible notice owns Exclusive keyboard focus. Keep the pointer
+        // grab, but make no bar keyboard-mode commit, including at teardown:
+        // Hyprland 0.57.1 LayerSurface.cpp clears focus on a drop to None,
+        // then refocusLastWindow refuses while an Exclusive layer exists.
+        // https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/desktop/view/LayerSurface.cpp
+        const layer = Logic.hasOwn(hosts, "notice") && hosts.notice.dialog !== null ? null : window.WlrLayershell;
+        barPressGrab = pressGrabComponent.createObject(item, { windows: [window], layer: layer, owner: item });
+        if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.OnDemand;
         barPressGrab.active = true;
         barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,
             from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0,
