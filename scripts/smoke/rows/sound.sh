@@ -33,8 +33,11 @@
 # - the Settings Keys row offering Use my binding for XF86AudioMicMute,
 #   which a user bind holds, and its click unbinding the shortcut so the
 #   user's bind takes the key;
-# - with the filter chain as the default, Down on the slider lowering the
-#   speakers it plays to and leaving the filter's own volume;
+# - with the filter chain as the default, System's Sound deep link, once
+#   Hyprland gives System the keyboard, putting it on the output's Select,
+#   Tab reaching the output's mute button and slider, and Down on the
+#   slider lowering the speakers it plays to and leaving the filter's own
+#   volume;
 # - shared input route facts, exact active-route filtering, pending and
 #   failed reads, stale choices, both views, an excluded default,
 #   asynchronous publication and subscriber release;
@@ -182,6 +185,11 @@ PYWAIT
 snd_calls_all() { local name out=""; for name in "${device_stand_in_names[@]}"; do out+="$name=$(device_calls "$name");"; done; printf '%s spawns=%s\n' "$out" "$(cat -- "$snd_spawns" 2>/dev/null)"; }
 snd_spawned() { [[ -s $snd_spawns ]] && python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1])]))' "$snd_spawns" || echo '[]'; }
 snd_focus() { ipc smoke activeFocusItem window vgs.sound; }
+# AppWindow.focusInitial gives the Select QML focus when System is built,
+# before Hyprland activates the mapped window, and a key typed in between
+# reaches no client (VGS-2431 run 4). A row types into System only once
+# Hyprland names it the active window.
+snd_system_keyboard() { expect_poll "$1" "[\"$shell_class\", \"System Settings\"]" active_window; }
 snd_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.sound" in ids for ids in json.load(sys.stdin)))'; }
 snd_search_focused() { [[ $(ipc smoke activeFocusItem window vgs.system) == *TextField* ]] && echo true || echo false; }
 snd_texts_hold() { ipc smoke itemTexts window vgs.sound "$1" | py_reply 'import json,sys; print(json.dumps(any(sys.argv[1] in t for row in json.load(sys.stdin) for t in row)))' "$2"; }
@@ -513,6 +521,7 @@ expect_poll "the occupied microphone default is suppressed" "$snd_free_binds" sn
 type_keys -M logo -k comma -m logo || fail "SUPER+COMMA failed"
 expect_poll "SUPER+COMMA opens System on the Sound section" '["vgs.sound"]' window_panes
 expect_poll "System opens with the keyboard in its search field" true snd_search_focused
+snd_system_keyboard "SUPER+COMMA gives System the keyboard"
 type_keys -k Return || fail "Enter failed"
 expect_poll "Enter puts the keyboard on the output's Select" '["Select",""]' snd_focus
 expect "the Select shows the speakers" '"Smoke Speakers"' ipc smoke readDescendant window vgs.sound Select currentText
@@ -648,8 +657,12 @@ snd_dsp_step() { # LABEL
   eq="$(snd_volume vgs-smoke-equalizer)"
   sp="$(snd_volume vgs-smoke-speakers)"
   expect "$1: System opens on the Sound section" ok ipc shell summon window vgs.system '{"pane":"vgs.sound"}'
+  snd_system_keyboard "$1: the deep link gives System the keyboard"
   expect_poll "$1: the deep link puts the keyboard on the output's Select" '["Select",""]' snd_focus
-  type_keys -k Tab -k Tab || fail "$1: Tab to the slider failed"
+  expect "$1: the Select holding the keyboard is the output's" true ipc smoke readDescendant window vgs.sound Select activeFocus
+  type_keys -k Tab || fail "$1: Tab to the mute button failed"
+  expect_poll "$1: Tab reaches the output's mute button" '["IconButton","Mute output"]' snd_focus
+  type_keys -k Tab || fail "$1: Tab to the slider failed"
   expect_poll "$1: Tab reaches the output's slider" '["Slider",null]' snd_focus
   type_keys -k Down || fail "$1: Down on the slider failed"
   snd_dsp_was="$eq $sp"
