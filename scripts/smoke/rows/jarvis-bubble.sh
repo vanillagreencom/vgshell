@@ -1021,6 +1021,10 @@ fi
 printf '%s\n' '{"schemaVersion":1,"name":"jarvis-bubble-motion-off","tokens":{"motion":{"scale":0}}}' >"${home:?}/.config/vgshell/theme.json.tmp"
 mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
 expect_poll "the theme stills motion for the motion-off reading" 0 ipc smoke themeValue motion.scale
+# The fault reply-card hold's expiry swaps this window with unchanged orb
+# uniforms and text (VGS-2452, trace-base on 3a8982e8d). Await that service
+# lifecycle before attributing swaps to motion; tolerate none in the count.
+expect_poll "the fault reply-card hold ends before the motion-only reading" null ipc smoke readInstance service vgs.jarvis replyShown
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
 expect "control: disconnect the Jarvis layer observer before admission" ok ipc smoke layerFrameListening false
 expect "control: the still reader refuses a disconnected observer" 'status=1 reading=frame-admission=refused:disconnected' jarvis_bubble_disconnected_still_control
