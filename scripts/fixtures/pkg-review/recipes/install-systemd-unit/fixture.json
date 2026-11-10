@@ -7,7 +7,6 @@
   "source": "Models the persistence of the July 2018 acroread payload (a systemd service and timer) and of the July 2025 RAT (/etc/systemd/system/rat-agent.service, reverse shells on port 443): https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/thread/7EZTJXLIAQLARQNTMEW2HBWZYE626IFJ/ ; MITRE ATT&CK T1543.002, https://attack.mitre.org/techniques/T1543/002/ ; base recipe AUR firmware-manager commit bb6fea1aac0b8065803442a324d370f0ea1c1768, https://aur.archlinux.org/cgit/aur.git/commit/?h=firmware-manager&id=bb6fea1aac0b8065803442a324d370f0ea1c1768; recipe licence: 0BSD (LICENSE in the AUR repository)",
   "signal": "post_install writes and enables a root systemd service that opens a shell to fw-metadata.invalid:443",
   "install": "new",
-  "installerRisk": false,
-  "recipe": "new",
-  "installerRiskGap": "VGS-2414 Proposal 13e3ef27"
+  "installerRisk": true,
+  "recipe": "new"
 }
