@@ -13,7 +13,7 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 Item {
     id: root
     width: 600
-    height: 300
+    height: 600
 
     property var opened: []
 
@@ -49,12 +49,19 @@ Item {
 
         function init() {
             UnitTheme.reset();
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             root.opened = [];
             // A clicked link keeps the test window's focus; Qt warns when a
             // focused item stops taking Tab as its fault clears.
             bubble.forceActiveFocus();
             service.sessionState = null;
             service.microphoneMute = { kind: "ready", muted: false };
+            service.consoleBox = null;
+            service.focusedOutput = "SMOKE-1";
+            bubble.screen = { name: "SMOKE-1" };
+            root.width = 600;
+            root.height = 600;
+            mouseMove(root, 1, 1);
         }
 
         function collect(node, test, out) {
@@ -67,6 +74,101 @@ Item {
         }
         function links() {
             return collect(bubble, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
+        }
+
+        function test_fault_placement_tracks_console_without_a_hold_data() {
+            return [
+                { tag: "posed-close", width: 1920, height: 1052, output: "SMOKE-1", side: "either",
+                    box: { x: 448, y: 132, width: 1024, height: 824 }, clear: null },
+                { tag: "default-above", width: 1920, height: 1052, output: "SMOKE-1", side: "either",
+                    box: { x: 660, y: 188, width: 600, height: 648 },
+                    clear: { output: "SMOKE-1", x: 0, y: -300, width: 1920, height: 300 } },
+                { tag: "more-room-right-other-screen", width: 1200, height: 600, output: "SMOKE-3", side: "right", icons: true,
+                    box: { x: 100, y: 100, width: 600, height: 500 },
+                    clear: { output: "SMOKE-1", x: 100, y: 100, width: 600, height: 500 } },
+                { tag: "more-room-left-move-beside", width: 1200, height: 600, output: "SMOKE-1", side: "left",
+                    box: { x: 500, y: 100, width: 600, height: 500 },
+                    clear: { output: "SMOKE-1", x: 1200, y: 0, width: 600, height: 600 } },
+                { tag: "wrapped-side-clears-baseline-band", width: 900, height: 600, output: "SMOKE-1", side: "left", wraps: true,
+                    box: { x: 300, y: 0, width: 600, height: 600 },
+                    clear: { output: "SMOKE-1", x: 300, y: 0, width: 600, height: 280 } },
+                { tag: "orb-fits-a-narrow-side", width: 600, height: 600, output: "SMOKE-1", side: "left", wraps: true,
+                    box: { x: 120, y: 0, width: 450, height: 600 }, clear: null }
+            ];
+        }
+        function test_fault_placement_tracks_console_without_a_hold(data) {
+            root.width = data.width;
+            root.height = data.height;
+            service.focusedOutput = data.output;
+            bubble.screen = { name: data.output };
+            service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())),
+                { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" },
+                    restart: { kind: "restarted", category: "reply-cut" } },
+                data.icons ? { fault: { kind: "error", reason: "jarvis-test=unknown" } } : {});
+            compare(bubble.hold, null);
+            verify(bubble.shown, "the fault keeps the orb shown without a held request");
+            const overlay = findChild(bubble, "overlay");
+            verify(overlay !== null);
+            verify(renderedFrame(bubble));
+            fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5);
+            fuzzyCompare(overlay.x + overlay.width / 2, root.width / 2, 0.5);
+
+            const box = Object.assign({ output: data.output }, data.box);
+            service.consoleBox = box;
+            verify(renderedFrame(bubble));
+            if (data.icons) {
+                const hit = findChild(bubble, "orbHit");
+                verify(hit !== null);
+                const at = hit.mapToItem(root, hit.width / 2, hit.height / 2);
+                mouseMove(root, at.x, at.y);
+                tryCompare(bubble, "iconOpacity", 1);
+            }
+            const field = findChild(bubble, "field");
+            verify(field !== null);
+            // A second frame must keep the same answer after the fitted
+            // width reflows the text and the overlay no longer intersects.
+            for (let frame = 0; frame < 2; frame++) {
+                verify(renderedFrame(bubble));
+                verify(bubble.overConsole, "the decision keeps judging the centred bottom band");
+                verify(overlay.width > 0 && overlay.height > 0, "clearance cannot pass by collapsing the overlay");
+                const left = overlay.x + overlay.width <= box.x;
+                const right = overlay.x >= box.x + box.width;
+                verify(left || right, "the whole overlay stands beside Console");
+                if (data.side !== "either") compare(left ? "left" : "right", data.side, "use the side with more measured room");
+                verify(field.width > 0 && field.height > 0, "clearance cannot pass by collapsing the field");
+                verify(field.x >= 0 && field.x + field.width <= root.width,
+                    "the drawn field stays on this output");
+                verify(left ? field.x + field.width <= box.x : field.x >= box.x + box.width,
+                    "the field's drawn extent also clears Console");
+                fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5,
+                    "a non-held overlay keeps its bottom edge, not the held prompt's top edge");
+                for (const item of bubble.textItems.filter(item => bubble.drawn(item) && item.height > 0)) {
+                    const rect = item.mapToItem(bubble, 0, 0, item.width, item.height);
+                    verify(rect.x >= overlay.x && rect.x + rect.width <= overlay.x + overlay.width + 0.5,
+                        "drawn text fits the side's box");
+                    verify(item.height >= item.implicitHeight, "the whole wrapped line remains laid out");
+                }
+                const orb = collect(overlay, item => item.phase !== undefined && item.capture !== undefined, [])[0];
+                verify(orb !== undefined && orb.width > 0);
+                verify(orb.x >= 0 && orb.x + orb.width <= overlay.width, "the orb canvas fits even a narrow side");
+                for (const item of bubble.inputItems) {
+                    const rect = item.mapToItem(bubble, 0, 0, item.width, item.height);
+                    verify(left ? rect.x + rect.width <= box.x : rect.x >= box.x + box.width,
+                        "the side's pointer regions leave Console reachable");
+                }
+            }
+            if (data.wraps) {
+                const title = bubble.textItems.find(item => item.text === bubble.stateText);
+                verify(title !== undefined && title.lineCount > 1, "the narrow side wraps the actual fault title");
+            }
+
+            service.consoleBox = data.clear;
+            verify(renderedFrame(bubble));
+            compare(bubble.overConsole, false);
+            fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5,
+                "closing or clearing the Console returns the fault orb to the bottom");
+            fuzzyCompare(overlay.x + overlay.width / 2, root.width / 2, 0.5,
+                "closing or clearing Console restores centred placement");
         }
 
         function test_digital_silence_is_a_reading_with_a_microphone_link() {

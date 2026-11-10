@@ -184,8 +184,8 @@ Item {
         return current.some(row => row.key === key + ":listening" && row.dot === "success")
             ? "listening" : current.length > 0 ? "present" : "gone";
     }
-    // The console's box while a request waits for an answer, so the bubble
-    // on that output can stand clear of the message field: { output, x, y,
+    // The console's box while the bubble shows or a request waits for an
+    // answer, so the bubble on that output stands clear: { output, x, y,
     // width, height } in the logical pixels of a passive layer there, which
     // covers the output less the edges Hyprland reserves; null otherwise.
     property var consoleBox: null
@@ -198,6 +198,7 @@ Item {
     readonly property string heldKey: sessionState !== null && sessionState.approval.kind === "held"
         ? sessionState.gen + ":" + sessionState.approval.id : ""
     onHeldKeyChanged: readConsoleBox()
+    onBubbleWantedChanged: readConsoleBox()
     property double sentRequirementsRevision: -1
     readonly property var requirementsRevision: shell === null ? -1 : shell.requirements.revision
     readonly property bool locked: lockObservation()
@@ -708,13 +709,13 @@ Item {
     // `org.vgs.shell`, titled with this plugin's name, as the window host
     // titles it (vgs.settings Window.fitWindow reads its own the same way),
     // and on the screen as the compositor's onScreen judges it: a console
-    // on a workspace no output shows covers nothing. A reply after the hold
-    // ended, or behind a newer read, sets nothing.
+    // on a workspace no output shows covers nothing. A reply behind a newer
+    // read, including a changed hold or a hidden bubble, sets nothing.
     function readConsoleBox() {
         const key = heldKey;
         const serial = ++consoleReads;
         const answer = box => { consoleBox = box; consoleKey = key; };
-        if (key === "" || shell === null) return answer(null);
+        if (key === "" && !bubbleWanted || shell === null) return answer(null);
         shell.compositor.readWindows(state => {
             if (serial !== consoleReads || key !== heldKey) return;
             const failed = why => { answer(null); console.warn("jarvis: console-box=" + why); };
@@ -1658,12 +1659,12 @@ Item {
     // workspace or opens or closes a special one: Hyprland posts movewindowv2
     // from CWindow::moveToWorkspace alone (v0.56.2
     // src/desktop/view/Window.cpp:534-580) and no event for a floating drag
-    // or resize, so a console dragged into the bubble during one request is
+    // or resize, so a console dragged into the bubble while it shows is
     // followed at the next read, not live. rawEvent: Quickshell 0.3.1,
     // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/Hyprland
     Connections {
         target: Hyprland
-        enabled: root.heldKey !== ""
+        enabled: root.bubbleWanted || root.heldKey !== ""
         function onRawEvent(event) {
             if (event.name === "openwindow" || event.name === "closewindow" || event.name === "movewindowv2"
                     || event.name === "workspacev2" || event.name === "activespecial")

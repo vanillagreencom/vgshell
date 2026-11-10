@@ -45,16 +45,31 @@ Item {
         && overlay.width <= width && overlay.height + look.layout.margin <= height
     readonly property bool capturePresented: presented && !hidden && orb.visible
     readonly property var hold: state !== null && state.approval.kind === "held" ? state.approval : null
-    // A held request would cover the console's message field and hint line
-    // where the console on this screen reaches the band the overlay draws in
-    // at the bottom; the overlay then takes the top edge. Both boxes are in this
-    // layer's coordinates (Service.consoleBox).
+    // Judge the centred bottom box, not the fitted box: moving beside the
+    // Console or wrapping a line there must not change this decision.
+    // Both boxes are in this layer's coordinates (Service.consoleBox).
+    readonly property real bottomWidth: Math.min(look.layout.width, Math.max(0, width - 2 * look.layout.margin))
+    readonly property real bottomBelow: hidden ? 0
+        : words.height + look.orb.size / 2 + look.state.idle.radius * look.orb.size / 2 + look.layout.below
+    readonly property real bottomHeight: hold !== null ? overlay.height
+        : Math.max(hidden ? 0 : words.height + look.orb.size, stateBox.visible ? bottomBelow + bottomMeasure.height : 0)
     readonly property var consoleBox: service === null ? null : service.consoleBox
-    readonly property bool overConsole: hold !== null && consoleBox !== null && screen !== null
+    readonly property bool overConsole: consoleBox !== null && screen !== null
         && consoleBox.output === screen.name
-        && consoleBox.y + consoleBox.height > height - look.layout.margin - overlay.height
+        && consoleBox.y + consoleBox.height > height - look.layout.margin - bottomHeight
         && consoleBox.y < height - look.layout.margin
-        && consoleBox.x < overlay.x + overlay.width && consoleBox.x + consoleBox.width > overlay.x
+        && consoleBox.x < (width + bottomWidth) / 2 && consoleBox.x + consoleBox.width > (width - bottomWidth) / 2
+    // A held request retains its centred top placement and frame contract.
+    // Other states fit the roomier side, leaving the field clear of Console.
+    readonly property bool besideConsole: hold === null && overConsole
+    readonly property rect placementRoom: {
+        if (!besideConsole) return Qt.rect(0, 0, width, height);
+        const left = Math.max(0, Math.min(width, consoleBox.x));
+        const right = Math.max(0, Math.min(width, width - consoleBox.x - consoleBox.width));
+        return left >= right
+            ? Qt.rect(0, 0, Math.max(0, left - look.layout.margin), height)
+            : Qt.rect(width - right + look.layout.margin, 0, Math.max(0, right - look.layout.margin), height);
+    }
     // The current hold's placement is known: the service's last finished
     // read answers this hold. Until then the request neither draws nor
     // acknowledges a frame, so its first drawn frame is the placed one.
@@ -130,7 +145,7 @@ Item {
     readonly property var shortcutKeys: service === null ? null : service.effectiveKeys
     // The ring of the orb at rest, which the icon row and the line under
     // the orb stand against.
-    readonly property real ring: look.state.idle.radius * look.orb.size / 2
+    readonly property real ring: look.state.idle.radius * orb.width / 2
     readonly property string orbPhase: micMuted ? "muting" : phase
     readonly property bool active: state !== null && state.conversation.kind !== "ended"
         || ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
@@ -230,24 +245,69 @@ Item {
     // orb's disc, the icon row while it shows, receding as it fades, the
     // line or the held request under the orb, and Jarvis's words over it.
     readonly property var fieldBoxes: {
-        const at = item => ({ x: overlay.x + item.x, y: overlay.y + item.y, w: item.width, h: item.height });
+        const at = item => ({ x: overlay.x - placementRoom.x + item.x, y: overlay.y + item.y, w: item.width, h: item.height });
         const rects = [];
         if (iconsShown) rects.push({ rect: at(icons), values: look.field.icons, recede: -Math.log(Math.max(iconOpacity, 1e-4)) });
         if (hold !== null || stateBox.visible) rects.push({ rect: at(hold === null ? stateBox : approvalText), values: look.field.content, recede: 0 });
         if (words.visible) rects.push({ rect: at(words), values: look.field.content, recede: 0 });
-        const boxes = Field.boxes(look.field, { x: overlay.x + overlay.centre, y: overlay.y + overlay.orbCentre }, ring, rects, width);
+        const boxes = Field.boxes(look.field, { x: overlay.x - placementRoom.x + overlay.centre, y: overlay.y + overlay.orbCentre },
+            ring, rects, placementRoom.width).map(box => Object.assign({}, box, { x: box.x + placementRoom.x }));
         return hidden ? boxes.slice(1) : boxes;
     }
 
     visible: shown && (hold === null ? true : placed)
     Component.onCompleted: if (service !== null) service.attachBubble(root)
 
+    // Text implicit sizes measure the un-fitted bottom column without
+    // depending on the side's width (Quickshell 0.3.1 size and position:
+    // https://quickshell.org/docs/v0.3.1/guide/size-position/).
+    // The drawn controls still own their text and typography.
+    Item {
+        id: bottomMeasure
+        visible: false
+        width: Math.min(root.look.layout.line, root.bottomWidth)
+        height: bottomTitle.implicitHeight
+            + (silenceLine.visible ? root.look.layout.gap + bottomSilence.implicitHeight : 0)
+            + (faultAction.visible ? root.look.layout.gap + bottomAction.implicitHeight : 0)
+        Label {
+            id: bottomTitle
+            width: parent.width
+            role: stateLine.role
+            color: stateLine.color
+            text: stateLine.text
+            wrapMode: stateLine.wrapMode
+        }
+        LinkText {
+            id: bottomSilence
+            width: parent.width
+            role: silenceLine.role
+            color: silenceLine.color
+            linkColor: silenceLine.linkColor
+            text: silenceLine.text
+            wrapMode: silenceLine.wrapMode
+        }
+        LinkText {
+            id: bottomAction
+            width: parent.width
+            role: faultAction.role
+            color: faultAction.color
+            linkColor: faultAction.linkColor
+            text: faultAction.text
+            wrapMode: faultAction.wrapMode
+        }
+    }
+
     // The field, drawn only over the boxes' reach inside this layer.
     RadialBackdrop {
         id: field
         objectName: "field"
         visible: root.fieldBoxes.length > 0
-        readonly property var extent: Field.extent(root.fieldBoxes, root.width, root.height)
+        readonly property var extent: {
+            const bounds = Field.extent(root.fieldBoxes, root.width, root.height);
+            const left = Math.max(bounds.x, root.placementRoom.x);
+            const right = Math.min(bounds.x + bounds.w, root.placementRoom.x + root.placementRoom.width);
+            return { x: left, y: bounds.y, w: Math.max(0, right - left), h: bounds.h };
+        }
         x: extent.x
         y: extent.y
         width: extent.w
@@ -271,10 +331,14 @@ Item {
         // The prompt's and the words' width, held to this overlay's, which
         // the layer bounds, so a narrow screen reflows them.
         readonly property real promptWidth: Math.min(root.look.layout.prompt, width)
-        width: Math.min(root.look.layout.width, Math.max(0, root.width - 2 * root.look.layout.margin))
+        width: Math.min(root.look.layout.width, Math.max(0, root.placementRoom.width - 2 * root.look.layout.margin))
         height: Math.max(root.hidden ? 0 : orb.y + orb.height,
             root.hold !== null ? approvalText.y + approvalText.height : stateBox.visible ? stateBox.y + stateBox.height : 0)
-        anchors.horizontalCenter: parent.horizontalCenter
+        x: root.placementRoom.x + (root.placementRoom.width - width) / 2
+        // Qt Quick clips descendants to this box, including shadows and
+        // overwide words on a side too narrow for their natural size.
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#clip-prop
+        clip: root.besideConsole
         anchors.bottom: parent.bottom
         anchors.bottomMargin: root.look.layout.margin
         anchors.topMargin: root.look.layout.margin
@@ -283,7 +347,7 @@ Item {
         // overlay: https://doc.qt.io/qt-6/qml-qtquick-anchorchanges.html
         states: State {
             name: "top"
-            when: root.overConsole
+            when: root.overConsole && root.hold !== null
             AnchorChanges { target: overlay; anchors.bottom: undefined; anchors.top: root.top }
         }
 
@@ -311,8 +375,8 @@ Item {
             look: root.look
             x: overlay.centre - width / 2
             y: words.height
-            width: root.look.orb.size
-            height: root.look.orb.size
+            width: root.besideConsole ? Math.min(root.look.orb.size, overlay.width) : root.look.orb.size
+            height: width
             phase: root.orbPhase
             capture: root.levels.capture || 0
             playback: root.levels.playback || 0
@@ -325,8 +389,8 @@ Item {
             id: orbHit
             objectName: "orbHit"
             visible: root.active && !root.hidden
-            width: root.look.layout.hit
-            height: root.look.layout.hit
+            width: root.besideConsole ? Math.min(root.look.layout.hit, overlay.width) : root.look.layout.hit
+            height: width
             x: overlay.centre - width / 2
             y: overlay.orbCentre - height / 2
             HoverHandler { id: orbHover }
@@ -339,10 +403,10 @@ Item {
             id: bridge
             objectName: "iconBridge"
             visible: root.active && root.iconsShown
-            x: overlay.centre + root.look.layout.bridge
+            x: root.besideConsole ? Math.min(overlay.width, overlay.centre + root.look.layout.bridge) : overlay.centre + root.look.layout.bridge
             y: icons.y
-            width: icons.x + icons.width - x
-            height: overlay.orbCentre - root.look.layout.bridge - y
+            width: root.besideConsole ? Math.max(0, Math.min(overlay.width, icons.x + icons.width) - x) : icons.x + icons.width - x
+            height: Math.max(0, overlay.orbCentre - root.look.layout.bridge - y)
             HoverHandler { id: bridgeHover }
         }
 
@@ -350,7 +414,7 @@ Item {
 
         Row {
             id: icons
-            x: overlay.centre + root.ring
+            x: root.besideConsole ? Math.min(overlay.centre + root.ring, Math.max(0, overlay.width - width)) : overlay.centre + root.ring
             y: overlay.orbCentre - root.ring - height / 2
             opacity: root.iconOpacity
             visible: root.iconsShown

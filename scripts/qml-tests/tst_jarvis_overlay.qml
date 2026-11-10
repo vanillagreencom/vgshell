@@ -300,8 +300,9 @@ Item {
         // the overlay shown after the service stops wanting it.
         function test_the_menu_keeps_the_overlay_shown() {
             put(root.session({ fault: { kind: "error", reason: "device-lost" } }));
-            const line = all(bubble, []).find(item => item.role !== undefined && item.text === bubble.fault.title);
-            verify(line !== undefined, "the fault's title draws");
+            const lines = all(bubble, []).filter(item => item.role !== undefined && item.text === bubble.fault.title && bubble.drawn(item));
+            compare(lines.length, 1, "one drawn fault title supplies the click target");
+            const line = lines[0];
             mouseClick(line, line.width / 2, line.height / 2, Qt.RightButton);
             tryCompare(bubble, "menuOpened", true);
             service.bubbleWanted = false;

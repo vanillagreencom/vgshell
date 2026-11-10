@@ -125,6 +125,7 @@ mutations=(
   "a Jarvis caption that grows inside its last word starts over|../plugins/vgs.jarvis/Words.qml|next[drawn.length - 1].startsWith(drawn[drawn.length - 1])|next[drawn.length - 1] === drawn[drawn.length - 1]|tst_jarvis_words.qml"
   "Jarvis's approval question loses its semibold role|../plugins/vgs.jarvis/Bubble.qml|role: \"bodyStrong\"|role: \"body\"|tst_jarvis_prompt.qml"
   "Jarvis paints a bottom frame before the console answer|../plugins/vgs.jarvis/Bubble.qml|visible: shown && (hold === null ? true : placed)|visible: shown|tst_jarvis_field.qml"
+  "Jarvis's fault stays centred over Console|../plugins/vgs.jarvis/Bubble.qml|x: root.placementRoom.x + (root.placementRoom.width - width) / 2|x: (root.width - width) / 2|tst_jarvis_bubble.qml|test_fault_placement_tracks_console_without_a_hold"
   "a Jarvis fault title loses its semibold role|../plugins/vgs.jarvis/Bubble.qml|? \"bodyStrong\" : \"label\"|? \"label\" : \"label\"|tst_jarvis_prompt.qml"
   "Jarvis's answers keep the shared control height|../plugins/vgs.jarvis/Bubble.qml|controlHeight: look.answer.height|controlHeight: sizeOf(size)|tst_jarvis_prompt.qml"
   "Jarvis's Cancel draws Confirm's fill|../plugins/vgs.jarvis/Bubble.qml|restFill: bare ? look.answer.clear : look.answer.fill|restFill: look.answer.fill|tst_jarvis_prompt.qml"
