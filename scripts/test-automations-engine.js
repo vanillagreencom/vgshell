@@ -990,6 +990,26 @@ const CASES = {
         same(lines.map(line => line.split(" env ")[0]), ["*/10 * * * *"], "one crontab line every 10 minutes");
     },
 
+    "seconds use calendar timers and refuse cron without replacing its table"(engine) {
+        const schedule = { frequency: "secondly", interval: 30, start: "2026-01-01", end: { type: "never" }, zone: "utc" };
+        const w = world();
+        const id = add(w, engine, { name: "Thirty seconds", schedule });
+        const timer = fs.readFileSync(path.join(w.units, "vgs-automation-" + id + ".timer"), "utf8");
+        same(timer.split("\n").filter(line => /^(OnCalendar|AccuracySec|OnActiveSec|OnUnitActiveSec)=/.test(line)),
+            ["OnCalendar=*-*-* *:*:00/30 UTC", "AccuracySec=1s"], "seconds use the existing calendar timer route");
+        const preview = cli(w, engine, ["preview", "--schedule", JSON.stringify(schedule), "--count", "3", "--after", String(Date.parse("2026-01-05T08:15:20Z"))]);
+        assert.equal(preview.status, 0, preview.stderr);
+        same(JSON.parse(preview.stdout), { summary: "Every 30 seconds", calendar: ["*-*-* *:*:00/30 UTC"], cron: [],
+            occurrences: ["2026-01-05T08:15:30Z", "2026-01-05T08:16:00Z", "2026-01-05T08:16:30Z"].map(Date.parse) });
+        const original = "MAILTO=me\n5 * * * * mine\n";
+        write(path.join(w.stub, "crontab"), original);
+        write(path.join(w.stub, "systemd"), "down");
+        const refused = cli(w, engine, ["sync"]);
+        same([refused.status, refused.first], [1, "automations: refused: scheduler=systemd-required id=thirty-seconds"]);
+        assert.equal(fs.readFileSync(path.join(w.stub, "crontab"), "utf8"), original, "cron is not silently slowed or rewritten");
+        assert.equal(cli(w, engine, ["disable", id]).status, 0, "a seconds rule can still be paused while systemd is unavailable");
+    },
+
     "run-now goes through systemd-run and refuses a busy automation"(engine) {
         const w = world();
         const id = add(w, engine, {});
@@ -1338,6 +1358,7 @@ const CONTROLS = [
     ["prune reads historyDays", "clear keeps a running run and prune keeps the retention", "return { ok: true, days: Logic.retentionDays(JSON.parse(out.stdout).historyDays) };", "return { ok: true, days: 30 };"],
     ["clear keeps a running run", "clear keeps a running run and prune keeps the retention", "judged.rows.filter(row => row.outcome !== \"running\")", "judged.rows"],
     ["cron is the fallback", "without a systemd user manager sync keeps a crontab block", "changed = writeCrontab(requireCommand(\"crontab\"), Logic.cronLines(", "changed = writeCrontab(requireCommand(\"crontab\"), [] || Logic.cronLines("],
+    ["cron cannot silently drop a seconds rule", "seconds use calendar timers and refuse cron without replacing its table", "if (unsupported) refuse(\"scheduler=systemd-required id=\" + unsupported.id, \"cron has no seconds field\");", ""],
     ["cron lines run the scheduled trigger", "under cron a catch-up automation runs a missed occurrence at startup", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"scheduled\"), runnerEnvironment)", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"manual\"), runnerEnvironment)"],
     ["a crontab without a table reads empty", "without a systemd user manager sync keeps a crontab block", "if (out.status === 1 && /^no crontab for /.test(firstLine(out.stderr))) return \"\";", ""],
     ["a late skip ends its unit clean", "offline lateness skips neutrally or catches up the latest once", "log(\"skipped=\" + id + \" reason=\" + (answer.reason || \"cancelled\"));", "process.exit(1);"],

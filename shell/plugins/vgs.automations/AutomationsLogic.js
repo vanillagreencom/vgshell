@@ -28,13 +28,11 @@ var TIMEOUT_MIN = 1;
 var TIMEOUT_MAX = 86400;
 var TIMEOUT_DEFAULT = 3600;
 
-var FREQUENCIES = ["minutely", "hourly", "daily", "weekly", "monthly", "yearly"];
-// The steps an every-N-minutes or every-N-hours rule may take: those that
-// divide an hour or a day, so its slots, counted from each local midnight,
-// fall on the same wall-clock times every day. systemd's `*:00/N` and
-// `00/N:00` and cron's `*/N` restart their step at each hour or day, so
-// only such a step makes the two schedulers and the preview agree.
-var INTERVAL_STEPS = { minutely: [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30], hourly: [1, 2, 3, 4, 6, 8, 12] };
+var FREQUENCIES = ["secondly", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"];
+// Steps divide their enclosing minute, hour or day, so the calendar and
+// preview restart on the same wall-clock boundary. Seconds need systemd:
+// cron has no seconds field.
+var INTERVAL_STEPS = { secondly: [10, 15, 20, 30], minutely: [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30], hourly: [1, 2, 3, 4, 6, 8, 12] };
 // Monday first: weeks are ISO weeks, so "every 2 weeks" counts from the
 // Monday of the start date's week.
 var WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -198,13 +196,13 @@ function scheduleDate(ms, schedule) {
 // saving change skips it. A repeated time takes its first instant, as the
 // Date constructor answers.
 function localInstant(y, m, d, time) {
-    var at = new Date(y, m - 1, d, time.h, time.mi, 0, 0);
+    var at = new Date(y, m - 1, d, time.h, time.mi, time.se === undefined ? 0 : time.se, 0);
     if (at.getFullYear() !== y || at.getMonth() !== m - 1 || at.getDate() !== d || at.getHours() !== time.h || at.getMinutes() !== time.mi) return null;
     return at.getTime();
 }
 
 function scheduleInstant(y, m, d, time, schedule) {
-    if (schedule.zone === "utc") return Date.UTC(y, m - 1, d, time.h, time.mi, 0, 0);
+    if (schedule.zone === "utc") return Date.UTC(y, m - 1, d, time.h, time.mi, time.se === undefined ? 0 : time.se, 0);
     return localInstant(y, m, d, time);
 }
 
@@ -214,22 +212,22 @@ function scheduleInstant(y, m, d, time, schedule) {
 // `schedule.<path>: <reason>`.
 //
 // { frequency, interval, weekdays?, monthly?, yearly?, times?, start, end }
-//   frequency  minutely, hourly, daily, weekly, monthly or yearly
+//   frequency  secondly, minutely, hourly, daily, weekly, monthly or yearly
 //   interval   every N of them: 1 to INTERVAL_MAX for a day frequency, one
-//              of INTERVAL_STEPS for minutely and hourly
+//              of INTERVAL_STEPS for seconds, minutes and hours
 //   weekdays   weekly only: the days it runs, a non-empty set of WEEKDAYS
 //   monthly    monthly only: { by: "date", day } or
 //              { by: "weekday", week: 1..5 or -1 (the last), weekday }
 //   yearly     yearly only: { month, day }, a day the month can hold
 //   zone       optional: "local" (the default) or "utc"
 //   times      day frequencies only: "HH:MM" in zone, 1 to TIMES_MAX,
-//              ascending and distinct. A minutely or hourly rule runs at
+//              ascending and distinct. A stepped rule runs at
 //              every step from each local midnight instead.
 //   start      "YYYY-MM-DD": no occurrence before it, and the anchor every
 //              day-frequency interval counts from
 //   end        { type: "never" }, { type: "date", date } (the last day it
 //              may run) or, for a day frequency, { type: "count", count }
-//              (its first N occurrences). A minutely or hourly rule takes
+//              (its first N occurrences). A stepped rule takes
 //              no count: its slots start at midnight of the start date,
 //              which a rule saved later that day has already passed.
 function scheduleError(s) {
@@ -331,19 +329,24 @@ function endError(end, start, types) {
     }
 }
 
-// Whether a frequency is an every-N-minutes or every-N-hours rule, whose
+// Whether a frequency is an every-N-seconds, minutes or hours rule, whose
 // times of day are its steps rather than a `times` list.
 function isStepFrequency(frequency) {
     return hasOwn(INTERVAL_STEPS, frequency);
 }
 
 // The parsed times of day a rule runs at, ascending: its `times`, or every
-// step of a minutely or hourly rule from midnight. Every day of the rule
+// step of a seconds, minutes or hours rule from midnight. Every day of the rule
 // holds the same ones.
 function dayTimes(s) {
     var out = [];
-    var h, mi;
+    var h, mi, se;
     switch (s.frequency) {
+    case "secondly":
+        for (h = 0; h < 24; h++)
+            for (mi = 0; mi < 60; mi++)
+                for (se = 0; se < 60; se += s.interval) out.push({ h: h, mi: mi, se: se });
+        return out;
     case "minutely":
         for (h = 0; h < 24; h++)
             for (mi = 0; mi < 60; mi += s.interval) out.push({ h: h, mi: mi });
@@ -388,6 +391,7 @@ function calendarDays(s, y, m) {
     var out = [];
     var d;
     switch (s.frequency) {
+    case "secondly":
     case "minutely":
     case "hourly":
     case "daily":
@@ -413,8 +417,8 @@ function calendarDays(s, y, m) {
 
 // Whether a calendar day holds occurrences: the interval counted from the
 // start date, not before the start and not after an end date. An end after
-// N occurrences is applied on instants, by `lastOccurrence`. A minutely or
-// hourly rule's interval is its step within each day, so every day in
+// N occurrences is applied on instants, by `lastOccurrence`. A stepped
+// rule's interval is its step within each day, so every day in
 // range holds its slots.
 function ruleDay(s, start, y, m, d) {
     var day = dayNumber(y, m, d);
@@ -426,6 +430,7 @@ function ruleDay(s, start, y, m, d) {
     }
     var n = s.interval;
     switch (s.frequency) {
+    case "secondly":
     case "minutely":
     case "hourly": return true;
     case "daily": return (day - first) % n === 0;
@@ -545,8 +550,10 @@ function calendarExpressions(s) {
     var date;
     var weekdays = "";
     switch (s.frequency) {
-    // A step from each hour's minute 0, or from each day's hour 0: the
+    // A step from second, minute or hour 0 within its enclosing unit: the
     // slots dayTimes generates, as `systemd-analyze calendar` reads them.
+    case "secondly":
+        return ["*-*-* *:*:00/" + s.interval + calendarZoneSuffix(s)];
     case "minutely":
         return ["*-*-* *:00/" + s.interval + ":00" + calendarZoneSuffix(s)];
     case "hourly":
@@ -589,6 +596,8 @@ function calendarZoneSuffix(s) {
 function cronFields(s) {
     var tail;
     switch (s.frequency) {
+    case "secondly":
+        return [];
     case "minutely":
         return ["*/" + s.interval + " * * * *"];
     case "hourly":
@@ -662,6 +671,9 @@ function summaryText(s) {
     var head;
     var at = isStepFrequency(s.frequency) ? "" : " at " + listText(s.times);
     switch (s.frequency) {
+    case "secondly":
+        head = every(s.interval, "Every second", "seconds");
+        break;
     case "minutely":
         head = every(s.interval, "Every minute", "minutes");
         break;
@@ -1215,6 +1227,7 @@ var FAILURE_TEXT = [
     [/directory=/, "The work folder is unavailable. Choose another folder in Automations."],
     [/shell=|spawn=|start=failed/, "The automation could not start. Check its command in Automations."],
     [/definition=|definition:/, "The automation could not be saved. Check its fields in Automations."],
+    [/scheduler=systemd-required/, "Seconds schedules need the system scheduler. Open Automations to check its status."],
     [/scheduler=none|systemctl=|systemd-run=|crontab=/, "The scheduler is unavailable. Open Automations to check its status."],
     [/schedule|calendar=/, "The schedule is invalid. Check its dates and times in Automations."],
     [/answer=not-json|file=unreadable/, "The automation result could not be read. Open Automations to try again."]

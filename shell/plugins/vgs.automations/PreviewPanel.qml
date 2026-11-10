@@ -9,6 +9,7 @@ Section {
 
     property string summary: ""
     property var occurrences: []
+    property bool showSeconds: false
     property int current: 0
 
     width: parent ? parent.width : implicitWidth
@@ -47,7 +48,7 @@ Section {
                     required property int index
                     width: previewColumn.width
                     iconName: "clock"
-                    text: View.formatWhen(modelData)
+                    text: View.formatWhen(modelData, root.showSeconds)
                     highlighted: index === root.current
                     cursor: plate
                     onClicked: root.current = index

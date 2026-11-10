@@ -447,6 +447,12 @@ function sync() {
     }
     const chosen = scheduler();
     if (chosen === "none") refuse("scheduler=none", "neither a systemd user manager nor crontab answered");
+    // The preview reports no cron fields for a seconds rule. Refuse before
+    // writing anything: cron cannot run it at its chosen interval.
+    if (chosen === "cron") {
+        const unsupported = store.automations.find(a => a.enabled && Logic.cronFields(a.schedule).length === 0);
+        if (unsupported) refuse("scheduler=systemd-required id=" + unsupported.id, "cron has no seconds field");
+    }
     const engine = ensureEngine();
     let changed;
     if (chosen === "systemd") {

@@ -231,6 +231,7 @@ FocusScope {
                 }
 
                 PreviewPanel {
+                    showSeconds: page.draft.frequency === "secondly"
                     width: parent.width
                     summary: page.summary
                     occurrences: page.previewRows
