@@ -3,7 +3,8 @@
 # A disposable runtime tree uses neutral core rows, two fatal forms and a
 # consumer of a provider's function/private variable. Each attempt starts
 # real nested Hyprland and VGS; no host session is used. The mutant disables
-# only driver resumption and must lose the following row.
+# only driver resumption, so the rows after the fatal one have no result:
+# its summary must name each unreached and count it as failed.
 # --case resume runs that existing recovery case alone; --case cancellation
 # sends INT, TERM and HUP to the public PID in initial and resumed worlds.
 # --case producer checks the controller's recorded bare executable form.
@@ -471,6 +472,18 @@ def unit_stop(label, fence_source, teardown_source, want_close):
             assert readings[len(core) * 2] == 'stop-here start 0 0 intact', readings
             closed = readings[len(core) * 2 + 1:] == ['- close 0 0 intact']
             assert closed == want_close, ('closing-reading', label, readings)
+            if label == 'shipped':
+                # The stop also ended the attempt's log reader. The driver
+                # traps the stop and writes its summary to this log, not
+                # through that reader: the rows the attempt ended keep their
+                # results, and only the open row stop-here, with no record,
+                # is unreached and counted.
+                text = log_path.read_text()
+                assert re.search(r'^qml-smoke: failed-operation=run-log ', text, re.M), 'log-reader-survived-stop'
+                results = dict(re.findall(r'^qml-smoke: row-result row=(\S+) status=(\S+.*)$', text, re.M))
+                assert all(results.get(row, 'unreached') != 'unreached' for row in core), ('ended-row-unreached', results)
+                assert results.get('stop-here') == 'unreached', ('open-row', results)
+                assert re.search(r'^qml-smoke: failed=1$', text, re.M), 'failed-count'
         except BaseException:
             print(log_path.read_text(), file=sys.stderr)
             raise
@@ -520,9 +533,9 @@ by_row = {name: (state, detail) for name, state, detail in results}
 attempts = [Path(path) / 'run.log' for path in re.findall(r'^qml-smoke: attempt=(.*?) targets=', log, re.M)]
 assert status == {'good': 0, 'not-measured': 77}.get(label, 1), (status, log)
 assert len(results) == len(by_row), results
-if label not in ('no-resume', 'output-refused'):
-    targets = (root.parent / 'tree/scripts/smoke/rows.list').read_text().splitlines()
-    assert set(by_row) == set(targets), (by_row, targets)
+targets = (root.parent / 'tree/scripts/smoke/rows.list').read_text().splitlines()
+assert set(by_row) == set(targets), (by_row, targets)
+unreached = ('unreached', '')
 if label == 'resume':
     for name in ('fatal-unbound', 'fatal-arithmetic'):
         assert by_row[name][0] == 'failed', by_row
@@ -549,7 +562,12 @@ if label == 'resume':
         assert completion['joins'] == {'fence': True, 'reader': True}, completion
     assert '  ok    following-ran' in attempts[-1].read_text(), log
 elif label == 'no-resume':
-    assert 'following' not in by_row, by_row
+    # The mutant ends the loop before the blocking pass: dependent has no
+    # result, so it is unreached rather than blocked.
+    for name in ('following', 'dependent', 'fatal-arithmetic'):
+        assert by_row[name] == unreached, by_row
+    # fatal-unbound's fatal 1 and partial record 2, ordinary 3, unreached 3.
+    assert re.search(r'^qml-smoke: failed=9$', log, re.M), log
     assert '  ok    following-ran' not in log, log
     assert len(attempts) == 1, log
 elif label == 'fatal-core':
@@ -571,13 +589,24 @@ elif label == 'early-zero':
         assert by_row[name] == ('failed', ' cause=incomplete-attempt'), by_row
     assert '  ok    following-ran' not in log, log
     assert len(attempts) == 1, log
+elif label == 'stopped':
+    # An attempt that exits 1 with no fatal Bash error leaves its open row,
+    # which wrote no record, and every later row with no result.
+    for name in ('stopped', 'following', 'ordinary'):
+        assert by_row[name] == unreached, by_row
+    assert by_row['provider'][0] == 'ok', by_row
+    assert '  ok    following-ran' not in log, log
+    assert re.search(r'^qml-smoke: failed=3$', log, re.M), log
+    assert len(attempts) == 1, log
 elif label == 'finish-operation':
     assert all(state == 'ok' for state, _ in by_row.values()), by_row
     assert re.search(r'^qml-smoke: failed=1$', log, re.M), log
     assert len(attempts) == 1, log
     assert (attempts[0].parent / 'outside-failures').read_bytes() == b'1\0', log
 elif label == 'output-refused':
-    assert not by_row, by_row
+    # No world started, so no row has a result.
+    assert all(value == unreached for value in by_row.values()), by_row
+    assert re.search(rf'^qml-smoke: failed={len(targets)}$', log, re.M), log
     assert re.search(r'^gpu-fence: refused: output=.* protected=', log, re.M), log
     assert len(attempts) == 1, log
 else:
@@ -746,6 +775,17 @@ with log_path.open('wb') as stream:
             problems.append('cancellation-not-reported')
         if 'cancel-forbidden-ran' in log:
             problems.append('row-ran-after-cancellation')
+        # The row the stop held open, which wrote no record, and the row
+        # after it have no result; the rows the attempts ended keep theirs.
+        if stop_phase == 'row':
+            row_results = dict(re.findall(r'^qml-smoke: row-result row=(\S+) status=(\S+.*)$', log, re.M))
+            if any(row_results.get(name) != 'unreached' for name in ('cancel-wait', 'cancel-forbidden')):
+                problems.append('unreached-not-named')
+            ended = [name for name in (tree / 'scripts/smoke/rows.list').read_text().splitlines() if not name.startswith('cancel-')]
+            if not ended or any(row_results.get(name, 'unreached') == 'unreached' for name in ended):
+                problems.append('ended-row-unreached')
+            if phase == 'resumed' and row_results.get('cancel-fatal') != 'failed cause=fatal-bash':
+                problems.append('fatal-row-result')
     print(json.dumps({'case': 'cancel-' + phase + '-' + kind, 'public_pid': child.pid, 'exit': child.returncode, 'expected_exit': expected, 'world_roots': list(map(str, roots)), 'before_producers': before, 'problems': problems}), flush=True)
     for line in log_path.read_text(errors='replace').splitlines():
         print('  CONTROL  ' + line)
@@ -885,6 +925,9 @@ run_case good
 printf '# inputs: scripts/smoke/harness.sh\nexit 0\n' >"$tree/scripts/smoke/rows/early-zero.sh"
 printf '%s\n' "${core[@]}" provider early-zero following >"$tree/scripts/smoke/rows.list"
 run_case early-zero
+printf '# inputs: scripts/smoke/harness.sh\nexit 1\n' >"$tree/scripts/smoke/rows/stopped.sh"
+printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
+run_case stopped
 cat >"$tree/scripts/smoke/rows/finish-operation.sh" <<'ROW'
 # inputs: scripts/smoke/harness.sh
 sink_check() { [[ -n ${smoke_row_name:-} ]] || fail planted-final-operation; }

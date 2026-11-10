@@ -63,6 +63,28 @@
 # reads outside-failures for its own count too. What validate keeps of
 # them is in docs/architecture/validation.md § Selection.
 #
+# After its attempts the driver prints one line for each selected row,
+# `qml-smoke: row-result row=<row> status=<status>`: ok, the row's record
+# holds no failure and no unmeasured check; not-measured, it holds an
+# unmeasured check and no failure; failed, it holds a failure, or, with
+# cause=fatal-bash, the row ended its attempt in a fatal Bash error, with
+# cause=incomplete-attempt, an attempt that exited 0 left it unrun, and
+# with cause=record-unreadable, its record cannot be read; blocked
+# producer=<row>, it reads a row that ended in a fatal Bash error, so it
+# did not run; unreached, the driver read no record for it: a stopped or
+# cancelled run never reached it, or left it open before a failed or
+# unmeasured check wrote its partial record, or it ran in an attempt whose
+# completion record failed, whose records the driver does not read. The
+# records of a cancelled attempt, and of one whose run log failed, as a
+# unit's stop ends its reader, are read, so a row it ended keeps its
+# result. Then `qml-smoke: failed=<count>`, the failed checks in the
+# row records and outside every row plus one for each row failed by
+# cause, blocked or unreached, or, for a run that exits 77, `qml-smoke:
+# status=not-measured rows=<row:reason>,...`, where an unreached row is
+# named as <row>:unreached and not counted. A passing run prints
+# `qml-smoke: ok`. A cancelled run then prints `qml-smoke: cancelled
+# signal=<INT|TERM|HUP> status=<status>` and exits that status.
+#
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
 # `run=<i> latency_first_bar_ms=<ms> cpu_some_pct=<pct>
@@ -539,11 +561,6 @@ PY
       break
     fi
     qml_smoke_completions+=("$qml_smoke_completion")
-    ((qml_smoke_cancel_status == 0)) || break
-    if [[ $qml_smoke_log_status != 0 ]]; then
-      qml_smoke_status=1
-      break
-    fi
     if [[ -f $qml_smoke_attempt/outside-failures ]]; then
       mapfile -d '' -t qml_smoke_outside <"$qml_smoke_attempt/outside-failures"
       ((qml_smoke_outside[0] <= qml_smoke_outside_failures)) || qml_smoke_outside_failures=${qml_smoke_outside[0]}
@@ -558,6 +575,14 @@ PY
       fi
     done
     qml_smoke_pending=("${qml_smoke_left[@]}")
+    # A cancelled attempt, or one whose run log failed, as a unit's stop
+    # ends its reader, keeps what its ended rows recorded: run.log holds
+    # only their timings. It resumes nothing and its exit judges no row.
+    if [[ $qml_smoke_log_status != 0 ]]; then
+      qml_smoke_status=1
+      break
+    fi
+    ((qml_smoke_cancel_status == 0)) || break
     qml_smoke_open=""
     [[ ! -f $qml_smoke_attempt/active ]] || read -r qml_smoke_open <"$qml_smoke_attempt/active"
     qml_smoke_diagnostic=""
@@ -617,6 +642,15 @@ PY
     elif [[ -n ${smoke_outcome[$qml_smoke_row]-} ]]; then
       qml_smoke_failures=$((qml_smoke_failures + 1))
       printf 'qml-smoke: row-result row=%s status=failed cause=record-unreadable\n' "$qml_smoke_row"
+    elif [[ " ${qml_smoke_pending[*]} " == *" $qml_smoke_row "* ]]; then
+      # A selected row the run holds no record for has no result. A run
+      # that could not measure names it with what it could not measure.
+      printf 'qml-smoke: row-result row=%s status=unreached\n' "$qml_smoke_row"
+      if ((qml_smoke_status == 77)); then
+        qml_smoke_unmeasured+=("$qml_smoke_row:unreached")
+      else
+        qml_smoke_failures=$((qml_smoke_failures + 1))
+      fi
     fi
   done
   if ((qml_smoke_status == 1 || (qml_smoke_failures > 0 && qml_smoke_status != 77))); then
