@@ -132,7 +132,8 @@ Item {
         }
 
         function test_existing_pairs_preserve_a_saved_choice_before_first_mirror_data() {
-            return [{ tag: "unsaved", saved: undefined, want: false }, { tag: "saved-off", saved: false, want: false }, { tag: "saved-on", saved: true, want: true }];
+            return [{ tag: "unsaved", saved: undefined, want: false }, { tag: "saved-off", saved: false, want: false },
+                { tag: "saved-on", saved: true, want: true }, { tag: "pair-list-repaired", saved: undefined, want: false, invalidFirst: true }];
         }
 
         function test_existing_pairs_preserve_a_saved_choice_before_first_mirror(data) {
@@ -141,6 +142,33 @@ Item {
             selected(data.saved);
             service.act(["start"]);
             compare(running("start"), null, "sync waits for admission");
+            if (data.invalidFirst) {
+                // renderStatus emits this record when readPairs cannot read
+                // the list, before it can decide copy-mode migration.
+                const invalid = pausedRecord();
+                invalid.state = "error";
+                invalid.paused = false;
+                invalid.pairs = [];
+                invalid.lastSuccess = null;
+                invalid.lastError = { kind: "pairs-invalid", detail: "pairs-file=shape" };
+                invalid.attention = { reasons: ["error"], key: "0123456789abcdef", notified: false };
+                service.accept(JSON.stringify(invalid));
+                compare(service.modeAdmission, "pending");
+                compare(service.modeConfirmed, null);
+                compare(root.configured, []);
+                compare(ProcessRegistry.runningWithVerb("service-mode").length, 0);
+                compare(running("start"), null);
+                compare(service.problem, "");
+                compare(service.heldReason, "");
+                compare(lastValue("pairList").tone, "danger");
+                compare(lastValue("pairList").action, true);
+                compare(lastValue("cloud").lastError.kind, "pairs-invalid");
+                compare(lastValue("cloud").modePending, true);
+                const callout = Logic.problemCallout(lastValue("cloud"), Date.now());
+                compare(callout.tone, "danger");
+                compare(callout.action.tui, "reset-pairs");
+            }
+            const beforeAdmissionCloud = lastValue("cloud");
             const old = needsSetup();
             old.copyModeMigration = true;
             service.accept(JSON.stringify(old));
@@ -148,7 +176,7 @@ Item {
             compare(root.savedChoice, data.want);
             compare(running("service-mode").command.slice(1), ["service-mode", data.want ? "true" : "false"]);
             compare(root.notifications.length, 0, "the pre-admission record sends no stopped notice");
-            compare(lastValue("cloud"), undefined, "the pre-admission record is not published");
+            compare(lastValue("cloud"), beforeAdmissionCloud, "the pre-admission record is not published");
             running("service-mode").finish(0, 0, "", "");
             compare(running("start"), null, "sync waits for the confirmed status");
             settleReads();

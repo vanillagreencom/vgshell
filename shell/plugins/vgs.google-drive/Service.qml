@@ -299,9 +299,10 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        // The first record predates the mode admission. Do not show an
-        // upgrade as stopped before the runner has accepted the saved mode.
-        const admittedRecord = modeAdmission === "ready" ? record : null;
+        // Keep an upgrade's old stopped snapshot hidden until the runner
+        // accepts the saved mode. Its pairs-invalid record needs no mode
+        // choice to show the pair-list repair while admission stays held.
+        const admittedRecord = modeAdmission === "ready" || (record !== null && !Logic.pairListValid(record)) ? record : null;
         if (record !== null && admittedRecord === null && problem === "" && heldReason === "") return;
         // A later control failure or success cannot erase an unreadable
         // status result. Only the watch's next accepted read replaces it.

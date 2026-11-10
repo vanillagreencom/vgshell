@@ -63,7 +63,7 @@ next() {
 }
 case "\$1" in
   input | choose) next; printf '\n' ;;
-  confirm) [[ \$(next) == yes ]] ;;
+  confirm) printf 'CONFIRM_PROMPT_STDERR\n' >&2; [[ \$(next) == yes ]] ;;
   *) printf '%s\n' "\$*" ;;
 esac
 SH
@@ -91,6 +91,9 @@ case "\$1" in
   pair-remove) echo "removed=\$2" ;;
   sign-out) echo "signed-out=\$2" ;;
   initialize)
+    if [[ \$mode == initialize-confirm ]]; then
+      "\$BASH" "\$VGS_PLUGIN_DIR/tui/initialize-confirm.sh" || exit \$?
+    fi
     if [[ \$mode == initialize-fail ]]; then
       echo 'Rename or remove the duplicate names in Drive before trying again: vgsdrive:Docs/reports/photo.jpg.'
       echo 'google-drive: refused: initialize=listing-ambiguous path="vgsdrive:Docs/reports/photo.jpg"' >&2
@@ -234,6 +237,12 @@ case_initialize_keeps_the_runners_explanation() {
     shows 'Rename or remove the duplicate names in Drive before trying again: vgsdrive:Docs/reports/photo.jpg.' &&
     ! shows 'initialize=listing-ambiguous' && grep -q -F 'initialize=listing-ambiguous' -- "$log"
 }
+# The wrapper logs diagnostics, while the real private confirmation child
+# must still give gum a visible terminal for its stderr prompt.
+case_initialize_confirmation_is_visible() {
+  tui "$plugin/tui/initialize.sh" initialize-confirm yes docs
+  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["initialize", "--pair", "docs"]]' ]] && shows CONFIRM_PROMPT_STDERR
+}
 case_refuses_an_argument() {
   local script
   for script in setup add-pair connect sign-out; do
@@ -254,6 +263,7 @@ CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_con
   case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
   case_initialize_routes_the_selected_pair:initialize
   case_initialize_keeps_the_runners_explanation:initialize
+  case_initialize_confirmation_is_visible:initialize-confirm
   case_refuses_an_argument:setup)
 copy_scripts
 for entry in "${CASES[@]}"; do
@@ -277,6 +287,10 @@ CONTROL_CASES+=(case_initialize_keeps_the_runners_explanation)
 CONTROL_SCRIPTS+=(initialize)
 CONTROL_NEEDLES+=('"$runner" initialize --pair "$selected" 2>>"$log"')
 CONTROL_REPLACEMENTS+=('"$runner" initialize --pair "$selected"')
+CONTROL_CASES+=(case_initialize_confirmation_is_visible)
+CONTROL_SCRIPTS+=(initialize-confirm)
+CONTROL_NEEDLES+=('if [[ -t 1 ]]; then exec 2>&1; fi')
+CONTROL_REPLACEMENTS+=(':')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"

@@ -3209,6 +3209,10 @@ async function twoWayControl(name, from, to, fn, assertion) {
 }
 
 async function controls() {
+    await twoWayControl("planned comparison ignores directory metadata",
+        'items.map(list => view(list, true))',
+        'items.map(list => list.map(i => [i.Path, i.IsDir, i.Size, listedMd5(i), i.IsDir ? null : Date.parse(i.ModTime)]))',
+        r => caseInitializationPreparation(r, "download"), "download:");
     await twoWayControl("preserving setup needs matching download time",
         'base.export === true && base.mtimeMs === Math.floor(st.mtimeMs)', 'base.export === true',
         r => caseInitializationPreparation(r, "historical-edited"), "historical-edited:");

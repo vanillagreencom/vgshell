@@ -1506,7 +1506,11 @@ function equalSet(pair, env, secrets, lock, address, evidence, prepare = false) 
             return { ok: false, kind: "comparison-incomplete", path: root };
         listings.push(listing.items.sort((a, b) => a.Path.localeCompare(b.Path)));
     }
-    const view = items => items.map(i => [i.Path, i.IsDir, i.IsDir ? null : i.Size, i.IsDir ? null : listedMd5(i)]);
+    // Moving a child changes a directory's backend size. Both admission
+    // and the planned-result recheck compare only its path and kind.
+    const view = (items, includeTimes = false) => items.map(i =>
+        [i.Path, i.IsDir, i.IsDir ? null : i.Size, i.IsDir ? null : listedMd5(i)]
+            .concat(includeTimes ? [i.IsDir ? null : Date.parse(i.ModTime)] : []));
     if (listings.some(items => items.some(i => i.Path === "RCLONE_TEST" && i.IsDir)))
         return { ok: false, kind: "access-path-occupied", path: pair.local + "/RCLONE_TEST and " + remotePath(pair) + "/RCLONE_TEST" };
     const sentinels = listings.map(items => items.find(i => !i.IsDir && i.Path === "RCLONE_TEST"));
@@ -1529,7 +1533,7 @@ function equalSet(pair, env, secrets, lock, address, evidence, prepare = false) 
     if (matched.some(line => !line.startsWith("= ")) || JSON.stringify(matched.map(line => line.slice(2)).sort()) !== JSON.stringify(paths))
         return { ok: false, kind: "comparison-incomplete" };
     const nativeView = native.items.filter(i => !i.IsDir && i.Size === -1).sort((a, b) => a.Path.localeCompare(b.Path));
-    const fingerprint = items => JSON.stringify([identity.binding, items.map(list => list.map(i => [i.Path, i.IsDir, i.Size, listedMd5(i), i.IsDir ? null : Date.parse(i.ModTime)])), nativeView, evidence.fingerprint]);
+    const fingerprint = items => JSON.stringify([identity.binding, items.map(list => view(list, true)), nativeView, evidence.fingerprint]);
     return { ok: true, binding: identity.binding, moves: moves, access: access, listings: listings,
         fingerprint: fingerprint(listings), fingerprintFor: fingerprint };
 }
