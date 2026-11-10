@@ -159,6 +159,11 @@ function rig(kit, server, options = {}) {
             executions.push(call);
             done(options.fleet);
         } });
+    if (options.forward) router.register("satellite", { commands: [], timeoutMs: 30000, cancellable: false, available: () => true,
+        start(call, done) {
+            executions.push(call);
+            done(options.forward);
+        } });
     // The fleet route the case changes between turns: the main's session
     // takes fleet.request, a satellite's package fleet.forward.
     if (options.route) {
@@ -1945,27 +1950,31 @@ async function cases(kit, server, only = null, mutation = false) {
     // A request handed to the Jarvis session's mailbox: a completed one is
     // Jarvis's fixed line, captioned and spoken once whatever the brain
     // says after it; any other result leaves the words to the brain.
-    const ASKING = "Asking Jarvis's session.";
+    const ASKING = "Let me check my main brain for that.";
     const FLEET_ROW = { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000001." };
-    for (const [name, result, reply, spoken] of [
+    for (const [name, result, reply, spoken, route = "request"] of [
         ["completed-echo", FLEET_ROW,
-            "Asking Jarvis's session. It reads its mail next.", [ASKING, "It reads its mail next."]],
+            "Let me check my main brain for that. It reads its mail next.", [ASKING, "It reads its mail next."]],
         ["completed-silent", { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000002." },
             "", [ASKING]],
         ["failed", { outcome: "failed", content: "fleet-request:mail-tool-absent" },
             "The mail tool is missing.", ["The mail tool is missing."]],
         ["unknown", { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt." },
-            "I could not confirm the request.", ["I could not confirm the request."]]
-    ]) await run("fleet-request-" + name, async w => {
+            "I could not confirm the request.", ["I could not confirm the request."]],
+        ["completed-echo", { outcome: "completed", content: "Completed: the request reached Jarvis main." },
+            "Let me check my main brain for that. It reads its mail next.", [ASKING, "It reads its mail next."], "forward"],
+        ["completed-silent", { outcome: "completed", content: "Completed: the request reached Jarvis main." },
+            "", [ASKING], "forward"]
+    ]) await run("fleet-" + route + "-" + name, async w => {
         const first = await say(w, utterance("Ask my fleet to update the docs."));
-        server.replies.push(calls({ id: "call_fleet", name: "fleet_request", arguments: { text: "Update the docs." } }), text(reply));
+        server.replies.push(calls({ id: "call_fleet", name: "fleet_" + route, arguments: { text: "Update the docs." } }), text(reply));
         await w.observed(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(1000);
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
         const body = await requested(w, first + 2, "the result reaches the brain");
-        assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet.request", { text: "Update the docs." }]]);
+        assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet." + route, { text: "Update the docs." }]]);
         assert.equal(body.messages.find(message => message.role === "tool").content, result.content, "the row id stays in the result");
         await until(() => w.s().turn.kind === "none", "the turn completes");
         await playOut(w);
@@ -1973,7 +1982,7 @@ async function cases(kit, server, only = null, mutation = false) {
         const said = withoutAcks(assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u));
         assert.deepEqual(said, spoken, "the transcript shows what was spoken");
         assert.deepEqual(w.faults, []);
-    }, { fleet: result });
+    }, route === "forward" ? { forward: result } : { fleet: result });
 
     // The brain's tools follow the fleet route: a satellite reading that
     // changes between two turns hands the next turn the other fleet tool.
@@ -4116,7 +4125,12 @@ async function groupPlants(root, server) {
         ["not-started", 'return router.interrupted(call, turn.routing === call ? "running" : "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
         ["late-replaced-brain", "if (running !== undefined) c.late.set(", "if (running !== undefined && c.brainOwner.value === cancelled) c.late.set(", "stale-outcome-replaced"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
-        ["fleet-line-absent", '"fleet.request": { completed: "Asking Jarvis\'s session." },', "", "fleet-request-completed-silent"],
+        ["fleet-line-absent", '"fleet.request": { completed: "Let me check my main brain for that." },', "", "fleet-request-completed-silent"],
+        ["fleet-request-old-words", '"fleet.request": { completed: "Let me check my main brain for that." }',
+            '"fleet.request": { completed: "Asking Jarvis\'s session." }', "fleet-request-completed-silent"],
+        ["fleet-forward-old-words", '"fleet.forward": { completed: "Let me check my main brain for that." }',
+            '"fleet.forward": { completed: "Forwarding to your main Jarvis." }', "fleet-forward-completed-silent"],
+        ["fleet-forward-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-forward-completed-echo"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
         ["fleet-resume-route-kept", "fleetRoute(router.offer()) !== c.fleet", "c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet", "fleet-route-resume"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],

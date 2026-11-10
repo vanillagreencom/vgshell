@@ -44,6 +44,82 @@ function quietTools(logic) {
     }
 }
 quietTools(Guidance);
+// The owner directives in VGS-2446 are the contract for the instructions
+// delivered to each brain, even without a home persona. This checks the
+// product's instruction text, not compliance by a real model.
+const brainConsumers = [
+    ["chained", "text"], ["chained", "local"], ["duplex", "text"], ["duplex", "local"]
+];
+function identity(logic) {
+    for (const [engine, brain] of brainConsumers) {
+        const text = logic.compose(engine, brain, "en", null).instructions;
+        const who = "You are Jarvis, one assistant everywhere.";
+        assert.equal(text.split(who).length - 1, 1, engine + " " + brain + ": one identity");
+        assert.equal(/\bJarvis\b/i.test(text.replace(who, "")), false, "no other party named Jarvis");
+        for (const words of [
+            "Speak in the first person.", 'Call the long-running session "my main brain".',
+            'call yourself "the voice brain"', "never describe the session as another assistant",
+            'you already say "Let me check my main brain for that.": do not say the hand-off again'
+        ]) assert.ok(text.includes(words), engine + " " + brain + ": " + words);
+    }
+}
+function replyEnding(logic) {
+    for (const [engine, brain] of brainConsumers) {
+        const text = logic.compose(engine, brain, "en", null).instructions;
+        for (const words of [
+            "End a reply where its answer ends.", "Give no greeting or sign-off.",
+            "Add no closing offer and no question about more help.",
+            "Keep a question the user must answer to go on."
+        ]) assert.equal(text.split(words).length - 1, 1, engine + " " + brain + ": " + words);
+        assert.equal(/(?:^|[.!?]\s+)(?:(?:offer|ask)[^.]*more help|(?:close|end)[^.]*with a question)/im.test(text), false,
+            engine + " " + brain + ": no generic help offer or closing question");
+        assert.ok(text.includes("Only when you actually cut an answer short, give a spoken summary and offer to show the rest as one plain statement after the answer, never a question."),
+            "only an actually cut answer offers its unheard rest, as a statement");
+        if (engine === "chained") {
+            assert.ok(text.includes("Only when you actually withhold exact identifiers, offer to show exact identifiers as one plain statement after the answer, never a question, instead of reading symbols or paths."),
+                "only actually withheld identifiers get a statement offering to show them");
+            assert.ok(text.includes("On silence, ask only whether the user is still there, once, then close."),
+                "silence asks only about presence");
+        }
+    }
+}
+identity(Guidance);
+replyEnding(Guidance);
+world("jg-spoken", root => {
+    const oldFleet = "Hand a request for the user's agent fleet to the mailbox of the user's Jarvis session, the session that runs it, through the offered fleet request tool, in the user's own words, one request a turn. When the request is in the mailbox, Jarvis already says that it is asking the session: do not say the hand-off again. The row id stays in the result; give it whole, every digit of it, only when the user asks for it. When the request failed or is unknown, say so from the result. The session acts on the request when it next reads its mail: do not say that it has the request or has started. Jarvis Voice delivers the session's answer when it arrives on Jarvis main. Where the forward tool is offered instead, hand the request to Jarvis main through it in the user's own words; Jarvis already says that it is forwarding, so do not say it again. State only the delivery the tool result confirms; never direct the user to Slack for the answer.";
+    const oldSpeech = "# Speech\n\nSpeak one or two short sentences a turn. Give a spoken summary and offer to show the rest. Read no list, table, code, markdown, URL, path or symbol aloud.\n\nSay numbers, units, dates and times as a person says them in the selected language. Do not spell a web address or a file path. Name the site or the file's purpose instead.\n";
+    for (const [name, edits, check] of [
+        ["old-fleet-identity", [["actions.md", /^Hand a request[^\n]+$/m, oldFleet]], identity],
+        ["old-duplex-ending", [["speech.md", /^[\s\S]+$/, oldSpeech],
+            ["actions.md", /^Hand a request[^\n]+$/m, oldFleet]],
+            logic => {
+                for (const brain of ["text", "local"])
+                    assert.ok(logic.compose("duplex", brain, "en", null).instructions.includes("End a reply where its answer ends."),
+                        "duplex delegation must receive the closing rule without turns.md");
+            }],
+        ["unconditional-rest-offer", [["speech.md", /Only when you actually cut an answer short, /, ""]], replyEnding],
+        ["rest-offer-question", [["speech.md", /as one plain statement after the answer, never a question/, "as a question after the answer"]], replyEnding],
+        ["unconditional-identifier-offer", [["lang/en.md", /Only when you actually withhold exact identifiers, /, ""]], replyEnding],
+        ["identifier-offer-question", [["lang/en.md", /as one plain statement after the answer, never a question/, "as a question after the answer"]], replyEnding],
+        ["generic-help-offer", [["speech.md", /Read no list/, "Offer more help. Read no list"]], replyEnding],
+        ["closing-question", [["speech.md", /Read no list/, "End with a question. Read no list"]], replyEnding],
+        ["silence-help-offer", [["turns.md", /ask only whether the user is still there/, "ask whether the user needs more help"]], replyEnding]
+    ]) {
+        const copy = path.join(root, name);
+        fs.cpSync(backend, copy, { recursive: true });
+        for (const [layer, needle, replacement] of edits) {
+            const file = path.join(copy, "skills/voice", layer);
+            const source = fs.readFileSync(file, "utf8");
+            assert.equal([...source.matchAll(new RegExp(needle.source, needle.flags + "g"))].length, 1, name + " mutation match");
+            const changed = source.replace(needle, replacement);
+            assert.notEqual(changed, source, name + " changes the disposable layer");
+            fs.writeFileSync(file, changed);
+        }
+        assert.throws(() => check(require(path.join(copy, "Guidance.js"))), assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
+});
 world("jg", root => {
     for (const [name, layer, needle, replacement] of [
         ["tool-step", "core.md", "Before a tool call, write only one short `<step>` element", "Before a tool call, write prose"],

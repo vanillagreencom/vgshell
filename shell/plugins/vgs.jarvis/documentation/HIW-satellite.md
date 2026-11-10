@@ -21,7 +21,7 @@ VGS hands this setting to the Jarvis package in your Jarvis home, so a satellite
 
 On a satellite, Jarvis Voice still does local work itself: windows, applications, files, the screen, the private browser and coding tasks, which run on the satellite in its task terminal. [What can Jarvis Voice's AI model read and do?](HIW-ai-model.md) explains that work.
 
-Work that needs Jarvis goes to Jarvis main. A request to your agent fleet or about one of your accounts is one example. Jarvis Voice shows the request's text and asks you to confirm the forward, every time, by voice or on screen. It then hands the text to the Jarvis package and says "Forwarding to your main Jarvis". The forward carries your request's words only. It does not say who spoke, and your confirmation approves the forward alone, not any action on Jarvis main.
+Work that needs Jarvis goes to Jarvis main. A request to your agent fleet or about one of your accounts is one example. Jarvis Voice shows the request's text and asks you to confirm the forward, every time, by voice or on screen. It then hands the text to the Jarvis package and says "Let me check my main brain for that." In speech, Jarvis Voice calls Jarvis's long-running session "my main brain". The forward carries your request's words only. It does not say who spoke, and your confirmation approves the forward alone, not any action on Jarvis main.
 
 ## Delivery and the answer
 

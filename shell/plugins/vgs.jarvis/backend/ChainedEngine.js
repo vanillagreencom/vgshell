@@ -1606,8 +1606,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // arrives, whatever the brain then says; any other result is the
     // brain's to state. A wire brain's call arrives at outcome, a harness
     // program's at bridged. Answers false when saying it failed the turn.
-    const CALL_LINES = { "fleet.request": { completed: "Asking Jarvis's session." },
-        "fleet.forward": { completed: "Forwarding to your main Jarvis." } };
+    const CALL_LINES = { "fleet.request": { completed: "Let me check my main brain for that." },
+        "fleet.forward": { completed: "Let me check my main brain for that." } };
     function callLine(c, turn, tool, outcome) {
         const text = CALL_LINES[tool]?.[outcome];
         if (text === undefined) return true;

@@ -41,7 +41,7 @@ function answerLine(item) {
     // tables and tool status do not become spoken instructions.
     const speech = Speakable.create("en", { tools: Object.keys(Tools.TABLE) });
     const words = [...speech.push(text), ...speech.finish()].join(" ");
-    return words === "" ? null : Policy.summary((long ? "Jarvis's answer, in brief: " : "Jarvis answered: ") + words, [item]);
+    return words === "" ? null : Policy.summary((long ? "From my main brain, in brief: " : "From my main brain: ") + words, [item]);
 }
 
 // The agent's text as one sentence of Jarvis's line.

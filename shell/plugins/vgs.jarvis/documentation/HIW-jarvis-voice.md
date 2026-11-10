@@ -1,6 +1,6 @@
 # How does Jarvis Voice work with Jarvis?
 
-Jarvis Voice is the voice session this plugin runs on your computer. Each conversation has its own AI model, which reads your Jarvis home, answers you and acts on this computer after the action check. Jarvis is a separate long-running session. Work that needs Jarvis goes to it, on Jarvis main or, from a Jarvis satellite, by a forward.
+Jarvis Voice is the voice session this plugin runs on your computer. Each conversation has its own AI model, which reads your Jarvis home, answers you and acts on this computer after the action check. Jarvis also runs as a long-running session. Work that needs that session goes to it, on Jarvis main or, from a Jarvis satellite, by a forward.
 
 ```mermaid
 flowchart TD
@@ -18,7 +18,7 @@ flowchart TD
 
 ## The conversation
 
-Talk opens a conversation. You speak, or type in the Console. Jarvis Voice asks the AI model of the Account you chose on Settings. That model holds only this conversation. It is not Jarvis, and it does not share Jarvis's conversation. Voice and typing work whether Jarvis runs or not. [What can Jarvis Voice's AI model read and do?](HIW-ai-model.md) explains the model and the action check.
+Talk opens a conversation. You speak, or type in the Console. Jarvis Voice asks the AI model of the Account you chose on Settings. That model holds only this conversation, separate from Jarvis's long-running session. Voice and typing work whether that session runs or not. [What can Jarvis Voice's AI model read and do?](HIW-ai-model.md) explains the model and the action check.
 
 ## Who does the work
 
@@ -26,7 +26,7 @@ The conversation's AI model does work on this computer itself: windows, applicat
 
 Coding work goes to a coding task. The task runs on this computer, in the terminal that Task terminal on Settings chooses, on Jarvis main and on a Jarvis satellite alike. You confirm its folder, agent and permission mode before it starts. The Console lists each task, and Jarvis Voice tells you when the agent reports done or failed, or stops and waits.
 
-Work that needs Jarvis goes to Jarvis, after you confirm it. A request to your agent fleet or about one of your accounts is one example. On Jarvis main, Jarvis Voice puts the request in Jarvis's mailbox and says "Asking Jarvis's session". Jarvis acts on it when it next reads its mail. On a Jarvis satellite, Jarvis Voice forwards the request to Jarvis main instead: [How does a Jarvis satellite reach Jarvis main?](HIW-satellite.md) explains the forward. Jarvis then works under its own rules, which [How does Jarvis use my computer and accounts?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-tools.md) explains.
+Work that needs Jarvis goes to Jarvis, after you confirm it. A request to your agent fleet or about one of your accounts is one example. On Jarvis main, Jarvis Voice puts the request in Jarvis's mailbox and says "Let me check my main brain for that." In speech, Jarvis Voice calls Jarvis's long-running session "my main brain". Jarvis acts on it when it next reads its mail. On a Jarvis satellite, Jarvis Voice forwards the request to Jarvis main instead: [How does a Jarvis satellite reach Jarvis main?](HIW-satellite.md) explains the forward. Jarvis then works under its own rules, which [How does Jarvis use my computer and accounts?](https://github.com/vanillagreencom/kendex/blob/main/skills/jarvis/documentation/HIW-tools.md) explains.
 
 ## What each side keeps
 
@@ -38,7 +38,7 @@ Both read the same Jarvis home, the folder Home folder names. [What belongs in m
 
 ## The answer
 
-On Jarvis main, Jarvis Voice watches for Jarvis's answer to a request it handed over. When a conversation is open, it speaks the answer, or its opening, at the next pause. Otherwise it shows a notification that Jarvis answered. On a Jarvis satellite, Jarvis main's answer arrives in your Slack channel.
+On Jarvis main, Jarvis Voice watches for Jarvis's answer to a request it handed over. When a conversation is open, it speaks the answer at the next pause, starting with "From my main brain:". A long answer starts with "From my main brain, in brief:" and gives its opening. Otherwise it shows a notification that Jarvis answered. On a Jarvis satellite, Jarvis main's answer arrives in your Slack channel.
 
 ## Your choices
 

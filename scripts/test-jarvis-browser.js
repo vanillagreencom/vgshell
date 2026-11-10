@@ -409,14 +409,14 @@ world(async () => {
         s.gen = 1; s.gate = { kind: "up" }; s.conversation = { kind: "active" };
         return s;
     }
-    async function answerChannels() {
+    async function answerChannels(Voice = TaskVoice) {
         const body = "The change is ready. The private answer is complete.";
         const notice = ["Jarvis Voice", "Jarvis answered your request"];
         for (const channel of ["idle", "busy", "closed", "changed", "withheld"]) {
             const s = idleState(), spoken = [], notes = [], deferred = [];
             if (channel === "closed") s.conversation = { kind: "ended" };
             if (["busy", "changed"].includes(channel)) s.turn = { kind: "thinking" };
-            const voice = TaskVoice.create({ session: Session, state: () => s, dispatch: e => spoken.push(e),
+            const voice = Voice.create({ session: Session, state: () => s, dispatch: e => spoken.push(e),
                 notify: (title, text) => { notes.push([title, text]); return Promise.resolve({ kind: "exited", code: 0 }); },
                 log() {}, defer: fn => deferred.push(fn) });
             try {
@@ -438,24 +438,31 @@ world(async () => {
                 assert.deepEqual(notes, ["closed", "changed", "withheld"].includes(channel) ? [notice] : [], channel);
                 if (!["closed", "changed"].includes(channel)) {
                     assert.equal(spoken.length, 1, channel + " dispatches one relay");
-                    assert.equal(spoken[0].text, "Jarvis answered: " + body, "the short answer is the spoken result");
+                    assert.equal(spoken[0].text, "From my main brain: " + body, "the short answer is the spoken result");
                     assert.deepEqual(spoken[0].labels, ["file", "agent"], "a summary keeps every contributing label");
                 } else assert.equal(spoken.length, 0, channel + " never opens a conversation");
             } finally { voice.close(); }
         }
         const s = idleState(), events = [];
-        const voice = TaskVoice.create({ session: Session, state: () => s, dispatch: e => events.push(e),
+        const voice = Voice.create({ session: Session, state: () => s, dispatch: e => events.push(e),
             notify() { assert.fail("a speakable summary does not notify"); }, log() {} });
         try {
             voice.answer(Policy.item("The repair is complete. " + "More detail follows. ".repeat(100) + "UNSPOKEN_TAIL", ["agent"]));
             await flush();
             assert.equal(events.length, 1);
-            assert.ok(events[0].text.startsWith("Jarvis's answer, in brief: The repair is complete."));
+            assert.ok(events[0].text.startsWith("From my main brain, in brief: The repair is complete."));
             assert.ok(events[0].text.length <= 850 && !events[0].text.includes("UNSPOKEN_TAIL"), "long answers take an opening summary");
             assert.deepEqual(events[0].labels, ["agent"]);
         } finally { voice.close(); }
     }
     await answerChannels();
+    // Spoken result text follows the owner directive; the on-screen
+    // notification keeps its approved name. No model API is involved.
+    for (const [name, needle, replacement] of [
+        ["answer-old-short-prefix", '"From my main brain: "', '"Jarvis answered: "'],
+        ["answer-old-summary-prefix", '"From my main brain, in brief: "', '"Jarvis\'s answer, in brief: "'],
+        ["answer-notification-renamed", '"Jarvis answered your request"', '"My main brain answered your request"']
+    ]) await mutant(path.join(backend, "TaskVoice.js"), name, needle, replacement, answerChannels);
 
     // Prompt ownership outlives its playback. A main answer must not make
     // the next words look like a follow-up while a task still consumes them.
@@ -481,7 +488,7 @@ world(async () => {
                     deferred.shift()();
                     assert.equal(spoken.length, 2);
                     assert.equal(spoken[1].ask, null);
-                    assert.equal(spoken[1].text, "Jarvis answered: The main request is complete.");
+                    assert.equal(spoken[1].text, "From my main brain: The main request is complete.");
                 } else {
                     s.conversation = { kind: "ended" };
                     voice.session();
