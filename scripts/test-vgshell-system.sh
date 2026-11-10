@@ -432,7 +432,7 @@ boot_b=99999999-8888-7777-6666-555555555555
 # no operator, greetd installed and disabled with no display manager
 # enabled, and every record cleared.
 fresh() {
-  rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "${root:?}/usr/share" "$tmp/units"
+  rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "${root:?}/nix" "${root:?}/usr/share" "$tmp/units"
   mkdir -p "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd/system" "$root/dev" "$root/var/lib" "$root/proc/sys/kernel/random" "$tmp/units"
   chmod 0755 "$root/etc" "$root/etc/udev" "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd" "$root/etc/systemd/system" "$root/var" "$root/var/lib"
   rm -rf -- "${root:?}/usr/local" "${tmp:?}/nft.log"; mkdir -p "$root/usr/local/bin"; chmod 0755 "$root/usr/local" "$root/usr/local/bin"
@@ -1898,6 +1898,7 @@ while IFS='|' read -r step unit snippet; do
   check "nixos apply of a missing $unit reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=$step skipped=nixos-config"
   check "nixos apply of a missing $unit prints its snippet" test "$(tail -n 1 "$tmp/out")" == "$snippet"
   check "nixos apply of a missing $unit writes nothing" untouched
+  check "nixos apply of a missing $unit runs no sudo" no_sudo
 done <<'ROWS'
 service-bluetooth|bluetooth.service|hardware.bluetooth.enable = true;
 service-tailscaled|tailscaled.service|services.tailscale.enable = true;
@@ -1908,7 +1909,7 @@ fresh
 run_nixos "nixos undo" 0 "" "$nixos_path:$caller:/usr/bin:/bin" undo service-bluetooth
 check "nixos undo reports the skip" test "$(head -n 1 "$tmp/out")" == "ok system=service-bluetooth skipped=nixos-config"
 check "nixos undo writes nothing" untouched
-check "nixos rows run no sudo" no_sudo
+check "nixos undo runs no sudo" no_sudo
 run_nixos "a failed detection fails apply" 1 "vgs-system: refused: system=undetected exit=127" "$nixos_path:$no_node_path" apply apple-displays
 check "a failed detection writes nothing" untouched
 run_nixos "a failed detection reads needed steps unknown" 0 "" "$nixos_path:$no_node_path" status --json
@@ -2144,12 +2145,76 @@ run "dns-custom with no terminal is refused at the question" 2 "*" apply dns-cus
 
 # What the steps cannot judge reads unknown, and a drop-in VGS did not
 # write reads denied; apply refuses each before any sudo.
-fresh; dns_fixture; rm -f -- "$tmp/units/systemd-resolved.service.active"
-check "an inactive resolved reads unknown" test "$(step_state dns-cloudflare)" == "unknown resolved-inactive"
-run "apply refuses while resolved is inactive" 1 "vgs-system: refused: state=unknown reason=resolved-inactive step=dns-cloudflare" apply dns-cloudflare
-fresh; dns_fixture; rm -f -- "$root/etc/resolv.conf"; printf 'nameserver 192.168.1.1\n' >"$root/etc/resolv.conf"
-check "a resolv.conf that is not resolved's stub reads unknown" test "$(step_state dns-google)" == "unknown resolv-conf-not-stub"
-run "apply refuses past resolved's stub" 1 "vgs-system: refused: state=unknown reason=resolv-conf-not-stub step=dns-google" apply dns-google
+# A stopped resolver, or a resolv.conf that bypasses it, reads unknown and
+# refuses apply. On NixOS each DNS step's snippet enables resolved, which
+# starts it and links resolv.conf to its stub, so both read nixos and apply
+# prints the lines alone.
+dns_resolver_off() { # REASON
+  fresh; dns_fixture
+  case "$1" in
+    resolved-inactive) rm -f -- "$tmp/units/systemd-resolved.service.active" ;;
+    resolv-conf-not-stub) rm -f -- "$root/etc/resolv.conf"; printf 'nameserver 192.168.1.1\n' >"$root/etc/resolv.conf" ;;
+  esac
+}
+for dns_reason in resolved-inactive resolv-conf-not-stub; do
+  dns_resolver_off "$dns_reason"
+  run "status with $dns_reason" 0 "" status --json
+  cp -- "$tmp/out" "$tmp/dns-status"
+  run_nixos "nixos status with $dns_reason" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+  cp -- "$tmp/out" "$tmp/dns-nixos-status"
+  while IFS='|' read -r step want4 want6; do
+    cp -- "$tmp/dns-status" "$tmp/out"
+    check "$dns_reason reads $step unknown" test "$(nixos_step_state "$step")" == "unknown $dns_reason"
+    run "apply of $step refuses with $dns_reason" 1 "vgs-system: refused: state=unknown reason=$dns_reason step=$step" apply "$step"
+    cp -- "$tmp/dns-nixos-status" "$tmp/out"
+    check "nixos reads $step with $dns_reason as nixos" test "$(nixos_step_state "$step")" == "nixos $dns_reason"
+    run_nixos "nixos apply of $step with $dns_reason" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply "$step"
+    check "nixos apply of $step with $dns_reason reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=$step skipped=nixos-config"
+    check "nixos apply of $step with $dns_reason enables resolved" out_has 'services.resolved.enable = true;'
+    check "nixos apply of $step with $dns_reason names its servers" last_out_is "#   nmcli connection modify <profile> ipv4.ignore-auto-dns yes ipv4.dns \"$want4\" ipv6.ignore-auto-dns yes ipv6.dns \"$want6\""
+    check "nixos apply of $step with $dns_reason writes nothing" untouched
+  done <<DNSSTEPS
+dns-cloudflare|$cf4|$cf6
+dns-google|$g4|$g6
+dns-custom|<your IPv4 servers>|<your IPv6 servers>
+DNSSTEPS
+  check "the $dns_reason rows run no sudo" no_sudo
+done
+# Any other DNS reading keeps it on NixOS too: unreadable profiles are no
+# reading the configuration grants, and the DNS lines do not install or
+# start NetworkManager.
+while IFS='|' read -r dns_case want_state want_reason; do
+  fresh; dns_fixture
+  case "$dns_case" in
+    profiles-unreadable) touch "$tmp/nm-down" ;;
+    networkmanager-stopped) rm -f -- "$tmp/units/NetworkManager.service.active" ;;
+  esac
+  run_nixos "nixos status with $dns_case" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+  check "nixos keeps dns-cloudflare with $dns_case $want_state" test "$(nixos_step_state dns-cloudflare)" == "$want_state $want_reason"
+  run_nixos "nixos apply refuses with $dns_case" 1 "vgs-system: refused: state=$want_state reason=$want_reason step=dns-cloudflare" "$nixos_path:$caller:/usr/bin:/bin" apply dns-cloudflare
+  check "the nixos $dns_case rows write nothing" untouched
+  check "the nixos $dns_case rows run no sudo" no_sudo
+done <<'DNSKEPT'
+profiles-unreadable|unknown|nmcli-failed
+networkmanager-stopped|absent|networkmanager-inactive
+DNSKEPT
+# NixOS links /etc/resolv.conf to /etc/static/resolv.conf, /etc/static to
+# the generation's etc tree, and that tree's entry to the stub
+# (nixos/modules/system/etc/setup-etc.pl and etc.nix). The stand-in links
+# are relative so that they stay in the tree. A chain that ends at
+# resolved's other file, which bypasses its stub, is still not the stub.
+dns_etc_static() { # TARGET: the NixOS chain, its last link to TARGET
+  fresh; dns_fixture
+  mkdir -p "$root/nix/store/0000-etc/etc"
+  ln -sfn -- "../../../../$1" "$root/nix/store/0000-etc/etc/resolv.conf"
+  ln -s -- ../nix/store/0000-etc/etc "$root/etc/static"
+  rm -f -- "$root/etc/resolv.conf"; ln -s -- static/resolv.conf "$root/etc/resolv.conf"
+}
+dns_etc_static run/systemd/resolve/stub-resolv.conf
+check "a chain of links that ends at resolved's stub reads past it" test "$(step_state dns-cloudflare)" == "needed foreign"
+dns_etc_static run/systemd/resolve/resolv.conf
+: >"$root/run/systemd/resolve/resolv.conf"
+check "a chain of links that ends past resolved's stub reads unknown" test "$(step_state dns-cloudflare)" == "unknown resolv-conf-not-stub"
 fresh; dns_fixture; touch "$tmp/nm-down"
 check "unreadable profiles read unknown" test "$(step_state dns-cloudflare)" == "unknown nmcli-failed"
 fresh; dns_fixture; rm -f -- "$tmp/units/NetworkManager.service.active"
@@ -2215,7 +2280,7 @@ check "the cups-socket-blind mutant reads printing the socket serves needed" tes
 control cups-masked-blind '  [[ $probe_state == needed ]] || return 0' '  true || return 0'
 touch "$tmp/units/cups.socket.active" "$tmp/units/cups.service.masked"
 check "the cups-masked-blind mutant reads a masked cups.service ready" test "$(step_state service-cups)" == "ready socket-active"
-control nixos-unit-blind '  [[ $probe_state == needed ]] || [[ $1 == service-* && $probe_state == absent && $probe_reason == unit-missing ]]' '  [[ $probe_state == needed ]]'
+control nixos-unit-blind '    "service-"*" absent unit-missing") return 0 ;;' '    "service-"*" absent unit-missing") return 1 ;;'
 touch "$tmp/units/bluetooth.service.missing"
 run_nixos "the nixos-unit-blind mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
 check "the nixos-unit-blind mutant reads a missing bluetooth.service absent" test "$(nixos_step_state service-bluetooth)" == "absent unit-missing"

@@ -132,9 +132,12 @@
 #   denied    the probe reads it missing, and apply cannot grant it
 #   absent    the step has nothing to act on: no such device, unit or command
 #   unknown   the probe could not answer; never read as ready
-#   nixos     on NixOS, where the configuration grants it: needed, or a
+#   nixos     on NixOS, where the configuration grants it: needed, a
 #             service step's absent with reason unit-missing, whose
-#             configuration snippet installs and enables the unit
+#             configuration snippet installs and enables the unit, or a
+#             DNS step's unknown with reason resolved-inactive or
+#             resolv-conf-not-stub, whose snippet enables resolved and so
+#             links /etc/resolv.conf to its stub
 #
 # Probes read real access, never a file's presence: the hidraw node of each
 # Apple display, 05ac:1114 or 05ac:9243 by the HID_ID of its sysfs device,
@@ -249,14 +252,16 @@
 # writes, and any other file or link at its path is foreign. A directory the commands write into, and a record,
 # must be root's and writable by no one else.
 #
-# On NixOS, detected through the package-manager table when a step reads
-# needed or a service unit is missing and whenever the greeter is probed, `needed`
-# and a service step's `absent` with reason `unit-missing` read `nixos`, `apply` prints `ok system=<step>
+# On NixOS, detected through the package-manager table when a step reads a
+# state the configuration grants and whenever the greeter is probed, each
+# such state reads `nixos`, `apply` prints `ok system=<step>
 # skipped=nixos-config` and the configuration snippet, and `undo` prints
 # `ok system=<step> skipped=nixos-config`; neither writes or runs sudo. A
 # detection that fails reads a needed step `unknown`, reason
-# `system-undetected`, leaves a missing unit `absent`, and refuses apply and
-# undo as `system=undetected`, or apply of a missing unit as `state=absent`.
+# `system-undetected`, leaves a missing unit `absent` and a DNS step
+# `unknown` with its own reason, and refuses apply and undo as
+# `system=undetected`, or apply of a missing unit or an unknown DNS step
+# as its state.
 #
 # Every refusal prints one keyed line first: `vgs-system: refused:
 # <key>=<value>`. It runs as the caller only and refuses root. Every system
@@ -1133,14 +1138,17 @@ probe_voxtype_engine() {
   fi
 }
 
-# Whether /etc/resolv.conf links to resolved's stub, as
+# Whether /etc/resolv.conf is a link that ends at resolved's stub, as
 # systemd-resolved.service(8) § /ETC/RESOLV.CONF sets it up; any other
-# file sends lookups past resolved and the profiles' servers.
+# file sends lookups past resolved and the profiles' servers. NixOS links
+# it through /etc/static: services.resolved.enable sets
+# environment.etc."resolv.conf".source to the stub in the default symlink
+# mode (nixpkgs f4a03c00, nixos/modules/system/boot/resolved.nix), the
+# generation's etc tree links that entry to the stub (etc.nix makeEtcEntry),
+# and setup-etc.pl's link links /etc/resolv.conf to /etc/static/resolv.conf,
+# /etc/static being a link to that tree.
 resolv_stub() {
-  local target
-  [[ -L $resolv_conf ]] || return 1
-  target="$(readlink -- "$resolv_conf")" || return 1
-  [[ $target == "$resolved_stub" || $target == "..$resolved_stub" ]] && [[ -f $prefix$resolved_stub ]]
+  [[ -L $resolv_conf && $resolv_conf -ef $prefix$resolved_stub ]]
 }
 
 # Reads NetworkManager's Wi-Fi and Ethernet profiles, Omarchy's filter
@@ -2285,17 +2293,25 @@ json_status() {
 }
 
 # Whether STEP's last probe, probe_state and probe_reason, reads what a
-# NixOS configuration grants: a needed step, or a service step whose unit
-# is missing, which its configuration snippet installs and enables
-# (nixos_snippet).
+# NixOS configuration grants: a needed step, a service step whose unit is
+# missing, which its configuration snippet installs and enables, or a DNS
+# step whose resolver is off or bypassed, which its snippet's
+# services.resolved.enable starts and links /etc/resolv.conf to
+# (nixos_snippet). NetworkManager's absence stays absent: the DNS lines do
+# not install it.
 nixos_grants() { # STEP
   [[ $1 != tailscale-account-add ]] || return 1
-  [[ $probe_state == needed ]] || [[ $1 == service-* && $probe_state == absent && $probe_reason == unit-missing ]]
+  [[ $probe_state != needed ]] || return 0
+  case "$1 $probe_state $probe_reason" in
+    "service-"*" absent unit-missing") return 0 ;;
+    "dns-"*" unknown resolved-inactive"|"dns-"*" unknown resolv-conf-not-stub") return 0 ;;
+  esac
+  return 1
 }
 
 # Probes every step into state_of and reason_of, reading each step
 # nixos_grants admits as nixos on NixOS, and a needed one as unknown when
-# the system cannot be told.
+# the system cannot be told; the others it admits keep their reading.
 probe_all() {
   local step
   local -a granted=()
@@ -2332,12 +2348,13 @@ verb_apply() { # STEP
     # from those in effect.
     ready) [[ $step == dns-custom ]] || { printf 'ok system=%s state=ready\n' "$step"; return; } ;;
     needed) ;;
-    absent)
-      # A missing service unit is one the NixOS configuration installs.
+    absent|unknown)
+      # A missing service unit is one the NixOS configuration installs,
+      # and a stopped or bypassed resolver one it starts (nixos_grants).
       nixos_grants "$step" && detect_system && [[ $detected_system == nix ]] ||
         refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"}
       ;;
-    denied|unknown) refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"} ;;
+    denied) refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"} ;;
     *) refuse 1 "internal=state value=$probe_state" ;;
   esac
   if [[ $step == tailscale-account-add ]]; then

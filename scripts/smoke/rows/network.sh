@@ -305,6 +305,7 @@ denied|["unavailable", "", -1, true, true]
 absent|["unavailable", "", -1, true, true]
 nixos-default|["default", "default", 2, false, true]
 nixos-foreign|["foreign", "", -1, false, true]
+nixos-unknown|["default", "default", 2, false, true]
 pending|["pending", "", -1, true, true]
 DNSREADINGS
 terminal_stand_in
