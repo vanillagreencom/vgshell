@@ -75,21 +75,6 @@ Scope {
         return "No package manager here provides these requirements. Install them by hand.";
     }
 
-    readonly property bool keyboardHeld: loader.item !== null && loader.item.keyboardHeld
-
-    // Take the keyboard back after another shell surface that took it lost
-    // it, as the bar does when a widget's press grab ends
-    // (Plugins.returnKeyboard). Hyprland v0.56.2 gives an on-demand
-    // layer the keyboard at its map and at a press on it, never because the
-    // surface that held it went: refocusLastWindow passes an on-demand
-    // layer over (InputManager.cpp). A layer that turns exclusive is
-    // focused at that commit (LayerSurface.cpp onCommit), so the window
-    // asks for that until the keyboard arrives and is on demand again
-    // after.
-    function retakeKeyboard() {
-        if (loader.item !== null && !loader.item.keyboardHeld) loader.item.retaking = true;
-    }
-
     function consent() {
         if (Notices.showingNewer) return Notices.newerView;
         if (Notices.showingRestart) return Notices.restartView;
@@ -115,13 +100,13 @@ Scope {
             inset: Theme.dialog.margin
             inputItems: [card]
             WlrLayershell.namespace: "vgs:notice"
-            WlrLayershell.keyboardFocus: win.retaking ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand
-
-            // QQuickWindow.active follows the keyboard's enter and leave
-            // (Qt Quick Window reference, `active`).
-            readonly property bool keyboardHeld: card.Window.window !== null && card.Window.window.active
-            property bool retaking: false
-            onKeyboardHeldChanged: if (keyboardHeld) retaking = false
+            // Exclusive holds the keyboard for this visible lifetime; OnDemand
+            // leaves it to the compositor (Quickshell 0.3.1):
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/WlrKeyboardFocus/
+            // Hyprland 0.57 refocuses under the pointer after map and after an
+            // Exclusive-to-OnDemand commit (LayerSurface.cpp:224-225,426-427).
+            // Keep the card-only mask: keyboard ownership does not widen it.
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
             // Outside `inputItems`, so the window's mask leaves it out and
             // its presses, hover and wheel go to what lies under it.

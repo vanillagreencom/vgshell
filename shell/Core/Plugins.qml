@@ -429,46 +429,16 @@ Singleton {
     // after it opened, and rows/bar.sh found it closed after 9 to 10 of 20
     // drags of the rightmost widget and 19 of 20 of the launcher (nested
     // sandbox on cachy, 2026-10-19, two runs over b206ba82f).
-    // The grab also takes the keyboard from a notice that held it, and the
-    // bar's drop to None hands it to no layer (NoticeHost.retakeKeyboard),
-    // so a grab that began with the notice focused has the notice take it
-    // back once the object is gone and the bar has lost it. The wait is for
-    // the drop to None to reach Hyprland: Quickshell 0.3.1 sends a layer's
-    // keyboard interactivity with its window's next surface commit
-    // (wlr_layershell/surface.cpp, LayerSurface::commit sets the state and
-    // commits no surface), and a notice that took the keyboard at the
-    // object's end lost it again in some drags (a shell log of the nested
-    // sandbox: the notice's window active, then inactive 5 to 21 ms later,
-    // in 2 of 5 drags; after the wait it kept it in 8 of 8).
     Component {
         id: pressGrabComponent
         HyprlandFocusGrab {
             property QtObject layer: null
             property QtObject owner: null
-            property QtObject barWindow: null
-            property bool fromNotice: false
             property bool asking: false
             Component.onDestruction: {
                 if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.None;
-                if (!fromNotice) return;
-                root.keyboardReturn = barWindow;
-                root.returnKeyboard();
             }
         }
-    }
-
-    // The bar's window while a notice waits for it to lose the keyboard a
-    // press grab gave it, else null. QQuickWindow.active follows the
-    // keyboard's enter and leave (Qt Quick Window reference, `active`).
-    property QtObject keyboardReturn: null
-    Connections {
-        target: root.keyboardReturn
-        function onActiveChanged() { root.returnKeyboard(); }
-    }
-    function returnKeyboard() {
-        if (keyboardReturn === null || keyboardReturn.active) return;
-        keyboardReturn = null;
-        if (Logic.hasOwn(hosts, "notice")) hosts.notice.retakeKeyboard();
     }
 
     function endPressGrab() {
@@ -487,16 +457,9 @@ Singleton {
         const bar = mount.row.instance;
         const origin = item.mapToItem(bar, 0, 0);
         const gap = gapComponent.createObject(bar, { width: item.width, height: item.height });
-        // A grab this press replaces hands its notice on and asks for
-        // nothing itself, and a wait still pending ends: a layer that
-        // turns exclusive releases every held button (LayerSurface.cpp
-        // onCommit, releaseAllMouseButtons).
-        const fromNotice = (barPressGrab !== null && barPressGrab.fromNotice) || (Logic.hasOwn(hosts, "notice") && hosts.notice.keyboardHeld);
-        if (barPressGrab !== null) barPressGrab.fromNotice = false;
-        keyboardReturn = null;
         endPressGrab();
         const window = bar.QsWindow.window;
-        barPressGrab = pressGrabComponent.createObject(item, { windows: [window], layer: window.WlrLayershell, owner: item, barWindow: bar.Window.window, fromNotice: fromNotice });
+        barPressGrab = pressGrabComponent.createObject(item, { windows: [window], layer: window.WlrLayershell, owner: item });
         barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;
         barPressGrab.active = true;
         barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,

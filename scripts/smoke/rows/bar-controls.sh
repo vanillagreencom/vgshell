@@ -1823,16 +1823,15 @@ expect_poll "the restored profile holds no spacer" "$spacer_none" spacer_layout
 # (Plugins.dragStart), and after the release the welcome holds it again,
 # as it does after a release far below the bar once Escape closes the
 # remove question that release opens.
-# Its control is a tree whose grab asks the welcome for nothing when it
-# goes: the keyboard stays away from the welcome. With the item focused as
-# a Tab
-# focuses it, Tab takes the link and Enter opens the same page. A
-# tooltip with no link closes when the pointer leaves its item. The
-# control's tooltip draws the link and closes on the click, and Settings
-# stays closed.
+# The notice keeps Exclusive keyboard focus after each drag. A click on a
+# client outside its card still reaches that client, but keys stay with the
+# notice. The OnDemand copy is the native keyboard check's opposite control.
+# With the item focused as a Tab focuses it, Tab takes the link and Enter
+# opens the same page. A tooltip with no link closes when the pointer
+# leaves its item. The control's tooltip draws the link and closes on the
+# click, and Settings stays closed.
 # These checks stand before the calendar's restarts, so the row ends on a
-# fresh shell: the bar window took the keyboard here, and a notice the
-# shell holds up does not take it back from a window that gave it up.
+# fresh shell and leaves the first-start welcome unanswered.
 tiplink_saved="$sandbox/bar-tiplink-saved.json"
 cp -- "$home/.config/vgshell/shell.json" "$tiplink_saved"
 tiplink_call() { ipc smoke invokeInstance "$(bar_key)" "$1" "$2" "${3:-}"; }
@@ -1867,20 +1866,6 @@ tiplink_drag() {
 # release, so a press that started no drag reads `none`.
 tiplink_captures() { ipc smoke keyCaptureState | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
 tiplink_drag_ended() { ipc smoke keyCaptureState | py_reply 'import json,sys; g,c=json.load(sys.stdin); print("ended" if g > int(sys.argv[1]) and not c else "none")' "$1"; }
-# tiplink_keyboard DEPTH: `welcome` once the welcome holds the keyboard,
-# polled as expect_poll polls, or `away` at the bound. DEPTH is 1 where
-# `welcome` is wanted and 0 for the control, whose `away` is the bound's
-# answer and so waits the control's bound.
-tiplink_keyboard() {
-  local at
-  smoke_poll_tries 200 "$1"
-  for _ in $(seq 1 "$smoke_poll_n"); do
-    at="$(ipc smoke noticeFocused)" || return 1
-    [[ $at == true ]] && { echo welcome; return; }
-    sleep 0.2
-  done
-  echo away
-}
 # The notice title takes the keyboard without activating an action.
 tiplink_notice_click() {
   local layer title x y
@@ -1894,25 +1879,23 @@ print(int(l[0]+t[0]+t[2]/2), int(l[1]+t[1]+t[3]/2))
 PY
   ) && [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] && click "$x" "$y"
 }
-# Click inside the fixture, outside the notice card, then prove a key
-# reaches that client. An activewindow reading alone can hide a layer grab.
-tiplink_notice_released() {
+# Click inside the fixture, outside the notice card, then read native
+# pointer and keyboard events. An activewindow alone can hide a layer grab.
+tiplink_notice_exclusive() {
   local load
   read -r load _ </proc/loadavg
-  printf '  notice_retake_load_avg=%s\n' "$load"
-  expect_poll "$1the retaken notice layer returns to on-demand keyboard mode" on-demand ipc smoke noticeKeyboardMode
-  # Mapping a client can take focus. Return it to the notice before the
-  # click, so mapping cannot satisfy the fixture's keyboard-enter check.
+  printf '  notice_focus_load_avg=%s\n' "$load"
+  expect_poll "$1the notice keeps exclusive keyboard mode after the grab" exclusive ipc smoke noticeKeyboardMode
   open_other "$sandbox/bar-notice-other.log" || { fail "$1the fixture window below the notice maps"; return; }
   # The fixture closes whatever the click found: left mapped, its window
   # holds the focus every later row reads.
-  tiplink_fixture_click "$1"
+  tiplink_fixture_click "$1" exclusive
   close_other "$1the fixture below the notice exits after the click"
   tiplink_notice_click || fail "$1the notice title click failed"
   expect_poll "$1the notice holds the keyboard before the next press" true ipc smoke noticeFocused
 }
-tiplink_fixture_click() { # LABEL
-  local layer card fixture x y keys
+tiplink_fixture_click() { # LABEL MODE: exclusive, or on-demand for the control
+  local layer card fixture x y keys enters fixture_presses
   tiplink_notice_click || fail "$1the notice title click before the fixture check failed"
   expect_poll "$1the notice holds the keyboard before the fixture click" true ipc smoke noticeFocused
   layer="$(surface_box vgs:notice)" && card="$(ipc smoke noticeWindowGeometry card)" \
@@ -1929,24 +1912,35 @@ point=next(((int(x),int(y)) for x,y in points if not (cx<=x<cx+c[2] and cy<=y<cy
 print("absent" if point is None else "%d %d" % point)
 PY
   ) && [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || { fail "$1the fixture has no point outside the notice"; return; }
-  keys="$(other_events '^keyboard enter$')" || { fail "$1the fixture keyboard log is unreadable"; return; }
+  enters="$(other_events '^keyboard enter$')" && fixture_presses="$(other_events '^button .* pressed$')" \
+    && keys="$(other_events '^key ')" || { fail "$1the fixture input log is unreadable"; return; }
   click "$x" "$y" || fail "$1the fixture click failed"
-  expect_poll "$1a click outside the retaken notice gives the fixture the keyboard" "$((keys + 1))" other_events '^keyboard enter$'
-  keys="$(other_events '^key ')" || { fail "$1the fixture key log is unreadable"; return; }
+  expect_poll "$1a click outside the notice card reaches the fixture" "$((fixture_presses + 1))" other_events '^button .* pressed$'
+  if [[ $2 == on-demand ]]; then
+    expect_poll "$1the on-demand notice gives the clicked fixture the keyboard" "$((enters + 1))" other_events '^keyboard enter$'
+  else
+    expect_poll "$1the notice keeps actual keyboard focus after the outside click" true ipc smoke noticeFocused
+  fi
   type_keys -k F8 || fail "$1typing into the fixture failed"
-  expect_poll "$1the clicked fixture receives the key" "$((keys + 2))" other_events '^key '
+  if [[ $2 == on-demand ]]; then
+    expect_poll "$1the clicked fixture receives the key without Exclusive" "$((keys + 2))" other_events '^key '
+    expect_poll "$1the on-demand notice no longer holds the keyboard" false ipc smoke noticeFocused
+  else
+    expect_poll "$1the notice still holds the keyboard after the native key" true ipc smoke noticeFocused
+    expect "$1the clicked fixture receives no keyboard enter while the notice shows" "$enters" other_events '^keyboard enter$'
+    expect "$1the clicked fixture receives no key while the notice shows" "$keys" other_events '^key '
+  fi
 }
-# tiplink_press_grab LABEL WANT [far]: after a drag of the copy and its
+# tiplink_press_grab LABEL [far]: after a drag of the copy and its
 # release, where the keyboard is, read after the release and again with the
 # pointer at rest. With `far` the release asks to remove the copy, whose
 # grab object lives until Escape closes the question.
 tiplink_press_grab() {
-  local since depth=1
-  [[ $2 == welcome ]] || depth=0
+  local since
   since="$(tiplink_captures)" && [[ $since =~ ^[0-9]+$ ]] || { fail "$1the key capture count is unreadable: $since"; return 0; }
-  tiplink_drag acme.tiplink "${3:-}" || fail "$1the drag of the copy failed"
+  tiplink_drag acme.tiplink "${2:-}" || fail "$1the drag of the copy failed"
   expect_poll "$1the drag of the copy began its grab and ended it" ended tiplink_drag_ended "$since"
-  if [[ ${3:-} == far ]]; then
+  if [[ ${2:-} == far ]]; then
     expect_poll "$1the far release asks to remove the copy" true tiplink_read acme.tiplink frameDialogOpen
     # With no question open, Escape reaches the welcome (bar_welcome_answers).
     if [[ $(tiplink_read acme.tiplink frameDialogOpen) == true ]]; then
@@ -1954,12 +1948,12 @@ tiplink_press_grab() {
     fi
     expect_poll "$1Escape closes the remove question" false tiplink_read acme.tiplink frameDialogOpen
   fi
-  expect "$1after a widget's press grab ends the keyboard is: $2" "$2" tiplink_keyboard "$depth"
+  expect_poll "$1after a widget's press grab ends the notice holds the keyboard" true ipc smoke noticeFocused
   rest_pointer || fail "$1resting the pointer after the drag failed"
   expect_poll "$1the tooltip is closed after the drag" false tiplink_read acme.tiplink tooltipOpen
   # A keyboard the welcome took before the bar gave it up left again within
   # a frame or two, so the first reading alone can pass over that loss.
-  expect "$1with the pointer at rest the keyboard is still: $2" "$2" tiplink_keyboard "$depth"
+  expect_poll "$1with the pointer at rest the notice still holds the keyboard" true ipc smoke noticeFocused
 }
 tiplink_hide_settings() { # LABEL
   expect "Settings is hidden after $1" ok ipc shell hide window vgs.settings
@@ -1998,10 +1992,10 @@ then
   rest_pointer || fail "moving the pointer off the link failed"
   expect_poll "the tooltip closes after the pointer leaves it" false tiplink_read acme.tiplink tooltipOpen
   expect "the closed tooltip leaves the keyboard with the welcome" true ipc smoke noticeFocused
-  tiplink_press_grab "" welcome
-  tiplink_notice_released ""
-  tiplink_press_grab "remove question: " welcome far
-  tiplink_notice_released "remove question: "
+  tiplink_press_grab ""
+  tiplink_notice_exclusive ""
+  tiplink_press_grab "remove question: " far
+  tiplink_notice_exclusive "remove question: "
 
   expect "the bar window takes the keyboard" ok tiplink_call acme.tiplink holdKeyboard true
   for tiplink_step in 0 1; do
@@ -2050,23 +2044,17 @@ then
   expect "control: no Settings window opened" 0 window_count Plugins
   rest_pointer || fail "resting the pointer after the control failed"
   stop_shell
-  if copy_tree bar-grab-kept \
-    && edit_tree bar-grab-kept shell/Core/Plugins.qml '        if (Logic.hasOwn(hosts, "notice")) hosts.notice.retakeKeyboard();' ''; then
-    start_shell "$sandbox/tree-bar-grab-kept" "$sandbox/bar-grab-kept.log" || fail "the kept grab control starts"
+  if copy_tree bar-notice-on-demand \
+    && edit_tree bar-notice-on-demand shell/Hosts/NoticeHost.qml 'WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive' 'WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand'; then
+    start_shell "$sandbox/tree-bar-notice-on-demand" "$sandbox/bar-notice-on-demand.log" || fail "the on-demand notice control starts"
     expect_poll "control: the tooltip link widget is built in the bar" True record_exists acme.tiplink
-    expect_poll "control: the welcome holds the keyboard before the press" true ipc smoke noticeFocused
-    tiplink_press_grab "control: " away
+    expect_poll "control: the notice without Exclusive uses on-demand mode" on-demand ipc smoke noticeKeyboardMode
+    open_other "$sandbox/bar-notice-control-other.log" || fail "control: the fixture window below the notice maps"
+    tiplink_fixture_click "control: " on-demand
+    close_other "control: the fixture below the notice exits after the click"
     stop_shell
   fi
-  if copy_tree bar-notice-exclusive \
-    && edit_tree bar-notice-exclusive shell/Hosts/NoticeHost.qml 'onKeyboardHeldChanged: if (keyboardHeld) retaking = false' 'onKeyboardHeldChanged: {}'; then
-    start_shell "$sandbox/tree-bar-notice-exclusive" "$sandbox/bar-notice-exclusive.log" || fail "the exclusive notice control starts"
-    expect_poll "control: the welcome holds the keyboard before the retake" true ipc smoke noticeFocused
-    tiplink_press_grab "control: exclusive notice: " welcome
-    expect_poll "control: a notice that never releases its retake fails the on-demand mode check" exclusive ipc smoke noticeKeyboardMode
-    stop_shell
-  fi
-  start_shell "$repo" "$sandbox/bar-grab-restored.log" || fail "the shell returns after the kept grab control"
+  start_shell "$repo" "$sandbox/bar-grab-restored.log" || fail "the shell returns after the on-demand notice control"
 else
   fail "the tooltip link control's edit failed"
 fi
