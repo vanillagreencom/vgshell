@@ -3542,6 +3542,7 @@ set_aside_shipped_panes() { # LIST
 # argv is written whole and moved into place, so a row never reads half a
 # record. The window lives as long as the presenter. `terminal_stand_in
 # windowless` maps no window.
+# Its native pointer and keyboard events stay in $tui_record.window.
 #
 # The stand-in runs no script but a fixture's. The nested sandbox shares
 # the host's files, PAM and sudo timestamp, so a plugin's real TUI script
@@ -3635,7 +3636,7 @@ else
   fi
 fi
 if [[ $window == yes ]]; then
-  "$display_client" "$toplevel" "$app_id" "$title" >/dev/null &
+  "$display_client" "$toplevel" "$app_id" "$title" >"$record.window" &
   shown=$!
 fi
 "${run[@]}" </dev/null >/dev/null 2>&1
@@ -3857,6 +3858,12 @@ hypr_consent_connect() { # LABEL
   expect_poll "$label: the loading line is present once" 1 hypr_wire_count
   expect_poll "$label: Hyprland reloads the wired layer without config errors" '[]' hypr_reload_errors
 }
+# The core's lending record at a dotted field path. Core rows use it
+# before the capability fixture row has run.
+lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
+for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
+print(json.dumps(v))' "$1"; }
+
 # After terminal_stand_in: the launcher state present, so the next request
 # launches. The core probes when it starts, before any row wrote the
 # stand-in, so a host without xdg-terminal-exec leaves the state missing;

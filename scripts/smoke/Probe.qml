@@ -1891,6 +1891,20 @@ Scope {
             const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
             return dialog !== null && root.descendants(dialog).some(child => child.activeFocus);
         }
+        // Drive the same message-link signal a drawn reference emits.
+        // An empty page activates the first reference in the actual message.
+        function noticeReference(page: string, tab: string): string {
+            const dialog = Plugins.hosts.notice === undefined ? null : Plugins.hosts.notice.dialog;
+            if (dialog === null) return "absent";
+            if (page === "") {
+                const reference = PageReference.parse(dialog.message);
+                if (reference.page === "") return "unlinked";
+                page = reference.page;
+                tab = reference.tab;
+            }
+            dialog.messagePageActivated(page, tab);
+            return "ok";
+        }
         // QsWindow.window gives an Item's shell window; keyboardFocus is
         // WlrLayershell's attached mode (Quickshell v0.3.1 reference).
         function noticeKeyboardMode(): string {

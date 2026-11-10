@@ -10,9 +10,6 @@
 set -euo pipefail
 leak_plugin_setup acme.probe true acme.bare true || { fail "capabilities: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
-lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
-for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
-print(json.dumps(v))' "$1"; }
 # qs ipc reads a bracketed argument as a list, so no argument here is JSON
 # with brackets: `set` takes key=value with a JSON value, `dispatch` a
 # dispatcher and its arguments separated by spaces.

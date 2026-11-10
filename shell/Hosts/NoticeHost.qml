@@ -20,9 +20,38 @@ Scope {
     // The scrim under it, for a validation row that reads where it is drawn.
     readonly property Item scrim: loader.item === null ? null : loader.item.scrim
 
+    // Keep an unanswered notice pending while its accepted continuation owns
+    // the keyboard. Use the existing TUI and manager-window lifetimes, not a
+    // focus-mode change: Exclusive locks out every other window (0.3.1):
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/WlrKeyboardFocus/
+    property string referenceNotice: ""
+    readonly property bool referenceBusy: Capabilities.tuis.live
+        || (Plugins.hosts.window !== undefined && Plugins.hosts.window.openIds.includes(Registry.managerId))
+    onReferenceBusyChanged: if (!referenceBusy) referenceNotice = ""
+
+    function activateReference(open) {
+        const id = Notices.shownId;
+        const done = answer => {
+            if (answer !== "ok") console.warn("notices: reference " + answer);
+            else if (Notices.shownId === id) host.referenceNotice = id;
+        };
+        const answer = open(done);
+        if (answer !== "ok") done(answer);
+    }
+
     function openReference(page, tab) {
-        const answer = Plugins.openReference(page, tab);
-        if (answer !== "ok") console.warn("notices: reference " + answer);
+        activateReference(done => Plugins.openReference(page, tab, done));
+    }
+
+    function openConsentLink() {
+        const consent = Notices.consent;
+        if (consent === null || consent.link === null || consent.link === undefined) return;
+        activateReference(done => Capabilities.tuis.edit(consent.link.path, consent.link.line, done));
+    }
+
+    Connections {
+        target: Notices
+        function onShownIdChanged() { host.referenceNotice = ""; }
     }
 
     function step(shown) {
@@ -85,7 +114,7 @@ Scope {
 
     Loader {
         id: loader
-        active: ((Notices.view !== null && !Notices.installing) || host.consent() !== null) && Notices.screen !== null
+        active: host.referenceNotice === "" && ((Notices.view !== null && !Notices.installing) || host.consent() !== null) && Notices.screen !== null
         sourceComponent: OverlaySurface {
             id: win
 
@@ -152,7 +181,7 @@ Scope {
                             wrapMode: Text.Wrap
                             text: modelData
                             link: win.consent.link === null || win.consent.link === undefined ? "" : win.consent.link.text
-                            onActivated: Notices.openConsentLink()
+                            onActivated: host.openConsentLink()
                             onPageActivated: (page, tab) => host.openReference(page, tab)
                         }
                     }

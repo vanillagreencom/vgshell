@@ -655,9 +655,9 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
   geometry expect "Cancel leaves the launcher in its slot" "$offbar_start" ipc smoke instanceGeometry "$offbar_key" vgs.launcher
   expect "the launcher's drag off the bar writes nothing" unchanged offbar_unchanged
   # One drag off the bar asks every time, with a window under the release
-  # point while the notice keeps the keyboard: 20 drags each of the
-  # rightmost widget and the launcher, along the bar and then far below
-  # the bar's middle, over the window. When the press grab ended at that
+  # point: ten drags each of the rightmost widget and the launcher with
+  # the notice holding the keyboard, then ten each with no notice and the
+  # native client holding it. When the press grab ended at that
   # release, the window took the keyboard back and Qt closed the question
   # 0 to 34 ms after it opened (Plugins.qml, the press grab): over
   # b206ba82f this check found it closed after 9 to 10 of 20 drags of the
@@ -682,18 +682,26 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
     done
     echo held
   }
-  # offbar_repeat ID LEG [COUNT]: 20 drags by default, each from its centre, LEG
+  # offbar_repeat ID LEG [COUNT [OWNER]]: 20 drags by default, each from its centre, LEG
   # along the bar, then to the release point, with Escape closing each
   # question before the next drag. A drag counts only from the bug's
-  # precondition: `N:not-focused` when the notice does not hold the
-  # keyboard within 5 s before drag N, and `N:question-open` when Escape
+  # precondition: `N:not-focused` when OWNER (notice by default, or client)
+  # does not hold the keyboard within 5 s before drag N, and
+  # `N:question-open` when Escape
   # leaves drag N's question open, so the next reading is its own.
   offbar_repeat() {
-    local id="$1" leg="$2" offbar_attempts="${3:-20}" n box x y reading focused misses=()
+    local id="$1" leg="$2" offbar_attempts="${3:-20}" owner="${4:-notice}" n box x y reading focused misses=()
     for n in $(seq 1 "$offbar_attempts"); do
+      if [[ $owner == client ]]; then
+        click "$offbar_release_x" "$offbar_far" || { misses+=("$n:client-click-failed"); continue; }
+      fi
       focused=""
       for _ in $(seq 1 50); do
-        focused="$(ipc smoke noticeFocused)" || focused=""
+        if [[ $owner == client ]]; then
+          focused="$(python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); rows=[r for r in p.read_text().splitlines() if r.startswith("keyboard ")] if p.exists() else []; print("true" if rows and rows[-1]=="keyboard enter" else "false")' "$other_log")" || focused=""
+        else
+          focused="$(ipc smoke noticeFocused)" || focused=""
+        fi
         [[ $focused == true ]] && break
         sleep 0.1
       done
@@ -729,13 +737,47 @@ print(len(boxes)==1 and boxes[0][0]<=x<boxes[0][0]+boxes[0][2] and boxes[0][1]<=
     click "$offbar_release_x" "$offbar_far" || fail "the click on the window below the bar failed"
     expect_poll "the notice keeps the keyboard before the repeated drags over a window" true ipc smoke noticeFocused
     expect "the window below the bar lies under the repeated drags' release point" True offbar_window_under
-    expect "20 drags of the rightmost widget off the bar over a window each ask and hold the remove question" '[]' offbar_repeat "$offbar_right" -24
-    expect "20 drags of the launcher off the bar over a window each ask and hold the remove question" '[]' offbar_repeat vgs.launcher 24
+    expect "10 notice-focused drags of the rightmost widget over a window each ask and hold the remove question" '[]' offbar_repeat "$offbar_right" -24 10
+    expect "10 notice-focused drags of the launcher over a window each ask and hold the remove question" '[]' offbar_repeat vgs.launcher 24 10
     expect "the repeated drags off the bar write nothing" unchanged offbar_unchanged
     close_other "the window below the bar exits after the repeated drags"
   else
     fail "the window below the bar for the repeated drags maps"
   fi
+  # Leave the welcome unanswered for hyprland-consent. Only this disposable
+  # host suppresses its mapping, so the native client can own the keyboard.
+  stop_shell
+  offbar_notice_active='active: host.referenceNotice === "" && ((Notices.view !== null && !Notices.installing) || host.consent() !== null) && Notices.screen !== null'
+  if copy_tree bar-client-drags \
+    && edit_tree bar-client-drags shell/Hosts/NoticeHost.qml "$offbar_notice_active" "active: false && ${offbar_notice_active#active: }"; then
+    start_shell "$sandbox/tree-bar-client-drags" "$sandbox/bar-client-drags.log" || fail "the notice-free drag shell starts"
+    expect_poll "the client-focused phase maps no notice" 0 layer_count vgs:notice
+    offbar_key="$(bar_key)" || fail "the notice-free bar is unreadable"
+    open_other "$sandbox/bar-client-drags-other.log" || fail "the native client below the notice-free bar maps"
+    expect "the native client lies under the far release point" True offbar_window_under
+    expect "10 client-focused rightmost drags each ask and hold the remove question" '[]' offbar_repeat "$offbar_right" -24 10 client
+    expect "10 client-focused launcher drags each ask and hold the remove question" '[]' offbar_repeat vgs.launcher 24 10 client
+    expect "the notice-free repeated drags write nothing" unchanged offbar_unchanged
+    close_other "the native client exits after the notice-free drags"
+    stop_shell
+  fi
+  if copy_tree bar-early-release \
+    && edit_tree bar-early-release shell/Hosts/NoticeHost.qml "$offbar_notice_active" "active: false && ${offbar_notice_active#active: }" \
+    && edit_tree bar-early-release shell/Core/Plugins.qml 'if (barPressGrab !== null) barPressGrab.asking = true;' 'endPressGrab();'; then
+    start_shell "$sandbox/tree-bar-early-release" "$sandbox/bar-early-release.log" || fail "the early-release control starts"
+    expect_poll "control: the early-release phase maps no notice" 0 layer_count vgs:notice
+    offbar_key="$(bar_key)" || fail "the early-release bar is unreadable"
+    open_other "$sandbox/bar-early-release-other.log" || fail "control: the native client below the bar maps"
+    expect "control: the client lies under the far release point" True offbar_window_under
+    offbar_early_release() {
+      offbar_repeat vgs.launcher 24 5 client | py_reply 'import json,sys; rows=json.load(sys.stdin); print("detected" if rows and all(":closed" in r for r in rows) else json.dumps(rows))'
+    }
+    expect "control: the same drag reader detects a question lost after early grab release" detected offbar_early_release
+    close_other "control: the native client exits after the early-release drags"
+    stop_shell
+  fi
+  start_shell "$repo" "$sandbox/bar-after-client-drags.log" || fail "the notice-focused shell returns after the client drags"
+  offbar_key="$(bar_key)" || fail "the restored bar is unreadable"
   # A zone that would run into its neighbour clips to the room from its
   # bar edge to the centre, less the gap, and scrolls by whole widgets
   # (Bar.qml's Zone). The owner's layout, split by backend, in the right
