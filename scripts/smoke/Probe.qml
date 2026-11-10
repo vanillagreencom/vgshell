@@ -640,10 +640,36 @@ Scope {
             onPressed: root.holdMarkers += 1
         }
     }
-    property var layerFrameSurface: null
-    readonly property var layerFrameWindow: layerFrameSurface === null ? null : layerFrameSurface.contentItem.Window.window
+    property string layerFramePluginId: ""
+    property QtObject layerFrameSurface: null
+    readonly property QtObject layerFrameWindow: layerFrameSurface === null ? null : layerFrameSurface.contentItem.Window.window
     property int layerFrames: 0
     property bool layerFrameListening: true
+    property QtObject layerFrameAdmissionWindow: null
+    property var layerFrameAdmission: ({ id: 0, state: "idle" })
+    // QsWindow.visible is intent; backingWindowVisible records whether
+    // its native window is shown. Keep both for this fixture admission:
+    // quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/.
+    readonly property bool layerFrameShown: layerFrameSurface !== null && layerFrameSurface.visible && layerFrameSurface.backingWindowVisible && layerFrameWindow !== null && layerFrameWindow.visible
+    onLayerFrameWindowChanged: root.cancelLayerFrameAdmission("window-changed")
+    onLayerFrameShownChanged: if (!layerFrameShown) root.cancelLayerFrameAdmission("hidden")
+    onLayerFrameListeningChanged: if (!layerFrameListening) root.cancelLayerFrameAdmission("disconnected")
+    function cancelLayerFrameAdmission(reason) {
+        if (layerFrameAdmission.id !== 0 && !layerFrameAdmission.state.startsWith("refused:"))
+            layerFrameAdmission = { id: layerFrameAdmission.id, state: "refused:" + reason };
+        layerFrameAdmissionWindow = null;
+    }
+    function layerFrameRefusal() {
+        if (layerFrameSurface === null) return "absent";
+        const entry = Layers.entries.find(e => e.pluginId === layerFramePluginId);
+        if (entry === undefined) return "absent";
+        const surface = entry.screens[Object.keys(entry.screens).sort()[0]];
+        if (surface === undefined || surface.QsWindow.window !== layerFrameSurface) return "replaced";
+        if (layerFrameWindow === null) return "no-window";
+        if (!layerFrameShown) return "hidden";
+        if (!layerFrameListening || layerFrameObserver.target !== layerFrameWindow) return "disconnected";
+        return "";
+    }
     property int changes: 0
     property int userLoads: 0
     property var previousRows: []
@@ -843,8 +869,27 @@ Scope {
     }
 
     Connections {
+        id: layerFrameObserver
         target: root.layerFrameListening ? root.layerFrameWindow : null
-        function onFrameSwapped() { root.layerFrames += 1; }
+        function onFrameSwapped() {
+            root.layerFrames += 1;
+            const request = root.layerFrameAdmission;
+            if (request.state !== "pending-first" && request.state !== "pending-next") return;
+            const refusal = root.layerFrameRefusal();
+            if (refusal !== "" || root.layerFrameAdmissionWindow !== target) {
+                root.cancelLayerFrameAdmission(refusal === "" ? "window-changed" : refusal);
+                return;
+            }
+            // The first callback can already have been queued when the
+            // request arrived. Request another frame from that callback,
+            // as notificationPaintBinding does, then acknowledge the next.
+            // update() schedules a render; frameSwapped acknowledges a
+            // queued Qt frame, not compositor paint or presentation:
+            // doc.qt.io/qt-6/qquickwindow.html#update
+            // doc.qt.io/qt-6/qml-qtquick-window.html#frameSwapped-signal.
+            root.layerFrameAdmission = { id: request.id, state: request.state === "pending-first" ? "pending-next" : "ready" };
+            if (request.state === "pending-first") root.layerFrameAdmissionWindow.update();
+        }
     }
 
     function instance(hostKey, id) {
@@ -2249,6 +2294,9 @@ Scope {
         }
         // Observe only the selected layer's own QQuickWindow, not any bar.
         function watchLayerFrames(id: string): string {
+            root.cancelLayerFrameAdmission("watch-changed");
+            root.layerFrameSurface = null;
+            root.layerFramePluginId = id;
             const entry = Layers.entries.find(e => e.pluginId === id);
             if (entry === undefined) return "absent";
             const surface = entry.screens[Object.keys(entry.screens).sort()[0]];
@@ -2259,6 +2307,26 @@ Scope {
         }
         function layerFrames(): string {
             return root.layerFrameSurface === null ? "absent" : String(root.layerFrames);
+        }
+        function layerFrameRequest(): string {
+            const id = root.layerFrameAdmission.id + 1;
+            const refusal = root.layerFrameRefusal();
+            root.layerFrameAdmission = { id: id, state: refusal === "" ? "pending-first" : "refused:" + refusal };
+            root.layerFrameAdmissionWindow = refusal === "" ? root.layerFrameWindow : null;
+            if (refusal !== "") return root.layerFrameAdmission.state;
+            root.layerFrameAdmissionWindow.update();
+            return "pending:" + id;
+        }
+        // Polling is passive, so it cannot keep the measured layer drawing.
+        function layerFrameStatus(requestId: int): string {
+            const request = root.layerFrameAdmission;
+            if (requestId !== request.id) return "stale";
+            if (request.state === "idle" || request.state.startsWith("refused:")) return request.state;
+            const refusal = root.layerFrameRefusal();
+            if (refusal !== "" || root.layerFrameAdmissionWindow !== root.layerFrameWindow)
+                root.cancelLayerFrameAdmission(refusal === "" ? "window-changed" : refusal);
+            const state = root.layerFrameAdmission.state;
+            return state === "pending-first" || state === "pending-next" ? "pending" : state;
         }
         function layerFrameListening(listen: bool): string {
             root.layerFrameListening = listen;
@@ -2284,6 +2352,8 @@ Scope {
             return "ok";
         }
         function dropLayerFrames(): string {
+            root.cancelLayerFrameAdmission("watch-changed");
+            root.layerFramePluginId = "";
             root.layerFrameSurface = null;
             return "ok";
         }
