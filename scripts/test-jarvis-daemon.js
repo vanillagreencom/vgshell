@@ -16,7 +16,7 @@ const desktopFixture = require("./fixtures/jarvis/desktop.js");
 const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-driver.js");
 const tree = path.resolve(__dirname, "..");
 // A held release uses Session's own press clock and tap boundary.
-const TAP_MS = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")).TAP_MS;
+const { TAP_MS, TOGGLE_DEBOUNCE_MS } = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"));
 // The daemon's held snapshot acknowledges the press on its Session clock.
 // Advance only that disposable clock; a parent's write time says nothing
 // about when the child's event loop consumed the press.
@@ -1551,7 +1551,7 @@ async function inside() {
         w.send("talk-up");
         await w.wait(m => m.seq > before);
         assert.equal(w.last().state.input.kind, "conversation", "release does not commit toggle");
-        w.pressClock(w.last().state.toggleAt + 250);
+        w.pressClock(w.last().state.toggleAt + TOGGLE_DEBOUNCE_MS);
         w.send("talk-down");
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.capture.kind === "closed");
         assert.equal(w.last().state.capture.kind, "closed");

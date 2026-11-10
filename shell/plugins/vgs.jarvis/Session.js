@@ -19,6 +19,7 @@ var APPROVAL_TIMEOUT_MS = 60000;
 var APPROVAL_DRAW_MS = 700;
 var VOICE_QUIET_MS = 1000;
 var CONVERSATION_QUIET_MS = 30 * 60 * 1000;
+var TOGGLE_DEBOUNCE_MS = 250;
 // A shorter press is a close request only if its capture heard no speech.
 // The boundary follows HyprlandLayer's hold/tap repeat-delay convention.
 var TAP_MS = 600;
@@ -486,9 +487,9 @@ function recover(s, effects, at) {
     s.fault = { kind: "none" };
 }
 
-// A press within 250 ms of the last one is a bounce, not a press: it
+// A press within the debounce interval is a bounce, not a press: it
 // leaves the fault shown.
-function bounced(s, at) { return s.toggleAt !== null && at - s.toggleAt < 250; }
+function bounced(s, at) { return s.toggleAt !== null && at - s.toggleAt < TOGGLE_DEBOUNCE_MS; }
 
 function toggle(s, effects, at) {
     if (bounced(s, at)) return;
