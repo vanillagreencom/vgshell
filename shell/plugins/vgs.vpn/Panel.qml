@@ -45,7 +45,7 @@ Item {
                 role: "body"
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
-                text: Logic.summary(body.profiles)
+                text: Logic.summary(body.profiles, body.notice)
             }
         ]
         footer: [Button { objectName: "vpn-settings"; text: "VPN settings"; variant: "tertiary"; iconName: "settings"; onClicked: root.openSettings() }]

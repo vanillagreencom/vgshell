@@ -587,7 +587,7 @@ world(async () => {
             await until(() => w.runner.state.conversation.kind === "ended"
                 && w.runner.state.capture.kind === "closed"
                 && w.runner.state.brain.kind === "closed", "ordinary close releases the first generation");
-            // Session collapses presses inside 250 ms. A second physical
+            // Session collapses presses inside TOGGLE_DEBOUNCE_MS. A second physical
             // press has a distinct injected time, after close acknowledged.
             w.time(1500);
             w.runner.dispatch({ type: "toggle" });

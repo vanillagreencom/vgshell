@@ -1585,7 +1585,7 @@ if copy_tree bar-motion-control \
 fi
 
 # Gaps and separators: a right click on the empty bar opens the bar's own
-# menu, Add widget first, Add separator second and Add gap third; the entry lands where a
+# menu, Manage widgets first, Add separator second and Add gap third; the entry lands where a
 # widget dragged to the click would drop. Each kind is added in every
 # section through the real pointer and keys, read back from the effective
 # layout and the drawn boxes, kept across a restart, dragged into another

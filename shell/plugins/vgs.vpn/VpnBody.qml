@@ -6,7 +6,9 @@ import "VpnLogic.js" as Logic
 
 // The profile list the flyout and System Settings share, from the
 // `profiles` value the service publishes. The flyout (`expanded` false)
-// draws the problem line, the profiles and Import a VPN file; it draws no
+// draws the blocked-traffic notice, the problem line, the profiles,
+// Import a VPN file and the kill switch (KillSwitch), which the notice and
+// the switch show only while a profile is listed; it draws no
 // empty or NetworkManager-absent state, since the bar icon that opens it
 // hides in both. System Settings adds the Profiles heading with what VGS
 // can connect, Remove profile in each expanded profile, the import hint,
@@ -41,6 +43,11 @@ FocusScope {
     readonly property var profiles: shell === null || !shell.status.values.profiles
         ? Logic.compose(Logic.emptyProfiles("reading"), {}, {}, {}, null, "") : shell.status.values.profiles
     readonly property var profileRows: profiles.rows
+    readonly property bool killOn: shell !== null && Logic.killSwitchOn(shell.status.values.killSwitchState)
+    // The blocked-traffic notice (VpnLogic.blockedNotice) and the profile
+    // it names, which its row and the flyout header read as dropped.
+    readonly property var notice: Logic.blockedNotice(shell === null ? null : shell.status.values.killSwitchState, profiles)
+    readonly property string held: notice === null ? "" : notice.uuid
     readonly property bool answering: profiles.state === "available"
     readonly property bool listed: answering && profileRows.length > 0
     readonly property var pollChoices: [10, 30, 60]
@@ -125,6 +132,13 @@ FocusScope {
         if (wanted) follow(row.uuid);
         if (act(wanted ? "profile-up" : "profile-down", row.uuid, "This VPN profile cannot change now.") !== "ok") watchUuid = "";
     }
+    // Reconnect is a connect under the block. The connect it starts hides
+    // it in the same turn, so a keyboard press hands the focus to the
+    // profile's switch, which stays in the row while it connects.
+    function reconnect(row, keyed) {
+        toggle(row, true);
+        if (keyed) focusSwitch(row.uuid);
+    }
     function follow(uuid) {
         watchUuid = uuid;
         watchSeen = false;
@@ -145,7 +159,7 @@ FocusScope {
     }
     function passwordRow(uuid) {
         const row = profiles.rows.find(candidate => candidate.uuid === uuid);
-        return row !== undefined && Logic.rowView(row, profiles, shell === null ? [] : shell.requirements.missing).key === "needs-password" ? row : null;
+        return row !== undefined && Logic.rowView(row, profiles, shell === null ? [] : shell.requirements.missing, killOn, held).key === "needs-password" ? row : null;
     }
     function closePrompt(uuid) {
         prompt.clear();
@@ -287,9 +301,12 @@ FocusScope {
                     cursor: profileCursor
                     profiles: root.profiles
                     missingRequirements: root.shell === null ? [] : root.shell.requirements.missing
+                    killOn: root.killOn
+                    held: root.held
                     removable: root.expanded
                     onDetailsOpened: root.readAddress(modelData.uuid)
                     onToggleRequested: wanted => root.toggle(modelData, wanted)
+                    onReconnectRequested: keyed => root.reconnect(modelData, keyed)
                     onRemoveRequested: root.askRemove(modelData)
                     onEditRequested: root.editor("edit", modelData.uuid)
                     onInstallRequested: requirement => root.answered(root.shell.requirements.offer([requirement]), "VGS could not open the plugin install notice.")
@@ -303,6 +320,24 @@ FocusScope {
         width: root.width
         enabled: !root.confirming && !root.prompting
         spacing: Theme.stack.group
+        // While the kill switch holds the block for a dropped profile, the
+        // danger notice says so first (VpnLogic.blockedNotice), above the
+        // problem line. Turn VPN off is the profile's own disconnect, as
+        // its switch is. A keyboard press hands the focus to the profile's
+        // switch, since the notice hides once the change starts.
+        Callout {
+            id: blocked
+            objectName: "vpn-blocked"
+            visible: root.notice !== null && root.listed
+            tone: "danger"
+            text: root.notice === null ? "" : root.notice.text
+            buttonText: root.held !== "" ? "Turn VPN off" : ""
+            onButtonActivated: {
+                const uuid = root.held;
+                const keyed = firstStop !== null && firstStop.activeFocus;
+                if (root.act("profile-down", uuid, "VGS could not turn the VPN off.") === "ok" && keyed) root.focusSwitch(uuid);
+            }
+        }
         Label {
             objectName: "vpn-problem"
             width: parent.width
@@ -388,6 +423,13 @@ FocusScope {
                 text: "Imports WireGuard (.conf) and OpenVPN (.ovpn) files"
                 wrapMode: Text.Wrap
             }
+        }
+        KillSwitch {
+            id: killSwitch
+            visible: killSwitch.view.shown && root.listed
+            shell: root.shell
+            profiles: root.profiles
+            onReplied: (reply, refusal) => root.answered(reply, refusal)
         }
         Section {
             objectName: "vpn-updates"

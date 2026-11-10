@@ -13,11 +13,13 @@
 # /dev/stdin`, which the private nmcli double of network.sh
 # (fixtures/devices/network-join-nmcli.py) records by digest, and is read
 # absent from status, configuration, the log and every recorded argv.
+# With the kill switch's step set up in the fakes' tree, its switches
+# write the state file and a connect waits for the table armed for it.
 # Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
 # Import callback, drop Import's availability guard and put the password
 # on nmcli's argv, and corrupt the detached editor argv.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]vpn')
 devices_ready vpn || return 0
@@ -750,6 +752,59 @@ expect_poll "profiles read nmcli missing" '"missing"' vpn_profiles state
 expect_poll "the VPN icon hides while nmcli is missing" hidden vpn_bar
 mv -- "$sandbox/vpn-nmcli-hidden" "$shim/nmcli"
 rescan "the nmcli stand-in returns"
+
+# The kill switch (D129), with the vpn-kill-switch step's world set up in
+# the fakes' tree (devices_vpn_kill_tree) and the state file under it
+# (devices_vpn_state_file): the switches' IPC writes the file whole, keeps
+# the keys it does not set and leaves the pending file; a WireGuard
+# connect writes meant-on first and runs `nmcli connection up` only once
+# the vgs-kill-switch stand-in reads the table armed for that profile; a
+# reading of the root half's refusal for it runs no connect and puts the
+# file's profile back. A tree whose VPN plugin ships no kill switch skips.
+vpn_kill_state="$devices_vpn_kill_root/vpn/state"
+vpn_kill_file() { if [[ -f $vpn_kill_state ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$vpn_kill_state"; else echo absent; fi; }
+# vpn_kill_write MEANT MODE PORTAL: the state file holding those keys.
+vpn_kill_write() { printf 'version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n' "$1" "$2" "$3" >"$vpn_kill_state"; } # MEANT MODE PORTAL
+vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n" % tuple(sys.argv[1:])))' "$@"; } # MEANT MODE PORTAL
+vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
+vpn_kill_pending() { [[ -e $devices_vpn_kill_root/vpn/pending ]] && echo present || echo absent; }
+vpn_kill_problem() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(json.dumps(v.get("problem") != ""))'; }
+if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
+  # The refusal's arm-wait line, and the status read the stand-in no
+  # longer answers once the step's world is gone.
+  expected_errors+=('vpn: operation=kill-switch-arm completion=unavailable reason=endpoint-hostname$' 'vpn: operation=kill-switch-status completion=unreachable code=1$')
+  vpn_plant
+  devices_vpn_kill_tree ready
+  device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile=" status
+  rescan "the core probes the kill switch step set up"
+  expect_poll "the kill switch step reads set up" '"ready"' vpn_kill_read step
+  expect_poll "no state file reads off" '"off"' vpn_kill_read mode
+  expect_poll "profiles publish behind the kill switch" '"available"' vpn_profiles state
+  expect "the switch's IPC turns the kill switch on" ok ipc vgs.vpn invoke kill-switch block
+  expect_poll "the service writes kill-switch=block" "$(vpn_kill_text "" block 0)" vpn_kill_file
+  expect "the write leaves the pending file" present vpn_kill_pending
+  expect "the write leaves no temporary file" '[]' python3 -c 'import json,os,sys; print(json.dumps([n for n in os.listdir(sys.argv[1]) if n.startswith(".state.")]))' "$devices_vpn_kill_root/vpn"
+  vpn_kill_write "$vpn_home" block 1794203888
+  expect "Allow local network's IPC writes block-lan" ok ipc vgs.vpn invoke kill-switch block-lan
+  expect_poll "block-lan keeps meant-on and portal-until" "$(vpn_kill_text "$vpn_home" block-lan 1794203888)" vpn_kill_file
+  vpn_kill_write "" block 0
+  expect "VPN reads the cleared profile" ok vpn_refresh
+  vpn_kill_calls="$(vpn_call_count)"
+  device_reply vgs-kill-switch 0 "state=unavailable reason=endpoint-hostname blocked=3 tunnel= profile=$vpn_lab" status
+  expect "Lab tunnel is asked to connect behind the kill switch" ok vpn_act profile-up "$vpn_lab"
+  expect_poll "the root half's refusal of Lab tunnel leaves a problem line" true vpn_kill_problem
+  expect_poll "the refusal ends the change" null vpn_profiles action
+  expect "the refusal runs no connect" '[]' vpn_changes "$vpn_kill_calls"
+  expect "the refusal puts the file's profile back" "$(vpn_kill_text "" block 0)" vpn_kill_file
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab" status
+  device_reply nmcli 0 "Connection successfully activated" connection up uuid "$vpn_lab"
+  expect "Lab tunnel is asked to connect once the table arms" ok vpn_act profile-up "$vpn_lab"
+  expect_poll "a table armed for Lab tunnel runs the connect" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_kill_calls"
+  expect "the file names Lab tunnel before the connect" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  expect_poll "the armed connect ends" null vpn_profiles action
+  devices_vpn_kill_tree remove
+  rescan "the kill switch step's world is gone"
+fi
 
 # Import runs a fixture copy, since the terminal runs no shipped TUI. The
 # same copy then carries the controls.

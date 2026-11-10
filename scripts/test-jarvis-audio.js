@@ -214,9 +214,9 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null,
     // A Talk release that ends a hold: past Session's tap bound, so it
     // closes the capture.
     const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
-    // A later Talk press in toggle mode: past Session's 250 ms debounce
+    // A later Talk press in toggle mode: past Session's debounce
     // (Session.js::bounced), so it toggles however soon the fixture reaches it.
-    const press = () => { skew += 250; dispatch("talk-down"); };
+    const press = () => { skew += Session.TOGGLE_DEBOUNCE_MS; dispatch("talk-down"); };
     return { audio, runner, dispatch, release, press, levels, offers, faults, published, frames: () => frames, tick: ms => { at += ms; } };
 }
 

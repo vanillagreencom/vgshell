@@ -7,7 +7,8 @@ import "VpnLogic.js" as Logic
 // (VpnLogic.rowView) and ends with its switch, and a spinner before the
 // switch while a change runs. The switch stays a Tab stop with its reason
 // while it cannot be used. Expanded, it shows the Type row, the Server
-// row when the profile names one, the Address row while connected and,
+// row when the profile names one, the Address row while connected,
+// Reconnect for a dropped profile the kill switch holds the block for and,
 // in System Settings, Edit in connection editor then Remove profile at
 // the content edge, `stack.group`
 // under the details: a remove action with no row of its own leads its text
@@ -18,12 +19,20 @@ Disclosure {
     required property var modelData
     property var profiles: ({})
     property var missingRequirements: []
+    // Whether the kill switch is on (VpnLogic.killSwitchOn): a profile
+    // that is not WireGuard then cannot connect.
+    property bool killOn: false
+    // The profile the blocked-traffic notice names, or "": it reads
+    // Dropped with its switch on, which turns it off.
+    property string held: ""
     property bool removable: false
-    readonly property var view: Logic.rowView(modelData, profiles, missingRequirements)
+    readonly property var view: Logic.rowView(modelData, profiles, missingRequirements, killOn, held)
     readonly property Item removeAction: remove
     readonly property Item switchAction: toggle
 
     signal toggleRequested(bool wanted)
+    // KEYED: the press came from the keyboard, with Reconnect focused.
+    signal reconnectRequested(bool keyed)
     signal removeRequested()
     signal editRequested()
     signal installRequested(string requirement)
@@ -122,17 +131,28 @@ Disclosure {
                 }
             }
         }
+        // A dropped profile the kill switch holds the block for offers
+        // Reconnect, in the flyout too: a connect that keeps the block.
         RowActions {
             width: parent.width
-            visible: root.removable
+            visible: root.removable || root.view.reconnect
+            RowAction {
+                id: reconnect
+                objectName: "vpn-reconnect:" + root.modelData.uuid
+                visible: root.view.reconnect
+                text: "Reconnect"
+                onClicked: root.reconnectRequested(reconnect.activeFocus)
+            }
             RowAction {
                 objectName: "vpn-edit:" + root.modelData.uuid
+                visible: root.removable
                 text: "Edit in connection editor"
                 onClicked: root.editRequested()
             }
             RowAction {
                 id: remove
                 objectName: "vpn-remove:" + root.modelData.uuid
+                visible: root.removable
                 tone: "danger"
                 text: "Remove profile"
                 onClicked: root.removeRequested()
