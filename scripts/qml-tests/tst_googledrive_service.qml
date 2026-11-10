@@ -256,6 +256,46 @@ Item {
             compare(root.tuiCalls, [[expected.tui, expected.args]]);
         }
 
+        function test_retained_notice_resolves_current_stopped_pairs_data() {
+            return [
+                { tag: "docs then photos", remaining: ["photos"], want: [["initialize", ["photos"]]] },
+                { tag: "several stopped pairs use the chooser", remaining: ["photos", "uploads"], want: [["initialize", []]] },
+                { tag: "all pairs prepared", remaining: [], want: [] },
+                { tag: "pair removed", remaining: [], removed: true, want: [] },
+                { tag: "unreadable current status", remaining: ["photos"], unreadable: true, want: [] },
+                { tag: "no consumer shell", remaining: ["photos"], noShell: true, want: [] }
+            ];
+        }
+
+        function test_retained_notice_resolves_current_stopped_pairs(data) {
+            admitDefault();
+            running("service-mode").finish(0, 0, "", "");
+            settleReads();
+            const docs = needsSetup();
+            service.accept(JSON.stringify(docs));
+            const notice = root.notifications[0];
+            const both = needsSetup();
+            const photos = Object.assign({}, both.pairs[0], { id: "photos", label: "Photos" });
+            both.pairs.push(photos);
+            service.accept(JSON.stringify(both));
+            const current = pausedRecord();
+            current.paused = false;
+            current.state = data.remaining.length > 0 ? "initialization-required" : "idle";
+            current.pairs = data.remaining.map(id => Object.assign({}, photos, { id: id }));
+            if (data.remaining.length === 0 && !data.removed) {
+                current.pairs = [Object.assign({}, current.pairs[0] || docs.pairs[0],
+                    { state: "idle", initialization: { state: "ready", reason: null } })];
+            }
+            // Even a retained attention reason grants no authority over
+            // pairs that no longer need setup.
+            current.attention = docs.attention;
+            service.accept(JSON.stringify(current));
+            if (data.unreadable) service.statusRead = { kind: "unreadable", line: "fixture" };
+            if (data.noShell) service.shell = null;
+            notice.done("setup", "delivered");
+            compare(root.tuiCalls, data.want);
+        }
+
         function test_setting_mirror_and_switch_only_data() {
             return [{ tag: "on", value: true }, { tag: "off", value: false }, { tag: "manifest-default", value: undefined }];
         }

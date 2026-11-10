@@ -68,7 +68,7 @@ Item {
         content.ensurePolished();
         textBlock.settleLayout();
     }
-    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0)
+    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0) + trayBottomReserve
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from
     // either end, and every text ends this far from the right end.
@@ -88,14 +88,14 @@ Item {
     readonly property real contentWidth: Math.max(0, fullWidth - contentLeftInset - textColumn)
     readonly property real contentOffset: contentLeftInset - (fullWidth - contentWidth) / 2
     readonly property real slotLeft: showsSlot ? content.x + mediaSlot.x : -1
-    // While the actions show, the text gives way to them: the column ends
-    // tray.gap before the first pill, so no line runs under a pill. The
-    // card grows with the lines that adds, up to maxHeight, as at rest.
-    // The text keeps giving way until the tray's fade out ends, since the
-    // pills draw for the whole fade; only then does it take the whole
-    // column back.
+    // Keep at least as much room for the message as for its actions.
+    // A wider tray uses its own row instead of hiding the message.
+    // Both reservations last until the last frame of the tray's fade.
+    readonly property real textWidth: contentWidth - (showsSlot ? mediaSlot.implicitWidth + look.card.gapIcon : 0)
+    readonly property bool trayBelow: !captionMode && tray.width + look.tray.gap > textWidth - tray.width
     readonly property bool trayShown: caption !== "" || (showActions && actions.length > 0)
-    readonly property real trayReserve: trayShown || tray.visible ? Math.max(0, tray.width + look.tray.gap + pad - textColumn) : 0
+    readonly property real trayReserve: trayShown || tray.visible ? (trayBelow ? 0 : Math.max(0, tray.width + look.tray.gap + pad - textColumn)) : 0
+    readonly property real trayBottomReserve: trayBelow && (trayShown || tray.visible) ? tray.height + look.tray.gap : 0
     readonly property string title: showsBadge ? enrichment.title : summary
 
     // An icon value as an image source: a URL as it is, a path as a file
@@ -130,6 +130,7 @@ Item {
     RowLayout {
         id: content
         anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: -card.trayBottomReserve / 2
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.horizontalCenterOffset: card.contentOffset
         width: card.contentWidth
@@ -168,8 +169,9 @@ Item {
     Item {
         id: tray
         anchors.right: parent.right
-        anchors.rightMargin: card.pad
+        anchors.rightMargin: card.trayBelow ? (card.fullWidth - width) / 2 : card.pad
         anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2 : 0
         width: card.captionMode ? captionText.implicitWidth : actionRow.width
         height: card.captionMode ? captionText.implicitHeight : actionRow.height
         visible: opacity > 0

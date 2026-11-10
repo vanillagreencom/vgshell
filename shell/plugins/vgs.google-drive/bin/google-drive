@@ -2145,9 +2145,12 @@ function renderStatus() {
     // cause of a failure that needs the user changes, never with the time a
     // failure repeats, the order pairs run in or a row that needs nothing, so
     // the plugin notifies once per change that needs the user. The cause is
-    // every failing pair's, by pair id.
+    // every failing or setup-stopped pair's, by pair id.
     const cause = read.error !== null ? [["pairs-invalid", null, null, read.error]]
         : failing.map(p => [p.lastError.kind, p.id, p.lastError.account || null, p.lastError.detail || null]);
+    const setup = standing.filter(s => s.state === "initialization-required").map(s => s.pair)
+        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    cause.push(...setup.map(p => ["initialization-required", p.id, p.initialization.reason]));
     const key = crypto.createHash("sha256").update(JSON.stringify([reasons, needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
     const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
     // The dismissals that still name a row. While the pair list cannot be

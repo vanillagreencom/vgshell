@@ -339,8 +339,15 @@ Item {
             const options = { title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" };
             if (message.action !== undefined) options.actions = [{ id: "setup", label: message.action.label }];
             const pressed = message.action === undefined ? undefined : action => {
-                if (action !== "setup" || message.action === undefined) return;
-                const opened = root.shell.tui.run(message.action.tui, message.action.args);
+                if (action !== "setup" || root.shell === null || root.record === null
+                    || root.modeAdmission !== "ready" || root.modeConfirmed !== root.selectedMode()
+                    || root.record.twoWaySync !== root.selectedMode()) return;
+                // A retained notice may outlive pair setup or removal.
+                // Resolve through the same judge as a new notice, never
+                // through the pair IDs captured when this one was sent.
+                const current = Logic.notification(root.record);
+                if (current === null || current.action === undefined || Logic.setupPairs(root.record).length === 0) return;
+                const opened = root.shell.tui.run(current.action.tui, current.action.args);
                 if (opened !== "ok") root.failed("initialize", opened);
             };
             const reply = shell.notify.send(options, pressed);

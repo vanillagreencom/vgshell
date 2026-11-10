@@ -2533,6 +2533,7 @@ async function caseRenameConcurrent(runner) {
     try {
         await waitFor(path.join(w.stub, "store-blocked"), "the rename's token store");
         for (const dir of Object.values(oldPlaces(w))) assert.equal(fs.existsSync(dir), false, dir);
+        assert.equal(fs.existsSync(path.join(w.state, "rename.pending")), true, "moved directories keep the pending rename record before token storage");
         const before = waits();
         signOut = spawnRunner(w, ["sign-out"], runner);
         const deadline = Date.now() + 30000;
@@ -2753,6 +2754,31 @@ function initialize(w, runner, id = "docs") {
     assert.equal(state.route, "two-way");
     assert.equal(state.operation, "initialize", "explicit initialization keeps its own operation");
     return state;
+}
+
+function caseInitializationAttention(runner) {
+    const w = twoWayWorld(runner);
+    const photos = path.join(w.home, "mirror", "photos");
+    const rows = [
+        { ids: ["docs"], change: () => {} },
+        { ids: ["docs", "photos"], change: () => {
+            seedEqual(w, "Photos", photos);
+            addPair(w, runner, { id: "photos", label: "Photos", remote: "Photos", local: photos });
+        } },
+        { ids: ["photos"], change: () => initialize(w, runner) }
+    ];
+    let previous = null;
+    for (const row of rows) {
+        row.change();
+        const record = status(w, runner);
+        assert.deepEqual(record.pairs.filter(p => p.state === "initialization-required").map(p => p.id).sort(), row.ids);
+        assert.deepEqual(record.attention.reasons, ["initialization-required"]);
+        assert.notEqual(record.attention.key, previous, "stopped pair set changes attention");
+        assert.equal(record.attention.notified, false, "changed stopped pair set has not been notified");
+        assert.equal(cli(w, ["attention-seen", record.attention.key], runner).status, 0);
+        assert.deepEqual(status(w, runner).attention, Object.assign({}, record.attention, { notified: true }), "unchanged stopped pair set stays notified");
+        previous = record.attention.key;
+    }
 }
 
 function caseModeAdmission(runner) {
@@ -3209,6 +3235,10 @@ async function twoWayControl(name, from, to, fn, assertion) {
 }
 
 async function controls() {
+    await twoWayControl("setup attention includes the stopped pair set",
+        'standing.filter(s => s.state === "initialization-required").map(s => s.pair)',
+        'standing.filter(s => false).map(s => s.pair)',
+        caseInitializationAttention, "stopped pair set changes attention");
     await twoWayControl("planned comparison ignores directory metadata",
         'items.map(list => view(list, true))',
         'items.map(list => list.map(i => [i.Path, i.IsDir, i.Size, listedMd5(i), i.IsDir ? null : Date.parse(i.ModTime)]))',
@@ -3370,6 +3400,7 @@ async function controls() {
 
 async function main() {
     caseModeAdmission();
+    caseInitializationAttention();
     caseInitializationPreparation();
     caseInitializationAdmission();
     caseTwoWayConvergence();
