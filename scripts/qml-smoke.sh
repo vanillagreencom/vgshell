@@ -549,7 +549,13 @@ PY
       printf 'qml-smoke: failed-operation=run-log path=%s\n' "$qml_smoke_attempt/run.log" >&2
     fi
     if ! qml_smoke_prepare_completion attempt "$qml_smoke_attempt" "$qml_smoke_attempt_status" "$qml_smoke_log_status"; then
-      qml_smoke_status=1
+      # Prerequisites can end the fence or harness before it records a
+      # world. Once recorded, missing completion input is a failed proof.
+      if [[ $qml_smoke_attempt_status == 77 && ! -e $qml_smoke_attempt/world && $qml_smoke_status == 0 ]]; then
+        qml_smoke_status=77
+      else
+        qml_smoke_status=1
+      fi
       break
     fi
     # One Bash command orders first-stop acceptance against this attempt.

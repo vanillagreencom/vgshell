@@ -12,6 +12,7 @@
 # through bt_main and its row cleanup, without a compositor or device.
 # --case completion checks acknowledged lifecycle boundaries without QML,
 # and that a unit's stop mid-row leaves the attempt's closing reading.
+# --case unmeasured checks unreached rows before and after world setup.
 # --case late-exit stops real initial and resumed worlds during EXIT.
 # Each cancellation case has the private PID namespace and 60 s readiness /
 # 30 s stop bounds of test-smoke-owner.sh --live. A world still starting at
@@ -28,7 +29,7 @@ end_run() {
 }
 if [[ ${1-} == --case && $# == 2 ]]; then
   selected_case=$2
-  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
+  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness|unmeasured) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
 elif (($#)); then
   echo 'test-qml-smoke: refused: arguments' >&2
   exit 2
@@ -515,11 +516,12 @@ PY
 fi
 
 run_case() {
-  local label="$1" destination="${2:-$TMP_ROOT/$1}" status=0
-  [[ $selected_case == all || $selected_case == "$label" ]] || return 0
+  local label="$1" destination="${2:-$TMP_ROOT/$1}" completed="${3-}" status=0
+  [[ $selected_case == all || $selected_case == "$label" ||
+    ( $selected_case == unmeasured && ( $label == pre-world || $label == stopped-unmeasured ) ) ]] || return 0
   mkdir -- "$TMP_ROOT/$label"
   "$tree/scripts/qml-smoke.sh" --log-dir "$destination" >"$TMP_ROOT/$label/log" 2>&1 || status=$?
-  python3 - "$TMP_ROOT/$label" "$status" "$label" <<'PY'
+  python3 - "$TMP_ROOT/$label" "$status" "$label" "$completed" <<'PY'
 from pathlib import Path
 import json, re, sys
 root, status, label = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
@@ -531,12 +533,24 @@ sys.excepthook = report_error
 results = re.findall(r'^qml-smoke: row-result row=(\S+) status=(\S+)(.*)$', log, re.M)
 by_row = {name: (state, detail) for name, state, detail in results}
 attempts = [Path(path) / 'run.log' for path in re.findall(r'^qml-smoke: attempt=(.*?) targets=', log, re.M)]
-assert status == {'good': 0, 'not-measured': 77}.get(label, 1), (status, log)
+assert status == {'good': 0, 'not-measured': 77, 'pre-world': 77, 'stopped-unmeasured': 77}.get(label, 1), (status, log)
 assert len(results) == len(by_row), results
 targets = (root.parent / 'tree/scripts/smoke/rows.list').read_text().splitlines()
 assert set(by_row) == set(targets), (by_row, targets)
 unreached = ('unreached', '')
-if label == 'resume':
+if label in ('pre-world', 'stopped-unmeasured'):
+    completed = sys.argv[4].split()
+    assert set(completed) <= set(targets), (completed, targets)
+    remaining = [name for name in targets if name not in completed]
+    for name in completed:
+        assert by_row[name] == ('ok', ''), by_row
+    for name in remaining:
+        assert by_row[name] == unreached, by_row
+    expected = 'qml-smoke: status=not-measured rows=' + ','.join(name + ':unreached' for name in remaining)
+    assert re.findall(r'^qml-smoke: status=not-measured rows=.*$', log, re.M) == [expected], log
+    assert not re.search(r'^qml-smoke: failed=', log, re.M), log
+    assert len(attempts) == 1, log
+elif label == 'resume':
     for name in ('fatal-unbound', 'fatal-arithmetic'):
         assert by_row[name][0] == 'failed', by_row
     source = (root.parent / 'tree/scripts/smoke/rows/fatal-unbound.sh').read_text().splitlines()
@@ -928,6 +942,23 @@ run_case early-zero
 printf '# inputs: scripts/smoke/harness.sh\nexit 1\n' >"$tree/scripts/smoke/rows/stopped.sh"
 printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
 run_case stopped
+# label | rows completed before the attempt exits 77
+unreached_cases=(
+  'pre-world|'
+  "stopped-unmeasured|${core[*]} provider"
+)
+printf '# inputs: scripts/smoke/harness.sh\nexit 77\n' >"$tree/scripts/smoke/rows/stopped.sh"
+for unreached_case in "${unreached_cases[@]}"; do
+  IFS='|' read -r label completed <<<"$unreached_case"
+  if [[ $label == pre-world ]]; then
+    printf 'exit 77\n' >"$tree/scripts/smoke/harness.sh"
+  else
+    cp -- "$repo/scripts/smoke/harness.sh" "$tree/scripts/smoke/harness.sh"
+  fi
+  run_case "$label" "$TMP_ROOT/$label" "$completed"
+done
+cp -- "$repo/scripts/smoke/harness.sh" "$tree/scripts/smoke/harness.sh"
+[[ $selected_case != unmeasured ]] || end_run
 cat >"$tree/scripts/smoke/rows/finish-operation.sh" <<'ROW'
 # inputs: scripts/smoke/harness.sh
 sink_check() { [[ -n ${smoke_row_name:-} ]] || fail planted-final-operation; }
