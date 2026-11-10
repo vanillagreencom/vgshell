@@ -211,7 +211,7 @@ function failBrain(s, effects, e) {
 }
 
 function canEngage(s) {
-    return s.gate.kind === "up" && s.fault.kind !== "error";
+    return s.gate.kind === "up" && (s.fault.kind === "none" || s.fault.kind === "retrying");
 }
 
 function canCheck(s) {
@@ -362,7 +362,7 @@ function think(s, effects, values, at) {
 }
 
 function canPlayback(s) {
-    return s.gate.kind === "up" && s.fault.kind !== "error" && ["playing", "feedback"].indexOf(s.playback.kind) !== -1
+    return canEngage(s) && ["playing", "feedback"].indexOf(s.playback.kind) !== -1
         && (s.capture.kind === "closed" || overlapping(s) && s.playback.kind === "playing"
             && ["opening", "open"].indexOf(s.capture.kind) !== -1);
 }
@@ -482,7 +482,7 @@ function interrupt(s, effects, at) {
 // A failed turn's fault stays shown until the next Talk press, which ends
 // what is left of that conversation so the press starts a new one.
 function recover(s, effects, at) {
-    if (s.fault.kind !== "error" || s.gate.kind !== "up") return;
+    if (s.fault.kind === "none" || s.fault.kind === "retrying" || s.gate.kind !== "up") return;
     end(s, effects, at, "recover", false);
     s.fault = { kind: "none" };
 }
@@ -1078,7 +1078,9 @@ function reduce(state, e) {
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
         // A failed engine has already released its session.
         s.speech = { kind: "closed" };
-        s.fault = { kind: "error", reason: e.reason, retry: 0 };
+        // Only duplex speech opens this port; a brain's failure has its own
+        // event even under duplex. Keep the origin, not a guess from net=.
+        s.fault = { kind: "voice-connection", reason: e.reason };
         end(s, effects, e.at, "speech-failed", false);
         break;
     case "deadline":
@@ -1106,7 +1108,7 @@ var REGIONS = {
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
     action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
-    fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
+    fault: { none: "", error: "reason retry", retrying: "reason retry", "voice-connection": "reason" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
     history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },

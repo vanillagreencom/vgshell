@@ -49,15 +49,14 @@ var KEY_REFUSED_ACTION = "Add a new key in [Voice key](page:vgs.jarvis/Settings/
 function keyRefusedText(voice) {
     return { title: (voice === null ? "The voice service" : voice.company) + " refused your key", action: KEY_REFUSED_ACTION };
 }
-// A Session fault's kind of failure, by its keyed reason: the first
+// A Session fault's kind of failure, by its origin and keyed reason: the first
 // pattern that matches wins. Examples are the producers' own reasons:
 // Session's thinking-timeout and device-lost, the engine's keyed brain and
 // speech causes (ChainedEngine keyed: brain=stream-error, net=timeout,
 // speech=local-ready-timeout), the home folder causes of a conversation's
 // first turn (home=link, guidance=home-skills-too-large; a home text over
 // its budget is no fault) and Audio's capture and
-// playback failures (audio-start: ..., device-probe: ..., playback-busy),
-// and a cloud voice whose transport failed.
+// playback failures (audio-start: ..., device-probe: ..., playback-busy).
 // A model its app refused carries the model's name (ClaudeCode:
 // brain=harness-model-refused model=claude-fable-5-1), and a lost device
 // what was missing and what Audio's read held (device-lost target=...).
@@ -69,7 +68,6 @@ function modelFallbackNotice(choice, field) {
 }
 var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
-    [/^live=key-refused$/, "keyRefused"],
     [/^device-lost /, "device"],
     [/^(home=|guidance=home-)/, "home"],
     [MODEL_REFUSED, "model"],
@@ -100,6 +98,7 @@ var FAULT_TEXT = {
     "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in [System > Sound](page:vgs.sound)." },
     "home": { title: "Jarvis cannot use the home folder", action: "See what to change in [Setup > Home folder](page:vgs.jarvis/Setup/setupHome)." },
     "brain": { title: "The AI model did not answer", action: RESTART },
+    "voiceConnection": { title: "Jarvis Voice lost its connection", action: "Check your network, then turn Jarvis Voice off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." },
     "model": { title: "The AI app cannot use the model", action: "Choose another model under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in [Settings > Jarvis](page:vgs.jarvis/Setup)." },
     "voice": { title: "Local voice stopped working", action: RESTART },
@@ -198,10 +197,14 @@ function gateDown(gate) {
     }
 }
 
-// The kind of FAULT, a Session fault, by FAULT_KINDS.
+// A specific key recovery precedes the speech port's general connection
+// failure. Other net= reasons still belong to the brain when that port
+// did not fail.
 function faultKind(fault) {
-    if (fault === null || typeof fault !== "object" || (fault.kind !== "error" && fault.kind !== "retrying")
+    if (fault === null || typeof fault !== "object" || ["error", "retrying", "voice-connection"].indexOf(fault.kind) === -1
             || typeof fault.reason !== "string") refuse("fault", fault);
+    if (fault.reason === "live=key-refused") return "keyRefused";
+    if (fault.kind === "voice-connection") return "voiceConnection";
     for (var i = 0; i < FAULT_KINDS.length; i++)
         if (FAULT_KINDS[i][0].test(fault.reason)) return FAULT_KINDS[i][1];
     return "other";

@@ -980,7 +980,7 @@ world(async () => {
     async function conversing(kit, options) {
         const { w, conn } = await running(kit, options);
         conn.play("turn");
-        await until(() => w.delegations.length === 1 || w.state.fault.kind === "error", "the turn reaches the brain");
+        await until(() => w.delegations.length === 1 || w.state.fault.kind !== "none", "the turn reaches the brain");
         assert.equal(w.delegations.length, 1);
         return { w, conn };
     }
@@ -993,7 +993,7 @@ world(async () => {
         return { w, conn };
     }
     // Session state comes from the QML library realm; compare its JSON.
-    const fault = (w, reason) => assert.deepEqual(JSON.parse(JSON.stringify(w.state.fault)), { kind: "error", reason, retry: 0 });
+    const fault = (w, reason) => assert.deepEqual(JSON.parse(JSON.stringify(w.state.fault)), { kind: "voice-connection", reason });
     function quiet(w, conn) {
         const all = JSON.stringify([w.state, w.logs, w.transcripts, w.delegations, conn === undefined ? [] : conn.events]);
         assert.equal(all.includes(KEY), false, "no key in state, log, transcript or frame");
@@ -1103,7 +1103,7 @@ world(async () => {
         const other = rig(kit, { voice: "unlisted" });
         const opened = main.conns.length;
         other.dispatch("preview");
-        await until(() => other.state.fault.kind === "error", "an unlisted voice fails the session");
+        await until(() => other.state.fault.kind === "voice-connection", "an unlisted voice fails the session");
         fault(other, "live=voice");
         assert.equal(main.conns.length, opened, "it opens no connection");
     }
@@ -1353,7 +1353,7 @@ world(async () => {
         // Drive its injected clock until the overflow, as nativeEnd does
         // for accepted boundaries, instead of advancing before it is queued.
         await until(() => {
-            if (w.state.fault.kind === "error") return true;
+            if (w.state.fault.kind === "voice-connection") return true;
             w.clock.advance(100);
             return false;
         }, "unanswered native results cannot grow past their allowance");
@@ -1370,7 +1370,7 @@ world(async () => {
         for (const [status, reason] of REFUSED) {
             const w = rig(kit, { protocol: P, refuse: status });
             w.dispatch("talk-down");
-            await until(() => w.state.fault.kind === "error", status + ": the refused handshake fails the conversation");
+            await until(() => w.state.fault.kind === "voice-connection", status + ": the refused handshake fails the conversation");
             fault(w, reason);
             assert.deepEqual([w.state.speech.kind, w.state.conversation.kind, w.delegations.length], ["closed", "ended", 0], String(status));
             quiet(w);
@@ -1755,7 +1755,7 @@ world(async () => {
         const frame = JSON.stringify({ type: "rate_limits.updated", event_id: "e", rate_limits: [], pad: "" });
         conn.raw(frame.replace('"pad":""', '"pad":"' + "m".repeat(FRAME - frame.length) + '"'));
         heard(conn, "item_bound", "x".repeat(TURN));
-        await until(() => w.delegations.length === 2 || w.state.fault.kind === "error", "the unread events are judged");
+        await until(() => w.delegations.length === 2 || w.state.fault.kind === "voice-connection", "the unread events are judged");
         assert.equal(w.state.fault.kind, "none", "unread events, a 1 MiB frame and a turn at its bound are kept");
     }
 
@@ -1763,7 +1763,7 @@ world(async () => {
     async function redirect(kit) {
         const w = rig(kit, { redirect: true });
         w.dispatch("talk-down");
-        await until(() => w.state.fault.kind === "error", "a redirect ends the conversation");
+        await until(() => w.state.fault.kind === "voice-connection", "a redirect ends the conversation");
         fault(w, "live=disconnected code=1006");
         assert.deepEqual(main.redirected.filter(id => id === String(w.id)), [String(w.id)], "the provider answered with a redirect");
         await turn();
@@ -1823,7 +1823,7 @@ world(async () => {
         const { w, conn } = await starting(kit);
         conn.play("updated");
         w.sink.write(Buffer.alloc(960, 5));
-        await until(() => w.state.fault.kind === "error", "a withheld frame faults");
+        await until(() => w.state.fault.kind === "voice-connection", "a withheld frame faults");
         fault(w, "live=release-withhold");
         await until(() => conn.ended, "the withheld session closes");
         assert.equal(conn.count(APPEND), 0, "a withheld frame writes nothing");
@@ -1912,7 +1912,7 @@ world(async () => {
         await conn.sync();
         assert.equal(w.state.fault.kind, "none", "a queue under the playback allowance is kept");
         for (let index = 0; index < 2; index++) P.chunk(conn, 65536);
-        await until(() => w.state.fault.kind === "error", "past the allowance the reply faults");
+        await until(() => w.state.fault.kind === "voice-connection", "past the allowance the reply faults");
         fault(w, "live=output-overflow");
     }
 
@@ -2174,7 +2174,7 @@ world(async () => {
                 fs.writeFileSync(offset, "1000");
                 send({ type: "intent", intent: "confirm", id: approval.id, digest: approval.digest, source: "key" });
                 await wait(() => fs.existsSync(victim) === false && server.requests.length === 2 && conn.count(P.SPEAK) > 0
-                    || last()?.fault.kind === "error",
+                    || ["error", "voice-connection"].includes(last()?.fault.kind),
                     "the approved result returns as spoken words");
                 assert.ok(conn.count(P.SPEAK) > 0, JSON.stringify(last()?.fault));
                 assert.equal(fs.existsSync(victim), false);
@@ -2448,7 +2448,7 @@ world(async () => {
         const other = rig(kit, { protocol: GEMINI, voice: "marin" });
         const opened = main.conns.length;
         other.dispatch("preview");
-        await until(() => other.state.fault.kind === "error", "a voice Gemini does not offer fails the session");
+        await until(() => other.state.fault.kind === "voice-connection", "a voice Gemini does not offer fails the session");
         fault(other, "live=voice");
         assert.equal(main.conns.length, opened, "it opens no connection");
     }
@@ -2460,7 +2460,7 @@ world(async () => {
         await conn.event(GSPEAK);
         conn.raw(Buffer.from(JSON.stringify(gscript("reply-old"))), 2);
         conn.play("done-old");
-        await until(() => bytes(w, 0x11) === 1440 || w.state.fault.kind === "error", "the binary audio plays before the turn's end");
+        await until(() => bytes(w, 0x11) === 1440 || w.state.fault.kind === "voice-connection", "the binary audio plays before the turn's end");
         assert.equal(bytes(w, 0x11), 1440);
     }
 
@@ -2633,7 +2633,7 @@ world(async () => {
         conn.play("done-old");
         gpart(conn, "x".repeat(TURN));
         gfinished(conn);
-        await until(() => w.delegations.length === 2 || w.state.fault.kind === "error", "the unread messages are judged");
+        await until(() => w.delegations.length === 2 || w.state.fault.kind === "voice-connection", "the unread messages are judged");
         assert.equal(w.state.fault.kind, "none", "unread messages, a 1 MiB frame and a turn at its bound are kept");
     }
 
@@ -2693,7 +2693,7 @@ world(async () => {
     async function gredirect(kit) {
         const w = rig(kit, { protocol: GEMINI, redirect: true });
         w.dispatch("talk-down");
-        await until(() => w.state.fault.kind === "error", "a redirect ends the conversation");
+        await until(() => w.state.fault.kind === "voice-connection", "a redirect ends the conversation");
         fault(w, "live=disconnected code=1006");
         await turn();
         assert.equal([...main.conns, ...other.conns].filter(conn => conn.rig === String(w.id)).length, 0, "no connection follows the redirect");
@@ -2728,7 +2728,7 @@ world(async () => {
         const { w, conn } = await gstarting(kit);
         conn.play("setup-complete");
         w.sink.write(Buffer.alloc(960, 5));
-        await until(() => w.state.fault.kind === "error", "a withheld frame faults");
+        await until(() => w.state.fault.kind === "voice-connection", "a withheld frame faults");
         fault(w, "live=release-withhold");
         await until(() => conn.ended, "the withheld session closes");
         assert.equal(conn.count(INPUT), 0, "a withheld frame writes nothing");

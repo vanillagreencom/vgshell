@@ -6,6 +6,7 @@
 // and forbids shortcut, selected-model and selected-voice details.
 // The service callbacks below protect notice and approval-frame identity.
 // No process, network, audio or real clock is used.
+// --voice-fault-control runs only the duplex fault-origin must-fail controls.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -179,6 +180,7 @@ function verify(view) {
         ["detail", { detail: "idle" }, /detail=/],
         ["microphone", up({}, { microphoneMute: { kind: "ready" } }), /microphoneMute=/]
     ]) assert.throws(() => view.view(values, null), error => pattern.test(error.message), label);
+    verifyVoiceFaults(Session, view);
     verifyReplyCard(view);
 }
 // The reply card under the J (VGS-2339): while Jarvis Voice is muted or the
@@ -251,8 +253,119 @@ function verifyReplyPublication(before, after) {
     assert.equal(key(before), key(JSON.parse(JSON.stringify(before))), "an equal decision publishes nothing new");
     assert.equal(key(null), "", "no card publishes the empty key");
 }
+
+// SessionRunner's speech port emits speech-failed; its brain port emits
+// brain-failed even for a delegation under duplex. The widget and bubble
+// deliver these words as their result, so their title/action are the contract.
+function verifyVoiceFaults(logic, view) {
+    const step = (state, event) => copy(logic.reduce(state, event));
+    const callback = (type, owner, at, extra = {}) => ({ type, gen: owner.gen, op: owner.op, at, ...extra });
+    const ready = engine => {
+        let s = step(logic.initial(), { type: "snapshot", at: 0, locked: false, configured: true, settings: {}, engine }).state;
+        s = step(s, { type: "indicator", gen: s.gen, shown: true, bar: "gone", at: 1 }).state;
+        return s;
+    };
+    const listening = () => {
+        let s = step(ready("duplex"), { type: "talk-down", at: 10 }).state;
+        return step(s, callback("capture-opened", s.capture, 20)).state;
+    };
+    const voice = { company: "OpenAI" };
+    const connection = {
+        title: "Jarvis Voice lost its connection",
+        action: "Check your network, then turn Jarvis Voice off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."
+    };
+    const brain = {
+        title: "The AI model did not answer",
+        action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)."
+    };
+    const key = {
+        title: "OpenAI refused your key",
+        action: "Add a new key in [Voice key](page:vgs.jarvis/Settings/voiceAccount)."
+    };
+    const sharedOrigins = ["speech", "brain-chained", "brain-duplex"];
+    for (const [reason, speechText, origins] of [
+        ["net=closed", connection, sharedOrigins], ["net=socket-not-open", connection, ["speech"]], ["net=recipient", connection, sharedOrigins],
+        ["live=failed", connection, ["speech"]], ["live=key-refused", key, ["speech"]]
+    ]) {
+        for (const origin of origins) {
+            let s;
+            if (origin === "brain-chained")
+                s = step(ready("chained"), { type: "say", text: "fixture request", at: 20 }).state;
+            else {
+                s = listening();
+                if (origin === "brain-duplex")
+                    s = step(s, callback("delegation", s.speech, 21, { id: "fixture", text: "fixture request" })).state;
+            }
+            const speech = origin === "speech";
+            const event = callback(speech ? "speech-failed" : "brain-failed", speech ? s.speech : s.turn, 30,
+                { reason, ...(speech ? {} : { restart: { kind: "none", category: "other" } }) });
+            const failed = step(s, event);
+            assert.deepEqual(failed.state.fault, speech ? { kind: "voice-connection", reason } : { kind: "error", reason, retry: 0 },
+                origin + " " + reason + ": retain the admitted fault origin and reason");
+            assert.equal(logic.validate(failed.state), true, "the fault is an exact state-wire variant");
+            if (speech) {
+                for (const fault of [{ ...failed.state.fault, retry: 0 }, { ...failed.state.fault, reason: null }])
+                    assert.equal(logic.validate({ ...failed.state, fault }), false, "no extra or unchecked voice fault fields");
+            }
+            assert.deepEqual([failed.state.speech.kind, failed.state.conversation.kind, failed.state.restart],
+                ["closed", "ended", { kind: "none" }], "a stopped fault does not gain a restart allowance");
+            assert.equal(logic.canEngage(failed.state), false, "the fault blocks capture until a user recovery");
+            assert.equal(failed.effects.some(e => ["capture-open", "speech-open"].includes(e.kind)), false, "no automatic voice restart");
+            let settled = failed.state;
+            if (settled.capture.kind === "closing")
+                settled = step(settled, callback("capture-closed", settled.capture, 31)).state;
+            const expected = speech ? speechText : brain;
+            assert.deepEqual(copy(view.faultText(settled.fault, settled.engine.kind, voice)), expected,
+                origin + " " + reason + ": the bubble names the failed owner");
+            const bar = view.view(up(settled), voice);
+            assert.deepEqual(copy(bar.tooltipDetails), [expected.action], "the state-only bar keeps the same fault recovery");
+            const card = view.replyCard([], { ...settled, visibility: { kind: "hidden" } }, "fixture", null, voice);
+            assert.deepEqual(copy(card.fault), expected, "the widget reply card shares the bubble's title and action");
+            if (speech) {
+                const late = step(settled, { ...event, at: 32 });
+                assert.deepEqual(late.state.fault, settled.fault, "retired speech cannot replace the fault");
+                assert.equal(late.state.stale, settled.stale + 1);
+                const recovered = step(settled, { type: "talk-down", at: 400 });
+                assert.deepEqual([recovered.state.fault.kind, recovered.state.conversation.kind, recovered.state.speech.kind],
+                    ["none", "active", "open"], "a user Talk press still recovers the voice fault");
+            }
+        }
+    }
+    assert.equal(view.faultText({ kind: "error", reason: "speech=local-not-ready", retry: 0 }, "chained", null).title,
+        "Local voice stopped working", "a local voice fault stays local");
+}
+
+function voiceFaultControls() {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-voice-fault-control-"));
+    try {
+        for (const file of ["SetupGate.js", "Session.js", "WidgetView.js"])
+            fs.copyFileSync(path.join(dir, file), path.join(temp, file));
+        for (const [label, file, needle, replacement] of [
+            ["Session loses the speech origin", "Session.js", 's.fault = { kind: "voice-connection", reason: e.reason };',
+                's.fault = { kind: "error", reason: e.reason, retry: 0 };'],
+            ["the view guesses from the reason", "WidgetView.js", 'if (fault.kind === "voice-connection")',
+                'if (false)']
+        ]) {
+            const original = fs.readFileSync(path.join(dir, file), "utf8");
+            assert.equal(original.split(needle).length, 2, label + ": one mutation target");
+            const changed = original.replace(needle, replacement);
+            assert.notEqual(changed, original);
+            fs.writeFileSync(path.join(temp, file), changed);
+            assert.throws(() => verifyVoiceFaults(load(path.join(temp, "Session.js")), load(path.join(temp, "WidgetView.js"))),
+                assert.AssertionError, label + ": the real origin contract must fail");
+            fs.writeFileSync(path.join(temp, file), original);
+        }
+        console.log("test-jarvis-widget: voice-fault-controls=2 control=detected");
+    } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+}
+
+if (process.argv.includes("--voice-fault-control")) {
+    voiceFaultControls();
+    process.exit(0);
+}
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
 verify(load(path.join(dir, "WidgetView.js")));
+voiceFaultControls();
 // Execute the service's reset notification owner. Repeated state snapshots
 // cannot repeat the explanation, while a later reset has its own identity.
 {
