@@ -65,6 +65,10 @@
 # that enters no world has none. A value that is no positive whole number
 # of bytes is refused before anything starts:
 #   gpu-fence: refused: row-memory=<value>
+# The same call sets RLIMIT_CORE to 0, so a world writes no core: a process
+# that aborts at the ceiling leaves no core of its memory on the host.
+# systemd-coredump, where core_pattern pipes to it, processes a core only
+# when that limit is sufficient (systemd-coredump(8)).
 #
 # Before CMD starts inside the namespace, the proof stats every path, with
 # no open, and prints one line each on stderr:
@@ -736,10 +740,10 @@ case "$mode" in
       --bind "$fence_dir/runtime" "$world_runtime/owned"
       "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
       "${environment[@]}" --remount-ro /)
-    # prlimit sets the ceiling on itself and execs the rest, so bubblewrap
-    # and all it starts inherit it, and the monitor keeps the pid the fence
-    # started.
-    fence=(prlimit "--data=$ceiling:$ceiling" -- "${fence[@]}")
+    # prlimit sets the ceiling and the core limit on itself and execs the
+    # rest, so bubblewrap and all it starts inherit both, and the monitor
+    # keeps the pid the fence started.
+    fence=(prlimit "--data=$ceiling:$ceiling" --core=0 -- "${fence[@]}")
     proof=(-- env --default-signal=TERM,INT,HUP "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
     probe="$(
