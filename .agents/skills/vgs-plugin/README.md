@@ -2,16 +2,20 @@
 
 A skill for writing plugins for the VGS shell, for any agent harness kendex links it into.
 
-## Install
-
-`kendex refresh` from a plain terminal in the checkout links it for the harnesses `kendex.toml` names. Claude Code reads it through the `.claude/skills/vgs-plugin` symlink into `.agents/skills/vgs-plugin`; that is the one link the tree holds.
-
 ## Features
 
 - A scaffold command that runs the repository's manifest judge, writes a plugin directory from templates and checks it.
 - A check command that runs the manifest judge, boundary check, token check, user-command check, pointer check and keyboard check on one plugin.
 - Templates for a bar widget, a bar, a panel (also used for an overlay and a menu), a window, a pane, a service and a background, plus the manifest.
 - A reference of every property, token, capability, import and IPC call a plugin may use.
+
+## Install
+
+```sh
+kendex refresh
+```
+
+Run it in the VGS checkout.
 
 ## How it works
 
