@@ -17,6 +17,17 @@ _vgs_pkg_review_settings_cancel() { # MODE SAVED CHOICES
 }
 vgs_pkg_review_settings() { # OWNER [inline]
     local owner=$1 mode=${2:-} snapshot saved choices row value summary shown="" plan options presets_text input_help id label state
+    # gum 2.0.2 input cuts each header line at the terminal's last column and
+    # does not wrap it. Each line fits an 80-column terminal after the
+    # 3-column edge.
+    local command_header='Review command
+Separate the command and each option with a space.
+Quotes and symbols are passed as typed.
+The command starts in the folder of its own review.
+An agent with its own sandbox can then change no other review and no update.
+A command whose first word is claude starts in the folder that all reviews
+and updates share, so its sandbox lets it change them.
+VGS does not limit a command that has no sandbox.'
     local heading='Set agent review before a package installs or updates'
     local purpose='Choose whether to review packages, which AI agent to use, and an optional command.'
     local rules='Install without asking, except with a custom AUR command. Review with an agent and Automatic ask before each install or update.
@@ -82,7 +93,7 @@ Automatic (review when an agent is available)
                 if [[ $value == 'Custom command' ]]; then
                     value="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).command||"")' "$choices")" || return
                     printf -v input_help '\033[22m%sEnter confirms • Esc returns\033[0m' "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"
-                    value="$(vgs_tui_input --no-show-help --header "Review command"$'\n''Separate the command and each option with a space. Quotes and symbols are passed as typed.'$'\n\n'"$input_help" --value "$value")" || continue
+                    value="$(vgs_tui_input --no-show-help --header "$command_header"$'\n\n'"$input_help" --value "$value")" || continue
                 elif [[ $value == "Use the agent's command" ]]; then value=''; fi
                 choices="$(node -e 'const s=JSON.parse(process.argv[1]);s.command=process.argv[2];process.stdout.write(JSON.stringify(s));' "$choices" "$value")" || return
                 ;;

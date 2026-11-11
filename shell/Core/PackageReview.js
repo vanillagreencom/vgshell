@@ -6,24 +6,34 @@ function hasOwn(object, key) { return Object.prototype.hasOwnProperty.call(objec
 function isPlainObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
+// Every review agent, shipped or saved, starts in its own review's evidence
+// folder, so a sandboxed agent can write nothing else in the agent home,
+// unless its row sets startsInHome (reviewCommand).
 var REVIEW_AGENTS = [
     // Claude asks nothing: --tools leaves no shell, --strict-mcp-config loads no
     // MCP server, dontAsk denies any call no rule allows, and verdictRule
     // allows the write of one review's verdict alone (reviewCommand). --tools
     // takes every following word, so other flags follow it; the rule is one
     // `--allowedTools=` word, so the prompt after it stays positional.
+    // Claude asks its folder-trust question in every folder it has not
+    // trusted (VGS-2448), so it and a saved command whose first word is
+    // claude start in the stable agent home, trusted once, not in a new
+    // evidence folder per review.
     // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference
     { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
-        "--strict-mcp-config", "--permission-mode", "dontAsk"], verdictRule: "--allowedTools=Edit(./{verdict})" },
+        "--strict-mcp-config", "--permission-mode", "dontAsk"], verdictRule: "--allowedTools=Edit(./{verdict})", startsInHome: true },
     // workspace-write lets Codex's shell write only in its working directory,
     // /tmp and $TMPDIR (`codex debug prompt-input`, codex-cli 0.167.0), and
-    // startIn makes that directory one review's evidence folder, so no other
-    // review, receipt or pacman hooks folder in the agent home is writable.
+    // that directory is one review's evidence folder, so no other review,
+    // receipt or pacman hooks folder in the agent home is writable.
     // Started in the agent home with -C naming that folder, 0.167.0 refused
     // to start a turn: "the selected permission profile cannot be safely
     // represented by the legacy app-server sandbox policy" (VGS-2469).
-    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"],
-        startIn: "evidence" }
+    // With never, a hostile recipe cannot ask the owner to approve an
+    // escalated command. Measured with never (codex-cli 0.167.0,
+    // 2026-11-11, VGS-2476): the turn started, the sandbox refused writes
+    // outside the evidence folder and the verdict was written.
+    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "never"] }
 ];
 
 // The `key = value` lines of a .SRCINFO, each { key, value } in file order;
@@ -124,12 +134,14 @@ function reviewPlan(settings, found) {
 // How PLAN runs on one review: { argv, before its prompt, and cwd }. REVIEW
 // holds the stable agent home, that review's evidence folder and its verdict
 // path relative to the home. A shipped agent with a verdictRule may write
-// that verdict alone; one whose startIn is "evidence" starts in that folder,
-// else in the home. A custom command runs as written in the home.
+// that verdict alone; a saved command runs as written. Either starts in the
+// home when the row its first word names sets startsInHome, else in the
+// evidence folder, so a saved command that names a sandboxed agent cannot
+// write a transaction, a receipt or another review in the home.
 function reviewCommand(plan, review) {
-    var row = plan.state === "agent" ? reviewAgentRow(plan.agent) : null;
-    var argv = row !== null && hasOwn(row, "verdictRule") ? plan.command.concat([row.verdictRule.replace("{verdict}", review.verdict)]) : plan.command.slice();
-    return { argv: argv, cwd: row !== null && row.startIn === "evidence" ? review.evidence : review.home };
+    var row = reviewAgentRow(plan.agent);
+    var argv = plan.state === "agent" && row !== null && hasOwn(row, "verdictRule") ? plan.command.concat([row.verdictRule.replace("{verdict}", review.verdict)]) : plan.command.slice();
+    return { argv: argv, cwd: row !== null && row.startsInHome === true ? review.home : review.evidence };
 }
 
 // Consent to install without review is a submitted offer or a saved

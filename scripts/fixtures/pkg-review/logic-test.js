@@ -110,17 +110,20 @@ function verify(logic) {
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
   const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk"];
   same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords);
-  const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"];
+  const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","never"];
   same(logic.reviewPlan({agent:"codex"},["codex"]).command,codexWords);
   // [settings, found, the launch of the review whose evidence folder is
   // /run/home/review-a/evidence in the agent home /run/home]: Claude gains
   // the one rule naming that verdict and starts in the home; Codex starts in
-  // that evidence folder; a custom command runs as written in the home.
+  // that evidence folder. A saved command runs as written, in the home when
+  // its first word is claude and in the evidence folder for any other agent.
   const review={home:"/run/home",evidence:"/run/home/review-a/evidence",verdict:"review-a/evidence/verdict"};
   for(const [settings,found,want] of [
     [{agent:"claude"},["claude"],{argv:claudeWords.concat(["--allowedTools=Edit(./review-a/evidence/verdict)"]),cwd:"/run/home"}],
     [{agent:"codex"},["codex"],{argv:codexWords,cwd:"/run/home/review-a/evidence"}],
-    [{command:"codex --sandbox workspace-write"},["codex"],{argv:["codex","--sandbox","workspace-write"],cwd:"/run/home"}]
+    [{command:"codex --sandbox workspace-write"},["codex"],{argv:["codex","--sandbox","workspace-write"],cwd:"/run/home/review-a/evidence"}],
+    [{command:"claude --model opus"},["claude"],{argv:["claude","--model","opus"],cwd:"/run/home"}],
+    [{command:"opencode run"},["opencode"],{argv:["opencode","run"],cwd:"/run/home/review-a/evidence"}]
   ])same(logic.reviewCommand(logic.reviewPlan(settings,found),review),want);
   // [name, verdict text, the packages reviewed, the judgement]
   const verdictRows = [
