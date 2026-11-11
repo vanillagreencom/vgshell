@@ -65,7 +65,8 @@
 # its Bluetooth section, then the Bluetooth dropdown, over the device
 # fakes, each also with the pointer on a list row the selection is not on,
 # then the widget's menu with the pointer on an entry; vpn is the VPN bar
-# icon connected, warning and connecting, its flyout and its System
+# icon connected, warning and connecting, its flyout, with Home tunnel's
+# leak check where the tree ships it, clean and then leaking, and its System
 # Settings section with a profile expanded, the remove confirmation, a
 # connect that found no OpenVPN plugin and no profile, and the password
 # prompt in the flyout with its field empty, with masked typed text and
@@ -9035,9 +9036,14 @@ scene_vpn() { # MODE
   expect_poll "the VPN widget opens its flyout" shown vpn_shot_panel
   vpn_shot_expand panel "" "Home tunnel" "$vpn_shot_home" true
   expect_poll "the flyout shows Home tunnel's address" '"10.20.0.2"' vpn_shot_read panel Label "vpn-address:$vpn_shot_home" text
+  vpn_shot_check
   expect_poll "the flyout draws no Remove profile" false vpn_shot_read panel RowAction "vpn-remove:$vpn_shot_home" visible
   park_pointer
   take "vpn-$1-dropdown"
+  vpn_shot_leak "$1"
+  # Home tunnel's open row, with its leak check, would push Travel L2TP's
+  # switch past the flyout's height.
+  vpn_shot_expand panel "" "Home tunnel" "$vpn_shot_home" false
   vpn_shot_dropdown_password "$1"
   expect "the VPN flyout hides" ok ipc shell hide panel vgs.vpn
 
@@ -9460,6 +9466,90 @@ PY
   device_reply nmcli 0 "$details" -t -f connection.uuid,vpn.service-type,vpn.data,wireguard.peers connection show "${argv[@]}"
   device_reply nmcli 0 "$(<"$fixtures/address.txt")" -t -f GENERAL.STATE,IP4.ADDRESS connection show uuid "$vpn_shot_home"
 }
+# vpn_shot_check: where the tree ships the leak check, Home tunnel's
+# Check over the readings of scripts/fixtures/vpn/: its interface from the
+# nmcli stand-in, the kill switch's status line, off, from its stand-in,
+# and a route of each family, systemd-resolved's settings and the
+# provider's answer from stand-ins this scene writes into the shim
+# directory (vpn_shot_readers), so no reading reaches the host and no
+# request leaves it. vpn_shot_leak removes them.
+vpn_shot_check() {
+  tree_has shell/plugins/vgs.vpn/VpnLogic.js '"profile-check"' || return 0
+  local name
+  for name in ip varlinkctl curl.row; do
+    [[ ! -e $shim/$name ]] || { fail "the VPN check's $name stand-in would replace one already in the shim directory"; return 1; }
+  done
+  device_reply nmcli 0 "$(<"$repo/scripts/fixtures/vpn/link.txt")" -t -f GENERAL.STATE,GENERAL.IP-IFACE connection show uuid "$vpn_shot_home"
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  vpn_shot_readers route-none.txt dns-tunnel.json
+  expect "Home tunnel's Check starts" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-check\",\"id\":\"$vpn_shot_home\"}"
+  expect_poll "Home tunnel's check shows its public address" '"198.51.100.7"' vpn_shot_read panel Label "vpn-public:$vpn_shot_home" text
+  expect_poll "Home tunnel's check shows DNS in the VPN" '"In the VPN"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
+  expect_poll "Home tunnel's check draws no kill switch line while it is off" false vpn_shot_read panel Label "vpn-check-kill:$vpn_shot_home" visible
+}
+# vpn_shot_readers IPV6 DNS: the ip, varlinkctl and curl stand-ins: IPv4
+# through the tunnel, IPv6 from fixture IPV6 (route-none.txt, no route, or
+# a route's JSON), DNS from fixture DNS, and the provider's answer, each
+# call to curl marked in $devices_dir/vpn-shot-curl.
+vpn_shot_readers() { # IPV6 DNS
+  local fixtures="$repo/scripts/fixtures/vpn" ipv6
+  if [[ $1 == route-none.txt ]]; then ipv6="cat -- $(printf %q "$fixtures/$1") >&2; exit 2"
+  else ipv6="exec cat -- $(printf %q "$fixtures/$1")"; fi
+  cat >"$shim/ip" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  "-j -4 route get 192.0.2.1") exec cat -- $(printf %q "$fixtures/route-tunnel.json") ;;
+  "-j -6 route get 2001:db8::1") $ipv6 ;;
+esac
+echo "vpn-shot: ip refused \$*" >&2
+exit 70
+SH
+  cat >"$shim/varlinkctl" <<SH
+#!/usr/bin/env bash
+[[ "\$*" == "--json=short call /run/systemd/resolve/io.systemd.Resolve io.systemd.Resolve.DumpDNSConfiguration {}" ]] && exec cat -- $(printf %q "$fixtures/$2")
+echo "vpn-shot: varlinkctl refused \$*" >&2
+exit 70
+SH
+  cat >"$shim/curl.row" <<SH
+#!/usr/bin/env bash
+: >>$(printf %q "$devices_dir/vpn-shot-curl")
+[[ "\${!#}" == https://api.nordvpn.com/v1/helpers/ips/insights ]] && exec cat -- $(printf %q "$fixtures/insights.json")
+echo "vpn-shot: curl refused \$*" >&2
+exit 70
+SH
+  chmod 755 "$shim/ip" "$shim/varlinkctl" "$shim/curl.row"
+}
+# vpn_shot_leak MODE: where the tree ships the leak check, Home tunnel's
+# Check again over an IPv6 route out of the Wi-Fi and the Wi-Fi holding the
+# DNS default route beside a tunnel with no DNS server
+# (dns-wifi-route.json): IPv6 and DNS leak, and the provider is not asked,
+# so the public address reads Not checked with its reason.
+# The flyout scrolls so the lines and Check show, Check near its bottom.
+vpn_shot_leak() { # MODE
+  tree_has shell/plugins/vgs.vpn/VpnLogic.js '"profile-check"' || return 0
+  local revealed height
+  rm -f -- "${devices_dir:?}/vpn-shot-curl"
+  vpn_shot_readers route-wlan0.json dns-wifi-route.json
+  expect "Home tunnel's Check starts over the leaking readings" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-check\",\"id\":\"$vpn_shot_home\"}"
+  expect_poll "Home tunnel's check shows the DNS leak" '"Leaks"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
+  expect_poll "Home tunnel's check shows the IPv6 leak" '"Leaks"' vpn_shot_read panel Label "vpn-ipv6:$vpn_shot_home" text
+  expect_poll "Home tunnel's check does not ask for the public address" '"Not checked"' vpn_shot_read panel Label "vpn-public:$vpn_shot_home" text
+  expect "the check asked no outside service while lookups can leave" absent vpn_shot_curl_called
+  revealed="$(ipc smoke revealText panel vgs.vpn RowAction Check)" || { fail "the VPN flyout's Check is unreadable"; return; }
+  height="$(ipc smoke scrollTo panel vgs.vpn "$revealed" | py_reply 'import json,sys; v=json.load(sys.stdin); print(int(v[2]) if type(v) is list and len(v) == 3 else "unreadable")')"
+  if [[ $revealed =~ ^[0-9.]+$ && $height =~ ^[0-9]+$ ]]; then
+    ipc smoke scrollTo panel vgs.vpn "$(awk -v top="$revealed" -v view="$height" 'BEGIN { y = top - 0.52 * view; print (y < 0 ? 0 : int(y + 0.5)) }')" >/dev/null \
+      || fail "the VPN flyout does not scroll to Check"
+  else
+    fail "the VPN flyout's scroll is unreadable: revealed=$revealed height=$height"
+  fi
+  expect_poll "the flyout shows Check" true vpn_shot_read panel RowAction "vpn-check-run:$vpn_shot_home" visible
+  park_pointer
+  take "vpn-$1-dropdown-leak"
+  ipc smoke scrollTo panel vgs.vpn 0 >/dev/null || fail "the VPN flyout top is unreadable"
+  rm -f -- "${shim:?}/ip" "${shim:?}/varlinkctl" "${shim:?}/curl.row" "${devices_dir:?}/vpn-shot-curl"
+}
+vpn_shot_curl_called() { [[ -e $devices_dir/vpn-shot-curl ]] && echo called || echo absent; }
 # vpn_shot_held_reply MARKER STATUS STDOUT ARGV...: device_reply whose
 # answer waits for STATE/MARKER (stand-in.py's "wait"), so the call stays
 # in flight until the scene writes the marker.

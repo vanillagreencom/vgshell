@@ -1,0 +1,1 @@
+[{"dst":"2001:db8::1","from":"::","gateway":"2001:db8:50::1","dev":"wlan0","prefsrc":"2001:db8:50::2","metric":600,"flags":[],"pref":"medium"}]

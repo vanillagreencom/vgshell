@@ -36,6 +36,14 @@
 # other round sends only the probes its table checks. Each round ends with a
 # ping marked as Tailscale marks its packets; the capture holding it proves
 # every earlier frame was read.
+#
+# The VPN plugin's leak judge (shell/plugins/vgs.vpn/VpnLogic.js
+# leakCheck) runs under node, loaded as scripts/test-vpn-logic.js loads it,
+# over readings taken in the laptop with the VPN meant on and its tunnel
+# removed: the status line the unprivileged reader gets, and the
+# plugin's own route and systemd-resolved reads, run in the namespace. No
+# NetworkManager runs here, so the tunnel's interface reads as nmcli
+# answers for a profile that is not active: nothing.
 set -euo pipefail
 
 suite=test-vpn-kill-switch
@@ -48,16 +56,19 @@ not_measured() { printf '%s: status=not-measured reason=%s\n' "$suite" "$1"; exi
 
 if [[ ${1-} != --laptop ]]; then
   (($# == 0)) || exit 2
-  for tool in unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate; do
+  for tool in unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node; do
     command -v "$tool" >/dev/null || not_measured "missing-$tool"
   done
+  # The binary itself, not a version manager's shim, which reads the
+  # caller's home: the laptop's PATH is fixed and its /usr/local is its own.
+  node_bin="$(node -e 'process.stdout.write(process.execPath)')" || not_measured node-unresolved
   unshare --user --map-root-user --net --mount true 2>/dev/null || not_measured user-namespaces
   TMP_ROOT="$(mktemp -d)" || { echo "$suite: scratch=mktemp-failed" >&2; exit 1; }
   [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "$suite: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
   TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "$suite: scratch=resolve-failed" >&2; exit 1; }
   trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
   status=0
-  env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 HOME="$TMP_ROOT" \
+  env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 HOME="$TMP_ROOT" NODE_BIN="$node_bin" \
     unshare --user --map-root-user --net --mount --propagation private -- "$BASH" "$self" --laptop "$TMP_ROOT" || status=$?
   exit "$status"
 fi
@@ -309,6 +320,36 @@ tcp_refused_at_once() { # ADDRESS PORT
   ((status != 0 && ${EPOCHREALTIME/./} - start < 300000))
 }
 gateway6_resolved() { local out; out="$(ip -6 neigh show 2001:db8:50::1 dev wlan0)" && [[ $out == *lladdr* ]]; }
+# leak_check STATUS_LINE BEFORE OUT: the leak judge over STATUS_LINE and
+# the routes and name lookup links read now, with BEFORE the judge's
+# earlier result file or -, writing its result to OUT and printing
+# `kill=<state> rising=<bool> blocked=<count> previous=<count>
+# ipv4=<verdict> ipv6=<verdict> dns=<verdict>`.
+cat >"$tmp/leak-check.js" <<'JS'
+"use strict";
+const { spawnSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const [repo, uuid, statusLine, beforeFile, outFile] = process.argv.slice(2);
+const { load } = require(path.join(repo, "bin/lib/qml-library.js"));
+const commons = { "qs.Commons 1.0": { Nmcli: load(path.join(repo, "shell/Commons/Nmcli.js")),
+    SettingValues: load(path.join(repo, "shell/Commons/SettingValues.js")) } };
+const logic = load(path.join(repo, "shell/plugins/vgs.vpn/VpnLogic.js"), commons);
+// The plugin's own argv, as its readers run it: PATH and LC_ALL alone.
+const run = argv => {
+    const ran = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
+    return [ran.error || ran.status === null ? -1 : ran.status, ran.stdout || "", ran.stderr || ""];
+};
+const result = logic.leakCheck({
+    uuid, link: logic.linkRead(0, ""), status: logic.killStatus(0, statusLine + "\n"),
+    ipv4: logic.routeRead(...run(logic.routeArgv("ipv4"))), ipv6: logic.routeRead(...run(logic.routeArgv("ipv6"))),
+    dns: logic.dnsRead(...run(logic.DNS_ARGV).slice(0, 2)), public: null
+}, beforeFile === "-" ? null : JSON.parse(fs.readFileSync(beforeFile, "utf8")).kill);
+fs.writeFileSync(outFile, JSON.stringify(result));
+const k = result.kill;
+console.log(`kill=${k.state} rising=${k.rising} blocked=${k.blocked} previous=${k.previous} ipv4=${result.ipv4.verdict} ipv6=${result.ipv6.verdict} dns=${result.dns.verdict}`);
+JS
+leak_check() { "$NODE_BIN" "$tmp/leak-check.js" "$repo" "$uuid" "$1" "$2" "$3" 2>>"$tmp/leak-check.err" || echo "judge=failed"; } # STATUS_LINE BEFORE OUT
 
 # probe_round NAME [DNS_SECONDS [PROBE...]]: runs the PROBEs, every probe
 # from the list in the header when none is named, then the marked barrier;
@@ -387,6 +428,8 @@ check "with the tunnel up the status reads passing for the profile it armed" sta
 ip link del wgnord
 check "with the tunnel gone the status reads holding" status_is "state=holding reason=tunnel-down" "tunnel=wgnord"
 blocked_before="$blocked"
+leak_before="$(leak_check "$line" - "$tmp/leak-before.json")"
+check "with the tunnel gone the leak check reads the kill switch holding" test "${leak_before%% *}" == kill=holding
 # No neighbour entry for the IPv6 gateway, so the peer6 datagram that
 # follows resolves it through the armed rule.
 ip -6 neigh flush dev wlan0
@@ -412,6 +455,12 @@ dhcp6 pass some
 marked pass some"
 read_status
 check "the blocked count rose with the refused probes" test "$blocked" -gt "$blocked_before"
+# Name lookups read unknown: no systemd-resolved answers in the laptop.
+leak_after="$(leak_check "$line" "$tmp/leak-before.json" "$tmp/leak-after.json")"
+check "the leak check reads the kill switch holding, its count rising between two reads around the probes" test "$leak_after" == \
+  "kill=holding rising=true blocked=$blocked previous=$blocked_before ipv4=blocked ipv6=blocked dns=unknown"
+[[ $leak_after == "kill=holding rising=true blocked=$blocked previous=$blocked_before ipv4=blocked ipv6=blocked dns=unknown" ]] \
+  || printf '        leak check: before=[%s] after=[%s] err=[%s]\n' "$leak_before" "$leak_after" "$(head -c 400 "$tmp/leak-check.err" 2>/dev/null)"
 blocked_armed="$blocked"
 check "the status still reads holding after the probes" status_is "state=holding reason=tunnel-down" "tunnel=wgnord"
 check "the unprivileged reader cannot list the rule itself" fails unprivileged nft list ruleset

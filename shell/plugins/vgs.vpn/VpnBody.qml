@@ -43,6 +43,8 @@ FocusScope {
     readonly property var profiles: shell === null || !shell.status.values.profiles
         ? Logic.compose(Logic.emptyProfiles("reading"), {}, {}, {}, null, "") : shell.status.values.profiles
     readonly property var profileRows: profiles.rows
+    // The last leak check the service published (LeakCheck), or null.
+    readonly property var leakCheck: shell === null || !shell.status.values.leakCheck ? null : shell.status.values.leakCheck
     readonly property bool killOn: shell !== null && Logic.killSwitchOn(shell.status.values.killSwitchState)
     // The blocked-traffic notice (VpnLogic.blockedNotice) and the profile
     // it names, which its row and the flyout header read as dropped.
@@ -303,10 +305,12 @@ FocusScope {
                     missingRequirements: root.shell === null ? [] : root.shell.requirements.missing
                     killOn: root.killOn
                     held: root.held
+                    check: root.leakCheck
                     removable: root.expanded
                     onDetailsOpened: root.readAddress(modelData.uuid)
                     onToggleRequested: wanted => root.toggle(modelData, wanted)
                     onReconnectRequested: keyed => root.reconnect(modelData, keyed)
+                    onCheckRequested: root.act("profile-check", modelData.uuid, "VGS could not check this VPN profile.")
                     onRemoveRequested: root.askRemove(modelData)
                     onEditRequested: root.editor("edit", modelData.uuid)
                     onInstallRequested: requirement => root.answered(root.shell.requirements.offer([requirement]), "VGS could not open the plugin install notice.")
@@ -379,7 +383,7 @@ FocusScope {
                 + "Connect: WireGuard with saved keys; VPN with its plugin and saved credentials. "
                 + "OpenVPN, L2TP, PPTP, SSTP and Fortinet SSL: one password prompt.\n\n"
                 + "OpenConnect, web sign-in, codes, smart cards, certificate passphrases or other secrets need the provider's app.\n\n"
-                + "Details: type, server, connected address. Remove deletes saved secrets; key/certificate files stay."
+                + "Details: type, server, tunnel address. WireGuard while connected: public address and leak check. Remove deletes saved secrets; key/certificate files stay."
             description: root.profiles.count > root.profileRows.length
                 ? "Showing " + root.profileRows.length + " of " + root.profiles.count + " profiles." : ""
             Loader {

@@ -7,7 +7,8 @@ import "VpnLogic.js" as Logic
 // and of the kill switch's state file and status read (D129).
 // Views hold a lease for the fast poll and use the plugin's IPC:
 // lease {id,open}; action {kind,id} with the profile's uuid for
-// profile-up, profile-down, profile-remove and profile-details; import,
+// profile-up, profile-down, profile-remove, profile-details and
+// profile-check, the leak check (LeakCheck); import,
 // refresh (the edited uuid, or empty for metadata), open and kill-switch
 // with the mode to write, block, block-lan or off. A password
 // connect is no IPC action: its masked prompt calls VpnLogic.submitConnect, which reaches
@@ -362,6 +363,10 @@ Item {
     function actProfile(request) {
         const plan = Logic.profileCommand(request, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch), killReady ? killSwitch.meantOn : "");
         if (plan.refusal !== undefined) return plan.refusal;
+        if (plan.check !== undefined) {
+            const row = listing.rows.find(candidate => candidate.uuid === plan.check);
+            return startCheck(plan.check, row !== undefined && row.state === "activated");
+        }
         if (plan.address !== undefined) {
             const row = listing.rows.find(candidate => candidate.uuid === plan.address);
             if (row !== undefined && row.state === "activated") queueAddress(plan.address);
@@ -538,9 +543,13 @@ Item {
         if (stateWrite === null) stateFile.reload();
         readKillStatus();
     }
+    // A status read the leak check asked for runs while the step is not
+    // set up too (VpnLogic.checkKillPlan).
     function readKillStatus() {
-        if (!registered || !killReady) return;
+        if (!registered || !(killReady || checkWantsStatus)) return;
         if (killReader.running) { killReader.again = true; return; }
+        killReader.forCheck = checkWantsStatus;
+        checkWantsStatus = false;
         killReader.settles = killSettlePoll;
         killSettlePoll = false;
         killReader.completion = null;
@@ -737,6 +746,8 @@ Item {
             }
             if (failed) root.profileProblem = { uuid: action.uuid, kind: action.kind, text: Logic.problem(action.kind, action.name, code) };
             root.runEnded();
+            // nmcli's `up` ends once the profile is activated.
+            if (action.kind === "profile-up" && code === 0) root.startCheck(action.uuid, true);
         }
     }
     Timer {
@@ -853,6 +864,8 @@ Item {
         property bool again: false
         // Started after a poll ticked in the grace (readKillStatus).
         property bool settles: false
+        // Started after the leak check asked for a status (checkStatus).
+        property bool forCheck: false
         command: Logic.STATUS_ARGV
         clearEnvironment: true
         environment: ({ PATH: Quickshell.env("PATH"), LC_ALL: "C" })
@@ -864,16 +877,58 @@ Item {
             killDeadline.stop();
             const code = root.codeOf(completion);
             const next = Logic.killStatus(code, killText.text, killErrors.text);
-            const failed = next.state === "unreachable" || next.state === "unreadable";
-            if (failed && (root.killStatus === null || root.killStatus.state !== next.state))
-                console.warn("vpn: operation=kill-switch-status completion=" + next.state + " code=" + code);
-            root.killStatus = next;
+            // A read the leak check asked for while the step is not set up
+            // is the check's alone; the kill switch row keeps its own.
+            if (root.killReady) {
+                const failed = next.state === "unreachable" || next.state === "unreadable";
+                if (failed && (root.killStatus === null || root.killStatus.state !== next.state))
+                    console.warn("vpn: operation=kill-switch-status completion=" + next.state + " code=" + code);
+                root.killStatus = next;
+            }
+            if (forCheck) {
+                forCheck = false;
+                leakCheck.statusRead(Logic.checkKillStatus(root.killReady, next, completion !== null));
+            }
             if (settles) {
                 settles = false;
                 root.killSettling = false;
             }
             if (again) { again = false; root.readKillStatus(); }
             else if (root.stage !== null && root.stage.phase === "arm") root.armRead();
+        }
+    }
+
+    // The leak check (LeakCheck) of UUID, ACTIVE while it is connected:
+    // `ok`, `busy` while another runs, or refused for a profile it does
+    // not read (VpnLogic.checkReads).
+    function startCheck(uuid, active) {
+        if (!Logic.checkReads(profiles.rows.find(candidate => candidate.uuid === uuid))) return "refused: profile=type";
+        const reply = leakCheck.start(uuid, active);
+        if (reply !== "ok") console.log("vpn: operation=leak-check completion=" + reply);
+        return reply;
+    }
+    // A status read the next start of the status reader hands the check;
+    // while the step rules out a table, there is none to read.
+    property bool checkWantsStatus: false
+    function checkStatus() {
+        if (Logic.checkKillPlan(killStep) === "none") {
+            leakCheck.statusRead(null);
+            return;
+        }
+        checkWantsStatus = true;
+        readKillStatus();
+    }
+    LeakCheck {
+        id: leakCheck
+        nmcliEnvironment: root.nmcliEnvironment
+        missing: root.shell === null ? [] : root.shell.requirements.missing
+        rows: root.listing.state === "available" ? root.listing.rows : null
+        action: root.profileAction
+        onStatusWanted: root.checkStatus()
+        onValueChanged: {
+            if (root.shell === null || value === null) return;
+            const reply = root.shell.status.set("leakCheck", value);
+            if (!root.shell.status.isOk(reply)) console.warn("vpn: status leakCheck " + reply);
         }
     }
 

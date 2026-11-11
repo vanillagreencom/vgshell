@@ -11,7 +11,8 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 - A shield in the bar that shows whether a profile is connected or needs you.
 - A connection switch for each profile, in the flyout and in System Settings. When a profile cannot connect here, its switch says why.
 - A password prompt for a profile that asks for its password.
-- A profile's type, server and, while connected, its address.
+- A profile's type, server and, while connected, its tunnel address.
+- For a connected WireGuard profile, the public address, country and city that sites see, and a leak check for IPv4, IPv6 and name lookups.
 - Import a VPN file imports WireGuard (.conf) and OpenVPN (.ovpn) files.
 - NetworkManager's connection editor to add or edit a profile.
 - Remove profile deletes a profile after you confirm.
@@ -32,6 +33,20 @@ OpenVPN profiles need NetworkManager's OpenVPN plugin. Use Install plugin on an 
 VGS gives the password you type to NetworkManager for that one connect and keeps no copy. NetworkManager keeps it only where the profile's own password setting says to. Remove profile deletes the passwords and keys saved in the profile; the key and certificate files it uses stay on this computer.
 
 Check every, in the Updates section, sets how often VGS reads your profiles while the flyout and the section are closed.
+
+## Public address and leak check
+
+An open connected WireGuard profile shows the public IPv4 address that sites see, with its country and city, and a leak check. VGS checks once after you connect the profile here, and again each time you press Check. It never checks on a timer. Other VPN profiles have no check: NetworkManager does not tell VGS which network their tunnel uses.
+
+The leak check asks no outside service. It reads this computer's own settings first:
+
+- **IPv4 and IPv6:** which network traffic to the internet leaves by. In the VPN passes. A route out of another network is a leak, unless the kill switch blocks it.
+- **DNS:** which DNS servers systemd-resolved sends name lookups to. Lookups that go only to the VPN pass. A lookup that can go to another network, such as the Wi-Fi's own DNS server or a Wi-Fi domain, or to DNS servers set for the whole computer, is a leak, unless the kill switch blocks it. Tailscale's own names, its MagicDNS names and the reverse names of its addresses, going to Tailscale are no leak. Any other domain Tailscale sends to its DNS server is a leak. When `/etc/resolv.conf` does not point programs at systemd-resolved, DNS reads Could not check: programs that read that file ask the servers it lists directly.
+- **Kill switch:** while it is on, how many times it refused traffic. When the VPN drops while the kill switch is on, Check on the dropped profile reads Holding with the count, and the count at the last check when it rose since then.
+
+Then, for the public address, VGS asks one outside service, `api.nordvpn.com`, NordVPN's own. It asks through the VPN only, and only when the lookup of the service's own name stays in the VPN or the kill switch blocks it everywhere else. It never asks while no profile is connected. The service learns the address the question comes from, which is the address every site you open sees. When VGS does not ask, the row reads Not checked and says why. When the service does not answer or sends an answer VGS cannot read, the row reads Could not check and says why.
+
+A reading VGS cannot take reads Could not check, never a pass. A connection that ends during a check stops its question to the service. A connection that ends after a check clears its result.
 
 ## Kill switch
 

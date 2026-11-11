@@ -356,7 +356,7 @@ function rowView(row, profiles, missing, killOn, held) {
     return view("off", "Off");
 }
 
-var KINDS = ["profile-up", "profile-down", "profile-remove", "profile-details"];
+var KINDS = ["profile-up", "profile-down", "profile-remove", "profile-details", "profile-check"];
 // The editor owns every profile change. Its edit target must still be a
 // published row; no typed text becomes an editor argument.
 function editorArgv(kind, uuid, profiles) {
@@ -369,7 +369,9 @@ function editorArgv(kind, uuid, profiles) {
 }
 
 // The plan for one IPC request: { argv } for a change, { address: uuid }
-// for an opened row's address read, or { refusal }. MEANT_ON is the
+// for an opened row's address read, { check: uuid } for a leak check of
+// a connected WireGuard profile or of the one the state file names, whose
+// drop the kill switch can hold (leakCheck, checkReads), or { refusal }. MEANT_ON is the
 // profile the kill switch's state file names while its step is set up,
 // else "". A disconnect of that profile after NetworkManager dropped it,
 // while the state file names it, is the state file's write alone, `argv`
@@ -380,6 +382,11 @@ function profileCommand(request, profiles, missing, killOn, meantOn) {
     const row = profiles.rows.find(candidate => candidate.uuid === request.id);
     if (row === undefined) return { refusal: "refused: profile=absent" };
     if (request.kind === "profile-details") return { address: row.uuid };
+    if (request.kind === "profile-check") {
+        if (!checkReads(row)) return { refusal: "refused: profile=type" };
+        return row.state === "activated" || (typeof meantOn === "string" && meantOn.toLowerCase() === row.uuid)
+            ? { check: row.uuid } : { refusal: "refused: profile=state" };
+    }
     if (request.kind === "profile-remove") return { argv: ["nmcli", "connection", "delete", "uuid", row.uuid] };
     if (request.kind === "profile-down") {
         if (row.state === "activated" || row.state === "activating") return { argv: ["nmcli", "connection", "down", "uuid", row.uuid] };
@@ -668,6 +675,26 @@ function stepWord(step) {
     return ["ready", "denied", "unknown", "absent"].indexOf(step.state) !== -1 ? step.state : "unknown";
 }
 
+// What a leak check reads of the kill switch with STEP its system step:
+// `none` when the step rules out a table (absent, or denied for NixOS,
+// systemd or nftables), so the check judges it off; else `read`, its
+// status. A table can be armed while the step reads anything else: an
+// update that changes the step's files leaves the installed ones running
+// until Set up, a failed unit leaves the table in place, and the status
+// socket answers any local user, another account's table too (D129).
+var KILL_RULED_OUT = ["nixos-unsupported", "systemd-missing", "nft-missing"];
+function checkKillPlan(step) {
+    const word = stepWord(step);
+    return word === "absent" || (word === "denied" && KILL_RULED_OUT.indexOf(step.reason) !== -1) ? "none" : "read";
+}
+// The kill switch status a leak check judges from a status read while
+// the step reads READY or not: STATUS, killStatus's reading, or null for
+// not set up when the step is not set up and the status command never
+// started, since the step installs it (vgshell-system vpn-kill-switch).
+function checkKillStatus(ready, status, started) {
+    return !ready && !started ? null : status;
+}
+
 // The value the service publishes as `killSwitchState`, which the flyout
 // and the section draw (killSwitchView). SETTLING holds from a write's
 // end until a status read started after it has ended, the grace a sync
@@ -797,4 +824,393 @@ function killSwitchView(state, profiles) {
     }
     // unreachable and unreadable: either way VGS cannot tell.
     return fill({ hint: "VGS cannot check whether the kill switch is blocking traffic" });
+}
+
+// The leak check (VGS-2398). The service takes its readings when a
+// connect it ran ends and when the user presses Check, never on a timer,
+// and keeps no reading but the last check's kill switch count. Each
+// reading is parsed here, and leakCheck judges them.
+//
+// It reads WireGuard profiles alone, the kill switch's scope (D129): nmcli
+// fills GENERAL.IP-IFACE from the active connection's device, which for a
+// NetworkManager VPN-plugin connection is the parent device, the uplink,
+// so the check would judge the uplink as the tunnel.
+function checkReads(row) {
+    return isPlain(row) && row.type === "wireguard";
+}
+
+// The tunnel's network interface: GENERAL.IP-IFACE of the profile while
+// it is activated. nmcli 1.58.1 prints nothing, with exit 0, for a profile
+// that is not active (recorded under LC_ALL=C, 2026-11-11;
+// scripts/fixtures/vpn/link*.txt).
+function linkArgv(uuid) {
+    return ["nmcli", "-t", "-f", "GENERAL.STATE,GENERAL.IP-IFACE", "connection", "show", "uuid", uuid];
+}
+// An interface name as the kill switch's status line admits one.
+var LINK_NAME = /^[A-Za-z0-9_.-]{1,15}$/;
+// { kind: "active", link } while the profile is activated, `inactive`
+// while it is not, else `unreadable`.
+function linkRead(code, text) {
+    if (code !== 0) return { kind: "unreadable" };
+    const output = String(text);
+    if (output.trim() === "") return { kind: "inactive" };
+    const state = /^GENERAL\.STATE:(.*)$/m.exec(output);
+    if (state === null) return { kind: "unreadable" };
+    if (state[1] !== "activated") return { kind: "inactive" };
+    const link = /^GENERAL\.IP-IFACE:(.*)$/m.exec(output);
+    return link !== null && LINK_NAME.test(link[1]) ? { kind: "active", link: link[1] } : { kind: "unreadable" };
+}
+
+// The route an internet address of each family takes: the kernel's
+// answer for a documentation address (RFC 5737, RFC 3849), which no route
+// names in particular. `ip route get` follows the policy rules a
+// WireGuard profile adds and sends nothing.
+var ROUTE_PROBES = { ipv4: "192.0.2.1", ipv6: "2001:db8::1" };
+function routeArgv(family) {
+    return ["ip", "-j", family === "ipv6" ? "-6" : "-4", "route", "get", ROUTE_PROBES[family]];
+}
+// iproute2 7.3.0 under LC_ALL=C, recorded in network namespaces on
+// 2026-11-11 (scripts/fixtures/vpn/route-*.txt): one JSON route whose `dev`
+// is the link it leaves by; with no route, exit 2 and one of these lines.
+var NO_ROUTE = /^RTNETLINK answers: (?:Network is unreachable|No route to host)$/;
+// { kind: "via", link }, `none` for no route out, else `unreadable`.
+function routeRead(code, text, errors) {
+    if (code === 2 && NO_ROUTE.test(String(errors).replace(/\n+$/, ""))) return { kind: "none" };
+    if (code !== 0) return { kind: "unreadable" };
+    let routes;
+    try { routes = JSON.parse(String(text)); } catch (error) { return { kind: "unreadable" }; }
+    if (!Array.isArray(routes) || routes.length !== 1 || !isPlain(routes[0])
+        || typeof routes[0].dev !== "string" || !LINK_NAME.test(routes[0].dev)) return { kind: "unreadable" };
+    return { kind: "via", link: routes[0].dev };
+}
+
+// systemd-resolved's settings through its varlink interface:
+// io.systemd.Resolve.DumpDNSConfiguration, whose DNSConfiguration entries
+// are the global settings (no ifname, ifindex or delegate), each link's
+// and each delegate's, with `defaultRoute`, `servers`, `fallbackServers`
+// (global only) and `searchDomains`, which holds the search and the
+// route-only domains (introspected on systemd 262, 2026-11-11). `~.`
+// reads as the domain "." with routeOnly true.
+var DNS_ARGV = ["varlinkctl", "--json=short", "call", "/run/systemd/resolve/io.systemd.Resolve",
+    "io.systemd.Resolve.DumpDNSConfiguration", "{}"];
+// The name a lookup target with no link of its own reads as: the global
+// servers, a delegate's or the compiled-in fallback servers. No interface
+// name holds a space (LINK_NAME).
+var GLOBAL_DNS = "global servers";
+// resolved's routing holds for programs that read /etc/resolv.conf only
+// while it names resolved's stub (the global entry's `resolvConfMode`,
+// stub or static). In uplink or foreign mode it lists servers that such
+// programs (musl or static binaries, dig, Go's own resolver) ask directly,
+// the Wi-Fi's among them; with missing, or no mode read, it is unknown.
+var RESOLVED_MODES = ["stub", "static"];
+// { kind: "scopes", scopes: [{ link, defaultRoute, domains }], fallback }
+// for each entry that holds a DNS server, the global servers taking every
+// name no domain routes, as for a default-route link; `fallback` when the
+// global settings list fallback servers. Else `unreadable`: a reading
+// the judge cannot fully evaluate is no pass.
+function dnsRead(code, text) {
+    const unreadable = { kind: "unreadable" };
+    if (code !== 0) return unreadable;
+    let reply;
+    try { reply = JSON.parse(String(text)); } catch (error) { return unreadable; }
+    if (!isPlain(reply) || !Array.isArray(reply.configuration)) return unreadable;
+    const absent = value => value === undefined || value === null;
+    const list = value => absent(value) ? [] : value;
+    const scopes = [];
+    let fallback = false;
+    let mode = null;
+    for (const entry of reply.configuration) {
+        if (!isPlain(entry)) return unreadable;
+        const global = absent(entry.ifname) && absent(entry.ifindex) && absent(entry.delegate);
+        const servers = list(entry.servers);
+        const domains = list(entry.searchDomains);
+        if (!Array.isArray(servers) || !Array.isArray(domains) || !Array.isArray(list(entry.fallbackServers))
+            || domains.some(domain => !isPlain(domain) || typeof domain.name !== "string" || domain.name === "")) return unreadable;
+        if (global) {
+            fallback = fallback || list(entry.fallbackServers).length > 0;
+            mode = entry.resolvConfMode;
+        }
+        if (servers.length === 0) continue;
+        const link = global || !absent(entry.delegate) ? GLOBAL_DNS : entry.ifname;
+        if (typeof link !== "string" || (link !== GLOBAL_DNS && !LINK_NAME.test(link))) return unreadable;
+        if (!global && typeof entry.defaultRoute !== "boolean") return unreadable;
+        // resolved keeps a domain without its final dot, the root as ".".
+        const names = domains.map(domain => domain.name === "." ? "." : domain.name.toLowerCase().replace(/\.$/, ""));
+        scopes.push({ link: link, defaultRoute: global || entry.defaultRoute, domains: names });
+    }
+    if (RESOLVED_MODES.indexOf(mode) === -1) return unreadable;
+    return { kind: "scopes", scopes: scopes, fallback: fallback };
+}
+// The domains Tailscale routes to tailscale0 for its own names: MagicDNS
+// under ts.net and the reverse zones of its addresses, 100.64.0.0/10 and
+// fd7a:115c:a1e0::/48 (systemd 262's DumpDNSConfiguration on a host
+// running Tailscale, 2026-11-11). Any other domain there is one a tailnet
+// admin routes to a nameserver outside the VPN.
+var TAILNET_ZONE = /^(?:.+\.)?(?:ts\.net|(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.100\.in-addr\.arpa|0\.e\.1\.a\.c\.5\.1\.1\.a\.7\.d\.f\.ip6\.arpa)$/;
+function tailnetOnly(scope, domain) {
+    return scope.link === "tailscale0" && TAILNET_ZONE.test(domain);
+}
+function unique(links) {
+    return links.filter((link, index) => links.indexOf(link) === index);
+}
+// Where a lookup goes, by systemd-resolved.service(8) § Protocols and
+// routing: a name under a routing or search domain goes to the targets
+// whose matching domain has the most labels, "." matching every name with
+// none; a name no domain matches goes to every default-route link and the
+// global servers, and with none of those to the fallback servers.
+function unroutedLinks(dns) {
+    const links = dns.scopes.filter(scope => scope.defaultRoute).map(scope => scope.link);
+    return links.length === 0 && dns.fallback ? [GLOBAL_DNS] : links;
+}
+// Where a lookup for some internet name can go: any domain but "." takes
+// some names to its target, sharing them with a tunnel that holds the
+// same domain, and the rest go to the targets that hold ".", or unrouted.
+// Tailscale's own domains take no name of the internet. The names of the
+// targets, each once.
+function lookupLinks(dns) {
+    const named = dns.scopes.filter(scope => scope.domains.some(domain => domain !== "." && !tailnetOnly(scope, domain)));
+    const root = dns.scopes.filter(scope => scope.domains.indexOf(".") !== -1);
+    return unique(named.concat(root).map(scope => scope.link).concat(root.length > 0 ? [] : unroutedLinks(dns)));
+}
+// Where a lookup of NAME, lower case with no final dot, goes: the targets
+// of its longest matching domain, else unrouted.
+function nameLinks(dns, name) {
+    let best = -1;
+    let links = [];
+    for (const scope of dns.scopes) for (const domain of scope.domains) {
+        if (domain !== "." && name !== domain && !name.endsWith("." + domain)) continue;
+        const depth = domain === "." ? 0 : domain.split(".").length;
+        if (depth > best) { best = depth; links = []; }
+        if (depth === best) links.push(scope.link);
+    }
+    return unique(best === -1 ? unroutedLinks(dns) : links);
+}
+
+// The one outside service: the VPN provider's own, asked through the
+// tunnel for the public address it sees. api.nordvpn.com answers IPv4
+// alone, with no sign-in (VGS-2398 facts, 2026-11-08). -q reads no
+// curlrc; no redirect is followed.
+var INSIGHTS_HOST = "api.nordvpn.com";
+var INSIGHTS_URL = "https://" + INSIGHTS_HOST + "/v1/helpers/ips/insights";
+var INSIGHTS_SECONDS = 10;
+var INSIGHTS_MAX = 4096;
+function insightsArgv(link) {
+    return ["curl", "-q", "--silent", "--show-error", "--fail", "--ipv4", "--interface", "if!" + link, "--proto", "=https",
+        "--max-time", String(INSIGHTS_SECONDS), "--max-filesize", String(INSIGHTS_MAX), INSIGHTS_URL];
+}
+// curl's exit codes (curl(1) § Exit codes, curl 8.23.0) as the reason
+// keys checkView words; -1 is a run the check's deadline ended.
+var CURL_REASONS = { "-1": "timeout", 6: "lookup", 7: "connect", 22: "refused", 28: "timeout", 35: "secure",
+    45: "interface", 60: "secure", 63: "malformed" };
+var IPV4 = /^(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(?:\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}$/;
+// A place name the answer gives, or null for one that is no short text.
+function placeName(value) {
+    return typeof value === "string" && value.length <= TEXT_MAX && !/[\u0000-\u001f\u007f<]/.test(value) ? value.trim() : null;
+}
+// The answer, untrusted: at most INSIGHTS_MAX characters of one JSON
+// object whose `ip` is an IPv4 address and whose `country` is short text,
+// and `city` too when present. { kind: "ok", ip, country, city } or
+// { kind: "failed", reason }: never a blank or a guessed field.
+function insights(code, text) {
+    if (code !== 0) return { kind: "failed", reason: CURL_REASONS[code] || "request" };
+    const raw = String(text);
+    let answer = null;
+    try {
+        if (raw.length <= INSIGHTS_MAX) answer = JSON.parse(raw);
+    } catch (error) {
+        answer = null;
+    }
+    if (!isPlain(answer) || typeof answer.ip !== "string" || !IPV4.test(answer.ip)) return { kind: "failed", reason: "malformed" };
+    const country = placeName(answer.country);
+    const city = answer.city === undefined || answer.city === null ? "" : placeName(answer.city);
+    if (country === null || country === "" || city === null) return { kind: "failed", reason: "malformed" };
+    return { kind: "ok", ip: answer.ip, country: country, city: city };
+}
+// Whether a check of a connected profile asks the provider, over READINGS
+// with every reading in but `public`: { kind: "ask", link } through the
+// tunnel's interface while lookups of the provider's name stay in the
+// tunnel or the armed kill switch blocks the rest, else the failed answer
+// with its reason. curl
+// looks the provider's name up through the system resolver: --interface
+// binds the transfer alone, and Arch's curl 8.23.0, built without c-ares,
+// refuses --dns-interface ("the installed libcurl version does not
+// support this", run 2026-11-11), so a lookup the judge cannot place in
+// the tunnel is never made.
+function publicPlan(readings) {
+    if (readings.link.kind !== "active") return { kind: "failed", reason: readings.link.kind === "unreadable" ? "link" : "inactive" };
+    const dns = leakCheck(Object.assign({}, readings, { public: null }), null, INSIGHTS_HOST).dns.verdict;
+    if (dns === "tunnel" || dns === "blocked") return { kind: "ask", link: readings.link.link };
+    return { kind: "failed", reason: dns === "leak" ? "lookups-leak" : "lookups-unknown" };
+}
+
+// The links every armed kill switch passes besides its tunnel (D129).
+var KILL_PASSES = ["tailscale0"];
+// Whether count A, as killStatus gives it, is above B.
+function countAbove(a, b) {
+    return a.length !== b.length ? a.length > b.length : a > b;
+}
+// The kill switch as one check reads it, from STATUS, killStatus's
+// reading or null while the kill switch is not set up: `holding` (armed,
+// its tunnel gone), `on` (armed: passing, or unavailable, which arms
+// closed), `off` or `unknown`, with its refused count and, against BEFORE,
+// the last check's reading, the count then and whether it rose.
+function killReading(status, before) {
+    const off = { state: "off", profile: "", tunnel: "", blocked: "", previous: "", rising: false };
+    if (status === null || status.state === "off") return off;
+    if (status.state !== "holding" && status.state !== "passing" && status.state !== "unavailable") return Object.assign(off, { state: "unknown" });
+    const previous = isPlain(before) && (before.state === "holding" || before.state === "on") && before.profile === status.profile ? before.blocked : "";
+    return { state: status.state === "holding" ? "holding" : "on", profile: status.profile, tunnel: status.tunnel,
+        blocked: status.blocked, previous: previous, rising: previous !== "" && countAbove(status.blocked, previous) };
+}
+
+// One check of profile UUID over READINGS { uuid, link (linkRead), status
+// (killStatus, or null while the kill switch is not set up), ipv4 and
+// ipv6 (routeRead), dns (dnsRead), public (insights or publicPlan's
+// failure, or null when not asked) }, with BEFORE the last check's
+// `kill`, or null, and HOST, when given, the one name whose lookups DNS
+// judges, else every name. A reading whose command is not installed is
+// { kind: "missing", command }. Each family reads `tunnel` when it leaves
+// by the tunnel alone, `none` with no route out, `blocked` when the armed
+// kill switch refuses what leaves elsewhere, `leak` with the link it
+// leaves by, or `unknown` with its reason, and the command to install
+// for `missing`, for any reading that could not be taken or read: never
+// a pass.
+function leakCheck(readings, before, host) {
+    const kill = killReading(readings.status, before);
+    const tunnel = readings.link.kind === "active" ? readings.link.link : "";
+    const passes = kill.tunnel === "" ? KILL_PASSES : KILL_PASSES.concat([kill.tunnel]);
+    const unknown = (reason, install) => ({ verdict: "unknown", link: "", reason: reason, install: install || "" });
+    const verdict = (word, link) => ({ verdict: word, link: link, reason: "", install: "" });
+    // OUTS: the links it leaves by, or the unknown verdict of its reading.
+    function judge(outs) {
+        if (readings.link.kind === "unreadable") return unknown("link");
+        if (!Array.isArray(outs)) return outs;
+        if (outs.length === 0) return verdict("none", "");
+        const outside = outs.filter(name => name !== tunnel);
+        if (outside.length === 0) return verdict("tunnel", "");
+        const passed = outside.find(name => passes.indexOf(name) !== -1);
+        if (passed !== undefined) return verdict("leak", passed);
+        if (kill.state === "holding" || kill.state === "on") return verdict("blocked", "");
+        return kill.state === "unknown" ? unknown("kill") : verdict("leak", outside[0]);
+    }
+    const unread = reading => reading.kind === "missing" ? unknown("missing", reading.command) : unknown("read");
+    const route = reading => reading.kind === "via" ? [reading.link] : reading.kind === "none" ? [] : unread(reading);
+    // A lookup no target takes goes nowhere this reading can judge.
+    const lookups = readings.dns.kind !== "scopes" ? unread(readings.dns)
+        : host === undefined ? lookupLinks(readings.dns) : nameLinks(readings.dns, host);
+    return {
+        uuid: readings.uuid, kill: kill, public: readings.public,
+        ipv4: judge(route(readings.ipv4)), ipv6: judge(route(readings.ipv6)),
+        dns: judge(Array.isArray(lookups) && lookups.length === 0 ? unknown("lookups") : lookups)
+    };
+}
+
+// Whether CHECK, the published `leakCheck`, no longer describes its
+// profile after a list read NetworkManager answered with ROWS: its
+// result, or the one in flight, was of the profile connected and the list
+// shows it not connected, or the other way round. A later connect is
+// another connection, so the result goes, also for a change VGS did not
+// make. ACTION, the change in flight, holds its own profile back: a list
+// read that started before its end still shows the state before it
+// (Service.runEnded).
+function checkStale(check, rows, action) {
+    if (!isPlain(check) || (check.busy !== true && !isPlain(check.result))) return false;
+    if (isPlain(action) && action.uuid === check.uuid) return false;
+    const row = rows.find(candidate => candidate.uuid === check.uuid);
+    return row === undefined || (row.state === "activated") !== check.active;
+}
+
+// What a profile row draws of CHECK, the published `leakCheck` ({ uuid,
+// busy, active, result }, or null), for ROW, whose switch the blocked-
+// traffic notice names when HELD is its uuid: whether it shows, Check's
+// disabled reason, the public address and its place, one line per family
+// and the kill switch line. Each line is { text, error, hint, link,
+// install }: its value, the error line for a leak or a reading that
+// failed, and for a command not installed a hint whose LINK words offer
+// INSTALL (Field `hintLink`).
+var PUBLIC_INFO = "VGS asks " + INSIGHTS_HOST + ", NordVPN's own service, which public address it sees. "
+    + "It asks through the VPN once after you connect a WireGuard profile here and each time you press Check, "
+    + "only when the lookup of its name stays in the VPN, and never while no profile is connected. "
+    + "The service sees the address the question comes from, the address every site you open sees.";
+var CHECK_REASONS = {
+    link: "VGS could not read the VPN's network interface",
+    inactive: "The VPN is not connected",
+    "lookups-leak": "VGS did not ask, because name lookups can go outside the VPN",
+    "lookups-unknown": "VGS did not ask, because it could not check where name lookups go",
+    interface: "VGS could not send the question through the VPN",
+    lookup: "VGS could not find " + INSIGHTS_HOST,
+    connect: INSIGHTS_HOST + " did not answer",
+    timeout: INSIGHTS_HOST + " did not answer in " + INSIGHTS_SECONDS + " seconds",
+    refused: INSIGHTS_HOST + " refused the question",
+    secure: "VGS could not make a secure connection to " + INSIGHTS_HOST,
+    malformed: INSIGHTS_HOST + " sent an answer VGS cannot read",
+    request: "The question to " + INSIGHTS_HOST + " did not complete"
+};
+// What a user installs for each command a check runs, as the requirement's
+// package is named upstream; the install notice picks the package per
+// package manager (manifest `requirements`).
+// The reasons VGS did not ask, which read as a check not made, not failed.
+var NOT_ASKED = ["lookups-leak", "lookups-unknown"];
+var CHECK_INSTALLS = { ip: "iproute2", varlinkctl: "systemd", curl: "curl" };
+var FAMILIES = [["ipv4", "IPv4"], ["ipv6", "IPv6"], ["dns", "DNS"]];
+function checkLine(text, error) {
+    return { text: text, error: error || "", hint: "", link: "", install: "" };
+}
+function installLine(command, what) {
+    const link = "Install " + CHECK_INSTALLS[command];
+    return { text: "Could not check", error: "", hint: link + " to check " + what, link: link, install: command };
+}
+function familyLine(key, family) {
+    const dns = key === "dns";
+    switch (family.verdict) {
+    case "tunnel": return checkLine("In the VPN");
+    case "none": return checkLine("Not used");
+    case "blocked": return checkLine("Blocked by the kill switch");
+    case "leak":
+        if (family.link === GLOBAL_DNS) return checkLine("Leaks", "Name lookups can go to DNS servers outside the VPN");
+        return checkLine("Leaks", (dns ? "Name lookups can go through " : "Traffic goes out through ") + family.link + ", outside the VPN");
+    }
+    switch (family.reason) {
+    case "missing": return installLine(family.install, "this");
+    case "link": return checkLine("Could not check", CHECK_REASONS.link);
+    case "kill": return checkLine("Could not check", "VGS could not check whether the kill switch blocks it");
+    case "lookups": return checkLine("Could not check", "VGS could not find where name lookups go");
+    }
+    return checkLine("Could not check", dns ? "VGS could not read the DNS settings" : "VGS could not read the route");
+}
+function killLine(kill) {
+    if (kill.state === "unknown") return checkLine("Could not check", "VGS could not read the kill switch");
+    const times = kill.blocked + (kill.blocked === "1" ? " time" : " times");
+    return checkLine((kill.state === "holding" ? "Holding" : "On") + ", refused traffic " + times
+        + (kill.rising ? ", up from " + kill.previous + " at the last check" : ""));
+}
+function checkView(check, row, held) {
+    const view = { shown: false, reason: "", publicShown: false, public: checkLine(""), place: "", families: [], killShown: false, kill: checkLine("") };
+    if (!checkReads(row)) return view;
+    const active = row.state === "activated";
+    if (!active && held !== row.uuid) return view;
+    const mine = isPlain(check) && check.uuid === row.uuid ? check : null;
+    // A result of the profile connected does not describe its drop, nor
+    // the other way round (checkStale drops one a later list outdates).
+    const result = mine !== null && !mine.busy && mine.active === active && isPlain(mine.result) ? mine.result : null;
+    const busy = mine !== null && mine.busy;
+    Object.assign(view, { shown: true, publicShown: active, reason: busy ? "Wait until the check ends." : "" });
+    if (result === null) {
+        view.public = checkLine(busy ? "Checking…" : "Not checked");
+        if (busy) view.families = FAMILIES.map(pair => Object.assign({ key: pair[0], label: pair[1] }, checkLine("Checking…")));
+        return view;
+    }
+    const answer = result.public;
+    if (isPlain(answer) && answer.kind === "ok") {
+        view.public = checkLine(answer.ip);
+        view.place = answer.city === "" ? answer.country : answer.city + ", " + answer.country;
+    } else if (isPlain(answer) && answer.reason === "missing") {
+        view.public = installLine("curl", "the public address");
+    } else {
+        const reason = isPlain(answer) && CHECK_REASONS[answer.reason] !== undefined ? answer.reason : "request";
+        view.public = checkLine(NOT_ASKED.indexOf(reason) !== -1 ? "Not checked" : "Could not check", CHECK_REASONS[reason]);
+    }
+    view.families = FAMILIES.map(pair => Object.assign({ key: pair[0], label: pair[1] }, familyLine(pair[0], result[pair[0]])));
+    // A kill switch that is off has its own row in the flyout and section.
+    return Object.assign(view, { killShown: result.kill.state !== "off", kill: killLine(result.kill) });
 }

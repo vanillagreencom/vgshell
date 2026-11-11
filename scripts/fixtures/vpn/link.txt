@@ -1,0 +1,2 @@
+GENERAL.STATE:activated
+GENERAL.IP-IFACE:wg-home

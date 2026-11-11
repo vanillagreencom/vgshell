@@ -24,6 +24,7 @@ const core = load(path.join(__dirname, "../shell/Core/PluginLogic.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/manifest.json"), "utf8"));
 const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/Service.qml"), "utf8");
 const bodySource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/VpnBody.qml"), "utf8");
+const leakSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/LeakCheck.qml"), "utf8");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 // A checkout with CRLF endings reads as nmcli's LF output.
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8").replace(/\r\n/g, "\n");
@@ -551,10 +552,11 @@ function suite(logic, service = serviceSource) {
     ]) {
         const console = logs();
         let reads = 0;
+        const checks = [];
         // A feed the run never took, as when it never started, goes with it.
         const owner = Object.assign(helpers(), { profiles, failures: { [TRAVEL]: { kind: "needs-password", service: "" } },
             profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null,
-            connectFeed: () => {}, runEnded() { reads++; } });
+            connectFeed: () => {}, runEnded() { reads++; }, startCheck(checked, active) { checks.push([checked, active]); } });
         completeAction(false, { code, status: 0 }, owner, logic, { text: "" }, { text: output }, { stop() {} }, console);
         assert.equal(owner.connectFeed, null, kind + " " + code);
         if (kind === "profile-up") assert.equal(owner.failures[uuid] === undefined ? null : owner.failures[uuid].kind, failure, kind + " " + code);
@@ -563,6 +565,9 @@ function suite(logic, service = serviceSource) {
         if (problem) assert.equal(typeof owner.profileProblem.text === "string" && owner.profileProblem.text !== "", true, kind + " " + code);
         // The change stays in flight until the next list (runEnded, below).
         assert.equal(reads, 1, "the run's end hands over to runEnded");
+        // A connect that completed starts one leak check of its profile,
+        // as connected; no other end starts one (VGS-2398).
+        assert.deepEqual(checks, kind === "profile-up" && code === 0 ? [[uuid, true]] : [], kind + " " + code + " leak check");
         assert.deepEqual(console.messages, code === 0 ? [] : [["warn", "vpn: operation=" + kind + " completion=failed code=" + code]]);
         holdsNothingPrivate([owner.failures, owner.profileProblem], kind);
     }
@@ -1208,7 +1213,7 @@ function killSwitchSuite(logic, service, profiles) {
             stateDeadline: { restarted: 0, stopped: 0, restart() { this.restarted++; }, stop() { this.stopped++; } },
             // The retry timer fires at once.
             armRetry: { restart() { events.push("retry"); owner.readKillStatus(); }, stop() {} },
-            killReader: { running: false, again: false, completion: null, settles: false },
+            killReader: { running: false, again: false, completion: null, settles: false, forCheck: false }, checkWantsStatus: false,
             killDeadline: { restart() {} },
             readProfiles() { events.push("read-profiles"); }, readKillSwitch() { events.push("read-kill-switch"); },
             stateFile: {
@@ -1497,14 +1502,23 @@ function killSwitchSuite(logic, service, profiles) {
     assert.equal(serials.stateWrite, null, "the later write's own chmod does");
     // The grace ends on a status read that starts after a poll ticked,
     // not on one already running.
-    const graced = { registered: true, killReady: true, killSettlePoll: true, killReader: { running: true, again: false, settles: false, completion: null },
-        killDeadline: { restart() {} } };
+    const graced = { registered: true, killReady: true, killSettlePoll: true, checkWantsStatus: false,
+        killReader: { running: true, again: false, settles: false, forCheck: false, completion: null }, killDeadline: { restart() {} } };
     bind(graced, "readKillStatus");
     graced.readKillStatus();
     assert.deepEqual([graced.killReader.again, graced.killReader.settles, graced.killSettlePoll], [true, false, true], "a running read does not take the tick");
     graced.killReader.running = false;
     graced.readKillStatus();
     assert.deepEqual([graced.killReader.settles, graced.killSettlePoll], [true, false], "the read the tick starts carries it");
+    // The leak check's status request rides the same way: a running read
+    // started before the check asked does not answer it; the next one does.
+    graced.checkWantsStatus = true;
+    graced.killReader.running = true;
+    graced.readKillStatus();
+    assert.deepEqual([graced.killReader.forCheck, graced.checkWantsStatus], [false, true], "a running read does not answer the check");
+    graced.killReader.running = false;
+    graced.readKillStatus();
+    assert.deepEqual([graced.killReader.forCheck, graced.checkWantsStatus], [true, false], "the read the check's request starts answers it");
     // One writer: a second write while one runs answers busy.
     const writer = serviceOwner({ stall: "reload" });
     assert.equal(writer.writeState(() => ({ mode: "off" }), () => { throw new Error("the second write ran"); }), "ok");
@@ -1600,8 +1614,448 @@ function editorSuite(logic, body = bodySource) {
         assert.equal(core.instanceCapabilities(manifest, kind).includes("run"), kind === "pane", kind);
 }
 
+// The leak check (VGS-2398) judged from recorded readings: the tunnel's
+// interface as nmcli 1.58.1 prints it, routes as iproute2 7.3.0 prints
+// them under LC_ALL=C, systemd-resolved's settings in the shape systemd
+// 262's io.systemd.Resolve.DumpDNSConfiguration answers (each recorded on
+// 2026-11-11, in network namespaces or on the host, with stand-in values;
+// dns-tunnel.json is dns-wifi-domain.json without the Wi-Fi's DHCP
+// domain, and dns-wifi-route.json is dns-tunnel.json with the tunnel's
+// DNS server gone and the Wi-Fi holding the DNS default route), and the
+// provider's answer with the fields the issue lists. The judge never reads
+// a pass from a reading it could not take. SERVICE and LEAK are
+// Service.qml's and LeakCheck.qml's text, whose leak check wiring runs
+// over doubles.
+function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
+    const json = name => JSON.parse(text(name));
+    const tunnelDns = json("dns-tunnel.json");
+    // DNS readings: the recorded settings with each named entry's changed,
+    // `global` naming the global settings, a planted defect private to its
+    // row.
+    const dnsWith = changes => logic.dnsRead(0, JSON.stringify({ configuration: tunnelDns.configuration.map(entry => {
+        const change = changes[typeof entry.ifname === "string" ? entry.ifname : "global"];
+        return change === undefined ? entry : Object.assign({}, entry, change);
+    }) }));
+    const root = [{ name: ".", routeOnly: true, ifindex: 0 }];
+    const servers = [{ addressString: "192.0.2.53", address: [192, 0, 2, 53], family: 2, port: 53 }];
+    const status = (state, blocked, tunnel = "wg-home", profile = HOME) =>
+        logic.killStatus(0, "state=" + state + " reason=" + (state === "holding" ? "tunnel-down" : state === "passing" ? "tunnel-up" : "disarmed")
+            + " blocked=" + blocked + " tunnel=" + tunnel + " profile=" + profile + "\n");
+
+    // The parsers, on recorded and malformed readings.
+    const TAILNET = { link: "tailscale0", defaultRoute: false, domains: ["tail0000.ts.net", "ts.net"] };
+    const TUNNEL = { link: "wg-home", defaultRoute: true, domains: ["."] };
+    for (const [name, read, expected] of [
+        ["an activated profile's interface", logic.linkRead(0, text("link.txt")), { kind: "active", link: "wg-home" }],
+        ["a profile not active prints nothing", logic.linkRead(0, ""), { kind: "inactive" }],
+        ["a profile going down", logic.linkRead(0, "GENERAL.STATE:deactivating\nGENERAL.IP-IFACE:wg-home\n"), { kind: "inactive" }],
+        ["a failed interface read", logic.linkRead(10, ""), { kind: "unreadable" }],
+        ["an interface name outside the kernel's", logic.linkRead(0, "GENERAL.STATE:activated\nGENERAL.IP-IFACE:wg/home\n"), { kind: "unreadable" }],
+        ["an activated profile with no interface line", logic.linkRead(0, "GENERAL.STATE:activated\n"), { kind: "unreadable" }],
+        ["a route through the tunnel", logic.routeRead(0, text("route-tunnel.json"), ""), { kind: "via", link: "wg-home" }],
+        ["a route through the Wi-Fi", logic.routeRead(0, text("route-wlan0.json"), ""), { kind: "via", link: "wlan0" }],
+        ["no route", logic.routeRead(2, "", text("route-none.txt")), { kind: "none" }],
+        ["an unreachable route", logic.routeRead(2, "", "RTNETLINK answers: No route to host\n"), { kind: "none" }],
+        ["a blackhole route", logic.routeRead(2, "", "RTNETLINK answers: Invalid argument\n"), { kind: "unreadable" }],
+        ["a route read the deadline ended", logic.routeRead(-1, "", ""), { kind: "unreadable" }],
+        ["a route read that is no JSON", logic.routeRead(0, "default via 192.168.50.1", ""), { kind: "unreadable" }],
+        ["an empty route list", logic.routeRead(0, "[]", ""), { kind: "unreadable" }],
+        ["two routes", logic.routeRead(0, "[" + text("route-tunnel.json").trim().slice(1, -1) + "," + text("route-wlan0.json").trim().slice(1, -1) + "]", ""), { kind: "unreadable" }],
+        ["the recorded settings", logic.dnsRead(0, text("dns-tunnel.json")), { kind: "scopes", fallback: true, scopes: [
+            { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
+        ["the Wi-Fi's DHCP domain", logic.dnsRead(0, text("dns-wifi-domain.json")), { kind: "scopes", fallback: true, scopes: [
+            { link: "wlan0", defaultRoute: false, domains: ["hotel.example"] }, TAILNET, TUNNEL] }],
+        ["global servers with a domain, which take every unrouted name",
+            dnsWith({ global: { servers, searchDomains: [{ name: "Corp.Example.", routeOnly: true }] } }), { kind: "scopes", fallback: true, scopes: [
+                { link: logic.GLOBAL_DNS, defaultRoute: true, domains: ["corp.example"] }, { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
+        ["the Wi-Fi holding the DNS default route", logic.dnsRead(0, text("dns-wifi-route.json")), { kind: "scopes", fallback: true, scopes: [
+            { link: "wlan0", defaultRoute: true, domains: [] }, TAILNET] }],
+        ["a delegate's servers", logic.dnsRead(0, JSON.stringify({ configuration: [{ resolvConfMode: "stub" },
+            { delegate: "corp", defaultRoute: false, servers, searchDomains: [{ name: "corp.example" }] }] })),
+            { kind: "scopes", fallback: false, scopes: [{ link: logic.GLOBAL_DNS, defaultRoute: false, domains: ["corp.example"] }] }],
+        // Programs that read /etc/resolv.conf ask resolved only while it
+        // names resolved's stub.
+        ["resolv.conf naming resolved's static stub", dnsWith({ global: { resolvConfMode: "static" } }), { kind: "scopes", fallback: true, scopes: [
+            { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
+        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), { kind: "unreadable" }],
+        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), { kind: "unreadable" }],
+        ["no resolv.conf", dnsWith({ global: { resolvConfMode: "missing" } }), { kind: "unreadable" }],
+        ["no resolv.conf mode read", dnsWith({ global: { resolvConfMode: null } }), { kind: "unreadable" }],
+        ["resolved not reachable", logic.dnsRead(1, ""), { kind: "unreadable" }],
+        ["a reply that is no JSON", logic.dnsRead(0, "Link 3 (wlan0)"), { kind: "unreadable" }],
+        ["a link with servers and no default-route reading", dnsWith({ wlan0: { defaultRoute: null } }), { kind: "unreadable" }],
+        ["a link with no name", dnsWith({ wlan0: { ifname: null } }), { kind: "unreadable" }],
+        ["a domain with no name", dnsWith({ wlan0: { searchDomains: [{ routeOnly: false }] } }), { kind: "unreadable" }],
+        ["fallback servers that are no list", dnsWith({ global: { fallbackServers: "192.0.2.53" } }), { kind: "unreadable" }]
+    ]) assert.deepEqual(plain(read), expected, name);
+
+    // The provider's answer: a good one, a failed request and malformed
+    // answers, each never a blank, zero or guessed field.
+    const good = json("insights.json");
+    const answer = changes => JSON.stringify(Object.assign({}, good, changes));
+    assert.deepEqual(plain(logic.insights(0, text("insights.json"))), { kind: "ok", ip: "198.51.100.7", country: "Netherlands", city: "Amsterdam" });
+    assert.deepEqual(plain(logic.insights(0, answer({ city: undefined }))), { kind: "ok", ip: "198.51.100.7", country: "Netherlands", city: "" });
+    for (const [name, code, output, reason] of [
+        ["the deadline", -1, "", "timeout"], ["curl's own timeout", 28, "", "timeout"], ["no name lookup", 6, "", "lookup"],
+        ["no connection", 7, "", "connect"], ["an HTTP error", 22, "", "refused"], ["the interface", 45, "", "interface"],
+        ["the certificate", 60, "", "secure"], ["an answer over the size bound", 63, "", "malformed"], ["another failure", 92, "", "request"],
+        ["no JSON", 0, "<html>Too many requests</html>", "malformed"], ["a list", 0, "[" + text("insights.json") + "]", "malformed"],
+        ["an address out of range", 0, answer({ ip: "198.51.100.700" }), "malformed"], ["an IPv6 address", 0, answer({ ip: "2001:db8::7" }), "malformed"],
+        ["an address as a number", 0, answer({ ip: 3325256711 }), "malformed"], ["a zero address", 0, answer({ ip: "" }), "malformed"],
+        ["no country", 0, answer({ country: undefined }), "malformed"], ["an empty country", 0, answer({ country: " " }), "malformed"],
+        ["a country with a control character", 0, answer({ country: "Nether\u0007lands" }), "malformed"],
+        ["a country past the length bound", 0, answer({ country: "N".repeat(logic.TEXT_MAX + 1) }), "malformed"],
+        ["a city that is no text", 0, answer({ city: 7 }), "malformed"],
+        ["an answer past the size bound", 0, answer({ isp: "x".repeat(logic.INSIGHTS_MAX) }), "malformed"]
+    ]) assert.deepEqual(plain(logic.insights(code, output)), { kind: "failed", reason }, name);
+
+    // The one outside question goes through the tunnel's interface, over
+    // IPv4 and HTTPS, bounded in time and size, with no redirect; every
+    // command a check runs is a declared optional requirement.
+    const ask = logic.insightsArgv("wg-home");
+    assert.equal(ask[ask.indexOf("--interface") + 1], "if!wg-home");
+    for (const flag of ["-q", "--ipv4", "--fail", "--max-time", "--max-filesize"]) assert.ok(ask.includes(flag), flag);
+    assert.equal(ask[ask.indexOf("--proto") + 1], "=https");
+    assert.equal(ask[ask.length - 1], "https://api.nordvpn.com/v1/helpers/ips/insights");
+    assert.ok(!ask.some(arg => arg === "-L" || arg === "--location"));
+    for (const argv of [logic.linkArgv(HOME), logic.routeArgv("ipv4"), logic.routeArgv("ipv6"), logic.DNS_ARGV, ask]) {
+        const declared = manifest.requirements.find(row => row.command === argv[0]);
+        assert.ok(declared !== undefined && declared.optional === true, argv[0] + " is a declared optional requirement");
+    }
+
+    // The one table: readings over a connected Home tunnel whose routes
+    // and lookups stay in the tunnel, the kill switch not set up; each row
+    // changes what it names. Verdicts are [ipv4, ipv6, dns, kill state],
+    // a leak as "leak:<link>", an unknown as "unknown:<reason>", with the
+    // command to install after a missing one's.
+    const base = { uuid: HOME, link: { kind: "active", link: "wg-home" }, status: null,
+        ipv4: { kind: "via", link: "wg-home" }, ipv6: { kind: "none" }, dns: logic.dnsRead(0, text("dns-tunnel.json")), public: logic.insights(0, text("insights.json")) };
+    const unreadable = { kind: "unreadable" };
+    const wlan = { kind: "via", link: "wlan0" };
+    const wifiDomain = logic.dnsRead(0, text("dns-wifi-domain.json"));
+    const wifiRoute = logic.dnsRead(0, text("dns-wifi-route.json"));
+    const domains = (...names) => names.map(name => ({ name, routeOnly: true }));
+    const tailnetDomains = domains("tail0000.ts.net", "ts.net", "0.e.1.a.c.5.1.1.a.7.d.f.ip6.arpa", "64.100.in-addr.arpa", "127.100.in-addr.arpa");
+    const GLOBAL = "leak:" + logic.GLOBAL_DNS;
+    const LEAK_TABLE = [
+        ["DNS on the tunnel, with Tailscale's split DNS on its own domains, passes", {}, ["tunnel", "none", "tunnel", "off"]],
+        ["a Wi-Fi link's DHCP domain is a DNS leak beside the tunnel's ~.", { dns: wifiDomain }, ["tunnel", "none", "leak:wlan0", "off"]],
+        ["the same with the kill switch armed is blocked", { dns: wifiDomain, status: status("passing", 7) }, ["tunnel", "none", "blocked", "on"]],
+        ["a domain the tunnel holds too still goes to the Wi-Fi", { dns: dnsWith({ wlan0: { searchDomains: [{ name: "corp.example" }] },
+            "wg-home": { searchDomains: root.concat([{ name: "corp.example" }]) } }) }, ["tunnel", "none", "leak:wlan0", "off"]],
+        ["a non-tunnel link holding the DNS default route is a DNS leak",
+            { dns: dnsWith({ wlan0: { defaultRoute: true }, "wg-home": { searchDomains: [] } }) }, ["tunnel", "none", "leak:wlan0", "off"]],
+        ["a non-tunnel link carrying ~. is a DNS leak", { dns: dnsWith({ wlan0: { searchDomains: root } }) }, ["tunnel", "none", "leak:wlan0", "off"]],
+        ["a default-route link the tunnel's ~. outranks takes no lookup", { dns: dnsWith({ wlan0: { defaultRoute: true } }) }, ["tunnel", "none", "tunnel", "off"]],
+        ["global servers beside a tunnel that is only the default route are a DNS leak",
+            { dns: dnsWith({ global: { servers }, "wg-home": { searchDomains: [] } }) }, ["tunnel", "none", GLOBAL, "off"]],
+        ["global servers with a domain are a DNS leak", { dns: dnsWith({ global: { servers, searchDomains: [{ name: "corp.example" }] } }) },
+            ["tunnel", "none", GLOBAL, "off"]],
+        ["global servers the tunnel's ~. outranks take no lookup", { dns: dnsWith({ global: { servers } }) }, ["tunnel", "none", "tunnel", "off"]],
+        ["with no ~. and no default route, lookups go to the fallback servers", { dns: dnsWith({ "wg-home": { searchDomains: [], defaultRoute: false } }) },
+            ["tunnel", "none", GLOBAL, "off"]],
+        ["DNS no server takes is unknown", { dns: dnsWith({ "wg-home": { searchDomains: [], defaultRoute: false }, global: { fallbackServers: [] } }) },
+            ["tunnel", "none", "unknown:lookups", "off"]],
+        ["Tailscale's DNS taking every lookup is a DNS leak", { dns: dnsWith({ tailscale0: { searchDomains: root }, "wg-home": { searchDomains: [] } }) },
+            ["tunnel", "none", "leak:tailscale0", "off"]],
+        ["Tailscale's MagicDNS and reverse zones take no internet name", { dns: dnsWith({ tailscale0: { searchDomains: tailnetDomains } }) },
+            ["tunnel", "none", "tunnel", "off"]],
+        ["a public split domain on tailscale0 is a DNS leak", { dns: dnsWith({ tailscale0: { searchDomains: tailnetDomains.concat(domains("nordvpn.com")) } }) },
+            ["tunnel", "none", "leak:tailscale0", "off"]],
+        ["a reverse zone outside Tailscale's addresses on tailscale0 is a DNS leak", { dns: dnsWith({ tailscale0: { searchDomains: domains("63.100.in-addr.arpa") } }) },
+            ["tunnel", "none", "leak:tailscale0", "off"]],
+        ["a name that only ends in ts.net on tailscale0 is a DNS leak", { dns: dnsWith({ tailscale0: { searchDomains: domains("notts.net") } }) },
+            ["tunnel", "none", "leak:tailscale0", "off"]],
+        ["Tailscale's zone on another link is a DNS leak", { dns: dnsWith({ wlan0: { searchDomains: domains("ts.net") } }) },
+            ["tunnel", "none", "leak:wlan0", "off"]],
+        ["the Wi-Fi holding the DNS default route beside a tunnel with no DNS server is a DNS leak", { dns: wifiRoute },
+            ["tunnel", "none", "leak:wlan0", "off"]],
+        ["resolv.conf listing the uplink servers is unknown", { dns: dnsWith({ global: { resolvConfMode: "uplink" } }) },
+            ["tunnel", "none", "unknown:read", "off"]],
+        ["an IPv6 default route outside the tunnel with the kill switch off is an IPv6 leak", { ipv6: wlan }, ["tunnel", "leak:wlan0", "tunnel", "off"]],
+        ["the same with the kill switch set up and off", { ipv6: wlan, status: status("off", 0, "", "") }, ["tunnel", "leak:wlan0", "tunnel", "off"]],
+        ["the same with the kill switch armed is blocked", { ipv6: wlan, status: status("passing", 7) }, ["tunnel", "blocked", "tunnel", "on"]],
+        ["the same with the kill switch armed closed is blocked", { ipv6: wlan, status: status("unavailable", 7, "", HOME) }, ["tunnel", "blocked", "tunnel", "on"]],
+        ["the same with the kill switch unread is unknown", { ipv6: wlan, status: logic.killStatus(1, "", "") }, ["tunnel", "unknown:kill", "tunnel", "unknown"]],
+        ["a route out of tailscale0, which the kill switch passes, is a leak", { ipv4: { kind: "via", link: "tailscale0" }, status: status("passing", 7) },
+            ["leak:tailscale0", "none", "tunnel", "on"]],
+        ["a drop the kill switch holds blocks every family", { link: { kind: "inactive" }, status: status("holding", 42), ipv4: wlan, ipv6: wlan,
+            dns: dnsWith({ "wg-home": { servers: [] }, wlan0: { defaultRoute: true } }), public: null }, ["blocked", "blocked", "blocked", "holding"]],
+        ["a drop with the kill switch off leaks", { link: { kind: "inactive" }, ipv4: wlan, ipv6: { kind: "none" },
+            dns: dnsWith({ "wg-home": { servers: [] }, wlan0: { defaultRoute: true } }), public: null }, ["leak:wlan0", "none", "leak:wlan0", "off"]],
+        ["an unreadable interface is unknown for every family", { link: unreadable, status: status("passing", 7) }, ["unknown:link", "unknown:link", "unknown:link", "on"]],
+        ["an unreadable IPv4 route is unknown", { ipv4: unreadable }, ["unknown:read", "none", "tunnel", "off"]],
+        ["an unreadable IPv6 route is unknown", { ipv6: unreadable }, ["tunnel", "unknown:read", "tunnel", "off"]],
+        ["unreadable DNS settings are unknown", { dns: unreadable }, ["tunnel", "none", "unknown:read", "off"]],
+        ["ip not installed is unknown, naming it", { ipv4: { kind: "missing", command: "ip" }, ipv6: { kind: "missing", command: "ip" } },
+            ["unknown:missing:ip", "unknown:missing:ip", "tunnel", "off"]],
+        ["varlinkctl not installed is unknown, naming it", { dns: { kind: "missing", command: "varlinkctl" } }, ["tunnel", "none", "unknown:missing:varlinkctl", "off"]]
+    ];
+    const verdictOf = family => family.verdict === "leak" ? "leak:" + family.link
+        : family.verdict === "unknown" ? "unknown:" + family.reason + (family.install === "" ? "" : ":" + family.install) : family.verdict;
+    for (const [name, changes, expected] of LEAK_TABLE) {
+        const result = plain(logic.leakCheck(Object.assign({}, base, changes), null));
+        assert.deepEqual([verdictOf(result.ipv4), verdictOf(result.ipv6), verdictOf(result.dns), result.kill.state], expected, name);
+        assert.deepEqual(result.public, plain(Object.assign({}, base, changes).public), name + ": the answer passes through");
+    }
+
+    // The provider is asked only through the tunnel and only while lookups
+    // of its own name stay in it or the armed kill switch blocks the rest:
+    // curl looks its name up through the system resolver.
+    const asked = { kind: "ask", link: "wg-home" };
+    const leaks = { kind: "failed", reason: "lookups-leak" };
+    for (const [name, changes, expected] of [
+        ["lookups in the tunnel", {}, asked],
+        ["lookups the armed kill switch blocks outside it", { dns: wifiRoute, status: status("passing", 7) }, asked],
+        ["a lookup that can leave by the Wi-Fi", { dns: wifiRoute }, leaks],
+        ["a lookup that can go to global servers", { dns: dnsWith({ global: { servers, searchDomains: root } }) }, leaks],
+        ["the Wi-Fi's DHCP domain, which the provider's name is not under", { dns: wifiDomain }, asked],
+        ["a router's search domain on the Wi-Fi", { dns: dnsWith({ wlan0: { searchDomains: [{ name: "lan", routeOnly: false }] } }) }, asked],
+        ["a domain that ends in the same letters as the provider's", { dns: dnsWith({ wlan0: { searchDomains: domains("vpn.com") } }) }, asked],
+        ["the provider's domain on the Wi-Fi", { dns: dnsWith({ wlan0: { searchDomains: domains("NordVPN.com.") } }) }, leaks],
+        ["the provider's domain on the tunnel and the Wi-Fi alike", { dns: dnsWith({ wlan0: { searchDomains: domains("nordvpn.com") },
+            "wg-home": { searchDomains: root.concat(domains("nordvpn.com")) } }) }, leaks],
+        ["a tunnel domain longer than the Wi-Fi's ~.", { dns: dnsWith({ wlan0: { searchDomains: root }, "wg-home": { searchDomains: domains("nordvpn.com") } }) }, asked],
+        ["a public split domain on tailscale0", { dns: dnsWith({ tailscale0: { searchDomains: tailnetDomains.concat(domains("nordvpn.com")) } }) }, leaks],
+        ["with no ~., the tunnel holding the DNS default route", { dns: dnsWith({ "wg-home": { searchDomains: [] } }) }, asked],
+        ["with no ~. and no default route, the fallback servers", { dns: dnsWith({ "wg-home": { searchDomains: [], defaultRoute: false } }) }, leaks],
+        ["no server takes the provider's name", { dns: dnsWith({ "wg-home": { searchDomains: [], defaultRoute: false }, global: { fallbackServers: [] } }) },
+            { kind: "failed", reason: "lookups-unknown" }],
+        ["resolv.conf listing the uplink servers", { dns: dnsWith({ global: { resolvConfMode: "uplink" } }) }, { kind: "failed", reason: "lookups-unknown" }],
+        ["DNS settings not read", { dns: unreadable }, { kind: "failed", reason: "lookups-unknown" }],
+        ["varlinkctl not installed", { dns: { kind: "missing", command: "varlinkctl" } }, { kind: "failed", reason: "lookups-unknown" }],
+        ["a lookup outside with the kill switch unread", { dns: wifiRoute, status: logic.killStatus(1, "", "") }, { kind: "failed", reason: "lookups-unknown" }],
+        ["the profile no longer connected", { link: { kind: "inactive" } }, { kind: "failed", reason: "inactive" }],
+        ["the interface not read", { link: unreadable }, { kind: "failed", reason: "link" }]
+    ]) assert.deepEqual(plain(logic.publicPlan(Object.assign({}, base, changes, { public: null }))), expected, name);
+
+    // The refused count's rise between two reads of one armed table: never
+    // against another profile's table or a first read, and compared as the
+    // whole numbers the status line carries, past 2^53.
+    for (const [name, before, after, previous, rising] of [
+        ["a first read", null, status("holding", 42), "", false],
+        ["a higher count", status("holding", 30), status("holding", 42), "30", true],
+        ["one more digit", status("passing", 9), status("holding", 10), "9", true],
+        ["the same count", status("holding", 42), status("holding", 42), "42", false],
+        ["a lower count, a table made again", status("holding", 42), status("holding", 3), "42", false],
+        ["past 2^53", status("holding", "18446744073709551614"), status("holding", "18446744073709551615"), "18446744073709551614", true],
+        ["another profile's table", status("holding", 30, "wg-office", OFFICE), status("holding", 42), "", false],
+        ["after the kill switch was off", status("off", 0, "", ""), status("holding", 42), "", false]
+    ]) {
+        const first = before === null ? null : logic.leakCheck(Object.assign({}, base, { status: before }), null).kill;
+        const kill = plain(logic.leakCheck(Object.assign({}, base, { status: after, link: { kind: "inactive" } }), first).kill);
+        assert.deepEqual([kill.blocked, kill.previous, kill.rising], [after.blocked, previous, rising], name);
+    }
+
+    // The kill switch a check reads, by the system step's state: no table
+    // only where the step rules one out; anywhere else its status, since
+    // an installed table outlives an update or a failed unit and the
+    // status socket answers any user. A status command that never started
+    // reads not set up while the step is not set up.
+    for (const [name, step, plan] of [
+        ["before the first probe", undefined, "read"], ["set up", { state: "ready", reason: "granted" }, "read"],
+        ["needs setting up", { state: "needed", reason: "not-set-up" }, "read"], ["units failed", { state: "needed", reason: "units-failed" }, "read"],
+        ["NixOS setup", { state: "nixos", reason: "" }, "read"], ["unread", { state: "unknown", reason: "hash-failed" }, "read"],
+        ["another account's", { state: "denied", reason: "other-account" }, "read"], ["denied for a reason it does not name", { state: "denied", reason: "other" }, "read"],
+        ["absent", { state: "absent", reason: "" }, "none"], ["NixOS", { state: "denied", reason: "nixos-unsupported" }, "none"],
+        ["no systemd", { state: "denied", reason: "systemd-missing" }, "none"], ["no nftables", { state: "denied", reason: "nft-missing" }, "none"]
+    ]) assert.equal(logic.checkKillPlan(step), plan, name);
+    const holdingHome = status("holding", 42);
+    for (const [name, ready, started, expected] of [
+        ["set up, read", true, true, holdingHome], ["set up, never started", true, false, holdingHome],
+        ["not set up, read", false, true, holdingHome], ["not set up, no status command", false, false, null]
+    ]) assert.deepEqual(logic.checkKillStatus(ready, holdingHome, started), expected, name);
+
+    // The service's wiring over doubles: `with` resolves bare names on the
+    // owner, as QML does.
+    const sourceFn = (source, owner, name) => {
+        const found = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(source);
+        assert.ok(found, name);
+        const params = found[1].split(",").map(param => param.trim()).filter(param => param !== "");
+        owner[name] = new Function("Logic", "owner", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner);
+    };
+    const serviceFn = (owner, name) => sourceFn(service, owner, name);
+    const checkOwner = step => {
+        const owner = { registered: true, killStep: step, killReady: step.state === "ready", killSettlePoll: false, checkWantsStatus: false, handed: [],
+            killReader: { running: false, again: false, settles: false, forCheck: false, completion: "old" }, killDeadline: { restart() {} },
+            leakCheck: { statusRead(read) { owner.handed.push(read); } } };
+        serviceFn(owner, "checkStatus");
+        serviceFn(owner, "readKillStatus");
+        return owner;
+    };
+    for (const [name, step, reads] of [["set up", { state: "ready" }, true], ["needs setting up", { state: "needed", reason: "not-set-up" }, true],
+        ["absent", { state: "absent" }, false]]) {
+        const owner = checkOwner(step);
+        owner.checkStatus();
+        assert.deepEqual([owner.killReader.running, owner.killReader.forCheck, plain(owner.handed)], reads ? [true, true, []] : [false, false, [null]], name);
+    }
+    const idle = checkOwner({ state: "needed", reason: "not-set-up" });
+    idle.readKillStatus();
+    assert.equal(idle.killReader.running, false, "the poll reads no status while the step is not set up");
+    // The status read's end hands the check its reading; one taken for the
+    // check alone while the step is not set up leaves the switch's own.
+    const ended = /id: killReader[\s\S]*?onRunningChanged: \{([\s\S]*?)\n        \}/.exec(service);
+    assert.ok(ended, "the status reader's end");
+    const finishStatus = new Function("root", "Logic", "killText", "killErrors", "killDeadline", "console", "leakCheck", "reader", "with (reader) {" + ended[1] + "}");
+    const line = "state=holding reason=tunnel-down blocked=42 tunnel=wg-home profile=" + HOME + "\n";
+    for (const [name, ready, completion, killStatus, handed] of [
+        ["set up", true, { code: 0, status: 0 }, holdingHome, holdingHome],
+        ["not set up, read", false, { code: 0, status: 0 }, null, holdingHome],
+        ["not set up, no status command", false, null, null, null],
+        ["set up, no status command", true, null, logic.killStatus(-1, "", ""), logic.killStatus(-1, "", "")]
+    ]) {
+        const handedReads = [];
+        const owner = { killReady: ready, killStatus: null, killSettling: false, stage: null, readKillStatus() {}, armRead() {},
+            codeOf: done => done === null || done.status !== 0 ? -1 : done.code };
+        const reader = { running: false, completion, forCheck: true, settles: false, again: false };
+        finishStatus(owner, logic, { text: completion === null ? "" : line }, { text: "" }, { stop() {} }, { warn() {} },
+            { statusRead(read) { handedReads.push(read); } }, reader);
+        assert.deepEqual(plain([owner.killStatus, handedReads]), plain([killStatus, [handed]]), name);
+    }
+
+    // Only a WireGuard profile is checked: a connect's own start of a
+    // check refuses another type, as the IPC does.
+    const listing = plain(logic.list(0, text("list.txt")));
+    const payload = plain(logic.compose(listing, {}, {}, {}, null, ""));
+    const started = [];
+    const starter = { profiles: payload, leakCheck: { start(uuid, active) { started.push([uuid, active]); return "ok"; } } };
+    serviceFn(starter, "startCheck");
+    assert.equal(starter.startCheck(TRAVEL, true), "refused: profile=type");
+    assert.equal(starter.startCheck(HOME, true), "ok");
+    assert.deepEqual(started, [[HOME, true]], "only the WireGuard profile's check starts");
+
+    // The row: the address and its place only from a good answer; a failed
+    // or malformed answer reads Could not check with its reason in the
+    // error line, the text the issue's Done-when names, and never a place;
+    // a question VGS did not ask reads as no check made, with its reason.
+    // No hint repeats the info while the answer is good or the check runs.
+    const connected = { uuid: HOME, type: "wireguard", state: "activated" };
+    const done = (changes, active = true) => ({ uuid: HOME, busy: false, active, result: plain(logic.leakCheck(Object.assign({}, base, changes), null)) });
+    const shown = plain(logic.checkView(done({}), connected, ""));
+    assert.deepEqual([shown.shown, shown.publicShown, shown.public.text, shown.place, shown.reason], [true, true, "198.51.100.7", "Amsterdam, Netherlands", ""]);
+    assert.deepEqual([shown.public.error, shown.public.hint], ["", ""], "a good answer has no hint");
+    assert.deepEqual(shown.families.map(family => [family.key, family.error]), [["ipv4", ""], ["ipv6", ""], ["dns", ""]]);
+    assert.equal(shown.killShown, false, "a kill switch that is off has its own row");
+    assert.equal(plain(logic.checkView(done({ status: status("off", 0, "", "") }), connected, "")).killShown, false, "set up and off too");
+    const armed = plain(logic.checkView(done({ status: status("passing", 7) }), connected, ""));
+    assert.deepEqual([armed.killShown, armed.kill.error], [true, ""]);
+    const unreadKill = plain(logic.checkView(done({ status: logic.killStatus(1, "", "") }), connected, ""));
+    assert.ok(unreadKill.killShown && unreadKill.kill.error !== "", "an unread kill switch shows, with its reason");
+    const leaking = plain(logic.checkView(done({ ipv6: wlan, dns: wifiDomain }), connected, ""));
+    assert.deepEqual(leaking.families.map(family => family.error !== ""), [false, true, true]);
+    assert.ok(leaking.families[1].error.includes("wlan0") && leaking.families[2].error.includes("wlan0"), "a leak names its link");
+    assert.notEqual(plain(logic.checkView(done({ dns: dnsWith({ global: { servers, searchDomains: root } }) }), connected, "")).families[2].error, "",
+        "a leak to global servers says so");
+    assert.equal(new Set([logic.checkView(done({ ipv6: { kind: "none" } }), connected, "").families[1].text,
+        logic.checkView(done({ ipv6: wlan }), connected, "").families[1].text,
+        logic.checkView(done({ ipv6: unreadable }), connected, "").families[1].text,
+        logic.checkView(done({ ipv6: { kind: "via", link: "wg-home" } }), connected, "").families[1].text]).size, 4, "each verdict reads apart");
+    const reasons = new Set();
+    const unchecked = plain(logic.checkView(null, connected, "")).public.text;
+    for (const [failed, word] of [[logic.insights(28, ""), "Could not check"], [logic.insights(0, "<html>"), "Could not check"],
+        [logic.insights(45, ""), "Could not check"], [logic.publicPlan(Object.assign({}, base, { dns: wifiRoute })), unchecked],
+        [logic.publicPlan(Object.assign({}, base, { dns: unreadable })), unchecked]]) {
+        const view = plain(logic.checkView(done({ public: failed }), connected, ""));
+        assert.deepEqual([view.public.text, view.place, view.public.hint], [word, "", ""], failed.reason);
+        reasons.add(view.public.error);
+    }
+    assert.ok(reasons.size === 5 && !reasons.has(""), "each failure names its own reason");
+    // A command not installed: the line offers to install it.
+    for (const [changes, pick, command] of [[{ public: { kind: "failed", reason: "missing" } }, view => view.public, "curl"],
+        [{ ipv4: { kind: "missing", command: "ip" } }, view => view.families[0], "ip"],
+        [{ dns: { kind: "missing", command: "varlinkctl" } }, view => view.families[2], "varlinkctl"]]) {
+        const offered = pick(plain(logic.checkView(done(changes), connected, "")));
+        assert.ok(offered.install === command && offered.error === "" && offered.link !== "" && offered.hint.includes(offered.link), command);
+    }
+    const busy = plain(logic.checkView({ uuid: HOME, busy: true, active: true, result: null }, connected, ""));
+    assert.ok(busy.reason !== "" && busy.public.text !== "" && busy.public.hint === "" && busy.place === "", "a running check disables Check and shows no place or hint");
+    const never = plain(logic.checkView(null, connected, ""));
+    assert.ok(never.shown && never.reason === "" && never.public.text !== "" && never.families.length === 0 && !never.killShown);
+    const stale = plain(logic.checkView(done({}), { uuid: HOME, type: "wireguard", state: "" }, HOME));
+    assert.ok(stale.shown && !stale.publicShown && stale.families.length === 0, "a connected check does not describe the drop");
+    const held = plain(logic.checkView(done({ link: { kind: "inactive" }, status: status("holding", 42), ipv4: wlan, public: null }, false),
+        { uuid: HOME, type: "wireguard", state: "" }, HOME));
+    assert.ok(held.shown && !held.publicShown && held.killShown && held.families.length === 3);
+    assert.equal(plain(logic.checkView(done({}), { uuid: HOME, type: "wireguard", state: "" }, "")).shown, false, "an off profile no kill switch holds has no check");
+    assert.equal(plain(logic.checkView(done({}), { uuid: OFFICE, type: "wireguard", state: "activated" }, "")).families.length, 0, "a check of another profile is not drawn");
+    assert.equal(plain(logic.checkView(null, { uuid: OFFICE, type: "vpn", state: "activated" }, "")).shown, false, "a VPN-plugin profile has no check");
+
+    // A list that outdates the result drops it, as LeakCheck.judgeStale
+    // does: connected, disconnected outside VGS, connected again shows no
+    // result until a new check. A change in flight holds its own profile.
+    const listed = state => [{ uuid: HOME, type: "wireguard", state }];
+    let published = done({});
+    for (const [name, rows, action, stale] of [
+        ["still connected", listed("activated"), null, false],
+        ["the list a connect's end may predate", listed(""), { kind: "profile-up", uuid: HOME, ended: true }, false],
+        ["another profile's change", listed(""), { kind: "profile-up", uuid: OFFICE }, true],
+        ["disconnected", listed(""), null, true],
+        ["gone", [], null, true]
+    ]) assert.equal(logic.checkStale(published, rows, action), stale, name);
+    for (const state of ["activated", "", "activated"])
+        if (logic.checkStale(published, listed(state), null)) published = Object.assign({}, published, { result: null });
+    const reconnected = plain(logic.checkView(published, connected, ""));
+    assert.deepEqual([reconnected.public.text, reconnected.families.length, reconnected.place], [never.public.text, 0, ""], "no retained result");
+    assert.equal(logic.checkStale(published, listed(""), null), false, "a dropped result has nothing left to drop");
+    assert.equal(logic.checkStale({ uuid: HOME, busy: true, active: true, result: null }, listed(""), null), true, "a check in flight is outdated too");
+    assert.equal(logic.checkStale(done({}, false), listed("activated"), null), true, "a drop's result goes once the profile connects");
+
+    // LeakCheck's wiring over doubles: a connected check asks the provider
+    // once its local readings are in; one a list outdated first asks
+    // nothing, since curl's lookup of the provider's name could then leave
+    // by another network, and a question already out is ended.
+    const leakChecker = () => {
+        const owner = { run: null, value: null, lastKill: null, rows: null, action: null, missing: [], signalled: [],
+            deadline: { restart() {}, stop() {} }, statusWanted() {}, console: { log() {} } };
+        owner.root = owner;
+        for (const key of ["link", "ipv4", "ipv6", "dns", "public"])
+            owner[key + "Reader"] = { key, running: false, completion: "old", command: [], signal(code) { owner.signalled.push([key, code]); } };
+        for (const name of ["judgeStale", "start", "statusRead", "launch", "ended", "linked", "settle", "finish"]) sourceFn(leak, owner, name);
+        return owner;
+    };
+    const readLocal = (owner, beforeDns) => {
+        owner.start(HOME, true);
+        owner.ended("link", 0, text("link.txt"), "", "");
+        owner.statusRead(null);
+        owner.ended("ipv4", 0, text("route-tunnel.json"), "", "");
+        owner.ended("ipv6", 0, text("route-tunnel.json"), "", "");
+        beforeDns(owner);
+        owner.ended("dns", 0, text("dns-tunnel.json"), "", "");
+    };
+    const disconnect = owner => {
+        owner.rows = listed("");
+        owner.judgeStale();
+    };
+    const asking = leakChecker();
+    readLocal(asking, () => {});
+    assert.deepEqual(plain([asking.publicReader.running, asking.publicReader.command]), [true, plain(logic.insightsArgv("wg-home"))], "a connected check asks through the tunnel");
+    const droppedFirst = leakChecker();
+    readLocal(droppedFirst, disconnect);
+    assert.deepEqual(plain([droppedFirst.publicReader.running, droppedFirst.run, droppedFirst.value]), [false, null, { uuid: HOME, busy: false, active: true, result: null }],
+        "a disconnect before the last local reading asks nothing");
+    const droppedAsking = leakChecker();
+    readLocal(droppedAsking, () => {});
+    disconnect(droppedAsking);
+    assert.deepEqual(droppedAsking.signalled, [["public", 9]], "a disconnect ends the question already out");
+    droppedAsking.publicReader.running = false;
+    droppedAsking.ended("public", -1, "", "", "");
+    assert.deepEqual(plain([droppedAsking.run, droppedAsking.value]), [null, { uuid: HOME, busy: false, active: true, result: null }], "the ended question leaves no result");
+
+    // Check's IPC: a connected WireGuard profile or the one the state file
+    // names; another type is refused whatever its state.
+    const activated = payload.rows.find(row => row.uuid === HOME);
+    const off = payload.rows.find(row => row.uuid === LAB);
+    const plugin = Object.assign({}, payload, { rows: payload.rows.map(row => row.uuid === OFFICE ? Object.assign({}, row, { state: "activated" }) : row) });
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-check", id: activated.uuid }, payload, [])), { check: activated.uuid });
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-check", id: off.uuid }, payload, [], true, "")), { refusal: "refused: profile=state" });
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-check", id: off.uuid }, payload, [], true, off.uuid.toUpperCase())), { check: off.uuid });
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-check", id: OFFICE }, plugin, [])), { refusal: "refused: profile=type" });
+    assert.deepEqual(plain(logic.profileCommand({ kind: "profile-check", id: OFFICE }, plugin, [], true, OFFICE)), { refusal: "refused: profile=type" });
+}
+
 suite(load(file, commons));
 editorSuite(load(file, commons));
+leakCheckSuite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vpn-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
@@ -1873,6 +2327,65 @@ try {
         assert.notEqual(parse + pattern, parseState[0] + definition("status_pattern"), name + " mutation must change the text");
         assert.throws(() => rootAgrees(parse, pattern), undefined, "control: the agreement on " + name);
         console.log("vpn-logic: control=the root's " + name + " disagreeing red");
+    }
+    // Each leak check control changes the shipped judge or the service's
+    // wiring and must redden the leak check suite.
+    for (const [name, needle, replacement] of [
+        ["the leak check reads WireGuard alone", 'return isPlain(row) && row.type === "wireguard";', "return isPlain(row);"],
+        ["the tunnel's ~. takes unrouted lookups alone", "concat(root.length > 0 ? [] : unroutedLinks(dns))", "concat(unroutedLinks(dns))"],
+        ["with no ~., lookups go to default-route links", "dns.scopes.filter(scope => scope.defaultRoute)", "dns.scopes.filter(scope => false)"],
+        ["a domain on another link takes lookups", 'const named = dns.scopes.filter(scope => scope.domains.some(domain => domain !== "." && !tailnetOnly(scope, domain)));', "const named = [];"],
+        ["Tailscale's own domains take no internet name", " && !tailnetOnly(scope, domain)", ""],
+        ["only Tailscale's own zones on tailscale0 are exempt", 'return scope.link === "tailscale0" && TAILNET_ZONE.test(domain);', 'return scope.link === "tailscale0";'],
+        ["global servers take unrouted lookups", "defaultRoute: global || entry.defaultRoute", "defaultRoute: entry.defaultRoute === true"],
+        ["with no default route, lookups go to the fallback servers", "return links.length === 0 && dns.fallback ? [GLOBAL_DNS] : links;", "return links;"],
+        ["lookups are judged only while resolv.conf names resolved's stub", "if (RESOLVED_MODES.indexOf(mode) === -1) return unreadable;", ""],
+        ["the provider's own name decides whether VGS asks", ": nameLinks(readings.dns, host);", ": lookupLinks(readings.dns);"],
+        ["a name goes to its longest matching domain", "if (depth > best) { best = depth; links = []; }", "if (depth > best) best = depth;"],
+        ["a domain matches whole labels", 'name !== domain && !name.endsWith("." + domain)', "!name.endsWith(domain)"],
+        ["a question VGS did not ask reads as not checked", 'NOT_ASKED.indexOf(reason) !== -1 ? "Not checked" : "Could not check"', '"Could not check"'],
+        ["an unreadable route is unknown", 'reading.kind === "none" ? [] : unread(reading);', 'reading.kind === "none" ? [] : [];'],
+        ["the armed kill switch blocks", 'if (kill.state === "holding" || kill.state === "on") return verdict("blocked"', 'if (false) return verdict("blocked"'],
+        ["an unread kill switch is unknown", 'return kill.state === "unknown" ? unknown("kill") :', "return false ? unknown(\"kill\") :"],
+        ["the links the kill switch passes leak", 'if (passed !== undefined) return verdict("leak", passed);', ""],
+        ["the provider is asked only with lookups in the tunnel", 'if (dns === "tunnel" || dns === "blocked") return', "if (true) return"],
+        ["a step rules out a table only for its reasons", "KILL_RULED_OUT.indexOf(step.reason) !== -1", "true"],
+        ["an absent step rules out a table", 'return word === "absent" || (', "return ("],
+        ["a missing status command is no table only while not set up", "return !ready && !started ? null : status;", "return !started ? null : status;"],
+        ["a list that outdates a result drops it", 'return row === undefined || (row.state === "activated") !== check.active;', "return false;"],
+        ["a change in flight holds its own profile", "if (isPlain(action) && action.uuid === check.uuid) return false;", ""],
+        ["the kill switch line hides while off", 'killShown: result.kill.state !== "off"', "killShown: true"],
+        ["the count rises only above the last check's", "rising: previous !== \"\" && countAbove(status.blocked, previous)", "rising: previous !== \"\""],
+        ["the answer's address is IPv4", "!IPV4.test(answer.ip)", "false"],
+        ["the answer's country is short text", 'if (country === null || country === "" || city === null)', "if (false)"],
+        ["the question goes through the tunnel", '"--interface", "if!" + link,', '"--interface", link,'],
+        ["no route out is no leak", 'if (code === 2 && NO_ROUTE.test(', 'if (false && NO_ROUTE.test(']
+    ]) {
+        const source = fs.readFileSync(file, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, name);
+        const mutant = path.join(scratch, "VpnLogic.js");
+        fs.writeFileSync(mutant, source.replace(needle, replacement));
+        assert.throws(() => leakCheckSuite(load(mutant, commons)), undefined, "control: " + name);
+        console.log("vpn-logic: control=" + name + " red");
+    }
+    for (const [name, needle, replacement] of [
+        ["a connect's check starts for WireGuard alone", "if (!Logic.checkReads(profiles.rows.find", "if (false && !Logic.checkReads(profiles.rows.find"],
+        ["the check's status read runs while the step is not set up", "if (!registered || !(killReady || checkWantsStatus)) return;", "if (!registered || !killReady) return;"],
+        ["a step that rules out a table hands none", 'if (Logic.checkKillPlan(killStep) === "none") {', "if (!killReady) {"],
+        ["the check's own read leaves the switch's reading", "            if (root.killReady) {\n                const failed", "            if (true) {\n                const failed"],
+        ["the status read hands the check its reading", "leakCheck.statusRead(Logic.checkKillStatus(root.killReady, next, completion !== null));", "leakCheck.statusRead(next);"]
+    ]) {
+        assert.equal(serviceSource.split(needle).length - 1, 1, name);
+        assert.throws(() => leakCheckSuite(load(file, commons), serviceSource.replace(needle, replacement)), undefined, "control: " + name);
+        console.log("vpn-logic: control=" + name + " red");
+    }
+    for (const [name, needle, replacement] of [
+        ["a dropped check asks the provider nothing", 'run.dropped ? { kind: "failed", reason: "inactive" } : Logic.publicPlan(run.readings)', "Logic.publicPlan(run.readings)"],
+        ["a dropped check ends the question already out", "if (publicReader.running) publicReader.signal(9);", ""]
+    ]) {
+        assert.equal(leakSource.split(needle).length - 1, 1, name);
+        assert.throws(() => leakCheckSuite(load(file, commons), serviceSource, leakSource.replace(needle, replacement)), undefined, "control: " + name);
+        console.log("vpn-logic: control=" + name + " red");
     }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 console.log("vpn-logic: passed");

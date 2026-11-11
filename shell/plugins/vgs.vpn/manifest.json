@@ -109,6 +109,39 @@
       },
       "optional": true,
       "purpose": "Chooses a VPN file to import"
+    },
+    {
+      "command": "ip",
+      "packages": {
+        "pacman": "iproute2",
+        "apt": "iproute2",
+        "dnf": "iproute",
+        "nix": "iproute2"
+      },
+      "optional": true,
+      "purpose": "Finds the network your IPv4 and IPv6 traffic uses, for the leak check"
+    },
+    {
+      "command": "varlinkctl",
+      "packages": {
+        "pacman": "systemd",
+        "apt": "systemd",
+        "dnf": "systemd",
+        "nix": "systemd"
+      },
+      "optional": true,
+      "purpose": "Finds the network your DNS lookups use, for the leak check"
+    },
+    {
+      "command": "curl",
+      "packages": {
+        "pacman": "curl",
+        "apt": "curl",
+        "dnf": "curl",
+        "nix": "curl"
+      },
+      "optional": true,
+      "purpose": "Asks api.nordvpn.com, through the VPN, for the public address it sees"
     }
   ],
   "status": {
@@ -134,6 +167,10 @@
     "killSwitchState": {
       "type": "data",
       "label": "Kill switch state"
+    },
+    "leakCheck": {
+      "type": "data",
+      "label": "Leak check"
     }
   },
   "tui": {
