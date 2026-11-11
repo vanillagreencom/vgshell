@@ -624,16 +624,20 @@ function killStatus(code, text, errors) {
 // answers: a line left from the previous profile, or from a sync still
 // running, never does, and cache-unreadable, which a sync shows between
 // deleting the cache and writing it again, names no profile.
+// device-uncovered is `armed`: the table is in place for UUID, and a
+// rollback for a device the root half cannot judge would drop the block
+// it does hold.
 function armOutcome(status, uuid) {
     if (status === null) return "waiting";
     if (status.state === "unreachable" || status.state === "unreadable") return "failed";
     if (status.profile !== uuid) return "waiting";
     if (status.state === "holding" || status.state === "passing") return "armed";
+    if (status.state === "unavailable" && status.reason === "device-uncovered") return "armed";
     return status.state === "unavailable" ? "unavailable" : "waiting";
 }
 
-// Why the root half cannot use the profile, in a sentence, from its
-// status reason. NAME is the profile's.
+// Why the root half cannot use the profile, or which traffic it cannot
+// judge, in a sentence, from its status reason. NAME is the profile's.
 function unavailableWords(reason, name) {
     switch (reason) {
     case "profile-not-wireguard": return name + " is not a WireGuard profile, and the kill switch works only with WireGuard.";
@@ -643,6 +647,7 @@ function unavailableWords(reason, name) {
     case "interface-invalid": return name + "'s network interface name is not valid.";
     case "profile-unread":
     case "cache-unreadable": return "The kill switch could not read " + name + ".";
+    case "device-uncovered": return "The kill switch cannot check one of the network devices, so traffic can go out through it without the VPN.";
     }
     return "The kill switch cannot use " + name + ".";
 }

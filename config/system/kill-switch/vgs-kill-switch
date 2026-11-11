@@ -3,8 +3,9 @@
 # vpn-kill-switch` installs it as /usr/local/bin/vgs-kill-switch, root's,
 # mode 0755: a copy, so the clear below still works after VGS is removed.
 #
-#   vgs-kill-switch sync     make the nftables table inet vgshell_kill_switch
-#                            match the state file; needs CAP_NET_ADMIN
+#   vgs-kill-switch sync     make the nftables tables inet vgshell_kill_switch
+#                            and netdev vgshell_kill_switch match the state
+#                            file; needs CAP_NET_ADMIN
 #   vgs-kill-switch status   print the one status line
 #   vgs-kill-switch off      turn the VPN off on purpose
 #
@@ -26,12 +27,25 @@
 # connect whose `nmcli connection up` fails is a drop: meant-on stays, and
 # the block holds until VGS's switch or `vgs-kill-switch off` clears it.
 #
-# block refuses every IPv4 and IPv6 packet this host sends, or routes for its
-# containers and virtual machines, out of an interface outside the tunnel;
-# block-lan does the same but passes the local network, DNS excepted. The
-# table hooks inet output and forward alone, so a frame switched at layer 2
-# reaches neither: a macvtap, macvlan or ipvlan guest, or a bridge that
-# enslaves the uplink without br_netfilter, passes. A missing file reads as
+# block refuses every IPv4 and IPv6 packet that would leave this host by a
+# network device outside the tunnel: the host's own, what it routes for its
+# containers and virtual machines, and what a guest switches at layer 2
+# onto a device, as a macvtap, macvlan or ipvlan guest or a bridge that
+# holds the uplink does. block-lan does the same but passes the local
+# network, DNS excepted. The rule is two nftables tables, armed, updated and
+# deleted together in one nft transaction, so "the table" below means both.
+# inet vgshell_kill_switch judges at inet output and forward. netdev
+# vgshell_kill_switch holds one egress chain the kernel hooks on every
+# network device, one made after arm included, and it drops what the inet
+# table refuses. A frame leaving a bridge, veth, tun or wireguard device
+# passes it, since that frame stays on the host until another device's
+# egress hook or a host socket the inet table judges carries it on. Frames
+# that are not IPv4 or IPv6, ARP included, pass, and so does a later
+# fragment of a datagram toward a WireGuard peer's address. Before each arm,
+# sync asks the kernel, with nft --check, whether it can hold the netdev
+# table; a kernel that cannot, as Linux before 6.16, gets the inet table
+# alone, sync prints `vgs-kill-switch: egress=refused` and nft's message on
+# stderr, and status names it. A missing file reads as
 # off. A portal-until more than 300 s ahead reads as 0. sync and the root
 # form of off read and write the file with its owner's credentials, through
 # setpriv, so a link planted in that directory reaches nothing its owner
@@ -52,9 +66,9 @@
 # refuses, a peer list it cannot read or an endpoint that is no IP literal
 # arms with no tunnel and no peers too. Each of these fails closed, and
 # status names the reason. The table is armed or updated in one nft
-# transaction, and the table and its `blocked` counter persist across
+# transaction, and the table and its `blocked` counters persist across
 # updates; a table an older copy declared differently is replaced whole in
-# one transaction, which loses only the counter. sync reads the state file
+# one transaction, which loses only the counters. sync reads the state file
 # again after the change and repeats until that read matches what it
 # applied, up to 10 passes, then refuses state=unsettled.
 #
@@ -73,13 +87,15 @@
 #
 #   state=off|holding|passing|unavailable reason=<word> blocked=<packets> tunnel=<ifname> profile=<uuid>
 #
-# Its keys come in that order, always all five, each once. profile is the
+# Its keys come in that order, always all five, each once. blocked is the
+# sum of the two tables' counters. profile is the
 # NetworkManager uuid the table was armed for, from the profile cache, and
 # is empty when there is no cache: a reader that wrote meant-on=<uuid> waits
 # for its own uuid, so a line left from the previous profile never answers
 # it.
 #
-#   off          no table: reason rule-missing while the profile cache
+#   off          no inet table, whatever is left of the netdev one: reason
+#                rule-missing while the profile cache
 #                exists, so the last sync armed and the rule went since, as
 #                after `nft flush ruleset` or at boot before the first sync;
 #                otherwise disarmed. disarm deletes the cache before the
@@ -92,7 +108,12 @@
 #                interface-invalid, endpoint-hostname, endpoint-invalid,
 #                state-unusable or cache-unreadable; tunnel= is empty, and
 #                profile= too for state-unusable and cache-unreadable.
-#                What every armed table passes still
+#                Or, in place of holding and passing, armed while a network
+#                device lacks the netdev table's egress hook, as when that
+#                table is gone or the kernel refused it at arm: reason
+#                device-uncovered, with tunnel= and
+#                profile= as armed, since that device's frames pass
+#                unjudged. What every armed table passes still
 #                passes: loopback, tailscale0 and Tailscale's marked
 #                packets, DHCP, neighbour discovery and multicast listener
 #                reports, the sign-in window while open, and block-lan's
@@ -146,6 +167,13 @@ cache_file="$cache_dir/profile"
 lock_file=/run/vgs-kill-switch.lock
 status_socket=/run/vgs-kill-switch.sock
 table=vgshell_kill_switch
+# Deletes both tables whether or not each exists: a declaration first makes
+# each delete hold, in one transaction.
+delete_tables="table inet $table {}
+delete table inet $table
+table netdev $table {}
+delete table netdev $table
+"
 # A sign-in page opens DNS, HTTP and HTTPS for at most this many seconds.
 portal_max=300
 # off's wait for the status read, and the least time left a read starts
@@ -481,23 +509,47 @@ read_profile() { # UUID
 
 # ---------------------------------------------------------------- the table
 
-# docs/decisions/D129-vpn-kill-switch.md. Both base chains jump to decide.
-# forward first passes a tunnel's replies to flows this host masqueraded
-# into it, as Docker and libvirt do for their containers and virtual
-# machines: decide passed each such flow's first packet out the tunnel, and
-# its replies, routed on to the guest's bridge, would meet the final
-# refusal. A packet in a flow's original direction, or a reply to a flow no
-# NAT rewrote, still meets decide. decide's two refusals, of DNS and of
-# everything left, answer TCP with a reset and everything else with ICMP
+# docs/decisions/D129-vpn-kill-switch.md. Both inet base chains jump to
+# decide. forward first passes a tunnel's replies to flows this host
+# masqueraded into it, as Docker and libvirt do for their containers and
+# virtual machines: decide passed each such flow's first packet out the
+# tunnel, and its replies, routed on to the guest's bridge, would meet the
+# final refusal. A packet in a flow's original direction, or a reply to a
+# flow no NAT rewrote, still meets decide. decide's two refusals, of DNS and
+# of everything left, answer TCP with a reset and everything else with ICMP
 # admin-prohibited: a TCP connect the ICMP form refused failed only after
 # about 1 s (1.01 to 1.06 s for each refused TCP probe of
 # scripts/test-vpn-kill-switch.sh at bc210fdab), and a reset ends it at
-# once. The declarations add only what is missing, so the table and the
-# counter persist; the flushes and adds then replace every rule and element
-# in the same transaction.
+# once.
+#
+# The netdev table's egress chain repeats decide's passes from sets filled
+# with the same elements, and drops: a netdev chain refuses both reject and
+# conntrack ("Protocol error", nft 1.1.7, Linux 7.3.3), so the forward pass
+# and the resets stay in the inet table. The inet family has no egress
+# hook. `devices = { "*" }` hooks every device, one made after arm included
+# (`nft list hooks netdev` lists it). It passes devices by kind, never by
+# name, since a name is anyone's to give: a bridge's frames reach its
+# ports' own hooks, a veth's its peer on this host, and a tun's or
+# wireguard's a program or the kernel, which sends through a socket the
+# inet table judges. That also keeps the forward pass's replies, which
+# leave by a guest's bridge or veth, working. The Tailscale mark passes only
+# from a socket in this network namespace: a macvlan or ipvlan guest's
+# packet keeps the mark it set, and `meta skuid` matches no socket of
+# another namespace (each measured under `unshare -rnm`, 2026-11-11).
+#
+# The egress chain sees packets after IP fragmentation, where the inet
+# hooks saw the whole datagram. Kernel WireGuard sends its outer packets
+# with DF clear, so an uplink whose MTU is below their size splits them,
+# and a later fragment carries no UDP header to match a peer's port: a
+# later fragment passes toward a peer's address alone. The DHCP and sign-in
+# passes match only a datagram's first fragment.
+#
+# The declarations add only what is missing, so the tables and counters
+# persist; the flushes and adds then replace every rule and element in the
+# same transaction.
 arm() {
-  local text set elements=() now remaining
-  text="table inet $table {
+  local inet_text netdev_text text set now elements=()
+  inet_text="table inet $table {
 	counter blocked {}
 	set tunnel_links { type ifname; }
 	set peers4 { type ipv4_addr . inet_service; }
@@ -510,9 +562,9 @@ arm() {
 	chain forward { type filter hook forward priority filter; policy accept; }
 }
 "
-  for set in output forward decide; do text+="flush chain inet $table $set"$'\n'; done
-  for set in tunnel_links peers4 peers6 lan4 lan6 portal; do text+="flush set inet $table $set"$'\n'; done
-  text+="add rule inet $table decide oifname \"lo\" accept
+  for set in output forward decide; do inet_text+="flush chain inet $table $set"$'\n'; done
+  for set in tunnel_links peers4 peers6 lan4 lan6 portal; do inet_text+="flush set inet $table $set"$'\n'; done
+  inet_text+="add rule inet $table decide oifname \"lo\" accept
 add rule inet $table decide oifname @tunnel_links accept
 add rule inet $table decide meta mark & 0xff0000 == 0x80000 accept
 add rule inet $table decide ip daddr . udp dport @peers4 accept
@@ -534,25 +586,86 @@ add rule inet $table forward jump decide
   # tailscaled's interface; its own packets on the Wi-Fi carry the mark.
   elements=('"tailscale0"')
   [[ -z $tunnel ]] || elements+=("\"$tunnel\"")
-  text+="add element inet $table tunnel_links { $(join_elements "${elements[@]}") }"$'\n'
-  ((${#peers4[@]} == 0)) || text+="add element inet $table peers4 { $(join_elements "${peers4[@]}") }"$'\n'
-  ((${#peers6[@]} == 0)) || text+="add element inet $table peers6 { $(join_elements "${peers6[@]}") }"$'\n'
-  if [[ $kill_switch == block-lan ]]; then
-    text+="add element inet $table lan4 { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4, 255.255.255.255 }"$'\n'
-    text+="add element inet $table lan6 { fe80::/10, fc00::/7, ff00::/8 }"$'\n'
-  fi
+  inet_text+="add element inet $table tunnel_links { $(join_elements "${elements[@]}") }"$'\n'
   printf -v now '%(%s)T' -1
-  # A time further ahead than one sign-in window is none VGS writes; it opens
-  # nothing, so no resync opens a fresh window for it.
-  if ((10#$portal_until > now && 10#$portal_until - now <= portal_max)); then
-    remaining=$((10#$portal_until - now))
-    text+="add element inet $table portal { 53 timeout ${remaining}s, 80 timeout ${remaining}s, 443 timeout ${remaining}s }"$'\n'
+  inet_text+="$(set_elements inet "$now")"$'\n'
+  netdev_text="table netdev $table {
+	counter blocked {}
+	set peers4 { type ipv4_addr . inet_service; }
+	set peers6 { type ipv6_addr . inet_service; }
+	set peer_addrs4 { type ipv4_addr; }
+	set peer_addrs6 { type ipv6_addr; }
+	set lan4 { type ipv4_addr; flags interval; }
+	set lan6 { type ipv6_addr; flags interval; }
+	set portal { type inet_service; flags timeout; }
+	chain egress { type filter hook egress devices = { \"*\" } priority filter; policy accept; }
+}
+flush chain netdev $table egress
+"
+  for set in peers4 peers6 peer_addrs4 peer_addrs6 lan4 lan6 portal; do netdev_text+="flush set netdev $table $set"$'\n'; done
+  netdev_text+="add rule netdev $table egress meta protocol != { ip, ip6 } accept
+add rule netdev $table egress meta oiftype loopback accept
+add rule netdev $table egress meta oifkind { \"bridge\", \"veth\", \"tun\", \"wireguard\" } accept
+add rule netdev $table egress meta mark & 0xff0000 == 0x80000 meta skuid >= 0 accept
+add rule netdev $table egress ip daddr . udp dport @peers4 accept
+add rule netdev $table egress ip6 daddr . udp dport @peers6 accept
+add rule netdev $table egress ip frag-off & 0x1fff != 0 ip daddr @peer_addrs4 accept
+add rule netdev $table egress frag frag-off != 0 ip6 daddr @peer_addrs6 accept
+add rule netdev $table egress udp sport 68 udp dport 67 accept
+add rule netdev $table egress udp sport 546 udp dport 547 accept
+add rule netdev $table egress icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert, mld-listener-report, mld2-listener-report } accept
+add rule netdev $table egress meta l4proto { tcp, udp } th dport @portal accept
+add rule netdev $table egress meta l4proto { tcp, udp } th dport { 53, 853 } counter name blocked drop
+add rule netdev $table egress ip daddr @lan4 accept
+add rule netdev $table egress ip6 daddr @lan6 accept
+add rule netdev $table egress counter name blocked drop
+"
+  netdev_text+="$(set_elements netdev "$now")"$'\n'
+  # A kernel that cannot hold the wildcard egress hook refuses the check:
+  # Linux before 6.16 looks each hook device up by name and refuses "*"
+  # with ENOENT (nft_netdev_hook_alloc, net/netfilter/nf_tables_api.c at
+  # v6.12). nft -c sends the transaction to the kernel, which refuses it
+  # as it would the arm and then discards it: a netdev table another process
+  # owns fails the check with EPERM (measured, Linux 7.3.3, nft 1.1.7). The
+  # check replaces the table, so a table already armed never decides it.
+  # The inet table then arms alone, and status reads device-uncovered.
+  if nft_check "table netdev $table {}
+delete table netdev $table
+$netdev_text"; then
+    text="$inet_text$netdev_text"
+  else
+    printf 'vgs-kill-switch: egress=refused\n%s\n' "$nft_error" >&2
+    text="$inet_text"
   fi
   nft_apply "$text" && return
   # nft refuses to declare an existing object again in another shape
   # ("existing set lacks interval flag"), as a table an older copy armed may
-  # have; one transaction replaces it whole, closed throughout.
-  nft_apply "table inet $table {}"$'\n'"delete table inet $table"$'\n'"$text" || refuse "nft=failed verb=arm" "$nft_error"
+  # have; one transaction replaces it whole, closed throughout. A refusal
+  # here is the arm's: no transaction with fewer tables follows it.
+  nft_apply "$delete_tables$text" || refuse "nft=failed verb=arm" "$nft_error"
+}
+# Prints the add element lines that fill FAMILY's sets from the peers, the
+# kill-switch mode and the sign-in window as of NOW, in unix seconds.
+set_elements() { # inet|netdev NOW
+  local now="$2" remaining peer host port addrs4=() addrs6=()
+  ((${#peers4[@]} == 0)) || printf 'add element %s %s peers4 { %s }\n' "$1" "$table" "$(join_elements "${peers4[@]}")"
+  ((${#peers6[@]} == 0)) || printf 'add element %s %s peers6 { %s }\n' "$1" "$table" "$(join_elements "${peers6[@]}")"
+  if [[ $1 == netdev ]]; then
+    for peer in "${peers4[@]}"; do split_peer "$peer" && addrs4+=("$host"); done
+    for peer in "${peers6[@]}"; do split_peer "$peer" && addrs6+=("$host"); done
+    ((${#addrs4[@]} == 0)) || printf 'add element netdev %s peer_addrs4 { %s }\n' "$table" "$(join_elements "${addrs4[@]}")"
+    ((${#addrs6[@]} == 0)) || printf 'add element netdev %s peer_addrs6 { %s }\n' "$table" "$(join_elements "${addrs6[@]}")"
+  fi
+  if [[ $kill_switch == block-lan ]]; then
+    printf 'add element %s %s lan4 { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4, 255.255.255.255 }\n' "$1" "$table"
+    printf 'add element %s %s lan6 { fe80::/10, fc00::/7, ff00::/8 }\n' "$1" "$table"
+  fi
+  # A time further ahead than one sign-in window is none VGS writes; it
+  # opens nothing, so no resync opens a fresh window for it.
+  if ((10#$portal_until > now && 10#$portal_until - now <= portal_max)); then
+    remaining=$((10#$portal_until - now))
+    printf 'add element %s %s portal { 53 timeout %ss, 80 timeout %ss, 443 timeout %ss }\n' "$1" "$table" "$remaining" "$remaining" "$remaining"
+  fi
 }
 join_elements() { local IFS=,; printf '%s' "$*"; } # ELEMENT...
 
@@ -560,6 +673,11 @@ join_elements() { local IFS=,; printf '%s' "$*"; } # ELEMENT...
 # message, which a refusal prints after its keyed line.
 nft_apply() { # TEXT
   nft_error="$(nft -f - <<<"$1" 2>&1 >/dev/null)"
+}
+# Like nft_apply, but the kernel discards the transaction once it has
+# judged it.
+nft_check() { # TEXT
+  nft_error="$(nft -c -f - <<<"$1" 2>&1 >/dev/null)"
 }
 
 # Arms, and caches the reading for UUID once nft holds it: status reads the
@@ -579,13 +697,12 @@ arm_and_cache() { # UUID
 # rule-missing, so the cache goes first. A cache it cannot remove still
 # lets the table go. Returns 1 with disarm_error set to the refusal's keyed
 # line and disarm_note to its English when the table or the cache stays,
-# so each caller decides whether that ends the verb. Declaring the table
-# first makes the delete hold whether or not it exists, in one transaction.
+# so each caller decides whether that ends the verb.
 disarm() {
   local cache_kept=""
   disarm_error="" disarm_note=""
   rm -f -- "$cache_file" || cache_kept=1
-  if ! nft_apply "table inet $table {}"$'\n'"delete table inet $table"; then
+  if ! nft_apply "$delete_tables"; then
     disarm_error="nft=failed verb=disarm" disarm_note="$nft_error"
   elif [[ -n $cache_kept ]]; then
     disarm_error="cache=remove-failed path=$cache_file"
@@ -596,11 +713,48 @@ disarm() {
 
 # ---------------------------------------------------------------- status
 
-# Whether nft lists the table; refuses when it cannot list the tables.
-table_listed() {
+# Sets inet_listed and egress_listed to 1 for each of the two tables nft
+# lists, else empty; refuses when it cannot list the tables.
+tables_listed() {
   local tables
-  tables="$(nft list tables inet)" || refuse "nft=failed verb=status"
-  [[ $'\n'"$tables"$'\n' == *$'\n'"table inet $table"$'\n'* ]]
+  tables="$(nft list tables)" || refuse "nft=failed verb=status"
+  inet_listed="" egress_listed=""
+  [[ $'\n'"$tables"$'\n' != *$'\n'"table inet $table"$'\n'* ]] || inet_listed=1
+  [[ $'\n'"$tables"$'\n' != *$'\n'"table netdev $table"$'\n'* ]] || egress_listed=1
+}
+
+# Adds FAMILY's blocked count to packets. A sync's disarm can delete the
+# table between the listing and this read, as when the user's off waits on
+# status while the path unit's sync runs: a table no longer listed returns
+# 1, and nft's message prints only after a refusal.
+add_counter() { # inet|netdev
+  local counter
+  if ! counter="$(nft list counter "$1" "$table" blocked 2>&1)"; then
+    tables_listed
+    if [[ $1 == inet ]]; then [[ -n $inet_listed ]] || return 1; else [[ -n $egress_listed ]] || return 1; fi
+    refuse "nft=failed verb=status" "$counter"
+  fi
+  [[ $counter =~ packets\ ($digit{1,20})\ bytes ]] || refuse "counter=unreadable"
+  packets=$((packets + 10#${BASH_REMATCH[1]}))
+}
+
+# Sets hooked to the space-bounded names of the devices that hold the
+# netdev table's egress chain. nft 1.1.7 lists each device with a hook as
+# `hook egress device <name> {`, then each chain on it as `<priority> chain
+# netdev <table> <chain> [nf_tables]`, and lists no device without one
+# (measured on Linux 7.3.3).
+egress_hooked() {
+  local hooks line device=""
+  hooks="$(nft list hooks netdev)" || refuse "nft=failed verb=status"
+  hooked=" "
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*hook\ ([^ ]+)\ device\ ([^ ]+)\ \{$ ]]; then
+      device=""
+      [[ ${BASH_REMATCH[1]} != egress ]] || device="${BASH_REMATCH[2]}"
+    elif [[ -n $device && $line == *" chain netdev $table egress "* ]]; then
+      hooked+="$device "
+    fi
+  done <<<"$hooks"
 }
 
 # Sets watcher_why to watcher-failed while vgs-kill-switch.path has failed,
@@ -628,39 +782,34 @@ absent_status() {
 }
 
 # Prints the status line from the kernel, the cache, the links and the
-# watcher.
+# watcher. The inet table alone decides whether the rule is armed; a netdev
+# table left without it only drops more.
 kernel_status() {
-  local counter packets links line name state why found=""
-  if ! table_listed; then
+  local packets=0 links line name state why found="" uncovered=""
+  tables_listed
+  if [[ -z $inet_listed ]] || ! add_counter inet; then
     absent_status
     return
   fi
-  # A sync's disarm can delete the table between the listing and this read,
-  # as when the user's off waits on status while the path unit's sync runs:
-  # a table no longer listed reads off, and nft's message prints only after
-  # a refusal.
-  if ! counter="$(nft list counter inet "$table" blocked 2>&1)"; then
-    if ! table_listed; then
-      absent_status
-      return
-    fi
-    refuse "nft=failed verb=status" "$counter"
-  fi
-  [[ $counter =~ packets\ ($digit{1,20})\ bytes ]] || refuse "counter=unreadable"
-  packets="${BASH_REMATCH[1]}"
+  [[ -z $egress_listed ]] || add_counter netdev || true
   if ! read_cache; then state=unavailable why=cache-unreadable
   elif [[ -n $reason ]]; then state=unavailable why="$reason"
   elif [[ -z $tunnel ]]; then state=unavailable why=profile-unread
   else
+    # The links are read before the hooks, so a device made between the two
+    # reads has its hook by the second.
     links="$(ip -o link show)" || refuse "ip=failed verb=status"
+    egress_hooked
     while IFS= read -r line; do
       [[ $line =~ ^$digit+:\ ([^:@ ]+)(@[^:]*)?: ]] || continue
       name="${BASH_REMATCH[1]}"
       [[ $name != "$tunnel" ]] || found=1
+      [[ $hooked == *" $name "* ]] || uncovered=1
     done <<<"$links"
     if [[ -n $found ]]; then state=passing why=tunnel-up; else state=holding why=tunnel-down; fi
     watcher_reason
     why="${watcher_why:-$why}"
+    [[ -z $uncovered ]] || state=unavailable why=device-uncovered
   fi
   printf 'state=%s reason=%s blocked=%s tunnel=%s profile=%s\n' "$state" "$why" "$packets" "$tunnel" "$cache_uuid"
 }

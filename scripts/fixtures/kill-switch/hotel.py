@@ -51,12 +51,18 @@ KINDS = [
     ("peer4", "udp", "203.0.113.51", 51820),
     ("peer6", "udp", "2001:db8:ff::51", 51820),
     ("dhcp4", "udp", None, 67),
+    ("dhcp4-packet", "udp", "255.255.255.255", 67),
+    ("relay", "udp", "203.0.113.10", 4789),
     ("dhcp6", "udp", None, 547),
+    ("peer4-frag", "frag", "203.0.113.51", None),
+    ("peer6-frag", "frag", "2001:db8:ff::51", None),
 ]
 
 
 def frame_key(frame):
-    """(protocol, destination, port or echo type) for a frame, or None."""
+    """(protocol, destination, port or echo type) for a frame, or None. A
+    later fragment carries no transport header: it is ("frag", destination,
+    None). A first fragment is read as its datagram."""
     if len(frame) < 14:
         return None
     ethertype = struct.unpack("!H", frame[12:14])[0]
@@ -65,6 +71,8 @@ def frame_key(frame):
         header = (payload[0] & 0x0F) * 4
         proto = payload[9]
         dest = str(ipaddress.IPv4Address(payload[16:20]))
+        if struct.unpack("!H", payload[6:8])[0] & 0x1FFF:
+            return ("frag", dest, None)
         body = payload[header:]
         if proto == 1 and body:
             return ("icmp", dest, body[0])
@@ -72,6 +80,12 @@ def frame_key(frame):
         proto = payload[6]
         dest = str(ipaddress.IPv6Address(payload[24:40]))
         body = payload[40:]
+        # The fragment header (RFC 8200 4.5): next header, reserved, then
+        # the offset in its top 13 bits.
+        if proto == 44 and len(body) >= 8:
+            if struct.unpack("!H", body[2:4])[0] >> 3:
+                return ("frag", dest, None)
+            proto, body = body[0], body[8:]
         if proto == 58 and body:
             return ("icmp6", dest, body[0])
     else:

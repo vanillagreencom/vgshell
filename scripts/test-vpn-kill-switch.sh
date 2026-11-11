@@ -17,16 +17,25 @@
 # /usr/local/sbin, a stand-in nmcli answers the fixture profiles, a stand-in
 # systemctl answers whether NetworkManager runs and what state
 # vgs-kill-switch.path is in, a stand-in setpriv records its argv, and an
-# nft wrapper fails on demand or disarms before a counter read. The
+# nft wrapper fails on demand, refuses the egress table's check or its arm
+# on demand, or disarms before a counter read. The
 # must-fail controls run copies of the script missing one rule each.
 # `ip netns add hotel` makes
-# the hotel, joined to the laptop's wlan0 by a veth pair. The hotel holds
+# the hotel, joined to the laptop's wlan0 by a netkit pair in layer-2 mode:
+# a veth would be passed by kind at egress, where a netkit device, like a
+# network card, is judged. The hotel holds
 # the gateway and DNS server 192.168.50.1, the internet hosts 203.0.113.10
 # and 2001:db8:ff::10, and the capture of every frame wlan0 sends
 # (scripts/fixtures/kill-switch/hotel.py). A second veth pair stands in for
 # tailscale0, with 100.100.100.100 on its far end. A third namespace, the
 # box, is a container on the laptop's bridge lbox, masqueraded as Docker
-# masquerades its containers. The status socket is served by
+# masquerades its containers. Guests that reach wlan0 at layer 2, each in a
+# namespace of its own, send through a macvlan, a macvtap and an ipvlan on
+# wlan0, and through a bridge that holds wlan0. A macvtap guest sends
+# through the device's own network side: its tap file, which a virtual
+# machine opens, belongs to an id the namespace does not map. A relay
+# behind a tun device resends what reaches it through a UDP socket, as a
+# userspace VPN does. The status socket is served by
 # systemd-socket-activate, as vgs-kill-switch-status.socket serves it, and
 # read by a process with every capability dropped.
 #
@@ -34,7 +43,9 @@
 # TCP connects to ports 80 and 443, an IPv6 ping and TCP connect, dig over
 # UDP and TCP to the hotel's resolver, a ping to the hotel's gateway, a ping
 # and TCP connect over tailscale0, a loopback ping, UDP to each WireGuard
-# peer, and a DHCPv4 and a DHCPv6 client datagram to the gateway. Every
+# peer, a DHCPv4 and a DHCPv6 client datagram to the gateway, and a DHCPv4
+# broadcast sent through a packet socket, as a client with no address sends
+# it, which no inet hook sees. Every
 # other round sends only the probes its table checks. Each round ends with a
 # ping marked as Tailscale marks its packets; the capture holding it proves
 # every earlier frame was read.
@@ -180,16 +191,27 @@ for a; do [ "\$a" = --clear-groups ] && a=--keep-groups; args="\$args '\$a'"; do
 eval "set -- \$args"
 exec $real_setpriv "\$@"
 EOF
-# nft refuses every transaction while $tmp/nft-fail exists. Once after
-# $tmp/nft-disarm-between is created, a counter read first deletes the
-# cache and then the table, as a sync's disarm can between status's
-# listing and that read. Otherwise it is the real nft.
+# nft refuses every transaction while $tmp/nft-fail exists. While
+# $tmp/nft-check-refused exists it refuses every check, as a kernel that
+# cannot hold the wildcard egress hook refuses the egress table's; while
+# $tmp/nft-egress-fail exists it refuses every transaction that declares
+# that hook, its check excepted. Once after $tmp/nft-disarm-between is
+# created, a counter read first deletes the cache and then the table, as a
+# sync's disarm can between status's listing and that read. Otherwise it is
+# the real nft.
 cat >/usr/local/sbin/nft <<EOF
 #!/bin/sh
 [ "\$1" = -f ] && [ -e "$tmp/nft-fail" ] && { echo "nft: planted failure" >&2; exit 1; }
+[ "\$1" = -c ] && [ -e "$tmp/nft-check-refused" ] && { echo "nft: planted check refusal" >&2; exit 1; }
+if [ "\$1" = -f ] && [ -e "$tmp/nft-egress-fail" ]; then
+  input="\$(cat)"
+  case "\$input" in *"hook egress"*) echo "nft: planted egress failure" >&2; exit 1 ;; esac
+  printf '%s\n' "\$input" | $real_nft "\$@"
+  exit
+fi
 if [ "\$1 \$2" = "list counter" ] && rm -- "$tmp/nft-disarm-between" 2>/dev/null; then
   rm -f -- $cache || exit 1
-  $real_nft delete table inet vgshell_kill_switch || exit 1
+  printf 'delete table inet vgshell_kill_switch\ndelete table netdev vgshell_kill_switch\n' | $real_nft -f - || exit 1
 fi
 exec $real_nft "\$@"
 EOF
@@ -205,9 +227,11 @@ profile() { # UUID TYPE IFNAME PEERS
 # discovery, which the armed rule must pass.
 ip link set lo up
 ip netns add hotel
-ip link add wlan0 type veth peer name hotel0 netns hotel
+ip link add wlan0 type netkit mode l2 peer name hotel0 || not_measured netkit-link
+ip link set hotel0 netns hotel
 ip link add tailscale0 type veth peer name tspeer netns hotel
 ip link add wgnord type wireguard || not_measured wireguard-link
+{ ip link add l2probe link wlan0 type macvtap && ip link del l2probe; } || not_measured macvtap-link
 ip addr add 192.168.50.2/24 dev wlan0
 ip -6 addr add 2001:db8:50::2/64 dev wlan0 nodad
 ip link set wlan0 up
@@ -320,8 +344,10 @@ status_is() { # "state=… reason=…" tunnel=… [profile=…]
   [[ $line =~ ^(state=[^\ ]+\ reason=[^\ ]+)\ blocked=[0123456789]+\ (tunnel=[^\ ]*)\ (profile=[^\ ]*)$ ]] || return 1
   [[ ${BASH_REMATCH[1]} == "$1" && ${BASH_REMATCH[2]} == "$2" && (-z ${3-} || ${BASH_REMATCH[3]} == "$3") ]]
 }
-table_armed() { local out; out="$(nft list tables inet)" && [[ $out == *"table inet vgshell_kill_switch"* ]]; }
-table_absent() { local out; out="$(nft list tables inet)" && [[ $out != *vgshell_kill_switch* ]]; }
+table_listed() { local out; out="$(nft list tables)" && [[ $'\n'$out$'\n' == *$'\n'"table $1 vgshell_kill_switch"$'\n'* ]]; } # FAMILY
+table_armed() { table_listed inet && table_listed netdev; }
+table_absent() { local out; out="$(nft list tables)" && [[ $out != *vgshell_kill_switch* ]]; }
+delete_tables() { nft -f - <<<$'table inet vgshell_kill_switch {}\ndelete table inet vgshell_kill_switch\ntable netdev vgshell_kill_switch {}\ndelete table netdev vgshell_kill_switch'; }
 fails() { ! "$@" >/dev/null 2>&1; } # COMMAND...
 succeeds() { "$@" >/dev/null 2>&1; } # COMMAND...
 lacks() { local out; out="$(<"$2")" && [[ $out != *"$1"* ]]; } # TEXT FILE: FILE reads, and holds no TEXT
@@ -379,6 +405,16 @@ console.log(`kill=${k.state} rising=${k.rising} blocked=${k.blocked} previous=${
 JS
 leak_check() { "$NODE_BIN" "$tmp/leak-check.js" "$repo" "$uuid" "$1" "$2" "$3" 2>>"$tmp/leak-check.err" || echo "judge=failed"; } # STATUS_LINE BEFORE OUT
 
+# A DHCPv4 discover's shape, from 0.0.0.0 port 68 to 255.255.255.255 port
+# 67, written through a packet socket on the link the first argument names.
+dhcp4_packet='import socket, struct, sys
+udp = struct.pack("!HHHH", 68, 67, 12, 0) + b"dhcp"
+ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0, bytes(4), bytes([255] * 4))
+total = sum(struct.unpack("!10H", ip))
+total = (total >> 16) + (total & 0xFFFF)
+ip = ip[:10] + struct.pack("!H", ~(total + (total >> 16)) & 0xFFFF) + ip[12:]
+s = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0800))
+s.sendto(ip + udp, (sys.argv[1], 0x0800, 0, 0, bytes([255] * 6)))'
 # probe_round NAME [DNS_SECONDS [PROBE...]]: runs the PROBEs, every probe
 # from the list in the header when none is named, then the marked barrier;
 # writes `<probe>=pass|fail` lines to $tmp/NAME.results and the capture's
@@ -411,6 +447,7 @@ probe_round() { # NAME [DNS_SECONDS [PROBE...]]
   probe peer6 bash -c 'printf x >/dev/udp/2001:db8:ff::51/51820'
   probe dhcp4 python3 -I -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("0.0.0.0", 68)); s.sendto(b"x", ("192.168.50.1", 67))'
   probe dhcp6 python3 -I -c 'import socket; s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM); s.bind(("::", 546)); s.sendto(b"x", ("2001:db8:50::1", 547))'
+  probe dhcp4-packet python3 -I -c "$dhcp4_packet" wlan0
   probe marked ping -n -c1 -W1 -m 524288 203.0.113.20
   await marked_seen "$start" || echo "barrier=missing" >>"$results"
   python3 -I "$hotel_py" count "$frames" "$start" >"$tmp/$name.frames"
@@ -480,6 +517,7 @@ peer4 pass some
 peer6 pass some
 dhcp4 pass some
 dhcp6 pass some
+dhcp4-packet pass some
 marked pass some"
 read_status
 check "the blocked count rose with the refused probes" test "$blocked" -gt "$blocked_before"
@@ -518,11 +556,184 @@ run_sync
 read_status
 check "a sync while armed keeps the blocked count" test "$blocked" -ge "$blocked_armed"
 
+# Guests on the uplink at layer 2 meet no inet hook of the laptop: the
+# egress chain on wlan0 judges their frames.
+guest() { # NS ADDRESS LINK: moves LINK into the new namespace NS, addressed, routed through the hotel's gateway
+  ip netns add "$1"
+  ip link set "$3" netns "$1"
+  ip netns exec "$1" sh -e -c "
+    ip link set lo up
+    ip addr add $2/24 dev $3
+    ip link set $3 up
+    ip route add default via 192.168.50.1
+    ip neigh replace 192.168.50.1 lladdr $hotel_mac dev $3 nud permanent
+  "
+}
+# Prints how many pings to the hotel's internet host the capture holds
+# after NS sends one with PING_OPTIONs, or `barrier-missing`.
+guest_frames() { # NS [PING_OPTION...]
+  local start=$(($(wc -l <"$frames") + 1)) counts
+  ip netns exec "$1" ping -n -c1 -W1 "${@:2}" 203.0.113.10 >/dev/null 2>&1 || true
+  ping -n -c1 -W1 -m 524288 203.0.113.20 >/dev/null 2>&1 || true
+  await marked_seen "$start" || { echo barrier-missing; return; }
+  counts="$(python3 -I "$hotel_py" count "$frames" "$start")" || { echo count-failed; return; }
+  sed -n 's/^ping4=//p' <<<"$counts"
+}
+egress_drops() { local out; out="$(nft list counter netdev vgshell_kill_switch blocked)" && [[ $out =~ packets\ ([0123456789]+) ]] && echo "${BASH_REMATCH[1]}"; }
+# Whether NS's ping met the egress hook and was dropped there: the egress
+# count rose, so the frame reached it, and the capture holds none.
+guest_held() { # NS [PING_OPTION...]
+  local before after got
+  before="$(egress_drops)" || return 1
+  got="$(guest_frames "$@")" || got=send-failed
+  after="$(egress_drops)" || return 1
+  [[ $got == 0 ]] && ((after > before)) && return
+  printf '        frames=%s egress drops %s to %s\n' "$got" "$before" "$after"
+  return 1
+}
+ip link add l2mv link wlan0 type macvlan mode bridge
+guest l2macvlan 192.168.50.11 l2mv
+# The controls run first: each arms from no table, as a copy's declarations
+# never reshape a chain the shipped script hooked.
+mutant egress-less 'chain egress { type filter hook egress devices = { \"*\" } priority filter; policy accept; }' 'chain egress {}'
+delete_tables
+"$mutant" sync >/dev/null 2>&1 || true
+check "the egress-less control arms both tables" table_armed
+check "the egress-less control's macvlan guest reaches the hotel" test "$(guest_frames l2macvlan)" -gt 0
+check "with no device holding the egress hook the status reads device-uncovered" status_is "state=unavailable reason=device-uncovered" "tunnel=wgnord" "profile=$uuid"
+mutant device-blind '    [[ -z $uncovered ]] || state=unavailable why=device-uncovered' '    true'
+check "the device-blind control reads an uncovered device as holding" test "$("$mutant" status 2>&1 | cut -d' ' -f1-2)" == "state=holding reason=tunnel-down"
+mutant mark-unscoped ' meta mark & 0xff0000 == 0x80000 meta skuid >= 0 accept' ' meta mark & 0xff0000 == 0x80000 accept'
+delete_tables
+"$mutant" sync >/dev/null 2>&1 || true
+check "the mark-unscoped control passes a macvlan guest's marked packet" test "$(guest_frames l2macvlan -m 524288)" -gt 0
+run_sync
+check "arm again after the layer-2 controls" synced armed
+check "with every device hooked the status reads holding" status_is "state=holding reason=tunnel-down" "tunnel=wgnord" "profile=$uuid"
+blocked_l2="$blocked"
+check "a macvlan guest on the uplink is dropped at its egress hook" guest_held l2macvlan
+check "a macvlan guest's packet with Tailscale's mark is dropped too" guest_held l2macvlan -m 524288
+ip -n l2macvlan link del l2mv
+ip link add l2mvt link wlan0 type macvtap mode bridge
+guest l2macvtap 192.168.50.12 l2mvt
+check "a macvtap guest on the uplink is dropped at its egress hook" guest_held l2macvtap
+ip -n l2macvtap link del l2mvt
+ip link add l2iv link wlan0 type ipvlan mode l2
+guest l2ipvlan 192.168.50.13 l2iv
+check "an ipvlan guest on the uplink is dropped at its egress hook" guest_held l2ipvlan
+ip -n l2ipvlan link del l2iv
+# What passing a bridge by kind rests on: a guest's frame the bridge
+# forwards out the uplink meets the uplink's own hook.
+ip link add l2br type bridge
+ip link set wlan0 master l2br
+ip link set l2br up
+ip link add l2bv type veth peer name l2bg
+ip link set l2bv master l2br
+ip link set l2bv up
+guest l2bridge 192.168.50.14 l2bg
+check "a guest on a bridge that holds the uplink is dropped at the uplink's egress hook" guest_held l2bridge
+ip link set wlan0 nomaster
+ip link del l2bv
+ip link del l2br
+read_status
+check "the blocked count rose with the layer-2 guests' packets" test "$blocked" -gt "$blocked_l2"
+# A netdev table gone by another hand, as by an `nft delete table`, leaves
+# every device unjudged at egress; the next sync adds it again.
+nft delete table netdev vgshell_kill_switch
+check "with the egress table deleted the status reads device-uncovered" status_is "state=unavailable reason=device-uncovered" "tunnel=wgnord" "profile=$uuid"
+run_sync
+check "the next sync arms the egress table again" table_listed netdev
+
+# Kernel WireGuard sends its outer packets with DF clear, so an uplink whose
+# MTU is below their size splits them, and a later fragment carries no UDP
+# header. peer_fragments sends one such 1450-byte datagram to each peer
+# and prints the capture's peer and later-fragment counts, then the egress
+# drops it added. IP_MTU_DISCOVER is 10 and IPV6_MTU_DISCOVER 23, and 0 is
+# PMTUDISC_DONT for both (linux/in.h, linux/in6.h).
+big_datagrams='import socket
+for family, address, level, option in ((socket.AF_INET, "203.0.113.51", socket.IPPROTO_IP, 10), (socket.AF_INET6, "2001:db8:ff::51", socket.IPPROTO_IPV6, 23)):
+    s = socket.socket(family, socket.SOCK_DGRAM)
+    s.setsockopt(level, option, 0)
+    s.sendto(b"x" * 1450, (address, 51820))'
+peer_fragments() {
+  local start=$(($(wc -l <"$frames") + 1)) before after counts
+  before="$(egress_drops)" || { echo drops-unread; return; }
+  python3 -I -c "$big_datagrams" || { echo send-failed; return; }
+  ping -n -c1 -W1 -m 524288 203.0.113.20 >/dev/null 2>&1 || true
+  await marked_seen "$start" || { echo barrier-missing; return; }
+  after="$(egress_drops)" || { echo drops-unread; return; }
+  counts="$(python3 -I "$hotel_py" count "$frames" "$start")" || { echo count-failed; return; }
+  counts="$(grep -E '^peer(4|6)(-frag)?=' <<<"$counts")" || { echo count-failed; return; }
+  printf '%s drops=%s\n' "${counts//$'\n'/ }" "$((after - before))"
+}
+ip link set wlan0 mtu 1400
+mutant frag-blind 'add rule netdev $table egress ip frag-off & 0x1fff != 0 ip daddr @peer_addrs4 accept
+add rule netdev $table egress frag frag-off != 0 ip6 daddr @peer_addrs6 accept
+' ''
+delete_tables
+"$mutant" sync >/dev/null 2>&1 || true
+check "the frag-blind control drops each datagram's later fragment" test "$(peer_fragments)" == "peer4=1 peer6=1 peer4-frag=0 peer6-frag=0 drops=2"
+run_sync
+check "arm again after the fragment control" synced armed
+check "with the uplink's MTU below a peer datagram every fragment leaves, and none is dropped" test "$(peer_fragments)" == "peer4=1 peer6=1 peer4-frag=1 peer6-frag=1 drops=0"
+ip link set wlan0 mtu 1500
+
+# A tun device's frames pass the egress chain by kind: what the program
+# behind it sends on, as a userspace VPN does, leaves through a socket the
+# inet table judges. The relay stands in for that program: it reads the
+# first IPv4 packet from the tun device NAME and sends it through a UDP
+# socket to HOST port PORT, after creating READY.
+tun_relay='import fcntl, os, socket, struct, sys
+fd = os.open("/dev/net/tun", os.O_RDWR)
+fcntl.ioctl(fd, 0x400454CA, struct.pack("16sH", sys.argv[1].encode(), 0x0001 | 0x1000))
+open(sys.argv[4], "w").close()
+while True:
+    packet = os.read(fd, 65535)
+    if packet[0] >> 4 == 4:
+        break
+socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(packet, (sys.argv[2], int(sys.argv[3])))'
+# Prints how many of the relay's datagrams, the capture's KIND, the capture
+# holds after one ping into the tun device, or why it holds no reading.
+tun_frames() { # HOST PORT KIND
+  local start=$(($(wc -l <"$frames") + 1)) ready="$tmp/relay-ready-$1" pid counts
+  timeout 5 python3 -I -c "$tun_relay" l2tun "$1" "$2" "$ready" 2>/dev/null &
+  pid=$!
+  await test -e "$ready" || { wait "$pid" || true; echo relay-missing; return; }
+  ip addr add 10.99.0.1/24 dev l2tun
+  ip link set l2tun up
+  # Marked as Tailscale marks its packets, so the inet table passes the ping
+  # into the tun device, and only the relay's datagram meets its refusal.
+  ping -n -c1 -W1 -m 524288 10.99.0.2 >/dev/null 2>&1 || true
+  wait "$pid" || true
+  ping -n -c1 -W1 -m 524288 203.0.113.20 >/dev/null 2>&1 || true
+  await marked_seen "$start" || { echo barrier-missing; return; }
+  counts="$(python3 -I "$hotel_py" count "$frames" "$start")" || { echo count-failed; return; }
+  sed -n "s/^$3=//p" <<<"$counts"
+}
+check "a tun device's packet relayed to a WireGuard peer leaves" test "$(tun_frames 203.0.113.51 51820 peer4)" -gt 0
+inet_drops() { local out; out="$(nft list counter inet vgshell_kill_switch blocked)" && [[ $out =~ packets\ ([0123456789]+) ]] && echo "${BASH_REMATCH[1]}"; }
+# Whether the relay's datagram to a host no pass names met the inet
+# table's refusal and left nothing on the uplink.
+tun_refused() {
+  local before after got
+  before="$(inet_drops)" || return 1
+  got="$(tun_frames 203.0.113.10 4789 relay)" || got=send-failed
+  after="$(inet_drops)" || return 1
+  [[ $got == 0 ]] && ((after > before)) && return
+  printf '        frames=%s inet drops %s to %s\n' "$got" "$before" "$after"
+  return 1
+}
+check "a tun device's packet relayed anywhere else is refused by the inet table" tun_refused
+
 # The local-network allowance passes the hotel's own hosts but never its DNS.
 write_state "$uuid" block-lan
 run_sync
 check "block-lan arms" synced armed
+# With no neighbour entry for the gateway, the lan ping resolves it by ARP
+# through the armed rule.
+ip neigh del 192.168.50.1 dev wlan0
 probe_round lan 1 lan-ping dns-udp dns-tcp ping4
+ip neigh replace 192.168.50.1 lladdr "$hotel_mac" dev wlan0 nud permanent
 expect_round lan "
 lan-ping pass some
 dns-udp fail 0
@@ -573,6 +784,7 @@ ping4 pass some
 dns-udp pass some"
 
 # A table an older copy declared another way is replaced whole.
+delete_tables
 nft -f - <<<'table inet vgshell_kill_switch { set lan4 { type ipv4_addr; }; }'
 write_state "$uuid" block-lan 0
 run_sync
@@ -661,7 +873,7 @@ check "with NetworkManager stopped nmcli is never asked" test "$(nmcli_calls)" =
 check "the cached tunnel still passes" status_is "state=passing reason=tunnel-up" "tunnel=wgnord"
 # At boot on a read-only /var, with a pending mark left from a write.
 touch "$pending"
-nft delete table inet vgshell_kill_switch
+delete_tables
 mount --bind -o ro /var/lib/vgshell/vpn /var/lib/vgshell/vpn
 run_sync
 umount /var/lib/vgshell/vpn
@@ -718,6 +930,41 @@ rm -f -- "$tmp/nft-fail"
 check "a failed arm refuses" refused "$tmp/sync.err" "$sync_status" "nft=failed verb=arm"
 check "a failed arm leaves no cache" test ! -e "$cache"
 check "after a failed arm the status names no tunnel and no profile" status_is "state=unavailable reason=cache-unreadable" "tunnel=" "profile="
+
+# A kernel that cannot hold the wildcard egress hook, as Linux before 6.16,
+# refuses the egress table's check; the planted refusal stands in for it.
+# The inet table arms alone, and status says a device is not judged.
+write_state "" block
+run_sync
+touch "$tmp/nft-check-refused"
+write_state "$uuid" block
+run_sync
+check "with the egress check refused sync arms" synced armed
+check "with the egress check refused the inet table is armed" table_listed inet
+check "with the egress check refused no egress table is armed" fails table_listed netdev
+check "with the egress check refused the status reads device-uncovered" status_is "state=unavailable reason=device-uncovered" "tunnel=wgnord" "profile=$uuid"
+check "with the egress check refused the laptop's own traffic is still refused" tcp_refused_at_once 203.0.113.10 80
+mutant check-ignored 'if nft_check "table netdev $table {}' 'if true || nft_check "table netdev $table {}'
+delete_tables
+"$mutant" sync >/dev/null 2>&1 || true
+check "the check-ignored control arms the egress table the check refused" table_listed netdev
+rm -f -- "$tmp/nft-check-refused"
+
+# A two-table arm nft refuses after its check passed is the arm's failure:
+# no transaction with the inet table alone follows it.
+write_state "" block
+run_sync
+touch "$tmp/nft-egress-fail"
+write_state "$uuid" block
+run_sync
+check "a two-table arm refused after its check passed refuses" refused "$tmp/sync.err" "$sync_status" "nft=failed verb=arm"
+check "that refused arm leaves no inet table" fails table_listed inet
+check "with neither table armed the status reads off" status_is "state=off reason=disarmed" "tunnel=" "profile="
+mutant arm-falls-back '  nft_apply "$delete_tables$text" || refuse' '  nft_apply "$delete_tables$text" || nft_apply "$inet_text" || refuse'
+"$mutant" sync >/dev/null 2>&1 || true
+check "the arm-falls-back control arms the inet table alone" table_listed inet
+rm -f -- "$tmp/nft-egress-fail"
+delete_tables
 
 # A write during each pass: sync applies until a read matches what it
 # applied, and refuses a file that never settles.
@@ -812,7 +1059,7 @@ run_sync
 check "a malformed state file is refused" refused "$tmp/sync.err" "$sync_status" "state=malformed path=$state"
 check "the refusal never prints the file" lacks leaked-text "$tmp/sync.err"
 check "the rule stays armed past a malformed file" table_armed
-nft delete table inet vgshell_kill_switch
+delete_tables
 run_sync
 check "a malformed file at boot is refused" refused "$tmp/sync.err" "$sync_status" "state=malformed path=$state"
 check "a malformed file at boot arms from the last armed sync's cache" set_holds tunnel_links '"tailscale0", "wgnord"'
@@ -901,7 +1148,7 @@ mutant arm-refuses-first '  rm -f -- "$cache_file" || cache_error="cache=remove-
 ' '  rm -f -- "$cache_file" || refuse "cache=remove-failed path=$cache_file"
   arm
 '
-nft delete table inet vgshell_kill_switch 2>/dev/null || true
+delete_tables
 "$mutant" sync >/dev/null 2>&1 || true
 check "the arm-refuses-first control's sync leaves no table" table_absent
 umount /var/lib/vgshell/kill-switch

@@ -1778,7 +1778,29 @@ check "undo stops the recovery, disables the units, deletes the table, removes t
   "-- $(p rm) -rf -- $ks_cache" \
   "-- $(p rm) -rf -- $vpn_dir" \
   "-- $(p rm) -f -- $records/vpn-kill-switch")"
-check "undo hands nft the delete that holds whether or not the rule is armed" test "$(cat "$tmp/nft.log")" == "$(printf -- '-f -\ntable inet vgshell_kill_switch {}\ndelete table inet vgshell_kill_switch')"
+check "undo hands nft the delete that holds whether or not the rule is armed" test "$(cat "$tmp/nft.log")" == "$(printf -- '-f -\ntable inet vgshell_kill_switch {}\ndelete table inet vgshell_kill_switch\ntable netdev vgshell_kill_switch {}\ndelete table netdev vgshell_kill_switch')"
+# The transaction undo handed nft, replayed by the real nft in a network
+# namespace of its own that holds both tables armed, leaves neither: a
+# netdev table left behind would drop the host's traffic after undo.
+undo_clears_tables() {
+  local real_nft out
+  real_nft="$(PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin command -v nft)" || { echo "        nft: not installed"; return 1; }
+  tail -n +2 "$tmp/nft.log" >"$tmp/undo.nft" || return 1
+  out="$("$unshare_bin" -r -n "$sh_bin" -c '"$1" -f - <<EOF || exit 2
+table inet vgshell_kill_switch {
+  chain output { type filter hook output priority filter; policy accept; }
+}
+table netdev vgshell_kill_switch {
+  chain egress { type filter hook egress devices = { "*" } priority filter; policy accept; }
+}
+EOF
+"$1" -f "$2" || exit 3
+"$1" list tables' sh "$real_nft" "$tmp/undo.nft" 2>&1)" || { printf '        replay: exit=%s out=[%s]\n' "$?" "$out"; return 1; }
+  [[ $out != *vgshell_kill_switch* ]] && return
+  printf '        tables left: [%s]\n' "$out"
+  return 1
+}
+check "undo's transaction leaves no table of an armed kill switch" undo_clears_tables
 check "undo leaves no kill switch file, directory or record" test ! -e "$ks_script" -a ! -e "$ks_units/vgs-kill-switch.path" -a ! -e "$vpn_dir" -a ! -e "$ks_cache" -a ! -e "$records/vpn-kill-switch"
 check "undo reports the kill switch undone" last_out_is "ok system=vpn-kill-switch state=undone"
 run "undo with no record runs nothing" 0 "" undo vpn-kill-switch

@@ -940,6 +940,8 @@ function killSwitchSuite(logic, service, profiles) {
         ["its own holding", line("holding", "tunnel-down", HOME, "wg0"), "armed"],
         ["its own holding in upper case", line("holding", "tunnel-down", HOME.toUpperCase(), "wg0"), "armed"],
         ["its own refusal", line("unavailable", "endpoint-hostname", HOME), "unavailable"],
+        ["its own table with a device it cannot judge", line("unavailable", "device-uncovered", HOME, "wg0"), "armed"],
+        ["the previous profile's device it cannot judge", line("unavailable", "device-uncovered", OFFICE, "wg1"), "waiting"],
         ["the previous profile's passing", line("passing", "tunnel-up", OFFICE, "wg1"), "waiting"],
         ["the previous profile's refusal", line("unavailable", "profile-missing", OFFICE), "waiting"],
         ["a sync between cache and table", line("unavailable", "cache-unreadable", ""), "waiting"],
@@ -995,7 +997,7 @@ function killSwitchSuite(logic, service, profiles) {
     assert.ok(row(ready, file(OFFICE, "block"), status("unavailable", "profile-not-wireguard", OFFICE)).hint.includes("Office VPN"));
     assert.ok(row(ready, file(HOME, "block"), status("passing")).hint.includes("Home tunnel"));
     assert.ok(row(ready, file(HOME, "block"), status("off", "disarmed", "")).hint.includes("Home tunnel"));
-    const reasons = ["profile-not-wireguard", "profile-missing", "profile-unread", "interface-invalid", "endpoint-hostname", "endpoint-invalid", "cache-unreadable"];
+    const reasons = ["profile-not-wireguard", "profile-missing", "profile-unread", "interface-invalid", "endpoint-hostname", "endpoint-invalid", "cache-unreadable", "device-uncovered"];
     assert.equal(new Set(reasons.map(reason => logic.unavailableWords(reason, "P"))).size, reasons.length - 1, "profile-unread and cache-unreadable share one sentence");
     for (const reason of reasons) assert.notEqual(logic.unavailableWords(reason, "P"), logic.unavailableWords("unknown-reason", "P"), reason);
     assert.equal(row(ready, file(HOME, "block"), logic.killStatus(1, "")).hint,

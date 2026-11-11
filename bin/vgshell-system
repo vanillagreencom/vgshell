@@ -72,7 +72,7 @@
 #                        `cache-dir=1` for each directory it made. Undo runs
 #                        `systemctl stop` of the recover timer and service,
 #                        then `systemctl disable --now` of the three units,
-#                        deletes the nftables table inet vgshell_kill_switch,
+#                        deletes the inet and netdev tables vgshell_kill_switch,
 #                        refusing without nft, removes each file while its
 #                        bytes hash to the record, then each directory it made
 #   bandwhich-capture    grant cap_sys_ptrace, cap_dac_read_search, cap_net_raw
@@ -1904,7 +1904,7 @@ undo_vpn_kill_switch() {
   for unit in "${kill_switch_units[@]}"; do
     [[ ! -e $units_dir/$unit ]] || cmd "$systemctl" disable --now "$unit"
   done
-  cmd_in "table inet vgshell_kill_switch {}"$'\n'"delete table inet vgshell_kill_switch" "$nft" -f -
+  cmd_in "table inet vgshell_kill_switch {}"$'\n'"delete table inet vgshell_kill_switch"$'\n'"table netdev vgshell_kill_switch {}"$'\n'"delete table netdev vgshell_kill_switch" "$nft" -f -
   for entry in "${present[@]}"; do
     IFS='|' read -r key name dest file_mode <<<"$entry"
     cmd "$rm" -f -- "$dest"

@@ -60,7 +60,11 @@ Allow local network keeps printers, shared folders and other devices on your net
 
 Containers and virtual machines on this computer work only with Allow local network on. Without it, the block also refuses the traffic between this computer and its own containers and virtual machines, so a virtual machine on libvirt's default NAT network gets no address and no name lookups.
 
-The kill switch does not cover a virtual machine or container attached at layer 2: on macvtap, macvlan or ipvlan, or on a bridge that holds this computer's network connection. Its traffic leaves outside the VPN while the block holds, and the kill switch status does not show it.
+The block also covers a virtual machine or container attached at layer 2: on macvtap, macvlan or ipvlan, or on a bridge that holds this computer's network connection. The network card refuses its traffic. Traffic that is not IPv4 or IPv6, such as ARP, still passes.
+
+When the kill switch cannot check a network device, the kill switch row says so in red: traffic can go out through that device without the VPN. On Linux before 6.16, the kill switch cannot check network devices, so the row always shows this. There the block covers this computer's own traffic and the traffic it routes for its containers and virtual machines, but not traffic at layer 2.
+
+The kill switch does not cover a network card that a container moves into its own network namespace. While the block holds, it also refuses the replies to containers on netkit devices, as Cilium sets up for Kubernetes pods, when this computer masquerades their traffic.
 
 While the block holds after a drop, the flyout and the VPN section show a red notice at their top, and the profile reads Dropped with its switch on. The notice's Turn VPN off button, or that switch, turns the VPN off on purpose and ends the block. The kill switch row then shows how many times the kill switch refused traffic since it last started.
 
