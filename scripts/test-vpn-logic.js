@@ -2546,7 +2546,7 @@ try {
         ["a disconnect with no run ends the action", "        if (argv === null) {\n            profileAction = null;", "        if (false) {\n            profileAction = null;"],
         ["the service hands the file's profile to the plan", 'Logic.killSwitchOn(killSwitch), killReady ? killSwitch.meantOn : "");', 'Logic.killSwitchOn(killSwitch), "");'],
         ["a profile turned off here ends the pending change", 'if (request.kind === "profile-down" && reply === "ok") autoMemory = Logic.autoConnectOff(autoMemory);', ""],
-        ["each list read decides Connect automatically", "        autoConnect();\n", ""],
+        ["each list read decides Connect automatically", "rows, failures);\n        autoConnect();\n", "rows, failures);\n"],
         ["the read's networks are in place before the list decides", "root.networks = Logic.networkList(code, profilesText.text);", ""],
         ["the switch's answer reaches Connect automatically", "memory = Logic.autoConnectReply(memory, reply, row,", "memory = Logic.autoConnectOff(memory, reply, row,"],
         ["Connect automatically waits on a kill switch write", "stateWrite !== null || killStep === undefined ||", "killStep === undefined ||"],
