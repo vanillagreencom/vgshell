@@ -101,6 +101,9 @@ Item {
     // The uuid of the connect Connect automatically started, until it
     // ends, so a later failure reaches its problem line.
     property string autoAction: ""
+    // The fresh probe of a kill switch step that reads unknown, for the
+    // change waiting on it: "", "running" or "done" (autoConnect).
+    property string autoProbe: ""
     readonly property string autoProblem: Logic.autoConnectText(autoMemory.problem)
     readonly property var vpnChoices: Logic.vpnChoices(profiles)
     // NetworkManager's own device signals, read only while a profile is
@@ -444,20 +447,38 @@ Item {
     // Connect automatically's decision over the list read that just
     // landed: a connect goes through the switch's own IPC action, so the
     // kill switch arms first, and its answer goes to
-    // VpnLogic.autoConnectReply. Before the kill switch step's first
-    // reading it waits, since a connect then could skip the state file the
-    // step would have it write first.
+    // VpnLogic.autoConnectReply. It waits before the kill switch step's
+    // first reading, since a connect then could skip the state file the
+    // step would have it write first. While the step reads unknown, a
+    // change waits on one fresh probe, then connects as the switch's own
+    // press does with whatever the probe read.
     function autoConnect() {
+        const unknown = Logic.stepWord(killStep) === "unknown";
         const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles,
-            profileAction !== null || stateWrite !== null || killStep === undefined);
-        autoMemory = plan.memory;
-        if (plan.uuid === "") return;
-        const reply = actProfile({ kind: "profile-up", id: plan.uuid });
-        console.log("vpn: operation=auto-connect completion=" + reply);
-        const row = profiles.rows.find(candidate => candidate.uuid === plan.uuid);
-        if (reply === "ok") autoAction = row.uuid;
-        autoMemory = Logic.autoConnectReply(autoMemory, reply, row,
-            Logic.rowView(row, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch)).reason);
+            profileAction !== null || stateWrite !== null || killStep === undefined || (unknown && autoProbe !== "done"));
+        let memory = plan.memory;
+        if (plan.why === "waiting" && unknown && autoProbe === "" && profileAction === null && stateWrite === null) {
+            autoProbe = "running";
+            autoMemory = memory;
+            const probe = shell.system.refresh(() => {
+                root.autoProbe = "done";
+                root.autoRetry();
+            });
+            if (probe === "ok") return;
+            autoProbe = "done";
+            autoConnect();
+            return;
+        }
+        if (plan.why !== "waiting") autoProbe = "";
+        if (plan.uuid !== "") {
+            const reply = actProfile({ kind: "profile-up", id: plan.uuid });
+            console.log("vpn: operation=auto-connect completion=" + reply);
+            const row = profiles.rows.find(candidate => candidate.uuid === plan.uuid);
+            if (reply === "ok") autoAction = row.uuid;
+            memory = Logic.autoConnectReply(memory, reply, row,
+                Logic.rowView(row, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch)).reason);
+        }
+        autoMemory = memory;
     }
     // A change still pending, decided again over the current list.
     function autoRetry() {

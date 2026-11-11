@@ -2111,8 +2111,10 @@ function autoRead(logic, code, output) {
 function autoConnectSuite(logic, service = serviceSource) {
     // Each step a read of its world, with `choice` the setting's profile
     // (Lab tunnel unless set), `trusted` the setting's items (Fixture Wi-Fi
-    // unless set), `busy` while a change runs and `raw` a read's own
-    // [code, output]; or "off", the user turning a profile off.
+    // unless set), `busy` while a change runs, `raw` a read's own
+    // [code, output] and `reply` the switch's answer to the connect the
+    // read decided (Lab tunnel's row, with a reason); or "off", the user
+    // turning a profile off.
     const run = steps => {
         let memory = logic.autoConnectStart();
         let last = null;
@@ -2122,6 +2124,8 @@ function autoConnectSuite(logic, service = serviceSource) {
             const read = autoRead(logic, code, output);
             const trusted = logic.trustedUuids(step.trusted === undefined ? [{ name: "1", network: WIFI }] : step.trusted);
             last = plain(logic.autoConnectPlan(memory, step.choice === undefined ? LAB : step.choice, trusted, read.networks, read.profiles, step.busy === true));
+            if (step.reply !== undefined && last.uuid !== "")
+                last.memory = plain(logic.autoConnectReply(last.memory, step.reply, read.profiles.rows.find(row => row.uuid === last.uuid), "a reason"));
             memory = last.memory;
         }
         return last;
@@ -2160,7 +2164,11 @@ function autoConnectSuite(logic, service = serviceSource) {
         ["with Connect automatically off nothing connects", [{ hotel: UP, choice: "" }], "off", "", null],
         ["choosing a profile connects nothing until the network changes", [{ hotel: UP, choice: "" }, { hotel: UP }], "settled", "", null],
         ["a chosen profile in capitals connects by its uuid", [{}, { hotel: UP, choice: LAB.toUpperCase() }], "connect", LAB, null],
-        ["a chosen profile no longer listed says why", [{ hotel: UP, choice: GONE }], "gone", "", "gone"]
+        ["a chosen profile no longer listed says why", [{ hotel: UP, choice: GONE }], "gone", "", "gone"],
+        ["a refused connect shows its reason", [{}, { hotel: UP, reply: "refused: profile=kill-switch" }], "connect", LAB, "refused"],
+        ["a refused connect stays undecided and connects once its cause is gone", [{}, { hotel: UP, reply: "refused: profile=kill-switch" }, { hotel: UP }], "connect", LAB, null],
+        ["a refused connect turned off on purpose stays off and drops its reason", [{}, { hotel: UP, reply: "refused: profile=plugin-needed" }, "off", { hotel: UP }], "settled", "", null],
+        ["a connect refused while its profile is read shows no reason", [{}, { hotel: UP, reply: "refused: profile=reading" }], "connect", LAB, null]
     ];
     for (const [name, steps, why, uuid, problem] of AUTO_TABLE) {
         const got = run(steps);
@@ -2208,36 +2216,40 @@ function autoConnectSuite(logic, service = serviceSource) {
     assert.deepEqual(plain(logic.trustedChange([{ name: "2", network: WIFI.toUpperCase() }, { name: "1", network: WIRED }], WIFI, false)), [{ name: "1", network: WIRED }]);
     assert.deepEqual(plain(logic.trustedChange(undefined, WIFI, true)), [{ name: "1", network: WIFI }]);
 
-    // A refusal or failure kept for one profile goes when another is chosen,
-    // or when its own profile connects.
+    // A decided change keeps a failure of the chosen profile until its own
+    // profile connects or another is chosen, and keeps no refusal; a wait
+    // keeps either.
     const hotelRead = autoRead(logic, 0, autoWorld({ hotel: UP }));
     for (const [name, choice, uuid, read, kept] of [["the same profile", LAB, LAB, hotelRead, true], ["another profile", LAB, OFFICE, hotelRead, false],
         ["its profile now connected", LAB, LAB, autoRead(logic, 0, autoWorld({ hotel: UP, lab: UP })), false]]) {
         for (const kind of ["refused", "failed"]) {
             const memory = { seen: HOTEL, pending: false, problem: { kind, uuid, name: "a profile", reason: "" } };
             const got = plain(logic.autoConnectPlan(memory, choice, [WIFI], read.networks, read.profiles, false));
-            assert.equal(got.memory.problem === null ? null : got.memory.problem.kind, kept ? kind : null, kind + " of " + name);
+            assert.equal(got.memory.problem === null ? null : got.memory.problem.kind, kept && kind === "failed" ? kind : null, kind + " of " + name);
+            const waiting = plain(logic.autoConnectPlan(Object.assign({}, memory, { pending: true }), choice, [WIFI], read.networks, read.profiles, true));
+            assert.equal(waiting.memory.problem === null ? null : waiting.memory.problem.kind, kept ? kind : null, kind + " of " + name + " while waiting");
         }
     }
 
-    // What the switch's own answer leaves: a refusal that lasts is the
-    // problem line; one a passing state gives, and a busy service, keep the
-    // network change pending for the next read.
+    // What the switch's own answer leaves: anything but ok leaves the
+    // change undecided for the next read; a refusal a user acts on shows
+    // its reason, one a passing state gives shows none.
     const officeRow = hotelRead.profiles.rows.find(row => row.uuid === OFFICE);
     for (const [reply, pending, problem] of [["ok", false, null], ["busy", true, null], ["refused: profile=reading", true, null],
         ["refused: profile=no-answer", true, null], ["refused: profile=connecting", true, null], ["refused: profile=state", true, null],
-        ["refused: profile=unavailable", true, null], ["refused: profile=kill-switch", false, "refused"], ["refused: profile=plugin-needed", false, "refused"],
-        ["refused: profile=sign-in", false, "refused"], ["refused: profile=unsupported", false, "refused"]]) {
+        ["refused: profile=unavailable", true, null], ["refused: profile=kill-switch", true, "refused"], ["refused: profile=plugin-needed", true, "refused"],
+        ["refused: profile=sign-in", true, "refused"], ["refused: profile=unsupported", true, "refused"]]) {
         const got = plain(logic.autoConnectReply({ seen: HOTEL, pending: false, problem: null }, reply, officeRow, "a reason"));
         assert.deepEqual([got.pending, got.problem === null ? null : got.problem.kind], [pending, problem], reply);
     }
 
     // The service's decision over doubles: a connect goes through the
-    // switch's own IPC action; a lasting refusal leaves its problem line,
-    // which a later read of the same network keeps; a passing one keeps the
-    // change; a change or a write in flight, or a kill switch step not yet
-    // read, waits, and the step's reading decides again; a connect that
-    // starts and then fails leaves its line.
+    // switch's own IPC action; a refusal leaves the change undecided, its
+    // reason shown while it lasts, and a later read connects once the cause
+    // is gone; a change or a write in flight, or a kill switch step not yet
+    // read, waits, and the step's reading decides again; a step that reads
+    // unknown waits on one fresh probe; a connect that starts and then
+    // fails leaves its line.
     const serviceFunction = (owner, name) => {
         const found = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(service);
         assert.ok(found, name);
@@ -2245,10 +2257,12 @@ function autoConnectSuite(logic, service = serviceSource) {
         owner[name] = new Function("Logic", "owner", "console", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner, { log() {}, warn() {} });
     };
     const autoOwner = (reply, fields = {}) => {
-        const owner = Object.assign({ registered: true, autoMemory: logic.autoConnectStart(), autoChoice: LAB, autoAction: "", trusted: [WIFI],
+        const owner = Object.assign({ registered: true, autoMemory: logic.autoConnectStart(), autoChoice: LAB, autoAction: "", autoProbe: "", trusted: [WIFI],
             networks: hotelRead.networks, profiles: hotelRead.profiles, profileAction: null, stateWrite: null, killStep: { state: "absent", reason: "" },
-            killSwitch: null, shell: { requirements: { missing: [] } }, asked: [],
-            actProfile(request) { owner.asked.push(plain(request)); return reply; } }, fields);
+            killSwitch: null, asked: [], probes: [], reply, probeReply: "ok",
+            shell: { requirements: { missing: [] }, system: { refresh(done) { owner.probes.push(done); return owner.probeReply; } } },
+            actProfile(request) { owner.asked.push(plain(request)); return owner.reply; } }, fields);
+        owner.root = owner;
         for (const name of ["autoConnect", "autoRetry", "autoEnded"]) serviceFunction(owner, name);
         return owner;
     };
@@ -2272,10 +2286,14 @@ function autoConnectSuite(logic, service = serviceSource) {
     const refused = autoOwner("refused: profile=plugin-needed", { autoChoice: OFFICE });
     refused.autoConnect();
     assert.deepEqual(refused.asked, [{ kind: "profile-up", id: OFFICE }]);
-    assert.deepEqual([refused.autoMemory.pending, refused.autoMemory.problem.kind, refused.autoMemory.problem.name], [false, "refused", "Office VPN"]);
+    assert.deepEqual([refused.autoMemory.pending, refused.autoMemory.problem.kind, refused.autoMemory.problem.name], [true, "refused", "Office VPN"]);
     assert.notEqual(refused.autoMemory.problem.reason, "", "the refusal carries the reason the switch shows");
     refused.autoConnect();
-    assert.deepEqual([refused.asked.length, refused.autoMemory.problem.kind], [1, "refused"], "the same network keeps the refusal's line");
+    assert.deepEqual([refused.asked.length, refused.autoMemory.problem.kind], [2, "refused"], "the next read asks again while the cause lasts");
+    refused.reply = "ok";
+    refused.autoConnect();
+    assert.deepEqual(plain([refused.asked.length, refused.autoMemory]), [3, { seen: HOTEL, pending: false, problem: null }],
+        "with its cause gone, the same network connects and the line goes");
     const reading = autoOwner("refused: profile=reading", { autoChoice: OFFICE });
     reading.autoConnect();
     assert.deepEqual(plain([reading.autoMemory.pending, reading.autoMemory.problem]), [true, null], "a profile still read keeps the change pending");
@@ -2294,6 +2312,20 @@ function autoConnectSuite(logic, service = serviceSource) {
     unprobed.killStep = { state: "ready", reason: "granted" };
     unprobed.autoRetry();
     assert.deepEqual(unprobed.asked, [{ kind: "profile-up", id: LAB }], "the step's reading decides the waiting change");
+    // A step that reads unknown, as after a probe that timed out: one fresh
+    // probe, then the connect the switch's own press makes, whatever it read.
+    for (const [name, after] of [["still unknown", { state: "unknown", reason: "probe-failed" }], ["set up", { state: "ready", reason: "granted" }]]) {
+        const unknown = autoOwner("ok", { killStep: { state: "unknown", reason: "probe-failed" } });
+        unknown.autoConnect();
+        unknown.autoConnect();
+        assert.deepEqual([unknown.asked.length, unknown.probes.length, unknown.autoMemory.pending], [0, 1, true], name + ": one probe, nothing connects");
+        unknown.killStep = after;
+        unknown.probes[0]();
+        assert.deepEqual([unknown.asked, unknown.autoProbe], [[{ kind: "profile-up", id: LAB }], ""], name + ": the probe's answer decides");
+    }
+    const unprobeable = autoOwner("ok", { killStep: { state: "unknown", reason: "probe-failed" }, probeReply: "refused" });
+    unprobeable.autoConnect();
+    assert.deepEqual([unprobeable.probes.length, unprobeable.asked.length], [1, 1], "a probe the core refuses decides at once");
 }
 
 suite(load(file, commons));
@@ -2516,9 +2548,10 @@ try {
         ["a profile turned off here ends the pending change", 'if (request.kind === "profile-down" && reply === "ok") autoMemory = Logic.autoConnectOff(autoMemory);', ""],
         ["each list read decides Connect automatically", "        autoConnect();\n", ""],
         ["the read's networks are in place before the list decides", "root.networks = Logic.networkList(code, profilesText.text);", ""],
-        ["the switch's answer reaches Connect automatically", "autoMemory = Logic.autoConnectReply(autoMemory, reply, row,", "autoMemory = Logic.autoConnectOff(autoMemory, reply, row,"],
-        ["Connect automatically waits on a kill switch write", "stateWrite !== null || killStep === undefined);", "killStep === undefined);"],
-        ["Connect automatically waits for the kill switch step's reading", "|| killStep === undefined);", ");"],
+        ["the switch's answer reaches Connect automatically", "memory = Logic.autoConnectReply(memory, reply, row,", "memory = Logic.autoConnectOff(memory, reply, row,"],
+        ["Connect automatically waits on a kill switch write", "stateWrite !== null || killStep === undefined ||", "killStep === undefined ||"],
+        ["Connect automatically waits for the kill switch step's reading", "|| killStep === undefined ||", "||"],
+        ["an unknown kill switch step waits on a fresh probe", ' || (unknown && autoProbe !== "done")', ""],
         ["an accepted automatic connect is followed to its end", 'if (reply === "ok") autoAction = row.uuid;', ""],
         ["a stage that stops an automatic connect leaves its line", "        autoEnded(ended.uuid, true, profileProblem.text);\n", ""],
         ["a connect's end reaches Connect automatically", 'if (action.kind === "profile-up") root.autoEnded(action.uuid, failed, failed ? root.profileProblem.text : "");', ""],
@@ -2587,8 +2620,10 @@ try {
         ["a trusted network connects nothing", 'if (networks.active.every(uuid => networks.activeWifi.indexOf(uuid) !== -1 && trusted.indexOf(uuid) !== -1)) return plan("trusted", decided);', 'if (false) return plan("trusted", decided);'],
         ["only a Wi-Fi profile can be trusted", "networks.activeWifi.indexOf(uuid) !== -1 && trusted.indexOf(uuid)", "trusted.indexOf(uuid)"],
         ["a network name drops the markup it holds", "const text = clip(String(value)", "const text = String(String(value)"],
-        ["a passing refusal keeps the change pending", "if (found === null || LASTING_REFUSALS.indexOf(found[1]) === -1) return", "if (found === null) return"],
-        ["a kept problem belongs to the chosen profile", "&& memory.problem.uuid === wanted && row.state !== \"activated\" ? memory.problem : null;", "? memory.problem : null;"],
+        ["a refused connect stays undecided", "{ pending: true, problem: shown ?", "{ pending: memory.pending, problem: shown ?"],
+        ["a passing refusal shows no reason", "const shown = found !== null && USER_REFUSALS.indexOf(found[1]) !== -1;", "const shown = found !== null;"],
+        ["a decision keeps no refusal", 'const failed = ours && memory.problem.kind === "failed" ? memory.problem : null;', "const failed = ours ? memory.problem : null;"],
+        ["a kept problem belongs to the chosen profile", 'const ours = isPlain(memory.problem) && memory.problem.uuid === wanted && row.state !== "activated";', "const ours = isPlain(memory.problem);"],
         ["an unreadable list decides nothing", 'if (!readable) return plan("unread",', 'if (false) return plan("unread",'],
         ["a deliberate off ends a pending change", "function autoConnectOff(memory) { return Object.assign({}, memory, { pending: false }); }", "function autoConnectOff(memory) { return memory; }"],
         ["the first readable list is a change", "const pending = memory.seen !== key || memory.pending;", "const pending = (memory.seen !== null && memory.seen !== key) || memory.pending;"],

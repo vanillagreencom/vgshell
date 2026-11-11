@@ -1325,9 +1325,9 @@ function trustedChange(items, uuid, wanted) {
 // list as one key, null before the first; `pending`, a network change not
 // yet decided; `problem`, why the last decision connected nothing, or
 // null: { kind: "unread" }, { kind: "gone" }, or for the chosen profile
-// { kind: "refused", uuid, name, reason }, a connect it refuses until the
-// user changes something, or { kind: "failed", uuid, name, reason }, a
-// connect that started and did not complete.
+// { kind: "refused", uuid, name, reason }, the reason its switch gave the
+// last connect, which no decision keeps, or { kind: "failed", uuid, name,
+// reason }, a connect that started and did not complete.
 function autoConnectStart() { return { seen: null, pending: false, problem: null }; }
 
 // One decision, at each list read, over MEMORY: CHOICE, the setting's
@@ -1338,8 +1338,10 @@ function autoConnectStart() { return { seen: null, pending: false, problem: null
 // uuid, memory }: `uuid` the profile to connect, else "". A change of the
 // active networks, the first readable list included, is decided once: it
 // connects the chosen profile while an active network is not a trusted
-// Wi-Fi profile and no VPN profile is up. A deliberate off
-// (autoConnectOff) leaves it decided until the next change. With no
+// Wi-Fi profile and no VPN profile is up. A change the switch refused
+// stays undecided (autoConnectReply), so the next read connects once its
+// cause is gone. A deliberate off (autoConnectOff) leaves it decided until
+// the next change. With no
 // profile chosen, a change is decided as it comes, so choosing one later
 // connects nothing until the next change. An unreadable list decides
 // nothing and keeps its change pending.
@@ -1353,13 +1355,14 @@ function autoConnectPlan(memory, choice, trusted, networks, profiles, busy) {
     const pending = memory.seen !== key || memory.pending;
     const row = profiles.rows.find(candidate => candidate.uuid === wanted);
     if (row === undefined) return plan("gone", { seen: key, pending: false, problem: { kind: "gone" } });
-    // A refusal or a failure of the chosen profile stays until a change is
-    // decided again or the profile connects; one of another profile goes
-    // with the choice.
-    const kept = isPlain(memory.problem) && (memory.problem.kind === "refused" || memory.problem.kind === "failed")
-        && memory.problem.uuid === wanted && row.state !== "activated" ? memory.problem : null;
-    if (!pending) return plan("settled", { seen: key, pending: false, problem: kept });
-    if (busy) return plan("waiting", { seen: key, pending: true, problem: kept });
+    // A failure of the chosen profile stays until a change is decided again
+    // or the profile connects, and goes with the choice. A refusal is the
+    // switch's answer to the last connect: only a wait, which decides
+    // nothing, keeps it; the next connect asks again.
+    const ours = isPlain(memory.problem) && memory.problem.uuid === wanted && row.state !== "activated";
+    const failed = ours && memory.problem.kind === "failed" ? memory.problem : null;
+    if (!pending) return plan("settled", { seen: key, pending: false, problem: failed });
+    if (busy) return plan("waiting", { seen: key, pending: true, problem: ours ? memory.problem : null });
     const decided = { seen: key, pending: false, problem: null };
     if (profiles.rows.some(candidate => candidate.state === "activated" || candidate.state === "activating")) return plan("connected", decided);
     if (networks.active.length === 0) return plan("offline", decided);
@@ -1369,20 +1372,22 @@ function autoConnectPlan(memory, choice, trusted, networks, profiles, busy) {
 // The user turned a profile off: no network change is pending.
 function autoConnectOff(memory) { return Object.assign({}, memory, { pending: false }); }
 
-// The switch's own refusals that last until the user changes something:
-// the profile, its plugin, its saved sign-in or the kill switch. Every
-// other refusal is a state that passes, a detail read or a change in
-// flight, so the change stays pending for the next read.
-var LASTING_REFUSALS = ["kill-switch", "plugin-needed", "sign-in", "unsupported"];
+// The switch's refusals a user acts on: the profile, its plugin, its saved
+// sign-in or the kill switch. Their reason is the problem line; any other
+// refusal is a state that passes, such as a detail read or a change in
+// flight, and shows none.
+var USER_REFUSALS = ["kill-switch", "plugin-needed", "sign-in", "unsupported"];
 // MEMORY after the connect autoConnectPlan asked for answered REPLY, the
-// IPC action's: `ok` keeps it; a lasting refusal of ROW, with the REASON
-// its switch shows (rowView), "" for none, is its problem line; anything
-// else, `busy` included, leaves the change pending.
+// IPC action's: `ok` keeps it. Anything else, `busy` included, leaves the
+// change undecided, so the next read asks again and connects once the
+// cause is gone: the chosen profile connects, the user turns it off or the
+// network changes first. A refusal of ROW a user acts on shows REASON, the
+// one its switch shows (rowView), "" for none.
 function autoConnectReply(memory, reply, row, reason) {
     if (reply === "ok") return memory;
     const found = /^refused: profile=([a-z-]+)$/.exec(String(reply));
-    if (found === null || LASTING_REFUSALS.indexOf(found[1]) === -1) return Object.assign({}, memory, { pending: true });
-    return Object.assign({}, memory, { problem: { kind: "refused", uuid: row.uuid, name: row.name, reason: reason } });
+    const shown = found !== null && USER_REFUSALS.indexOf(found[1]) !== -1;
+    return Object.assign({}, memory, { pending: true, problem: shown ? { kind: "refused", uuid: row.uuid, name: row.name, reason: reason } : null });
 }
 // MEMORY after a connect it started failed later, at the kill switch or in
 // nmcli: ROW's failure with TEXT, the problem line the change left.

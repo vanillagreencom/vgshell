@@ -55,7 +55,7 @@ Connect automatically, in the VPN section of System Settings, connects one profi
 
 When this computer joins a network that is not on the list, or VGS starts on one, VGS connects the profile. On a trusted network VGS does nothing. When a VPN profile is already connected, VGS leaves it.
 
-Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. Only Wi-Fi networks can be trusted. A wired, Bluetooth or mobile connection always counts as not trusted, because its saved profile matches any cable, phone or carrier, so the VPN connects on it.
+Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. A wired, Bluetooth or mobile network is never trusted, because its saved profile matches any cable, phone or carrier, so the VPN connects on it.
 
 VGS connects the profile as its switch does. With the kill switch on, the block is in place before the profile connects.
 
