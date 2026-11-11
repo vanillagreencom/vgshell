@@ -41,6 +41,7 @@ const OPENING = 24000 * 2 * 20;
 const TURN = 65536;
 // Session's TAP_MS: a short held tap needs an explicit input outcome.
 const TAP = 600;
+const { PCM_RATE } = require(path.join(backend, "Audio.js"));
 const APPEND = "input_audio_buffer.append";
 const SPEAK = "response.create";
 // The sentence the rig, standing in for the engine, hands a preview session.
@@ -204,10 +205,11 @@ const turn = () => new Promise(resolve => setImmediate(resolve));
 async function until(check, label, ms = 2000) {
     // Loopback delivery and stream events, not a latency measurement. Each
     // control's red result waits for this bound, so it stays short. A row
-    // that waits on the daemon's real playback passes its own.
+    // that waits on the daemon's real playback passes its own. A function
+    // label reads the state the wait judged at its deadline.
     const deadline = Date.now() + ms;
     while (!check()) {
-        assert.ok(Date.now() < deadline, label);
+        if (Date.now() >= deadline) assert.ok(false, typeof label === "function" ? label() : label);
         await new Promise(resolve => setTimeout(resolve, 2));
     }
 }
@@ -282,7 +284,7 @@ world(async () => {
             const kindOf = type => type === SPEAK ? P.SPEAK : type === APPEND ? P.APPEND : type;
             const conn = { url: request.url, rig: query.get("rig"), protocol: P, taken: false, auto: 0, voice: [],
                 headers: request.headers, events: [], cursor: 0, socket, ended: false, parts: {}, pings: 0, pongs: [],
-                owner: null, inputSequence: Promise.resolve(), mapped: new Set(), claimed: 0, inputOpen: false,
+                owner: null, inputSequence: Promise.resolve(), mapped: new Set(), claimed: 0, inputOpen: false, opened: currentCase,
                 play(name) { for (const event of P.scripts[name]) this.send(structuredClone(event)); },
                 // Realtime sends transcripts only for a server-acknowledged
                 // native commit. Parser/reply rows produce actual input first;
@@ -295,8 +297,21 @@ world(async () => {
                             "conversation.item.input_audio_transcription.completed"].includes(event.type);
                         if (input || transcription !== undefined) {
                             if (P === REALTIME ? !this.mapped.has(event.item_id) : !this.inputOpen) {
-                                const commits = () => this.events.filter(value => P === REALTIME
-                                    ? value.type === "input_audio_buffer.commit" : value.realtimeInput?.audioStreamEnd === true).length;
+                                const commit = value => P === REALTIME
+                                    ? value.type === "input_audio_buffer.commit" : value.realtimeInput?.audioStreamEnd === true;
+                                const commits = () => this.events.filter(commit).length;
+                                // The input this wait judges, the events since the last native end in
+                                // order: each run of audio as append:<bytes>, each Realtime clear as clear.
+                                const pending = () => {
+                                    const runs = [];
+                                    for (const value of this.events.slice(this.events.findLastIndex(commit) + 1)) {
+                                        const bytes = P.sent({ events: [value] }).length;
+                                        if (bytes > 0 && typeof runs.at(-1) === "number") runs[runs.length - 1] += bytes;
+                                        else if (bytes > 0) runs.push(bytes);
+                                        else if (value.type === "input_audio_buffer.clear") runs.push("clear");
+                                    }
+                                    return runs.map(run => run === "clear" ? run : "append:" + run).join(",") || "none";
+                                };
                                 if (commits() <= this.claimed && this.owner !== null) {
                                     const sink = this.owner.sink ?? this.owner.engine.captureSink({ op: ++conversations });
                                     if (sink === null) {
@@ -311,7 +326,9 @@ world(async () => {
                                     if (commits() > this.claimed || this.ended) return true;
                                     this.owner?.clock.advance(100);
                                     return false;
-                                }, "input has a native commit");
+                                }, () => "input has a native commit: case=" + this.opened + " running=" + currentCase + " adapter=" + P.setting
+                                    + " connection=" + (this.rig === null ? "daemon" : "rig") + " commits=" + commits() + " claimed=" + this.claimed
+                                    + " input=" + pending());
                                 if (this.ended) return;
                                 this.claimed++;
                                 if (P === REALTIME) {
@@ -378,6 +395,9 @@ world(async () => {
     const main = await listen(() => other.origin.replace("http:", "ws:"));
     const nets = [];
     let conversations = 0;
+    // The case or control now running, as its log line names a control; a
+    // connection keeps the one that opened it.
+    let currentCase = "setup";
 
     // A disposable backend whose duplex provider rows point at the loopback server.
     function kitFrom(folder, edits = []) {
@@ -2103,18 +2123,28 @@ world(async () => {
         const last = () => messages.filter(value => value.type === "state").at(-1)?.state;
         const revision = "a".repeat(64);
         const send = value => child.stdin.write(JSON.stringify({ v: 1, gen: last()?.gen ?? 0, revision, ...value }) + "\n");
-        // Talk is held, not tapped: the release waits out Session's tap bound
-        // from the press, with a margin for the wire, on the daemon's real clock.
-        let pressedAt = 0;
-        const press = () => { pressedAt = Date.now(); send({ type: "intent", intent: "talk-down" }); };
+        // Talk is held, not tapped, and holds a committable input: the release
+        // waits until the voice has sent TAP + 50 ms of captured input since
+        // the press, which the synthetic capture (audio-tool.py) records no faster than real time.
+        let voiceConn = null, pressedEvent = null;
+        const take = conn => { voiceConn = conn; pressedEvent ??= conn.events.length; };
+        const press = () => {
+            pressedEvent = voiceConn === null ? null : voiceConn.events.length;
+            send({ type: "intent", intent: "talk-down" });
+        };
         const release = async () => {
-            await new Promise(resolve => setTimeout(resolve, Math.max(0, TAP + 50 - (Date.now() - pressedAt))));
+            const held = PCM_RATE * 2 * (TAP + 50) / 1000 * P.rate;
+            // P.sent reads only conn.events: here, the events since the press.
+            const sent = () => P.sent({ events: voiceConn.events.slice(pressedEvent) }).length;
+            await wait(() => sent() >= held, () => "the voice sends a held press's input: sent=" + sent() + "/" + held);
             send({ type: "intent", intent: "talk-up" });
         };
+        // A function label reads the state the wait judged when it fails.
         const wait = async (check, label) => {
+            const text = () => typeof label === "function" ? label() : label;
             try { await until(() => check() || child.exitCode !== null, label); }
-            catch { assert.fail(label + ": " + JSON.stringify(messages.filter(value => value.type === "status")) + " state=" + JSON.stringify(last()) + " stderr=" + stderr); }
-            assert.ok(check(), label + ": " + stderr);
+            catch (error) { assert.fail(error.message + ": " + JSON.stringify(messages.filter(value => value.type === "status")) + " state=" + JSON.stringify(last()) + " stderr=" + stderr); }
+            if (!check()) assert.ok(false, text() + ": " + stderr);
         };
         const rows = () => fs.readdirSync(path.join(directories.state, "audit"))
             .flatMap(file => fs.readFileSync(path.join(directories.state, "audit", file), "utf8").trim().split("\n").map(JSON.parse));
@@ -2164,6 +2194,7 @@ world(async () => {
             press();
             await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
             const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
+            take(conn);
             conn.auto = 1;
             assert.equal(P.noTools(await P.open(conn)), true, "the daemon's voice has no tools");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
@@ -2298,8 +2329,8 @@ world(async () => {
                 // 0.1 s of speech, then 20 s that the interruption cuts.
                 conn.voice = [4800, 4800, 960000];
                 const second = messages.length;
-                P.turn(conn, "And now?");
                 await release();
+                P.turn(conn, "And now?");
                 assert.equal(await asked(1), "And now?", "an uninterrupted reply hands the brain no heard account");
                 // Audio reports each paced write of at most 480 frames as one
                 // level message. Twelve of them are more frames than the first
@@ -2310,16 +2341,16 @@ world(async () => {
                 // Capture opens once Audio's flush report has come.
                 await wait(() => last().capture.kind === "open" && last().playback.kind === "idle", "capture opens after the flush");
                 server.replies.push(BrainFixture.text({ wait: heldReply }, "Late reply."));
-                P.turn(conn, "Go on.");
                 await release();
+                P.turn(conn, "Go on.");
                 assert.equal(await asked(2), "[interrupted] The user heard only this part of your last reply: \"First part.\"\n\nGo on.",
                     "the brain is told the responses that played in full");
                 // The third turn is cut while the brain still thinks: no word of it was spoken.
                 press();
                 await wait(() => last().capture.kind === "open", "capture opens for the fourth turn");
                 server.replies.push(BrainFixture.text("Stopped."));
-                P.turn(conn, "Stop.");
                 await release();
+                P.turn(conn, "Stop.");
                 assert.equal(await asked(3), "[interrupted] The user heard none of your last reply.\n\nStop.",
                     "a reply cut before any response played reports an empty prefix");
                 await wait(() => last()?.turn.kind === "none", "the last turn completes");
@@ -2819,28 +2850,41 @@ world(async () => {
         'const current = item(value.content, value.labels);\n    if (String(current.content).includes("/ws/")) return { kind: "withhold", content: "[withheld]", labels: current.labels };'];
     let controls = 0;
     async function control(name, needle, replacement, check, adapter = REALTIME) {
+        currentCase = "control=" + name;
         await mutant(path.join(backend, adapter.file), name, needle, replacement, async (_module, folder) => check(folder), adapter.file);
         controls++;
         console.log("control=" + name + " detected");
     }
     try {
+        currentCase = "usageRows";
         await usageRows(kitFrom(backend));
         await control("realtime-usage", 'usage({ call: "realtime", usage: response.usage });',
             'void response.usage;', folder => usageRows(kitFrom(folder)));
-        for (const check of Object.values(cases)) await check(kitFrom(backend));
-        for (const name of SHARED) await cases[name](kitFrom(backend), GEMINI);
+        for (const [name, check] of Object.entries(cases)) {
+            currentCase = name;
+            await check(kitFrom(backend));
+        }
+        for (const name of SHARED) {
+            currentCase = name;
+            await cases[name](kitFrom(backend), GEMINI);
+        }
+        currentCase = "release";
         await release(kitFrom(backend, [withheld]));
         // The shipped engine hands the chosen voice and the preview to the session.
         for (const P of [REALTIME, GEMINI])
             for (const [name, needle, replacement] of [["engine-voice", "voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,", 'voice: "marin",'],
                 ["engine-preview", "preview: e.preview === true ? PREVIEW_LINE : null,", "preview: null,"]]) {
+                currentCase = "control=" + P.setting + "-" + name;
                 await assert.rejects(() => daemonDelegation(kitFrom(backend, [["ChainedEngine.js", needle, replacement]]), "preview", P),
                     assert.AssertionError, name + " must turn the daemon preview red");
                 controls++;
                 console.log("control=" + P.setting + "-" + name + " detected");
             }
+        currentCase = "releaseConnect";
         await releaseConnect(kitFrom(backend, [withheldConnect]));
+        currentCase = "grelease";
         await grelease(kitFrom(backend, [geminiWithheld]));
+        currentCase = "greleaseConnect";
         await greleaseConnect(kitFrom(backend, [geminiWithheldConnect]));
         // A control's case or fault row for either adapter, or null where
         // that adapter has no such row.
@@ -3005,6 +3049,7 @@ world(async () => {
         for (const [name, needle, replacement] of [["net-handshake-status", "            status = response.statusCode;", "            void response;"],
             ["net-key-refused-403", "return close.status === 401 || close.status === 403;", "return close.status === 401;"]])
             for (const P of [REALTIME, GEMINI]) {
+                currentCase = "control=" + P.setting + "-" + name;
                 await mutant(path.join(backend, "net.js"), name, needle, replacement, async (_module, folder) => keyRefused(kitFrom(folder), P), "net.js");
                 controls++;
                 console.log("control=" + P.setting + "-" + name + " detected");
@@ -3154,6 +3199,7 @@ world(async () => {
             ["daemon-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);',
                 `if (item.content.startsWith('{"type":"response.create"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action"]
         ]) {
+            currentCase = "control=" + name;
             const kit = kitFrom(backend, [["ChainedEngine.js", needle, replacement]]);
             // The audit plant must parse, send the real spoken frame, and
             // fail at its missing frame record rather than at setup.
