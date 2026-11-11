@@ -538,7 +538,7 @@ if case_retention_bound; then ok "a retention past 99999 days refuses and runs n
 # Every case reaches the production expiry through a real scratch batch.
 case_expiry() {
   problems=()
-  local root="$records/$1" base="expiry-$1" path mode="${2:-complete}" dirs record
+  local root="$records/$1" base="expiry-$1" path mode="${2:-complete}" dirs record span="VGS-1-focused-$1-a/file" family="VGS-1-focused-$1-b/file"
   [[ ${3-} != roots ]] || root="$records/main-run/$1"
   record="${root#"$records"/}"
   if [[ ${3-} == roots ]]; then
@@ -558,12 +558,12 @@ for parent, dirs, files in os.walk(sys.argv[1], topdown=False):
 os.utime(sys.argv[1], (time.time() - 10 * 86400,) * 2)
 PY
   : >"$records/$base/mixed/new"
-  printf '[{"id":"VGS-2127","state":"Verifying","description":"tmp/%s/kept/file"},{"id":"VGS-1","state":"Done","description":"tmp/%s/expired"},{"id":"VGS-2","state":"Canceled","description":"tmp/%s/mixed/old"},{"id":"VGS-3","state":"Triage","description":null},{"id":"VGS-4","state":"Todo","description":"`tmp/` `tmp/main-run/` `tmp/qml-smoke/`"}]\n' "$base" "$base" "$base" >"$TMP_ROOT/kept/issues"
+  printf '[{"id":"VGS-2127","state":"Verifying","description":"tmp/%s/kept/file"},{"id":"VGS-1","state":"Done","description":"tmp/%s/expired"},{"id":"VGS-2","state":"Canceled","description":"tmp/%s/mixed/old"},{"id":"VGS-3","state":"Triage","description":null},{"id":"VGS-4","state":"Todo","description":"`tmp/` `tmp/main-run/` `tmp/qml-smoke/` tmp/* `*` tmp/*/mixed/old tmp/VGS-1-focused-%s-b* `VGS-1-focused-%s-*` `VGS-1-focused-%s-a` `#[test]`"}]\n' "$base" "$base" "$base" "$1" "$1" "$1" >"$TMP_ROOT/kept/issues"
   printf '{"VGS-2127":[{"body":"tmp/%s/comment/file tmp/%s/%s/ `tmp/%s/kept/file with space`"}],"VGS-3":[],"VGS-4":[]}\n' "$base" "$record" "${planted[referenced]}" "$base" >"$TMP_ROOT/kept/comments"
   printf '{"kind":"ask","to":"owner","text":"Read tmp/%s/ask/file\\nKeep the evidence."}\n' "$base" >"$TMP_ROOT/kept/asks"
   local package_paths=("lane-archive/$1" "waiter.$1/file" "dev-validate-old/record" "validation-runs" "cycle-state/state.json" "container-close.lock")
-  mkdir -p "$records/VGS-2127-focused-$1" "$records/lane-archive" "$records/waiter.$1" "$records/dev-validate-old" "$records/cycle-state"
-  for path in "VGS-2127-focused-$1/file" "${package_paths[@]}"; do
+  mkdir -p "$records/VGS-2127-focused-$1" "$records/${span%/*}" "$records/${family%/*}" "$records/lane-archive" "$records/waiter.$1" "$records/dev-validate-old" "$records/cycle-state"
+  for path in "VGS-2127-focused-$1/file" "$span" "$family" "${package_paths[@]}"; do
     touch -d '10 days ago' "$records/$path"
   done
   case "$mode" in
@@ -590,11 +590,11 @@ PY
   for path in "VGS-2127-focused-$1/file" "${package_paths[@]}"; do
     [[ -f $records/$path ]] || problems+=("removed=$path")
   done
-  for path in expired mixed/old; do
+  for path in "$base/expired" "$base/mixed/old" "$span" "$family"; do
     if [[ $mode == complete ]]; then
-      [[ ! -e $records/$base/$path ]] || problems+=("kept=$path")
+      [[ ! -e $records/$path ]] || problems+=("kept=$path")
     else
-      [[ -f $records/$base/$path ]] || problems+=("removed-on-unread=$path")
+      [[ -f $records/$path ]] || problems+=("removed-on-unread=$path")
     fi
   done
   [[ -f $root/${planted[referenced]}/evidence ]] || problems+=(batch-reference=removed)
@@ -756,6 +756,16 @@ control "a referenced batch run is not kept" \
   ':' --problem batch-reference=removed case_expiry c-expiry-reference
 control "a bare writer root keeps every batch run" 'and p not in output_roots' '' \
   --problem batch-old=kept case_expiry c-expiry-roots complete roots
+control "a glob in the first segment kept" 'and not re.search(r"[*?[]", p.split("/")[0])' '' \
+  --problem kept=expiry-c-expiry-glob/expired case_expiry c-expiry-glob
+control "a family glob kept unless glob characters alone" 're.search(r"[*?[]", p.split("/")[0])' \
+  're.fullmatch(r"[*?\[\]!]+", p.split("/")[0])' --problem kept=VGS-1-focused-c-expiry-family-b/file \
+  case_expiry c-expiry-family
+control "a code span with no tmp/ path kept" 'for p in re.findall(r"`([^`\n]+)`", text) if "tmp/" in p)' \
+  'for p in re.findall(r"`([^`\n]+)`", text) if "tmp/" in p)
+        patterns.update(p.rstrip("/") for p in re.findall(r"`([^`\n]+)`", text)
+                        if "tmp/" not in p and not re.search(r"[\s/]", p))' \
+  --problem kept=VGS-1-focused-c-expiry-span-a/file case_expiry c-expiry-span
 control "no signal trap" "trap 'end_run TERM' TERM; trap 'end_run INT' INT; trap 'end_run HUP' HUP" ':' \
   --problem worktree-left case_killed c-killed
 control "an area the trap does not stop" 'if [[ -n $child ]]; then' 'if false; then' \

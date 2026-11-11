@@ -40,7 +40,7 @@ An inherited lock can outlive the shell through its children. A resource without
 ### Temporary artifacts
 
 - Keep lane scratch in its worktree. The base checkout's `tmp/` belongs to main-batch and fleet owners, not ad hoc lane scratch. Review holds this ownership boundary.
-- Expire unused VGS artifacts through `scripts/main-run.sh`. Preserve paths referenced by open items and comments, open owner asks and live fleet files. A bare output root or `tmp/` preserves nothing; a named child preserves that artifact subtree. Read the complete kept set before deletion; an unread set permits no deletion. `scripts/test-main-run.sh` checks retention.
+- Expire unused VGS artifacts through `scripts/main-run.sh`. Preserve paths referenced by open items and comments, open owner asks and live fleet files. A bare output root, `tmp/` or a glob over top-level names preserves nothing; a named child preserves that artifact subtree. Read the complete kept set before deletion; an unread set permits no deletion. `scripts/test-main-run.sh` checks retention.
 - Leave package-owned state to its package's retention owner.
 
 ### Performance

@@ -233,6 +233,9 @@ def read(command, data=None):
 try:
     linear = os.path.join(checkout, ".agents/skills/linear/scripts/linear.sh")
     source = "issues"
+    # Every team: VGS lanes file KEN and other teams' items citing evidence
+    # under this tmp/. Their text keeps only the paths it names, and
+    # over-keeping is the safe failure for a deleter.
     issues = json.loads(read([linear, "issues", "list", "--select", "owed",
                               "--all-projects", "--include-archived", "--max"]))
     if not isinstance(issues, list):
@@ -272,13 +275,14 @@ try:
         patterns.update(p.rstrip("/.,;:)") for p in re.findall(r"tmp/([^\s`\"<>]+)", text))
         patterns.update(p.split("tmp/", 1)[1].rstrip("/")
                         for p in re.findall(r"`([^`\n]+)`", text) if "tmp/" in p)
-        patterns.update(p.rstrip("/") for p in re.findall(r"`([^`\n]+)`", text)
-                        if "tmp/" not in p and not re.search(r"[\s/]", p))
     # A writer root in prose names no artifact; a path below it does.
     output_roots = {record.split("/")[0], "main-run", "qml-smoke", "display-record", "sandbox-shots",
                     "readme-shots", "theme-previews", "shader-cost", "selftest-records",
                     "readme-install-cache"}
-    patterns = [p.split("/") for p in patterns if p and not p.startswith("../") and p not in output_roots]
+    # A glob in the first segment, as in tmp/* or tmp/VGS-1-*, names a family
+    # of top-level entries, not an artifact; open items keep their own family.
+    patterns = [p.split("/") for p in patterns if p and not p.startswith("../") and p not in output_roots
+                and not re.search(r"[*?[]", p.split("/")[0])]
     groups = {identifier.lower().replace("-", "") for identifier in opened}
 except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
     print(f"main-run: expiry=skipped cause=kept-set-unreadable source={source} error={type(error).__name__}", file=sys.stderr)
