@@ -229,12 +229,13 @@ power_pane_fields() { ipc smoke itemTexts window vgs.power Field | py_reply 'imp
 schema = json.load(open(sys.argv[1]))["schema"]
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
 print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)))' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys"; }
-# power_pane_choices TYPE: the currentIndex of each shown TYPE control of
-# the mounted pane, top to bottom: the SegmentedControls of When charging
-# and On battery, or the Selects of Low and Critical battery alert.
-# power_pane_choices TYPE: each shown TYPE's current index in the section's
-# settings groups, Stay awake's list left out.
-power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible,Accessible.name | py_reply 'import json,sys; print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] != "Stay awake for"]))'; }
+# power_pane_choices TYPE: indexes of the named profile controls, or the
+# display, sleep and alert controls, independent of other schema fields.
+power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible,Accessible.name | py_reply 'import json,sys
+schema=json.load(open(sys.argv[2]))["schema"]
+keys={"SegmentedControl": ["chargerProfile", "batteryProfile"], "Select": ["displayOffSeconds", "sleepAfterSeconds", "lowThreshold", "criticalThreshold"]}[sys.argv[1]]
+indexes={r["Accessible.name"]: r["currentIndex"] for r in json.load(sys.stdin) if r["visible"]}
+print(json.dumps([indexes.get(schema[key]["label"], "field-missing") for key in keys]))' "$1" "$repo/shell/plugins/vgs.power/manifest.json"; }
 power_pane_list_open() { ipc smoke itemValues window vgs.power Select listOpen | py_reply 'import json,sys; print(any(r["listOpen"] for r in json.load(sys.stdin)))'; }
 
 # The message kind (ValueSourceRow) of Power's Key press wake and Pointer
@@ -306,8 +307,9 @@ power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import 
 # each row's page reference, which LinkText reads as the link's words and
 # target, and whether the row draws a warning. A timeline row is the
 # FormRow holding its LinkText in its control slot.
-power_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
-print(json.dumps([[r["text"], r["parent.parent.warning"] != ""] for r in json.load(sys.stdin) if "](page:" in r["text"]]))'; }
+power_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.modelData.stage,parent.parent.warning | py_reply 'import json,sys
+rows=[r for r in json.load(sys.stdin) if "parent.parent.modelData.stage" in r]
+print("warning-unreadable" if any("parent.parent.warning" not in r for r in rows) else json.dumps([[r["text"], r["parent.parent.warning"] != ""] for r in rows]))'; }
 power_settings_reveal() { echo "$(ipc smoke readInstance window vgs.settings page) $(ipc smoke readDescendant window vgs.settings PluginPage revealing)"; }
 power_battery_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("battery")))'; }
 power_hold_next_set() {
@@ -579,6 +581,7 @@ s=json.load(sys.stdin).get(sys.argv[1], {}); print(json.dumps([s.get("action", F
 power_button_override() { if [[ -e $devices_system_root/etc/systemd/logind.conf.d/60-vgs-power-key.conf || -L $devices_system_root/etc/systemd/logind.conf.d/60-vgs-power-key.conf ]]; then echo present; else echo absent; fi; }
 power_button_live() { system_logind_status | py_reply 'import json,sys; print(json.load(sys.stdin)["power-key"]["value"])'; }
 power_buttons_check() {
+  local action_failures
   expect "Settings opens Power's saved button choices" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "the default power button choice needs no Apply" '[false, null]' power_button_action
   expect_poll "an input lid exposes its Settings field" shown power_sleep_field vgs.settings lidAction
@@ -594,14 +597,18 @@ power_buttons_check() {
   expect "saving a choice writes no privileged override" absent power_button_override
   settings_setup
   hold_runs
-  settings_press --type RowAction Apply StatusLine "Power button choice" || fail "the Setup Apply press failed"
+  action_failures="$failures"
+  settings_press --type RowAction Apply EntryRow "Power button choice" || fail "the Setup Apply press failed"
   expect_poll "Setup Apply opens the existing core TUI with the saved suspend value" \
     "$(core_words core/system "System setup" org.vgs.tui system apply power-key suspend)" recorded
+  expect_poll "the saved choice terminal stays live until released" busy key_idle core/system
+  if ((failures != action_failures)); then release_runs; return; fi
   # The terminal only records argv. Plant the new property for the re-probe;
   # no root operation or real logind reload runs in this row.
   device_reply systemctl 0 suspend show-session --property=HandlePowerKey --value --no-pager
   release_runs
   expect_run_end "the button choice core/system run ends" core/system
+  expect_poll "terminal completion refreshes the core's applied button policy" '"suspend"' lent system.steps.power-key.value
   expect_poll "fresh applied state withdraws Apply" '[false, null]' power_button_action
   settings_details
   expect_poll "Details reports the applied power button choice read-only" '"Sleep"' \
@@ -626,12 +633,16 @@ power_buttons_check() {
   expect "reselecting the defaults writes no privileged override" absent power_button_override
   settings_setup
   hold_runs
-  settings_press --type RowAction Apply StatusLine "Power button choice" || fail "the default Setup Apply press failed"
+  action_failures="$failures"
+  settings_press --type RowAction Apply EntryRow "Power button choice" || fail "the default Setup Apply press failed"
   expect_poll "Setup applies the explicit default through the existing core TUI" \
     "$(core_words core/system "System setup" org.vgs.tui system apply power-key poweroff)" recorded
+  expect_poll "the default choice terminal stays live until released" busy key_idle core/system
+  if ((failures != action_failures)); then release_runs; return; fi
   system_logind_fixture
   release_runs
   expect_run_end "the default button choice core/system run ends" core/system
+  expect_poll "default completion refreshes the core's applied button policy" '"poweroff"' lent system.steps.power-key.value
   expect_poll "the restored default matches without Apply" '[false, null]' power_button_action
   settings_page_close vgs.power
 }
