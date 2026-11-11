@@ -6,7 +6,9 @@
 // verb takes the VGS tree first, for the library loader and vgshell.
 //
 //   automations --tree <dir> list [--json]
-//       every automation with its summary, state, next run and last run;
+//       every automation with its summary, state, next run (the first
+//       slot its guard runs, past the rest after its last run's end) and
+//       last run;
 //       --json prints one line, { scheduler, linger, runsDir, storeFile,
 //       automations }, the rows AutomationsLogic.listRows makes. Text: one
 //       `<id>\t<state>\t<summary>` line each.
@@ -43,7 +45,8 @@
 //   automations --tree <dir> preview --schedule <json> [--count <n>] [--after <ms>]
 //       one JSON line, { summary, calendar, cron, occurrences }: the rule's
 //       summary, its OnCalendar= expressions and cron fields, and its next
-//       occurrences (10 by default) after --after (now by default), in ms.
+//       runs (10 by default) after --after (now by default), in ms, the
+//       rest applied after each from its start (AutomationsLogic.nextRuns).
 //       Schedule JSON may set zone to "local" or "utc"; omitted means local.
 //   automations --tree <dir> sync
 //       makes the units, or the crontab block, match the store; prints
@@ -60,9 +63,10 @@
 //
 // Files: the store is $XDG_CONFIG_HOME/vgshell/automations/automations.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-automation-<id>.timer
-// and .service; the runs, the guard states, the failure streaks and the
-// locks are under $XDG_STATE_HOME/vgshell/automations/ (runs/, guard/,
-// streak/, locks/); the runner the units start is a copy of this file and
+// and .service; the runs, the guard states (the last slot decided and the
+// last run's end), the failure streaks and the locks are under
+// $XDG_STATE_HOME/vgshell/automations/ (runs/, guard/, streak/, locks/);
+// the runner the units start is a copy of this file and
 // the judge under $XDG_DATA_HOME/vgshell/automations/engine/<hash>/, since
 // the shell runs this file from a snapshot a restart removes. Every file
 // is written whole under a temporary name and renamed into place.
@@ -239,8 +243,22 @@ function guardFile(id) {
     return path.join(guardDir, id + ".json");
 }
 
+// The guard state, AutomationsLogic.parseGuardState's answer; an absent
+// file reads as nothing handled and no ended run.
+function readGuard(id) {
+    const text = readText(guardFile(id));
+    return text === null ? { ok: true, handledThrough: null, endedAt: null } : Logic.parseGuardState(text);
+}
+
+function writeGuard(id, handledThrough, endedAt) {
+    writeAtomic(guardFile(id), JSON.stringify(endedAt === null ? { handledThrough: handledThrough } : { handledThrough: handledThrough, endedAt: endedAt }) + "\n", 0o600);
+}
+
+// Marks every occurrence through MS handled. The last run's end stays, so
+// enabling or editing an automation keeps its rest.
 function markHandled(id, ms) {
-    writeAtomic(guardFile(id), JSON.stringify({ handledThrough: ms }) + "\n", 0o600);
+    const state = readGuard(id);
+    writeGuard(id, ms, state.ok ? state.endedAt : null);
 }
 
 function streakFile(id) {
@@ -591,7 +609,14 @@ function listVerb(words) {
     const pending = {};
     for (const marker of pendingMarkers())
         if (marker.phase === "waiting" && pendingLive(marker)) pending[marker.definition.id] = marker;
-    const rows = Logic.listRows(store, history(null).rows, Date.now(), pending);
+    // A refused guard state makes the next trigger a run refused at the
+    // calendar's slot, so its next run takes no rest.
+    const ended = {};
+    for (const automation of store.automations) {
+        const state = readGuard(automation.id);
+        ended[automation.id] = state.ok ? state.endedAt : null;
+    }
+    const rows = Logic.listRows(store, history(null).rows, Date.now(), pending, ended);
     if (words.indexOf("--json") !== -1) {
         // The service lists the runs directory to learn of a run and watches
         // the store for a change another caller made, and a watch sees
@@ -730,7 +755,7 @@ function previewVerb(words) {
         summary: Logic.summaryText(schedule),
         calendar: Logic.calendarExpressions(schedule),
         cron: Logic.cronFields(schedule),
-        occurrences: Logic.nextOccurrences(schedule, after, count)
+        occurrences: Logic.nextRuns(schedule, after, count, null, null)
     }) + "\n");
 }
 
@@ -910,17 +935,17 @@ function transaction(request) {
 }
 
 function handledDecision(automation, now) {
-    const text = readText(guardFile(automation.id));
-    const state = text === null ? { ok: true, handledThrough: null } : Logic.parseGuardState(text);
+    const state = readGuard(automation.id);
     if (!state.ok) return { refusal: "guard=" + state.error.replace(/\s+/g, "-") + " path=" + guardFile(automation.id) };
-    return Object.assign(Logic.guard(automation.schedule, now, state.handledThrough, automation.catchUp), { handledThrough: state.handledThrough });
+    return Object.assign(Logic.guard(automation.schedule, now, state.handledThrough, automation.catchUp, state.endedAt),
+        { handledThrough: state.handledThrough, endedAt: state.endedAt });
 }
 
 function finalizeSlot(automation, decision) {
     // A wall-clock correction can select an older, already handled slot.
     // Every scheduled finalizer shares this high-water invariant under the
     // store lock; add/enable deliberately establish their own baseline.
-    if (decision.slot !== null && (decision.handledThrough === null || decision.slot > decision.handledThrough)) markHandled(automation.id, decision.slot);
+    if (decision.slot !== null && (decision.handledThrough === null || decision.slot > decision.handledThrough)) writeGuard(automation.id, decision.slot, decision.endedAt);
 }
 
 // Skips have no command lifetime, notification or streak transition. Their
@@ -967,8 +992,14 @@ function storeTransaction(request) {
     if (request.kind === "migrate") return storeResult();
     const id = request.id;
     let marker = pendingMarker(id);
-    if (request.kind === "cleanup") {
-        if (marker !== null && marker.token === request.token && marker.owner.pid === request.owner.pid && marker.owner.startTime === request.owner.startTime && marker.owner.bootId === request.owner.bootId)
+    if (request.kind === "ended") {
+        // The end starts the rest. An absent guard file is an automation
+        // removed during the run; a refused one keeps its refusal for the
+        // next trigger.
+        const state = readGuard(id);
+        if (state.ok && state.handledThrough !== null) writeGuard(id, state.handledThrough, request.endedAt);
+        const owned = request.pending;
+        if (owned !== null && marker !== null && marker.token === owned.token && marker.owner.pid === owned.owner.pid && marker.owner.startTime === owned.owner.startTime && marker.owner.bootId === owned.owner.bootId)
             fs.rmSync(pendingFile(id), { force: true });
         return { kind: "done" };
     }
@@ -1162,6 +1193,10 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
             "duration: " + Duration.format(Math.round((endedAt - startedAt) / 1000))
         ];
         const written = transcript.close(footer);
+        // The end starts the rest before the ended record lands: the
+        // service and the window list again when a run record appears, and
+        // that list's next run reads the rest.
+        transaction({ kind: "ended", id: id, endedAt: endedAt, pending: ownedPending });
         const ended = Object.assign({}, started, {
             endedAt: endedAt, durationMs: endedAt - startedAt, outcome: outcome, exitCode: ending.exitCode, signal: ending.signal,
             reason: reason, transcriptBytes: written.bytes, truncated: written.truncated,
@@ -1172,7 +1207,6 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
         const days = settingsDays();
         if (days.ok) prune(days.days, id);
         else log("prune=skipped " + days.error);
-        if (ownedPending !== null) transaction(Object.assign({ kind: "cleanup" }, ownedPending));
         process.exit(outcome === "succeeded" || outcome === "skipped" ? 0 : 1);
     };
     if (refusal !== "") return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: refusal });

@@ -2,12 +2,12 @@
 // The automations judge, shell/plugins/vgs.automations/AutomationsLogic.js,
 // under node: the recurrence judge and its presets, the schedule compiler's
 // OnCalendar= expressions and cron fields, the summary line, the next
-// occurrences, the runner's guard, the store, guard-state and streak
-// judges, the unit and crontab text, the run records and history rows,
-// pruning, the notifications a run sends with its failure streak, the
-// notification server a notice is replaced on, and command admission from
-// NetworkManager connectivity. Every expected value is written out by
-// hand.
+// occurrences, the runner's guard and its rest, the runs it makes, the
+// store, guard-state and streak judges, the unit and crontab text, the run
+// records and history rows, pruning, the notifications a run sends with
+// its failure streak, the notification server a notice is replaced on, and
+// command admission from NetworkManager connectivity. Every expected value
+// is written out by hand.
 //
 // The preview rows compare the judge's next ten occurrences with
 // `systemd-analyze calendar --iterations` on the expressions it compiles,
@@ -94,7 +94,13 @@ const COMPILED = [
     ["every minute", EVERY_MINUTE, ["*-*-* *:00/1:00"], ["*/1 * * * *"], "Every minute"],
     ["every 10 minutes", EVERY_10_MINUTES, ["*-*-* *:00/10:00"], ["*/10 * * * *"], "Every 10 minutes"],
     ["every hour", EVERY_HOUR, ["*-*-* 00/1:00:00"], ["0 */1 * * *"], "Every hour"],
-    ["every 2 hours until a date", stepped("hourly", 2, { end: { type: "date", date: "2026-01-04" } }), ["*-*-* 00/2:00:00"], ["0 */2 * * *"], "Every 2 hours, until 4 January 2026"]
+    ["every 2 hours until a date", stepped("hourly", 2, { end: { type: "date", date: "2026-01-04" } }), ["*-*-* 00/2:00:00"], ["0 */2 * * *"], "Every 2 hours, until 4 January 2026"],
+    // A rest changes no slot the timer fires on; the summary says it.
+    ["every 10 seconds with a rest", stepped("secondly", 10, { rest: 30 }), ["*-*-* *:*:00/10"], [], "Every 10 seconds, at least 30 seconds after the last run ends"],
+    ["every 10 minutes with a rest until a date", stepped("minutely", 10, { rest: 120, end: { type: "date", date: "2026-01-04" } }), ["*-*-* *:00/10:00"], ["*/10 * * * *"], "Every 10 minutes, at least 2 minutes after the last run ends, until 4 January 2026"],
+    ["every 2 hours with a rest of an hour", stepped("hourly", 2, { rest: 3600 }), ["*-*-* 00/2:00:00"], ["0 */2 * * *"], "Every 2 hours, at least 1 hour after the last run ends"],
+    ["every 15 seconds with a rest of 90 seconds", stepped("secondly", 15, { rest: 90 }), ["*-*-* *:*:00/15"], [], "Every 15 seconds, at least 90 seconds after the last run ends"],
+    ["a rest of 0", stepped("secondly", 30, { rest: 0 }), ["*-*-* *:*:00/30"], [], "Every 30 seconds"]
 ];
 
 // Next occurrences under UTC: [label, schedule, after, the instants].
@@ -150,6 +156,39 @@ const GUARD = [
     ["a second every-10-minutes trigger in that slot runs nothing", EVERY_10_MINUTES, "2026-01-05T09:26:00Z", "2026-01-05T09:20:00Z", false, { run: false, slot: "2026-01-05T09:20:00Z", reason: "handled" }]
 ];
 
+// The rest: [label, schedule, trigger time, handledThrough, the last run's
+// end, { run, slot, reason }]. A rest of 0 is today's guard: a run that
+// ended after the slot it would run holds nothing back.
+const TEN_RESTING = stepped("secondly", 10, { rest: 30 });
+const REST = [
+    ["a rest of 0 runs a slot before the last run's end", stepped("secondly", 10, { rest: 0 }), "2026-01-05T09:00:23Z", "2026-01-05T09:00:10Z", "2026-01-05T09:00:22Z", { run: true, slot: "2026-01-05T09:00:20Z", reason: "ran" }],
+    ["no rest runs a slot before the last run's end", stepped("secondly", 10), "2026-01-05T09:00:23Z", "2026-01-05T09:00:10Z", "2026-01-05T09:00:22Z", { run: true, slot: "2026-01-05T09:00:20Z", reason: "ran" }],
+    ["a slot inside the rest runs nothing", TEN_RESTING, "2026-01-05T09:00:40Z", "2026-01-05T09:00:30Z", "2026-01-05T09:00:15Z", { run: false, slot: "2026-01-05T09:00:40Z", reason: "rest" }],
+    ["the first slot past the rest runs", TEN_RESTING, "2026-01-05T09:00:50Z", "2026-01-05T09:00:40Z", "2026-01-05T09:00:15Z", { run: true, slot: "2026-01-05T09:00:50Z", reason: "ran" }],
+    ["a slot as the rest ends runs", TEN_RESTING, "2026-01-05T09:00:50Z", "2026-01-05T09:00:40Z", "2026-01-05T09:00:20Z", { run: true, slot: "2026-01-05T09:00:50Z", reason: "ran" }],
+    ["no ended run runs the slot due", TEN_RESTING, "2026-01-05T09:00:20Z", "2026-01-05T09:00:10Z", null, { run: true, slot: "2026-01-05T09:00:20Z", reason: "ran" }],
+    ["a handled slot inside the rest stays handled", TEN_RESTING, "2026-01-05T09:00:41Z", "2026-01-05T09:00:40Z", "2026-01-05T09:00:15Z", { run: false, slot: "2026-01-05T09:00:40Z", reason: "handled" }],
+    ["an every-10-minutes slot inside a rest of 10 minutes runs nothing", stepped("minutely", 10, { rest: 600 }), "2026-01-05T09:20:00Z", "2026-01-05T09:10:00Z", "2026-01-05T09:10:05Z", { run: false, slot: "2026-01-05T09:20:00Z", reason: "rest" }]
+];
+
+// The runs the guard makes: [label, schedule, after, the guard's last run
+// end, the start of a run in progress at `after` (null when none), the runs
+// after it]. Each run after the first rests from its start, the earliest
+// its run can end.
+const HOURLY_RESTING = stepped("hourly", 1, { rest: 7200 });
+const NEXT_RUNS = [
+    ["the first slot past a rest longer than the step", HOURLY_RESTING, "2026-01-05T14:00:30Z", "2026-01-05T14:00:30Z", null, ["2026-01-05T17:00:00Z", "2026-01-05T19:00:00Z"]],
+    ["an end long past holds back no slot", HOURLY_RESTING, "2026-01-05T14:00:30Z", "2026-01-05T09:00:00Z", null, ["2026-01-05T15:00:00Z", "2026-01-05T17:00:00Z"]],
+    ["a run in progress rests from now, not from the run before it", HOURLY_RESTING, "2026-01-05T14:05:00Z", "2026-01-05T11:00:30Z", "2026-01-05T14:00:00Z", ["2026-01-05T17:00:00Z", "2026-01-05T19:00:00Z"]],
+    ["a run in progress since after now, the clock stepped back, rests from its start", HOURLY_RESTING, "2026-01-05T14:55:00Z", "2026-01-05T11:00:30Z", "2026-01-05T15:00:30Z", ["2026-01-05T18:00:00Z", "2026-01-05T20:00:00Z"]],
+    ["a run in progress with no end before it rests from now", TEN_RESTING, "2026-01-05T09:00:05Z", null, "2026-01-05T09:00:00Z", ["2026-01-05T09:00:40Z", "2026-01-05T09:01:10Z"]],
+    ["a slot as the rest ends runs", TEN_RESTING, "2026-01-05T09:00:20Z", "2026-01-05T09:00:20Z", null, ["2026-01-05T09:00:50Z", "2026-01-05T09:01:20Z"]],
+    ["no ended run starts at the next slot", TEN_RESTING, "2026-01-05T09:00:00Z", null, null, ["2026-01-05T09:00:10Z", "2026-01-05T09:00:40Z", "2026-01-05T09:01:10Z"]],
+    ["a rest shorter than the step skips no slot", stepped("secondly", 30, { rest: 10 }), "2026-01-05T09:00:00Z", "2026-01-05T08:59:59Z", null, ["2026-01-05T09:00:30Z", "2026-01-05T09:01:00Z", "2026-01-05T09:01:30Z"]],
+    ["a rest of 0 keeps every slot", stepped("secondly", 10, { rest: 0 }), "2026-01-05T09:00:00Z", "2026-01-05T09:00:05Z", null, ["2026-01-05T09:00:10Z", "2026-01-05T09:00:20Z", "2026-01-05T09:00:30Z"]],
+    ["a rest past the end date leaves no run", stepped("hourly", 1, { rest: 7200, end: { type: "date", date: "2026-01-05" } }), "2026-01-05T21:30:00Z", "2026-01-05T21:30:00Z", null, []]
+];
+
 // Refused schedules: [label, schedule, the defect].
 const REFUSED = [
     ["no object", 3, "schedule: want=object"],
@@ -166,6 +205,11 @@ const REFUSED = [
     ["an end after N runs on an every-N-hours rule", stepped("hourly", 2, { end: { type: "count", count: 6 } }), "schedule.end.type: want=never|date"],
     ["an every-N-hours end before its start", stepped("hourly", 2, { end: { type: "date", date: "2025-12-31" } }), "schedule.end.date: want>=start"],
     ["an unknown key", schedule({ every: 2 }), "schedule.every: unknown"],
+    ["a rest on a daily rule", schedule({ rest: 30 }), "schedule.rest: unknown"],
+    ["a negative rest", stepped("secondly", 10, { rest: -1 }), "schedule.rest: want=0..86400"],
+    ["a fractional rest", stepped("secondly", 10, { rest: 1.5 }), "schedule.rest: want=0..86400"],
+    ["a rest past a day", stepped("minutely", 10, { rest: 86401 }), "schedule.rest: want=0..86400"],
+    ["a rest as text", stepped("hourly", 1, { rest: "30" }), "schedule.rest: want=0..86400"],
     ["weekdays on a daily rule", schedule({ weekdays: ["mon"] }), "schedule.weekdays: unknown"],
     ["an interval of 0", schedule({ interval: 0 }), "schedule.interval: want=1..99"],
     ["a fractional interval", schedule({ interval: 1.5 }), "schedule.interval: want=1..99"],
@@ -240,7 +284,7 @@ function verify(logic) {
         const d = new Date(at(value));
         return [d.getMonth() + 1, d.getDate(), d.getHours()];
     }), [[10, 31, 17], [11, 30, 16], [12, 31, 16]], "UTC preview instants render at local month end across the November clock change");
-    same(logic.guard(UTC_MONTHLY, at("2026-11-01T00:00:00Z"), at("2026-10-01T00:00:00Z"), false), { run: true, slot: at("2026-11-01T00:00:00Z"), reason: "ran" }, "the UTC guard admits the exact scheduled instant");
+    same(logic.guard(UTC_MONTHLY, at("2026-11-01T00:00:00Z"), at("2026-10-01T00:00:00Z"), false, null), { run: true, slot: at("2026-11-01T00:00:00Z"), reason: "ran" }, "the UTC guard admits the exact scheduled instant");
     assert.deepEqual(logic.calendarExpressions(UTC_MONTHLY), ["*-*-01 00:00:00 UTC"], "the systemd timer uses UTC");
     same(logic.cronLines([automation({ schedule: schedule({ zone: "utc" }) }), automation({ id: "local", schedule: TWICE_DAILY })], a => ["/bin/runner", "run", a.id], ["X=1"]), [
         "30 8 * * * env 'X=1' '/bin/runner' 'run' 'local'",
@@ -253,9 +297,30 @@ function verify(logic) {
     assert.throws(() => logic.nextOccurrences(schedule({}), 0, 51), /is not 1\.\.50/);
     same(logic.latestOccurrence(BIWEEKLY, at("2026-01-15T00:00:00Z")), at("2026-01-08T09:00:00Z"), "the latest skips the off week");
     for (const [label, s, now, handled, catchUp, want] of GUARD) {
-        const got = logic.guard(s, at(now), handled === null ? null : at(handled), catchUp);
+        const got = logic.guard(s, at(now), handled === null ? null : at(handled), catchUp, null);
         same({ run: got.run, slot: got.slot === null ? null : iso(got.slot), reason: got.reason }, want, "guard: " + label);
     }
+    for (const [label, s, now, handled, endedAt, want] of REST) {
+        const got = logic.guard(s, at(now), at(handled), false, endedAt === null ? null : at(endedAt));
+        same({ run: got.run, slot: got.slot === null ? null : iso(got.slot), reason: got.reason }, want, "rest: " + label);
+    }
+    for (const [label, s, after, endedAt, runningSince, want] of NEXT_RUNS) {
+        const latest = runningSince === null ? null : { automation: "a", run: "live", outcome: "running", startedAt: at(runningSince), endedAt: null };
+        const runs = logic.nextRuns(s, at(after), Math.max(1, want.length), endedAt === null ? null : at(endedAt), latest);
+        same(runs.map(iso), want, "next runs: " + label);
+        // The guard agrees on every calendar slot up to the last run: it
+        // runs each listed slot and rests through the others. A run in
+        // progress ends as soon as it can: at `after`, or at its start when
+        // that is later.
+        let ended = runningSince !== null ? Math.max(at(after), at(runningSince)) : endedAt === null ? null : at(endedAt);
+        for (const slot of logic.nextOccurrences(s, at(after), 10).filter(c => runs.length > 0 && c <= runs[runs.length - 1])) {
+            const decision = logic.guard(s, slot, slot - 1, false, ended);
+            same([iso(slot), decision.run], [iso(slot), runs.indexOf(slot) !== -1], "the guard at a slot of: " + label);
+            if (decision.run) ended = slot;
+        }
+    }
+    assert.throws(() => logic.nextRuns(TEN_RESTING, 0, 51, null, null), /is not 1\.\.50/);
+    assert.throws(() => logic.nextRuns(TEN_RESTING, 0, 1, null), /needs the newest run/, "no reader of upcoming runs omits the run in progress");
     for (const [label, s, want] of REFUSED) assert.equal(logic.scheduleError(s), want, "refused: " + label);
 
     // Presets from a start date and a time.
@@ -275,6 +340,10 @@ function verify(logic) {
     same(logic.parseStore(JSON.stringify({ version: 2, automations: [automation({ command: "echo one\necho two" })] })).ok, true, "a multi-line command is accepted");
     const one = { version: 2, automations: [automation({})] };
     same(logic.parseStore(logic.serializeStore(one)), { ok: true, store: one }, "a store reads back as written");
+    for (const s of [stepped("secondly", 10, { rest: 30 }), stepped("secondly", 10)]) {
+        const resting = { version: 2, automations: [automation({ schedule: s })] };
+        same(logic.parseStore(logic.serializeStore(resting)), { ok: true, store: resting }, "a version 2 store reads back with its rest or none: " + JSON.stringify(s));
+    }
     const added = logic.addAutomation(logic.emptyStore(), { name: "Back up notes!", command: "true", schedule: schedule({}) });
     same(added.automation, { name: "Back up notes!", command: "true", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, requiresNetwork: true, workingDirectory: "", notifyEveryRun: false, id: "back-up-notes" }, "add fills the defaults and derives the id");
     same(logic.addAutomation(added.store, { name: "Back up notes", command: "true", schedule: schedule({}) }).automation.id, "back-up-notes-2", "a derived id steps past a taken one");
@@ -287,7 +356,9 @@ function verify(logic) {
     same(logic.editAutomation(added.store, "back-up-notes", { timeoutSeconds: 0 }), { ok: false, error: "definition.timeoutSeconds: want=1..86400" });
     same(logic.removeAutomation(added.store, "back-up-notes").store.automations, []);
     same(logic.removeAutomation(added.store, "nope"), { ok: false, error: "id: unknown=nope" });
-    same(logic.parseGuardState("{\"handledThrough\":5}"), { ok: true, handledThrough: 5 });
+    same(logic.parseGuardState("{\"handledThrough\":5}"), { ok: true, handledThrough: 5, endedAt: null }, "a guard state written before the rest reads as no ended run");
+    same(logic.parseGuardState("{\"handledThrough\":5,\"endedAt\":7}"), { ok: true, handledThrough: 5, endedAt: 7 });
+    same(logic.parseGuardState("{\"handledThrough\":5,\"endedAt\":-1}"), { ok: false, error: "guard.endedAt: want=ms" });
     same(logic.parseGuardState("{\"handledThrough\":-1}"), { ok: false, error: "guard.handledThrough: want=ms" });
     same(logic.parseGuardState("{\"handledThrough\":1,\"x\":2}"), { ok: false, error: "guard.x: unknown" });
 
@@ -628,6 +699,23 @@ function verify(logic) {
     same([lingerUnknown.tone, Object.hasOwn(lingerUnknown, "action"), lingerUnknown.available, typeof lingerUnknown.hint === "string" && lingerUnknown.hint !== ""], ["info", false, false, true],
         "an unanswered loginctl offers no action and reads Not available with a hint");
     assert.equal(logic.refreshDelay({ automations: listed }, at("2026-02-02T08:00:00Z")), 3601000, "a second after the next run");
+    // A rest longer than the step: the next run, the bar's and the refresh
+    // are the first slot the guard runs. [label, history rows, now, the
+    // guard ends, the state, the next run, the bar's next run].
+    const resting = { version: 2, automations: [automation({ id: "rest", name: "Rest", schedule: HOURLY_RESTING })] };
+    const inProgress = [{ automation: "rest", run: "live", outcome: "running", reason: "", tone: "warning", startedAt: at("2026-02-01T14:00:00Z"), endedAt: null, transcript: "/t" }];
+    const LIST_REST = [
+        ["the next run waits out the rest after the last run's end", [], "2026-02-01T12:00:30Z", { rest: at("2026-02-01T12:00:30Z") }, "scheduled", "2026-02-01T15:00:00Z", "Sun 1 Feb 2026 15:00"],
+        ["no ended run takes no rest", [], "2026-02-01T12:00:30Z", { rest: null }, "scheduled", "2026-02-01T13:00:00Z", "Sun 1 Feb 2026 13:00"],
+        ["an automation the guard states omit has no ended run", [], "2026-02-01T12:00:30Z", undefined, "scheduled", "2026-02-01T13:00:00Z", "Sun 1 Feb 2026 13:00"],
+        ["a run in progress rests from now, not from the run before it", inProgress, "2026-02-01T14:05:00Z", { rest: at("2026-02-01T11:00:30Z") }, "running", "2026-02-01T17:00:00Z", "Sun 1 Feb 2026 17:00"]
+    ];
+    for (const [label, history, now, ends, state, next, bar] of LIST_REST) {
+        const row = logic.listRows(resting, history, at(now), {}, ends)[0];
+        same([row.state, iso(row.nextRun)], [state, next], "list: " + label);
+        same(logic.statusValues({ scheduler: "systemd", linger: "yes", automations: [row] }).nextRun, bar, "the bar's next run: " + label);
+        assert.equal(logic.refreshDelay({ automations: [row] }, at(now)), at(next) - at(now) + 1000, "the refresh: " + label);
+    }
     assert.equal(logic.refreshDelay({ automations: [] }, 0), 24 * 60 * 60 * 1000, "at most a day");
     same(logic.changedKeys({ a: 1, b: { x: 1 } }, { a: 1, b: { x: 2 }, c: 3 }), ["b", "c"]);
 
@@ -662,7 +750,7 @@ function verify(logic) {
         ["every hour at 02:00 CET", EVERY_HOUR, "2026-10-25T01:00:00Z", "2026-10-25T00:00:00Z", { run: false, slot: "2026-10-25T00:00:00Z", reason: "handled" }]
     ];
     for (const [label, s, now, handled, want] of repeated) {
-        const got = logic.guard(s, at(now), at(handled), false);
+        const got = logic.guard(s, at(now), at(handled), false, null);
         same({ run: got.run, slot: got.slot === null ? null : iso(got.slot), reason: got.reason }, want, "guard in the repeated hour: " + label);
     }
     process.env.TZ = "UTC";
@@ -800,7 +888,7 @@ function compareStepped(logic, analyze) {
         for (const c of cron) {
             if (!c.repeat || c.ms > last) continue;
             const handled = Math.max(...cron.filter(o => !o.repeat && o.ms < c.ms).map(o => o.ms));
-            assert.equal(logic.guard(s, c.ms, handled, false).reason, "handled", "cron's second pass at " + iso(c.ms) + " runs nothing: " + label);
+            assert.equal(logic.guard(s, c.ms, handled, false, null).reason, "handled", "cron's second pass at " + iso(c.ms) + " runs nothing: " + label);
             repeats += 1;
         }
     }
@@ -874,6 +962,15 @@ const CONTROLS = [
     ["a day of the week of the month", "if (s.monthly.week === -1 ? d > dim - 7 : Math.ceil(d / 7) === s.monthly.week) out.push(d);", "out.push(d);"],
     ["day 31 skips a short month", "if (s.monthly.by === \"date\") return s.monthly.day <= dim ? [s.monthly.day] : [];", "if (s.monthly.by === \"date\") return [Math.min(s.monthly.day, dim)];"],
     ["the guard skips a handled occurrence", "if (handledThrough !== null && slot <= handledThrough) return { run: false, slot: slot, reason: \"handled\" };", "if (false) return null;"],
+    ["the guard skips a slot inside the rest", "if (until !== null && slot < until) return { run: false, slot: slot, reason: \"rest\" };", ""],
+    ["a rest of 0 keeps the guard as it was", "return restMs(s) > 0 && endedAt !== null ? endedAt + restMs(s) : null;", "return endedAt !== null ? endedAt + restMs(s) : null;"],
+    ["a slot as the rest ends runs", "Math.max(after, until - 1)", "Math.max(after, until)"],
+    ["each next run rests from the one before", "        until = restUntil(s, next[0]);\n", "        until = null;\n"],
+    ["the next run reads the last run's end", "var next = nextRuns(a.schedule, nowMs, 1, hasOwn(endedById, a.id) ? endedById[a.id] : null, last);", "var next = nextRuns(a.schedule, nowMs, 1, null, last);"],
+    ["the next run reads the run in progress", "var next = nextRuns(a.schedule, nowMs, 1, hasOwn(endedById, a.id) ? endedById[a.id] : null, last);", "var next = nextRuns(a.schedule, nowMs, 1, hasOwn(endedById, a.id) ? endedById[a.id] : null, null);"],
+    ["a run in progress rests from now", "    return latest !== null && latest.outcome === \"running\" ? Math.max(latest.startedAt, nowMs) : endedAt;", "    return endedAt;"],
+    ["a run in progress rests from its start when that is later", "Math.max(latest.startedAt, nowMs)", "nowMs"],
+    ["every reader of upcoming runs names the newest run", "    if (latest === undefined) throw new Error(\"automations: nextRuns needs the newest run, null when none\");\n", ""],
     ["the guard skips a late one without catch-up", "if (catchUp !== true && nowMs - slot > LATE_GRACE_MS) return { run: false, slot: slot, reason: \"late\" };", "if (false) return null;"],
     ["a schedule needs an occurrence", "if (occurrencesFrom(s, null, 1).length === 0) return \"schedule: no occurrence\";", "if (false) return \"\";"],
     ["times ascend", "if (t > 0 && s.times[t] <= s.times[t - 1]) return", "if (false) return"],
@@ -1004,7 +1101,7 @@ try {
     process.env.TZ = "UTC";
 }
 if (analyze === null) {
-    console.log(`test-automations-logic: status=not-measured missing=systemd-analyze rows=${COMPILED.length + NEXT.length + GUARD.length + REFUSED.length} controls=${CONTROLS.length}`);
+    console.log(`test-automations-logic: status=not-measured missing=systemd-analyze rows=${COMPILED.length + NEXT.length + GUARD.length + REST.length + NEXT_RUNS.length + REFUSED.length} controls=${CONTROLS.length}`);
     process.exit(77);
 }
-console.log(`test-automations-logic: ok compiled=${COMPILED.length} next=${NEXT.length} guard=${GUARD.length} refused=${REFUSED.length} stores=${STORE_REFUSED.length} preview=${compared} controls=${CONTROLS.length}`);
+console.log(`test-automations-logic: ok compiled=${COMPILED.length} next=${NEXT.length} guard=${GUARD.length} rest=${REST.length} runs=${NEXT_RUNS.length} refused=${REFUSED.length} stores=${STORE_REFUSED.length} preview=${compared} controls=${CONTROLS.length}`);

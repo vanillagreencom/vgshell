@@ -41,6 +41,9 @@ var SYSTEMD_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 var MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 var ORDINALS = { "1": "first", "2": "second", "3": "third", "4": "fourth", "5": "fifth", "-1": "last" };
 var INTERVAL_MAX = 99;
+// A stepped rule's rest: the whole seconds after a run ends in which the
+// guard skips a slot, at most a day, as the timeout is.
+var REST_MAX = 86400;
 var TIMES_MAX = 24;
 var COUNT_MAX = 999;
 var END_TYPES = ["never", "date", "count"];
@@ -220,6 +223,11 @@ function scheduleInstant(y, m, d, time, schedule) {
 //              { by: "weekday", week: 1..5 or -1 (the last), weekday }
 //   yearly     yearly only: { month, day }, a day the month can hold
 //   zone       optional: "local" (the default) or "utc"
+//   rest       stepped frequencies only, optional: 0 (the default) to
+//              REST_MAX whole seconds after a run ends in which the guard
+//              skips a slot. The timer keeps its slots; the guard and
+//              nextRuns read it, so a run's end decides which slot runs
+//              next.
 //   times      day frequencies only: "HH:MM" in zone, 1 to TIMES_MAX,
 //              ascending and distinct. A stepped rule runs at
 //              every step from each local midnight instead.
@@ -236,12 +244,14 @@ function scheduleError(s) {
     var stepped = isStepFrequency(s.frequency);
     var allowed = ["frequency", "interval", "start", "end", "zone"];
     if (!stepped) allowed.push("times");
+    if (stepped) allowed.push("rest");
     if (s.frequency === "weekly") allowed.push("weekdays");
     if (s.frequency === "monthly") allowed.push("monthly");
     if (s.frequency === "yearly") allowed.push("yearly");
     var unknown = unknownKey(s, allowed, "schedule");
     if (unknown !== "") return unknown;
     if (hasOwn(s, "zone") && s.zone !== "local" && s.zone !== "utc") return "schedule.zone: want=local|utc";
+    if (hasOwn(s, "rest") && (!isWhole(s.rest) || s.rest < 0 || s.rest > REST_MAX)) return "schedule.rest: want=0.." + REST_MAX;
     if (stepped) {
         if (INTERVAL_STEPS[s.frequency].indexOf(s.interval) === -1) return "schedule.interval: want=" + INTERVAL_STEPS[s.frequency].join("|");
     } else if (!isWhole(s.interval) || s.interval < 1 || s.interval > INTERVAL_MAX) {
@@ -485,11 +495,15 @@ function occurrencesFrom(s, afterMs, count) {
     return out;
 }
 
-// The next `count` occurrences after `afterMs`, at most PREVIEW_MAX: what
-// the editor previews and `automations preview` prints.
+// The next `count` occurrences after `afterMs`, at most PREVIEW_MAX: the
+// calendar's slots, which the timer fires on whatever the rest.
 function nextOccurrences(s, afterMs, count) {
-    if (!isWhole(count) || count < 1 || count > PREVIEW_MAX) throw new Error("automations: preview count " + count + " is not 1.." + PREVIEW_MAX);
+    previewCount(count);
     return occurrencesFrom(s, afterMs, count);
+}
+
+function previewCount(count) {
+    if (!isWhole(count) || count < 1 || count > PREVIEW_MAX) throw new Error("automations: preview count " + count + " is not 1.." + PREVIEW_MAX);
 }
 
 // The latest occurrence at or before `atMs`, or null when none came yet.
@@ -519,20 +533,73 @@ function latestOccurrence(s, atMs) {
     return null;
 }
 
+// A schedule's rest in ms; 0 when it sets none.
+function restMs(s) {
+    return hasOwn(s, "rest") ? s.rest * 1000 : 0;
+}
+
+// The instant before which the rest after a run that ended at `endedAt`
+// skips a slot; null when the schedule sets no rest or no run ended.
+function restUntil(s, endedAt) {
+    return restMs(s) > 0 && endedAt !== null ? endedAt + restMs(s) : null;
+}
+
+// The earliest end the rest counts from at `nowMs`: `endedAt`, the guard
+// state's last run end (null when none ended), unless `latest`, the
+// automation's newest history row (null when it has none), is a run in
+// progress. That run ends no earlier than now or its start, to which the
+// runner clamps its end, and its end then replaces the guard's. A wait for
+// the network is not yet a run: it can end as a skip, which starts no rest.
+function restStart(endedAt, latest, nowMs) {
+    return latest !== null && latest.outcome === "running" ? Math.max(latest.startedAt, nowMs) : endedAt;
+}
+
+// The next `count` slots after `afterMs` that the guard runs, at most
+// PREVIEW_MAX: the calendar's occurrences less each slot that starts
+// within the rest after the last run's end (restStart, from `endedAt` and
+// `latest` read at `afterMs`), or within the rest after the slot before
+// it, since a run ends no earlier than it starts. A run that outlasts its
+// start skips more. What `list` shows as the next run and `automations
+// preview` prints. Every caller names the newest run, so no reader of
+// upcoming runs rests from a guard end that a run in progress outdates.
+function nextRuns(s, afterMs, count, endedAt, latest) {
+    previewCount(count);
+    if (latest === undefined) throw new Error("automations: nextRuns needs the newest run, null when none");
+    if (restMs(s) === 0) return occurrencesFrom(s, afterMs, count);
+    var out = [];
+    var after = afterMs;
+    var until = restUntil(s, restStart(endedAt, latest, afterMs));
+    while (out.length < count) {
+        // occurrencesFrom takes the instants after its bound, and a slot
+        // at `until` runs: the bound is a millisecond before it.
+        var bound = until === null ? after : after === null ? until - 1 : Math.max(after, until - 1);
+        var next = occurrencesFrom(s, bound, 1);
+        if (next.length === 0) break;
+        out.push(next[0]);
+        after = next[0];
+        until = restUntil(s, next[0]);
+    }
+    return out;
+}
+
 // What the runner does with a scheduled trigger at `nowMs`: run the latest
 // occurrence it has not handled, unless that occurrence is late and the
-// automation does not catch up. The timer fires on the tightest calendar
+// automation does not catch up, or it starts within the schedule's rest
+// after `endedAt`, the end of the automation's last run, null when none
+// ended. The timer fires on the tightest calendar
 // systemd can state, and cron on a coarser one, so a trigger on a day the
 // rule skips (an off week, a Tuesday outside its week, a day after the end)
 // finds an occurrence it already handled and runs nothing. `handledThrough`
 // is the last occurrence the guard decided on, or the time the automation
 // was last enabled, so nothing before that runs; null when neither exists.
-// { run, slot, reason }: reason ran, handled, late or none.
-function guard(s, nowMs, handledThrough, catchUp) {
+// { run, slot, reason }: reason ran, handled, late, rest or none.
+function guard(s, nowMs, handledThrough, catchUp, endedAt) {
     var slot = latestOccurrence(s, nowMs);
     if (slot === null) return { run: false, slot: null, reason: "none" };
     if (handledThrough !== null && slot <= handledThrough) return { run: false, slot: slot, reason: "handled" };
     if (catchUp !== true && nowMs - slot > LATE_GRACE_MS) return { run: false, slot: slot, reason: "late" };
+    var until = restUntil(s, endedAt);
+    if (until !== null && slot < until) return { run: false, slot: slot, reason: "rest" };
     return { run: true, slot: slot, reason: "ran" };
 }
 
@@ -634,6 +701,14 @@ function every(n, one, many) {
     return n === 1 ? one : "Every " + n + " " + many;
 }
 
+// Whole seconds in the largest unit that holds them exactly: "1 hour",
+// "2 minutes", "90 seconds".
+function secondsText(seconds) {
+    var unit = seconds % 3600 === 0 ? [3600, "hour"] : seconds % 60 === 0 ? [60, "minute"] : [1, "second"];
+    var n = seconds / unit[0];
+    return n + " " + unit[1] + (n === 1 ? "" : "s");
+}
+
 function longDate(text) {
     var d = parseDate(text);
     return d.d + " " + MONTH_NAMES[d.m - 1] + " " + d.y;
@@ -662,7 +737,8 @@ function weekdayNameOfDate(text) {
 }
 
 // The rule in one line: "Every weekday at 09:00", "Every 2 weeks on Monday
-// and Thursday at 08:30 and 17:00, 10 times", "Every 10 minutes".
+// and Thursday at 08:30 and 17:00, 10 times", "Every 10 minutes", "Every
+// 10 seconds, at least 30 seconds after the last run ends".
 function summaryText(s) {
     if (s.end.type === "count" && s.end.count === 1) {
         var first = occurrencesFrom(s, null, 1)[0];
@@ -701,10 +777,11 @@ function summaryText(s) {
     default:
         throw new Error("automations: frequency " + JSON.stringify(s.frequency) + " unjudged");
     }
+    var rest = restMs(s) > 0 ? ", at least " + secondsText(s.rest) + " after the last run ends" : "";
     var tail = s.end.type === "date" ? ", until " + longDate(s.end.date)
         : s.end.type === "count" ? (s.end.count === 1 ? ", once" : ", " + s.end.count + " times")
         : "";
-    return head + at + tail;
+    return head + at + rest + tail;
 }
 
 // --------------------------------------------------------------- store
@@ -870,8 +947,10 @@ function removeAutomation(store, id) {
     return { ok: true, store: { version: STORE_VERSION, automations: list } };
 }
 
-// The guard's per-automation state, `{ handledThrough }` in ms: the file
-// `add`, `enable` and every guarded trigger write.
+// The guard's per-automation state, `{ handledThrough, endedAt? }` in ms:
+// the file `add`, `enable` and every guarded trigger write, and every run's
+// end adds `endedAt` to, the rest's start. A file without `endedAt` reads
+// as no ended run: { ok, handledThrough, endedAt } with endedAt null.
 function parseGuardState(text) {
     var doc;
     try {
@@ -880,10 +959,11 @@ function parseGuardState(text) {
         return { ok: false, error: "guard: not-json" };
     }
     if (!isPlainObject(doc)) return { ok: false, error: "guard: want=object" };
-    var unknown = unknownKey(doc, ["handledThrough"], "guard");
+    var unknown = unknownKey(doc, ["handledThrough", "endedAt"], "guard");
     if (unknown !== "") return { ok: false, error: unknown };
     if (!isWhole(doc.handledThrough) || doc.handledThrough < 0) return { ok: false, error: "guard.handledThrough: want=ms" };
-    return { ok: true, handledThrough: doc.handledThrough };
+    if (hasOwn(doc, "endedAt") && (!isWhole(doc.endedAt) || doc.endedAt < 0)) return { ok: false, error: "guard.endedAt: want=ms" };
+    return { ok: true, handledThrough: doc.handledThrough, endedAt: hasOwn(doc, "endedAt") ? doc.endedAt : null };
 }
 
 // ------------------------------------------------------ units and cron
@@ -1481,18 +1561,22 @@ function parsePending(text) {
 // --------------------------------------------------------------- status
 
 // The rows `list --json` prints, one per automation, from the store, the
-// history rows newest first and the time: its settings, its summary, its
-// state, its next occurrence (null when paused or ended), its last run and
-// the engine's live waiting marker, if any. A manual wait can be paused;
-// scheduled pauses and an actual running command take precedence.
-function listRows(store, rows, nowMs, pendingById) {
+// history rows newest first, the time, the engine's live waiting markers
+// and `endedById`, each automation's last run end from its guard state
+// (absent or null when none ended): its settings, its summary, its state,
+// its next run (nextRuns, resting from a run in progress: null when paused
+// or ended), its last run and its waiting marker, if any. A manual wait can
+// be paused; scheduled pauses and an actual running command take
+// precedence.
+function listRows(store, rows, nowMs, pendingById, endedById) {
     pendingById = pendingById || {};
+    endedById = endedById || {};
     var latest = {};
     for (var i = 0; i < rows.length; i++)
         if (!hasOwn(latest, rows[i].automation)) latest[rows[i].automation] = rows[i];
     return store.automations.map(function (a) {
-        var next = occurrencesFrom(a.schedule, nowMs, 1);
         var last = hasOwn(latest, a.id) ? latest[a.id] : null;
+        var next = nextRuns(a.schedule, nowMs, 1, hasOwn(endedById, a.id) ? endedById[a.id] : null, last);
         var pending = hasOwn(pendingById, a.id) ? pendingById[a.id] : null;
         if (last !== null && last.outcome === "running") pending = null;
         if (!a.enabled && (pending === null || pending.trigger !== "manual")) pending = null;

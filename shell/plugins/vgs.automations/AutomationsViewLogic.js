@@ -93,6 +93,7 @@ function blankDraft(nowMs, logic) {
         yearlyEdited: false,
         times: [nextHourText(nowMs, logic)],
         zone: "local",
+        rest: 0,
         start: today,
         endType: "never",
         endDate: today,
@@ -205,6 +206,7 @@ function draftFromAutomation(row, logic) {
     draft.frequency = schedule.frequency;
     draft.interval = schedule.interval;
     draft.zone = schedule.zone === undefined ? "local" : schedule.zone;
+    draft.rest = schedule.rest === undefined ? 0 : schedule.rest;
     draft.weekdays = schedule.weekdays ? schedule.weekdays.slice() : draft.weekdays;
     if (schedule.times !== undefined) draft.times = schedule.times.slice();
     draft.start = schedule.start;
@@ -276,6 +278,13 @@ function scheduleWithZone(schedule, draft) {
     return schedule;
 }
 
+// A rest of 0 is the absent default, so a stepped rule saved without one
+// keeps the schedule it was stored with.
+function scheduleWithRest(schedule, draft) {
+    if (Number(draft.rest) > 0) schedule.rest = Number(draft.rest);
+    return schedule;
+}
+
 function scheduleFromDraft(draft, logic) {
     var time = draft.times.length > 0 ? draft.times[0] : "09:00";
     var schedule;
@@ -284,7 +293,7 @@ function scheduleFromDraft(draft, logic) {
     } else if (draft.preset === "once") {
         schedule = { frequency: "daily", interval: 1, times: [time], start: draft.start, end: { type: "count", count: 1 } };
     } else if (logic.isStepFrequency(draft.frequency)) {
-        return scheduleWithZone({ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }, draft);
+        return scheduleWithRest(scheduleWithZone({ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }, draft), draft);
     } else {
         schedule = { frequency: draft.frequency, interval: Number(draft.interval), times: [], start: draft.start, end: { type: "never" } };
         if (draft.frequency === "weekly") schedule.weekdays = draft.weekdays.slice();
@@ -332,11 +341,13 @@ function validation(draft, logic, nowMs) {
     if (String(draft.workingDirectory || "") !== "" && String(draft.workingDirectory).charAt(0) !== "/") errors.workingDirectory = "Use an absolute working directory.";
     if (draft.workingDirectoryMissing === true) errors.workingDirectory = "Choose an existing working directory.";
     if (Number(draft.timeoutSeconds) < logic.TIMEOUT_MIN || Number(draft.timeoutSeconds) > logic.TIMEOUT_MAX) errors.timeout = "Choose a timeout from 1 second to 24 hours.";
+    // The Rest field takes five digits, more than the judge's limit.
+    if (isStepDraft(draft, logic) && Number(draft.rest) > logic.REST_MAX) errors.rest = "Choose a rest from 0 to " + logic.REST_MAX + " seconds (" + logic.secondsText(logic.REST_MAX) + ").";
     var schedule = null;
     try {
         schedule = scheduleFromDraft(draft, logic);
         var defect = logic.scheduleError(schedule);
-        if (defect !== "" && errors.times === undefined && errors.end === undefined) errors.schedule = friendlyScheduleError(defect);
+        if (defect !== "" && errors.times === undefined && errors.end === undefined && errors.rest === undefined) errors.schedule = friendlyScheduleError(defect);
         // A rule with no run ahead saves an automation that never runs,
         // since adding it marks every earlier occurrence handled.
         else if (defect === "" && logic.nextOccurrences(schedule, nowMs === undefined ? Date.now() : nowMs, 1).length === 0)

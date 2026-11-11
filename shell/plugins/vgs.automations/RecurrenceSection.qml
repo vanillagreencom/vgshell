@@ -146,11 +146,17 @@ Section {
             Row {
                 width: parent.width
                 spacing: Theme.space.xs
+                // ASCII digits alone, which Number() reads exactly. IntValidator
+                // takes the locale's digits and group separators, which Number()
+                // misreads: "1,000" as NaN, German "1.000" as 1
+                // (https://doc.qt.io/qt-6/qintvalidator.html). The pattern matches
+                // the whole text (https://doc.qt.io/qt-6/qregularexpressionvalidator.html),
+                // and the judge holds the range. Every number field here does the same.
                 TextField {
                     width: Theme.size.control.lg
                     visible: !root.stepped
                     text: String(root.draft.interval)
-                    validator: IntValidator { bottom: 1; top: 99 }
+                    validator: RegularExpressionValidator { regularExpression: /[0-9]{0,2}/ }
                     onTextEdited: root.change("interval", Number(text))
                 }
                 Select {
@@ -177,6 +183,30 @@ Section {
             }
         }
 
+        // The judge's rest: the guard skips a slot that starts within it
+        // after a run ends; the timer keeps every slot, and the list and
+        // the preview show the slots the guard runs.
+        Field {
+            label: "Rest"
+            inline: true
+            width: parent.width
+            visible: root.stepped
+            info: "Choose from 0 to " + Engine.REST_MAX + " seconds (" + Engine.secondsText(Engine.REST_MAX) + "). After a run ends, Automations skips each scheduled time until the rest is over, so the next run cannot start just after a slow run. With 0, the automation runs at every scheduled time. Run now does not wait for the rest."
+            error: root.validation.errors.rest || ""
+            Row {
+                width: parent.width
+                spacing: Theme.space.xs
+                TextField {
+                    width: Theme.size.control.lg
+                    text: String(root.draft.rest)
+                    error: root.validation.errors.rest !== undefined
+                    validator: RegularExpressionValidator { regularExpression: /[0-9]{0,5}/ }
+                    onTextEdited: root.change("rest", Number(text))
+                }
+                Label { role: "item"; text: "seconds after each run"; anchors.verticalCenter: parent.verticalCenter }
+            }
+        }
+
         Field {
             label: "Weekdays"
             width: parent.width
@@ -197,7 +227,7 @@ Section {
                     width: parent.width
                     visible: root.draft.monthlyMode === "date"
                     text: String(root.draft.monthlyDay)
-                    validator: IntValidator { bottom: 1; top: 31 }
+                    validator: RegularExpressionValidator { regularExpression: /[0-9]{0,2}/ }
                     onTextEdited: root.change("monthlyDay", Number(text))
                 }
                 Radio { text: "On the " + View.ordinal(root.draft.monthlyWeek) + " " + Engine.WEEKDAY_NAMES[Engine.WEEKDAYS.indexOf(root.draft.monthlyWeekday)]; checked: root.draft.monthlyMode === "weekday"; onClicked: root.change("monthlyMode", "weekday") }
@@ -244,7 +274,7 @@ Section {
                 TextField {
                     width: parent.width - x
                     text: String(root.draft.yearlyDay)
-                    validator: IntValidator { bottom: 1; top: 31 }
+                    validator: RegularExpressionValidator { regularExpression: /[0-9]{0,2}/ }
                     onTextEdited: root.change("yearlyDay", Number(text))
                 }
             }
@@ -273,7 +303,7 @@ Section {
                         width: Theme.size.panel.sm
                         visible: root.draft.endType === "count"
                         text: String(root.draft.endCount)
-                        validator: IntValidator { bottom: 1; top: 999 }
+                        validator: RegularExpressionValidator { regularExpression: /[0-9]{0,3}/ }
                         onTextEdited: root.change("endCount", Number(text))
                     }
                     Label { role: "item"; text: "occurrences"; visible: root.draft.endType === "count"; anchors.verticalCenter: parent.verticalCenter }

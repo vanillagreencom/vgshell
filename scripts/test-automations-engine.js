@@ -7,7 +7,8 @@
 // sends through a stand-in notify-send and the failure streak that keeps
 // one notice open across runs on the notification server a stand-in
 // busctl names, run-now through a stand-in
-// systemd-run, the scheduled trigger's guard, history with a running and a
+// systemd-run, the scheduled trigger's guard and the rest after a run's
+// end, history with a running and a
 // vanished run, clear and pruning with the plugin's historyDays setting, the
 // cron startup line that catches up a missed occurrence, a
 // timed-out run that waits for a descendant ignoring SIGTERM, and output
@@ -547,6 +548,39 @@ const CASES = {
         assert.equal(JSON.parse(fs.readFileSync(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", "job.json"), "utf8")).handledThrough, rec.slot);
         assert.equal(cli(w, engine, ["disable", id]).status, 0);
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=paused");
+    },
+
+    "a rest holds scheduled slots after a run ends and Run now never waits"(engine) {
+        const start = Date.parse("2026-11-11T09:00:00Z");
+        const w = world({ nowMs: start + 1000 });
+        const id = add(w, engine, { notifyEveryRun: true, schedule: { frequency: "secondly", interval: 10, rest: 30, start: "2026-11-11", end: { type: "never" }, zone: "utc" } });
+        same(fs.readFileSync(path.join(w.units, "vgs-automation-" + id + ".timer"), "utf8").split("\n").filter(line => line.startsWith("OnCalendar=")), ["OnCalendar=*-*-* *:*:00/10 UTC"], "the timer keeps every 10-second slot");
+        same(JSON.parse(fs.readFileSync(w.store, "utf8")).version, 2, "a rest needs no new store version");
+        const row = listed(w, engine, id);
+        same([row.schedule.rest, row.summary], [30, "Every 10 seconds, at least 30 seconds after the last run ends"], "list reads the rest back");
+        // The clock stands still while a command runs, so a run started a
+        // second after its slot ends then too.
+        const trigger = s => { clockAt(w, start + s * 1000 + 1000, 0); return cli(w, engine, ["run", "--scheduled", id]); };
+        const ran = () => runFiles(w).filter(n => n.endsWith(".ended.json")).length;
+        same([trigger(10).status, ran()], [0, 1], "the slot at 10 s, with no ended run, runs");
+        same(listed(w, engine, id).nextRun, start + 50000, "list's next run is the slot at 50 s, the first past the rest after the end at 11 s");
+        const preview = cli(w, engine, ["preview", "--schedule", JSON.stringify(row.schedule), "--count", "3", "--after", String(start)]);
+        same(JSON.parse(preview.stdout).occurrences, [10000, 40000, 70000].map(ms => start + ms), "the preview rests from each run's start");
+        const files = runFiles(w).length;
+        const notices = calls(w, "notify-send").length;
+        for (const s of [20, 30, 40]) {
+            const out = trigger(s);
+            same([out.status, out.first, runFiles(w).length, calls(w, "notify-send").length], [0, "automations: skipped=" + id + " reason=rest", files, notices],
+                "the slot at " + s + " s starts within 30 s of the end at 11 s: no record and no notice");
+        }
+        same([trigger(50).status, ran()], [0, 2], "the slot at 50 s, the first past the rest, runs");
+        clockAt(w, start + 65000, 0);
+        same([manual(w, engine, id).status, ran()], [0, 3], "Run now at 65 s, within the rest after the end at 51 s, runs");
+        clockAt(w, start + 66000, 0);
+        for (const verb of ["disable", "enable"]) assert.equal(cli(w, engine, [verb, id]).status, 0, verb);
+        const held = trigger(90);
+        same([held.first, ran()], ["automations: skipped=" + id + " reason=rest", 3], "the slot at 90 s is within the rest after Run now's end at 65 s, which enabling again keeps");
+        same([trigger(100).status, ran()], [0, 4], "the slot at 100 s runs");
     },
 
     "shared connectivity reader preserves typed results and CLI output"() {
@@ -1414,6 +1448,11 @@ const CONTROLS = [
     ["sync reloads after a unit change", "add writes the units, reloads and enables the timer", "if (removed.length + changed.length > 0) systemctl([\"daemon-reload\"]);", ""],
     ["the units run a copy of the engine", "add writes the units, reloads and enables the timer", "if (fs.existsSync(path.join(dir, \"bin\", \"automations\"))) return dir;", "return PLUGIN_DIR;"],
     ["add marks the past handled", "a scheduled trigger runs only what the guard allows", "    markHandled(judged.automation.id, Date.now());\n", "\n"],
+    ["a run's end starts the rest", "a rest holds scheduled slots after a run ends and Run now never waits", "if (state.ok && state.handledThrough !== null) writeGuard(id, state.handledThrough, request.endedAt);", ""],
+    ["a decided slot keeps the run's end", "a rest holds scheduled slots after a run ends and Run now never waits", "writeGuard(automation.id, decision.slot, decision.endedAt);", "writeGuard(automation.id, decision.slot, null);"],
+    ["enabling keeps the run's end", "a rest holds scheduled slots after a run ends and Run now never waits", "writeGuard(id, ms, state.ok ? state.endedAt : null);", "writeGuard(id, ms, null);"],
+    ["list reads the run's end", "a rest holds scheduled slots after a run ends and Run now never waits", "ended[automation.id] = state.ok ? state.endedAt : null;", "ended[automation.id] = null;"],
+    ["the preview shows the runs the guard makes", "a rest holds scheduled slots after a run ends and Run now never waits", "occurrences: Logic.nextRuns(schedule, after, count, null, null)", "occurrences: Logic.nextOccurrences(schedule, after, count)"],
     ["a changed active timer restarts", "edit, disable, enable and remove follow the store", "if (restarted.length > 0) systemctl([\"restart\"].concat(restarted));", ""],
     ["a disabled timer is stopped", "edit, disable, enable and remove follow the store", "if (timersGone.length > 0) systemctl([\"disable\", \"--now\"].concat(timersGone));", ""],
     ["the started record comes before the command", "a run that succeeds writes both records and its transcript", "writeAtomic(path.join(runsDir, Logic.runFile(id, runId, \"started\")), JSON.stringify(started) + \"\\n\", 0o600);", ""],

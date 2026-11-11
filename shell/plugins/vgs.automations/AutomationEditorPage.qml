@@ -270,10 +270,16 @@ FocusScope {
                         Row {
                             width: parent.width
                             spacing: Theme.space.xs
+                            // ASCII digits alone, which Number() reads exactly. IntValidator
+                            // takes the locale's digits and group separators, which Number()
+                            // misreads: "1,000" as NaN, German "1.000" as 1
+                            // (https://doc.qt.io/qt-6/qintvalidator.html). The pattern matches
+                            // the whole text (https://doc.qt.io/qt-6/qregularexpressionvalidator.html),
+                            // and the judge holds the range.
                             TextField {
                                 width: Theme.size.panel.sm
                                 text: String(View.timeoutAmount(page.draft.timeoutSeconds).amount)
-                                validator: IntValidator { bottom: 1; top: 1440 }
+                                validator: RegularExpressionValidator { regularExpression: /[0-9]{0,4}/ }
                                 onTextEdited: page.change("timeoutSeconds", View.timeoutSeconds(Number(text), unit.currentText))
                             }
                             Select {

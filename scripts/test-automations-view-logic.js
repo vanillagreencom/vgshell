@@ -150,6 +150,28 @@ function run(view, logic) {
     same(view.scheduleFromDraft(secondsDraft, logic), secondsSchedule, "seconds round-trip without times");
     assert.equal(view.validation(secondsDraft, logic, now).ok, true);
     assert.equal(view.summary(secondsDraft, logic), "Every 30 seconds");
+    // A rest set through the command survives an edit in the window, and a
+    // rule saved without one keeps no rest key.
+    assert.equal(secondsDraft.rest, 0, "a rule saved without a rest reopens with 0");
+    assert.equal("rest" in view.scheduleFromDraft(secondsDraft, logic), false, "a rest of 0 stays the absent default");
+    const restingSchedule = Object.assign({}, secondsSchedule, { interval: 10, rest: 30 });
+    const restingRow = Object.assign({}, row, { schedule: restingSchedule });
+    const restingDraft = view.draftFromAutomation(restingRow, logic);
+    same([restingDraft.preset, restingDraft.rest], ["custom", 30], "a rule with a rest reopens with it");
+    same(view.definitionFromDraft(Object.assign(view.clone(restingDraft), { name: "Renamed" }), logic).schedule, restingSchedule, "an edit in the window keeps the rest");
+    assert.equal(view.summary(restingDraft, logic), "Every 10 seconds, at least 30 seconds after the last run ends");
+    assert.equal(view.validation(restingDraft, logic, now).ok, true);
+    // A rest above the judge's limit is the Rest field's error, not the
+    // rule's.
+    for (const [name, rest, keys] of [
+        ["the limit", logic.REST_MAX, []],
+        ["one second over the limit", logic.REST_MAX + 1, ["rest"]],
+        ["the five digits the field takes", 99999, ["rest"]]
+    ])
+        same(Object.keys(view.validation(Object.assign(view.clone(restingDraft), { rest: rest }), logic, now).errors), keys, "a rest at " + name);
+    assert.equal(view.draftChanged(restingDraft, restingRow, logic), false, "a reopened rest is no change");
+    assert.equal(view.draftChanged(Object.assign(view.clone(restingDraft), { rest: 45 }), restingRow, logic), true, "a new rest is a change to save");
+    assert.equal("rest" in view.scheduleFromDraft(Object.assign(view.clone(restingDraft), { frequency: "daily", interval: 1, times: ["09:00"] }), logic), false, "a day rule takes no rest");
     const secondRuns = logic.nextOccurrences(secondsSchedule, now, 3);
     same(secondRuns, [now + 30000, now + 60000, now + 90000], "the next-run preview advances every 30 seconds");
     for (const [offset, suffix] of [[0, ":00"], [30000, ":30"]])
@@ -257,7 +279,11 @@ try {
         ["empty commands are accepted", "if (String(draft.command || \"\").trim() === \"\") errors.command = \"Add the command this automation runs.\";", "if (false) errors.command = \"Add the command this automation runs.\";"],
         ["a rule with no run ahead is accepted", "else if (defect === \"\" && logic.nextOccurrences(schedule, nowMs === undefined ? Date.now() : nowMs, 1).length === 0)", "else if (false)"],
         ["reopening an interval rule reads its times", "if (schedule.times !== undefined) draft.times = schedule.times.slice();", "draft.times = schedule.times.slice();"],
-        ["an interval rule keeps its selected time zone", "return scheduleWithZone({ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }, draft);", "return { frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) };"],
+        ["an interval rule keeps its selected time zone", "scheduleWithZone({ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }, draft)", "{ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }"],
+        ["an interval rule keeps its rest", "if (Number(draft.rest) > 0) schedule.rest = Number(draft.rest);", ""],
+        ["a rest over the limit goes unjudged", "if (isStepDraft(draft, logic) && Number(draft.rest) > logic.REST_MAX) errors.rest", "if (false) errors.rest"],
+        ["a rest over the limit is the rule's error","&& errors.rest === undefined) errors.schedule", ") errors.schedule"],
+        ["a reopened rule keeps its rest","draft.rest = schedule.rest === undefined ? 0 : schedule.rest;", "draft.rest = 0;"],
         ["an interval rule needs a time", "if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times)", "if ((!Array.isArray(draft.times)"],
         ["a frequency choice keeps an end after N runs", "if (draft.endType === \"count\") out.push([\"endType\", \"never\"]);", ""],
         ["a frequency choice keeps a step the rule cannot take", "if (steps.indexOf(Number(draft.interval)) === -1) out.push([\"interval\", steps[0]]);", ""],

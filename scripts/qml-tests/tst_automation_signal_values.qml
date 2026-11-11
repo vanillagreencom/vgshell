@@ -158,6 +158,42 @@ Item {
             compare(window.validationResult.ok, true);
         }
 
+        // The Rest field shows for a stepped rule alone, and its edit
+        // reaches the definition the engine saves as a number. Typed keys
+        // pass its validator, which takes the digits alone, so English and
+        // German grouped input, which Number() read as NaN and as 1, saves
+        // the number its digits spell.
+        function test_rest_edit_reaches_the_draft_and_engine_definition() {
+            const window = opened();
+            const restField = descendants(window).find(item => item instanceof Field && item.label === "Rest");
+            verify(restField !== undefined);
+            compare(restField.visible, false, "a weekly rule has no rest");
+            const draft = View.clone(window.draft);
+            draft.frequency = "secondly";
+            draft.interval = 10;
+            window.loadDraft(draft);
+            renderedFrame(window);
+            const shown = descendants(window).find(item => item instanceof Field && item.label === "Rest");
+            tryVerify(() => shown.visible, 5000, "a seconds rule shows its rest");
+            const input = descendants(shown).find(item => item instanceof TextField);
+            verify(input !== undefined);
+            compare(input.text, "0");
+            input.text = "30";
+            input.textEdited();
+            compare(window.draft.rest, 30);
+            compare(typeof window.draft.rest, "number");
+            compare(window.validationResult.ok, true);
+            compare(View.definitionFromDraft(window.draft, Engine).schedule.rest, 30);
+            input.forceActiveFocus();
+            tryVerify(() => input.activeFocus, 5000, "the Rest field takes the keys");
+            for (const typed of ["1,000", "1.000"]) {
+                input.selectAll();
+                for (const key of typed) keyClick(key);
+                compare([input.text, window.draft.rest, window.validationResult.ok], ["1000", 1000, true], typed);
+                compare(View.definitionFromDraft(window.draft, Engine).schedule.rest, 1000, typed);
+            }
+        }
+
         function test_change_keeps_primitive_field_types() {
             const window = opened();
             const editor = descendants(window).find(item => item instanceof Automations.AutomationEditorPage);

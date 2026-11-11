@@ -10418,19 +10418,29 @@ scene_automations() { # MODE
   type_keys -k Escape || fail "closing the date picker failed"
   expect_poll "the date picker closes" false automation_date_open
   if "$has_interval_rules"; then
-    local ten='{"name":"Shot every 10 minutes","command":"printf ten",'"$local_net"'"notifyEveryRun":false,"schedule":{"frequency":"minutely","interval":10,"start":"2026-01-05","end":{"type":"never"}}}'
+    # A tree whose judge has rests gives the rule one of 30 seconds, so its
+    # list row and editor draw the rest; an older tree's engine refuses the key.
+    local ten_rest=''
+    grep -qF -- 'REST_MAX' "$tree/shell/plugins/vgs.automations/AutomationsLogic.js" && ten_rest=',"rest":30'
+    local ten='{"name":"Shot every 10 minutes","command":"printf ten",'"$local_net"'"notifyEveryRun":false,"schedule":{"frequency":"minutely","interval":10'"$ten_rest"',"start":"2026-01-05","end":{"type":"never"}}}'
     automations_shot add --definition "$ten" >/dev/null || fail "adding the every-10-minutes automation failed"
     automation_click IconButton "Back to automations" || fail "returning to the list for the every-10-minutes rule failed"
     expect_poll "the automations list shows the every-10-minutes rule" True automation_list_has "Shot every 10 minutes"
+    expect "the Automations window's root takes the focus for the every-10-minutes list image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
+    take "automations-$1-list-every-10-minutes"
     click_in window:Automations window vgs.automations AutomationRow "Shot every 10 minutes" || fail "selecting the every-10-minutes automation failed"
     expect_poll "the every-10-minutes preview has a first occurrence" True auto_shot_preview_ready
-    expect_poll "the every-10-minutes summary is drawn" '"Every 10 minutes"' automation_read previewSummary
+    auto_ten_summary_drawn() { automation_read previewSummary | py_reply 'import json,sys; print(str(json.load(sys.stdin)).startswith("Every 10 minutes"))'; }
+    expect_poll "the every-10-minutes summary is drawn" True auto_ten_summary_drawn
     # The editor in two parts: the rule, whose Every field lists steps,
     # then its preview.
     automation_reveal Select 10 || fail "revealing the every-10-minutes rule failed"
     expect "the Automations window's root takes the focus for the every-10-minutes rule image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
     take "automations-$1-editor-every-10-minutes-rule"
-    automation_reveal Label "Every 10 minutes" || fail "revealing the every-10-minutes preview failed"
+    # The preview's summary Label reads the whole rule, its rest included.
+    local ten_summary
+    ten_summary="$(automation_read previewSummary | py_reply 'import json,sys; print(json.load(sys.stdin))')" || fail "the every-10-minutes summary is unreadable"
+    automation_reveal Label "$ten_summary" || fail "revealing the every-10-minutes preview failed"
     expect "the Automations window's root takes the focus for the every-10-minutes preview image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
     take "automations-$1-editor-every-10-minutes-preview"
   fi
