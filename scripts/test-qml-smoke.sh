@@ -183,7 +183,7 @@ if [[ $selected_case == completion || $selected_case == all ]]; then
   # and recorder with neutral row bodies. Barriers exist only in copies.
   cp -- "$tree/scripts/smoke/rows/following.sh" "$TMP_ROOT/following.before"
   cat >"$TMP_ROOT/completion-case.py" <<'PY'
-import hashlib, json, os, pathlib, re, signal, subprocess, sys, time
+import errno, hashlib, json, os, pathlib, re, signal, subprocess, sys, time
 repo, tree, scratch = map(pathlib.Path, sys.argv[1:])
 def change(text, old, new):
     assert text.count(old) == 1, (old, text.count(old))
@@ -426,6 +426,14 @@ for phase, attempt_stop, worlds, native in cases:
 # closing reading. The teardown must still take the reading. Each control
 # restores one half of the old stop order, bubblewrap's monitor dying of
 # the TERM or the teardown dying of its write, and must lose the reading.
+# The held case forces the order a busy host can give that stop: the world
+# shell has entered its teardown on the unit's TERM, short of the point
+# where the old teardown ignored stops, before the fence's copy of the stop
+# reaches it. The world's copy of the teardown reports teardown-entered and
+# waits; the fence's copy of its forward reports forward-held and waits,
+# then reports forwarded once its kill has returned. The teardown must take
+# the reading and the recorder write its teardown record; its control, the
+# teardown with no trap for the stops, must lose both.
 stop_harness = change(mini, 'smoke_row() { source "$repo/scripts/smoke/rows/$1.sh" >"$sandbox/rows/$1.out" 2>&1; }',
                       'smoke_row() { source "$repo/scripts/smoke/rows/$1.sh" > >(exec cat >"$sandbox/rows/$1.out") 2>&1; }')
 def tree_of(pid):
@@ -439,7 +447,16 @@ def tree_of(pid):
             except OSError:
                 pass
     return found
-def unit_stop(label, fence_source, teardown_source, want_close):
+forward_kill = '    [[ ! ${fields[2]-} =~ ^[1-9][0-9]*$ ]] || kill -s "$1" -- "-${fields[2]}" 2>/dev/null || true\n'
+held_fence = change(fence, forward_kill,
+                    '    mkfifo "${outputs[-1]}/forward-release"; : >"${outputs[-1]}/forward-held"; read -r _ <"${outputs[-1]}/forward-release"\n'
+                    + forward_kill + '    : >"${outputs[-1]}/forwarded"\n')
+teardown_ignore = "  trap '' TERM INT HUP\n  completion_barrier producer-close\n"
+held_teardown = change(teardown, teardown_ignore,
+                       '  mkfifo "$qml_smoke_attempt/teardown-release"; : >"$qml_smoke_attempt/teardown-entered"; IFS= read -r _ <"$qml_smoke_attempt/teardown-release"\n'
+                       + teardown_ignore)
+stop_traps = ''.join(f"trap 'trap \"\" TERM INT HUP; trap - EXIT; cleanup {status}; exit {status}' {name}\n" for name, status in (('TERM', 143), ('INT', 130), ('HUP', 129)))
+def unit_stop(label, fence_source, teardown_source, want_close, held=False):
     output = scratch / ('unit-stop-' + label)
     output.mkdir()
     (tree / 'completion-phase').write_text('mid-row\n')
@@ -467,12 +484,48 @@ def unit_stop(label, fence_source, teardown_source, want_close):
                     os.kill(pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
+            if held:
+                entered, holding = attempt / 'teardown-entered', attempt / 'forward-held'
+                while not (entered.exists() and holding.exists()) and child.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert entered.exists() and holding.exists(), ('stop-not-held', label, entered.exists(), holding.exists())
+                with (attempt / 'forward-release').open('w') as release:
+                    release.write('release\n')
+                forwarded = attempt / 'forwarded'
+                while not forwarded.exists() and child.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert forwarded.exists(), ('copy-not-forwarded', label)
+                # The fence wrote forwarded after its kill returned, so the
+                # copy is pending on the world shell or already handled. The
+                # kernel runs a pending handler on the shell's next return to
+                # user mode, before its next command, so this release cannot
+                # let a teardown that has not yet ignored the stops reach its
+                # ignore first. A shell the copy ended has no reader.
+                try:
+                    descriptor = os.open(attempt / 'teardown-release', os.O_WRONLY | os.O_NONBLOCK)
+                except OSError as error:
+                    assert error.errno == errno.ENXIO, ('teardown-release', error)
+                else:
+                    try:
+                        os.write(descriptor, b'release\n')
+                    except BrokenPipeError:
+                        pass
+                    finally:
+                        os.close(descriptor)
             child.wait(timeout=30)
             readings = (attempt / 'judge-readings').read_text().splitlines()
             assert readings[:len(core) * 2] == [f'{row} {edge} 0 0 intact' for row in core for edge in ('start', 'end')], readings
             assert readings[len(core) * 2] == 'stop-here start 0 0 intact', readings
             closed = readings[len(core) * 2 + 1:] == ['- close 0 0 intact']
             assert closed == want_close, ('closing-reading', label, readings)
+            if held:
+                world = (attempt / 'world').read_bytes().split(b'\0')
+                record = pathlib.Path(os.fsdecode(world[2])) / 'teardown'
+                if want_close:
+                    fields = dict(line.split('=', 1) for line in record.read_text().splitlines())
+                    assert fields['world_exit'] == '143' and fields['completion'] == str(attempt / 'completion.json'), ('teardown-record', fields)
+                else:
+                    assert not record.exists(), ('control-kept-teardown-record', label)
             if label == 'shipped':
                 # The stop also ended the attempt's log reader. The driver
                 # traps the stop and writes its summary to this log, not
@@ -500,6 +553,8 @@ def unit_stop(label, fence_source, teardown_source, want_close):
 unit_stop('shipped', fence, teardown, True)
 unit_stop('control-monitor-dies', change(fence, 'fence=(env --ignore-signal=TERM,INT,HUP bwrap', 'fence=(bwrap'), teardown, False)
 unit_stop('control-teardown-write-ends-it', fence, change(teardown, "  trap '' PIPE\n  set +e\n", ''), False)
+unit_stop('held', held_fence, held_teardown, True, held=True)
+unit_stop('control-held-repeat-ends-it', held_fence, change(held_teardown, stop_traps, ''), False, held=True)
 (tree / 'scripts/smoke/rows/stop-here.sh').unlink()
 PY
   timeout -k 2 1500 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \

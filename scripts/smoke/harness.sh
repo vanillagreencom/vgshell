@@ -4068,6 +4068,10 @@ source "$repo/scripts/smoke/leaks.sh"
 # open while the filter waits for its input to close, and a row run in a
 # command substitution, as rows/leak-check.sh runs its plants, then never
 # returns.
+# It runs in a session of its own (setsid execs it in place, as its caller
+# leads no group), so a stop the fence hands the world's process group
+# (gpu-fence.sh's forward) leaves it to pass on the lines the teardown
+# writes after the stop; a unit's stop ends it with the rest.
 # rows/updates.sh holds the controls. A row prints
 # `qml-smoke: row-secs row=NAME secs=<whole seconds> cpu_some_pct=<pct>
 # load1=<load>`, including harness steps. CPU pressure covers the row window;
@@ -4266,7 +4270,7 @@ PY
       fi
     fi
     printf '%s\n' "$smoke_row_marker"
-  } > >(exec awk -v marker="$smoke_row_marker" -v out="$smoke_row_out" -v result="$smoke_row_result" '
+  } > >(exec setsid awk -v marker="$smoke_row_marker" -v out="$smoke_row_out" -v result="$smoke_row_result" '
     $0 == marker && !ended { printf "%d\n", tracebacks > result; close(result); ended = 1; next }
     { print; fflush(); print > out; fflush(out) }
     !ended && index($0, "Traceback (most recent call last):") { tracebacks++ }

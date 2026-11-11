@@ -44,10 +44,11 @@
 # --fresh gives a validate row its own root even when validate itself is
 # inside a test world. Other entry points reuse the world they already have.
 #
-# The fence remains bubblewrap's parent. TERM, INT and HUP each go to CMD
-# once; bubblewrap's monitor ignores them, so a stop that signals every
-# process, as a systemd unit's stop does, ends CMD by its own exit handling
-# before the namespace ends. A stop that comes before the proof has given
+# The fence remains bubblewrap's parent. TERM, INT and HUP each go to CMD's
+# process group once, CMD's foreground command included; bubblewrap's
+# monitor ignores them, so a stop that signals every process, as a systemd
+# unit's stop does, ends CMD by its own exit handling before the namespace
+# ends. A stop that comes before the proof has given
 # them back to CMD ends the world at once. The PID namespace and
 # --die-with-parent end every descendant after CMD ends, including children
 # in other sessions and stopped children.
@@ -505,9 +506,16 @@ ours() {
   read -r -a stat 2>/dev/null <"/proc/$1/stat" && [[ ${stat[3]-} == "$$" ]]
 }
 
-# forward SIGNAL STATUS: hand the first SIGNAL of its kind to CMD, the one
-# child of the namespace's init, which is the monitor's one child, and drop
-# a repeat of that kind, so CMD's exit handling gets each kind once. A
+# forward SIGNAL STATUS: hand the first SIGNAL of its kind to the process
+# group of CMD, the one child of the namespace's init, which is the
+# monitor's one child, and drop a repeat of that kind, so CMD's exit
+# handling gets each kind once. The group is the init's: bubblewrap
+# 0.13.1's init calls setsid and CMD inherits its group (read in a
+# namespace on 2026-11-11: CMD pid=2 pgrp=1), and the init ignores the
+# stops. CMD's foreground command gets the signal with CMD, as a
+# terminal's job does, so a CMD whose trap Bash runs only once that
+# command ends acts on it at once. A child in a session of its own, as
+# spawn and a row's output filter make them (harness.sh), does not. A
 # signal can run this again inside a run of it, so the count is read and
 # raised in one command. Before the monitor starts nothing has, and the
 # fence exits with STATUS. Until the proof has given the stops back
@@ -518,14 +526,18 @@ stop_status=""
 declare -A forwarded=()
 forward() {
   ((forwarded[$1]++ == 0)) || return 0
-  local monitor="${!:-}" init="" child=""
+  local monitor="${!:-}" init="" child="" line="" fields=()
   # The EXIT trap's release must not be cut short by another kind.
   [[ -n $monitor ]] || { trap '' TERM INT HUP; exit "$2"; }
   ours "$monitor" || return 0
   if [[ -e $fence_dir/stops-restored ]]; then
     read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
     [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true
-    [[ -z $child ]] || kill -s "$1" -- "$child" 2>/dev/null || true
+    # CMD's process group, field 5 of its stat (proc(5)), counted from the
+    # last ") " as in proc_start.
+    [[ -z $child ]] || read -r line 2>/dev/null <"/proc/$child/stat" || true
+    read -r -a fields <<<"${line##*) }"
+    [[ ! ${fields[2]-} =~ ^[1-9][0-9]*$ ]] || kill -s "$1" -- "-${fields[2]}" 2>/dev/null || true
   else
     stop_status=$2
     end_world "$monitor"

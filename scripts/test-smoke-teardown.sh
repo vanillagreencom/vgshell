@@ -59,7 +59,9 @@ SH
 
 # The child: TEARDOWN MODE CASE_DIR GROUP_SCRIPT. MODE abort fails under
 # set -e after the chmod, keep does the same with keep=true, wait idles
-# until a signal ends it.
+# until a signal ends it, and pipe has a foreground child send it a TERM and
+# then a PIPE, so the PIPE starts its exit with the TERM still pending, as a
+# write to an output a unit's stop ended does.
 cat >"$tmp/child.sh" <<'SH'
 set -euo pipefail
 teardown="$1" mode="$2" case_dir="$3" group_script="$4"
@@ -127,6 +129,7 @@ fi
 case $mode in
   abort|keep|recorder|recorder-failed|recorder-close-failed) false ;;
   wait) : >"$case_dir/ready"; while :; do sleep 0.1; done ;;
+  pipe) sh -c 'kill -s TERM "$PPID"; kill -s PIPE "$PPID"' ;;
 esac
 SH
 
@@ -162,19 +165,21 @@ run_case() {
   case_dir="$tmp/case-$cases"
   mkdir -- "$case_dir"
   problems=()
-  # env restores SIGINT, which bash ignores in a background command.
-  setsid env -i --default-signal=INT PATH="$PATH" HOME="$tmp/home" TMPDIR="$tmp" LC_ALL=C VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" source_repo="$repo" \
+  # env restores SIGINT, which bash ignores in a background command, and
+  # SIGPIPE, which a caller may ignore.
+  setsid env -i --default-signal=INT,PIPE PATH="$PATH" HOME="$tmp/home" TMPDIR="$tmp" LC_ALL=C VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" source_repo="$repo" \
     bash "$tmp/child.sh" "$file" "$mode" "$case_dir" "$tmp/group.sh" >"$case_dir/out" 2>"$case_dir/err" &
   pid=$!
   groups+=("$pid")
   if [[ -n $signals ]]; then
-    if ! wait_for "$case_dir/ready"; then
+    if [[ $mode == wait ]] && ! wait_for "$case_dir/ready"; then
       problems+=("ready=missing")
     else
       for sig in $signals; do
-        # A later signal lands while the teardown waits after the TERM it
-        # sent the recorded group, before it removes anything.
-        if [[ $first == false ]] && ! wait_for "$case_dir/group-termed"; then
+        # A later signal, and any signal to a child that ends by itself,
+        # lands while the teardown waits after the TERM it sent the
+        # recorded group, before it removes anything.
+        if [[ $first == false || $mode != wait ]] && ! wait_for "$case_dir/group-termed"; then
           problems+=("group-termed=missing")
           break
         fi
@@ -240,6 +245,8 @@ cases_table=(
   "one INT closes processes without removing a tree|wait|INT|130|gone"
   "a second TERM during the teardown does not cut it|wait|TERM TERM|143|gone"
   "a HUP after a TERM does not cut the teardown|wait|TERM HUP|143|gone"
+  "a TERM during the teardown of a failed run does not cut it|abort|TERM|1|gone"
+  "a TERM pending as a PIPE starts the exit does not cut the teardown|pipe||141|gone"
   "keep leaves ownership with the world|keep||1|kept"
   "recorder finalization follows producers and retains evidence before removal|recorder||1|gone"
   "recorder failure retains incomplete evidence without changing original exit|recorder-failed||1|gone"
@@ -254,7 +261,8 @@ done
 # CASE standing for its directory, or empty for any. A field holds no `|`,
 # the separator.
 controls=(
-  "the signals are not ignored|trap '' TERM INT HUP|:|a second TERM during the teardown does not cut it|recorded-group=alive|"
+  "the signals are not ignored|trap '' TERM INT HUP|:|a TERM during the teardown of a failed run does not cut it|exit=143|"
+  "a stop exits into the EXIT trap|trap 'trap \"\" TERM INT HUP; trap - EXIT; cleanup 143; exit 143' TERM|trap 'trap \"\" TERM INT HUP; exit 143' TERM|a TERM pending as a PIPE starts the exit does not cut the teardown|recorded-group=alive|"
   "the recorder finalizer is skipped|if ! display_record_finish \"\$original_status\"; then|if ! true; then|recorder finalization follows producers and retains evidence before removal|recorder-evidence=missing|"
   "the recorder closes after producer TERM|if ! display_record_close \"\$original_status\" cleanup; then|if ! true; then|recorder finalization follows producers and retains evidence before removal|recorder-close-order=wrong|"
 )

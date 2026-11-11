@@ -380,7 +380,7 @@ for row in w x tui-guard auth-sentinel; do
   qml_smoke_judge_reading "$row" end
   printf "0\0" >"$a/results/$row"
 done
-[[ $end == killed ]] || cleanup
+[[ $end == killed ]] || cleanup 0
 '
   env -i PATH="$PATH" "$BASH" -c "$script" _ "$dir" "$defect" "$window" "$cut" "$end" || status=$?
   if grep -q '^- close ' "$dir/attempt/judge-readings" 2>/dev/null; then closed=yes; fi

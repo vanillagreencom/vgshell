@@ -15,14 +15,16 @@
 #
 # The stop cases send TERM, INT or HUP to a fence whose command has an exit
 # trap that takes a second. The command must get the signal once, and its
-# trap must have ended when the fence returns. The carry case sends INT
-# while the command waits on a foreground command that exits 0, which bash
-# carries on from, then TERM, which must end the run. The terminal case
-# runs the fence from a real terminal, where a command that changes the
-# terminal's mode or reads it must not stop. The held cases stop the fence
-# while its run waits before the command starts, in bubblewrap's setup or
-# in the proof, with the stops ignored: no process of the world may
-# outlive the fence. A SIGKILL of the fence must end every
+# trap must have ended when the fence returns. The foreground case sends
+# TERM while a command that traps it waits on a foreground command, which
+# must get the TERM too, as a terminal's job does. The carry case sends INT
+# while the command waits on a foreground command that ignores it and
+# exits 0, which bash carries on from, then TERM, which must end the run.
+# The terminal case runs the fence from a real terminal, where a command
+# that changes the terminal's mode or reads it must not stop. The held
+# cases stop the fence while its run waits before the command starts, in
+# bubblewrap's setup or in the proof, with the stops ignored: no process of
+# the world may outlive the fence. A SIGKILL of the fence must end every
 # process its command started, one in another session and one stopped
 # included. The cases that can leave a process run in a PID namespace of
 # their own that util-linux unshare makes, whose end ends what a defect
@@ -221,11 +223,21 @@ idle=$!
 echo started >>"$log"
 wait "$idle"
 SH
+# What a command that traps TERM does while its foreground command runs:
+# bash runs the trap only once that command has ended. The foreground
+# command marks the TERM it gets and ends; one that gets none idles 10 s and
+# ends unmarked.
+cat >"$TMP_ROOT/foreground.sh" <<'SH'
+log="$1"
+trap 'echo TERM >>"$log"; exit 43' TERM
+sh -c 'trap "echo foreground-TERM >>\"\$1\"; exit 0" TERM; echo started >>"$1"; i=0; while [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done' sh "$log"
+SH
 # What bash does with an INT and no trap for it: the foreground command it
-# waits on exits 0, so bash carries on. The run then idles until a TERM.
+# waits on ignores the INT and exits 0, so bash carries on. The run then
+# idles until a TERM.
 cat >"$TMP_ROOT/carry.sh" <<'SH'
 log="$1"
-sh -c 'echo started >>"$1"; sleep 1' sh "$log"
+sh -c 'trap "" INT; echo started >>"$1"; sleep 1' sh "$log"
 echo carried-on >>"$log"
 sleep 10 &
 wait "$!"
@@ -526,6 +538,28 @@ stops_once() {
   fi
   wait "$fenced" || status=$?
   [[ $status -eq $4 && "$(<"$log")" == "started"$'\n'"$signal"$'\n'"exit-start"$'\n'"exit-end" ]]
+# The shell reports on stderr a job a signal ended; the status says it.
+} 2>/dev/null
+# stops_foreground FILE: the fence runs foreground.sh under bash in the
+# namespace and gets TERM once the foreground command has started. That
+# command gets the TERM and ends, then the command's trap ends the run.
+stops_foreground() {
+  local file="$1" log="$TMP_ROOT/foreground.log" fenced i
+  roots amd
+  : >"$log"
+  status=0
+  set -m
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" "$BASH" "$file" "${at[@]}" "$BASH" "$TMP_ROOT/foreground.sh" "$log") \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" &
+  set +m
+  fenced=$!
+  for ((i = 0; i < 100; i++)); do
+    [[ "$(<"$log")" != started ]] || break
+    sleep 0.05
+  done
+  kill -s TERM -- "$fenced"
+  wait "$fenced" || status=$?
+  [[ $status -eq 43 && "$(<"$log")" == "started"$'\n'"foreground-TERM"$'\n'"TERM" ]]
 # The shell reports on stderr a job a signal ended; the status says it.
 } 2>/dev/null
 # int_then_term FILE: the fence runs carry.sh under bash in the namespace
@@ -907,6 +941,7 @@ cases=(
   "HUP to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid HUP 29"
   "TERM to the fence's process group reaches the command once|yes|stops_once group TERM 43"
   "two TERMs at once to the fence reach the command once|yes|stops_once twice TERM 43"
+  "TERM to the fence reaches the command's foreground command|yes|stops_foreground"
   "a TERM after an INT the command carried on from ends the run|yes|int_then_term"
   "a TERM while bubblewrap sets up the world ends every process of it before the fence returns|yes|held_stop setup"
   "a TERM while the proof still ignores the stops ends the world before the command runs|yes|held_stop proof"
@@ -1073,10 +1108,10 @@ controls=(
   'trap '"'"'forward HUP 129'"'"' HUP'
   :
   'HUP to the fence reaches the command once and its exit trap ends before the fence returns'
-  'a signal goes to the namespace'"'"'s init'
-  '[[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true'
-  'child="$init"'
-  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'a signal goes to CMD alone'
+  '[[ ! ${fields[2]-} =~ ^[1-9][0-9]*$ ]] || kill -s "$1" -- "-${fields[2]}" 2>/dev/null || true'
+  '[[ -z $child ]] || kill -s "$1" -- "$child" 2>/dev/null || true'
+  'TERM to the fence reaches the command'"'"'s foreground command'
   'a later signal is handed on too'
   '((forwarded[$1]++ == 0)) || return 0'
   :
