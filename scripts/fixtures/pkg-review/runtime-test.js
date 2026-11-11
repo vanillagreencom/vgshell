@@ -108,6 +108,8 @@ try{
   control("receipt-original-fields","one-review",[[owner,'const origins = state.steps.flatMap(decision => decision.binding === null ? [] : decision.binding.origins);','const origins = Object.values(state.dependents).flat();']],/receipt-format:/,"receipt-format");
   control("helper-order-diagnostic","one-review",[[owner,'process.stderr.write("package-review: " + JSON.stringify','void ("package-review: " + JSON.stringify']],/unread-order: order diagnostics/,"unread-order");
   control("verdict-rule","one-review",[[owner,'path.relative(home, path.join(dir, "verdict"))','path.relative(home, dir)']],/clean:/,"clean");
+  // The retry reviews with Codex, whose working root widened to the agent home fails it.
+  control("codex-root","one-review",[[owner,'evidence: dir','evidence: home']],/retry:/,"retry");
   control("helper-review-once","one-review",[["bin/vgshell-pkg",'if (receipt !== undefined) r.plan = table.reviewedBuild','if (false && receipt !== undefined) r.plan = table.reviewedBuild']],/declined: helper review prompts/,"declined");
  }
  if(!only&&select("review-again"))for(const kind of ["failed-agent","no-agent","unreviewable"])for(const decision of ["No","Yes","Stop"]){

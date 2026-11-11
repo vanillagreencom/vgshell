@@ -15,7 +15,15 @@ var REVIEW_AGENTS = [
     // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference
     { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
         "--strict-mcp-config", "--permission-mode", "dontAsk"], verdictRule: "--allowedTools=Edit(./{verdict})" },
-    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }
+    // workspace-write lets Codex's shell write only in its working directory,
+    // /tmp and $TMPDIR (`codex debug prompt-input`, codex-cli 0.167.0), and
+    // startIn makes that directory one review's evidence folder, so no other
+    // review, receipt or pacman hooks folder in the agent home is writable.
+    // Started in the agent home with -C naming that folder, 0.167.0 refused
+    // to start a turn: "the selected permission profile cannot be safely
+    // represented by the legacy app-server sandbox policy" (VGS-2469).
+    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"],
+        startIn: "evidence" }
 ];
 
 // The `key = value` lines of a .SRCINFO, each { key, value } in file order;
@@ -113,13 +121,15 @@ function reviewPlan(settings, found) {
         label: row === null ? chosen : row.label, command: row === null ? null : row.command.slice() };
 }
 
-// The argv that runs PLAN on one review, before its prompt. A shipped agent
-// with a verdictRule may write VERDICT alone, that review's verdict path
-// relative to the agent's working directory; a custom command runs as written.
-function reviewCommand(plan, verdict) {
+// How PLAN runs on one review: { argv, before its prompt, and cwd }. REVIEW
+// holds the stable agent home, that review's evidence folder and its verdict
+// path relative to the home. A shipped agent with a verdictRule may write
+// that verdict alone; one whose startIn is "evidence" starts in that folder,
+// else in the home. A custom command runs as written in the home.
+function reviewCommand(plan, review) {
     var row = plan.state === "agent" ? reviewAgentRow(plan.agent) : null;
-    if (row === null || !hasOwn(row, "verdictRule")) return plan.command.slice();
-    return plan.command.concat([row.verdictRule.replace("{verdict}", verdict)]);
+    var argv = row !== null && hasOwn(row, "verdictRule") ? plan.command.concat([row.verdictRule.replace("{verdict}", review.verdict)]) : plan.command.slice();
+    return { argv: argv, cwd: row !== null && row.startIn === "evidence" ? review.evidence : review.home };
 }
 
 // Consent to install without review is a submitted offer or a saved

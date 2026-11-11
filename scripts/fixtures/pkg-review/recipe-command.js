@@ -7,8 +7,10 @@
 //   pacman -Q -- NAME        not installed (exit 1) for a fixture with no old
 //                            version, else NAME OLD
 //   paru|pacman -G -- NAME   the fixture's build/ files, as <pkgbase>/
-//   claude|codex PROMPT      copies the review directory the prompt names to
-//                            RECIPE_OUT/evidence, then writes `verdict clean`
+//   claude|codex PROMPT      refuses a launch without its review's write
+//                            limit (agent-argv.js), else copies the review
+//                            directory the prompt names to RECIPE_OUT/evidence,
+//                            then writes `verdict clean`
 // The agent's clean verdict leaves the installer's own install-script
 // risks as the only concerns the owner asks about.
 "use strict";
@@ -20,6 +22,8 @@ const meta = JSON.parse(fs.readFileSync(path.join(fixture, "fixture.json"), "utf
 if (name === "claude" || name === "codex") {
     const review = /The review directory is `([^`]+)`/.exec(args.at(-1))?.[1];
     if (!review) throw new Error("recipe fixture: the prompt names no review directory");
+    const refusal = require("./agent-argv.js").agentArgvRefusal(name, args, process.cwd());
+    if (refusal !== null) { process.stderr.write(refusal + "\n"); process.exit(5); }
     fs.cpSync(review, path.join(out, "evidence"), { recursive: true, verbatimSymlinks: true });
     fs.writeFileSync(path.join(review, "verdict"), "verdict clean\n", { mode: 0o600 });
     process.exit(0);

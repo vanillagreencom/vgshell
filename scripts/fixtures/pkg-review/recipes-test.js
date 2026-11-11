@@ -20,6 +20,9 @@
 // PLANTED rows reuse a fixture with one defect in the world and declare
 // the failure or whole-folder delta the owner must report instead. Local
 // source changes must reach the diff even when PKGBUILD stays identical.
+// Fixture rows review with the shipped Codex row and planted rows with the
+// Claude row; the agent stand-in refuses a launch without its review's
+// write limit (agent-argv.js), so a fixture row fails on a wrong limit.
 //
 // Each control copies one fixture with a wrong declaration into a scratch
 // recipes directory, runs this file over it with --recipes, and that run
@@ -86,10 +89,11 @@ const PLANTED = [
         expect: () => ({ recipe: "unchanged", failures: [] }) }
 ];
 
-// The owner's review of one fixture: its packages.txt lines, install/ and
-// recipe/ files, the concern questions the stand-in gum recorded and the
-// owner's result. PLANT, when set, is the one defect its world carries.
-function reviewed(label, fixture, plant, stop) {
+// The owner's review of one fixture with AGENT: its packages.txt lines,
+// install/ and recipe/ files, the concern questions the stand-in gum
+// recorded and the owner's result. PLANT, when set, is the one defect its
+// world carries.
+function reviewed(label, fixture, agent, plant, stop) {
     const out = path.join(scratch, label);
     if (["source-only", "empty-added", "empty-removed", "cache-parent-symlink"].includes(plant)) {
         const copy = path.join(out, "fixture");
@@ -122,7 +126,8 @@ function reviewed(label, fixture, plant, stop) {
     const meta = JSON.parse(fs.readFileSync(path.join(fixture, "fixture.json"), "utf8"));
     // A concern question, if any, is answered Skip; the unavailable
     // question a failed read asks, Stop.
-    const w = create(path.join(out, "world"), { choices: ["Review", "Use Claude Code", stop ? "Stop" : "Skip"] });
+    const w = create(path.join(out, "world"), { settings: { agent, command: "" },
+        choices: ["Review", { claude: "Use Claude Code", codex: "Use Codex" }[agent], stop ? "Stop" : "Skip"] });
     fs.writeFileSync(path.join(w.root, "config-corresponds"), "");
     if (fs.existsSync(path.join(fixture, "installed.install"))) {
         const local = path.join(w.root, "db/local", meta.package + "-" + meta.old);
@@ -267,12 +272,12 @@ function verifyInstallScripts(judge, rows) {
 
 try {
     const names = fs.readdirSync(recipes, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort();
-    const table = names.map(name => ({ name, fixture: path.join(recipes, name), plant: undefined, expect: meta => ({ recipe: meta.recipe, failures: [] }) }))
-        .concat(at < 0 ? PLANTED.map(row => ({ ...row, fixture: path.join(recipes, row.fixture) })) : []);
+    const table = names.map(name => ({ name, fixture: path.join(recipes, name), agent: "codex", plant: undefined, expect: meta => ({ recipe: meta.recipe, failures: [] }) }))
+        .concat(at < 0 ? PLANTED.map(row => ({ ...row, fixture: path.join(recipes, row.fixture), agent: "claude" })) : []);
     const rows = [];
     for (const row of table) {
         const declared = JSON.parse(fs.readFileSync(path.join(row.fixture, "fixture.json"), "utf8")), expected = row.expect(declared);
-        const seen = reviewed(row.name, row.fixture, row.plant, expected.failures.length > 0);
+        const seen = reviewed(row.name, row.fixture, row.agent, row.plant, expected.failures.length > 0);
         const { meta, lines, installFiles, recipeFiles, concerns, result } = seen, name = row.name;
         assert.ok(INSTALL_STATES.includes(meta.install), name + ": declared install state");
         assert.ok(RECIPE_STATES.includes(meta.recipe), name + ": declared recipe state");
@@ -296,7 +301,7 @@ try {
         assert.equal(concerns.length, meta.installerRisk ? 1 : 0, name + ": installer risk");
         assert.deepEqual(result.skipped, meta.installerRisk && !expected.failures.length ? [meta.package] : [], name + ": installer risk skip");
         rows.push(seen);
-        console.log("package-recipe-proof: " + JSON.stringify({ name, install: meta.install, recipe: expected.recipe, failures: expected.failures, installerRisk: meta.installerRisk, expect: meta.expect }));
+        console.log("package-recipe-proof: " + JSON.stringify({ name, agent: row.agent, install: meta.install, recipe: expected.recipe, failures: expected.failures, installerRisk: meta.installerRisk, expect: meta.expect }));
     }
     // Coverage floor: the set exercises every install and recipe state and
     // both installer answers, so a discovery that lost fixtures cannot pass.

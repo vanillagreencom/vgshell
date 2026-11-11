@@ -110,14 +110,18 @@ function verify(logic) {
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
   const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk"];
   same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords);
-  // [settings, found, the argv for verdict review-a/evidence/verdict]: only a
-  // shipped agent with a verdict rule gains one rule, naming that verdict.
+  const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"];
+  same(logic.reviewPlan({agent:"codex"},["codex"]).command,codexWords);
+  // [settings, found, the launch of the review whose evidence folder is
+  // /run/home/review-a/evidence in the agent home /run/home]: Claude gains
+  // the one rule naming that verdict and starts in the home; Codex starts in
+  // that evidence folder; a custom command runs as written in the home.
+  const review={home:"/run/home",evidence:"/run/home/review-a/evidence",verdict:"review-a/evidence/verdict"};
   for(const [settings,found,want] of [
-    [{agent:"claude"},["claude"],claudeWords.concat(["--allowedTools=Edit(./review-a/evidence/verdict)"])],
-    [{agent:"codex"},["codex"],["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"]],
-    [{command:"claude --permission-mode default"},["claude"],["claude","--permission-mode","default"]]
-  ])same(logic.reviewCommand(logic.reviewPlan(settings,found),"review-a/evidence/verdict"),want);
-  same(logic.reviewPlan({agent:"codex"},["codex"]).command,["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"]);
+    [{agent:"claude"},["claude"],{argv:claudeWords.concat(["--allowedTools=Edit(./review-a/evidence/verdict)"]),cwd:"/run/home"}],
+    [{agent:"codex"},["codex"],{argv:codexWords,cwd:"/run/home/review-a/evidence"}],
+    [{command:"codex --sandbox workspace-write"},["codex"],{argv:["codex","--sandbox","workspace-write"],cwd:"/run/home"}]
+  ])same(logic.reviewCommand(logic.reviewPlan(settings,found),review),want);
   // [name, verdict text, the packages reviewed, the judgement]
   const verdictRows = [
     ["clean", "verdict clean\n", ["a"], { ok: true, verdict: "clean", flags: [] }],
