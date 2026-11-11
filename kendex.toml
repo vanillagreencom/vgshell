@@ -296,7 +296,8 @@ enabled = true
 source = "kendex"
 enabled = true
 
-# A dependency sweep an agent runs on demand; it adds no workflow, gate or merge step.
+# A dependency sweep. The overseer's daily dependency pin check in [skill-instructions].orch runs each inventory row's upstream check.
+# A behind reading starts the sweep for that one surface. It adds no workflow, gate or merge step.
 [skills.dep-radar]
 source = "kendex"
 enabled = true
@@ -741,6 +742,14 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - VGS selects the full-bypass permission mode for its Claude handoff lanes explicitly; carry it through the existing launch arguments. Do not infer it from the use of orchestration alone. (ORCH-M21)
 - For an outside contribution, maintainers supply missing version, changelog and generated-render bookkeeping during takeover; never send the contributor back only for those steps. (ORCH-M27)
 - In review-pr and submit-pr local pre-PR review, external second-opinion review is advisory: if its script fails, record the stated failure and continue. VGS has no stricter second-opinion gate. (second-opinion-16)
+
+## VGS dependency pin check
+
+On its first pass of each UTC day, the overseer runs the upstream check command of every row in `docs/dep-radar/inventory.md`, reading the rows from that file in the base checkout at main that day. It runs each row's check alone, never a whole sweep. The row's Upstream check cell says what each exit means:
+
+- Behind: file that row's pin-move item in team vgs the same day, through the project-management filing route. The item's work is the dep-radar sweep for that one surface, under that row's owner rules. While an open item already moves that surface's pin, add the newer reading to it instead of filing another.
+- Exit 77: report the row to the owner as unreadable, never as current.
+- An exit the cell says needs the owner: report the row and its output line to the owner.
 """
 worktree = """
 VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
