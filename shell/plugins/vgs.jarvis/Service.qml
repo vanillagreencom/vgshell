@@ -203,7 +203,7 @@ Item {
     readonly property var requirementsRevision: shell === null ? -1 : shell.requirements.revision
     readonly property bool locked: lockObservation()
     readonly property var effectiveKeys: shell === null ? null : shell.shortcut.keys
-    readonly property var spelledTalk: View.spelledKeys(effectiveKeys, ShortcutLabels.keyCaps).talk
+    readonly property var spelledTalk: View.spelledKeys(effectiveKeys, ShortcutLabels.shortcutText).talk
     // Display names resolve independently of the daemon and raw bindings.
     // Qt.callLater coalesces calls to the same function after bindings settle:
     // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method

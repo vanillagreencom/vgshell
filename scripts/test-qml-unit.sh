@@ -117,7 +117,7 @@ mutations=(
   "unread counts lose their circle|feedback/Badge.qml|radius: unread ? Theme.radius.full : Theme.badge.radius|radius: Theme.badge.radius|tst_message_patterns.qml"
   "a problem badge takes no keyboard focus|feedback/Badge.qml|focusPolicy: tooltip === \"\" ? Qt.NoFocus : Qt.TabFocus|focusPolicy: Qt.NoFocus|tst_settings_problems.qml"
   "a problem badge drops tooltip link keys|feedback/Badge.qml|event.accepted = tip.takeKey(event);|event.accepted = false;|tst_settings_problems.qml"
-  "unresolved problem names consume key-editor guidance|foundation/ShortcutLabels.qml|return Logic.shortcutLabel(shortcut, root.names);|return { kind: \"resolved\", caps: Logic.keyCaps(shortcut, root.names) };|tst_settings_problems.qml"
+  "unresolved problem names consume key-editor guidance|foundation/ShortcutLabels.qml|return Logic.shortcutText(shortcut, root.names);|return { kind: \"resolved\", text: Logic.shortcutText(shortcut, root.names).text };|tst_settings_problems.qml"
   "pane shortcut repairs lose their explicit Keys target|../plugins/vgs.settings/Window.qml|&& tab !== \"Settings/Keys\"|&& true|tst_settings_window_height.qml"
   "common tab problems leave a blank band|layout/TabPages.qml|y: common.y + common.height + (common.height > 0 ? Theme.stack.page : 0)|y: common.y + 2 * common.height + (common.height > 0 ? Theme.stack.page : 0)|tst_settings_problems.qml"
   "unread counts lose their compact display|feedback/Badge.qml|? countMax + \"+\" : text|? text : text|tst_message_patterns.qml"

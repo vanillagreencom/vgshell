@@ -178,7 +178,7 @@ FocusScope {
                 // Judged once per row the manager publishes; the search
                 // filter and the cursor leave a kept row's data as it was.
                 readonly property var needs: Steps.setupNeeds(modelData.status, modelData.requirements, modelData.enabled, Steps.startFailed(modelData.errors))
-                readonly property var problemLines: modelData.errors.map(line => Reply.line(line, page.panel.plugins, ShortcutLabels.shortcutLabel))
+                readonly property var problemLines: modelData.errors.map(line => Reply.line(line, page.panel.plugins, ShortcutLabels.shortcutText))
                 width: layout.contentWidth
                 text: modelData.name
                 secondary: modelData.version + "  " + (modelData.source === "bundled" ? "Included" : "Installed")

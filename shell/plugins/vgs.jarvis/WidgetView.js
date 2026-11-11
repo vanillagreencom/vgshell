@@ -154,16 +154,16 @@ function report(name, value, tones) {
 }
 
 // KEYS, shell.shortcut.keys or null, as people read each key a tooltip
-// names; CAPS is ShortcutLabels.keyCaps, which the callers' qs.Ui import holds.
+// names; TEXT is ShortcutLabels.shortcutText, from the callers' qs.Ui import.
 // A name absent from the map is no key in effect: the nested smoke
 // (jarvis-bubble row, 2026-10-10) read an empty map while the plugin is
 // enabled or disabled, before the registry holds its binds.
-function spelledKeys(keys, caps) {
+function spelledKeys(keys, text) {
     var out = {};
     var names = ["talk", "voice-mute", "stop", "confirm", "deny", "console"];
     for (var i = 0; i < names.length; i++) {
         var key = keys === null ? null : keys[names[i]];
-        out[names[i]] = key === null || key === undefined ? null : caps(key).join("+");
+        out[names[i]] = key === null || key === undefined ? null : text(key).text;
     }
     return out;
 }

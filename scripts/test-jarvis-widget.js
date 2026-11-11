@@ -22,7 +22,7 @@ const SetupGate = load(path.join(dir, "SetupGate.js"));
 const KeyNavLogic = load(path.join(__dirname, "..", "shell/Ui/foundation/KeyNavLogic.js"));
 const PluginLogic = load(path.join(__dirname, "..", "shell/Core/PluginLogic.js"));
 const keyNames = Object.assign(KeyNavLogic.symbolNames(PluginLogic.CAPTURE_KEY_NAMES), { "CODE:44": { keysym: "j", codepoint: 106 } });
-const ShortcutLabels = { keyCaps: key => KeyNavLogic.keyCaps(key, keyNames) };
+const ShortcutLabels = { shortcutText: key => KeyNavLogic.shortcutText(key, keyNames) };
 const Lucide = load(path.join(__dirname, "..", "shell/Ui/icons/Lucide.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -119,9 +119,9 @@ function verify(view) {
     const summary = SetupGate.sessionSummary({ tone: "ok", text: "Ready" }, { tone: "warning", text: "Cannot start" });
     assert.equal(view.view(up({}, { setup: summary }), null).state, "ready", "optional session never blocks Talk");
     const defaults = Object.fromEntries(manifest.hyprland.binds.map(bind => [bind.shortcut, bind.key]));
-    assert.deepEqual(copy(view.spelledKeys(defaults, ShortcutLabels.keyCaps)), KEYS);
-    assert.deepEqual(copy(view.spelledKeys(null, ShortcutLabels.keyCaps)), UNBOUND);
-    assert.deepEqual(copy(view.spelledKeys({}, ShortcutLabels.keyCaps)), UNBOUND);
+    assert.deepEqual(copy(view.spelledKeys(defaults, ShortcutLabels.shortcutText)), KEYS);
+    assert.deepEqual(copy(view.spelledKeys(null, ShortcutLabels.shortcutText)), UNBOUND);
+    assert.deepEqual(copy(view.spelledKeys({}, ShortcutLabels.shortcutText)), UNBOUND);
     for (const mic of [null, false, true])
         for (const voice of [false, true]) {
             const menu = view.menuEntries(mic, voice, false, "indicator");

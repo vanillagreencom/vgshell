@@ -68,21 +68,21 @@ var MESSAGES = [
 // HyprlandLayer's diagnostic carries ids, while the manager inventory
 // carries display names. QML callers supply ShortcutLabels' layout-aware
 // resolution data, keeping this shared judge free of Qt objects.
-function shortcutProblem(match, plugins, shortcutLabel) {
+function shortcutProblem(match, plugins, shortcutText) {
     const holder = (plugins || []).find(function (plugin) { return plugin.id === match[3]; });
-    const label = shortcutLabel(match[1]);
-    const key = label.kind === "resolved" ? label.caps.join("+") : "";
+    const label = shortcutText(match[1]);
+    const key = label.kind === "resolved" ? label.text : "";
     const cause = holder === undefined ? "Another plugin uses this shortcut" + (key === "" ? "" : ": " + key)
         : holder.name + " already uses " + (key === "" ? "this shortcut" : key);
     return cause + ". Change this shortcut in [Settings/Keys](page:" + match[2] + "/Settings/Keys).";
 }
 
-function line(reply, plugins, shortcutLabel) {
+function line(reply, plugins, shortcutText) {
     if (isOk(reply)) return "";
     const text = String(reply);
     for (const row of MESSAGES) {
         const match = row[0].exec(text);
-        if (match !== null) return typeof row[1] === "function" ? row[1](match, plugins, shortcutLabel) : row[1];
+        if (match !== null) return typeof row[1] === "function" ? row[1](match, plugins, shortcutText) : row[1];
     }
     return "VGS could not complete this action. Close Plugins and open it again to retry.";
 }

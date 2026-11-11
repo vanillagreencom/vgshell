@@ -45,8 +45,8 @@ Singleton {
         return Logic.keyCaps(shortcut, root.names);
     }
 
-    function shortcutLabel(shortcut) {
-        return Logic.shortcutLabel(shortcut, root.names);
+    function shortcutText(shortcut) {
+        return Logic.shortcutText(shortcut, root.names);
     }
 
     function readNext() {

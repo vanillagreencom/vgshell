@@ -40,7 +40,7 @@ const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis",
 const keyNav = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget,
     spelledTalk: null, driftShown: null, homeMessage: { homes: [], current: "" },
-    ShortcutLabels: { keyCaps: key => keyNav.keyCaps(key, keyNav.symbolNames(judge.CAPTURE_KEY_NAMES)) },
+    ShortcutLabels: { shortcutText: key => keyNav.shortcutText(key, keyNav.symbolNames(judge.CAPTURE_KEY_NAMES)) },
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
 // LocalTier's reading with no local voice model wanted or ready, as the
 // service's publishSetup reads it (localTier.pickSize, wantedTier,
@@ -2874,7 +2874,7 @@ try {
         ["session-answer-unpublished", "; onResultChanged: root.publishShellSetup()"],
         ["tier-reading-unpublished", "; onReadingChanged: root.publishShellSetup()"],
         ["talk-name-unpublished", "onSpelledTalkChanged: Qt.callLater(root.publishShellSetup)", "onSpelledTalkChanged: Qt.callLater(() => {})"],
-        ["talk-name-snapshot", "View.spelledKeys(effectiveKeys, ShortcutLabels.keyCaps).talk", "null"],
+        ["talk-name-snapshot", "View.spelledKeys(effectiveKeys, ShortcutLabels.shortcutText).talk", "null"],
         ["talk-publisher-ignores-name", "Gate.talkHint(shell.settings.holdToTalk, spelledTalk)", 'Gate.talkHint(shell.settings.holdToTalk, "Super+J")'],
         // publishShellSetup and its actual publishSetup callee both refuse
         // the released shell. Remove the behavior across that call chain,
@@ -3686,7 +3686,7 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     assert.ok(binding && handler && refresh, "the reactive Talk publication boundary");
     const queue = [];
     let names = keyNav.symbolNames(judge.CAPTURE_KEY_NAMES);
-    context.ShortcutLabels = { keyCaps: key => keyNav.keyCaps(key, names) };
+    context.ShortcutLabels = { shortcutText: key => keyNav.shortcutText(key, names) };
     context.effectiveKeys = { talk: "SUPER+code:44" };
     context.Qt = { callLater: fn => queue.push(fn) };
     context.root = context;

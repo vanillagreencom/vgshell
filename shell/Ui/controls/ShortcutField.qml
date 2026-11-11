@@ -415,7 +415,7 @@ FocusScope {
                 hoverEnabled: true
                 opacity: enabled ? 1 : Theme.opacity.disabled
                 Accessible.role: Accessible.Button
-                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.map(key => PageReference.plain(ShortcutLabels.keyCaps(key).join("+"))).join(" or ")
+                Accessible.name: root.capturing ? "Press keys" : root.keys.length === 0 ? root.placeholder : root.keys.map(key => PageReference.plain(ShortcutLabels.shortcutText(key).text)).join(" or ")
                 PointerCursor {}
                 // A key click lands mid-box, so only the pointer picks an
                 // alternative; a new one keeps being the one edited.
@@ -577,7 +577,7 @@ FocusScope {
                 ToolSlot {
                     readonly property bool shown: root.key !== "" && !root.typing
                     iconName: "x"
-                    label: root.keys.length > 1 ? "Remove " + PageReference.plain(ShortcutLabels.keyCaps(root.key).join("+")) : "Unbind"
+                    label: root.keys.length > 1 ? "Remove " + PageReference.plain(ShortcutLabels.shortcutText(root.key).text) : "Unbind"
                     inUse: root.visible && (root.activeFocus || toolsHover.hovered)
                     visible: root.editable; enabled: root.editable && shown
                     opacity: shown ? 1 : 0

@@ -264,14 +264,14 @@ function opener(control) {
 
 // A contextual explanation needs key data, not the key editor's guidance.
 // Keep resolution and spelling together so neither consumer parses copy.
-function shortcutLabel(shortcut, resolved) {
+function shortcutLabel(shortcut, resolved, text) {
     if (shortcut === undefined || shortcut === null || String(shortcut).trim() === "") return { kind: "resolved", caps: [] };
     var parts = String(shortcut).split("+");
     var out = [];
     for (var i = 0; i < parts.length; i++) {
         var part = parts[i].trim();
         if (part === "") continue;
-        var label = display(part, resolved);
+        var label = display(part, resolved, text);
         if (label === null) return { kind: "unresolved" };
         out.push(label);
     }
@@ -282,6 +282,13 @@ function shortcutLabel(shortcut, resolved) {
 function keyCaps(shortcut, resolved) {
     var label = shortcutLabel(shortcut, resolved);
     return label.kind === "unresolved" ? [UNNAMED_KEY] : label.caps;
+}
+
+// Running text names punctuation; caps keep the symbol printed on the key.
+// Keep the resolution tag so a problem line never presents guidance as a key.
+function shortcutText(shortcut, resolved) {
+    var label = shortcutLabel(shortcut, resolved, true);
+    return { kind: label.kind, text: label.kind === "unresolved" ? UNNAMED_KEY : label.caps.join("+") };
 }
 
 var UNNAMED_KEY = "Choose a key in [Settings](page:vgs.settings)";
@@ -300,15 +307,18 @@ function symbolNames(captureNames) {
 
 // Native names are the existing xkb-keys helper's base-level keysym and
 // Unicode codepoint, not the physical position or a shifted symbol.
-function display(key, resolved) {
+function display(key, resolved, text) {
     var upper = key.toUpperCase();
     var physical = /^CODE:[0-9]+$/.test(upper);
     if (physical) upper = "CODE:" + String(Number(upper.slice(5)));
     var native = resolved === undefined || resolved === null ? null : resolved[upper];
     if (physical && (native === undefined || native === null)) return null;
     if (native !== undefined && native !== null) {
-        if (native.codepoint > 32 && native.codepoint !== 127)
+        if (native.codepoint > 32 && native.codepoint !== 127) {
+            if (text && native.codepoint < 127 && /[^A-Za-z0-9]/.test(String.fromCodePoint(native.codepoint)))
+                return display(native.keysym);
             return String.fromCodePoint(native.codepoint).toUpperCase();
+        }
         key = native.keysym;
         upper = key.toUpperCase();
     }

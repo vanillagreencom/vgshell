@@ -79,7 +79,7 @@ const keyLogic = load(path.join(core, "..", "Ui", "foundation", "KeyNavLogic.js"
 const keyNames = Object.assign(keyLogic.symbolNames(producer.CAPTURE_KEY_NAMES), {
     "CODE:44": { keysym: "Cyrillic_zhe", codepoint: 0x0436 }
 });
-const shortcutLabel = shortcut => keyLogic.shortcutLabel(shortcut, keyNames);
+const shortcutText = shortcut => keyLogic.shortcutText(shortcut, keyNames);
 const layer = load(path.join(core, "HyprlandLayer.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke", "fixtures", "plugins", "acme.hyprland", "manifest.json"), "utf8"));
 const problemsSource = fs.readFileSync(path.join(core, "HyprlandLayer.qml"), "utf8");
@@ -169,10 +169,10 @@ function verify(logic) {
     // The problem explanation is the product result: key spelling, display
     // name and actionable page reference, not the raw diagnostic ids.
     const pages = load(path.join(core, "..", "Commons", "PageReference.js"));
-    for (const [shortcut, displayed] of [["SUPER+COMMA", "Super+,"], ["SUPER+code:44", "Super+Ж"]])
+    for (const [shortcut, displayed] of [["SUPER+COMMA", "Super+Comma"], ["SUPER+PERIOD", "Super+Period"], ["SUPER+code:44", "Super+Ж"]])
     for (const holder of ["acme.other", "acme.other:toggle"]) {
         const text = logic.line("hyprland: " + shortcut + " for acme.example:toggle skipped: already bound by " + holder,
-            [{ id: "acme.other", name: "Other app" }], shortcutLabel);
+            [{ id: "acme.other", name: "Other app" }], shortcutText);
         assert.ok(text.includes(displayed), "the shared formatter supplies printable symbols and the active layout name");
         assert.match(text, /Other app/);
         assert.doesNotMatch(pages.plain(text), /acme\./);
@@ -285,8 +285,8 @@ function verifyCallers(logic, source, page) {
         ...CASES.filter(([raw]) => raw.startsWith("build failed:") || raw.startsWith("hyprland:")),
         ["hyprland: SUPER+code:44 for acme.example:toggle skipped: already bound by acme.other"]
     ]) {
-        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData, page: { panel: { plugins: [] } }, ShortcutLabels: { shortcutLabel } });
-        assert.equal(drawn, logic.line(modelData, [], shortcutLabel), "the actual delegate maps its current error with the shared formatter");
+        const drawn = vm.runInNewContext(bindings[0][1], { Reply: logic, modelData, page: { panel: { plugins: [] } }, ShortcutLabels: { shortcutText } });
+        assert.equal(drawn, logic.line(modelData, [], shortcutText), "the actual delegate maps its current error with the shared formatter");
     }
 }
 
@@ -478,7 +478,7 @@ try {
     assert.throws(() => verifyKeys(shotsSource.replace(reader, "settings_section Keys KeyField toggle"), keySource), /Keys selection must find actual KeyField/, "the old screenshot reader must fail on absent geometry");
     controls++;
     for (const [needle, replacement, check] of [
-        ['const key = label.kind === "resolved" ? label.caps.join("+") : "";', 'const key = match[1];', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
+        ['const key = label.kind === "resolved" ? label.text : "";', 'const key = match[1];', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
         ['if (isOk(reply)) return "";', '', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }],
         ['reply.indexOf("ok ") === 0', 'false', mutated => { const f = path.join(temp, "Commons", "Reply.js"); fs.writeFileSync(f, mutated); verify(load(f)); }]
     ]) {
@@ -508,7 +508,7 @@ try {
         assert.throws(() => verifyWriter(writerSource.replace(needle, () => replacement)), cause);
         controls++;
     }
-    const needle = "text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.shortcutLabel)";
+    const needle = "text: Reply.line(modelData, page.panel.plugins, ShortcutLabels.shortcutText)";
     assert.equal(pageSource.split(needle).length, 2);
     assert.throws(() => verifyCallers(logic, windowSource, pageSource.replace(needle, "text: modelData")));
     controls++;

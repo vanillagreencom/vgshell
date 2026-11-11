@@ -104,9 +104,9 @@ Column {
         // The manifest's keys, from one key or a list.
         readonly property var defaultKeys: bind["default"] === null || bind["default"] === undefined ? []
             : typeof bind["default"] === "string" ? [bind["default"]] : Array.from(bind["default"])
-        // The manifest's keys as the field's caps spell them, such as
+        // The manifest's keys as running text spells them, such as
         // `Right Alt or Right Ctrl`.
-        readonly property string defaultLabel: defaultKeys.map(key => ShortcutLabels.keyCaps(key).join("+")).join(" or ")
+        readonly property string defaultLabel: defaultKeys.map(key => ShortcutLabels.shortcutText(key).text).join(" or ")
         readonly property bool userHolds: found !== null && found.user === true
         readonly property var holderResets: found === null ? [] : (found.resolutions || []).filter(holder => holder.reset)
         readonly property var linkedHolder: found === null || userHolds ? null : (found.resolutions || []).find(holder => !holder.reset) || null
@@ -224,7 +224,7 @@ Column {
                 RowAction {
                     required property var modelData
                     text: "Reset " + modelData.name + " to " + (modelData.defaultKeys.length === 0 ? "Unbound"
-                        : modelData.defaultKeys.map(key => ShortcutLabels.keyCaps(key).join("+")).join(" or "))
+                        : modelData.defaultKeys.map(key => ShortcutLabels.shortcutText(key).text).join(" or "))
                     visible: root.editable
                     onClicked: row.resetHolder(modelData.id, modelData.shortcut)
                 }

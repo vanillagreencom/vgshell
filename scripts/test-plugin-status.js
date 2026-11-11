@@ -40,7 +40,7 @@ const KEY_NAMES = KEY_NAV.symbolNames(load(LOGIC).CAPTURE_KEY_NAMES);
 // The libraries Service.qml imports beside SetupGate.js.
 const SERVICE_IMPORTS = { StatusPublication: load(path.join(JARVIS, "StatusPublication.js")), Providers: PROVIDERS, View: load(path.join(JARVIS, "WidgetView.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } }),
     spelledTalk: null,
-    ShortcutLabels: { keyCaps: key => KEY_NAV.keyCaps(key, Object.assign({}, KEY_NAMES, { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } })) } };
+    ShortcutLabels: { shortcutText: key => KEY_NAV.shortcutText(key, Object.assign({}, KEY_NAMES, { "CODE:30": { keysym: "u", codepoint: 117 }, "CODE:44": { keysym: "j", codepoint: 106 } })) } };
 
 let failures = 0;
 function report(name, got, want) {

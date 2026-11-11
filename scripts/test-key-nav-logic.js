@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // KeyNav's pure decisions, shell/Ui/foundation/KeyNavLogic.js, under node:
 // keyboard intent, roving steps, type-ahead, reveal math, activation, a
-// click's opener and shortcut keycap labels. The controls edit a temporary copy and require
+// click's opener and shortcut caps/text. The controls edit a temporary copy and require
 // this suite to fail on each copy.
 "use strict";
 const assert = require("node:assert/strict");
@@ -32,26 +32,42 @@ const labelsOnly = process.argv.length === 3 && process.argv[2] === "--labels-on
 assert.ok(process.argv.length === 2 || labelsOnly, "only --labels-only is supported");
 
 function verifyLabels(logic) {
+    const symbols = Object.entries(captureNames).filter(([code]) => {
+        const value = Number(code);
+        return value > 32 && value < 127 && /[^A-Za-z0-9]/.test(String.fromCodePoint(value));
+    });
+    assert.ok(symbols.some(([, name]) => name === "PERIOD") && symbols.some(([, name]) => name === "COMMA"),
+        "capture discovery includes the punctuation in the reported clashes");
+    const guidance = "Choose a key in [Settings](page:vgs.settings)";
     const rows = [
-        ["SUPER+SHIFT+T", undefined, ["Super", "Shift", "T"]],
-        ["Ctrl+PageDown", undefined, ["Ctrl", "PageDown"]],
-        ["SUPER+code:30", nativeRows[0].names, ["Super", "U"]],
-        ["SUPER+code:30", nativeRows[1].names, ["Super", "Г"]],
-        ["SUPER+SHIFT+CODE:0030", nativeRows[0].names, ["Super", "Shift", "U"]],
-        ["code:0108", nativeRows[0].names, ["Right Alt"]],
-        ["SUPER+code:105", nativeRows[0].names, ["Super", "Right Ctrl"]],
-        ["SUPER+code:109", {}, ["Choose a key in [Settings](page:vgs.settings)"]],
-        ["SUPER+code:30", null, ["Choose a key in [Settings](page:vgs.settings)"]],
-        ["SUPER+code:30", { "CODE:30": null }, ["Choose a key in [Settings](page:vgs.settings)"]],
-        ["SUPER+code:30+SHIFT", {}, ["Choose a key in [Settings](page:vgs.settings)"]],
-        ["SUPER+SLASH", { SLASH: { keysym: "SLASH", codepoint: 47 } }, ["Super", "/"]],
-        ["SUPER+ALT+PERIOD", logic.symbolNames(captureNames), ["Super", "Alt", "."]],
-        ["", {}, []],
-        [null, {}, []]
+        ["SUPER+SHIFT+T", undefined, ["Super", "Shift", "T"], "Super+Shift+T"],
+        ["SUPER+1", undefined, ["Super", "1"], "Super+1"],
+        ["Ctrl+PageDown", undefined, ["Ctrl", "PageDown"], "Ctrl+PageDown"],
+        ["ALT_R", undefined, ["Right Alt"], "Right Alt"],
+        ["SUPER+code:30", nativeRows[0].names, ["Super", "U"], "Super+U"],
+        ["SUPER+code:30", nativeRows[1].names, ["Super", "Г"], "Super+Г"],
+        ["SUPER+SHIFT+CODE:0030", nativeRows[0].names, ["Super", "Shift", "U"], "Super+Shift+U"],
+        ["code:0108", nativeRows[0].names, ["Right Alt"], "Right Alt"],
+        ["SUPER+code:105", nativeRows[0].names, ["Super", "Right Ctrl"], "Super+Right Ctrl"],
+        ["SUPER+code:109", {}, [guidance], guidance, "unresolved"],
+        ["SUPER+code:30", null, [guidance], guidance, "unresolved"],
+        ["SUPER+code:30", { "CODE:30": null }, [guidance], guidance, "unresolved"],
+        ["SUPER+code:30+SHIFT", {}, [guidance], guidance, "unresolved"],
+        ["SUPER+code:60", { "CODE:60": { keysym: "period", codepoint: 46 } }, ["Super", "."], "Super+Period"],
+        ["SUPER+SLASH", { SLASH: { keysym: "SLASH", codepoint: 47 } }, ["Super", "/"], "Super+Slash"],
+        ["SUPER+ALT+PERIOD", logic.symbolNames(captureNames), ["Super", "Alt", "."], "Super+Alt+Period"],
+        ["SUPER+COMMA", logic.symbolNames(captureNames), ["Super", ","], "Super+Comma"],
+        ...symbols.map(([code, name]) => ["SUPER+" + name, logic.symbolNames(captureNames),
+            ["Super", String.fromCodePoint(Number(code))], "Super+" + name.charAt(0) + name.slice(1).toLowerCase()]),
+        ["", {}, [], ""],
+        [null, {}, [], ""]
     ];
-    for (const [shortcut, names, caps] of rows) {
+    for (const [shortcut, names, caps, text, kind = "resolved"] of rows) {
         const stored = shortcut;
         assert.deepEqual(Array.from(logic.keyCaps(shortcut, names)), caps, "shortcut display contract: " + shortcut);
+        // Shortcut text is delivered product output for labels and replies.
+        assert.deepEqual(JSON.parse(JSON.stringify(logic.shortcutText(shortcut, names))), { kind, text },
+            "shortcut text contract: " + shortcut);
         assert.equal(shortcut, stored, "display does not rewrite the stored binding");
     }
     assert.deepEqual(Array.from(logic.physicalKeys(["SUPER+code:0030", "code:30", "SHIFT+T", null, "CODE:105"])),
@@ -171,6 +187,8 @@ const CONTROLS = [
     ["layout-label missing name", 'if (physical && (native === undefined || native === null)) return null;', 'if (physical && (native === undefined || native === null)) return key;'],
     ["layout-label fallback retains key parts", 'if (label === null) return { kind: "unresolved" };', 'if (false) return { kind: "unresolved" };'],
     ["layout-label symbol inputs", 'if (value > 32 && value < 127)', 'if (false)'],
+    ["layout-label symbol text", 'if (text && native.codepoint < 127 && /[^A-Za-z0-9]/.test(String.fromCodePoint(native.codepoint)))',
+        'if (false && text && native.codepoint < 127 && /[^A-Za-z0-9]/.test(String.fromCodePoint(native.codepoint)))'],
     ["layout-label leading zeros", 'if (physical) upper = "CODE:" + String(Number(upper.slice(5)));', 'if (physical) upper = "CODE:" + upper.slice(5);']
 ];
 

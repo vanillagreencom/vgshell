@@ -118,8 +118,8 @@ Item {
         }
         function test_badge_help_and_link_are_reachable_data() {
             return [
-                { tag: "hover and pointer", keyboard: false, shortcut: root.shortcutError, displayed: "Super+," },
-                { tag: "focus and keyboard", keyboard: true, shortcut: root.shortcutError, displayed: "Super+," },
+                { tag: "hover and pointer", keyboard: false, shortcut: root.shortcutError, displayed: "Super+Comma" },
+                { tag: "focus and keyboard", keyboard: true, shortcut: root.shortcutError, displayed: "Super+Comma" },
                 { tag: "active layout key", keyboard: true, shortcut: "hyprland: SUPER+code:44 for acme.problem:toggle skipped: already bound by acme.holder", displayed: "Super+Ж" }
             ];
         }
@@ -134,7 +134,7 @@ Item {
             verify(badge !== undefined);
             compare(badge.tone, "warning");
             compare(badge.activeFocusOnTab, true, "the explanation is reachable by Tab, not only forced focus");
-            const words = Reply.line(data.shortcut, manager.plugins, ShortcutLabels.shortcutLabel);
+            const words = Reply.line(data.shortcut, manager.plugins, ShortcutLabels.shortcutText);
             verify(words.indexOf(data.displayed) !== -1, "the actual badge uses the shared printable layout name");
             compare(badge.Accessible.name, PageReference.plain(words), "the badge reads its complete problem explanation");
             const tip = tooltipOf(badge);
@@ -175,9 +175,9 @@ Item {
             const names = Object.assign({}, ShortcutLabels.symbolNames);
             if (data.refused) names["CODE:44"] = null;
             ShortcutLabels.names = names;
-            compare(ShortcutLabels.shortcutLabel("SUPER+code:44").kind, "unresolved");
+            compare(ShortcutLabels.shortcutText("SUPER+code:44").kind, "unresolved");
             const shortcut = "hyprland: SUPER+code:44 for vgs.system:toggle skipped: already bound by vgs.jarvis";
-            const words = Reply.line(shortcut, [{ id: "vgs.jarvis", name: "Jarvis" }], ShortcutLabels.shortcutLabel);
+            const words = Reply.line(shortcut, [{ id: "vgs.jarvis", name: "Jarvis" }], ShortcutLabels.shortcutText);
             // The help is a delivered product result, including the page
             // reference that the source-owned keyboard path consumes.
             compare(words, "Jarvis already uses this shortcut. Change this shortcut in [Settings/Keys](page:vgs.system/Settings/Keys).");
