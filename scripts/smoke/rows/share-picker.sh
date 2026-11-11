@@ -615,7 +615,12 @@ for share_mode in dark light; do
   printf '[Appearance]\ncolor_scheme_path=/usr/share/qt6ct/colors/%s.conf\ncustom_palette=true\nstyle=Fusion\n' "$share_qt_palette" >"$home/.config/qt6ct/qt6ct.conf"
   spawn_display "$share_world/$share_mode-before.log" "${shell_env[@]}" QT_QPA_PLATFORM=wayland QT_QPA_PLATFORMTHEME=qt6ct XDPH_WINDOW_SHARING_LIST="$share_window_list" -- bwrap --ro-bind / / --dev-bind /dev /dev --tmpfs /tmp --bind "$sandbox" "$sandbox" --bind "$rt_dir" "$rt_dir" hyprland-share-picker --allow-token
   share_before_pid="$spawn_pid"
+  share_before_failures=$failures
   expect_poll "the original picker maps in $share_mode" 1 share_before_count
+  if ((failures > share_before_failures)); then
+    printf 'share-picker: Before %s log: %s\n' "$share_mode" "$share_world/$share_mode-before.log"
+    tail -n 40 "$share_world/$share_mode-before.log"
+  fi
   share_shot_kind=before
   shot "$share_mode-before" || fail "share-picker: Before $share_mode failed"
   kill -TERM -- -"$share_before_pid" 2>/dev/null || true
@@ -649,7 +654,15 @@ for share_mode in dark light; do
   expect_poll "the pictured request cancels" True share_cancelled "$share_mode-shots"
 done
 unset SHOT_CHROME_READER SHOT_CHROME_REQUIRE
-python3 "$share_fixture/sheets.py" "$share_evidence" || fail "share-picker: picture labels failed"
+share_missing_before=()
+for share_mode in dark light; do
+  [[ -f $share_evidence/$share_mode-before.png ]] || share_missing_before+=("$share_mode-before.png")
+done
+if ((${#share_missing_before[@]})); then
+  fail "share-picker: picture labels missing ${share_missing_before[*]}"
+else
+  python3 "$share_fixture/sheets.py" "$share_evidence" || fail "share-picker: picture labels failed"
+fi
 # Capture's Settings page reads the sharing picker under Details, with no
 # Setup step: pictured Ready and in the hinted state a portal that stays
 # failed after its restart reads, dark and light. Opening the page sets up
