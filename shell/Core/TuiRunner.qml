@@ -446,6 +446,12 @@ Scope {
         return Object.prototype.hasOwnProperty.call(keys, key) && keys[key].ended !== null ? keys[key].ended.run : "";
     }
 
+    // Keep records and pending from the same publication, as stateOf does.
+    function coreRunning(name) {
+        return Logic.tuiState(recordStore.runs, Logic.CORE_OWNER,
+            [name], pending.map(p => p.key))[name].running;
+    }
+
     // The calling plugin's own TUIs' state, one frozen copy per read: its
     // scripts' and its file actions' editor runs (PluginLogic.tuiStateNames),
     // a run live from its launch, before any record of it is listed.

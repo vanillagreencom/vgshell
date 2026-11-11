@@ -1724,7 +1724,9 @@ expect "capture closes its options window over the install notice" ok ipc vgs.ca
 expect_poll "the options window over the install notice unmaps" absent capture_options
 expect "missing OCR refuses capture before running tools" 'refused: capture=missing tesseract' ipc vgs.capture invoke text ''
 expect_poll "missing OCR raises the core install notice" tesseract capture_notice
+expect_poll "the install notice holds the keyboard after Capture closes" true ipc smoke noticeFocused
 type_keys -k Escape || fail "capture: closing the install notice failed"
+expect_poll "Escape closes the install notice" 0 layer_count vgs:notice
 ln -s -- "$capture_state/bin/tesseract" "$shim/tesseract"
 rescan "the restored OCR command is rescanned"
 expect_poll "the restored OCR command is found" False capture_missing
@@ -2745,10 +2747,6 @@ expect_poll "disabling capture ends a held selection's selector and freeze" 0 ca
 expect_poll "disabled capture releases its status" null capture_status
 expect_poll "disabling capture releases all owned clipboard providers" True capture_released
 expect_poll "the end-of-row reload reaches real hyprctl" real capture_layer_reload false "$capture_hyprctl_mark"
-for capture_tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
-  rm -f -- "${shim:?}/$capture_tool"
-  if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
-done
 rm -f -- "${shim:?}/hyprctl.capture"
 # The shell keeps no stderr of the hyprctl it runs, so each call the
 # stand-in ended itself prints here, before the shell-log failure it
@@ -2872,5 +2870,13 @@ expect_poll "the shared raise is restored with Capture built" True record_exists
 rm -rf -- "${sandbox:?}/tree-capture-settings-no-raise"
 expect "Capture enablement is restored after its Settings link" ok capture_enable "${capture_settings_enabled,,}"
 expect_poll "Capture's service returns to its prior enablement" "$capture_settings_enabled" record_exists vgs.capture
+
+# The Settings-link case re-enables Capture, so keep its required tools
+# until that last consumer ends instead of raising an unrelated notice.
+for capture_tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  rm -f -- "${shim:?}/$capture_tool"
+  if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
+done
+rescan "the capture tools are restored after its Settings link"
 
 expect "capture teardown-stage producer disarms after restoration" off ipc smoke captureStageProbe false

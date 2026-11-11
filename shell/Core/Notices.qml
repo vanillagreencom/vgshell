@@ -737,12 +737,6 @@ Singleton {
         consentAnswered(action.answer);
     }
 
-    function openConsentLink() {
-        if (consent === null || consent.link === null || consent.link === undefined) return;
-        const answer = Capabilities.tuis.edit(consent.link.path, consent.link.line);
-        if (answer !== "ok") console.warn("notices: edit-link path=" + consent.link.path + " " + answer);
-    }
-
     // One detection at a time; one asked for while one runs follows it.
     function detect() {
         if (detector.running) {

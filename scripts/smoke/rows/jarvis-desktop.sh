@@ -12,10 +12,14 @@
 # 200 ms (expect_poll); the driver polls its call file every 10 ms.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh shell/plugins/vgs.jarvis/backend/skills/*.md
 set -euo pipefail
+# shellcheck disable=SC2168 # smoke_row sources this file inside its function.
 local jarvis_fixture_tree="" jarvis_fixture_shim="" jarvis_fixture_name="" jarvis_fixture_revision=""
 jarvis_fixture_begin
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
+
+# Desktop tools need application keyboard focus, not a setup notice.
+jarvis_setup_requirements "$jarvis_fixture_shim"
 
 jd_paths() {
   jd_dir="$jarvis_fixture_tree/shell/plugins/vgs.jarvis"

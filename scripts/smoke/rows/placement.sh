@@ -871,7 +871,7 @@ fi
 # A grab that leaves the bar's keyboard interactivity alone leaves the bar
 # holding the keyboard after the release on an empty workspace.
 if copy_tree placement-keyboard-control \
-  && edit_tree placement-keyboard-control shell/Core/Plugins.qml '        barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
+  && edit_tree placement-keyboard-control shell/Core/Plugins.qml '        if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-keyboard-control" "$sandbox/placement-keyboard-control.log" || fail "the keyboard control shell starts"
@@ -891,8 +891,8 @@ fi
 # Hyprland ends the press at the bar's edge on the sandbox's empty
 # workspace, so the drag out and back reads red.
 if copy_tree placement-grab-control \
-  && edit_tree placement-grab-control shell/Core/Plugins.qml '        barPressGrab.active = true;' '        barPressGrab.active = false;' \
-  && edit_tree placement-grab-control shell/Core/Plugins.qml '        barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
+  && edit_tree placement-grab-control shell/Core/Plugins.qml $'\n        barPressGrab.active = true;' $'\n        barPressGrab.active = false;' \
+  && edit_tree placement-grab-control shell/Core/Plugins.qml '        if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.OnDemand;' ''; then
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-grab-control" "$sandbox/placement-grab-control.log" || fail "the grab control shell starts"
