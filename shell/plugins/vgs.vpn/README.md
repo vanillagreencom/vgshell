@@ -17,7 +17,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 - NetworkManager's connection editor to add or edit a profile.
 - Remove profile deletes a profile after you confirm.
 - A kill switch that blocks traffic outside the VPN when the VPN drops.
-- Connect automatically: on a network not on your trusted list, the chosen profile connects with no press.
+- Connect automatically: on a network not on your trusted list, the chosen profile connects by itself.
 
 ## What VGS can connect
 
@@ -51,9 +51,11 @@ A reading VGS cannot take reads Could not check, never a pass. A connection that
 
 ## Connect automatically
 
-Connect automatically, in the VPN section of System Settings, connects one profile with no press. Choose the profile, then turn on the networks you trust under Trusted networks. The list shows the networks this computer has saved, and Connected beside the ones it is on.
+Connect automatically, in the VPN section of System Settings, connects one profile by itself. Choose the profile, then turn on the Wi-Fi networks you trust under Trusted networks. The list shows the Wi-Fi networks this computer has saved, and Connected beside the ones it is on.
 
-When this computer joins a network that is not on the list, or VGS starts on one, VGS connects the profile. On a trusted network VGS does nothing. VGS trusts the saved network, not its name, so another network with the same name is not trusted. When a VPN profile is already connected, VGS leaves it.
+When this computer joins a network that is not on the list, or VGS starts on one, VGS connects the profile. On a trusted network VGS does nothing. When a VPN profile is already connected, VGS leaves it.
+
+Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. Only Wi-Fi networks can be trusted. A wired, Bluetooth or mobile connection always counts as not trusted, because its saved profile matches any cable, phone or carrier, so the VPN connects on it.
 
 VGS connects the profile as its switch does. With the kill switch on, the block is in place before the profile connects.
 

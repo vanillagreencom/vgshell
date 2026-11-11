@@ -6,8 +6,9 @@ import "VpnLogic.js" as Logic
 
 // Connect automatically, in System Settings: the profile to connect on a
 // network not on the trusted list, from the service's `vpnChoices`, and
-// Trusted networks, one switch per saved network of the service's last
-// list read (`networks`), the active ones first. Both write the plugin's
+// Trusted networks, one row with a switch per saved Wi-Fi profile of the
+// service's last list read (`networks`), the active ones first; only a
+// Wi-Fi profile can be trusted (VpnLogic.networkList). Both write the plugin's
 // own settings, `autoConnect` and `trustedNetworks`, which the Settings
 // page draws from the manifest too; the labels, hints and info are the
 // manifest's, so both pages read alike. The line under the profile is the
@@ -50,6 +51,7 @@ Column {
             Select {
                 objectName: "vpn-auto-connect"
                 width: parent.width
+                Accessible.name: "Connect automatically: " + currentText
                 model: root.choices
                 textRole: "label"
                 currentIndex: root.chosenIndex
@@ -68,6 +70,7 @@ Column {
         width: root.width
         title: root.schema.trustedNetworks === undefined ? "" : root.schema.trustedNetworks.label
         description: root.schema.trustedNetworks === undefined ? "" : root.schema.trustedNetworks.description
+        info: root.schema.trustedNetworks === undefined ? "" : root.schema.trustedNetworks.info
 
         Label {
             objectName: "vpn-trusted-empty"
@@ -75,7 +78,7 @@ Column {
             visible: text !== ""
             role: "hint"
             text: root.networks.state === "unreadable" ? "VGS could not read your saved networks"
-                : root.networks.state === "available" && root.networks.rows.length === 0 ? "No saved networks yet" : ""
+                : root.networks.state === "available" && root.networks.rows.length === 0 ? "No saved Wi-Fi networks yet" : ""
             wrapMode: Text.Wrap
         }
         Repeater {
@@ -84,27 +87,29 @@ Column {
             model: ScriptModel { values: root.networks.rows; objectProp: "uuid" }
             // A row leaving the model loses its parent before it is
             // destroyed, so it reads the section's width, not its parent's.
-            Field {
-                id: networkField
+            ContentRow {
+                id: networkRow
                 required property var modelData
-                objectName: "vpn-trusted-field:" + modelData.uuid
+                objectName: "vpn-trusted-row:" + modelData.uuid
                 width: root.width
-                inline: true
-                label: modelData.name
-                hint: modelData.active ? modelData.type + " · Connected" : modelData.type
-
-                Switch {
-                    objectName: "vpn-trusted:" + networkField.modelData.uuid
-                    size: "sm"
-                    Accessible.name: networkField.modelData.name
-                    checked: root.trusted.indexOf(networkField.modelData.uuid) !== -1
-                    onToggled: {
-                        const wanted = checked;
-                        const uuid = networkField.modelData.uuid;
-                        checked = Qt.binding(() => root.trusted.indexOf(networkField.modelData.uuid) !== -1);
-                        root.save("trustedNetworks", Logic.trustedChange(root.shell.settings.trustedNetworks, uuid, wanted));
+                iconName: "wifi"
+                text: modelData.name
+                secondary: modelData.active ? modelData.type + " · Connected" : modelData.type
+                trailing: [
+                    Switch {
+                        objectName: "vpn-trusted:" + networkRow.modelData.uuid
+                        anchors.verticalCenter: parent.verticalCenter
+                        size: "sm"
+                        Accessible.name: "Trust " + networkRow.modelData.name
+                        checked: root.trusted.indexOf(networkRow.modelData.uuid) !== -1
+                        onToggled: {
+                            const wanted = checked;
+                            const uuid = networkRow.modelData.uuid;
+                            checked = Qt.binding(() => root.trusted.indexOf(networkRow.modelData.uuid) !== -1);
+                            root.save("trustedNetworks", Logic.trustedChange(root.shell.settings.trustedNetworks, uuid, wanted));
+                        }
                     }
-                }
+                ]
             }
         }
     }

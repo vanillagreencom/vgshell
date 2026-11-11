@@ -98,6 +98,9 @@ Item {
     readonly property var trusted: Logic.trustedUuids(shell === null ? [] : shell.settings.trustedNetworks)
     property var networks: Logic.emptyNetworks("reading")
     property var autoMemory: Logic.autoConnectStart()
+    // The uuid of the connect Connect automatically started, until it
+    // ends, so a later failure reaches its problem line.
+    property string autoAction: ""
     readonly property string autoProblem: Logic.autoConnectText(autoMemory.problem)
     readonly property var vpnChoices: Logic.vpnChoices(profiles)
     // NetworkManager's own device signals, read only while a profile is
@@ -120,6 +123,9 @@ Item {
     readonly property var killSetup: Logic.killSwitchSetup(killStep)
     onKillSwitchChanged: publish()
     onKillSetupChanged: publish()
+    // The step's first reading decides whether a connect writes the state
+    // file first, so a change that waited on it is decided again.
+    onKillStepChanged: autoRetry()
     onKillReadyChanged: {
         if (!killReady) killStatus = null;
         readKillSwitch();
@@ -367,6 +373,8 @@ Item {
                 root.detailsRead = key;
             }
             if (again || (read !== null && Logic.detailsKey(root.listing) !== key)) { again = false; root.readDetails(); }
+            // A connect refused while the details were read is decided again.
+            else root.autoRetry();
         }
     }
 
@@ -435,20 +443,34 @@ Item {
     }
     // Connect automatically's decision over the list read that just
     // landed: a connect goes through the switch's own IPC action, so the
-    // kill switch arms first; a refusal leaves its problem line, and a busy
-    // service keeps the network change for the next read.
+    // kill switch arms first, and its answer goes to
+    // VpnLogic.autoConnectReply. Before the kill switch step's first
+    // reading it waits, since a connect then could skip the state file the
+    // step would have it write first.
     function autoConnect() {
-        const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles, profileAction !== null || stateWrite !== null);
+        const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles,
+            profileAction !== null || stateWrite !== null || killStep === undefined);
         autoMemory = plan.memory;
         if (plan.uuid === "") return;
         const reply = actProfile({ kind: "profile-up", id: plan.uuid });
         console.log("vpn: operation=auto-connect completion=" + reply);
-        if (reply === "busy") autoMemory = Logic.autoConnectBusy(autoMemory);
-        else if (reply !== "ok") {
-            const row = profiles.rows.find(candidate => candidate.uuid === plan.uuid);
-            autoMemory = Logic.autoConnectRefused(autoMemory, row.name,
-                Logic.rowView(row, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch)).reason);
-        }
+        const row = profiles.rows.find(candidate => candidate.uuid === plan.uuid);
+        if (reply === "ok") autoAction = row.uuid;
+        autoMemory = Logic.autoConnectReply(autoMemory, reply, row,
+            Logic.rowView(row, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch)).reason);
+    }
+    // A change still pending, decided again over the current list.
+    function autoRetry() {
+        if (registered && autoMemory.pending && profileAction === null) autoConnect();
+    }
+    // The connect Connect automatically started ended, FAILED with the
+    // problem line TEXT or not.
+    function autoEnded(uuid, failed, text) {
+        if (autoAction === "" || autoAction !== uuid) return;
+        autoAction = "";
+        if (!failed) return;
+        const row = profiles.rows.find(candidate => candidate.uuid === uuid);
+        autoMemory = Logic.autoConnectFailed(autoMemory, row === undefined ? { uuid: uuid, name: "the VPN" } : row, text);
     }
     // VpnLogic.submitConnect's direct call: connect UUID with FEED writing
     // the passwd-file line once nmcli has started. Only FEED's closure
@@ -592,6 +614,7 @@ Item {
         profileAction = null;
         if (cause !== "write") console.warn("vpn: operation=kill-switch-arm completion=" + cause + (reason === "" ? "" : " reason=" + reason));
         profileProblem = { uuid: ended.uuid, kind: "kill-switch", text: Logic.stageProblem(ended.kind, ended.name, cause, reason, unrestored) };
+        autoEnded(ended.uuid, true, profileProblem.text);
         readProfiles();
         readKillSwitch();
     }
@@ -821,6 +844,7 @@ Item {
                 root.failures = next;
             }
             if (failed) root.profileProblem = { uuid: action.uuid, kind: action.kind, text: Logic.problem(action.kind, action.name, code) };
+            if (action.kind === "profile-up") root.autoEnded(action.uuid, failed, failed ? root.profileProblem.text : "");
             root.runEnded();
             // nmcli's `up` ends once the profile is activated.
             if (action.kind === "profile-up" && code === 0) root.startCheck(action.uuid, true);

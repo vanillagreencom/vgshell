@@ -49,7 +49,7 @@
       "type": "string",
       "label": "Profile",
       "description": "Connects on a network not on your trusted list",
-      "info": "When this computer joins a network that is not on your trusted list, or VGS starts on one, VGS connects this profile with no press. With the kill switch on, the block is in place before it connects. If you turn the VPN off, it stays off until this computer changes networks.",
+      "info": "When this computer joins a network that is not on your trusted list, or VGS starts on one, VGS connects this profile by itself. A wired, Bluetooth or mobile network is never trusted. With the kill switch on, the block is in place before it connects. If you turn the VPN off, it stays off until this computer changes networks.",
       "optionsFrom": "vpnChoices",
       "problem": "autoConnectProblem",
       "group": "Connect automatically"
@@ -57,7 +57,8 @@
     "trustedNetworks": {
       "type": "list",
       "label": "Trusted networks",
-      "description": "On these networks the VPN does not connect by itself",
+      "description": "On these Wi-Fi networks the VPN does not connect by itself. Only a Wi-Fi network can be trusted.",
+      "info": "Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. A wired, Bluetooth or mobile connection is never trusted, because its saved profile matches any cable, phone or carrier, so the VPN connects on it.",
       "group": "Connect automatically",
       "items": {
         "network": {
