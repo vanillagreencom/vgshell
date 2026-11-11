@@ -9,7 +9,8 @@
 # `test-vpn-kill-switch: passed` with exit 0, or
 # `test-vpn-kill-switch: failed=<count>` with exit 1. A host that cannot hold
 # the namespaces prints `test-vpn-kill-switch: status=not-measured
-# reason=<key>` and exits 77.
+# reason=<key>` and exits 77, and so does one that cannot build the unit's
+# read-only view, reason=limited-view, once every other check has passed.
 #
 # `unshare --user --map-root-user --net --mount` makes the laptop. tmpfs
 # mounts there give it its own /run, /var/lib and /usr/local, so the
@@ -50,6 +51,12 @@
 # ping marked as Tailscale marks its packets; the capture holding it proves
 # every earlier frame was read.
 #
+# The last checks start sync as vgs-kill-switch.service does, under the
+# limits its unit file names, read from that file: the capability bounding
+# set, through the real setpriv with no new privileges, and in a mount
+# namespace of its own a file system read-only but for the paths the unit
+# keeps writable. Their controls drop a capability the unit keeps.
+#
 # The VPN plugin's leak judge (shell/plugins/vgs.vpn/VpnLogic.js
 # leakCheck) runs under node, loaded as scripts/test-vpn-logic.js loads it,
 # over readings taken in the laptop with the VPN meant on and its tunnel
@@ -69,7 +76,7 @@ not_measured() { printf '%s: status=not-measured reason=%s\n' "$suite" "$1"; exi
 
 if [[ ${1-} != --laptop ]]; then
   (($# == 0)) || exit 2
-  for tool in unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node; do
+  for tool in unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node awk; do
     command -v "$tool" >/dev/null || not_measured "missing-$tool"
   done
   # The binary itself, not a version manager's shim, which reads the
@@ -1160,7 +1167,163 @@ run_sync
 check "an unknown key is refused" refused "$tmp/sync.err" "$sync_status" "state=malformed path=$state"
 unprivileged "$script" sync >/dev/null 2>"$tmp/unprivileged-sync.err" || true
 check "sync refuses an unprivileged caller" test "$(head -n 1 "$tmp/unprivileged-sync.err")" == "vgs-kill-switch: refused: caller=unprivileged"
+
+# ---------------------------------------------------------------- the unit's limits
+
+# A start of vgs-kill-switch.service as at boot, under the limits its unit
+# file names, read from that file: ExecStartPre= as root with every
+# capability and the unit's UMask=, onto a /run that holds no lock, then
+# sync in a mount namespace of its own, read-only but for each
+# ReadWritePaths= entry, the StateDirectory=, /tmp, which PrivateTmp= keeps
+# writable, and this suite's own directory, where the stand-ins log; through
+# setpriv, with no new privileges and the unit's capability bounding set.
+# The owner setpriv takes here is uid 0, the namespace's only one, so no
+# control shows CAP_SETUID, CAP_SETGID or CAP_KILL needed: each acts only
+# toward a second uid. The controls drop CAP_NET_ADMIN, and
+# CAP_DAC_READ_SEARCH with the state directory at mode 0000, which denies
+# root, its owner here, the search an owner's mode 0700 denies root.
+unit_file="$repo/config/system/kill-switch/vgs-kill-switch.service"
+service_value() { awk -v key="$1=" '/^\[/ { inside = ($0 == "[Service]") } inside && index($0, key) == 1 { print substr($0, length(key) + 1) }' "$unit_file"; } # KEY
+unit_caps="$(service_value CapabilityBoundingSet)"
+unit_writable="$(service_value ReadWritePaths)"
+unit_state_dir="$(service_value StateDirectory)"
+unit_state_mode="$(service_value StateDirectoryMode)"
+unit_pre="$(service_value ExecStartPre)"
+unit_umask="$(service_value UMask)"
+one_line() { [[ -n $1 && $1 != *$'\n'* ]]; } # VALUE
+for key in caps writable state_dir state_mode pre umask; do
+  value="unit_$key"
+  check "the unit names its $key once" one_line "${!value}"
+done
+check "the unit's pre-start runs with full privileges" test "${unit_pre:0:1}" == +
+read -r -a unit_pre_argv <<<"${unit_pre#+}"
+read -r -a unit_cap_list <<<"$unit_caps"
+read -r -a unit_writable_list <<<"$unit_writable"
+unit_state_path="/var/lib/$unit_state_dir"
+# setpriv's --bounding-set form of the unit's capabilities, less DROPPED.
+bounding_set() { # [DROPPED]
+  local cap set=-all
+  for cap in "${unit_cap_list[@]}"; do
+    [[ $cap != "${1-}" ]] || continue
+    cap="${cap#CAP_}"
+    set+=",+${cap,,}"
+  done
+  printf '%s' "$set"
+}
+# setattr.py ro|rw PATH: adds the read-only attribute to the mount at PATH
+# and every mount below it, or clears it from that mount alone, through
+# mount_setattr(2), which sets and clears only the attributes it names. A
+# mount flag propagated from a more privileged mount namespace is locked
+# (mount_namespaces(7)), and under scripts/validate's world, whose mounts
+# reach this one through two user namespaces, `mount -o
+# remount,bind,ro=recursive /` was refused (`mount: /: permission denied`,
+# 2026-11-11).
+cat >"$tmp/setattr.py" <<'EOF'
+import ctypes, os, sys
+class MountAttr(ctypes.Structure):
+    _fields_ = [("attr_set", ctypes.c_uint64), ("attr_clr", ctypes.c_uint64),
+                ("propagation", ctypes.c_uint64), ("userns_fd", ctypes.c_uint64)]
+AT_FDCWD, AT_RECURSIVE, MOUNT_ATTR_RDONLY = -100, 0x8000, 0x1
+mode, path = sys.argv[1:]
+libc = ctypes.CDLL(None, use_errno=True)
+if mode == "ro":
+    attr, flags = MountAttr(MOUNT_ATTR_RDONLY, 0, 0, 0), AT_RECURSIVE
+else:
+    attr, flags = MountAttr(0, MOUNT_ATTR_RDONLY, 0, 0), 0
+if libc.mount_setattr(AT_FDCWD, path.encode(), flags, ctypes.byref(attr), ctypes.c_size_t(ctypes.sizeof(attr))) != 0:
+    sys.exit("setattr: %s %s: %s" % (mode, path, os.strerror(ctypes.get_errno())))
+EOF
+# limited.sh SETPRIV CAPS PATH... -- COMMAND...: COMMAND in the caller's new
+# mount namespace, made read-only but for each PATH, one with a leading -
+# skipped while missing, as ReadWritePaths= skips it; through SETPRIV, with
+# CAPS as its --bounding-set and no new privileges. Exits 75 when it cannot
+# build that view.
+cat >"$tmp/limited.sh" <<EOF
+set -uo pipefail
+setattr="$tmp/setattr.py"
+EOF
+cat >>"$tmp/limited.sh" <<'EOF'
+setpriv="$1" caps="$2"
+shift 2
+python3 -I "$setattr" ro / || exit 75
+while [[ $1 != -- ]]; do
+  path="${1#-}"
+  if [[ $1 != -* || -e $path ]]; then
+    mount --rbind "$path" "$path" && python3 -I "$setattr" rw "$path" || exit 75
+  fi
+  shift
+done
+shift
+exec "$setpriv" --bounding-set="$caps" --inh-caps=-all --no-new-privs -- "$@"
+EOF
+# COMMAND as the unit's ExecStart= runs, with CAPS for its bounding set.
+limited() { # CAPS COMMAND...
+  unshare --mount --propagation private -- "$BASH" "$tmp/limited.sh" "$real_setpriv" "$1" \
+    /tmp "$tmp" "$unit_state_path" "${unit_writable_list[@]}" -- "${@:2}"
+}
+# What systemd does before ExecStart=: the state directory, root's, with
+# the unit's mode, then ExecStartPre= with the unit's umask.
+pre_start() {
+  mkdir -p -- "$unit_state_path"
+  chmod -- "$unit_state_mode" "$unit_state_path"
+  (umask "$unit_umask" && "${unit_pre_argv[@]}")
+}
+# A start with CAPS for the bounding set, setting sync_status and sync_out
+# as run_sync does.
+unit_sync() { # CAPS
+  pre_start || true
+  sync_status=0
+  sync_out="$(limited "$1" "$script" sync 2>"$tmp/sync.err")" || sync_status=$?
+}
+# The errno name a create of PATH meets under the unit's limits, or created.
+create_errno='import errno, os, sys
+try:
+    os.close(os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+    print("created")
+except OSError as error:
+    print(errno.errorcode[error.errno])'
+limited_create() { limited "$(bounding_set)" python3 -I -c "$create_errno" "$1" 2>/dev/null || echo run-failed; } # PATH
+
+# The checks under the unit's limits, which run once the view builds.
+unit_limits() {
+  write_state "$uuid" block
+  delete_tables
+  rm -f -- "$lock"
+  pre_start || true
+  check "the unit's pre-start makes the missing lock root's alone before sync opens it" test "$(stat -c '%u %a' -- "$lock")" == "0 600"
+  touch "$pending"
+  unit_sync "$(bounding_set)"
+  check "under the unit's limits sync arms" synced armed
+  check "under the unit's limits both tables are armed" table_armed
+  check "under the unit's limits sync removes the pending mark" test ! -e "$pending"
+  check "under the unit's limits the status reads passing for the profile it cached" status_is "state=passing reason=tunnel-up" "tunnel=wgnord" "profile=$uuid"
+  check "under the unit's limits a file in /run is refused as read-only" test "$(limited_create /run/vgs-limited-probe)" == EROFS
+  check "under the unit's limits a file beside the state directories is refused as read-only" test "$(limited_create /var/lib/vgshell/limited-probe)" == EROFS
+  delete_tables
+  unit_sync "$(bounding_set CAP_NET_ADMIN)"
+  check "the net-admin-less control refuses as an unprivileged caller" refused "$tmp/sync.err" "$sync_status" caller=unprivileged
+  check "the net-admin-less control leaves no table" table_absent
+  chmod 0000 /var/lib/vgshell/vpn
+  unit_sync "$(bounding_set)"
+  check "under the unit's limits a state directory root may not search arms" synced armed
+  delete_tables
+  unit_sync "$(bounding_set CAP_DAC_READ_SEARCH)"
+  check "the read-search-less control reads that state as missing and disarms" synced disarmed
+  check "the read-search-less control leaves no table" table_absent
+  chmod 0755 /var/lib/vgshell/vpn
+}
+# A host that cannot build the read-only view, as one whose kernel or
+# seccomp policy refuses mount_setattr(2), holds no reading of the
+# limits: the suite reads not-measured at its end, after its other checks.
+limited_view=0
+limited "$(bounding_set)" true 2>"$tmp/limited.err" || limited_view=$?
+case "$limited_view" in
+  0) unit_limits ;;
+  75) printf '        limited view: err=[%s]\n' "$(head -c 400 "$tmp/limited.err")" ;;
+  *) fail "the limited view runs a command"; printf '        exit=%s err=[%s]\n' "$limited_view" "$(head -c 400 "$tmp/limited.err")" ;;
+esac
 check "no status instance refused" lacks "vgs-kill-switch: refused" "$tmp/status.err"
 
 if ((failures)); then printf '%s: failed=%s\n' "$suite" "$failures"; exit 1; fi
+((limited_view != 75)) || { printf '%s: status=not-measured reason=limited-view\n' "$suite"; exit 77; }
 printf '%s: passed\n' "$suite"

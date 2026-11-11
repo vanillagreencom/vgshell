@@ -9,6 +9,29 @@
 # a sync is short and idempotent, so it keeps no start limit: the default 5
 # starts in 10 s would refuse the sixth and fail vgs-kill-switch.path, which
 # then stops watching. That path unit's trigger limit bounds a loop.
+#
+# sync parses a file its user owns and NetworkManager's profile text, so it
+# runs with only what sync needs; scripts/test-vpn-kill-switch-unit.sh
+# reads these limits, and scripts/test-vpn-kill-switch.sh runs a sync under
+# them. A root process that reaches systemd's or NetworkManager's bus, as
+# sync's systemctl and nmcli do, can still ask either for anything: the
+# limits bound what sync itself can reach, not what those services do.
+#
+# None of them delays the start before network-pre.target. With
+# DefaultDependencies=no, PrivateTmp=yes becomes PrivateTmp=disconnected and
+# adds no dependency, and StateDirectory= adds Requires= and After= on the
+# mounts that hold its directory (systemd.exec(5) v262, IMPLICIT
+# DEPENDENCIES). systemd-fstab-generator orders every local mount before
+# local-fs.target (systemd.special(7)), which this unit already follows.
+#
+# Left out: PrivateNetwork=, PrivateUsers=, User= and DynamicUser=, since
+# the rule is the host network namespace's and setpriv needs real root to
+# take the state file's owner's credentials. SystemCallFilter=,
+# MemoryDenyWriteExecute=, ProtectProc= and ProcSubset=, since nmcli and
+# systemctl run only as stand-ins in the namespace test, so no run shows
+# they hold for them, and nmcli loads libffi, whose closures may need
+# memory both writable and executable. DevicePolicy=strict, since sync's
+# redirections open /dev/null, which PrivateDevices= keeps.
 [Unit]
 Description=VGS VPN kill switch: apply the rule the VPN state asks for
 Documentation=file:///usr/local/bin/vgs-kill-switch
@@ -20,7 +43,65 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
+# /run is a tmpfs, so the lock is missing at each boot, and ReadWritePaths=
+# below makes writable only a path that exists: sync could not create the
+# lock, and would refuse before it arms. This one command runs with full
+# privileges (`+`), and UMask= makes the lock 0600 as sync's own open does
+# (a `+` command keeps UMask=: a file it made read 0600 under UMask=0077 and
+# 0644 without, systemd-run --user, systemd 262, 2026-11-11). sync sets its
+# own umask.
+ExecStartPre=+/usr/bin/touch /run/vgs-kill-switch.lock
 ExecStart=/usr/local/bin/vgs-kill-switch sync
+UMask=0077
+# CAP_NET_ADMIN: nft's transactions and its check, over netlink.
+# CAP_SETUID, CAP_SETGID: setpriv's setresuid, setresgid and setgroups to
+# the state directory's owner, for each read of the state file and each
+# removal of the pending mark.
+# CAP_KILL: timeout's signal to the head or rm setpriv runs as that owner,
+# another user's process (kill(2)), so a FIFO the owner leaves at the state
+# file's path ends after 5 s rather than holding the sync.
+# CAP_DAC_READ_SEARCH: sync's own tests of the state file and the pending
+# mark, as root, in a state directory its owner may make 0700
+# (path_resolution(7)); without it the file there reads as missing, and
+# sync disarms.
+# The lock and the cache are root's, so writing them needs no capability.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SETUID CAP_SETGID CAP_KILL CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+# The writes sync makes: the lock; the state directory, where setpriv
+# removes the pending mark as its owner, or vgs-kill-switch.path would
+# start it again until its trigger limit trips; and the cache directory.
+# A missing state directory reads as off, as sync reads it, where a path
+# that must exist would fail the start. systemd makes the cache directory
+# root's, mode 0700, where sync would make it, as apply does.
+ProtectSystem=strict
+ReadWritePaths=/run/vgs-kill-switch.lock -/var/lib/vgshell/vpn
+StateDirectory=vgshell/kill-switch
+StateDirectoryMode=0700
+# bash writes a long here-string to a temporary file, and refuses it on a
+# read-only /tmp (bash 5.3, under `unshare -rm`, 2026-11-11), so /tmp stays
+# writable, as a private one.
+PrivateTmp=yes
+ProtectHome=yes
+PrivateDevices=yes
+# nft speaks netlink; nmcli and systemctl reach their buses over AF_UNIX.
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+IPAddressDeny=any
+# The kernel still loads nf_tables' modules on demand (systemd.exec(5),
+# ProtectKernelModules=); systemd-networkd.service, which makes links over
+# netlink, sets it too (systemd 262).
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# Each program sync runs is built for the machine's own architecture, as
+# file(1) reads nft, nmcli, systemctl, setpriv, bash and coreutils here.
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target nftables.service
