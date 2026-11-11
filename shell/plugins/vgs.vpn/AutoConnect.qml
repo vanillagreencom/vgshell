@@ -36,11 +36,11 @@ Column {
 
     Section {
         objectName: "vpn-auto-connect-section"
-        width: parent.width
+        width: root.width
         title: root.schema.autoConnect === undefined ? "" : root.schema.autoConnect.group
 
         Field {
-            width: parent.width
+            width: root.width
             inline: true
             label: root.schema.autoConnect === undefined ? "" : root.schema.autoConnect.label
             info: root.schema.autoConnect === undefined ? "" : root.schema.autoConnect.info
@@ -65,13 +65,13 @@ Column {
 
     Section {
         objectName: "vpn-trusted-networks"
-        width: parent.width
+        width: root.width
         title: root.schema.trustedNetworks === undefined ? "" : root.schema.trustedNetworks.label
         description: root.schema.trustedNetworks === undefined ? "" : root.schema.trustedNetworks.description
 
         Label {
             objectName: "vpn-trusted-empty"
-            width: parent.width
+            width: root.width
             visible: text !== ""
             role: "hint"
             text: root.networks.state === "unreadable" ? "VGS could not read your saved networks"
@@ -82,11 +82,13 @@ Column {
             // Keyed rows keep a switch's focus while the list is read again:
             // https://quickshell.org/docs/v0.3.1/types/Quickshell/ScriptModel
             model: ScriptModel { values: root.networks.rows; objectProp: "uuid" }
+            // A row leaving the model loses its parent before it is
+            // destroyed, so it reads the section's width, not its parent's.
             Field {
                 id: networkField
                 required property var modelData
                 objectName: "vpn-trusted-field:" + modelData.uuid
-                width: parent.width
+                width: root.width
                 inline: true
                 label: modelData.name
                 hint: modelData.active ? modelData.type + " · Connected" : modelData.type
