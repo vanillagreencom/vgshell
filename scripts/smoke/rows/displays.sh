@@ -438,10 +438,17 @@ expect_poll "destroying the display layout copies removes their modal surfaces" 
 # removes the modal and restores the passive banner without ending the trial.
 disp_banner_screens() { ipc smoke layerWindows vgs.displays | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps(sorted(r["screen"] for r in rows[2*(len(rows)//3):] if r["shown"])))'; }
 disp_trial_phase() { ipc smoke readInstance window vgs.displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin)["phase"])'; }
-disp_mode_args="$(ipc smoke readInstance window vgs.displays selectedRule | py_reply 'import json,sys; mode=json.load(sys.stdin)["mode"]; mode["refresh"]=75; print(json.dumps({"args":[{"mode":mode}]}))')"
+# The mode judge takes only an advertised mode, and WAYLAND-1 advertises
+# 1920x1080@60 alone on cachy with Hyprland 0.57.1 and aquamarine 0.16.0
+# (VGS-2383-validate-20261108, display-record, 2026-11-08). Scale 1 keeps
+# the screen no smaller than the held 1755x933 the scrim click was sampled
+# under; the trial leaves that hold, so the run base is out until the revert.
+suspend_run_base "displays real trial"
+disp_mode_args='{"args":[{"mode":{"width":1920,"height":1080,"refresh":60},"scale":1}]}'
 expect "the mode draft starts the real banner lifecycle test" "" ipc smoke invokeInstanceArgs window vgs.displays setOutputDraft "$disp_mode_args"
 expect "the real display trial starts" "" ipc smoke invokeInstance window vgs.displays applyOutputDraft ''
 expect_poll "the real trial holds" holding disp_trial_phase
+expect_poll "the real trial moves $disp_main to the advertised mode" "1920x1080 scale=1" mode_scale_of "$disp_main"
 expect_poll "the real trial modal suppresses the passive banner" 1 disp_read trialDialogs
 expect "the passive trial banner is hidden while its modal is mapped" '[]' disp_banner_screens
 click "$disp_bg_x" "$disp_bg_y" || fail "clicking the real trial scrim failed"
@@ -454,6 +461,7 @@ expect "Settings reopens during the holding trial" ok ipc shell summon window vg
 expect_poll "reopening Settings restores one dialog hold" 1 disp_read trialDialogs
 expect "the reopened pane reverts the real trial" "" ipc smoke invokeInstance window vgs.displays revertTrial ''
 expect_poll "reverting clears the dialog hold" 0 disp_read trialDialogs
+resume_run_base "displays real trial"
 ipc smoke revealText window vgs.system SectionHeader Display >/dev/null || fail "restoring the System page scroll failed"
 expect "the System window restores Displays after the modal test" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
 expect_poll "the arrangement regains keyboard focus after the modal test" '["Arrangement", "Display arrangement"]' disp_focus
