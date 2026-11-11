@@ -39,8 +39,8 @@
 # and the TUI record as they were after the same clicks and keys. Then a
 # scheduled run of a slot missed in a suspend waits while the sandbox's
 # NetworkManager mock reads disconnected and starts once the row sets it
-# online, and three failing runs and a success keep one notice, the
-# notify-send stand-in's later calls each replacing the first's id. The
+# online, and three failing runs at one fixed time send one alert, which the
+# success's recovered notice replaces by the id the stand-in printed. The
 # row ends with the plugin disabled, the mock's Connectivity as the row found it,
 # its stand-ins removed and the shim files they covered restored.
 # inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.automations/bin/automations shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui bin/vgshell bin/lib/qml-library.js bin/lib/connectivity.js shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/controls/RowAction.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh
@@ -721,14 +721,22 @@ PYWORDS
   expect "the NetworkManager mock gets back the Connectivity the row found" ok nm_set "$auto_nm_original"
 fi
 
-# One notice for a failing automation: three failing runs and a success,
-# whose notify-send calls show the second and third failure and the
-# recovered notice each replacing the id the stand-in printed for the
-# first. A notice is replaced only on the server that showed it, so this
+# One alert for a failing automation: three failing runs in one day and a
+# success, whose notify-send calls show the first failure's alert alone and
+# the recovered notice replacing the id the stand-in printed for it. A
+# notice is replaced only on the server that showed it, so this
 # needs the shell to own org.freedesktop.Notifications on the sandbox's
 # session bus. NotificationHub.qml:12-18 keeps the server for one process;
 # rows that restart that process put the name back after their checks.
-auto_manual() { if automations run --manual "$1"; then echo exit=0; else echo "exit=$?"; fi; }
+# The runs read the UTC block's fixed clock: a later failure alerts again on
+# a later local day, so on the real clock a sequence that crossed local
+# midnight would send a second alert. shell_env starts with env -i, so the
+# clock goes after it.
+auto_manual() {
+  if "${shell_env[@]}" PATH="$shell_path" NODE_OPTIONS="--require=$utc_test/fixed-date.js" "$auto_engine" --tree "$repo" run --manual "$1" 2>>"$sandbox/automations.err"; then
+    echo exit=0
+  else echo "exit=$?"; fi
+}
 # auto_notices_since N: each notify-send call after the first N as its
 # urgency, the id it replaces (null for none) and its summary.
 auto_notices_since() {
@@ -748,7 +756,10 @@ auto_sent_before="$(python3 -c 'import os,sys; print(sum(1 for _ in open(sys.arg
 for auto_round in 1 2 3; do expect "failing run $auto_round" exit=1 auto_manual smoke-streak; done
 rm -- "$auto_streak_flag"
 expect "the run after the failures succeeds" exit=0 auto_manual smoke-streak
-expect "the failures keep one notice, replaced each time, and the success replaces it as recovered" '[["critical", null, "Smoke streak failed"], ["critical", "7", "Smoke streak failed"], ["critical", "7", "Smoke streak failed"], ["low", "7", "Smoke streak recovered"]]' auto_notices_since "$auto_sent_before"
+expect "three failures in one day send one alert, and the success replaces it as recovered" '[["critical", null, "Smoke streak failed"], ["low", "7", "Smoke streak recovered"]]' auto_notices_since "$auto_sent_before"
+# A run that missed the fixed clock ends at the real time instead.
+auto_streak_ends() { python3 -c 'import glob,json,sys; print(json.dumps(sorted({json.load(open(f))["endedAt"] for f in glob.glob(sys.argv[1] + "/smoke-streak@*.ended.json")})))' "$auto_runs_dir"; }
+expect "the streak's runs all end at the fixed clock" "[$utc_slot_ms]" auto_streak_ends
 expect "the engine removes the failing automation" removed=smoke-streak auto_last remove smoke-streak
 
 expect "the engine removes the automation" removed=nightly auto_last remove nightly

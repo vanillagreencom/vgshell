@@ -18,6 +18,8 @@ The pending marker retains the original due time and the runner's process-start 
 
 ## Notifications
 
+`AutomationsLogic.alertDue` decides whether a failed run alerts, with one rule for every automation. A streak's first failure alerts. A later failure alerts only when it ends on a later local calendar day than the streak's last alert, so a job that keeps failing reminds at most once a day. An alert that notify-send could not deliver stays due. Under `notifyEveryRun`, a failure that is not due an alert replaces its start notification with a failure notification of normal urgency, which expires. The first success after a streak sends the recovered notification. The streak file records when the last alert was delivered.
+
 Failure replacement IDs belong to the notification server that issued them. The engine stores the session bus ID and server owner with each ID, so a restart or new login cannot replace an unrelated notification. A recovery replaces the open failure notification only for that server.
 
 ## Developer command

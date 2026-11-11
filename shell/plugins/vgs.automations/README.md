@@ -1,6 +1,6 @@
 # Automations
 
-Automations runs your commands on a schedule. It keeps each run's output and sends an alert when a run fails. It is for anyone who wants a backup, a sync or a script to run on its own.
+Automations runs your commands on a schedule. It keeps each run's output and sends an alert when an automation starts failing. It is for anyone who wants a backup, a sync or a script to run on its own.
 
 ![The Automations window with scheduled jobs](../../../docs/images/plugins/vgs.automations-window.webp)
 
@@ -12,7 +12,7 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 - An end date, or for daily and longer schedules a number of runs.
 - Per automation: a shell command, a timeout, a working folder and catch-up of runs missed while the computer was off.
 - Run now, and the output of every run.
-- A notification when a run fails and another when it recovers.
+- An alert on the first failed run, at most one reminder a day while the runs keep failing, and a notification when a run works again.
 - A sync job form, opened by Add in Local Sync: choose the From and To folders and rsync or Unison, and Automations writes the command.
 - Needs internet, on for a new automation and off for a new sync job, waits for internet access before a run. Turn it off for a local command.
 - Runs continue when VGS closes.

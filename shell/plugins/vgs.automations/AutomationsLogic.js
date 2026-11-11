@@ -1375,16 +1375,20 @@ function lastOutputLine(snippet) {
     return line.slice(0, cut).replace(/\s+$/, "") + "…";
 }
 
-// The notification a run event sends, or null when it sends none: an error
-// always, the start and a success only under notifyEveryRun, and the first
-// success after a failure always, as recovered. Each carries the VGS hints
-// vgs.notifications reads (shell/plugins/vgs.notifications/developer.md § Hints): a Lucide
-// icon, a design-system status tone, the transcript to open and what a
-// click does. `event` is start (with the started record) or end
-// (with the ended one and the automation's failure streak before it, null
-// for none); a failure after the first of a streak counts the failures since
-// the first one. A skip sends no alert; under notifyEveryRun the end of a
-// skipped command replaces its start notice, as a finish does.
+// The notification a run event sends, or null when it sends none: a failure
+// alert when alertDue says so, the start and a success only under
+// notifyEveryRun, and the first success after a failure always, as
+// recovered. Each carries the VGS hints vgs.notifications reads
+// (shell/plugins/vgs.notifications/developer.md § Hints): a Lucide icon, a
+// design-system status tone, the transcript to open and what a click does.
+// `event` is start (with the started record) or end (with the ended one and
+// the automation's failure streak before it, null for none); a failure
+// after the first of a streak counts the failures since the first one. A
+// failure that is not due an alert sends nothing, except under
+// notifyEveryRun, where its end replaces the start notice with a failure
+// notice that is not critical, so it expires as other run notices do. A
+// skip sends no alert; under notifyEveryRun the end of a skipped command
+// replaces its start notice, as a finish does.
 function notificationFor(event, automation, rec, streak) {
     if (rec !== null && rec.outcome === "skipped") {
         if (event !== "end" || automation.notifyEveryRun !== true) return null;
@@ -1403,27 +1407,48 @@ function notificationFor(event, automation, rec, streak) {
         return { summary: automation.name + " finished", body: finished, urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
     }
     var body = streak === null ? failureLine(rec) : "Failed " + (streak.failures + 1) + " times since " + sinceText(streak.since, rec.startedAt) + "\n" + failureLine(rec);
-    return { summary: automation.name + " failed", body: body, urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: rec.transcript };
+    var urgency = "critical";
+    if (!alertDue(rec, streak)) {
+        if (automation.notifyEveryRun !== true) return null;
+        urgency = "normal";
+    }
+    return { summary: automation.name + " failed", body: body, urgency: urgency, icon: "circle-x", tone: "danger", click: "open", open: rec.transcript };
+}
+
+// Whether a failed run alerts, for every automation alike: the first
+// failure of a streak, a streak that has shown no alert yet, and the first
+// failure on a local calendar day after the day of the streak's last
+// alert. A job that fails on every run thus alerts once, then reminds at
+// most once a day, and a daily job that fails each day alerts each day.
+function alertDue(rec, streak) {
+    return streak === null || streak.alertedAt === null || !sameLocalDay(streak.alertedAt, rec.endedAt);
+}
+
+function sameLocalDay(aMs, bMs) {
+    var a = localDate(aMs);
+    var b = localDate(bMs);
+    return a.y === b.y && a.m === b.m && a.d === b.d;
 }
 
 // When a streak began, as its notice reads it: the time alone on the day
 // of `nowMs`, else the day too.
 function sinceText(sinceMs, nowMs) {
     var since = new Date(sinceMs);
-    var now = new Date(nowMs);
-    var sameDay = since.getFullYear() === now.getFullYear() && since.getMonth() === now.getMonth() && since.getDate() === now.getDate();
-    return sameDay ? pad2(since.getHours()) + ":" + pad2(since.getMinutes()) : formatWhen(sinceMs);
+    return sameLocalDay(sinceMs, nowMs) ? pad2(since.getHours()) + ":" + pad2(since.getMinutes()) : formatWhen(sinceMs);
 }
 
 // The failure streak an automation's run leaves: none after a success,
 // else one failure more than `streak`, whose notice is now `notice`.
-function streakAfter(rec, streak, notice) {
+// `delivered` is whether notify-send delivered the run's end notification,
+// so a due alert it could not deliver stays due for the next failure.
+function streakAfter(rec, streak, notice, delivered) {
     if (rec.outcome === "skipped") return streak;
     if (rec.outcome === "succeeded") return null;
     return {
         notice: isNotice(notice) ? notice : null,
         failures: streak === null ? 1 : streak.failures + 1,
-        since: streak === null ? rec.startedAt : streak.since
+        since: streak === null ? rec.startedAt : streak.since,
+        alertedAt: delivered === true && alertDue(rec, streak) ? rec.endedAt : streak === null ? null : streak.alertedAt
     };
 }
 
@@ -1434,11 +1459,16 @@ function isNotice(value) {
         && isWhole(value.id) && value.id > 0 && typeof value.server === "string" && value.server !== "";
 }
 
-// The runner's per-automation streak file, `{ notice, failures, since }`:
-// the open failure notice (null when there is none to replace), the
-// failed runs in a row and when the first of them started, in ms. The
-// runner writes it after a failed run and removes it after a success, so
-// no file is no streak.
+// The runner's per-automation streak file, `{ notice, failures, since,
+// alertedAt? }`: the open failure notice (null when there is none to
+// replace), the failed runs in a row, when the first of them started and
+// when the streak's last alert was shown, in ms. A file without
+// `alertedAt` reads as a streak that has shown no alert, so its next
+// failure alerts; the runner writes it so when an alert was not shown, and
+// a file written before alerts had a day reads the same, which widens the
+// valid files without a format change (D107). The runner writes the file
+// after a failed run and removes it after a success, so no file is no
+// streak.
 function parseStreak(text) {
     var doc;
     try {
@@ -1447,12 +1477,20 @@ function parseStreak(text) {
         return { ok: false, error: "streak: not-json" };
     }
     if (!isPlainObject(doc)) return { ok: false, error: "streak: want=object" };
-    var unknown = unknownKey(doc, ["notice", "failures", "since"], "streak");
+    var unknown = unknownKey(doc, ["notice", "failures", "since", "alertedAt"], "streak");
     if (unknown !== "") return { ok: false, error: unknown };
     if (doc.notice !== null && !isNotice(doc.notice)) return { ok: false, error: "streak.notice: want={id,server}|null" };
     if (!isWhole(doc.failures) || doc.failures < 1) return { ok: false, error: "streak.failures: want=count" };
     if (!isWhole(doc.since) || doc.since < 0) return { ok: false, error: "streak.since: want=ms" };
-    return { ok: true, streak: { notice: doc.notice, failures: doc.failures, since: doc.since } };
+    if (hasOwn(doc, "alertedAt") && (!isWhole(doc.alertedAt) || doc.alertedAt < 0)) return { ok: false, error: "streak.alertedAt: want=ms" };
+    return { ok: true, streak: { notice: doc.notice, failures: doc.failures, since: doc.since, alertedAt: hasOwn(doc, "alertedAt") ? doc.alertedAt : null } };
+}
+
+// The streak file's text: `alertedAt` only when an alert was shown.
+function serializeStreak(streak) {
+    var doc = { notice: streak.notice, failures: streak.failures, since: streak.since };
+    if (streak.alertedAt !== null) doc.alertedAt = streak.alertedAt;
+    return JSON.stringify(doc) + "\n";
 }
 
 // The notification server notify-send reaches, from busctl --json=short's

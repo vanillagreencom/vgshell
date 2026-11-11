@@ -267,7 +267,8 @@ function streakFile(id) {
 
 // The automation's failure streak, or null for none. A file the judge
 // refuses is logged and read as none: the streak decides only which notice
-// a run replaces, so a bad file costs one extra notice, never the run.
+// a run replaces and whether its failure alerts, so a bad file costs one
+// extra alert, never the run.
 function readStreak(id) {
     const text = readText(streakFile(id));
     if (text === null) return null;
@@ -279,7 +280,7 @@ function readStreak(id) {
 
 function writeStreak(id, streak) {
     if (streak === null) fs.rmSync(streakFile(id), { force: true });
-    else writeAtomic(streakFile(id), JSON.stringify(streak) + "\n", 0o600);
+    else writeAtomic(streakFile(id), Logic.serializeStreak(streak), 0o600);
 }
 
 function readJsonArg(flag, words, key) {
@@ -798,25 +799,26 @@ function notificationServer(env) {
 }
 
 // Sends one notification, replacing `notice` when its server still owns
-// the name, and answers the notice it leaves, `{ id, server }`, or null
-// when none was sent or its server is unknown. With nothing to send,
-// `notice` stands. The server is read just before notify-send; a restart
-// between the two is the one window this leaves.
+// the name, and answers `{ delivered, notice }`: whether notify-send delivered
+// it, and the notice it leaves, `{ id, server }`, or null when none was
+// sent or its server is unknown. With nothing to send, `notice` stands.
+// The server is read just before notify-send; a restart between the two
+// is the one window this leaves.
 function notify(n, notice, env) {
-    if (n === null) return notice;
+    if (n === null) return { delivered: false, notice: notice };
     const bin = which("notify-send");
     if (bin === null) {
         log("notify=missing summary=" + JSON.stringify(n.summary));
-        return null;
+        return { delivered: false, notice: null };
     }
     const server = notificationServer(env);
     const out = run(bin, Logic.notifySendArgs(n, Logic.replaceIdFor(notice, server)), { env: env, timeout: 10000 });
     if (out.status !== 0) {
         log("notify=failed exit=" + out.status + " signal=" + out.signal + " detail=" + JSON.stringify(firstLine(out.stderr)));
-        return null;
+        return { delivered: false, notice: null };
     }
     const id = Number(firstLine(out.stdout).trim());
-    return Number.isInteger(id) && id > 0 && server !== null ? { id: id, server: server } : null;
+    return { delivered: true, notice: Number.isInteger(id) && id > 0 && server !== null ? { id: id, server: server } : null };
 }
 
 // The transcript: a header, one timestamped line per line of output with
@@ -1164,7 +1166,7 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
     // replaces the open failure notice, and the end replaces the start, or
     // that notice when no start was sent.
     const streak = readStreak(id);
-    const shown = notify(Logic.notificationFor("start", automation, started), streak === null ? null : streak.notice, env);
+    const shown = notify(Logic.notificationFor("start", automation, started), streak === null ? null : streak.notice, env).notice;
     const shell = os.userInfo().shell;
     const transcript = Transcript(transcriptFile, [
         "vgs.automations run " + runId,
@@ -1203,7 +1205,8 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
             snippet: outcome === "succeeded" ? "" : snippet
         });
         writeAtomic(path.join(runsDir, Logic.runFile(id, runId, "ended")), JSON.stringify(ended) + "\n", 0o600);
-        writeStreak(id, Logic.streakAfter(ended, streak, notify(Logic.notificationFor("end", automation, ended, streak), shown, env)));
+        const end = notify(Logic.notificationFor("end", automation, ended, streak), shown, env);
+        writeStreak(id, Logic.streakAfter(ended, streak, end.notice, end.delivered));
         const days = settingsDays();
         if (days.ok) prune(days.days, id);
         else log("prune=skipped " + days.error);

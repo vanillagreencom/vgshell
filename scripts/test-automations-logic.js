@@ -538,7 +538,7 @@ function verify(logic) {
     ]) {
         const snippet = logic.snippetOf(stderr, stdout);
         same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: snippet }), null).body, want, "failure line: " + label);
-        same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: snippet }), { notice: null, failures: 1, since: failed.startedAt }).body.split("\n").slice(1), [want], "failure line under a streak: " + label);
+        same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: snippet }), { notice: null, failures: 1, since: failed.startedAt, alertedAt: null }).body.split("\n").slice(1), [want], "failure line under a streak: " + label);
     }
     // A record holds a snippet the judge accepts as any string; its last
     // non-blank line still reaches the notice as plain text.
@@ -563,39 +563,68 @@ function verify(logic) {
     same(logic.notifySendArgs(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: "<b>bold</b> &amp; [Setup](page:vgs.automations)" }), null), null).slice(-1), ["&lt;b&gt;bold&lt;/b&gt; &amp;amp; [Setup](page:vgs.automations)"], "an output line reaches the server as plain text");
     same(logic.notifySendArgs({ summary: "-s", body: "--b", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" }, null).slice(-3), ["--", "-s", "--b"], "the text follows --");
 
-    // A failure streak: one critical notice, each later failure replaces it
-    // and counts since the first, and the first success replaces it with
-    // recovered. The runner sends each notice replacing the streak's notice
-    // on the server that owns the name now.
+    // A failure streak, one rule for every automation: [label, the
+    // automation's fields, the streak before, the run, whether notify-send
+    // delivered the end's notification, the notification as { summary,
+    // urgency, body } or null, the streak after]. The notice the run leaves
+    // is the one notify-send printed when delivered, the streak's own when
+    // nothing was sent, and none when a send failed. Days are local: in Los
+    // Angeles the alert at 09:00 on 1 January and the failure at 23:00 that
+    // evening fall on one local day and two UTC days.
+    process.env.TZ = "America/Los_Angeles";
     const SERVER = "4b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e :1.7";
     const notice = { id: 41, server: SERVER };
     const failedAt = (iso, extra) => Object.assign(ended("backup", at(iso) + "-1", at(iso), "failed"), { transcript: "/r/t.log" }, extra);
-    const first = failedAt("2026-01-01T09:00:00Z");
-    const second = failedAt("2026-01-01T09:10:00Z");
-    const third = failedAt("2026-01-01T09:20:00Z", { outcome: "timeout", durationMs: 61000 });
-    const sent = [];
-    let streak = null;
-    for (const rec of [first, second, third]) {
-        const n = logic.notificationFor("end", automation({}), rec, streak);
-        sent.push(logic.notifySendArgs(n, logic.replaceIdFor(streak === null ? null : streak.notice, SERVER)));
-        streak = logic.streakAfter(rec, streak, notice);
+    const first = failedAt("2026-01-01T17:00:00Z");
+    const evening = failedAt("2026-01-02T07:00:00Z");
+    const nextDay = failedAt("2026-01-02T08:30:00Z", { outcome: "timeout", durationMs: 61000 });
+    const recovered = Object.assign({}, first, { outcome: "succeeded", startedAt: at("2026-01-02T09:00:00Z"), endedAt: at("2026-01-02T09:00:04Z"), durationMs: 4200 });
+    const FAILED = "The automation failed. Open Automations to read its output.";
+    const opened = { notice: notice, failures: 1, since: first.startedAt, alertedAt: first.endedAt };
+    const twice = { notice: notice, failures: 2, since: first.startedAt, alertedAt: first.endedAt };
+    const unshown = { notice: null, failures: 1, since: first.startedAt, alertedAt: null };
+    const reminded = { notice: notice, failures: 3, since: first.startedAt, alertedAt: nextDay.endedAt };
+    for (const [label, fields, before, rec, delivered, want, after] of [
+        ["the first failure alerts", {}, null, first, true,
+            { summary: "Back up failed", urgency: "critical", body: FAILED }, opened],
+        ["a later failure on the alert's local day sends nothing", {}, opened, evening, false,
+            null, twice],
+        ["a later failure on a new local day alerts with the count", {}, twice, nextDay, true,
+            { summary: "Back up failed", urgency: "critical", body: "Failed 3 times since Thu 1 Jan 2026 09:00\nTimed out after 1m 1s" }, reminded],
+        ["an alert notify-send did not deliver opens a streak with no alert", {}, null, first, false,
+            { summary: "Back up failed", urgency: "critical", body: FAILED }, unshown],
+        ["a streak with no alert shown alerts on its day", {}, unshown, evening, true,
+            { summary: "Back up failed", urgency: "critical", body: "Failed 2 times since 09:00\n" + FAILED }, Object.assign({}, twice, { alertedAt: evening.endedAt })],
+        ["a success after a streak recovers with the count", {}, reminded, recovered, true,
+            { summary: "Back up recovered", urgency: "low", body: "Finished in 4s after 3 failed runs" }, null],
+        ["a success after one failure recovers", {}, opened, recovered, true,
+            { summary: "Back up recovered", urgency: "low", body: "Finished in 4s after 1 failed run" }, null],
+        ["a success with no streak sends nothing", {}, null, recovered, false,
+            null, null],
+        ["every run: the first failure alerts", { notifyEveryRun: true }, null, first, true,
+            { summary: "Back up failed", urgency: "critical", body: FAILED }, opened],
+        ["every run: a same-day failure ends its start notice without an alert", { notifyEveryRun: true }, opened, evening, true,
+            { summary: "Back up failed", urgency: "normal", body: "Failed 2 times since 09:00\n" + FAILED }, twice],
+        ["every run: a new-day failure alerts with the count", { notifyEveryRun: true }, twice, nextDay, true,
+            { summary: "Back up failed", urgency: "critical", body: "Failed 3 times since Thu 1 Jan 2026 09:00\nTimed out after 1m 1s" }, reminded],
+        ["every run: recovered outranks finished", { notifyEveryRun: true }, reminded, recovered, true,
+            { summary: "Back up recovered", urgency: "low", body: "Finished in 4s after 3 failed runs" }, null],
+        ["every run: a success with no streak finishes", { notifyEveryRun: true }, null, recovered, true,
+            { summary: "Back up finished", urgency: "low", body: "Finished in 4s" }, null]
+    ]) {
+        const n = logic.notificationFor("end", automation(fields), rec, before);
+        same(n === null ? null : { summary: n.summary, urgency: n.urgency, body: n.body }, want, "notice: " + label);
+        const left = delivered ? notice : n === null && before !== null ? before.notice : null;
+        same(logic.streakAfter(rec, before, left, delivered), after, "streak: " + label);
     }
-    same(sent.map(args => args.filter(a => /^--(urgency|replace-id)=/.test(a))), [["--urgency=critical"], ["--urgency=critical", "--replace-id=41"], ["--urgency=critical", "--replace-id=41"]], "one critical notice, then two replacements of it");
-    same(sent.map(args => args.slice(-2)), [
-        ["Back up failed", "The automation failed. Open Automations to read its output."],
-        ["Back up failed", "Failed 2 times since 09:00\nThe automation failed. Open Automations to read its output."],
-        ["Back up failed", "Failed 3 times since 09:00\nTimed out after 1m 1s"]
-    ]);
-    same(streak, { notice: { id: 41, server: SERVER }, failures: 3, since: at("2026-01-01T09:00:00Z") });
-    const recovered = Object.assign({}, first, { outcome: "succeeded", startedAt: at("2026-01-01T09:30:00Z"), durationMs: 4200 });
-    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), recovered, streak), logic.replaceIdFor(streak.notice, SERVER)).filter(a => !a.startsWith("--hint")), ["--app-name=Automations", "--urgency=low", "--print-id", "--replace-id=41", "--", "Back up recovered", "Finished in 4s after 3 failed runs"]);
-    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), recovered, streak).summary, "Back up recovered", "recovered outranks finished");
-    same(logic.notificationFor("end", automation({}), recovered, { notice: notice, failures: 1, since: first.startedAt }).body, "Finished in 4s after 1 failed run");
-    same(logic.streakAfter(recovered, streak, notice), null, "a success ends the streak");
-    same(logic.notificationFor("end", automation({}), Object.assign({}, second, { startedAt: at("2026-01-03T08:00:00Z") }), { notice: notice, failures: 2, since: first.startedAt }).body.split("\n")[0], "Failed 3 times since Thu 1 Jan 2026 09:00", "a streak from another day names its day");
-    same(logic.streakAfter(first, null, null), { notice: null, failures: 1, since: first.startedAt }, "no notice opens a streak with none to replace");
-    same(logic.parseStreak(JSON.stringify(streak)), { ok: true, streak: { notice: { id: 41, server: SERVER }, failures: 3, since: at("2026-01-01T09:00:00Z") } });
-    same(logic.parseStreak('{"notice":null,"failures":1,"since":0}'), { ok: true, streak: { notice: null, failures: 1, since: 0 } });
+    // The runner replaces the streak's notice on the server that owns the
+    // name now: a reminder and the recovered notice replace the alert.
+    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), nextDay, twice), logic.replaceIdFor(twice.notice, SERVER)).filter(a => /^--(urgency|replace-id)=/.test(a)), ["--urgency=critical", "--replace-id=41"]);
+    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), recovered, reminded), logic.replaceIdFor(reminded.notice, SERVER)).filter(a => /^--(urgency|replace-id)=/.test(a)), ["--urgency=low", "--replace-id=41"]);
+    process.env.TZ = "UTC";
+    for (const streak of [reminded, unshown]) same(logic.parseStreak(logic.serializeStreak(streak)), { ok: true, streak: streak }, "a streak reads back as written");
+    same(logic.serializeStreak(unshown), '{"notice":null,"failures":1,"since":' + first.startedAt + '}\n', "a streak with no alert shown names none");
+    same(logic.parseStreak('{"notice":null,"failures":1,"since":0}'), { ok: true, streak: { notice: null, failures: 1, since: 0, alertedAt: null } }, "a file with no alert time reads as no alert shown");
     for (const [text, error] of [
         ["{", "streak: not-json"],
         ["[]", "streak: want=object"],
@@ -606,7 +635,9 @@ function verify(logic) {
         ['{"notice":{"id":41,"server":""},"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
         ['{"notice":{"id":41,"server":"b :1.7","x":1},"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
         ['{"notice":null,"failures":0,"since":0}', "streak.failures: want=count"],
-        ['{"notice":null,"failures":1}', "streak.since: want=ms"]
+        ['{"notice":null,"failures":1}', "streak.since: want=ms"],
+        ['{"notice":null,"failures":1,"since":0,"alertedAt":null}', "streak.alertedAt: want=ms"],
+        ['{"notice":null,"failures":1,"since":0,"alertedAt":-1}', "streak.alertedAt: want=ms"]
     ]) same(logic.parseStreak(text), { ok: false, error: error }, "streak refused: " + text);
 
     // The notification server: the bus id and the name's owner from
@@ -669,7 +700,7 @@ function verify(logic) {
     const runningRows = [{ automation: "backup", outcome: "running", tone: "warning", run: "live", startedAt: 1, endedAt: null, transcript: "/run" }];
     same(logic.listRows({ version: 2, automations: [automation({})] }, runningRows, 0, { backup: pending })[0].pending, null);
     const skipped = { outcome: "skipped", reason: "network-dns", transcript: "/r/s.log" };
-    const priorStreak = { failures: 3, since: 1, notice: null };
+    const priorStreak = { failures: 3, since: 1, notice: null, alertedAt: null };
     same(logic.notificationFor("end", automation({}), skipped, priorStreak), null, "a skip sends no alert");
     same(logic.notificationFor("end", automation({ notifyEveryRun: true }), skipped, priorStreak), { summary: "Back up skipped", body: "Network not ready yet", urgency: "low", icon: "circle-minus", tone: "info", click: "open", open: "/r/s.log" }, "under notifyEveryRun a skip ends its start notice");
     same(logic.streakAfter(skipped, priorStreak, null), priorStreak);
@@ -1023,7 +1054,7 @@ const CONTROLS = [
     ["the snippet reads stdout without stderr", "var text = fromErr.length > 0 ? fromErr.join(\"\\n\") : lastLines(stdoutLines).join(\"\\n\");", "var text = fromErr.join(\"\\n\");"],
     ["a start notifies only when asked", "if (automation.notifyEveryRun !== true) return null;\n        return { summary: automation.name + \" started\"", "return { summary: automation.name + \" started\""],
     ["a success notifies only when asked", "if (automation.notifyEveryRun !== true) return null;\n        return { summary: automation.name + \" finished\"", "return { summary: automation.name + \" finished\""],
-    ["an error is red with circle-x", "urgency: \"critical\", icon: \"circle-x\", tone: \"danger\"", "urgency: \"critical\", icon: \"circle-check\", tone: \"success\""],
+    ["an error is red with circle-x", "icon: \"circle-x\", tone: \"danger\"", "icon: \"circle-check\", tone: \"success\""],
     ["the text follows --", "return args.concat([\"--\", n.summary, n.body", "return args.concat([n.summary, n.body"],
     ["the body reaches the server as plain text", "n.body.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\")", "n.body"],
     ["a failure says its own last output line", "var line = lastOutputLine(rec.snippet);", "var line = \"\";"],
@@ -1052,7 +1083,15 @@ const CONTROLS = [
     ["a notice is replaced on its own server alone", "return notice !== null && server !== null && notice.server === server ? notice.id : null;", "return notice !== null ? notice.id : null;"],
     ["the server is the bus and the owner", "return bus === null || owner === null ? null : bus + \" \" + owner;", "return owner === null ? null : owner;"],
     ["a success ends the streak", "if (rec.outcome === \"succeeded\") return null;", ""],
-    ["a streak from another day names its day", "return sameDay ? pad2(since.getHours())", "return true ? pad2(since.getHours())"],
+    ["a streak from another day names its day", "return sameLocalDay(sinceMs, nowMs) ? pad2(since.getHours())", "return true ? pad2(since.getHours())"],
+    ["a failure alerts at most once a local day", "    if (!alertDue(rec, streak)) {", "    if (false) {"],
+    ["an alert's day is the local day", "return a.y === b.y && a.m === b.m && a.d === b.d;", "return Math.floor(aMs / DAY_MS) === Math.floor(bMs / DAY_MS);"],
+    ["a delivered alert records its time", "alertedAt: delivered === true && alertDue(rec, streak) ? rec.endedAt", "alertedAt: delivered === true ? rec.endedAt"],
+    ["an undelivered alert stays due", "alertedAt: delivered === true && alertDue", "alertedAt: alertDue"],
+    ["a streak keeps its last alert", ": streak === null ? null : streak.alertedAt", ": null"],
+    ["an every-run failure that is not due is no alert", "        urgency = \"normal\";", ""],
+    ["a streak's alert time is ms", "if (hasOwn(doc, \"alertedAt\") && (!isWhole(doc.alertedAt) || doc.alertedAt < 0)) return", "if (false) return"],
+    ["a streak names its alert time only when shown", "    if (streak.alertedAt !== null) doc.alertedAt = streak.alertedAt;", "    doc.alertedAt = streak.alertedAt;"],
     ["a streak needs its failure count", "if (!isWhole(doc.failures) || doc.failures < 1) return", "if (false) return"],
     ["a finish replaces the start","if (isWhole(replaceId) && replaceId > 0) args.push(\"--replace-id=\" + replaceId);", ""],
     ["a paused automation has no next run", "nextRun: a.enabled && next.length > 0 ? next[0] : null,", "nextRun: next.length > 0 ? next[0] : null,"],
