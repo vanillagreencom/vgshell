@@ -37,6 +37,10 @@
 // only thing it accepts. The owner and the pin-move rule are in
 // docs/architecture/distribution.md § Channels; scripts/test-kendex-pin.js
 // holds this contract.
+//
+// The status line, the refusal and unreadable lines, their exits and the
+// version compare are the pin reading's contract. This file exports it as
+// pinReading for scripts/engine-pin.js, which reads another pin by it.
 "use strict";
 const cp = require("node:child_process");
 const path = require("node:path");
@@ -51,14 +55,38 @@ const DOWNLOADS = "https://github.com/vanillagreencom/kendex/releases/download/v
 const LATEST = "https://api.github.com/repos/vanillagreencom/kendex/releases/latest";
 const VERSION = /^[0-9]+(\.[0-9]+)*$/;
 
-function refuse(key) {
-    process.stderr.write("kendex-pin: refused: " + key + "\n");
-    process.exit(2);
+// The pin reading NAME makes: refuse, unreadable and report each write one
+// line and exit, run turns any error MAIN throws into a refusal, and compare
+// orders two versions as report does.
+function pinReading(name) {
+    function refuse(key) {
+        process.stderr.write(name + ": refused: " + key + "\n");
+        process.exit(2);
+    }
+    function unreadable(key, url) {
+        process.stderr.write(name + ": unreadable: " + key + " url=" + url + "\n");
+        process.exit(77);
+    }
+    // PIN is the text the line shows, VERSION the dotted version it compares.
+    function report(pin, version, newest) {
+        const status = ["behind", "current", "ahead"][compare(version, newest) + 1];
+        process.stdout.write(name + ": pin=" + pin + " newest=" + newest + " status=" + status + "\n");
+        process.exit({ current: 0, behind: 1, ahead: 2 }[status]);
+    }
+    // node exits 1 on an uncaught error, the exit that reads as behind. An
+    // error thrown inside a vm context is of that context's realm, so it is
+    // read by its fields, not by instanceof.
+    function run(main) {
+        try {
+            main();
+        } catch (e) {
+            const known = e !== null && typeof e === "object";
+            refuse("error=" + (known && typeof e.name === "string" ? e.name : typeof e) + " message=" + JSON.stringify(known ? String(e.message) : String(e)));
+        }
+    }
+    return { refuse, unreadable, report, run, compare };
 }
-function unreadable(key) {
-    process.stderr.write("kendex-pin: unreadable: " + key + " url=" + LATEST + "\n");
-    process.exit(77);
-}
+const { refuse, unreadable, report, run } = pinReading("kendex-pin");
 
 // The one kendex version both rows pin, each row's url naming that version's
 // release download folder, so one pin move raises both rows. A pin move that
@@ -79,17 +107,17 @@ function pinned(table) {
 }
 
 function newest() {
-    const run = cp.spawnSync("curl", ["--silent", "--show-error", "--location", "--max-time", "20", "--max-filesize", "16777216",
+    const curl = cp.spawnSync("curl", ["--silent", "--show-error", "--location", "--max-time", "20", "--max-filesize", "16777216",
         "--header", "Accept: application/vnd.github+json", "--write-out", "\n%{http_code}", "--", LATEST],
         { encoding: "utf8", timeout: 25000, maxBuffer: 32 * 1024 * 1024 });
-    if (run.error !== undefined || run.status !== 0) unreadable("transport=" + (run.error !== undefined ? run.error.code : run.status));
-    const cut = run.stdout.lastIndexOf("\n");
-    const code = run.stdout.slice(cut + 1);
-    if (code !== "200") unreadable("http=" + JSON.stringify(code));
+    if (curl.error !== undefined || curl.status !== 0) unreadable("transport=" + (curl.error !== undefined ? curl.error.code : curl.status), LATEST);
+    const cut = curl.stdout.lastIndexOf("\n");
+    const code = curl.stdout.slice(cut + 1);
+    if (code !== "200") unreadable("http=" + JSON.stringify(code), LATEST);
     let release;
-    try { release = JSON.parse(run.stdout.slice(0, cut)); } catch { unreadable("json"); }
+    try { release = JSON.parse(curl.stdout.slice(0, cut)); } catch { unreadable("json", LATEST); }
     const tag = release !== null && typeof release === "object" ? release.tag_name : undefined;
-    if (typeof tag !== "string" || !tag.startsWith("v") || !VERSION.test(tag.slice(1))) unreadable("tag=" + JSON.stringify(tag));
+    if (typeof tag !== "string" || !tag.startsWith("v") || !VERSION.test(tag.slice(1))) unreadable("tag=" + JSON.stringify(tag), LATEST);
     return tag.slice(1);
 }
 
@@ -109,18 +137,8 @@ function main(args) {
     if (!(args.length === 0 || (args.length === 2 && args[0] === "--table" && args[1] !== ""))) refuse("usage");
     const file = args.length === 2 ? path.resolve(args[1]) : path.join(__dirname, "..", "shell", "Core", "PackageManagers.js");
     const pin = pinned(load(file));
-    const latest = newest();
-    const status = ["behind", "current", "ahead"][compare(pin, latest) + 1];
-    process.stdout.write("kendex-pin: pin=" + pin + " newest=" + latest + " status=" + status + "\n");
-    process.exit({ current: 0, behind: 1, ahead: 2 }[status]);
+    report(pin, pin, newest());
 }
 
-// node exits 1 on an uncaught error, the exit that reads as behind. An error
-// thrown inside the table's vm context is of that context's realm, so it is
-// read by its fields, not by instanceof.
-try {
-    main(process.argv.slice(2));
-} catch (e) {
-    const known = e !== null && typeof e === "object";
-    refuse("error=" + (known && typeof e.name === "string" ? e.name : typeof e) + " message=" + JSON.stringify(known ? String(e.message) : String(e)));
-}
+module.exports = { pinReading };
+if (require.main === module) run(() => main(process.argv.slice(2)));
