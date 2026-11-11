@@ -11364,7 +11364,7 @@ PY
       cat >"$shim/vsys" <<'SH'
 #!/usr/bin/env bash
 [[ "$*" == "--once --summary" ]] || exit 0
-printf '%s\n' '{"schema": "vsys.summary.v1", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}], "meters": [], "errors": []}'
+printf '%s\n' '{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}], "meters": [], "errors": []}'
 SH
       chmod 755 "$shim/notify-send" "$shim/vsys"
       mkdir -p -- "$warden_dir"

@@ -409,7 +409,7 @@ warden_vsys_log="$sandbox/warden-vsys-calls"
 warden_systemctl_log="$sandbox/warden-systemctl-argv"
 # While this file exists the stand-in vsys fails its summary.
 warden_vsys_fails="$sandbox/warden-vsys-fails"
-warden_summary='{"schema": "vsys.summary.v1", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}, {"cause": "scratch", "level": null, "subject": null}], "meters": [], "errors": []}'
+warden_summary='{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}, {"cause": "scratch", "level": null, "subject": null}], "meters": [], "errors": []}'
 warden_vsys_stub() {
   cat >"$shim/vsys" <<EOF
 #!/usr/bin/env bash

@@ -176,7 +176,7 @@ const REPLIES = [
     ["anything else, as it came", "refused: argv=empty", "VGS could not open this action. Try again."]
 ];
 
-const summary = verdict => JSON.stringify({ schema: "vsys.summary.v1", time: 1, verdict: verdict, meters: [{ id: "cpu", value: null, max: 100, level: "warn" }], errors: [] });
+const summary = verdict => JSON.stringify({ schema: "vsys.summary.v2", time: 1, verdict: verdict, meters: [{ id: "cpu", value: null, max: 100, level: "warn" }], errors: [] });
 // Summaries: [label, text, readSummary answer, line].
 const SUMMARIES = [
     ["nothing wrong", summary([]), { kind: "read", danger: 0, warn: 0 }, { tone: "neutral", text: "vsys found no problems on this computer." }],
@@ -194,10 +194,11 @@ const SUMMARIES = [
 const UNREAD = [
     ["not JSON", "{", { kind: "unreadable", cause: "json" }],
     ["a list", "[]", { kind: "unreadable", cause: "field=root" }],
+    ["the previous schema", JSON.stringify({ schema: "vsys.summary.v1", verdict: [] }), { kind: "unreadable", cause: "schema=\"vsys.summary.v1\"" }],
     ["another schema", JSON.stringify({ schema: "vsys.summary.v3", verdict: [] }), { kind: "unreadable", cause: "schema=\"vsys.summary.v3\"" }],
-    ["no verdict", JSON.stringify({ schema: "vsys.summary.v1" }), { kind: "unreadable", cause: "field=verdict" }],
-    ["a cause that is no object", JSON.stringify({ schema: "vsys.summary.v1", verdict: ["disk"] }), { kind: "unreadable", cause: "field=verdict[0]" }],
-    ["an unknown level", JSON.stringify({ schema: "vsys.summary.v1", verdict: [{ cause: "disk", level: "fatal", subject: null }] }), { kind: "unreadable", cause: "field=verdict[0].level" }]
+    ["no verdict", JSON.stringify({ schema: "vsys.summary.v2" }), { kind: "unreadable", cause: "field=verdict" }],
+    ["a cause that is no object", JSON.stringify({ schema: "vsys.summary.v2", verdict: ["disk"] }), { kind: "unreadable", cause: "field=verdict[0]" }],
+    ["an unknown level", JSON.stringify({ schema: "vsys.summary.v2", verdict: [{ cause: "disk", level: "fatal", subject: null }] }), { kind: "unreadable", cause: "field=verdict[0].level" }]
 ];
 
 function verify(view) {

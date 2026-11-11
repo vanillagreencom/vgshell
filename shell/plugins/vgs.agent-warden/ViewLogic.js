@@ -44,7 +44,7 @@ var MAX_ITEMS = 3;
 var START_ARGV = ["systemctl", "--user", "start", "agent-warden.timer"];
 // The summary contract `vsys --once --summary` prints
 // (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/verdict.md#summary-json).
-var SUMMARY_SCHEMA = "vsys.summary.v1";
+var SUMMARY_SCHEMA = "vsys.summary.v2";
 var SUMMARY_LEVELS = ["ok", "warn", "danger"];
 
 // N with the noun for one or for many: "1 agent", "3 agents".
