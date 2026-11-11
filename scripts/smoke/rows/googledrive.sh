@@ -232,8 +232,8 @@ cs_notified() { ipc smoke readInstance service vgs.google-drive notifiedKey | py
 # Whether the runner's record holds its attention as notified.
 cs_record_notified() { cs status | py_reply 'import json,sys; a=json.load(sys.stdin)["attention"]; print(json.dumps(a["notified"] if a else None))'; }
 cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.google-drive visible; }
-cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
-cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
+cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"][:1]]))'; }
+cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in line for line in [t["title"]] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
 cs_page() { ipc smoke readInstance window vgs.settings shownPage; }
 cs_notice() {
   ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Google Drive" and r[1] == "Google Drive needs a sign-in" and r[3] == ""), "none")))'

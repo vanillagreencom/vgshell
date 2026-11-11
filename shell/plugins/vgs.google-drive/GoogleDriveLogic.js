@@ -888,17 +888,17 @@ function widgetView(cloud, now) {
     return { hidden: false, icon: head.icon, tone: tone, spinning: cloud.state === "running", badge: cloud.needsYou > 0 ? String(cloud.needsYou) : "", countLevel: countLevel(tone) };
 }
 
-// The widget's tooltip: the headline as its title, then one line per pair,
-// its label and state, the files that need the user when the headline
-// does not say so, and the last sync's time in the shell's wording
-// (TIME_TEXT).
+// The widget's tooltip: the headline as its title, then a list of detail
+// lines: one per pair, its label and state, the files that need the user
+// when the headline does not say so, and the last sync's time in the
+// shell's wording (TIME_TEXT).
 function widgetTooltip(cloud, now, timeText) {
-    if (cloud === undefined || cloud === null) return { title: "Google Drive", details: "" };
+    if (cloud === undefined || cloud === null) return { title: "Google Drive", details: [] };
     var head = headline(cloud, now);
     var lines = pairLines(cloud.pairs, now);
     if (cloud.needsYou > 0 && head.cause !== "needs-you") lines.push(needsLine(cloud.needsYou));
     if (cloud.lastSuccess !== null) lines.push("Last sync " + timeText(cloud.lastSuccess, now));
-    return { title: "Google Drive: " + head.text, details: lines.join("\n") };
+    return { title: "Google Drive: " + head.text, details: lines };
 }
 
 // The popover's header: { icon, tone, headline, meta }, the headline's

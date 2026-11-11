@@ -483,7 +483,7 @@ function verify(L) {
     const oneTwoValues = L.statusValues(oneTwo, null, "", "", NOW, HOME);
     const chip = oneTwoValues.pairs[0].state, head = L.headline(oneTwoCloud, NOW);
     const detailsLine = oneTwoValues.sync.lines[0].slice("Documents: ".length);
-    const tipLine = L.widgetTooltip(oneTwoCloud, NOW, Timestamp.text).details.split("\n")[0].slice("Documents: ".length);
+    const tipLine = L.widgetTooltip(oneTwoCloud, NOW, Timestamp.text).details[0].slice("Documents: ".length);
     same([chip.tone, L.widgetView(oneTwoCloud, NOW).badge, L.reviewView(oneTwoCloud).needs.length], ["warning", "1", 1], "the chip warns and the bar and Needs you count one");
     assert.ok(head.text.startsWith("1 "), "the headline counts one: " + head.text);
     same([chip.text, detailsLine, tipLine], [head.text, head.text, head.text], "Settings, Details and the tooltip read the headline's words");
@@ -692,11 +692,11 @@ function verify(L) {
     // The tooltip: pairs and states, never a file name; the count of files
     // to review when the headline does not say it.
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
-    same(tip.details.split("\n"), ["Documents: 1 file needs you", "Agent uploads: Sign-in needed", "1 file needs you", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
-    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: 1 file needs you", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the count once");
-    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(1, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: Up to date", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "a note adds no count");
-    same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Google Drive", details: "" });
-    for (const text of [tip.title, tip.details].concat(values.sync.lines))
+    same(tip.details, ["Documents: 1 file needs you", "Agent uploads: Sign-in needed", "1 file needs you", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
+    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details, ["Documents: 1 file needs you", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the count once");
+    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(1, 2) }), ""), NOW, Timestamp.text).details, ["Documents: Up to date", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "a note adds no count");
+    same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Google Drive", details: [] });
+    for (const text of [tip.title].concat(tip.details, values.sync.lines))
         for (const c of CONFLICTS) assert.ok(!text.includes(c.path) && !text.includes(c.localPath), "a file name shows: " + text);
 
     // The popover's header: the headline, then the last complete sync in
