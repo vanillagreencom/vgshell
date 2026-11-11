@@ -63,7 +63,8 @@ Item {
     function shell() {
         return {
             status: { values: root.values, act: key => root.record(["act", key]) },
-            settings: { pollSeconds: 30 },
+            settings: { pollSeconds: 30, autoConnect: "", trustedNetworks: [] },
+            manifest: { schema: {} },
             configure: { set: (key, value) => root.record(["configure", key, value]) },
             requirements: { missing: root.missing, offer: commands => root.record(["offer", commands]) },
             ipc: { call: (name, arg) => root.record(["ipc", name, arg]) },

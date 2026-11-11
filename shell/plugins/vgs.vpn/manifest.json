@@ -40,9 +40,37 @@
     "order": 40
   },
   "settings": {
+    "autoConnect": "",
+    "trustedNetworks": [],
     "pollSeconds": 30
   },
   "schema": {
+    "autoConnect": {
+      "type": "string",
+      "label": "Profile",
+      "description": "Connects on a network not on your trusted list",
+      "info": "When this computer joins a network that is not on your trusted list, or VGS starts on one, VGS connects this profile with no press. With the kill switch on, the block is in place before it connects. If you turn the VPN off, it stays off until this computer changes networks.",
+      "optionsFrom": "vpnChoices",
+      "problem": "autoConnectProblem",
+      "group": "Connect automatically"
+    },
+    "trustedNetworks": {
+      "type": "list",
+      "label": "Trusted networks",
+      "description": "On these networks the VPN does not connect by itself",
+      "group": "Connect automatically",
+      "items": {
+        "network": {
+          "type": "string",
+          "label": "Network",
+          "optionsFrom": "networkChoices",
+          "placeholder": "Choose a network"
+        }
+      },
+      "defaults": {
+        "network": ""
+      }
+    },
     "pollSeconds": {
       "type": "number",
       "label": "Check every",
@@ -171,6 +199,25 @@
     "leakCheck": {
       "type": "data",
       "label": "Leak check"
+    },
+    "vpnChoices": {
+      "type": "choices",
+      "label": "VPN profiles to connect",
+      "hidden": true
+    },
+    "networkChoices": {
+      "type": "choices",
+      "label": "Saved networks",
+      "hidden": true
+    },
+    "networks": {
+      "type": "data",
+      "label": "Networks"
+    },
+    "autoConnectProblem": {
+      "type": "text",
+      "label": "Connect automatically",
+      "hidden": true
     }
   },
   "tui": {

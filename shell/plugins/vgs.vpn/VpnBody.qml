@@ -12,8 +12,9 @@ import "VpnLogic.js" as Logic
 // empty or NetworkManager-absent state, since the bar icon that opens it
 // hides in both. System Settings adds the Profiles heading with what VGS
 // can connect, Remove profile in each expanded profile, the import hint,
-// the empty and NetworkManager-absent states, and the Updates section
-// while NetworkManager answers.
+// the empty and NetworkManager-absent states, Connect automatically
+// (AutoConnect) while a profile is listed, and the Updates section while
+// NetworkManager answers.
 //
 // The remove confirmation is a Dialog over a Scrim in the body's own
 // window, as vgs.network's password prompt is (NetworkBody.qml header): a
@@ -433,6 +434,11 @@ FocusScope {
             visible: killSwitch.view.shown && root.listed
             shell: root.shell
             profiles: root.profiles
+            onReplied: (reply, refusal) => root.answered(reply, refusal)
+        }
+        AutoConnect {
+            visible: root.expanded && root.listed
+            shell: root.shell
             onReplied: (reply, refusal) => root.answered(reply, refusal)
         }
         Section {

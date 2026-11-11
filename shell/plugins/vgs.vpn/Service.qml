@@ -1,10 +1,12 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Networking
 import "VpnLogic.js" as Logic
 
 // One owner of the NetworkManager profile readers, actions and deadlines,
-// and of the kill switch's state file and status read (D129).
+// and of the kill switch's state file and status read (D129), and of
+// Connect automatically's decision (VpnLogic.autoConnectPlan).
 // Views hold a lease for the fast poll and use the plugin's IPC:
 // lease {id,open}; action {kind,id} with the profile's uuid for
 // profile-up, profile-down, profile-remove, profile-details and
@@ -88,6 +90,32 @@ Item {
     // A poll ticked during the grace: the next status read that starts
     // ends it when it ends.
     property bool killSettlePoll: false
+    // Connect automatically: the profile the setting names, "" for Off,
+    // the trusted networks' uuids, the saved networks of the last list
+    // read (VpnLogic.networkList) and the decision's memory, whose problem
+    // line Settings and the section draw.
+    readonly property string autoChoice: shell === null || typeof shell.settings.autoConnect !== "string" ? "" : shell.settings.autoConnect
+    readonly property var trusted: Logic.trustedUuids(shell === null ? [] : shell.settings.trustedNetworks)
+    property var networks: Logic.emptyNetworks("reading")
+    property var autoMemory: Logic.autoConnectStart()
+    readonly property string autoProblem: Logic.autoConnectText(autoMemory.problem)
+    readonly property var vpnChoices: Logic.vpnChoices(profiles)
+    // NetworkManager's own device signals, read only while a profile is
+    // chosen: each device's state, which Quickshell binds to the device's
+    // State property, and the device list, which holds Wi-Fi and Ethernet
+    // devices (Quickshell 0.3.2 src/network/nm/device.cpp and backend.cpp,
+    // revision 2b4501a). A change reads the list again, so a network that
+    // comes up is decided at once, not at the next poll; the poll still
+    // covers a modem or a tether. Networking looks for NetworkManager once,
+    // when first read (scripts/smoke/devices.sh), as vgs.network's does.
+    readonly property string networkEvents: autoChoice === "" ? ""
+        : Networking.devices.values.map(device => device.name + "=" + device.state).join(" ")
+    onNetworkEventsChanged: readProfiles()
+    onAutoChoiceChanged: readProfiles()
+    onAutoProblemChanged: publishAuto()
+    onVpnChoicesChanged: publishAuto()
+    onNetworksChanged: publishAuto()
+
     readonly property var killSwitch: Logic.killSwitchState(killStep, killFile, killStatus, killChanging || stage !== null, killProblem, killSettling)
     readonly property var killSetup: Logic.killSwitchSetup(killStep)
     onKillSwitchChanged: publish()
@@ -113,6 +141,26 @@ Item {
     }
     onConnectionChanged: publish()
     onProfilesChanged: publish()
+    // Connect automatically's entries, each written only when its value
+    // changed, since the list read builds new ones at every poll.
+    property var reported: ({})
+    function report(key, value) {
+        if (shell === null) return;
+        const text = JSON.stringify(value);
+        if (reported[key] === text) return;
+        const reply = shell.status.set(key, value);
+        if (!shell.status.isOk(reply)) {
+            console.warn("vpn: status " + key + " " + reply);
+            return;
+        }
+        reported = Object.assign({}, reported, { [key]: text });
+    }
+    function publishAuto() {
+        report("autoConnectProblem", autoProblem === "" ? null : autoProblem);
+        report("vpnChoices", vpnChoices);
+        report("networks", networks);
+        report("networkChoices", Logic.networkChoices(networks));
+    }
     Component.onCompleted: Logic.attachConnect(root)
     Component.onDestruction: {
         Logic.releaseConnect(root);
@@ -131,11 +179,14 @@ Item {
             refresh();
         }
         publish();
+        publishAuto();
     }
     onScansChanged: refresh()
     onProfilesMissingChanged: {
-        if (profilesMissing) listing = Logic.emptyProfiles("reading");
-        else readProfiles();
+        if (profilesMissing) {
+            listing = Logic.emptyProfiles("reading");
+            networks = Logic.emptyNetworks("reading");
+        } else readProfiles();
     }
     function refresh(editedUuid) {
         // A pane open or activation passes an empty UUID to read metadata;
@@ -213,6 +264,7 @@ Item {
         failures = kept(failures, row => row.state !== "activated");
         addresses = kept(addresses, row => row.state === "activated");
         profileProblem = Logic.problemAfter(profileProblem, rows, failures);
+        autoConnect();
         if (next.state !== "available") return;
         if (Logic.detailsKey(next) !== detailsRead) readDetails();
         for (const row of rows) if (row.state === "activated" && addresses[row.uuid] === undefined) queueAddress(row.uuid);
@@ -259,6 +311,9 @@ Item {
                 if (code === 1 || code === 8) console.log(diagnostic);
                 else console.warn(diagnostic);
             }
+            // The same read holds the saved networks Connect automatically
+            // decides over, set before the list that decides.
+            root.networks = Logic.networkList(code, profilesText.text);
             root.listed(next);
             if (again) { again = false; root.readProfiles(); }
         }
@@ -372,7 +427,28 @@ Item {
             if (row !== undefined && row.state === "activated") queueAddress(plan.address);
             return "ok";
         }
-        return startAction(request.kind, request.id, plan.argv, null);
+        const reply = startAction(request.kind, request.id, plan.argv, null);
+        // A profile turned off here, by its switch or Turn VPN off, stays
+        // off until the next network change (VpnLogic.autoConnectPlan).
+        if (request.kind === "profile-down" && reply === "ok") autoMemory = Logic.autoConnectOff(autoMemory);
+        return reply;
+    }
+    // Connect automatically's decision over the list read that just
+    // landed: a connect goes through the switch's own IPC action, so the
+    // kill switch arms first; a refusal leaves its problem line, and a busy
+    // service keeps the network change for the next read.
+    function autoConnect() {
+        const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles, profileAction !== null || stateWrite !== null);
+        autoMemory = plan.memory;
+        if (plan.uuid === "") return;
+        const reply = actProfile({ kind: "profile-up", id: plan.uuid });
+        console.log("vpn: operation=auto-connect completion=" + reply);
+        if (reply === "busy") autoMemory = Logic.autoConnectBusy(autoMemory);
+        else if (reply !== "ok") {
+            const row = profiles.rows.find(candidate => candidate.uuid === plan.uuid);
+            autoMemory = Logic.autoConnectRefused(autoMemory, row.name,
+                Logic.rowView(row, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch)).reason);
+        }
     }
     // VpnLogic.submitConnect's direct call: connect UUID with FEED writing
     // the passwd-file line once nmcli has started. Only FEED's closure

@@ -17,6 +17,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 - NetworkManager's connection editor to add or edit a profile.
 - Remove profile deletes a profile after you confirm.
 - A kill switch that blocks traffic outside the VPN when the VPN drops.
+- Connect automatically: on a network not on your trusted list, the chosen profile connects with no press.
 
 ## What VGS can connect
 
@@ -47,6 +48,18 @@ The leak check asks no outside service. It reads this computer's own settings fi
 Then, for the public address, VGS asks one outside service, `api.nordvpn.com`, NordVPN's own. It asks through the VPN only, and only when the lookup of the service's own name stays in the VPN or the kill switch blocks it everywhere else. It never asks while no profile is connected. The service learns the address the question comes from, which is the address every site you open sees. When VGS does not ask, the row reads Not checked and says why. When the service does not answer or sends an answer VGS cannot read, the row reads Could not check and says why.
 
 A reading VGS cannot take reads Could not check, never a pass. A connection that ends during a check stops its question to the service. A connection that ends after a check clears its result.
+
+## Connect automatically
+
+Connect automatically, in the VPN section of System Settings, connects one profile with no press. Choose the profile, then turn on the networks you trust under Trusted networks. The list shows the networks this computer has saved, and Connected beside the ones it is on.
+
+When this computer joins a network that is not on the list, or VGS starts on one, VGS connects the profile. On a trusted network VGS does nothing. VGS trusts the saved network, not its name, so another network with the same name is not trusted. When a VPN profile is already connected, VGS leaves it.
+
+VGS connects the profile as its switch does. With the kill switch on, the block is in place before the profile connects.
+
+When you turn the VPN off in VGS, it stays off until this computer changes networks.
+
+When VGS cannot read which networks this computer is on, or cannot connect the profile, it connects nothing and says why under the profile.
 
 ## Kill switch
 

@@ -469,10 +469,12 @@ function suite(logic, service = serviceSource) {
         [0, text("list.txt"), "available", null, null]
     ]) {
         const console = logs();
-        const owner = Object.assign(helpers(), { listed(next) { owner.listing = plain(next); } });
+        const owner = Object.assign(helpers(), { listed(next) { owner.listing = plain(next); owner.networksAtList = owner.networks; } });
         let stopped = false;
         completeList(false, code === -1 ? null : { code, status: 0 }, owner, logic, { text: output }, { stop() { stopped = true; } }, false, console);
         assert.equal(owner.listing.state, state);
+        // The same read's networks are in place before the list decides.
+        assert.equal(owner.networksAtList.state, state === "available" ? "available" : "unreadable");
         assert.equal(stopped, true);
         assert.deepEqual(console.messages, level === null ? [] : [[level, "vpn: operation=profile-read completion=" + kind + " code=" + code]]);
     }
@@ -486,7 +488,7 @@ function suite(logic, service = serviceSource) {
     const runListed = new Function("Logic", "owner", "next", "with (owner) {" + listedBody[1] + "}");
     const listedOwner = (fields) => {
         const owner = Object.assign({ listing: null, failures: {}, addresses: {}, profileProblem: null, profileAction: null, detailsRead: "", reads: 0, queued: [],
-            readDetails() { owner.reads++; }, queueAddress(uuid) { owner.queued.push(uuid); } }, fields);
+            decided: 0, readDetails() { owner.reads++; }, queueAddress(uuid) { owner.queued.push(uuid); }, autoConnect() { owner.decided++; } }, fields);
         return owner;
     };
     for (const [name, next, fields, reads, failureUuids, addressUuids, queued] of [
@@ -506,6 +508,8 @@ function suite(logic, service = serviceSource) {
         assert.deepEqual(Object.keys(owner.failures).sort(), failureUuids.slice().sort(), name);
         assert.deepEqual(Object.keys(owner.addresses).sort(), addressUuids.slice().sort(), name);
         assert.deepEqual(owner.queued, queued, name);
+        // Connect automatically decides at every list read, an unreadable one too.
+        assert.equal(owner.decided, 1, name);
     }
     // A new list drops the problem line of a profile it no longer holds
     // and of a connect whose failure it dropped.
@@ -600,7 +604,7 @@ function suite(logic, service = serviceSource) {
     for (const [name, running, listsToClear] of [["no read running", false, 1], ["a read already running", true, 2]]) {
         const ending = { registered: true, profilesMissing: false, profilesReader: { running }, reads: 0, readProfiles() { ending.reads++; },
             profileAction: { kind: "profile-up", uuid: HOME, name: "Home tunnel", password: false },
-            listing: beforeRun, failures: {}, addresses: {}, profileProblem: null, detailsRead: key, readDetails() {}, queueAddress() {} };
+            listing: beforeRun, failures: {}, addresses: {}, profileProblem: null, detailsRead: key, readDetails() {}, queueAddress() {}, autoConnect() {} };
         method(ending, "runEnded");
         method(ending, "listed");
         ending.runEnded();
@@ -734,6 +738,7 @@ function suite(logic, service = serviceSource) {
         method(owner, "refresh");
         method(owner, "listed");
         owner.queueAddress = () => {};
+        owner.autoConnect = () => {};
         owner.addresses = {};
         return owner;
     };
@@ -869,6 +874,7 @@ function suite(logic, service = serviceSource) {
         assert.deepEqual(entry === undefined ? undefined : [entry.tone, entry.action === true, entry.available !== false], setup, JSON.stringify(step));
     }
     killSwitchSuite(logic, service, profiles);
+    autoConnectSuite(logic, service);
 }
 
 // The kill switch's state file, status line and row (D129), and the
@@ -1196,6 +1202,7 @@ function killSwitchSuite(logic, service, profiles) {
         const owner = Object.assign({
             events, disk: textOf("", "block"), lost: false, saveFails: false, stall: "",
             profiles, profileAction: null, profileProblem: null, connectFeed: null, killReady: true, killWritable: true, killFile: file("", "block"),
+            autoMemory: { seen: "", pending: true, problem: null },
             killStep: { state: "ready", reason: "granted" }, probeStep: null,
             // The fresh probe answers at once, with probeStep when set.
             shell: { system: { refresh(done) {
@@ -1401,6 +1408,7 @@ function killSwitchSuite(logic, service, profiles) {
     release.shell.requirements = { missing: [] };
     bind(release, "actProfile");
     assert.equal(release.actProfile({ kind: "profile-down", id: LAB }), "ok");
+    assert.equal(release.autoMemory.pending, false, "a profile turned off here holds Connect automatically until the next network change");
     assert.deepEqual(writes(release), [textOf("", "block-lan", "1794203888")]);
     assert.deepEqual(launched(release), [null]);
     assert.deepEqual([release.profileAction, release.stage, release.stateWrite, release.profileActor.running], [null, null, null, false]);
@@ -1413,6 +1421,7 @@ function killSwitchSuite(logic, service, profiles) {
     noStep.shell.requirements = { missing: [] };
     bind(noStep, "actProfile");
     assert.equal(noStep.actProfile({ kind: "profile-down", id: LAB }), "refused: profile=state");
+    assert.equal(noStep.autoMemory.pending, true, "a refused disconnect leaves the network change pending");
     // A file already naming the profile is not written again.
     const same = serviceOwner({ disk: textOf(HOME, "off") });
     same.startAction("profile-up", HOME, UP, null);
@@ -2055,6 +2064,165 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     assert.deepEqual(plain(logic.profileCommand({ kind: "profile-check", id: OFFICE }, plugin, [], true, OFFICE)), { refusal: "refused: profile=type" });
 }
 
+// Connect automatically (VGS-2399). One table judges the decision over a
+// run of list reads, each the world nmcli prints: list.txt's profiles with
+// Home tunnel off, Fixture Wi-Fi, which the setting trusts, and Hotel
+// Wi-Fi and a wired profile on no list, with the user's deliberate off
+// between reads. Lab tunnel is the chosen profile.
+const HOTEL = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+const WIFI = "0f3e2d1c-4b5a-4968-8776-5a4b3c2d1e0f";
+const WIRED = "3c9d8e7f-6a5b-4c4d-9e3f-2a1b0c9d8e7f";
+const TWIN = "6d5c4b3a-2f1e-4d0c-9b8a-7f6e5d4c3b2a";
+const GONE = "11111111-2222-4333-8444-555555555555";
+const UP = "activated";
+// A list read of WORLD: { home, lab, wifi, hotel, wired } states, "" for
+// off, and `extra` lines as nmcli prints them.
+function autoWorld(world) {
+    const states = { [HOME]: world.home || "", [LAB]: world.lab || "", [WIFI]: world.wifi || "" };
+    const lines = text("list.txt").split("\n").filter(line => line !== "").map(line => {
+        const fields = line.split(":");
+        const uuid = fields[fields.length - 3];
+        if (states[uuid] === undefined) return line;
+        return fields.slice(0, -1).concat([states[uuid]]).join(":");
+    });
+    lines.push("Hotel Wi-Fi:" + HOTEL + ":802-11-wireless:" + (world.hotel || ""), "Hotel Ethernet:" + WIRED + ":802-3-ethernet:" + (world.wired || ""));
+    return lines.concat(world.extra === undefined ? [] : [world.extra]).join("\n") + "\n";
+}
+// The service's inputs for one read of [code, output], as Service.qml
+// hands them on (VpnLogic.list, compose and networkList).
+function autoRead(logic, code, output) {
+    return { networks: plain(logic.networkList(code, output)), profiles: plain(logic.compose(logic.list(code, output), {}, {}, {}, null, "")) };
+}
+
+function autoConnectSuite(logic, service = serviceSource) {
+    // Each step a read of its world, with `choice` the setting's profile
+    // (Lab tunnel unless set), `trusted` the setting's items (Fixture Wi-Fi
+    // unless set), `busy` while a change runs and `raw` a read's own
+    // [code, output]; or "off", the user turning a profile off.
+    const run = steps => {
+        let memory = logic.autoConnectStart();
+        let last = null;
+        for (const step of steps) {
+            if (step === "off") { memory = plain(logic.autoConnectOff(memory)); continue; }
+            const [code, output] = step.raw || [0, autoWorld(step)];
+            const read = autoRead(logic, code, output);
+            const trusted = logic.trustedUuids(step.trusted === undefined ? [{ name: "1", network: WIFI }] : step.trusted);
+            last = plain(logic.autoConnectPlan(memory, step.choice === undefined ? LAB : step.choice, trusted, read.networks, read.profiles, step.busy === true));
+            memory = last.memory;
+        }
+        return last;
+    };
+    // name, steps, why, the profile it connects, the problem's kind
+    const AUTO_TABLE = [
+        ["an untrusted network coming up connects the chosen profile", [{}, { hotel: UP }], "connect", LAB, null],
+        ["the first readable list with an untrusted network up connects", [{ hotel: UP }], "connect", LAB, null],
+        ["a trusted network coming up connects nothing", [{}, { wifi: UP }], "trusted", "", null],
+        ["a trusted and an untrusted network up together connect", [{ wifi: UP }, { wifi: UP, hotel: UP }], "connect", LAB, null],
+        ["a wired network on no list connects", [{}, { wired: UP }], "connect", LAB, null],
+        ["trust follows the profile, not its name", [{}, { extra: "Fixture Wi-Fi:" + TWIN + ":802-11-wireless:activated" }], "connect", LAB, null],
+        ["a trusted uuid in capitals is trusted", [{}, { wifi: UP, trusted: [{ name: "1", network: WIFI.toUpperCase() }] }], "trusted", "", null],
+        ["an item with no network chosen trusts nothing", [{}, { wifi: UP, trusted: [{ name: "1", network: "" }] }], "connect", LAB, null],
+        ["a network change is decided once", [{}, { hotel: UP }, { hotel: UP }], "settled", "", null],
+        ["a deliberate off stays off on the same network", [{}, { hotel: UP, lab: UP }, "off", { hotel: UP }], "settled", "", null],
+        ["a deliberate off during an undecided change stays off on the same network", [{}, { hotel: UP, lab: UP, busy: true }, "off", { hotel: UP }], "settled", "", null],
+        ["a deliberate off holds until the next network change", [{}, { hotel: UP, lab: UP, busy: true }, "off", { hotel: UP }, { wired: UP }], "connect", LAB, null],
+        ["an unreadable network list connects nothing and says why", [{}, { raw: [10, ""] }], "unread", "", "unread"],
+        ["NetworkManager not running is an unreadable list", [{ hotel: UP, busy: true }, { raw: [8, ""] }], "unread", "", "unread"],
+        ["a network row outside the grammar is an unreadable list", [{}, { hotel: UP, extra: "Lobby:not-a-uuid:802-11-wireless:activated" }], "unread", "", "unread"],
+        ["a profile row outside the grammar is an unreadable list", [{}, { hotel: UP, extra: "Bad:" + GONE + ":vpn:connected" }], "unread", "", "unread"],
+        ["the read after an unreadable one decides the change it shows", [{}, { raw: [10, ""] }, { hotel: UP }], "connect", LAB, null],
+        ["an unreadable read keeps a change still undecided", [{}, { hotel: UP, busy: true }, { raw: [10, ""] }, { hotel: UP }], "connect", LAB, null],
+        ["a change in flight keeps the network change", [{}, { hotel: UP, busy: true }], "waiting", "", null],
+        ["the read after a change in flight connects", [{}, { hotel: UP, busy: true }, { hotel: UP }], "connect", LAB, null],
+        ["a VPN profile already up is left alone", [{}, { hotel: UP, home: UP }], "connected", "", null],
+        ["a VPN profile connecting is left alone", [{}, { hotel: UP, lab: "activating" }], "connected", "", null],
+        ["no network up connects nothing", [{ wifi: UP }, {}], "offline", "", null],
+        ["other connection types up are no network", [{ wifi: UP }, { extra: "tailscale0:" + TWIN + ":tun:activated" }], "offline", "", null],
+        ["with Connect automatically off nothing connects", [{ hotel: UP, choice: "" }], "off", "", null],
+        ["choosing a profile connects nothing until the network changes", [{ hotel: UP, choice: "" }, { hotel: UP }], "settled", "", null],
+        ["a chosen profile in capitals connects by its uuid", [{}, { hotel: UP, choice: LAB.toUpperCase() }], "connect", LAB, null],
+        ["a chosen profile no longer listed says why", [{ hotel: UP, choice: GONE }], "gone", "", "gone"]
+    ];
+    for (const [name, steps, why, uuid, problem] of AUTO_TABLE) {
+        const got = run(steps);
+        assert.deepEqual([got.why, got.uuid, got.memory.problem === null ? null : got.memory.problem.kind], [why, uuid, problem], name);
+        assert.equal(logic.autoConnectText(got.memory.problem) !== "", problem !== null, name + ": a problem has its line");
+    }
+
+    // The networks and choices the service publishes: Settings' selects
+    // take printable labels of at most STATUS_LABEL_MAX characters, each
+    // value once, at most STATUS_LIST_MAX of them, the active networks
+    // first.
+    const crowd = Array.from({ length: 80 }, (_, i) => "Net\u0007" + "界".repeat(70) + ":" + String(i).padStart(8, "0") + "-0000-4000-8000-000000000000:802-11-wireless:" + (i === 79 ? UP : ""));
+    const many = plain(logic.networkList(0, crowd.join("\n")));
+    assert.equal(many.count, 80);
+    assert.deepEqual(many.active, ["00000079-0000-4000-8000-000000000000"]);
+    assert.equal(many.rows[0].uuid, "00000079-0000-4000-8000-000000000000", "an active network comes first");
+    const published = read => {
+        const manifestOk = core.validateManifest(manifest, "/p");
+        assert.equal(manifestOk.ok, true, manifestOk.error);
+        let values = {};
+        for (const [key, value] of [["networks", read.networks], ["networkChoices", logic.networkChoices(read.networks)], ["vpnChoices", logic.vpnChoices(read.profiles)]]) {
+            const result = core.statusWrite(manifestOk.manifest, values, key, plain(value));
+            assert.equal(result.ok, true, key + ": " + result.error);
+            values = plain(result.values);
+        }
+        return values;
+    };
+    const wide = published({ networks: many, profiles: autoRead(logic, 0, autoWorld({})).profiles });
+    assert.equal(wide.networkChoices.length, logic.NETWORK_MAX);
+    const fixtureValues = published(autoRead(logic, 0, autoWorld({ hotel: UP })));
+    assert.deepEqual(fixtureValues.networkChoices.map(choice => choice.value), [HOTEL, WIFI, WIRED]);
+    assert.deepEqual(fixtureValues.vpnChoices.map(choice => choice.value), ["off", HOME, OFFICE, TRAVEL, CAMPUS, BRANCH, LAB]);
+    // Settings stores what Off stands for as the empty setting.
+    assert.equal(plain(core.settingChoices(core.validateManifest(manifest, "/p").manifest, fixtureValues, { autoConnect: "", trustedNetworks: [] })).autoConnect[0].value, "");
+
+    // The section's Trusted networks switch: the setting's other items
+    // stay; a new item takes the lowest whole number no item names, as the
+    // Settings list editor's; turning one off removes it whatever its case.
+    const items = [{ name: "1", network: "" }, { name: "2", network: WIRED }];
+    assert.deepEqual(plain(logic.trustedChange(items, WIFI, true)), items.concat([{ name: "3", network: WIFI }]));
+    assert.deepEqual(plain(logic.trustedChange(items.concat([{ name: "3", network: WIFI }]), WIFI, true)), items.concat([{ name: "3", network: WIFI }]));
+    assert.deepEqual(plain(logic.trustedChange([{ name: "2", network: WIFI.toUpperCase() }, { name: "1", network: WIRED }], WIFI, false)), [{ name: "1", network: WIRED }]);
+    assert.deepEqual(plain(logic.trustedChange(undefined, WIFI, true)), [{ name: "1", network: WIFI }]);
+
+    // The service's decision over doubles: a connect goes through the
+    // switch's own IPC action; a busy reply keeps the change for the next
+    // read; a refused one leaves its problem line, which a later read of
+    // the same network keeps; a change or a write in flight waits.
+    const decide = /function autoConnect\(\) \{([\s\S]*?)\n    \}/.exec(service);
+    assert.ok(decide, "autoConnect");
+    const autoOwner = (reply, fields = {}) => {
+        const read = autoRead(logic, 0, autoWorld({ hotel: UP }));
+        const owner = Object.assign({ autoMemory: logic.autoConnectStart(), autoChoice: LAB, trusted: [WIFI], networks: read.networks, profiles: read.profiles,
+            profileAction: null, stateWrite: null, killSwitch: null, shell: { requirements: { missing: [] } }, asked: [],
+            actProfile(request) { owner.asked.push(plain(request)); return reply; } }, fields);
+        owner.autoConnect = new Function("Logic", "owner", "console", "with (owner) {" + decide[1] + "}").bind(null, logic, owner, { log() {}, warn() {} });
+        return owner;
+    };
+    const connected = autoOwner("ok");
+    connected.autoConnect();
+    assert.deepEqual(connected.asked, [{ kind: "profile-up", id: LAB }]);
+    assert.deepEqual(plain(connected.autoMemory), { seen: HOTEL, pending: false, problem: null });
+    const busy = autoOwner("busy");
+    busy.autoConnect();
+    assert.equal(busy.autoMemory.pending, true, "a busy service keeps the network change");
+    assert.equal(busy.autoMemory.problem, null);
+    const refused = autoOwner("refused: profile=reading", { autoChoice: OFFICE });
+    refused.autoConnect();
+    assert.deepEqual(refused.asked, [{ kind: "profile-up", id: OFFICE }]);
+    assert.deepEqual([refused.autoMemory.pending, refused.autoMemory.problem.kind, refused.autoMemory.problem.name], [false, "refused", "Office VPN"]);
+    assert.notEqual(refused.autoMemory.problem.reason, "", "the refusal carries the reason the switch shows");
+    refused.autoConnect();
+    assert.deepEqual([refused.asked.length, refused.autoMemory.problem.kind], [1, "refused"], "the same network keeps the refusal's line");
+    for (const [name, fields] of [["a change in flight", { profileAction: { kind: "profile-down", uuid: HOME, name: "Home tunnel" } }],
+        ["a kill switch write", { stateWrite: { serial: 1, phase: "read" } }]]) {
+        const waiting = autoOwner("ok", fields);
+        waiting.autoConnect();
+        assert.deepEqual([waiting.asked.length, waiting.autoMemory.pending], [0, true], name + " waits");
+    }
+}
+
 suite(load(file, commons));
 editorSuite(load(file, commons));
 leakCheckSuite(load(file, commons));
@@ -2271,7 +2439,13 @@ try {
         ["a read running at the run's end does not end it", '{ ended: true, stale: profilesReader.running }', '{ ended: true, stale: false }'],
         ["the list after the run ends it", '            profileAction = profileAction.stale ? Object.assign({}, profileAction, { stale: false }) : null;', '            profileAction = profileAction;'],
         ["a disconnect with no run ends the action", "        if (argv === null) {\n            profileAction = null;", "        if (false) {\n            profileAction = null;"],
-        ["the service hands the file's profile to the plan", 'Logic.killSwitchOn(killSwitch), killReady ? killSwitch.meantOn : "");', 'Logic.killSwitchOn(killSwitch), "");']
+        ["the service hands the file's profile to the plan", 'Logic.killSwitchOn(killSwitch), killReady ? killSwitch.meantOn : "");', 'Logic.killSwitchOn(killSwitch), "");'],
+        ["a profile turned off here ends the pending change", 'if (request.kind === "profile-down" && reply === "ok") autoMemory = Logic.autoConnectOff(autoMemory);', ""],
+        ["each list read decides Connect automatically", "        autoConnect();\n", ""],
+        ["the read's networks are in place before the list decides", "root.networks = Logic.networkList(code, profilesText.text);", ""],
+        ["a busy reply keeps the network change", 'if (reply === "busy") autoMemory', "if (false) autoMemory"],
+        ["a refused automatic connect leaves its problem line", 'else if (reply !== "ok") {', "else if (false) {"],
+        ["Connect automatically waits on a kill switch write", "profileAction !== null || stateWrite !== null);", "profileAction !== null);"]
     ]) {
         assert.equal(serviceSource.split(old).length - 1, 1, name);
         assert.throws(() => suite(load(file, commons), serviceSource.replace(old, replacement)), undefined, "control: " + name);
@@ -2329,6 +2503,24 @@ try {
         assert.notEqual(parse + pattern, parseState[0] + definition("status_pattern"), name + " mutation must change the text");
         assert.throws(() => rootAgrees(parse, pattern), undefined, "control: the agreement on " + name);
         console.log("vpn-logic: control=the root's " + name + " disagreeing red");
+    }
+    // Each Connect automatically control changes the shipped decision and
+    // must redden its table.
+    for (const [name, needle, replacement] of [
+        ["a trusted network connects nothing", 'if (networks.active.every(uuid => trusted.indexOf(uuid) !== -1)) return plan("trusted", decided);', 'if (false) return plan("trusted", decided);'],
+        ["an unreadable list decides nothing", 'if (!readable) return plan("unread",', 'if (false) return plan("unread",'],
+        ["a deliberate off ends a pending change", "function autoConnectOff(memory) { return Object.assign({}, memory, { pending: false }); }", "function autoConnectOff(memory) { return memory; }"],
+        ["the first readable list is a change", "const pending = memory.seen !== key || memory.pending;", "const pending = (memory.seen !== null && memory.seen !== key) || memory.pending;"],
+        ["a network change is decided once", "const decided = { seen: key, pending: false, problem: null };", "const decided = { seen: key, pending: true, problem: null };"],
+        ["a VPN profile up is left alone", 'if (profiles.rows.some(candidate => candidate.state === "activated" || candidate.state === "activating")) return plan("connected", decided);', ""],
+        ["only networks count", "if (!Object.prototype.hasOwnProperty.call(NETWORK_TYPES, fields[2])) continue;", 'if (fields[2] === "vpn" || fields[2] === "wireguard") continue;']
+    ]) {
+        const source = fs.readFileSync(file, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, name);
+        const mutant = path.join(scratch, "VpnLogic.js");
+        fs.writeFileSync(mutant, source.replace(needle, replacement));
+        assert.throws(() => autoConnectSuite(load(mutant, commons)), undefined, "control: " + name);
+        console.log("vpn-logic: control=" + name + " red");
     }
     // Each leak check control changes the shipped judge or the service's
     // wiring and must redden the leak check suite.
