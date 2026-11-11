@@ -79,6 +79,8 @@ if(name==="pacman-conf"){
  process.exit(0);
 }
 if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){
+ // pending-failed fails the system's pending query, as a failed sync does.
+ if(!args.includes("-Qua")&&fs.existsSync(path.join(root,"pending-failed"))){process.stderr.write("fixture: pending query failed\n");process.exit(1);}
  // AUR-only queries need an AUR target; collisions declare pending explicitly.
  const target=args.includes("-Qua")?(Object.hasOwn(dependencies,"pending")?dependencies.pending:"foreign"):"widget";
  for(const pkg of Array.isArray(target)?target:[target])console.log((fs.existsSync(path.join(root,"pending-name-changed"))?"another":pkg)+" "+(fs.existsSync(path.join(root,"pending-old-changed"))?"0":"1")+" -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);

@@ -77,6 +77,7 @@ switch(changed){
  case"pending":fs.writeFileSync(path.join(root,"pending-changed"),"");break;
  case"pending-old":fs.writeFileSync(path.join(root,"pending-old-changed"),"");break;
  case"pending-name":fs.writeFileSync(path.join(root,"pending-name-changed"),"");break;
+ case"pending-failed":fs.writeFileSync(path.join(root,"pending-failed"),"");break;
  case"candidate":fs.writeFileSync(path.join(root,"candidate-changed"),"");break;
  case"aur-recipe":fs.appendFileSync(path.join(env.VGS_PACKAGE_TRANSACTION,path.dirname(reply.receipt),"evidence/build/foreign/PKGBUILD"),"# changed\n");break;
  case"binary":fs.unlinkSync(path.join(root,"tools",manager==="pacman"?"pacman":"paru"));fs.copyFileSync(path.join(__dirname,"command.js"),path.join(root,"tools",manager==="pacman"?"pacman":"paru"));fs.appendFileSync(path.join(root,"tools",manager==="pacman"?"pacman":"paru"),"\n// changed\n");fs.chmodSync(path.join(root,"tools",manager==="pacman"?"pacman":"paru"),0o755);break;

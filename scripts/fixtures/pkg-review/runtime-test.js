@@ -7,7 +7,7 @@ const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
 const caseAt=process.argv.indexOf("--case"),caseName=caseAt<0?null:process.argv[caseAt+1];
-assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control","dependencies","dependency-authority","dependency-control","dependency-official-control","one-review","review-again","one-review-control","devel","devel-control"].includes(surface));
+assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control","dependencies","dependency-authority","dependency-control","dependency-official-control","one-review","review-again","one-review-control","devel","devel-control"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const writerAt=process.argv.indexOf("--writer-owner"),writerOverride=writerAt<0?null:process.argv[writerAt+1];
@@ -419,20 +419,34 @@ try{
   assert.ok(!w.calls().some(c=>["mutation","credential","agent"].includes(c.kind)));
   console.log("package-settings-choice-proof: "+JSON.stringify({choice,saved}));
  }
+ // The system upgrade binds its package manager and configuration, not the
+ // pending list or its repository candidates: pacman -Syu takes no target
+ // list and syncs again, and repository packages take no review.
+ const systemAdmitted=["pending","pending-old","pending-name","origin","pending-failed"];
+ // The field each binding refusal names.
+ const bindingFields={pacman:{binary:"binary",config:"config",include:"config","config-link-changed":"config",recipe:"recipes"},aur:{pending:"pending",origin:"origins",recipe:"recipes"}};
  if(!only&&select("authority"))for(const [manager,change] of [
   ...["pacman","aur"].flatMap(manager=>["none","consumed","manager","action","targets","config","include","config-path","ignore","pending","origin","binary","transaction","missing","unreadable","symlink","recipe","outer","outer-missing","config-link","config-link-changed"].map(change=>[manager,change])),
+  ...["pending-old","pending-name","pending-failed"].map(change=>["pacman",change]),
   ["aur","custom-origin-read-failed"]
  ]){
-  const w=create(path.join(scratch,"authority-"+manager+"-"+change),{choices:change==="recipe"?["Review","Use Claude Code"]:change==="custom-origin-read-failed"?["Install without review","Yes"]:["Install without review"]});
+  const label=manager+"-"+change;
+  if(caseName!==null&&caseName!==label)continue;
+  const w=create(path.join(scratch,"authority-"+label),{choices:change==="recipe"?["Review","Use Claude Code"]:change==="custom-origin-read-failed"?["Install without review","Yes"]:["Install without review"]});
   const fixture=path.join(__dirname,"authority.js");
-  const command=[process.execPath,fixture,w.root,change,manager].map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");
+  const command=[process.execPath,fixture,w.root,change,manager,ownerOverride||w.owner].map(q).join(" ");
   const r=cp.spawnSync("/usr/bin/script",["-qec",command,"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
   assert.equal(r.status,0,r.stdout+r.stderr);
   const result=JSON.parse(fs.readFileSync(path.join(w.root,"authority-result.json"))),calls=w.calls();
-  const allowed=change==="none"||change==="config-link"||(change==="outer"&&manager==="pacman")||(manager==="aur"&&["config","include","config-link-changed","binary"].includes(change));
-  assert.equal(result.code===0,allowed,r.stdout);
+  const allowed=change==="none"||change==="config-link"||(change==="outer"&&manager==="pacman")||(manager==="aur"&&["config","include","config-link-changed","binary"].includes(change))||(manager==="pacman"&&systemAdmitted.includes(change));
+  assert.equal(result.code===0,allowed,label+": admission "+r.stdout);
+  // The line after the key is the cause the Updates pipeline shows.
+  const refusal=/review=authority-binding-changed field=(\S+)\r?\n([^\r\n]*)/.exec(r.stdout);
+  if(allowed)assert.equal(refusal,null,label+": binding refusal "+r.stdout);
+  if(Object.hasOwn(bindingFields[manager],change))assert.equal(refusal?.[1],bindingFields[manager][change],label+": binding field "+r.stdout);
+  if(refusal!==null)assert.notEqual(refusal[2].trim(),"",label+": binding detail "+r.stdout);
   if(change==="custom-origin-read-failed")assert.match(r.stdout,/review=authority-binding-(?:unreadable|changed)/);
-  assert.equal(calls.filter(c=>c.kind==="mutation").length-result.before,allowed?(change==="none"&&manager==="pacman"?3:1):0,change+":"+JSON.stringify(calls));
+  assert.equal(calls.filter(c=>c.kind==="mutation").length-result.before,allowed?(change==="none"&&manager==="pacman"?3:1):0,label+": mutations "+JSON.stringify(calls));
   assert.equal(calls.filter(c=>c.kind==="offer"&&c.offered.includes("Review")).length,1);
   if(change==="outer"&&manager==="pacman")assert.ok(!calls.some(c=>c.kind==="credential"&&c.args[0]==="-k"));
   console.log("package-authority-proof: "+JSON.stringify({manager,change,result,mutations:calls.filter(c=>c.kind==="mutation")}));
@@ -488,10 +502,17 @@ try{
   for(const [label] of reviewResults.filter(row=>row[3]!==null))
    control("review-failure-"+label,"review-result",[[owner,"verdict === null || !verdict.ok || failures.length","false"]],new RegExp(label+": unavailable question"),label);
  }
+ if(!only&&(select("control")||surface==="authority-control")){
+  const owner="bin/lib/pkg-review.js";
+  // The binding before the system upgrade bound only its manager and configuration.
+  for(const change of systemAdmitted)
+   control("system-binding-"+change,"authority",[[owner,"const scope = bindingScope(step);",'const scope = step.manager === "aur" ? "content" : "strict";']],new RegExp("pacman-"+change+": admission"),"pacman-"+change);
+  control("binding-detail","authority",[[owner,'BINDING_CHANGED[field] + " Run the update again so that VGS reviews the packages again."','""']],/pacman-config: binding detail/,"pacman-config");
+ }
  if(!only&&(select("control")||surface==="aur-authority-control")){
   const owner="bin/lib/pkg-review.js";
   for(const [change,allowed,field] of aurAuthority){
-   const edits=allowed?[[owner,'bindingChange(step, current.steps[0], group.manager === "aur")','bindingChange(step, current.steps[0], false)']]
+   const edits=allowed?[[owner,'return step.manager === "aur" ? "content"','return step.manager === "aur" ? "strict"']]
     :field==="recipes"?[[owner,'record.state.recipes.length && !same(recipesIdentity','false && record.state.recipes.length && !same(recipesIdentity']]
     :field!==null?[[owner,'if (!same(project(current.binding), project(step.binding))) return field;',`if (field !== ${JSON.stringify(field)} && !same(project(current.binding), project(step.binding))) return field;`]]
     :[[owner,'const field = bindingChange(step, current.steps[0]);','const field = (bindingChange(step, current.steps[0]), null);'],

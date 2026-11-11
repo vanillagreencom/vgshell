@@ -377,7 +377,9 @@ function rebuildAllowed(config, target, failed) {
     if (!order.ok || !order.packages.some(p => p.kind === "TARGET" && p.name === target)) return false;
     return failed.every(name => !order.packages.some(p => p.name === name));
 }
-function gather(request) {
+// IDENTITIES reads each step's package manager and configuration
+// identities alone, for a consumer that compares nothing else.
+function gather(request, identities = false) {
     const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], dependents: Object.create(null) };
     const recipes = publishedPackages();
     let repositoryData = null;
@@ -407,6 +409,7 @@ function gather(request) {
             const binding = { binary: identity(fs.realpathSync(step.binary)), config: [], pending: [], origins: [] };
             try { binding.config = configIdentity(config); }
             catch (e) { if (request.mode !== "bootstrap") throw e; state.unknown.push(e.message); }
+            if (identities) { step.binding = binding; continue; }
             let targets;
             if (request.mode === "upgrade" && action === "upgrade") {
                 const p = pending(group, config, found.binary);
@@ -918,13 +921,21 @@ function helperReviewCovered(step, state) {
     const aur = parsed.packages.filter(p => p.origin === "AUR");
     return aur.length > 0 && aur.every(p => covered.has(p.name));
 }
-function bindingChange(step, current, contentOnly = false) {
+// The fields a step's review binds, by SCOPE. A recognized AUR step binds
+// package content: the preceding system step may replace the AUR helper,
+// Includes and sync metadata. The system upgrade binds the package manager
+// and its configuration with every Include: pacman -Syu takes no target list
+// and syncs its databases again, and repository packages take no review, so
+// its pending list and repository candidates hold nothing the review judged.
+const BOUND = { content: ["pending", "origins"], system: ["binary", "config"], strict: ["binary", "config", "pending", "origins"] };
+function bindingScope(step) {
+    return step.manager === "aur" ? "content" : step.action === "upgrade" ? "system" : "strict";
+}
+function bindingChange(step, current, scope = "strict") {
     if (current.binding === null) return "unreadable";
     if (!same(current.binary, step.binary)) return "binary";
-    // The preceding system step may replace the AUR helper, Includes and
-    // sync metadata. The AUR review binds package content, not those bytes.
-    const fields = contentOnly ? ["pending", "origins"] : ["binary", "config", "pending", "origins"];
-    for (const field of fields) {
+    const contentOnly = scope === "content";
+    for (const field of BOUND[scope]) {
         if (contentOnly && field === "origins") {
             const dependencies = binding => binding.origins.filter(row => row.neededBy !== undefined).map(({ target, origin, entry, neededBy, aur }) => ({ target, origin, entry, neededBy, aur }));
             const reviewed = dependencies(step.binding);
@@ -934,6 +945,19 @@ function bindingChange(step, current, contentOnly = false) {
         if (!same(project(current.binding), project(step.binding))) return field;
     }
     return null;
+}
+// What changed, in the plain words the Updates pipeline shows as the
+// failed step's cause.
+const BINDING_CHANGED = {
+    unreadable: "After the review, VGS could not read the package manager, its configuration or the packages to update.",
+    binary: "The package manager program changed after the review.",
+    config: "The package manager configuration changed after the review.",
+    pending: "The list of packages to update changed after the review.",
+    origins: "The source of a package to update changed after the review.",
+    recipes: "The reviewed build files changed after the review."
+};
+function refuseBindingChanged(field) {
+    refuse("review=authority-binding-changed field=" + field, undefined, undefined, BINDING_CHANGED[field] + " Run the update again so that VGS reviews the packages again.");
 }
 // paru v2.1.0 (70f66dc9) devel.rs::parse_url tracks unpinned git
 // sources from the base SRCINFO, not package-name suffixes.
@@ -1010,7 +1034,7 @@ function consume(receipt, request, customArgv) {
                 const step = record.state.steps.find(s => s.manager === "aur" && s.action === "upgrade");
                 if (!step || step.binding === null) refuse("review=authority-binding-unreadable");
                 const field = bindingChange(step, current.steps[0]);
-                if (field !== null) refuse("review=authority-binding-changed field=" + field);
+                if (field !== null) refuseBindingChanged(field);
             }
             record.customConsumed = true;
             fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
@@ -1027,10 +1051,13 @@ function consume(receipt, request, customArgv) {
         const step = record.state.steps[index];
         if (step.binding === null) refuse("review=authority-binding-unreadable");
         const original = record.request.groups.find(g => g.manager === step.manager);
-        const current = gather({ ...request, groups: [{ ...group, ignored: step.inputIgnored }], rebuild: [] });
-        const field = bindingChange(step, current.steps[0], group.manager === "aur");
-        if (field !== null) refuse("review=authority-binding-changed field=" + field);
-        if (record.state.recipes.length && !same(recipesIdentity(path.join(path.dirname(file), "evidence/build")), record.state.recipes)) refuse("review=authority-binding-changed field=recipes");
+        // A step reads only what its review binds: a pending query that
+        // changes or fails after the review cannot refuse the system upgrade.
+        const scope = bindingScope(step);
+        const current = gather({ ...request, groups: [{ ...group, ignored: step.inputIgnored }], rebuild: [] }, scope === "system");
+        const field = bindingChange(step, current.steps[0], scope);
+        if (field !== null) refuseBindingChanged(field);
+        if (record.state.recipes.length && !same(recipesIdentity(path.join(path.dirname(file), "evidence/build")), record.state.recipes)) refuseBindingChanged("recipes");
         if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
         record.consumed.push(index);
         fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
