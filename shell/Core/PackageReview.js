@@ -7,7 +7,14 @@ function isPlainObject(value) { return value !== null && typeof value === "objec
 function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
 var REVIEW_AGENTS = [
-    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] },
+    // Claude asks nothing: --tools leaves no shell, --strict-mcp-config loads no
+    // MCP server, dontAsk denies any call no rule allows, and verdictRule
+    // allows the write of one review's verdict alone (reviewCommand). --tools
+    // takes every following word, so other flags follow it; the rule is one
+    // `--allowedTools=` word, so the prompt after it stays positional.
+    // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference
+    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
+        "--strict-mcp-config", "--permission-mode", "dontAsk"], verdictRule: "--allowedTools=Edit(./{verdict})" },
     { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }
 ];
 
@@ -104,6 +111,15 @@ function reviewPlan(settings, found) {
     var row = reviewAgentRow(chosen);
     return { state: row === null || found.indexOf(chosen) < 0 ? "missing" : "agent", agent: chosen,
         label: row === null ? chosen : row.label, command: row === null ? null : row.command.slice() };
+}
+
+// The argv that runs PLAN on one review, before its prompt. A shipped agent
+// with a verdictRule may write VERDICT alone, that review's verdict path
+// relative to the agent's working directory; a custom command runs as written.
+function reviewCommand(plan, verdict) {
+    var row = plan.state === "agent" ? reviewAgentRow(plan.agent) : null;
+    if (row === null || !hasOwn(row, "verdictRule")) return plan.command.slice();
+    return plan.command.concat([row.verdictRule.replace("{verdict}", verdict)]);
 }
 
 // Consent to install without review is a submitted offer or a saved

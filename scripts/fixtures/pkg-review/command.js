@@ -169,6 +169,14 @@ if(name==="makepkg"){
 if(name==="claude"||name==="codex"){
  const reviewDir=/The review directory is `([^`]+)`/.exec(args.at(-1))?.[1],listed=reviewDir&&path.join(reviewDir,"packages.txt");
  log("agent",{cwd:process.cwd(),reviewDir,packages:listed&&fs.existsSync(listed)?fs.readFileSync(listed,"utf8").split("\n").filter(Boolean):null});
+ // The shipped Claude row may write its own review's verdict alone: one rule
+ // naming that path from the agent's working directory (PackageReview.reviewCommand).
+ if(name==="claude"){
+  const rules=args.slice(0,-1).filter(arg=>arg.startsWith("--allowedTools")),rule=/^--allowedTools=Edit\(\.\/(.+)\)$/.exec(rules[0]||"");
+  if(rules.length!==1||!rule||!reviewDir||path.basename(rule[1])!=="verdict"||fs.realpathSync(path.dirname(path.resolve(process.cwd(),rule[1])))!==fs.realpathSync(reviewDir)){
+   process.stderr.write("fixture: claude verdict rule rules="+JSON.stringify(rules)+" cwd="+process.cwd()+" review="+reviewDir+"\n");process.exit(5);
+  }
+ }
  if(fs.existsSync(path.join(root,"agent-failed-once"))&&name==="claude")process.exit(4);
  if(fs.existsSync(path.join(root,"agent-failed")))process.exit(4);const prompt=args.at(-1),match=/The review directory is `([^`]+)`/.exec(prompt);
  if(!match)throw new Error("fixture missing review directory");

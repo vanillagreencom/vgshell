@@ -796,9 +796,12 @@ async function reviewRequest(request, storage) {
                     state.recipes = recipesIdentity(path.join(dir, "build"));
                     fs.writeFileSync(path.join(dir, "packages.txt"), state.lines.concat(state.unknown.map(e => "unknown " + e)).join("\n") + "\n", { mode: 0o600 });
                     const prompt = fs.readFileSync(path.join(__dirname, "review/third-party.md"), "utf8").replaceAll("{review_dir}", dir);
-                    const shownAgent = await ui("show", "Reviewing the listed packages before installation", ...plan.command);
+                    // The agent works in the stable agent home, which its owner
+                    // trusts once; only this review's verdict is its to write.
+                    const home = agentHome(), command = judge.reviewCommand(plan, path.relative(home, path.join(dir, "verdict")));
+                    const shownAgent = await ui("show", "Reviewing the listed packages before installation", ...command);
                     if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
-                    const run = await interactive(plan.command.concat(prompt), { cwd: agentHome() });
+                    const run = await interactive(command.concat(prompt), { cwd: home });
                     if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
                     if (run.error || run.status !== 0) throw new Error("The review agent failed before it completed the review.");
                     let text;

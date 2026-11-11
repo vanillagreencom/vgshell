@@ -108,7 +108,15 @@ function verify(logic) {
   same(logic.commandWords(' cmd "word quoted" $(literal)'),["cmd",'"word','quoted"',"$(literal)"]);
   assert.equal(logic.reviewPlan({agent:"codex"},["claude"]).state,"missing");
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
-  same(logic.reviewPlan({agent:"claude"},["claude"]).command,["claude","--model","opus","--effort","medium","--permission-mode","default"]);
+  const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk"];
+  same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords);
+  // [settings, found, the argv for verdict review-a/evidence/verdict]: only a
+  // shipped agent with a verdict rule gains one rule, naming that verdict.
+  for(const [settings,found,want] of [
+    [{agent:"claude"},["claude"],claudeWords.concat(["--allowedTools=Edit(./review-a/evidence/verdict)"])],
+    [{agent:"codex"},["codex"],["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"]],
+    [{command:"claude --permission-mode default"},["claude"],["claude","--permission-mode","default"]]
+  ])same(logic.reviewCommand(logic.reviewPlan(settings,found),"review-a/evidence/verdict"),want);
   same(logic.reviewPlan({agent:"codex"},["codex"]).command,["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","on-request"]);
   // [name, verdict text, the packages reviewed, the judgement]
   const verdictRows = [
