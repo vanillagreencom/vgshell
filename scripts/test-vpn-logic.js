@@ -2323,6 +2323,20 @@ function autoConnectSuite(logic, service = serviceSource) {
         unknown.probes[0]();
         assert.deepEqual([unknown.asked, unknown.autoProbe], [[{ kind: "profile-up", id: LAB }], ""], name + ": the probe's answer decides");
     }
+    // A change a refusal leaves pending asks for one probe, not one per read.
+    const refusedUnknown = autoOwner("refused: profile=plugin-needed", { autoChoice: OFFICE, killStep: { state: "unknown", reason: "probe-failed" } });
+    refusedUnknown.autoConnect();
+    refusedUnknown.probes[0]();
+    refusedUnknown.autoConnect();
+    refusedUnknown.autoConnect();
+    assert.deepEqual([refusedUnknown.probes.length, refusedUnknown.asked.length, refusedUnknown.autoMemory.pending], [1, 3, true],
+        "one pending change asks for one probe while its refusal lasts");
+    // A new network change asks for a probe of its own.
+    const roamed = autoRead(logic, 0, autoWorld({ wired: UP }));
+    refusedUnknown.networks = roamed.networks;
+    refusedUnknown.profiles = roamed.profiles;
+    refusedUnknown.autoConnect();
+    assert.deepEqual([refusedUnknown.probes.length, refusedUnknown.asked.length], [2, 3], "a new change waits on its own probe");
     const unprobeable = autoOwner("ok", { killStep: { state: "unknown", reason: "probe-failed" }, probeReply: "refused" });
     unprobeable.autoConnect();
     assert.deepEqual([unprobeable.probes.length, unprobeable.asked.length], [1, 1], "a probe the core refuses decides at once");
@@ -2552,6 +2566,8 @@ try {
         ["Connect automatically waits on a kill switch write", "stateWrite !== null || killStep === undefined ||", "killStep === undefined ||"],
         ["Connect automatically waits for the kill switch step's reading", "|| killStep === undefined ||", "||"],
         ["an unknown kill switch step waits on a fresh probe", ' || (unknown && autoProbe !== "done")', ""],
+        ["a pending change asks for one probe", 'if (!memory.pending) autoProbe = "";', 'if (plan.why !== "waiting") autoProbe = "";'],
+        ["a new network change asks for its own probe", 'if (networks.state === "available" && Logic.networkKey(networks) !== autoMemory.seen) autoProbe = "";', ""],
         ["an accepted automatic connect is followed to its end", 'if (reply === "ok") autoAction = row.uuid;', ""],
         ["a stage that stops an automatic connect leaves its line", "        autoEnded(ended.uuid, true, profileProblem.text);\n", ""],
         ["a connect's end reaches Connect automatically", 'if (action.kind === "profile-up") root.autoEnded(action.uuid, failed, failed ? root.profileProblem.text : "");', ""],

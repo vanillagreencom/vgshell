@@ -451,9 +451,12 @@ Item {
     // first reading, since a connect then could skip the state file the
     // step would have it write first. While the step reads unknown, a
     // change waits on one fresh probe, then connects as the switch's own
-    // press does with whatever the probe read.
+    // press does with whatever the probe read. The probe belongs to one
+    // change: only a decided change or a new one asks again, so a change a
+    // refusal leaves pending does not probe at every read.
     function autoConnect() {
         const unknown = Logic.stepWord(killStep) === "unknown";
+        if (networks.state === "available" && Logic.networkKey(networks) !== autoMemory.seen) autoProbe = "";
         const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles,
             profileAction !== null || stateWrite !== null || killStep === undefined || (unknown && autoProbe !== "done"));
         let memory = plan.memory;
@@ -469,7 +472,6 @@ Item {
             autoConnect();
             return;
         }
-        if (plan.why !== "waiting") autoProbe = "";
         if (plan.uuid !== "") {
             const reply = actProfile({ kind: "profile-up", id: plan.uuid });
             console.log("vpn: operation=auto-connect completion=" + reply);
@@ -478,6 +480,7 @@ Item {
             memory = Logic.autoConnectReply(memory, reply, row,
                 Logic.rowView(row, profiles, shell.requirements.missing, Logic.killSwitchOn(killSwitch)).reason);
         }
+        if (!memory.pending) autoProbe = "";
         autoMemory = memory;
     }
     // A change still pending, decided again over the current list.

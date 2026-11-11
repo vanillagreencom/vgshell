@@ -1329,6 +1329,8 @@ function trustedChange(items, uuid, wanted) {
 // last connect, which no decision keeps, or { kind: "failed", uuid, name,
 // reason }, a connect that started and did not complete.
 function autoConnectStart() { return { seen: null, pending: false, problem: null }; }
+// The active networks of NETWORKS as the one key `seen` holds.
+function networkKey(networks) { return networks.active.join(" "); }
 
 // One decision, at each list read, over MEMORY: CHOICE, the setting's
 // profile uuid or ""; TRUSTED, trustedUuids; NETWORKS, networkList;
@@ -1348,7 +1350,7 @@ function autoConnectStart() { return { seen: null, pending: false, problem: null
 function autoConnectPlan(memory, choice, trusted, networks, profiles, busy) {
     const wanted = typeof choice === "string" ? choice.toLowerCase() : "";
     const readable = isPlain(networks) && networks.state === "available" && isPlain(profiles) && profiles.state === "available";
-    const key = readable ? networks.active.join(" ") : null;
+    const key = readable ? networkKey(networks) : null;
     const plan = (why, next, uuid) => ({ why: why, uuid: uuid === undefined ? "" : uuid, memory: next });
     if (wanted === "") return plan("off", { seen: readable ? key : memory.seen, pending: false, problem: null });
     if (!readable) return plan("unread", { seen: memory.seen, pending: memory.pending, problem: { kind: "unread" } });
