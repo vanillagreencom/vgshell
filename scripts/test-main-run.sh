@@ -8,8 +8,12 @@
 # Cases: every area 0 is green and records last-green; one area 77 or 1 is
 # red, exits 1 and keeps last-green; a red run names exactly the landings
 # since the last green, one per issue identifier and one per commit with
-# none; the slot command wraps the qml area alone; a held lock exits 75
-# and makes no run directory; --due answers at 0, 4 and 5 landings and at
+# none; a red run's summary, read from lines of the first batch's logs,
+# lists each row whose own verdict is not a pass, a failed row that
+# printed no FAIL line and an unmeasured smoke row with its status, and
+# no passing row whose control printed FAIL lines; the slot command
+# wraps the qml area alone; a held lock exits 75 and makes no run
+# directory; --due answers at 0, 4 and 5 landings and at
 # 1 landing 2 h and 0 h after the last run, and past newer runs that were
 # killed partway or not run; a failed fetch exits 77 with result=not-run.
 # A TERM to the runner alone while its area waits stops the area, which
@@ -31,7 +35,8 @@
 # case red, a verdict that ignores area exits turns the 1 case red, and a
 # landing reader that counts commits rather than identifiers turns the
 # naming case red, and a trigger that reads a run with no verdict turns the
-# unfinished case red. A retention with no age cut, one that does not keep
+# unfinished case red, and a summary read from FAIL lines turns the
+# summary case red. A retention with no age cut, one that does not keep
 # the last-green run or the newest run of an area set, one that judges a
 # symlink as a run, or one that does not read the ladder turns its
 # retention case red, and a root bound that accepts any root turns the
@@ -57,8 +62,9 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 table="$TMP_ROOT/table"
 calls="$TMP_ROOT/calls"
 paths="$TMP_ROOT/paths"
-report_lines="$TMP_ROOT/report-lines"
-: >"$report_lines"
+# The stand-in prints <area>.log from here as its rows' output.
+report_logs="$TMP_ROOT/report-logs"
+mkdir -p "$report_logs"
 clone="$TMP_ROOT/clone"
 runner="$clone/scripts/main-run.sh"
 # Every record root sits in the clone's tmp/, the only place the runner
@@ -70,7 +76,7 @@ xenv=(env -i PATH="$PATH" HOME="$TMP_ROOT/home" LC_ALL=C
   GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
   GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
   MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls" MAIN_RUN_TEST_PATHS="$paths"
-  MAIN_RUN_TEST_LOG="$report_lines" MAIN_RUN_TEST_KEPT="$TMP_ROOT/kept"
+  MAIN_RUN_TEST_LOGS="$report_logs" MAIN_RUN_TEST_KEPT="$TMP_ROOT/kept"
   MAIN_RUN_TEST_AREA="$TMP_ROOT/area")
 g() { "${xenv[@]}" git "$@"; }
 mkdir -p "$TMP_ROOT/home"
@@ -91,7 +97,7 @@ read -r _ _ _ session _ <<<"${stat##*) }"
 printf '%s %s %s\n' "$(sed -n 's/^SigIgn:\t*//p' /proc/self/status 8>&-)" "$session" "$$" >>"$MAIN_RUN_TEST_AREA"
 while [[ -n ${MAIN_RUN_TEST_WAIT:-} && ! -f $MAIN_RUN_TEST_WAIT ]]; do sleep 0.02 8>&-; done
 echo "validate: selected=1 area=$area secs=0"
-cat -- "$MAIN_RUN_TEST_LOG"
+[[ ! -f $MAIN_RUN_TEST_LOGS/$area.log ]] || cat -- "$MAIN_RUN_TEST_LOGS/$area.log"
 [[ ${rc:-0} -eq 0 ]] || echo "validate: secs=0 exit=$rc row=stand-in $area"
 exit "${rc:-0}"
 EOF
@@ -272,53 +278,65 @@ if case_red "$records/r-77" qml 77; then ok "an area exiting 77 is red and keeps
 if case_red "$records/r-1" unit 1; then ok "an area exiting 1 is red and keeps last-green"; else fail "1: ${problems[*]}"; fi
 if case_naming; then ok "a red run names one landing per identifier since the last green"; else fail "naming: ${problems[*]}"; fi
 
-# Use the row's actual replay function. The batch reporter must retain a
-# real failure beside a deliberately failed control without naming the
-# control as a defect.
-python3 - "$repo/scripts/smoke/rows/keyboard.sh" "$TMP_ROOT/keyboard-control-log.sh" "$TMP_ROOT/keyboard-control-unmarked.sh" <<'PY'
-import pathlib, sys
-text = pathlib.Path(sys.argv[1]).read_text()
-name = 'keyboard_control_log() {\n'
-assert text.count(name) == 1
-body = name + text.split(name, 1)[1].split('\n}', 1)[0] + '\n}\n'
-pathlib.Path(sys.argv[2]).write_text(body)
-marker = "sed 's/^/  CONTROL  /'"
-assert body.count(marker) == 1
-changed = body.replace(marker, 'cat')
-assert changed != body
-pathlib.Path(sys.argv[3]).write_text(changed)
-PY
-source "$TMP_ROOT/keyboard-control-log.sh"
+# Lines copied from the first batch, run 20261111T163144Z on 2091a4e90:
+# its unit.log and qml.log. Keys labels and bluetooth passed while their
+# controls printed unmarked failures; the other rows failed or went
+# unmeasured by their own verdict lines. Lines prefixed CONTROL are a
+# control's copy of the smoke driver.
+cat >"$TMP_ROOT/batch-unit.log" <<'EOF'
+  FAIL  first-label lookup reads its body's dependent height: tst_pane.qml passed on the mutated copy
+validate: secs=1656 exit=1 row=qml unit controls
+== Keys labels show whole
+  ok    every shipped Keys label shows whole
+FAIL!  : qmltestrunner::keylabels::test_every_keys_label_shows_whole() every Keys label shows whole
+qml-unit: failed file=tst_keylabels.qml status=1
+  ok    control: a planted long label fails the check
+validate: secs=1 exit=0 row=Keys labels show whole
+EOF
+cat >"$TMP_ROOT/batch-qml.log" <<'EOF'
+  FAIL  popup release-control: wait for target activation before typing: got false want true
+  FAIL  popup release-control: native Escape returns Settings to its list: got "vgs.bluetooth" want ""
+  ok    popup control: the unguarded workload exits nonzero
+qml-smoke: row-result row=googledrive status=failed
+qml-smoke: row-result row=diagnostics status=not-measured
+qml-smoke: row-result row=keyhints status=not-measured
+qml-smoke: row-result row=settings-unsaved status=failed
+qml-smoke: row-result row=displays status=failed
+qml-smoke: row-result row=share-picker status=failed
+qml-smoke: row-result row=bluetooth status=ok
+qml-smoke: row-result row=launcher-latency status=not-measured
+validate: secs=9606 exit=1 row=nested smoke
+  CONTROL  qml-smoke: row-result row=bar status=unreached
+  CONTROL  qml-smoke: row-result row=fatal status=failed cause=fatal-bash
+EOF
+# The stand-in adds its own failed verdict per area, a row that prints no
+# FAIL line.
 case_control_report() {
   problems=()
-  local text
-  printf '  FAIL  keyboard-report-control\n' >"$TMP_ROOT/expected-failure.log"
-  keyboard_control_log <"$TMP_ROOT/expected-failure.log" >"$report_lines"
-  printf '  FAIL  real-report-failure\n' >>"$report_lines"
-  areas 'unit 1'
-  main --root "$1" unit
-  [[ $status -eq 1 ]] || problems+=(real-failure-passed)
+  local text want
+  cp -- "$TMP_ROOT/batch-unit.log" "$report_logs/unit.log"
+  cp -- "$TMP_ROOT/batch-qml.log" "$report_logs/qml.log"
+  areas 'unit 1' 'qml 1'
+  main --root "$1" unit qml
+  rm -f -- "${report_logs:?}/unit.log" "${report_logs:?}/qml.log"
+  [[ $status -eq 1 ]] || problems+=(red-run-passed)
   text="$(result "$1")" || { problems+=(result=missing); return 1; }
-  [[ $text == *'  |   FAIL  real-report-failure'* ]] || problems+=(real-failure-missing)
-  [[ $text != *keyboard-report-control* ]] || problems+=(control-reported-as-failure)
-  [[ $(<"$report_lines") == *keyboard-report-control* ]] || problems+=(control-diagnostic-lost)
-  : >"$report_lines"
+  for want in 'exit=1 row=qml unit controls' 'exit=1 row=nested smoke' 'exit=1 row=stand-in unit' \
+    'row=googledrive status=failed' 'row=settings-unsaved status=failed' 'row=displays status=failed' \
+    'row=share-picker status=failed' 'row=diagnostics status=not-measured' \
+    'row=keyhints status=not-measured' 'row=launcher-latency status=not-measured'; do
+    [[ $text == *"  | "*"$want"* ]] || problems+=("missing=$want")
+  done
+  [[ $text != *bluetooth* ]] || problems+=(listed=bluetooth)
+  [[ $text != *'Keys label'* && $text != *keylabels* ]] || problems+=(listed=keylabels)
+  [[ $text != *CONTROL* ]] || problems+=(listed=control-copy)
   [[ ${#problems[@]} -eq 0 ]]
 }
 if case_control_report "$records/r-control-report"; then
-  ok "the batch report names a real failure and keeps Keyboard control diagnostics in the log"
+  ok "the batch report lists each row by its own verdict, not its controls' FAIL lines"
 else
   fail "control report: ${problems[*]}"
 fi
-source "$TMP_ROOT/keyboard-control-unmarked.sh"
-if case_control_report "$records/c-control-report"; then
-  fail "control: unmarked Keyboard diagnostics still pass the report assertion"
-elif [[ ${problems[*]} == control-reported-as-failure ]]; then
-  ok "control: removing the Keyboard control marker fails the same report assertion (${problems[*]})"
-else
-  fail "control report: unexpected rejection (${problems[*]})"
-fi
-source "$TMP_ROOT/keyboard-control-log.sh"
 
 # --due on one root: no earlier run, then 0, 4 and 5 landings after a run.
 due_root="$records/r-due"
@@ -724,6 +742,11 @@ control() {
     ok "control: $name turns its case red (${problems[*]})"
   fi
 }
+control "a summary read from FAIL lines" \
+  "grep -a -E -e '^validate: secs=[0-9]+ exit=[1-9]' -e '^qml-smoke: row-result ' \"\$out/\$area.log\" |
+        grep -a -v -E '^qml-smoke: row-result row=[^ ]+ status=ok( |\$)' |" \
+  "grep -a -e '^validate: secs=[0-9]* exit=[1-9]' -e '^  FAIL' -e '^FAIL' -e '^not ok' \"\$out/\$area.log\" |" \
+  --problem listed=bluetooth case_control_report "$records/c-control-report"
 control "77 counted as a pass" '[[ $rc -eq 0 ]] || verdict=red' '[[ $rc -eq 0 || $rc -eq 77 ]] || verdict=red' \
   case_red "$records/c-77" qml 77
 control "a verdict that ignores area exits" '[[ $rc -eq 0 ]] || verdict=red' ': || verdict=red' \

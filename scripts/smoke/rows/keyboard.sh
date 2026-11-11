@@ -35,8 +35,8 @@ keyboard_editor_keys() {
   keyboard_wait || return 1
   type_keys "$@" || { fail "keyboard-input: status=type-failed target=window:vgs.system"; return 1; }
 }
-# main-run.sh treats a leading FAIL as a real failure. These logs hold
-# expected failures from subshell controls, whose assertions passed.
+# These logs hold expected failures from subshell controls, whose
+# assertions passed; the mark tells a log reader them from the row's own.
 keyboard_control_log() {
   sed 's/^/  CONTROL  /'
 }

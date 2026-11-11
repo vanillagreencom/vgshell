@@ -27,7 +27,9 @@
 # answered, and result.txt, written whole at the end:
 #   run=<id> sha=<sha> areas=<areas> started=<epoch>
 #   area=<area> exit=<status> secs=<seconds> <its last validate: selected= line>
-#     | <the failing row and FAIL lines of a non-zero area, at most 20>
+#     | <each row verdict of a non-zero area that is not a pass, at most 20:
+#        validate's `validate: secs= exit=<non-zero> row=` lines and
+#        qml-smoke's `qml-smoke: row-result` lines whose status is not ok>
 #   finished=<UTC time>
 #   landings since the last green <sha>:    (red only)
 #   landing=<id> commit=<sha> <subject>     (one line each, newest first)
@@ -437,7 +439,10 @@ verdict=green
     printf 'area=%s exit=%s secs=%s %s\n' "$area" "$rc" "$((SECONDS - begin))" \
       "$(grep -a '^validate: selected=' "$out/$area.log" | tail -n 1 || true)"
     if [[ $rc -ne 0 ]]; then
-      grep -a -e '^validate: secs=[0-9]* exit=[1-9]' -e '^  FAIL' -e '^FAIL' -e '^not ok' "$out/$area.log" |
+      # Only the rows' own verdicts, each at line start: the FAIL lines a
+      # must-fail control prints belong to a row whose verdict judges them.
+      grep -a -E -e '^validate: secs=[0-9]+ exit=[1-9]' -e '^qml-smoke: row-result ' "$out/$area.log" |
+        grep -a -v -E '^qml-smoke: row-result row=[^ ]+ status=ok( |$)' |
         cut -c1-220 | sed -n '1,20s/^/  | /p' || true
     fi
   done
