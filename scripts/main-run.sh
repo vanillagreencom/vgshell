@@ -57,6 +57,15 @@
 # could not run, makes it red like any other non-zero status. Exit 0 green,
 # 1 red, 77 not run, 75 when another run holds the root's lock (nothing is
 # written), 2 on a refused argument: `main-run: refused: <key>=<value>`.
+# A TERM, INT or HUP ends a run that has its worktree by stopping the
+# running area with TERM, removing the worktree and ending the runner by
+# that signal, with no result.txt. Each area runs in the background under
+# `wait`, since bash runs a trap only after its foreground child ends, and
+# in its own session, so a terminal's INT reaches the runner alone. The
+# runner's TERM is meant as the only signal the area receives: a caller
+# that starts the runner as a systemd unit sets KillMode=mixed, since the
+# default control-group mode also signals the area directly. A SIGKILL,
+# such as systemd-oomd's, runs no trap and leaves the worktree.
 #
 # --due runs nothing. It answers whether a batch run is due: `main-run:
 # due=yes|no landings=<n> secs=<seconds since the last run started>`, exit
@@ -387,6 +396,19 @@ echo "$sha" >"$out/sha"
 wt_parent="$(dirname -- "$checkout")/.worktrees/$(basename -- "$checkout")"
 mkdir -p -- "$wt_parent" || not_run worktree-failed
 wt="$(mktemp -d "$wt_parent/mainrunXXXXXX")" || not_run worktree-failed
+# end_run SIGNAL: the end the header states for a signal.
+child=
+end_run() {
+  trap '' TERM INT HUP
+  if [[ -n $child ]]; then
+    kill -TERM "$child" 2>/dev/null || :
+    wait "$child" || :
+  fi
+  git -C "$checkout" worktree remove --force "$wt" || rmdir -- "$wt" || :
+  trap - "$1"
+  kill -s "$1" "$$"
+}
+trap 'end_run TERM' TERM; trap 'end_run INT' INT; trap 'end_run HUP' HUP
 if ! git -C "$checkout" worktree add -q --detach "$wt" "$sha"; then
   rmdir -- "$wt" || not_run worktree-failed
   not_run worktree-failed
@@ -400,7 +422,13 @@ verdict=green
     command=(scripts/validate --full "$area")
     [[ $area != qml ]] || command=("${slot[@]}" "${command[@]}")
     rc=0
-    (cd -- "$wt" && "${command[@]}") >"$out/$area.log" 2>&1 9>&- </dev/null || rc=$?
+    # A background command starts with INT and QUIT ignored; env puts them
+    # back for validate and the rows that send them. The subshell leads no
+    # process group, so setsid execs in place and `child` stays the area.
+    (cd -- "$wt" && exec setsid env --default-signal=INT,QUIT "${command[@]}") >"$out/$area.log" 2>&1 9>&- </dev/null &
+    child=$!
+    wait "$child" || rc=$?
+    child=
     [[ $rc -eq 0 ]] || verdict=red
     printf 'area=%s exit=%s secs=%s %s\n' "$area" "$rc" "$((SECONDS - begin))" \
       "$(grep -a '^validate: selected=' "$out/$area.log" | tail -n 1 || true)"
@@ -422,6 +450,7 @@ verdict=green
   echo "result=$verdict"
 } >"$out/result.tmp"
 mv -- "$out/result.tmp" "$out/result.txt"
+trap - TERM INT HUP
 git -C "$checkout" worktree remove --force "$wt"
 prune
 [[ $verdict == green ]]

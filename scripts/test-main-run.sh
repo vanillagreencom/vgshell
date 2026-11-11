@@ -12,6 +12,10 @@
 # and makes no run directory; --due answers at 0, 4 and 5 landings and at
 # 1 landing 2 h and 0 h after the last run, and past newer runs that were
 # killed partway or not run; a failed fetch exits 77 with result=not-run.
+# A TERM to the runner alone while its area waits stops the area, which
+# releases a lock the stand-in holds, removes the worktree from disk and
+# from `git worktree list`, and ends the runner by TERM; an area starts
+# with INT and QUIT at their defaults, leading its own session.
 # The age cases plant the earlier run's `started` record in place of a
 # clock. The retention cases plant run directories named for days before
 # now beside a real run, read the retention through the copied
@@ -31,7 +35,9 @@
 # the last-green run or the newest run of an area set, one that judges a
 # symlink as a run, or one that does not read the ladder turns its
 # retention case red, and a root bound that accepts any root turns the
-# outside case red.
+# outside case red. A runner with no signal trap or one that does not stop
+# its area turns the TERM case red, and one that leaves INT and QUIT
+# ignored or the area in the runner's session turns the area start case red.
 #
 # Exit 0 when every case and control holds, 1 otherwise.
 set -euo pipefail
@@ -64,7 +70,8 @@ xenv=(env -i PATH="$PATH" HOME="$TMP_ROOT/home" LC_ALL=C
   GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
   GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
   MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls" MAIN_RUN_TEST_PATHS="$paths"
-  MAIN_RUN_TEST_LOG="$report_lines" MAIN_RUN_TEST_KEPT="$TMP_ROOT/kept")
+  MAIN_RUN_TEST_LOG="$report_lines" MAIN_RUN_TEST_KEPT="$TMP_ROOT/kept"
+  MAIN_RUN_TEST_AREA="$TMP_ROOT/area")
 g() { "${xenv[@]}" git "$@"; }
 mkdir -p "$TMP_ROOT/home"
 
@@ -76,8 +83,13 @@ cat >"$TMP_ROOT/seed/scripts/validate" <<'EOF'
 area="$2"
 rc="$(awk -v a="$area" '$1 == a { rc = $2 } END { print rc }' "$MAIN_RUN_TEST_TABLE")"
 printf 'area=%s args=%s slot=%s\n' "$area" "$*" "${MAIN_RUN_TEST_SLOT:-0}" >>"$MAIN_RUN_TEST_CALLS"
+# The lock is held until this process ends; no child keeps it.
+if [[ -n ${MAIN_RUN_TEST_HELD:-} ]]; then exec 8>>"$MAIN_RUN_TEST_HELD"; flock 8; fi
 pwd -P >>"$MAIN_RUN_TEST_PATHS"
-while [[ -n ${MAIN_RUN_TEST_WAIT:-} && ! -f $MAIN_RUN_TEST_WAIT ]]; do sleep 0.02; done
+stat="$(</proc/$$/stat)"
+read -r _ _ _ session _ <<<"${stat##*) }"
+printf '%s %s %s\n' "$(sed -n 's/^SigIgn:\t*//p' /proc/self/status 8>&-)" "$session" "$$" >>"$MAIN_RUN_TEST_AREA"
+while [[ -n ${MAIN_RUN_TEST_WAIT:-} && ! -f $MAIN_RUN_TEST_WAIT ]]; do sleep 0.02 8>&-; done
 echo "validate: selected=1 area=$area secs=0"
 cat -- "$MAIN_RUN_TEST_LOG"
 [[ ${rc:-0} -eq 0 ]] || echo "validate: secs=0 exit=$rc row=stand-in $area"
@@ -629,6 +641,63 @@ else
 fi
 g -C "$clone" remote set-url origin "$TMP_ROOT/origin.git"
 
+# case_killed NAME: a TERM to the runner alone while its area waits.
+case_killed() {
+  problems=()
+  local release="$TMP_ROOT/release-$1" pid attempt rc=0 worktree list
+  : >"$paths"
+  areas 'unit 0'
+  (cd -- "$clone" && exec "${xenv[@]}" MAIN_RUN_TEST_WAIT="$release" MAIN_RUN_TEST_HELD="$release.held" \
+    bash "$runner" --root "$records/$1" unit) \
+    >"$TMP_ROOT/$1.out" 2>&1 &
+  pid=$!
+  for ((attempt=0; attempt<1500; attempt++)); do
+    [[ ! -s $paths ]] || break
+    sleep 0.02 # wait for the area to start, bounded above
+  done
+  kill -TERM "$pid" || problems+=(runner=gone)
+  for ((attempt=0; attempt<1500; attempt++)); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.02 # wait for the runner to stop its area, bounded above
+  done
+  (( attempt < 1500 )) || problems+=(runner=outlived-term)
+  flock -w 5 "$release.held" true || problems+=(area=left-running)
+  : >"$release" # frees an area a runner left running
+  wait "$pid" || rc=$?
+  [[ $rc -eq 143 ]] || problems+=("exit=$rc")
+  if ! worktree="$(sed -n '1p' "$paths")" || [[ -z $worktree ]]; then
+    problems+=(area=unstarted)
+    return 1
+  fi
+  [[ ! -e $worktree ]] || problems+=(worktree-left)
+  list="$(g -C "$clone" worktree list --porcelain)" || { problems+=(list=unreadable); return 1; }
+  if grep -Fxq -- "worktree $worktree" <<<"$list"; then problems+=(worktree-registered); fi
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_killed r-killed; then ok "a TERM to the runner stops its area and removes the worktree"; else fail "killed: ${problems[*]}"; fi
+
+# case_area_start NAME: the area's inherited mask leaves INT (0x2) and QUIT
+# (0x4) at their defaults, for the rows that send them, and the area leads
+# its own session, so only the runner's TERM reaches it.
+case_area_start() {
+  problems=()
+  local mask session pid
+  : >"$TMP_ROOT/area"
+  areas 'unit 0'
+  main --root "$records/$1" unit
+  [[ -s $TMP_ROOT/area ]] || { problems+=(area=missing); return 1; }
+  while read -r mask session pid; do
+    (( (16#$mask & 6) == 0 )) || problems+=(int-quit=ignored "sigign=$mask")
+    [[ $session == "$pid" ]] || problems+=(session=shared)
+  done <"$TMP_ROOT/area"
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_area_start r-area-start; then
+  ok "an area starts with INT and QUIT at their defaults, leading its own session"
+else
+  fail "area start: ${problems[*]}"
+fi
+
 # Controls: each copy removes one rule and must turn its case red.
 if ! source_text="$(cat -- "$repo/scripts/main-run.sh")"; then
   fail "control: scripts/main-run.sh is unreadable"
@@ -687,6 +756,14 @@ control "a referenced batch run is not kept" \
   ':' --problem batch-reference=removed case_expiry c-expiry-reference
 control "a bare writer root keeps every batch run" 'and p not in output_roots' '' \
   --problem batch-old=kept case_expiry c-expiry-roots complete roots
+control "no signal trap" "trap 'end_run TERM' TERM; trap 'end_run INT' INT; trap 'end_run HUP' HUP" ':' \
+  --problem worktree-left case_killed c-killed
+control "an area the trap does not stop" 'if [[ -n $child ]]; then' 'if false; then' \
+  --problem area=left-running case_killed c-killed-area
+control "INT and QUIT left ignored in an area" 'setsid env --default-signal=INT,QUIT ' 'setsid ' \
+  --problem int-quit=ignored case_area_start c-area-signals
+control "an area in the runner's session" 'exec setsid env' 'exec env' \
+  --problem session=shared case_area_start c-area-session
 cp -- "$repo/scripts/main-run.sh" "$runner"
 
 if [[ $failures -gt 0 ]]; then
