@@ -535,7 +535,7 @@ rescan "a rescan drops the control copy"
 # its entry's visibility, whose window host asks no instance and whose
 # window leaves after a refused save.
 if copy_tree unsaved-host \
-  && edit_tree unsaved-host shell/Hosts/SummonHost.qml 'instance.holdsHide()) return "refused: held=" + id;' 'false) return "refused: held=" + id;' \
+  && edit_tree unsaved-host shell/Hosts/SummonHost.qml 'instance && typeof instance.holdsHide === "function" && instance.holdsHide())' 'instance && typeof instance.holdsHide === "function" && false)' \
   && edit_tree unsaved-host shell/plugins/vgs.settings/ListField.qml 'edits: root.edits' 'edits: null' \
   && edit_tree unsaved-host shell/plugins/vgs.settings/ListField.qml 'objectProp: "name"' '' \
   && edit_tree unsaved-host shell/plugins/vgs.settings/PluginPage.qml 'onEditedChanged: if (!edited && saveBar.activeFocus) tabs.tabs.forceActiveFocus(Qt.TabFocusReason)' 'onEditedChanged: {}' \
