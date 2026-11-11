@@ -2647,7 +2647,9 @@ row_re "control: content that changes during the run no longer keeps the pass un
 # in the shapes scripts/qml-smoke.sh and harness.sh give them, with the
 # closing reading teardown.sh takes as an attempt ends, on a TERM too, and
 # the stand-in named in .git/hang reports its PIDs in .git/hung and waits
-# to be stopped. Before the cut the case may set, in the git directory:
+# to be stopped; the fatal-controls stand-in, which validate starts only
+# once the nested smoke row has ended, writes .git/controls-started as it
+# starts. Before the cut the case may set, in the git directory:
 # edit, which makes the smoke append to the launcher's panel while the run
 # reads; teardown, which makes the stand-in that waits end through the
 # real teardown.sh, whose closing reading the real qml_smoke_judge_reading
@@ -2735,6 +2737,7 @@ SH
   cat >"$dir/scripts/test-qml-smoke.sh" <<'SH'
 #!/usr/bin/env bash
 git_dir="$(git rev-parse --absolute-git-dir)"
+: >"$git_dir/controls-started"
 if [[ "$(cat -- "$git_dir/hang" 2>/dev/null)" == fatal-controls ]]; then printf '%s\n' "$$" >"$git_dir/hung"; exec sleep 600; fi
 if [[ -e $git_dir/skip-controls ]]; then exit 77; fi
 SH
@@ -2760,11 +2763,16 @@ SH
 # (systemd.kill(5), KillMode=control-group): validate runs in a session of
 # its own, and every process of that session gets a TERM at once,
 # validate's first, as the unit holds them in the order they started, so a
-# row's leader ends with the rest of its group. Asserts the exit SIGNAL
-# gives. HANG `-` lets the run end by itself. The run's log is
+# row's leader ends with the rest of its group. SIGNAL LEADER forces the
+# other order of that stop: it TERMs only the nested smoke row's leader,
+# waits until validate has reaped it and has started the row after it,
+# which shows the run loop has handled the row's end, and only then TERMs
+# the stand-in and its wait, whose teardown then takes the closing
+# reading; validate then ends by itself, red for the stopped row. Asserts
+# the exit SIGNAL gives. HANG `-` lets the run end by itself. The run's log is
 # DIR.cut.log.
 reuse_cut() { # DIR SIGNAL HANG
-  local dir="$1" signal="$2" git_dir pid tick status=0 want=143 sid stat file
+  local dir="$1" signal="$2" git_dir pid tick status=0 want=143 sid stat file leader
   local -a hung fields members launch=(bash)
   git_dir="$("${base_env[@]}" git -C "$dir" rev-parse --absolute-git-dir)"
   printf '%s\n' "$3" >"$git_dir/hang"
@@ -2807,6 +2815,28 @@ reuse_cut() { # DIR SIGNAL HANG
     ((${#members[@]} == 0)) || mapfile -t members < <(printf '%s\n' "${members[@]}" | sort -n)
     # A member may end before its turn; the TERM reaches every other.
     kill -TERM -- "$sid" "${members[@]}" 2>/dev/null || true
+  elif [[ $signal == LEADER ]]; then
+    want=1
+    # The leader leads the stand-in's group and is validate's own child.
+    read -r -a hung <"$git_dir/hung"
+    leader=""
+    read -r stat <"/proc/${hung[0]}/stat" && read -r -a fields <<<"${stat##*) }" && leader=${fields[2]}
+    if [[ -z $leader || $leader == "${hung[0]}" ]] || ! read -r stat <"/proc/$leader/stat" ||
+       { read -r -a fields <<<"${stat##*) }"; [[ ${fields[1]} != "$pid" ]]; }; then
+      fail "$dir: the stand-in's group is not led by a child of validate"
+      kill -KILL "$pid" "${hung[@]}" 2>/dev/null || true; wait "$pid" || true; return 0
+    fi
+    kill -TERM "$leader"
+    # A bound on the wait for the reported states, not a reading.
+    for ((tick = 0; tick < 600; tick++)); do
+      [[ -e /proc/$leader || ! -e $git_dir/controls-started ]] || break
+      sleep 0.1
+    done
+    if [[ -e /proc/$leader || ! -e $git_dir/controls-started ]]; then
+      fail "$dir: validate never reaped the smoke row's leader and started the next row"
+      kill -KILL "$pid" "${hung[@]}" 2>/dev/null || true; wait "$pid" || true; return 0
+    fi
+    kill -TERM "${hung[@]}" 2>/dev/null || true
   else
     kill -s "$signal" "$pid"
   fi
@@ -2822,7 +2852,7 @@ reuse_cut() { # DIR SIGNAL HANG
       sleep 0.1
     done
   fi
-  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape" "${git_dir:?}/teardown"
+  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape" "${git_dir:?}/teardown" "${git_dir:?}/controls-started"
   [[ $status == "$want" ]] || { fail "$dir: the cut run exited $status, not $want"; sed 's/^/        /' "$dir.cut.log"; }
 }
 smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,$smoke_always,$smoke_tail"
@@ -2856,12 +2886,15 @@ reuse_mutant outside "$judged" '  [[ ${fields[0]-} == 0 ]] || return 1' '  :'
 reuse_mutant rank "$judged" '((smoke_record_failures > worst_count[$row] ||' '((smoke_record_failures < worst_count[$row] ||'
 reuse_mutant reading "$judged" '[[ $judged == true && -n ${smoke_attempt_ended[$row]-} ]] || unproved' '[[ $judged == true ]] || unproved'
 reuse_mutant collect-first scripts/validate "trap 'stop_rows; records_finish; " "trap 'records_finish; stop_rows; "
+reuse_mutant reaped scripts/validate $'"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]] &&\n       ! kill -0 -- "-$pid" 2>/dev/null; then' '"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then'
 # name|signal|stand-in that waits|before the cut|after the cut|mutant|wanted lines, ^ between them
 reuse_cases=(
   "a run cut off at its bound keeps the smoke rows it finished|TERM|notifications||||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^validate: rerun secs=3 reason=core smoke=bar^validate: rerun secs=unknown reason=untraced smoke=bare^$smoke_notify"
   "a killed run's finished smoke rows reach the next run|KILL|notifications||||validate: reused secs=3 smoke=launcher^$smoke_notify"
   "a run its unit stops during a smoke row keeps the smoke rows that ended before the stop|UNIT|notifications|teardown|||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
   "control: a unit's stop collected before the closing reading keeps no smoke row|UNIT|notifications|teardown||collect-first|validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "a stop whose smoke row leader validate reaps before the closing reading keeps the smoke rows that ended before it|LEADER|notifications|teardown|||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
+  "control: a smoke row collected as validate reaps its leader keeps no smoke row|LEADER|notifications|teardown||reaped|validate: rerun secs=3 smoke=launcher^$smoke_both"
   "a call made during the cut row, read by the closing reading alone, leaves passes unproved|TERM|notifications|call-cut|||validate: rerun secs=3 smoke=launcher^$smoke_both"
   "control: the last row reading is final|TERM|notifications|call-cut||unread-close|validate: reused secs=3 smoke=launcher"
   "a refusal in auth-sentinel's window, whose controls plant calls, leaves passes unproved|TERM|fatal-controls|refuse-auth|||validate: rerun secs=3 smoke=launcher^$smoke_both"

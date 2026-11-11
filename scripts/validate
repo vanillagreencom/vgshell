@@ -2279,8 +2279,9 @@ fi
 # VGS_SMOKE_RESULTS_DIR names, <git-dir>/vgs-validated-smoke/<run>, which
 # holds `<digest> <point> <row>` lines in digests and the runner's per-row
 # results (scripts/qml-smoke.sh); smoke_collect turns them into lines when
-# the row ends, at validate's exit, or, after a KILL, at the next run's
-# start, so a line keeps the point of the run that wrote digests.
+# the row's whole group has ended, at validate's exit, or, after a KILL,
+# at the next run's start, so a line keeps the point of the run that wrote
+# digests.
 record_file="" record_smoke_root="" record_run="" records_written=false
 reuse=off reuse_reason="" record_point="" record_validate="" record_untraced=""
 record_paths=() record_lines=()
@@ -2614,11 +2615,14 @@ smoke_reuse() {
 # this run's smoke results, once stop_rows has seen the nested smoke's
 # group end, so the driver has outlived its attempt's world and the
 # teardown's closing reading is in, or the stop's window has passed and
-# the attempt, with no closing reading, proves no pass; then withdraw this run's lines when its tree
-# changed while it ran, or print `validate: row-records=unwritten` when
-# the withdrawal cannot be written. A KILL runs neither: the next run
-# collects the results, and the lines stand on the tree the run read at
-# its start.
+# the attempt, with no closing reading, proves no pass. The run loop
+# collects them first only when it reaps the row's leader after the
+# whole group has ended; when the group outlives the leader, as after a
+# unit's stop, the run loop leaves the results here. Then withdraw this
+# run's lines when its tree changed while it ran, or print
+# `validate: row-records=unwritten` when the withdrawal cannot be written.
+# A KILL runs neither: the next run collects the results, and the lines
+# stand on the tree the run read at its start.
 records_finish() {
   local end
   if [[ -n $smoke_results_dir && -d $smoke_results_dir ]]; then smoke_collect "$smoke_results_dir"; fi
@@ -2749,6 +2753,9 @@ done
 # statuses fill failed and skipped in table order.
 run_dir="$(scratch_dir)" || { echo 'validate: run-dir=scratch-failed' >&2; exit 1; }
 declare -A row_of_pid=() held=()
+# smoke_group: the nested smoke row's process group, named by its leader,
+# from its start until the run loop collects its results.
+smoke_group=""
 row_state=() row_alone=() row_locks=() row_status=() row_started=()
 for k in "${!selected[@]}"; do
   IFS='|' read -r _ _ _ inputs _ <<<"${rows[selected[k]]}"
@@ -2780,6 +2787,7 @@ start_row() { # K
   fi
   set +m
   row_of_pid[$!]=$k
+  [[ -z $results ]] || smoke_group=$!
   row_started[k]=$SECONDS
   row_state[k]=running
   for name in ${row_locks[k]}; do held[$name]=1; done
@@ -2816,10 +2824,15 @@ start_rows() {
 # unit's stop does (systemd.kill(5), KillMode=control-group), ends a row's
 # leader, a subshell with TERM at its default, before this runs, while the
 # rest of its group, the nested smoke's driver waiting on its attempt's
-# world among them, still runs. Such a group, of a row validate has not
-# seen end, is waited on but never signalled: the stop reached it, and
-# with its leader gone nothing proves the number still the row's. The wait
-# is what puts each attempt's closing reading before records_finish.
+# world among them, still runs. Either validate's exit handling or its run
+# loop can see that leader end first. In the exit handling the row is
+# still in row_of_pid or jobs -p. In the run loop, `wait -n` reaps the
+# leader and the run loop leaves the collection to records_finish while
+# the group still runs, so the group stays in smoke_group. Such a group,
+# whose leader is gone, is waited on but never signalled: the stop
+# reached it, and with its leader gone nothing proves the number still
+# the row's. The wait is what puts each attempt's closing reading before
+# records_finish.
 row_groups=()
 stopping=false
 kill_groups() { # SIGNAL
@@ -2832,7 +2845,7 @@ stop_rows() {
   local -a pids=() waited=()
   stopping=true
   jobs -p >"$run_dir/jobs" 2>/dev/null && mapfile -t pids <"$run_dir/jobs" || pids=()
-  pids+=("${!row_of_pid[@]}")
+  pids+=("${!row_of_pid[@]}" ${smoke_group:+"$smoke_group"})
   for pid in "${pids[@]}"; do
     [[ " ${waited[*]} " != *" $pid "* ]] || continue
     waited+=("$pid")
@@ -2881,8 +2894,13 @@ while :; do
   if [[ -n $record_file ]]; then
     IFS='|' read -r _ label _ <<<"${rows[selected[k]]}"
     record_append "$record_run" "${row_digest[k]}" "${record_point:--}" "$(record_outcome_of "$status")" "$((SECONDS - row_started[k]))" "row=$label"
-    if [[ ${row_command[k]} == "scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then
+    # A group that outlives its leader, as after a unit's stop, may still
+    # owe its attempt's closing reading, so records_finish collects it once
+    # stop_rows has seen the group end.
+    if [[ ${row_command[k]} == "scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]] &&
+       ! kill -0 -- "-$pid" 2>/dev/null; then
       smoke_collect "$smoke_results_dir"
+      smoke_group=""
     fi
   fi
   while [[ $printed -lt ${#selected[@]} && ${row_state[printed]} == ended ]]; do
