@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The vgs.agent-warden TUI `setup`: `vsys warden install`, which writes the
 # warden's systemd user units as the user, asks for no privilege and enables
-# and starts its timer
-# (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden-install.md). vsys prints
-# what it wrote or why it refused, and the script ends with its code.
+# and starts its timer, refusing the whole install over a file it does not
+# own (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#rules).
+# vsys prints what it wrote or why it refused, and the script ends with its
+# code.
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"

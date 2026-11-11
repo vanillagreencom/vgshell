@@ -9,8 +9,9 @@
 // core notify options that send it.
 //
 // An episode is a condition that opens and later clears, keyed
-// `<kind>:<scope>` as the warden keys its own
-// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#notifications).
+// `<kind>:<scope>` as the warden keys its own, one notice per episode
+// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#rules;
+// `episode_key` in vsys warden/agent-warden).
 // The service remembers the keys of the open episodes; an episode is sent
 // once when it opens and again only after it has cleared and opened again.
 // A key clears only on evidence: a fresh status that no longer holds it. A

@@ -11171,9 +11171,9 @@ for scene in "${scenes[@]}"; do
     *) need_setup "$scene" ;;
   esac
 done
-# What vsys's summary reads as in the warden's panel: one warning, as
-# rows/agent-warden.sh's stand-in answers.
-shots_vsys_line='vsys found one warning on this computer.'
+# What vsys's summary reads as in the warden's panel: one warning's title
+# and its programs.
+shots_vsys_line='1 group is near the memory threshold: claude. Programs: node and bash.'
 for scene in "${setups[@]}"; do
   case $scene in
     gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab|capture-notifications) ;;
@@ -11364,7 +11364,7 @@ PY
       cat >"$shim/vsys" <<'SH'
 #!/usr/bin/env bash
 [[ "$*" == "--once --summary" ]] || exit 0
-printf '%s\n' '{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}], "meters": [], "errors": []}'
+printf '%s\n' '{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice", "title": "1 group is near the memory threshold: claude", "processes": [{"pid": 4242, "name": "node"}, {"pid": 4243, "name": "bash"}], "open": []}], "meters": [], "errors": []}'
 SH
       chmod 755 "$shim/notify-send" "$shim/vsys"
       mkdir -p -- "$warden_dir"

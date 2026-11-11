@@ -5,7 +5,8 @@
 // the values the service publishes and the GB figures the plugin's copy
 // shows. The status documents are vsys's own fixtures, copied into
 // scripts/smoke/fixtures/agent-warden/, and every expected value is written
-// out by hand.
+// out by hand. It also holds ViewLogic.js's judge of a summary cause's
+// `open` to the core's PluginLogic.tuiArgsValid, which it copies.
 //
 // The controls at the end edit a copy of the logic, one rule at a time,
 // and require this suite to fail on each copy.
@@ -344,5 +345,20 @@ try {
 } finally {
     fs.rmSync(manifestTemp, { recursive: true, force: true });
 }
+
+// The `open` judge in ViewLogic.js copies PluginLogic.tuiArgsValid, which
+// shell.tui.run applies again at the press. On each list both answer
+// alike, so the flyout neither shows a cause whose Open vsys the core
+// refuses nor hides one it runs. An absent list is left out: the core
+// reads it as none, and the summary refuses a cause that lacks `open`.
+const view = load(path.join(path.dirname(file), "ViewLogic.js"), { "qs.Commons 1.0": {} });
+const OPEN_EDGES = [
+    [], ["--lane", "claude-vgs"], Array(16).fill("a"), Array(17).fill("a"), ["a".repeat(256)], ["a".repeat(257)],
+    ["\u{1F600}".repeat(256)], ["\u{1F600}".repeat(257)], ["a", ""], ["a\nb"], ["a\tb"], ["a\u007fb"], ["a\u0085b"], ["a\u009fb"], ["a\u00a0b"],
+    ["$(touch x)", "a b"], [3], [null], [{ length: 1 }], null, "abc", { 0: "a", length: 1 }
+];
+for (const open of OPEN_EDGES)
+    assert.equal(view.openValid(open), producer.tuiArgsValid(open), "the view judges open " + JSON.stringify(open).slice(0, 40) + " as the core does");
+assert.ok(OPEN_EDGES.some(open => producer.tuiArgsValid(open)) && OPEN_EDGES.some(open => !producer.tuiArgsValid(open)), "the edges hold lists the core admits and lists it refuses");
 
 console.log(`test-agent-warden-logic: ok refused=${REFUSED.length} derived=${DERIVED.length} next=${NEXT.length + NO_NEXT.length} controls=${CONTROLS.length + 1}`);

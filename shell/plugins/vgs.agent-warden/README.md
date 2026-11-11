@@ -8,7 +8,8 @@ Agent Warden shows whether your AI coding agents stay within their memory and pr
 
 - A shield in the bar that shows the agents' state, with the number of running agents or problems beside it.
 - A panel that describes the state in one sentence, lists the most serious problems first and shows how close the agents' memory is to the point where they slow down.
-- Open vsys in the panel opens the vsys dashboard.
+- A line in the panel that shows the most serious warning vsys found on the computer, in vsys's own words, with the programs involved.
+- Open vsys in the panel opens the vsys dashboard, at that warning when vsys supports it.
 - A notification when an agent nears a limit, when agents wait for memory, when the warden cannot apply a limit or cleans up after an agent, and when it stops checking.
 - Click the shield to open and close the panel. Choose a key under Keys on the plugin's Settings page to open it with a key.
 

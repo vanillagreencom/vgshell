@@ -7,7 +7,8 @@ import "ViewLogic.js" as View
 // The Agent Warden flyout: a heading, one status sentence, at most three
 // items with no process id or scope name, the agent group's memory meter
 // when it is known, vsys's own verdict on the computer when vsys is
-// installed, and a footer with the check time and a link to vsys. A state
+// installed, in its own words, and a footer with the check time and a link
+// to vsys, which opens vsys at the cause that line shows. A state
 // that needs setting up offers its one button instead: Set up or Update
 // opens the `setup` TUI, Start it starts the warden's timer, and Get vsys
 // raises the core's requirement notice. Every word comes from ViewLogic.js
@@ -28,7 +29,8 @@ Item {
     readonly property var setupButton: detail === null ? null : View.setup(detail, vsysMissing)
     readonly property var footerLink: View.link(vsysMissing, setupButton)
     readonly property var memory: detail === null ? null : View.meter(detail.memory)
-    // The last summary's line, { text, tone }, or null while none was read.
+    // The last summary's line, { text, tone, open }, or null while none was
+    // read.
     property var summary: null
     // Why the last press did not hand off, "" when it did or before one.
     property string problem: ""
@@ -53,7 +55,7 @@ Item {
     function press(action) {
         let reply;
         switch (action) {
-        case "open": reply = shell.tui.run("vsys"); break;
+        case "open": reply = shell.tui.run("vsys", summary === null ? [] : summary.open); break;
         case "setup": reply = shell.tui.run("setup"); break;
         case "start": reply = shell.run.detached(View.START_ARGV); break;
         case "get-vsys": reply = shell.requirements.offer(["vsys"]); break;
@@ -65,8 +67,10 @@ Item {
         return reply;
     }
 
-    // One `vsys --once --summary` per open. A run that failed or printed
-    // what this plugin cannot read is logged and shows no line.
+    // One `vsys --once --summary` per open. vsys exits 2 after it prints
+    // the summary when it could not read a source, so the line follows the
+    // summary alone, whatever the exit code: a run that did not start or
+    // printed what this plugin cannot read is logged once and shows no line.
     Process {
         id: summaryRun
         // The run's exit, { code, status }, null until `exited` arrives: a
@@ -79,12 +83,10 @@ Item {
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            if (completion === null || completion.code !== 0 || completion.status !== 0) {
-                console.warn("agent-warden: summary=failed " + JSON.stringify(completion) + " " + summaryErr.text.trim().split("\n")[0]);
-                return;
-            }
-            const read = View.readSummary(summaryOut.text);
-            if (read.kind === "read") root.summary = View.summaryLine(read);
+            const read = completion === null ? null : View.readSummary(summaryOut.text);
+            if (read !== null && read.kind === "read") root.summary = View.summaryLine(read);
+            else if (completion === null || completion.code !== 0 || completion.status !== 0)
+                console.warn("agent-warden: summary=failed " + JSON.stringify(completion) + (read === null ? "" : " cause=" + read.cause) + " " + summaryErr.text.trim().split("\n")[0]);
             else console.warn("agent-warden: summary=unreadable cause=" + read.cause);
         }
     }
@@ -160,6 +162,12 @@ Item {
             width: layout.contentWidth
             wrapMode: Text.Wrap
             visible: root.summary !== null && !root.vsysMissing
+            // vsys's title and program names carry text processes on the
+            // machine supply, and Text's default AutoText draws text that
+            // looks like markup as rich text
+            // (https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop),
+            // so markup in them draws as the characters it is.
+            textFormat: Text.PlainText
             text: root.summary === null ? "" : root.summary.text
             color: root.summary === null ? Theme.color.textFaint : Theme.badge.tone[root.summary.tone].foreground
         }

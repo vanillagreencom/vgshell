@@ -3,10 +3,11 @@
 // shell/plugins/vgs.agent-warden/ViewLogic.js, under node: the icon, tone,
 // count and tooltip of every state, the flyout's sentence, items, meter,
 // buttons and check time, the words for a press's reply, and the reading
-// of `vsys --once --summary`. The details come from vsys's status fixtures
-// through WardenLogic.derive, as the service publishes them, and every
-// expected value is written out by hand. No text the view draws for a
-// fixture names a scope unit or a process id of that fixture.
+// of `vsys --once --summary` with the line the flyout draws from it and
+// the vsys arguments Open vsys takes. The details come from vsys's status
+// fixtures through WardenLogic.derive, as the service publishes them, and
+// every expected value is written out by hand. No text the view draws for
+// a fixture or a summary names a scope unit or a process id of it.
 //
 // The controls at the end edit a copy of the view, or of the logic it
 // imports, one rule at a time, and require this suite to fail on each copy.
@@ -169,6 +170,7 @@ const SINCE = [["a fraction", 1.9, "1s"], ["now", 0, "0s"], ["a moment ahead", -
 const REPLIES = [
     ["a hand-off", "ok", ""],
     ["a live run of the TUI", "refused: tui=vsys reason=busy", ""],
+    ["a live run of vsys at another cause", "refused: tui=vsys reason=busy-other", "vsys is already open in another window. Close it, then try again."],
     ["missing launcher", "refused: tui=setup reason=launcher-missing", "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],
     ["failed launcher", "refused: tui=setup reason=launcher-failed", "VGS could not open this action. Try again."],
     ["vsys already found", "satisfied", "vsys is already installed."],
@@ -177,18 +179,61 @@ const REPLIES = [
 ];
 
 const summary = verdict => JSON.stringify({ schema: "vsys.summary.v2", time: 1, verdict: verdict, meters: [{ id: "cpu", value: null, max: 100, level: "warn" }], errors: [] });
+// A `warn` or `danger` cause as vsys writes one, over FIELDS.
+const cause = (level, title, fields) => Object.assign({ cause: "memory-high", level: level, subject: null, title: title, processes: [], open: [] }, fields);
+const NODE_BASH = [{ pid: 48213, name: "node" }, { pid: 48377, name: "bash" }];
+const HIGH = "1 group is near the memory threshold: claude in vgs";
+const READONLY = "1 mount is read-only: /home";
+const NONE = { tone: "neutral", text: "vsys found no problems on this computer.", open: [] };
 // Summaries: [label, text, readSummary answer, line].
 const SUMMARIES = [
-    ["nothing wrong", summary([]), { kind: "read", danger: 0, warn: 0 }, { tone: "neutral", text: "vsys found no problems on this computer." }],
-    ["a skipped scratch scan", summary([{ cause: "scratch", level: null, subject: null }]), { kind: "read", danger: 0, warn: 0 }, { tone: "neutral", text: "vsys found no problems on this computer." }],
-    ["one warning", summary([{ cause: "memory-high", level: "warn", subject: "/agents.slice" }]), { kind: "read", danger: 0, warn: 1 },
-        { tone: "warning", text: "vsys found one warning on this computer." }],
-    ["two warnings and a cause vsys adds later", summary([{ cause: "memory-high", level: "warn", subject: null }, { cause: "brand-new", level: "warn", subject: null }]),
-        { kind: "read", danger: 0, warn: 2 }, { tone: "warning", text: "vsys found 2 warnings on this computer." }],
-    ["a danger outranks warnings", summary([{ cause: "unconfined", level: "danger", subject: "a/1.scope" }, { cause: "disk", level: "warn", subject: null }]),
-        { kind: "read", danger: 1, warn: 1 }, { tone: "danger", text: "vsys found one problem on this computer." }],
-    ["two dangers", summary([{ cause: "unconfined", level: "danger", subject: null }, { cause: "read-only", level: "danger", subject: null }]),
-        { kind: "read", danger: 2, warn: 0 }, { tone: "danger", text: "vsys found 2 problems on this computer." }]
+    ["nothing wrong", summary([]), { kind: "read", causes: [] }, NONE],
+    ["a skipped scratch scan", summary([{ cause: "scratch", level: null, subject: null }]), { kind: "read", causes: [] }, NONE],
+    ["a cause at ok carries no card", summary([{ cause: "disk", level: "ok", subject: null }]), { kind: "read", causes: [] }, NONE],
+    ["one warning, its programs by name", summary([cause("warn", HIGH, { subject: "/agents.slice/agent-confine-48213-1.scope", processes: NODE_BASH, open: ["--lane", "claude-vgs"] })]),
+        { kind: "read", causes: [{ level: "warn", title: HIGH, names: ["node", "bash"], open: ["--lane", "claude-vgs"] }] },
+        { tone: "warning", text: HIGH + ". Programs: node and bash.", open: ["--lane", "claude-vgs"] }],
+    ["a warning without programs", summary([cause("warn", HIGH)]), { kind: "read", causes: [{ level: "warn", title: HIGH, names: [], open: [] }] },
+        { tone: "warning", text: HIGH + ".", open: [] }],
+    ["a program named twice is named once", summary([cause("warn", HIGH, { processes: [{ pid: 30001, name: "node" }, { pid: 30002, name: "node" }, { pid: 30003, name: "" }] })]),
+        { kind: "read", causes: [{ level: "warn", title: HIGH, names: ["node"], open: [] }] }, { tone: "warning", text: HIGH + ". Programs: node.", open: [] }],
+    ["more programs than the line names", summary([cause("warn", HIGH, { processes: ["node", "bash", "cargo", "rustc", "ld"].map((name, i) => ({ pid: 100 + i, name: name })) })]),
+        { kind: "read", causes: [{ level: "warn", title: HIGH, names: ["node", "bash", "cargo", "rustc", "ld"], open: [] }] },
+        { tone: "warning", text: HIGH + ". Programs: node, bash, cargo and 2 more.", open: [] }],
+    ["a title that ends a sentence keeps its own stop", summary([cause("warn", "Disk is full.")]), { kind: "read", causes: [{ level: "warn", title: "Disk is full.", names: [], open: [] }] },
+        { tone: "warning", text: "Disk is full.", open: [] }],
+    ["two warnings show the first and count the other", summary([cause("warn", HIGH, { processes: NODE_BASH }), cause("warn", READONLY, { cause: "brand-new" })]),
+        { kind: "read", causes: [{ level: "warn", title: HIGH, names: ["node", "bash"], open: [] }, { level: "warn", title: READONLY, names: [], open: [] }] },
+        { tone: "warning", text: HIGH + ". Programs: node and bash. vsys found 1 more warning.", open: [] }],
+    ["three warnings count the other two as warnings", summary([cause("warn", HIGH, { processes: NODE_BASH }), cause("warn", READONLY), cause("warn", "Disk is full.")]),
+        { kind: "read", causes: [{ level: "warn", title: HIGH, names: ["node", "bash"], open: [] }, { level: "warn", title: READONLY, names: [], open: [] }, { level: "warn", title: "Disk is full.", names: [], open: [] }] },
+        { tone: "warning", text: HIGH + ". Programs: node and bash. vsys found 2 more warnings.", open: [] }],
+    ["a later danger outranks an earlier warning", summary([cause("warn", HIGH, { open: ["--lane", "a"] }), { cause: "scratch", level: null, subject: null }, cause("danger", READONLY, { cause: "read-only", open: ["--view", "storage"] }), cause("danger", "2 lanes run outside agents.slice: a and b", { cause: "unconfined" })]),
+        { kind: "read", causes: [{ level: "warn", title: HIGH, names: [], open: ["--lane", "a"] }, { level: "danger", title: READONLY, names: [], open: ["--view", "storage"] },
+            { level: "danger", title: "2 lanes run outside agents.slice: a and b", names: [], open: [] }] },
+        { tone: "danger", text: READONLY + ". vsys found 1 more problem and 1 more warning.", open: ["--view", "storage"] }],
+    ["markup in a title is text", summary([cause("warn", "<b>claude</b> & <i>vgs</i>", { processes: [{ pid: 7, name: "<u>sh</u>" }] })]),
+        { kind: "read", causes: [{ level: "warn", title: "<b>claude</b> & <i>vgs</i>", names: ["<u>sh</u>"], open: [] }] },
+        { tone: "warning", text: "<b>claude</b> & <i>vgs</i>. Programs: <u>sh</u>.", open: [] }]
+];
+// The cause of a summary readSummary refuses, at verdict[1] after one that
+// reads: [label, cause, the refused field].
+const REFUSED = [
+    ["a missing title", { cause: "disk", level: "warn", subject: null, processes: [], open: [] }, "title"],
+    ["a title that is no string", cause("danger", 3), "title"],
+    ["an empty title", cause("warn", ""), "title"],
+    ["missing processes", { cause: "disk", level: "warn", subject: null, title: HIGH, open: [] }, "processes"],
+    ["processes that are no list", cause("warn", HIGH, { processes: { pid: 1, name: "node" } }), "processes"],
+    ["a process with no name", cause("warn", HIGH, { processes: [{ pid: 1 }] }), "processes"],
+    ["a process that is a name alone", cause("warn", HIGH, { processes: ["node"] }), "processes"],
+    ["a missing open", { cause: "disk", level: "danger", subject: null, title: HIGH, processes: [] }, "open"],
+    ["an open that is no list", cause("warn", HIGH, { open: "--lane a" }), "open"],
+    ["an open of seventeen arguments", cause("warn", HIGH, { open: Array(17).fill("a") }), "open"],
+    ["an empty argument", cause("warn", HIGH, { open: ["--lane", ""] }), "open"],
+    ["an argument of 257 characters", cause("warn", HIGH, { open: ["a".repeat(257)] }), "open"],
+    ["an argument with a newline", cause("warn", HIGH, { open: ["--lane", "a\nb"] }), "open"],
+    ["an argument with a C1 control character", cause("warn", HIGH, { open: ["a\u0085b"] }), "open"],
+    ["an argument that is a number", cause("warn", HIGH, { open: ["--lane", 3] }), "open"]
 ];
 // Summaries readSummary refuses: [label, text, answer].
 const UNREAD = [
@@ -199,7 +244,9 @@ const UNREAD = [
     ["no verdict", JSON.stringify({ schema: "vsys.summary.v2" }), { kind: "unreadable", cause: "field=verdict" }],
     ["a cause that is no object", JSON.stringify({ schema: "vsys.summary.v2", verdict: ["disk"] }), { kind: "unreadable", cause: "field=verdict[0]" }],
     ["an unknown level", JSON.stringify({ schema: "vsys.summary.v2", verdict: [{ cause: "disk", level: "fatal", subject: null }] }), { kind: "unreadable", cause: "field=verdict[0].level" }]
-];
+].concat(REFUSED.map(([label, refused, field]) => [label, summary([cause("warn", HIGH), refused]), { kind: "unreadable", cause: "field=verdict[1]." + field }]));
+// The arguments an `open` may hold at the edges the core admits.
+const ADMITTED_OPEN = [Array(16).fill("a"), ["a".repeat(256)], ["\u{1F600}".repeat(256)], ["$(touch x)", "a b"]];
 
 function verify(view) {
     // Every state has a look, every icon is shipped, every tone is
@@ -266,9 +313,17 @@ function verify(view) {
     for (const [label, text, read, line] of SUMMARIES) {
         const got = view.readSummary(text);
         same(got, read, "summary: " + label);
-        same(view.summaryLine(got), line, "summary line: " + label);
+        const drawn = view.summaryLine(got);
+        same(drawn, line, "summary line: " + label);
+        // The line names no process id and no subject of its summary.
+        for (const c of JSON.parse(text).verdict) {
+            for (const p of c.processes || []) assert.ok(!drawn.text.includes(String(p.pid)), label + ": the line names process id " + p.pid);
+            if (c.subject !== null) assert.ok(!drawn.text.includes(c.subject.split("/").pop()), label + ": the line names " + c.subject);
+        }
     }
     for (const [label, text, answer] of UNREAD) same(view.readSummary(text), answer, "summary refused: " + label);
+    for (const open of ADMITTED_OPEN)
+        same(view.readSummary(summary([cause("warn", HIGH, { open: open })])).causes[0].open, open, "an open the core admits is read: " + JSON.stringify(open).slice(0, 40));
 }
 
 verify(load(path.join(dir, "ViewLogic.js"), modules));
@@ -294,7 +349,20 @@ const CONTROLS = [
     ["a busy TUI is a refusal", "ViewLogic.js", "reason=busy$/", "reason=nothing$/"],
     ["any summary schema is read", "ViewLogic.js", "if (doc.schema !== SUMMARY_SCHEMA) return", "if (false) return"],
     ["any level is read", "ViewLogic.js", "if (cause.level !== null && SUMMARY_LEVELS.indexOf(cause.level) === -1) return", "if (false) return"],
-    ["a warning outranks a danger", "ViewLogic.js", "if (summary.danger > 0)\n", "if (false)\n"],
+    ["a warning outranks a later danger", "ViewLogic.js", "if (summary.causes[i].level === \"danger\") {", "if (false) {"],
+    ["a cause without a title is read", "ViewLogic.js", "if (typeof cause.title !== \"string\" || cause.title === \"\") return", "if (false) return"],
+    ["a cause without processes is read", "ViewLogic.js", "if (!isObject(p) || typeof p.name !== \"string\") return null;", ""],
+    ["any open list is read", "ViewLogic.js", "if (!Array.isArray(open) || open.length > OPEN_ARGS_MAX) return false;", "if (!Array.isArray(open)) return false;"],
+    ["a control character reaches vsys", "ViewLogic.js", "&& !OPEN_CONTROL.test(arg)", ""],
+    ["a long argument reaches vsys", "ViewLogic.js", "Array.from(arg).length <= OPEN_ARG_MAX", "true"],
+    ["the line names a program twice", "ViewLogic.js", "names.indexOf(p.name) === -1", "true"],
+    ["the line names a process id", "ViewLogic.js", "names.push(p.name);", "names.push(p.name + \" \" + p.pid);"],
+    ["the line names every program", "ViewLogic.js", "var names = shown.names.slice(0, MAX_PROGRAMS);", "var names = shown.names.slice();"],
+    ["the line hides the other causes", "ViewLogic.js", "if (more.length > 0) text += ", "if (false) text += "],
+    ["the count names no noun", "ViewLogic.js", "plural(warnings, \"more warning\", \"more warnings\")", "grouped(warnings) + \" more\""],
+    ["a problem counts as a warning", "ViewLogic.js", "if (summary.causes[j].level === \"danger\") problems += 1;", "if (false) problems += 1;"],
+    ["Open vsys takes no open", "ViewLogic.js", "text: text, open: shown.open };", "text: text, open: [] };"],
+    ["a busy vsys at another cause reads as generic", "ViewLogic.js", "reason=busy-other$/", "reason=busy-other(?!)$/"],
     ["the logic hands the view a scope name", "WardenLogic.js", "worktree: lane.label.worktree", "worktree: lane.scope"]
 ];
 

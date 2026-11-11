@@ -2,10 +2,10 @@
 # The vgs.agent-warden floating TUIs, shell/plugins/vgs.agent-warden/tui/
 # setup.sh and vsys.sh, against a stand-in vsys that logs its argv and ends
 # with the code a file names. It proves setup runs `vsys warden install`
-# once and ends with vsys's code, and vsys.sh runs vsys with no argument
-# and keeps its code. Each run has no controlling terminal and a PATH of
-# the stand-in, a stand-in gum and bash alone, so no run reaches the host's
-# vsys or systemd.
+# once and ends with vsys's code, and vsys.sh runs vsys with the arguments
+# it is handed, none when it is handed none, and keeps its code. Each run
+# has no controlling terminal and a PATH of the stand-in, a stand-in gum
+# and bash alone, so no run reaches the host's vsys or systemd.
 #
 # The controls at the end edit a copy of a script, one rule at a time, and
 # require a case to fail on each copy.
@@ -34,22 +34,23 @@ mkdir -p "$tools"
 ln -s -- "$(command -v bash)" "$tools/bash"
 # The library draws its header with gum; the stand-in prints its words.
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*"\n' >"$tools/gum"
-# vsys logs its argv as one line, `[]` for none, and ends with the code in
-# $TMP_ROOT/code.
+# vsys logs its argv as one line, `[]` for none, writes its argument
+# count to $TMP_ROOT/argc and ends with the code in $TMP_ROOT/code.
 cat >"$tools/vsys" <<SH
 #!/usr/bin/env bash
 printf '[%s]\n' "\$*" >>"$TMP_ROOT/calls"
+printf '%s\n' "\$#" >"$TMP_ROOT/argc"
 exit "\$(<"$TMP_ROOT/code")"
 SH
 chmod 755 "$tools/gum" "$tools/vsys"
 
-# tui SCRIPT CODE: runs SCRIPT with vsys ending CODE; the exit status in
-# $status, the stand-in's calls in $calls.
+# tui SCRIPT CODE [ARG...]: runs SCRIPT with ARGS and vsys ending CODE;
+# the exit status in $status, the stand-in's calls in $calls.
 tui() {
   printf '%s\n' "$2" >"$TMP_ROOT/code"
   : >"$TMP_ROOT/calls"
   status=0
-  setsid -w env -i PATH="$tools" HOME="$TMP_ROOT" VGS_TUI_LIB="$repo/bin/lib/tui.sh" bash "$1" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" </dev/null || status=$?
+  setsid -w env -i PATH="$tools" HOME="$TMP_ROOT" VGS_TUI_LIB="$repo/bin/lib/tui.sh" bash "$1" "${@:3}" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" </dev/null || status=$?
   calls="$(cat "$TMP_ROOT/calls")"
 }
 
@@ -70,8 +71,13 @@ case_vsys_keeps_its_code() {
   tui "$1" 3
   [[ $status == 3 && $calls == "[]" ]]
 }
-CASES=(case_setup_installs_once case_setup_keeps_the_failure case_vsys_runs_bare case_vsys_keeps_its_code)
-SCRIPTS=(setup.sh setup.sh vsys.sh vsys.sh)
+# The arguments reach vsys as they were handed, each one word.
+case_vsys_takes_its_arguments() {
+  tui "$1" 0 --lane "a b"
+  [[ $status == 0 && $calls == "[--lane a b]" && $(<"$TMP_ROOT/argc") == 2 ]]
+}
+CASES=(case_setup_installs_once case_setup_keeps_the_failure case_vsys_runs_bare case_vsys_keeps_its_code case_vsys_takes_its_arguments)
+SCRIPTS=(setup.sh setup.sh vsys.sh vsys.sh vsys.sh)
 for i in "${!CASES[@]}"; do
   case="${CASES[i]}"
   if "$case" "$tui/${SCRIPTS[i]}"; then ok "${case#case_}"; else fail "${case#case_}: status=$status calls=[${calls//$'\n'/;}] err=[$(head -n 1 "$TMP_ROOT/err")]"; fi
@@ -79,10 +85,10 @@ done
 
 # Controls: a case, the script, the line it needs and a replacement
 # without the rule.
-CONTROL_CASES=(case_setup_installs_once case_setup_keeps_the_failure case_vsys_runs_bare case_vsys_keeps_its_code)
-CONTROL_SCRIPTS=(setup.sh setup.sh vsys.sh vsys.sh)
-CONTROL_LINES=('vsys warden install' 'vsys warden install' 'exec vsys' 'exec vsys')
-CONTROL_REPLACEMENTS=('vsys warden install; vsys warden install' 'vsys warden install || true' 'exec vsys --once' 'vsys || true')
+CONTROL_CASES=(case_setup_installs_once case_setup_keeps_the_failure case_vsys_runs_bare case_vsys_keeps_its_code case_vsys_takes_its_arguments case_vsys_takes_its_arguments)
+CONTROL_SCRIPTS=(setup.sh setup.sh vsys.sh vsys.sh vsys.sh vsys.sh)
+CONTROL_LINES=('vsys warden install' 'vsys warden install' 'exec vsys "$@"' 'exec vsys "$@"' 'exec vsys "$@"' 'exec vsys "$@"')
+CONTROL_REPLACEMENTS=('vsys warden install; vsys warden install' 'vsys warden install || true' 'exec vsys --once "$@"' 'vsys "$@" || true' 'exec vsys' 'exec vsys $*')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   copy="$TMP_ROOT/copy.sh"

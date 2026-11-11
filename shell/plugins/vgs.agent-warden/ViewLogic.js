@@ -7,8 +7,9 @@
 // tones of the `detail` the service publishes (WardenLogic.derive's answer),
 // the button each state offers, and the reading of `vsys --once --summary`.
 // The warden's file carries numbers and ids; every word the user reads is
-// here. No text names a process id or a scope unit: `detail` carries
-// neither.
+// here, save a summary cause's title and program names, which vsys writes.
+// No text names a process id or a scope unit: `detail` carries neither, and
+// the summary line draws no process id or subject.
 
 // The icon and tone of each state WardenLogic.STATES names. A tone names
 // the Theme.color state role the widget draws in; `neutral` is textMuted.
@@ -38,14 +39,27 @@ var ITEM_ICONS = {
 };
 // The flyout shows at most this many items, most serious first.
 var MAX_ITEMS = 3;
-// The argv `start` hands shell.run.detached: the unit vsys warden install
-// enables
-// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden-install.md).
+// The argv `start` hands shell.run.detached: the timer an explicit
+// `vsys warden install` enables
+// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#the-approach).
 var START_ARGV = ["systemctl", "--user", "start", "agent-warden.timer"];
-// The summary contract `vsys --once --summary` prints
-// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/verdict.md#summary-json).
+// The summary contract `vsys --once --summary` prints: ids and raw numbers,
+// and on each `warn` or `danger` cause the Home card's `title`, the
+// `processes` it names as {pid, name} and the vsys arguments `open` that
+// open vsys at it
+// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/verdict.md#rules).
 var SUMMARY_SCHEMA = "vsys.summary.v2";
 var SUMMARY_LEVELS = ["ok", "warn", "danger"];
+// The summary line names at most this many programs of the cause it shows.
+var MAX_PROGRAMS = 3;
+// The arguments shell.tui.run takes after a script, as the core judges
+// them (shell/Core/PluginLogic.js tuiArgsValid, which judges them again at
+// the press): at most OPEN_ARGS_MAX strings, each 1 to OPEN_ARG_MAX
+// characters with no control character. scripts/test-agent-warden-logic.js
+// holds this copy to the core's answers.
+var OPEN_ARGS_MAX = 16;
+var OPEN_ARG_MAX = 256;
+var OPEN_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 // N with the noun for one or for many: "1 agent", "3 agents".
 function plural(n, one, many) {
@@ -302,6 +316,7 @@ function meter(memory) {
 var REFUSALS = [
     [/^ok$/, function () { return ""; }],
     [/^refused: tui=[a-z0-9-]+ reason=busy$/, function () { return ""; }],
+    [/^refused: tui=vsys reason=busy-other$/, function () { return "vsys is already open in another window. Close it, then try again."; }],
     [/^refused: tui=[a-z0-9-]+ reason=launcher-missing$/, function () { return "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."; }],
     [/^satisfied$/, function () { return "vsys is already installed."; }],
     [/^refused: notices=full limit=\d+$/, function () { return "Too many install requests are waiting. Try again later."; }]
@@ -324,12 +339,37 @@ function isObject(v) {
     return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+// Whether OPEN may follow the vsys TUI's script: a list shell.tui.run
+// takes, OPEN_ARGS_MAX and OPEN_ARG_MAX above.
+function openValid(open) {
+    if (!Array.isArray(open) || open.length > OPEN_ARGS_MAX) return false;
+    return open.every(function (arg) {
+        return typeof arg === "string" && arg.length > 0 && Array.from(arg).length <= OPEN_ARG_MAX && !OPEN_CONTROL.test(arg);
+    });
+}
+
+// The program names of a cause's PROCESSES, each once in first order, or
+// null when the list is not one of {pid, name}. A process id is not kept.
+function programNames(processes) {
+    if (!Array.isArray(processes)) return null;
+    var names = [];
+    for (var i = 0; i < processes.length; i++) {
+        var p = processes[i];
+        if (!isObject(p) || typeof p.name !== "string") return null;
+        if (p.name !== "" && names.indexOf(p.name) === -1) names.push(p.name);
+    }
+    return names;
+}
+
 // One `vsys --once --summary` output as a tagged value:
-//   { kind: "read", danger, warn }   the causes at each level
-//   { kind: "unreadable", cause }    `json`, `schema=<value>` or
-//                                    `field=<path>`
-// Only the verdict's levels are read; a cause id, a subject or a meter
-// this plugin does not know is skipped, and a subject is never shown.
+//   { kind: "read", causes }       each `warn` or `danger` cause in verdict
+//                                  order, { level, title, names, open }
+//   { kind: "unreadable", cause }  `json`, `schema=<value>` or
+//                                  `field=<path>`
+// A cause at `ok` or with no level, a cause id, a subject or a meter is
+// not read; a subject and a process id are never shown. A `warn` or
+// `danger` cause without a title, a process list or an `open` the vsys
+// TUI takes refuses the whole summary.
 function readSummary(text) {
     var doc;
     try {
@@ -340,22 +380,52 @@ function readSummary(text) {
     if (!isObject(doc)) return { kind: "unreadable", cause: "field=root" };
     if (doc.schema !== SUMMARY_SCHEMA) return { kind: "unreadable", cause: "schema=" + JSON.stringify(doc.schema) };
     if (!Array.isArray(doc.verdict)) return { kind: "unreadable", cause: "field=verdict" };
-    var out = { kind: "read", danger: 0, warn: 0 };
+    var causes = [];
     for (var i = 0; i < doc.verdict.length; i++) {
         var cause = doc.verdict[i];
-        if (!isObject(cause) || typeof cause.cause !== "string") return { kind: "unreadable", cause: "field=verdict[" + i + "]" };
-        if (cause.level !== null && SUMMARY_LEVELS.indexOf(cause.level) === -1) return { kind: "unreadable", cause: "field=verdict[" + i + "].level" };
-        if (cause.level === "danger") out.danger += 1;
-        if (cause.level === "warn") out.warn += 1;
+        var at = "field=verdict[" + i + "]";
+        if (!isObject(cause) || typeof cause.cause !== "string") return { kind: "unreadable", cause: at };
+        if (cause.level !== null && SUMMARY_LEVELS.indexOf(cause.level) === -1) return { kind: "unreadable", cause: at + ".level" };
+        if (cause.level !== "warn" && cause.level !== "danger") continue;
+        if (typeof cause.title !== "string" || cause.title === "") return { kind: "unreadable", cause: at + ".title" };
+        var names = programNames(cause.processes);
+        if (names === null) return { kind: "unreadable", cause: at + ".processes" };
+        if (!openValid(cause.open)) return { kind: "unreadable", cause: at + ".open" };
+        causes.push({ level: cause.level, title: cause.title, names: names, open: cause.open.slice() });
     }
-    return out;
+    return { kind: "read", causes: causes };
 }
 
-// The flyout's line for SUMMARY, readSummary's `read` answer: { text, tone }.
+// The flyout's line for SUMMARY, readSummary's `read` answer: { text, tone,
+// open }. The line shows the most serious cause, the first `danger` one or
+// else the first, in vsys's own title, with its programs and how many more
+// problems (`danger`) and warnings (`warn`) there are, each count with its
+// noun so it never reads as more programs; OPEN is that cause's vsys
+// arguments, [] for none.
 function summaryLine(summary) {
-    if (summary.danger > 0)
-        return { tone: "danger", text: summary.danger === 1 ? "vsys found one problem on this computer." : "vsys found " + grouped(summary.danger) + " problems on this computer." };
-    if (summary.warn > 0)
-        return { tone: "warning", text: summary.warn === 1 ? "vsys found one warning on this computer." : "vsys found " + grouped(summary.warn) + " warnings on this computer." };
-    return { tone: "neutral", text: "vsys found no problems on this computer." };
+    if (summary.causes.length === 0) return { tone: "neutral", text: "vsys found no problems on this computer.", open: [] };
+    var shown = summary.causes[0];
+    for (var i = 0; i < summary.causes.length; i++)
+        if (summary.causes[i].level === "danger") {
+            shown = summary.causes[i];
+            break;
+        }
+    var text = /[.!?]$/.test(shown.title) ? shown.title : shown.title + ".";
+    if (shown.names.length > 0) {
+        var names = shown.names.slice(0, MAX_PROGRAMS);
+        if (shown.names.length > MAX_PROGRAMS) names.push(grouped(shown.names.length - MAX_PROGRAMS) + " more");
+        text += " Programs: " + listed(names) + ".";
+    }
+    var problems = 0;
+    var warnings = 0;
+    for (var j = 0; j < summary.causes.length; j++) {
+        if (summary.causes[j] === shown) continue;
+        if (summary.causes[j].level === "danger") problems += 1;
+        else warnings += 1;
+    }
+    var more = [];
+    if (problems > 0) more.push(plural(problems, "more problem", "more problems"));
+    if (warnings > 0) more.push(plural(warnings, "more warning", "more warnings"));
+    if (more.length > 0) text += " vsys found " + listed(more) + ".";
+    return { tone: shown.level === "danger" ? "danger" : "warning", text: text, open: shown.open };
 }

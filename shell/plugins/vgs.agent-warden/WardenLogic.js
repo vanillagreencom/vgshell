@@ -6,8 +6,10 @@
 // publishes from that state.
 //
 // The warden, which vsys ships, writes $XDG_RUNTIME_DIR/agent-warden/status.json
-// every tick, numbers and ids only; the contract is
-// https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden-status.md, schema 1.0. A minor version adds
+// every tick, numbers and ids only, null for a reading it could not take;
+// the contract is
+// https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md,
+// schema 1.0. A minor version adds
 // fields and enum values an older reader ignores, so this file checks only
 // the fields it reads and skips an event kind or a `near` id it does not
 // know. A major version it does not know is refused whole.

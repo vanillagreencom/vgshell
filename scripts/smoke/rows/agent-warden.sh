@@ -17,10 +17,13 @@
 # state: the icon, tone, count and tooltip, and every text the panel draws,
 # none of which names a scope unit or a process id. Set up and Open vsys
 # hand the stand-in terminal their TUI's argv, which runs neither script
-# (scripts/test-agent-warden-tui.sh runs them), Start it hands a stand-in
-# systemctl its arguments, and, on a host without vsys, Get vsys raises the
-# core's notice, which the scan that finds vsys closes. Each open runs the
-# stand-in vsys's summary once, and a summary that fails when the open
+# (scripts/test-agent-warden-tui.sh runs them), Open vsys followed by the
+# `open` arguments of the summary cause the panel shows, Start it hands a
+# stand-in systemctl its arguments, and, on a host without vsys, Get vsys
+# raises the core's notice, which the scan that finds vsys closes. Each
+# open runs the stand-in vsys's summary once. Its one warning draws as its
+# title and program names, the title's markup as plain text, also when
+# vsys exits 2 after the summary, and a summary that fails when the open
 # panel is summoned again leaves no earlier line.
 # A stand-in notify-send records every notice. The service touches the
 # warden's heartbeat while a status reads, and again at once when one
@@ -34,8 +37,8 @@
 # service copy whose timer derives nothing keeps the ageing status calm
 # past its stale moment, a logic copy that hands the view each lane's
 # scope unit draws it in the panel, a panel copy that keeps its last
-# summary line when a new run starts still draws it after a failed run, a
-# notices copy without episode memory sends a lane's notice again on its
+# summary line when a new run starts still draws it after a failed run and
+# draws the summary's title in the default text format, a notices copy without episode memory sends a lane's notice again on its
 # next tick.
 # The harness starts the plugin disabled; the row ends with it disabled,
 # its runtime files gone and no stub on PATH.
@@ -401,7 +404,8 @@ expect_poll "an empty directory reads as not set up again" '["not-set-up", null,
 # tooltip; the panel as every text it draws, with the check time's number
 # written N. Stand-ins in the shell's own PATH directory: a vsys that
 # records each call's arguments and answers `--once --summary` with one
-# warning, and a systemctl that records its arguments, so Start it never
+# warning whose title holds markup and whose `open` is not empty, and a
+# systemctl that records its arguments, so Start it never
 # reaches a user manager. The terminal is harness.sh's recording stand-in,
 # written again over the one rows/updates.sh left.
 warden_key="$(bar_key)"
@@ -409,7 +413,12 @@ warden_vsys_log="$sandbox/warden-vsys-calls"
 warden_systemctl_log="$sandbox/warden-systemctl-argv"
 # While this file exists the stand-in vsys fails its summary.
 warden_vsys_fails="$sandbox/warden-vsys-fails"
-warden_summary='{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice"}, {"cause": "scratch", "level": null, "subject": null}], "meters": [], "errors": []}'
+# While this file exists the stand-in vsys exits 2 after its summary, as
+# vsys does when it could not read a source.
+warden_vsys_partial="$sandbox/warden-vsys-partial"
+warden_summary='{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice/agent-warden-100-200.scope", "title": "1 group is near the memory threshold: <b>vsy-52</b>", "processes": [{"pid": 4242, "name": "node"}, {"pid": 4243, "name": "bash"}, {"pid": 4244, "name": "node"}], "open": ["--lane", "vsy-52"]}, {"cause": "scratch", "level": null, "subject": null}], "meters": [], "errors": []}'
+# The arguments the vsys TUI takes after its script for that summary.
+warden_open_args=(--lane vsy-52)
 warden_vsys_stub() {
   cat >"$shim/vsys" <<EOF
 #!/usr/bin/env bash
@@ -417,6 +426,7 @@ printf '%s\n' "\$*" >>"$warden_vsys_log"
 if [[ "\$*" == "--once --summary" ]]; then
   if [[ -e "$warden_vsys_fails" ]]; then echo "vsys: stand-in summary failed" >&2; exit 1; fi
   printf '%s\n' '$warden_summary'
+  if [[ -e "$warden_vsys_partial" ]]; then exit 2; fi
 fi
 EOF
   chmod 755 "$shim/vsys"
@@ -500,9 +510,16 @@ warden_open() {
     expect "$1: an open without vsys runs no summary" "$runs" warden_summary_runs
   fi
 }
-warden_line='vsys found one warning on this computer.'
+# The stand-in summary's line: its title, markup and all, and its
+# programs, each once, with no process id or scope unit.
+warden_line='1 group is near the memory threshold: <b>vsy-52</b>. Programs: node and bash.'
 # Whether the panel draws the stand-in summary's line: True or False.
 warden_panel_has_line() { warden_panel | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t != "absent" and sys.argv[1] in json.loads(t))' "$warden_line"; }
+# The text format the panel draws that line in, Text.PlainText being 0
+# and the default Text.AutoText 2
+# (https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop), or
+# `absent` while no label draws it.
+warden_line_format() { ipc smoke readMatchingDescendant panel vgs.agent-warden Label text "$warden_line" textFormat; }
 # warden_resummon LABEL: the open panel summoned again runs the summary
 # once more, as the core calls open() on a panel already shown.
 warden_resummon() {
@@ -573,6 +590,14 @@ expect_poll "the shield reads calm with one agent" '["shield-check", "neutral", 
 warden_open "calm"
 expect_poll "the calm panel says so, with the meter, the summary and the link" \
   "$(words Agents "1 agent is running within its limits." "Agent memory: 38 of 64 GB before slowdown" "$warden_line" "Checked N ago" "Open vsys")" warden_panel
+expect "the summary's title draws its markup as plain text" 0 warden_line_format
+# vsys exits 2 after the summary when it could not read a source; the
+# summary still draws its line.
+touch -- "$warden_vsys_partial"
+warden_resummon "a summary that exits 2"
+expect_poll "a summary with exit status 2 draws its line" \
+  "$(words Agents "1 agent is running within its limits." "Agent memory: 38 of 64 GB before slowdown" "$warden_line" "Checked N ago" "Open vsys")" warden_panel
+rm -f -- "${warden_vsys_partial:?}"
 # A summary that fails on a later open leaves no earlier verdict behind.
 touch -- "$warden_vsys_fails"
 warden_resummon "a failing summary"
@@ -598,7 +623,7 @@ expect_poll "the cleanup panel draws its count" \
   "$(words Agents "One problem needs your attention." "Cleaned up after a finished agent" "Stopped 42 leftover processes" "Agent memory: 38 of 64 GB before slowdown" "$warden_line" "Checked N ago" "Open vsys")" warden_panel
 expect "the cleanup panel and tooltip name no scope or process id" clean warden_names_nothing reaped
 click_item panel vgs.agent-warden Button "Open vsys" || fail "the click on Open vsys failed"
-expect_poll "Open vsys hands the terminal the vsys TUI" "$(words vgs.agent-warden/vsys tui/vsys.sh)" recorded_tail
+expect_poll "Open vsys hands the terminal the vsys TUI with the shown cause's open" "$(words vgs.agent-warden/vsys tui/vsys.sh "${warden_open_args[@]}")" recorded_tail
 expect_poll "the Open vsys hand-off closes the panel" hidden warden_panel_shown
 expect_run_end "the vsys run ends" vgs.agent-warden/vsys
 
@@ -859,13 +884,16 @@ warden_uncontrol
 
 # Control: a panel copy that keeps the last line when a new summary run
 # starts still draws the earlier verdict after a failed run, so the
-# failed-summary row above turns red on it.
+# failed-summary row above turns red on it. The same copy draws the line
+# in the default text format, so the plain-text row above turns red on it.
 warden_control Panel.qml "            summary = null;
+" "" "            textFormat: Text.PlainText
 " ""
 warden_put calm 0 >/dev/null
 expect_poll "the summary control reads calm" '["calm", null, 0, []]' warden_state
 expect "the summary control's panel is summoned" ok ipc shell summon panel vgs.agent-warden '{}'
 expect_poll "the summary control's panel draws the summary line" True warden_panel_has_line
+expect "the summary control draws the title in the default text format" 2 warden_line_format
 touch -- "$warden_vsys_fails"
 warden_resummon "the summary control"
 expect_poll "the summary control keeps the earlier verdict after a failed run" True warden_panel_has_line
