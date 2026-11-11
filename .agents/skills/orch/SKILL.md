@@ -44,6 +44,14 @@ Kendex workflow policy VGS keeps (KEN-3470):
 - VGS selects the full-bypass permission mode for its Claude handoff lanes explicitly; carry it through the existing launch arguments. Do not infer it from the use of orchestration alone. (ORCH-M21)
 - For an outside contribution, maintainers supply missing version, changelog and generated-render bookkeeping during takeover; never send the contributor back only for those steps. (ORCH-M27)
 - In review-pr and submit-pr local pre-PR review, external second-opinion review is advisory: if its script fails, record the stated failure and continue. VGS has no stricter second-opinion gate. (second-opinion-16)
+
+## VGS dependency pin check
+
+On its first pass of each UTC day, the overseer runs the upstream check command of every row in `docs/dep-radar/inventory.md`, reading the rows from that file in the base checkout at main that day. It runs each row's check alone, never a whole sweep. The row's Upstream check cell says what each exit means:
+
+- Behind: file that row's pin-move item in team vgs the same day, through the project-management filing route. The item's work is the dep-radar sweep for that one surface, under that row's owner rules. While an open item already moves that surface's pin, add the newer reading to it instead of filing another.
+- Exit 77: report the row to the owner as unreadable, never as current.
+- An exit the cell says needs the owner: report the row and its output line to the owner.
 <!-- kendex:project-instructions:end -->
 
 # Orchestration
