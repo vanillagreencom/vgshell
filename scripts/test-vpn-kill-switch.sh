@@ -15,9 +15,11 @@
 # mounts there give it its own /run, /var/lib and /usr/local, so the
 # script's fixed paths and its PATH reach only this suite's files: from
 # /usr/local/sbin, a stand-in nmcli answers the fixture profiles, a stand-in
-# systemctl answers whether NetworkManager runs, a stand-in setpriv records
-# its argv, and an nft wrapper fails on demand or deletes the table before
-# a counter read. `ip netns add hotel` makes
+# systemctl answers whether NetworkManager runs and what state
+# vgs-kill-switch.path is in, a stand-in setpriv records its argv, and an
+# nft wrapper fails on demand or disarms before a counter read. The
+# must-fail controls run copies of the script missing one rule each.
+# `ip netns add hotel` makes
 # the hotel, joined to the laptop's wlan0 by a veth pair. The hotel holds
 # the gateway and DNS server 192.168.50.1, the internet hosts 203.0.113.10
 # and 2001:db8:ff::10, and the capture of every frame wlan0 sends
@@ -151,12 +153,19 @@ case "\$4" in
   *) exit 2 ;;
 esac
 EOF
-# systemctl answers only whether NetworkManager runs: yes, unless
-# $tmp/nm-inactive exists.
+# systemctl answers whether NetworkManager runs: yes, unless
+# $tmp/nm-inactive exists; and vgs-kill-switch.path's ActiveState: the
+# word in $tmp/watcher, else active, and no answer while
+# $tmp/watcher-unread exists.
 cat >/usr/local/sbin/systemctl <<EOF
 #!/bin/sh
-[ "\$*" = "is-active --quiet NetworkManager.service" ] || exit 64
-[ ! -e "$tmp/nm-inactive" ]
+case "\$*" in
+  "is-active --quiet NetworkManager.service") [ ! -e "$tmp/nm-inactive" ] ;;
+  "show --property=ActiveState --value vgs-kill-switch.path")
+    [ ! -e "$tmp/watcher-unread" ] || exit 1
+    if [ -e "$tmp/watcher" ]; then cat "$tmp/watcher"; else echo active; fi ;;
+  *) exit 64 ;;
+esac
 EOF
 # setpriv records the argv the script passes and runs the real setpriv with
 # --keep-groups for --clear-groups: an unprivileged namespace may never call
@@ -173,12 +182,13 @@ exec $real_setpriv "\$@"
 EOF
 # nft refuses every transaction while $tmp/nft-fail exists. Once after
 # $tmp/nft-disarm-between is created, a counter read first deletes the
-# table, as a sync's disarm can between status's listing and that read.
-# Otherwise it is the real nft.
+# cache and then the table, as a sync's disarm can between status's
+# listing and that read. Otherwise it is the real nft.
 cat >/usr/local/sbin/nft <<EOF
 #!/bin/sh
 [ "\$1" = -f ] && [ -e "$tmp/nft-fail" ] && { echo "nft: planted failure" >&2; exit 1; }
 if [ "\$1 \$2" = "list counter" ] && rm -- "$tmp/nft-disarm-between" 2>/dev/null; then
+  rm -f -- $cache || exit 1
   $real_nft delete table inet vgshell_kill_switch || exit 1
 fi
 exec $real_nft "\$@"
@@ -286,6 +296,15 @@ refused() { # FILE STATUS KEY: STATUS is 1 and FILE's first line is the refusal 
   printf '        exit=%s err=[%s]\n' "$2" "$(head -c 400 "$1")"
   return 1
 }
+# Like refused, for a refusal after a command that may print its own
+# message first, as the script's header allows: the first keyed line.
+refused_keyed() { # FILE STATUS KEY
+  local first
+  first="$(grep -m 1 '^vgs-kill-switch: refused: ' "$1")" || first=""
+  [[ $2 == 1 && $first == "vgs-kill-switch: refused: $3" ]] && return
+  printf '        exit=%s err=[%s]\n' "$2" "$(head -c 400 "$1")"
+  return 1
+}
 # Sets line to the status line the socket serves to the unprivileged reader,
 # and blocked to its count.
 read_status() {
@@ -318,6 +337,15 @@ tcp_refused_at_once() { # ADDRESS PORT
   local start=${EPOCHREALTIME/./} status=0
   timeout 2 bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null || status=$?
   ((status != 0 && ${EPOCHREALTIME/./} - start < 300000))
+}
+# Sets mutant to a copy of the script with NEEDLE, which must occur once,
+# replaced by REPLACEMENT: a must-fail control.
+mutant() { # NAME NEEDLE REPLACEMENT
+  mutant="$tmp/mutant-$1"
+  check "the $1 control's text occurs once" test "$(python3 -I -c 'import sys; print(open(sys.argv[1]).read().count(sys.argv[2]))' "$script" "$2")" == 1
+  python3 -I -c 'import sys; p, o, a, b = sys.argv[1:]; s = open(p).read(); open(o, "w").write(s.replace(a, b))' "$script" "$mutant" "$2" "$3"
+  chmod 0755 "$mutant"
+  check "the $1 mutant differs" test "$(cmp -s -- "$script" "$mutant"; echo $?)" == 1
 }
 gateway6_resolved() { local out; out="$(ip -6 neigh show 2001:db8:50::1 dev wlan0)" && [[ $out == *lladdr* ]]; }
 # leak_check STATUS_LINE BEFORE OUT: the leak judge over STATUS_LINE and
@@ -740,8 +768,43 @@ check "the user's off names an armed reading, not a read its deadline cut" refus
 stop_status
 serve_status
 
+# A flush of the whole ruleset, as a root `nft -f` of a file that starts
+# with `flush ruleset` does, removes the rule and no unit sees it: status
+# reads the rule missing while the cache says the last sync armed it.
+write_state "$uuid" block
+run_sync
+check "arm before a flush of the whole ruleset" synced armed
+nft flush ruleset
+check "after a flush the status reads the rule missing, not disarmed" status_is "state=off reason=rule-missing" "tunnel=" "profile="
+echo failed >"$tmp/watcher"
+check "a missing rule outranks a failed watcher" status_is "state=off reason=rule-missing" "tunnel=" "profile="
+mutant flush-blind '  if [[ ! -e $cache_file && ! -L $cache_file ]]; then' '  if true; then'
+echo active >"$tmp/watcher"
+check "the flush-blind control reads a flushed rule as disarmed" test "$("$mutant" status 2>&1)" == "state=off reason=disarmed blocked=0 tunnel= profile="
+run_sync
+check "the next sync arms the flushed rule again" synced armed
+
+# A failed vgs-kill-switch.path applies no write until it watches again:
+# status names it in place of the tunnel's reason or disarmed, and names a
+# reading systemctl did not give.
+echo failed >"$tmp/watcher"
+check "with the watcher failed the status says so in place of tunnel-up" status_is "state=passing reason=watcher-failed" "tunnel=wgnord" "profile=$uuid"
+mutant watcher-blind '    watcher_reason
+    why="${watcher_why:-$why}"' '    watcher_why=""
+    why="${watcher_why:-$why}"'
+check "the watcher-blind control reads tunnel-up" test "$("$mutant" status 2>&1 | cut -d' ' -f1-2)" == "state=passing reason=tunnel-up"
+touch "$tmp/watcher-unread"
+check "a watcher systemctl cannot read is named, never passed" status_is "state=passing reason=watcher-unread" "tunnel=wgnord" "profile=$uuid"
+rm -f -- "$tmp/watcher-unread"
+write_state "" block
+run_sync
+check "disarm with the watcher failed" synced disarmed
+check "with the watcher failed an off reads watcher-failed" status_is "state=off reason=watcher-failed" "tunnel=" "profile="
+echo active >"$tmp/watcher"
+check "a watching path unit reads disarmed again" status_is "state=off reason=disarmed" "tunnel=" "profile="
+
 # A state file outside the grammar is never printed. It arms from the cache
-# of the last armed sync, at boot too, and otherwise changes nothing.
+# of the last armed sync, at boot too.
 write_state "$uuid" block
 run_sync
 printf 'version=1\nmeant-on=leaked-text-%s\nkill-switch=block\nportal-until=0\n' "$uuid" >"$state"
@@ -753,10 +816,98 @@ nft delete table inet vgshell_kill_switch
 run_sync
 check "a malformed file at boot is refused" refused "$tmp/sync.err" "$sync_status" "state=malformed path=$state"
 check "a malformed file at boot arms from the last armed sync's cache" set_holds tunnel_links '"tailscale0", "wgnord"'
-nft delete table inet vgshell_kill_switch
-rm -f -- /var/lib/vgshell/kill-switch/profile
+
+# A damaged state with no cache and no table, as at boot after a sync that
+# disarmed, arms closed though the last intent was off: no tunnel, no peer,
+# and a status reason that names the state. Root keeps no cache under a
+# parent it cannot trust, so there status reads cache-unreadable.
+damage() { # KIND
+  case "$1" in
+    malformed) printf 'version=1\nmeant-on=leaked-text-%s\nkill-switch=block\nportal-until=0\n' "$uuid" >"$state" ;;
+    too-large) head -c 5000 /dev/zero | tr '\0' x >"$state" ;;
+    unreadable) rm -f -- "$state"; mkdir -- "$state" ;;
+    not-a-directory) mv -- /var/lib/vgshell/vpn "$tmp/vpn-away"; : >/var/lib/vgshell/vpn ;;
+    untrusted) chmod 0777 /var/lib/vgshell ;;
+  esac
+}
+repair() { # KIND
+  case "$1" in
+    unreadable) rmdir -- "$state" ;;
+    not-a-directory) rm -f -- /var/lib/vgshell/vpn; mv -- "$tmp/vpn-away" /var/lib/vgshell/vpn ;;
+    untrusted) chmod 0755 /var/lib/vgshell ;;
+  esac
+  write_state "" block
+}
+closed_no_peer() { set_holds tunnel_links 'elements = { "tailscale0" }' && set_empty peers4 && set_empty peers6; }
+while IFS='|' read -r kind key why; do
+  [[ -n $kind ]] || continue
+  write_state "" block
+  run_sync
+  damage "$kind"
+  run_sync
+  check "$kind: sync refuses, naming the damage" refused_keyed "$tmp/sync.err" "$sync_status" "$key"
+  check "$kind: the table arms with no cache and the last intent off" table_armed
+  check "$kind: only tailscale0 passes, and no peer" closed_no_peer
+  check "$kind: the status names why" status_is "state=unavailable reason=$why" "tunnel=" "profile="
+  repair "$kind"
+done <<EOF
+malformed|state=malformed path=$state|state-unusable
+too-large|state=too-large path=$state|state-unusable
+unreadable|state=unreadable path=$state|state-unusable
+not-a-directory|state-dir=not-a-directory path=/var/lib/vgshell/vpn|state-unusable
+untrusted|untrusted=/var/lib/vgshell|cache-unreadable
+EOF
 run_sync
-check "with no cache a malformed file leaves the kernel as it was" table_absent
+check "a repaired state disarms the closed arm" synced disarmed
+damage malformed
+run_sync
+clear_out="$("$script" off 2>"$tmp/off.err")" || clear_out="exit=$?"
+check "the root off clears a closed arm from a file that does not parse" test "$clear_out" == "ok state=off"
+run_sync
+check "after that off the next sync disarms" synced disarmed
+mutant refuse-open '  read_cache || reason=state-unusable' '  read_cache || refuse "$error"'
+damage malformed
+"$mutant" sync >/dev/null 2>&1 || true
+check "the refuse-open control leaves no table" table_absent
+repair malformed
+
+# A cache root cannot remove, as on a /var the kernel remounted read-only,
+# never keeps the table from changing: the root off still deletes it, and a
+# sync at boot, with the cache of the last armed sync, still arms. Each
+# refuses after, naming the cache.
+write_state "$uuid" block
+run_sync
+check "arm before the cache turns read-only" synced armed
+mount --bind -o ro /var/lib/vgshell/kill-switch /var/lib/vgshell/kill-switch
+clear_status=0
+"$script" off >/dev/null 2>"$tmp/off.err" || clear_status=$?
+check "a root off with a read-only cache leaves no table" table_absent
+check "that off refuses after the delete, naming the cache" refused_keyed "$tmp/off.err" "$clear_status" "cache=remove-failed path=$cache"
+check "that off still writes meant-on=" grep -qx 'meant-on=' "$state"
+write_state "$uuid" block
+run_sync
+check "a sync with a read-only cache and no table arms" table_armed
+check "that sync refuses after the arm, naming the cache" refused_keyed "$tmp/sync.err" "$sync_status" "cache=remove-failed path=$cache"
+mutant disarm-refuses-first '  rm -f -- "$cache_file" || cache_kept=1' '  rm -f -- "$cache_file" || refuse "cache=remove-failed path=$cache_file"'
+"$mutant" off >/dev/null 2>&1 || true
+check "the disarm-refuses-first control's root off leaves the table" table_armed
+mutant off-exits-early '  disarm || true
+  try_lock' '  disarm || refuse "$disarm_error" "$disarm_note"
+  try_lock'
+"$mutant" off >/dev/null 2>&1 || true
+check "the off-exits-early control's root off leaves the state meant on" grep -qx "meant-on=$uuid" "$state"
+mutant arm-refuses-first '  rm -f -- "$cache_file" || cache_error="cache=remove-failed path=$cache_file"
+  arm
+' '  rm -f -- "$cache_file" || refuse "cache=remove-failed path=$cache_file"
+  arm
+'
+nft delete table inet vgshell_kill_switch 2>/dev/null || true
+"$mutant" sync >/dev/null 2>&1 || true
+check "the arm-refuses-first control's sync leaves no table" table_absent
+umount /var/lib/vgshell/kill-switch
+write_state "" block
+run_sync
+check "with the cache writable again a sync disarms" synced disarmed
 printf 'version=1\nmeant-on=\nkill-switch=block\nportal-until=0\nextra=1\n' >"$state"
 run_sync
 check "an unknown key is refused" refused "$tmp/sync.err" "$sync_status" "state=malformed path=$state"

@@ -712,7 +712,7 @@ PY
 # the fakes' tree (devices_system_tree), never the host's. `needed` puts an
 # nft there, which the probe only looks up and nothing runs, so the step
 # reads needed and its row offers Set up. `ready` adds what apply leaves:
-# the five files at their destinations, the user's state directory, the
+# the seven files at their destinations, the user's state directory, the
 # cache directory, which a stat stand-in reports root's, as rows/system-
 # steps.sh's does, and the three units enabled through the systemctl
 # stand-in. `remove` takes all of it away, the state file included.
@@ -721,7 +721,8 @@ devices_vpn_kill_tree() { # needed|ready|remove
   local bin="$devices_system_root/usr/bin" units="$devices_system_root/etc/systemd/system" unit
   rm -rf -- "${devices_vpn_kill_root:?}/vpn" "${devices_vpn_kill_root:?}/kill-switch" "${devices_system_root:?}/usr/local/bin/vgs-kill-switch" \
     "${units:?}/vgs-kill-switch.service" "${units:?}/vgs-kill-switch.path" "${units:?}/vgs-kill-switch-status.socket" \
-    "${units:?}/vgs-kill-switch-status@.service" "${bin:?}/nft" "${bin:?}/stat"
+    "${units:?}/vgs-kill-switch-status@.service" "${units:?}/vgs-kill-switch-recover.timer" \
+    "${units:?}/vgs-kill-switch-recover.service" "${bin:?}/nft" "${bin:?}/stat"
   for unit in vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service; do
     device_reply systemctl 1 "" is-enabled --quiet "$unit"
   done
@@ -731,7 +732,8 @@ devices_vpn_kill_tree() { # needed|ready|remove
   [[ $1 == ready ]] || return 0
   mkdir -p -- "$devices_system_root/usr/local/bin" "$units" "$devices_vpn_kill_root/vpn" "$devices_vpn_kill_root/kill-switch"
   cp -- "$repo/config/system/kill-switch/vgs-kill-switch" "$devices_system_root/usr/local/bin/vgs-kill-switch"
-  for unit in vgs-kill-switch.service vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch-status@.service; do
+  for unit in vgs-kill-switch.service vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch-status@.service \
+    vgs-kill-switch-recover.timer vgs-kill-switch-recover.service; do
     cp -- "$repo/config/system/kill-switch/$unit" "$units/$unit"
   done
   printf '#!/bin/sh\nfor last; do :; done\nif [ "$1 $2" = "-c %%u %%a" ] && [ "$last" = %q ]; then echo "0 700"; exit 0; fi\nexec %q "$@"\n' \

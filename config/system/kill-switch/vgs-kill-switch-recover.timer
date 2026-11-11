@@ -1,0 +1,19 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. vgs-kill-switch.path starts it through
+# OnFailure= when it fails, as its trigger limit fails it, and it starts
+# vgs-kill-switch-recover.service, the default Unit= of a timer of this name
+# (systemd.timer(5)), 60 to 61 s later. By then that path unit's 10 s trigger
+# window has passed, so a cause that stays trips it at most once a minute.
+# AccuracySec= defaults to 1min, which would put the start anywhere in a
+# second minute. With RemainAfterElapse=no the elapsed timer goes back to
+# inactive, not elapsed (systemd v262 src/core/timer.c, timer_enter_elapsed),
+# and a start of an inactive timer runs it again (timer_start); an elapsed
+# timer would ignore the next failure's start (systemd.timer(5),
+# RemainAfterElapse=).
+[Unit]
+Description=VGS VPN kill switch: watch again a minute after the watcher failed
+
+[Timer]
+OnActiveSec=60s
+AccuracySec=1s
+RemainAfterElapse=no

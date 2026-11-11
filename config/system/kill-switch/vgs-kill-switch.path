@@ -7,11 +7,18 @@
 # in a state directory it refuses, would start it again each time it ends.
 # Such a sync took 16 to 28 ms (20 runs of each path under `unshare -rnm`,
 # 2026-11-08), far from the 100 starts a second the default trigger limit
-# (200 in 2 s) needs, so this limit trips at a sustained 5 a second. A tripped path unit
-# stops watching until it is restarted or the machine boots; a writer's
-# burst starts about 2 syncs a write, far below it.
+# (200 in 2 s) needs, so this limit trips at a sustained 5 a second; a
+# writer's burst starts about 2 syncs a write, far below it. A tripped path
+# unit enters failed and stops watching (systemd.path(5), TriggerLimitBurst=;
+# systemd v262 src/core/path.c, path_enter_running), and entering failed
+# starts each OnFailure= unit (src/core/unit.c, unit_notify), so
+# vgs-kill-switch-recover.timer starts it again a minute later. That is one
+# start per failure, not a watchdog: nothing polls, and a path unit that
+# keeps watching starts nothing. vgs-kill-switch status reads a failed path
+# unit as reason watcher-failed.
 [Unit]
 Description=VGS VPN kill switch: watch the VPN state and NetworkManager profiles
+OnFailure=vgs-kill-switch-recover.timer
 
 [Path]
 PathChanged=/var/lib/vgshell/vpn

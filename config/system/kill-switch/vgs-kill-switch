@@ -39,11 +39,13 @@
 #
 # sync holds the lock /run/vgs-kill-switch.lock, mode 0600, and removes
 # pending, as the file's owner, before each read. With meant-on empty or
-# kill-switch=off it deletes the table and the profile cache. Otherwise it
-# reads the profile's type, interface name and WireGuard peers through
-# nmcli while NetworkManager.service is active. It deletes the cache, arms,
-# and once nft holds the rule keeps the reading in
-# /var/lib/vgshell/kill-switch/profile, root's, mode 0600. While
+# kill-switch=off it deletes the profile cache and then the table.
+# Otherwise it reads the profile's type, interface name and WireGuard peers
+# through nmcli while NetworkManager.service is active. It deletes the
+# cache, arms, and once nft holds the rule keeps the reading in
+# /var/lib/vgshell/kill-switch/profile, root's, mode 0600. A cache it
+# cannot remove refuses cache=remove-failed only after the arm or the
+# delete, so a read-only /var never keeps the table from changing. While
 # NetworkManager is not active, as at boot, or nmcli cannot answer, it uses
 # that cache when it names the same uuid, and otherwise arms with no tunnel
 # and no peers. A profile that is not WireGuard, an interface name Linux
@@ -56,14 +58,16 @@
 # again after the change and repeats until that read matches what it
 # applied, up to 10 passes, then refuses state=unsettled.
 #
-# A state file sync cannot read or parse makes it refuse and keep the last
-# applied intent. The cache exists only while the last sync armed, since
-# disarm and a failed arm delete it, and it lives on /var, so it survives
-# reboot. With it, sync arms from it in block with no sign-in opening,
-# because at boot the kernel as it was holds no table at all. Without it,
-# the last sync disarmed, or failed to arm or to save the cache, and the
-# kernel stays as it is: so a malformed file at boot after such a failure
-# leaves the machine open.
+# A state file sync cannot read or parse, or a state directory it refuses,
+# makes it arm in block with no sign-in opening and then refuse, since at
+# boot the kernel holds no table at all. The cache exists only while the
+# last sync armed, since disarm and a failed arm delete it, and it lives on
+# /var, so it survives reboot. With it, sync arms with the cached reading.
+# Without it, sync arms with no tunnel and no peers and caches that reading
+# with no profile and reason state-unusable, so status names it. So a
+# damaged file blocks traffic even when the last intent was off. off
+# rewrites a file that does not parse; a file or directory it cannot read
+# waits for its owner, and the root off clears the rule until the next sync.
 #
 # status prints one line:
 #
@@ -75,19 +79,29 @@
 # for its own uuid, so a line left from the previous profile never answers
 # it.
 #
-#   off          disarmed: reason disarmed, blocked=0, tunnel= and profile=
-#                empty
+#   off          no table: reason rule-missing while the profile cache
+#                exists, so the last sync armed and the rule went since, as
+#                after `nft flush ruleset` or at boot before the first sync;
+#                otherwise disarmed. disarm deletes the cache before the
+#                table, so an off on purpose never reads rule-missing.
+#                blocked=0, tunnel= and profile= are empty.
 #   holding      armed, the tunnel interface absent: reason tunnel-down
 #   passing      armed, the tunnel interface present: reason tunnel-up
 #   unavailable  armed with no tunnel and no peer: reason
 #                profile-not-wireguard, profile-missing, profile-unread,
-#                interface-invalid, endpoint-hostname, endpoint-invalid or
-#                cache-unreadable; tunnel= is empty, and profile= too for
-#                cache-unreadable. What every armed table passes still
+#                interface-invalid, endpoint-hostname, endpoint-invalid,
+#                state-unusable or cache-unreadable; tunnel= is empty, and
+#                profile= too for state-unusable and cache-unreadable.
+#                What every armed table passes still
 #                passes: loopback, tailscale0 and Tailscale's marked
 #                packets, DHCP, neighbour discovery and multicast listener
 #                reports, the sign-in window while open, and block-lan's
 #                local ranges.
+#
+# In place of disarmed, tunnel-down and tunnel-up, status prints
+# watcher-failed while vgs-kill-switch.path has failed, so no write reaches
+# the kernel until vgs-kill-switch-recover.timer starts it again, and
+# watcher-unread when systemctl gives no reading of that unit.
 #
 # With CAP_NET_ADMIN, as vgs-kill-switch-status@.service runs it, status reads
 # the kernel. Without it, it reads the same line from /run/vgs-kill-switch.sock
@@ -98,8 +112,9 @@
 # kill-switch=block and portal-until=0 for a file it cannot parse, then
 # creates pending. With CAP_NET_ADMIN, as `sudo vgs-kill-switch off`, it
 # first deletes the table and the cache without the lock, which clears the
-# rule whatever state the units, NetworkManager, VGS or the state file are
-# in. It then takes the lock, writes the file and deletes the table again,
+# rule whatever state the units, NetworkManager, VGS, the state file or the
+# cache are in; with a cache it cannot remove, it still takes the lock,
+# writes the file and clears again, then refuses cache=remove-failed. It then takes the lock, writes the file and deletes the table again,
 # and refuses, with the table gone, when the lock or the write failed.
 # Without CAP_NET_ADMIN, it waits up to 3 s for status to read off, starting
 # no read with under 0.5 s left, then refuses with off=pending, adding
@@ -396,17 +411,18 @@ save_cache() { # UUID
 }
 
 # Sets tunnel, peers4, peers6, reason and cache_uuid from the cache; with
-# UUID, only when the cache names it. Returns 1 when there is no such
-# cache. Every value is checked again, since it reaches nft.
+# UUID, only when the cache names it. An empty uuid is unusable_state's
+# reading of no profile, which no UUID names. Returns 1 when there is no
+# such cache. Every value is checked again, since it reaches nft.
 read_cache() { # [UUID]
-  local line key value text uuid="" host port
+  local line key value text uuid="" seen="" host port
   tunnel="" reason="" peers4=() peers6=() cache_uuid=""
   [[ -f $cache_file && ! -L $cache_file ]] || return 1
   text="$(<"$cache_file")" || return 1
   while IFS= read -r line; do
     key="${line%%=*}" value="${line#*=}"
     case "$key" in
-      uuid) [[ $value =~ $uuid_pattern ]] && uuid="$value" ;;
+      uuid) [[ -z $value || $value =~ $uuid_pattern ]] && uuid="$value" seen=1 ;;
       tunnel) [[ -z $value ]] || valid_ifname "$value" && tunnel="$value" ;;
       reason) [[ -z $value || $value =~ $reason_pattern ]] && reason="$value" ;;
       peer4) split_peer "$value" && [[ $host =~ $ipv4_pattern ]] && valid_port "$port" && peers4+=("$value") ;;
@@ -414,7 +430,7 @@ read_cache() { # [UUID]
       *) false ;;
     esac || { tunnel="" reason="" peers4=() peers6=(); return 1; }
   done <<<"$text"
-  [[ -n $uuid && (-z ${1-} || $uuid == "$1") ]] || { tunnel="" reason="" peers4=() peers6=(); return 1; }
+  [[ -n $seen && (-z ${1-} || $uuid == "$1") ]] || { tunnel="" reason="" peers4=() peers6=(); return 1; }
   cache_uuid="$uuid"
 }
 
@@ -547,18 +563,35 @@ nft_apply() { # TEXT
 }
 
 # Arms, and caches the reading for UUID once nft holds it: status reads the
-# cache, so it never names a reading the kernel does not hold.
+# cache, so it never names a reading the kernel does not hold. A cache it
+# cannot remove, as on a /var the kernel remounted read-only, still arms and
+# refuses after: the rule outranks the status line, which may then name the
+# reading before this one.
 arm_and_cache() { # UUID
-  rm -f -- "$cache_file" || refuse "cache=remove-failed path=$cache_file"
+  local cache_error=""
+  rm -f -- "$cache_file" || cache_error="cache=remove-failed path=$cache_file"
   arm
+  [[ -z $cache_error ]] || refuse "$cache_error" "the rule is armed, but the cache of the reading before it stays"
   save_cache "$1"
 }
 
-# Deletes the table and the cache. Declaring the table first makes the
-# delete hold whether or not it exists, in one transaction.
+# Deletes the cache, then the table: status reads a cache with no table as
+# rule-missing, so the cache goes first. A cache it cannot remove still
+# lets the table go. Returns 1 with disarm_error set to the refusal's keyed
+# line and disarm_note to its English when the table or the cache stays,
+# so each caller decides whether that ends the verb. Declaring the table
+# first makes the delete hold whether or not it exists, in one transaction.
 disarm() {
-  nft_apply "table inet $table {}"$'\n'"delete table inet $table" || refuse "nft=failed verb=disarm" "$nft_error"
-  rm -f -- "$cache_file" || refuse "cache=remove-failed path=$cache_file"
+  local cache_kept=""
+  disarm_error="" disarm_note=""
+  rm -f -- "$cache_file" || cache_kept=1
+  if ! nft_apply "table inet $table {}"$'\n'"delete table inet $table"; then
+    disarm_error="nft=failed verb=disarm" disarm_note="$nft_error"
+  elif [[ -n $cache_kept ]]; then
+    disarm_error="cache=remove-failed path=$cache_file"
+    disarm_note="The rule is cleared, but the cache stays, so status reads rule-missing until a sync removes it."
+  fi
+  [[ -z $disarm_error ]]
 }
 
 # ---------------------------------------------------------------- status
@@ -570,11 +603,36 @@ table_listed() {
   [[ $'\n'"$tables"$'\n' == *$'\n'"table inet $table"$'\n'* ]]
 }
 
-# Prints the status line from the kernel, the cache and the links.
+# Sets watcher_why to watcher-failed while vgs-kill-switch.path has failed,
+# watcher-unread when systemctl gives none of the ActiveState values
+# org.freedesktop.systemd1(5) lists, and empty otherwise.
+watcher_reason() {
+  local active
+  watcher_why=watcher-unread
+  active="$(timeout 5 systemctl show --property=ActiveState --value vgs-kill-switch.path 2>/dev/null)" || return 0
+  case "$active" in
+    failed) watcher_why=watcher-failed ;;
+    active|reloading|inactive|activating|deactivating|maintenance|refreshing) watcher_why="" ;;
+  esac
+}
+
+# Prints the status line for no table: rule-missing while the cache says
+# the last sync armed, else the watcher's reason or disarmed.
+absent_status() {
+  local why=rule-missing
+  if [[ ! -e $cache_file && ! -L $cache_file ]]; then
+    watcher_reason
+    why="${watcher_why:-disarmed}"
+  fi
+  printf 'state=off reason=%s blocked=0 tunnel= profile=\n' "$why"
+}
+
+# Prints the status line from the kernel, the cache, the links and the
+# watcher.
 kernel_status() {
-  local counter packets links line name state why found="" off="state=off reason=disarmed blocked=0 tunnel= profile="
+  local counter packets links line name state why found=""
   if ! table_listed; then
-    printf '%s\n' "$off"
+    absent_status
     return
   fi
   # A sync's disarm can delete the table between the listing and this read,
@@ -583,7 +641,7 @@ kernel_status() {
   # a refusal.
   if ! counter="$(nft list counter inet "$table" blocked 2>&1)"; then
     if ! table_listed; then
-      printf '%s\n' "$off"
+      absent_status
       return
     fi
     refuse "nft=failed verb=status" "$counter"
@@ -601,6 +659,8 @@ kernel_status() {
       [[ $name != "$tunnel" ]] || found=1
     done <<<"$links"
     if [[ -n $found ]]; then state=passing why=tunnel-up; else state=holding why=tunnel-down; fi
+    watcher_reason
+    why="${watcher_why:-$why}"
   fi
   printf 'state=%s reason=%s blocked=%s tunnel=%s profile=%s\n' "$state" "$why" "$packets" "$tunnel" "$cache_uuid"
 }
@@ -648,7 +708,7 @@ verb_sync() {
     load_state || unusable_state
     applied="$state_present/$state_text"
     if [[ -z $meant_on || $kill_switch == off ]]; then
-      disarm
+      disarm || refuse "$disarm_error" "$disarm_note"
       result=disarmed
     else
       read_profile "$meant_on"
@@ -663,16 +723,16 @@ verb_sync() {
   refuse "state=unsettled path=$state_file" "the state file changed during each of $sync_passes passes; the rule holds the last one read"
 }
 
-# Refuses for a state file sync cannot read or parse, after arming from the
-# cache in block when the last sync armed, as the header says.
+# Refuses for a state file sync cannot read or parse, after arming in
+# block, as the header says: from the cache when the last sync armed,
+# otherwise with no tunnel and no peers, cached with no profile.
 unusable_state() {
-  local error="$state_error"
-  if read_cache; then
-    kill_switch=block portal_until=0
-    arm_and_cache "$cache_uuid"
-    refuse "$error" "the rule is armed from the last profile sync read; vgs-kill-switch off rewrites the file"
-  fi
-  refuse "$error" "the rule stays as it was; vgs-kill-switch off rewrites the file"
+  local error="$state_error" armed="the rule is armed from the last profile sync read"
+  kill_switch=block portal_until=0
+  read_cache || reason=state-unusable
+  [[ -n $cache_uuid ]] || armed="the rule is armed and passes no VPN"
+  arm_and_cache "$cache_uuid"
+  refuse "$error" "$armed; vgs-kill-switch off rewrites a file that does not parse"
 }
 
 verb_status() {
@@ -682,12 +742,13 @@ verb_status() {
   refuse "$socket_error"
 }
 
-# The root form clears first, so neither a busy lock nor a state file it
-# cannot write keeps the rule in place; the second clear, under the lock,
-# undoes a sync that armed in between.
+# The root form clears first, so neither a busy lock, a state file it
+# cannot write nor a cache it cannot remove keeps the rule in place; the
+# second clear, under the lock, undoes a sync that armed in between, and
+# its reading is the one off reports.
 off_root() {
-  local locked=1 written cleared="The rule is cleared, but the state file may still say on, so the next sync can arm it again."
-  disarm
+  local locked=1 written notes=() cleared="The rule is cleared, but the state file may still say on, so the next sync can arm it again."
+  disarm || true
   try_lock || locked=""
   # write_off refuses by exiting, so it runs in a subshell whose refusal
   # cannot end this shell. errexit is off around the subshell rather than
@@ -696,14 +757,19 @@ off_root() {
   (set -e; write_off)
   written=$?
   set -e
-  disarm
-  # The write's refusal is the keyed line when it failed; the lock's
-  # follows as English, so one refusal prints one keyed line.
+  # A table nft cannot delete ends the verb at once; a kept cache does not.
+  disarm || [[ $disarm_error == cache=* ]] || refuse "$disarm_error" "$disarm_note"
+  # The write's refusal is the keyed line when it failed, then the cache's,
+  # then the lock's; the others follow as English, so one refusal prints
+  # one keyed line.
+  [[ -n $locked ]] || notes+=("The sync lock was not taken either ($lock_error).")
   if ((written != 0)); then
-    [[ -n $locked ]] || printf 'The sync lock was not taken either (%s).\n' "$lock_error" >&2
+    [[ -z $disarm_error ]] || printf 'The cache was not removed either (%s).\n' "$disarm_error" >&2
+    ((${#notes[@]} == 0)) || printf '%s\n' "${notes[@]}" >&2
     printf '%s\n' "$cleared" >&2
     exit 1
   fi
+  [[ -z $disarm_error ]] || refuse "$disarm_error" "$disarm_note" "${notes[@]}"
   [[ -n $locked ]] || refuse "$lock_error" "$cleared"
   printf 'ok state=off\n'
 }

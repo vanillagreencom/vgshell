@@ -3,7 +3,14 @@
 # vgs-kill-switch-status.socket writes the status line and exits; it keeps
 # CAP_NET_ADMIN alone, to read the rule. Each connection names a new
 # instance, so a failed one is unloaded rather than kept (systemd.socket(5),
-# Accept=).
+# Accept=). It also asks systemd whether vgs-kill-switch.path failed. As uid
+# 0, systemctl connects to /run/systemd/private (systemd v262
+# src/shared/bus-util.c, bus_connect_system_systemd): the socket is root's,
+# mode 0700, so no capability is needed to open it, and the manager's peer
+# check admits uid 0 (bus_check_peercred). ProtectSystem=strict leaves /run
+# read-only, which does not stop a connect to a socket there: a connect to
+# a socket on a read-only bind mount succeeded under `unshare -rm`, Linux
+# 7.3.3, 2026-11-11.
 [Unit]
 Description=VGS VPN kill switch status read
 CollectMode=inactive-or-failed

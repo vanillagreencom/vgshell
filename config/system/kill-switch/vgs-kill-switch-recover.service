@@ -1,0 +1,12 @@
+# Installed by `vgshell system apply vpn-kill-switch`; `vgshell system undo
+# vpn-kill-switch` removes it. vgs-kill-switch-recover.timer starts it once
+# per failure of vgs-kill-switch.path, and it starts that path unit again: a
+# start of a failed path unit puts it back to watching (systemd v262
+# src/core/path.c, path_start). It runs once and exits, so nothing of VGS
+# stays running to hold the rule.
+[Unit]
+Description=VGS VPN kill switch: start the failed watcher again
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl start vgs-kill-switch.path

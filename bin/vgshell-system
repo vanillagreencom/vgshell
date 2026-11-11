@@ -45,17 +45,20 @@
 #   vpn-kill-switch      install config/system/kill-switch/vgs-kill-switch as
 #                        /usr/local/bin/vgs-kill-switch, mode 0755, and the
 #                        same directory's vgs-kill-switch.service,
-#                        vgs-kill-switch.path, vgs-kill-switch-status.socket and
-#                        vgs-kill-switch-status@.service in /etc/systemd/system,
-#                        mode 0644; make /var/lib/vgshell/vpn the caller's, 0755,
-#                        and /var/lib/vgshell/kill-switch root's, 0700; then
+#                        vgs-kill-switch.path, vgs-kill-switch-status.socket,
+#                        vgs-kill-switch-status@.service,
+#                        vgs-kill-switch-recover.timer and
+#                        vgs-kill-switch-recover.service in
+#                        /etc/systemd/system, mode 0644; make
+#                        /var/lib/vgshell/vpn the caller's, 0755, and
+#                        /var/lib/vgshell/kill-switch root's, 0700; then
 #                        `systemctl daemon-reload` after a new unit file,
 #                        `systemctl reset-failed` of a failed path unit or
 #                        socket, `systemctl restart` of that unit and of an
 #                        enabled one whose file it rewrote, and
 #                        `systemctl enable --now` of the path unit, the socket
 #                        and vgs-kill-switch.service, whose start applies the
-#                        rule once. It reads ready while the five files hold the
+#                        rule once. It reads ready while the seven files hold the
 #                        shipped bytes, the three units are enabled, the path
 #                        unit and the socket have not failed, and both
 #                        directories have those owners; denied, reason
@@ -63,14 +66,15 @@
 #                        /var/lib/vgshell/vpn; denied, reason systemd-missing or
 #                        nft-missing, without systemctl or nft; and denied,
 #                        reason nixos-unsupported, on NixOS. Its record holds
-#                        `script=`, `sync-unit=`, `path-unit=`, `socket-unit=` and
-#                        `status-unit=` <sha256> of the files, and `state-dir=1`
-#                        and `cache-dir=1` for each directory it made. Undo runs
-#                        `systemctl disable --now` of the three units, deletes the
-#                        nftables table inet vgshell_kill_switch, refusing
-#                        without nft, removes each file
-#                        while its bytes hash to the record, then each directory
-#                        it made
+#                        `script=`, `sync-unit=`, `path-unit=`, `socket-unit=`,
+#                        `status-unit=`, `recover-timer=` and `recover-unit=`
+#                        <sha256> of the files, and `state-dir=1` and
+#                        `cache-dir=1` for each directory it made. Undo runs
+#                        `systemctl stop` of the recover timer and service,
+#                        then `systemctl disable --now` of the three units,
+#                        deletes the nftables table inet vgshell_kill_switch,
+#                        refusing without nft, removes each file while its
+#                        bytes hash to the record, then each directory it made
 #   bandwhich-capture    grant cap_sys_ptrace, cap_dac_read_search, cap_net_raw
 #                        and cap_net_admin, effective and permitted, on the
 #                        resolved, root-owned bandwhich binary; undo removes
@@ -335,13 +339,19 @@ kill_switch_files=(
   "path-unit|vgs-kill-switch.path|$units_dir/vgs-kill-switch.path|0644"
   "socket-unit|vgs-kill-switch-status.socket|$units_dir/vgs-kill-switch-status.socket|0644"
   "status-unit|vgs-kill-switch-status@.service|$units_dir/vgs-kill-switch-status@.service|0644"
+  "recover-timer|vgs-kill-switch-recover.timer|$units_dir/vgs-kill-switch-recover.timer|0644"
+  "recover-unit|vgs-kill-switch-recover.service|$units_dir/vgs-kill-switch-recover.service|0644"
 )
 kill_switch_units=(vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch.service)
 # The units that must stay running. A failed path unit stops watching, as
-# its trigger limit leaves it, and a failed socket stops answering, until
-# each is restarted. The sync service fails with each refused sync and runs
-# again on the next trigger.
+# its trigger limit leaves it, until vgs-kill-switch-recover.timer or apply
+# starts it again, and a failed socket stops answering until apply restarts
+# it. The sync service fails with each refused sync and runs again on the
+# next trigger.
 kill_switch_watchers=(vgs-kill-switch.path vgs-kill-switch-status.socket)
+# What a failed path unit starts, stopped before undo disables the units:
+# a recovery that ran after the path unit stopped would start it again.
+kill_switch_recovery=(vgs-kill-switch-recover.timer vgs-kill-switch-recover.service)
 # The user's VPN state, which the shell writes, and root's profile cache.
 vpn_state_dir="$prefix/var/lib/vgshell/vpn"
 vpn_cache_dir="$prefix/var/lib/vgshell/kill-switch"
@@ -1036,7 +1046,7 @@ probe_sum() { # FILE
   [[ $sum =~ ^$hex{64}$ ]]
 }
 
-# Whether the kill switch's five files are regular files in the install tree.
+# Whether the kill switch's seven files are regular files in the install tree.
 kill_switch_sources() {
   local entry key name dest file_mode
   for entry in "${kill_switch_files[@]}"; do
@@ -1449,7 +1459,7 @@ read_record() { # STEP
     i2c-dev) allowed=' uid loaded boot ' ;;
     service-*) allowed=' uid enabled started boot ' ;;
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
-    vpn-kill-switch) allowed=' uid script sync-unit path-unit socket-unit status-unit state-dir cache-dir ' ;;
+    vpn-kill-switch) allowed=' uid script sync-unit path-unit socket-unit status-unit recover-timer recover-unit state-dir cache-dir ' ;;
     bandwhich-capture) allowed=' uid binary hash ' ;;
     reboot-notice) allowed=' uid link hooks-dir ' ;;
     voxtype-engine|vgs-quickshell-repository) allowed=' uid enabled ' ;;
@@ -1887,6 +1897,9 @@ undo_vpn_kill_switch() {
     # Refuses a file VGS did not write; leaves dest_state at own or none.
     dest_state_of "$dest" "${record[$key]-}"
     [[ $dest_state == none ]] || present+=("$entry")
+  done
+  for unit in "${kill_switch_recovery[@]}"; do
+    [[ ! -e $units_dir/$unit ]] || cmd "$systemctl" stop "$unit"
   done
   for unit in "${kill_switch_units[@]}"; do
     [[ ! -e $units_dir/$unit ]] || cmd "$systemctl" disable --now "$unit"

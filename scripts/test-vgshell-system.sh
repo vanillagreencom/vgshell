@@ -1579,7 +1579,7 @@ check "a shared-write data directory reads denied" test "$(step_state greeter)" 
 
 if [[ ${1-} == --greeter ]]; then rows_done "$suite"; exit; fi
 
-# vpn-kill-switch: the kill switch's root script and four units, the user's
+# vpn-kill-switch: the kill switch's root script and six units, the user's
 # VPN state directory and root's profile cache. What the rule does is
 # scripts/test-vpn-kill-switch.sh's; here nft only records.
 ks_src="$vgs/config/system/kill-switch"
@@ -1587,7 +1587,7 @@ ks_script="$root/usr/local/bin/vgs-kill-switch"
 ks_units="$root/etc/systemd/system"
 vpn_dir="$root/var/lib/vgshell/vpn"
 ks_cache="$root/var/lib/vgshell/kill-switch"
-ks_names=(vgs-kill-switch.service vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch-status@.service)
+ks_names=(vgs-kill-switch.service vgs-kill-switch.path vgs-kill-switch-status.socket vgs-kill-switch-status@.service vgs-kill-switch-recover.timer vgs-kill-switch-recover.service)
 ks_installed() { # every file holds the shipped bytes and mode
   local name
   cmp -s -- "$ks_src/vgs-kill-switch" "$ks_script" && test "$("$stat_bin" -c %a -- "$ks_script")" == 755 || return 1
@@ -1596,9 +1596,10 @@ ks_installed() { # every file holds the shipped bytes and mode
   done
 }
 ks_record() { # LINE...: the record apply writes for the shipped files, then each LINE
-  printf 'uid=%s\nscript=%s\nsync-unit=%s\npath-unit=%s\nsocket-unit=%s\nstatus-unit=%s' "$uid" "$(file_hash "$ks_src/vgs-kill-switch")" \
+  printf 'uid=%s\nscript=%s\nsync-unit=%s\npath-unit=%s\nsocket-unit=%s\nstatus-unit=%s\nrecover-timer=%s\nrecover-unit=%s' "$uid" "$(file_hash "$ks_src/vgs-kill-switch")" \
     "$(file_hash "$ks_src/vgs-kill-switch.service")" "$(file_hash "$ks_src/vgs-kill-switch.path")" \
-    "$(file_hash "$ks_src/vgs-kill-switch-status.socket")" "$(file_hash "$ks_src/vgs-kill-switch-status@.service")"
+    "$(file_hash "$ks_src/vgs-kill-switch-status.socket")" "$(file_hash "$ks_src/vgs-kill-switch-status@.service")" \
+    "$(file_hash "$ks_src/vgs-kill-switch-recover.timer")" "$(file_hash "$ks_src/vgs-kill-switch-recover.service")"
   (($# == 0)) || printf '\n%s' "$@"
 }
 ks_enable_calls=("-- $(p systemctl) enable --now vgs-kill-switch.path" "-- $(p systemctl) enable --now vgs-kill-switch-status.socket" "-- $(p systemctl) enable --now vgs-kill-switch.service")
@@ -1614,6 +1615,8 @@ check "the kill switch installs its files, makes its directories, reloads and en
   "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch.path $ks_units/vgs-kill-switch.path" \
   "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch-status.socket $ks_units/vgs-kill-switch-status.socket" \
   "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch-status@.service $ks_units/vgs-kill-switch-status@.service" \
+  "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch-recover.timer $ks_units/vgs-kill-switch-recover.timer" \
+  "-- $(p install) -m 0644 -o root -g root -T -- $ks_src/vgs-kill-switch-recover.service $ks_units/vgs-kill-switch-recover.service" \
   "-- $(p install) -d -m 0755 -o $uid -g $gid -- $vpn_dir" \
   "-- $(p install) -d -m 0700 -o root -g root -- $ks_cache" \
   "-- $(p systemctl) daemon-reload" \
@@ -1680,10 +1683,86 @@ check "apply over a failed path unit resets and restarts it" test "$(sudo_calls)
   "-- $(p systemctl) restart vgs-kill-switch.path" \
   "${ks_enable_calls[@]}")"
 
+# A path unit its trigger limit failed watches again with no apply. What
+# systemd does is read from the installed units: entering failed starts
+# each OnFailure= unit (systemd v262 src/core/unit.c, unit_notify); a timer
+# starts its Unit=, by default the service of its own name, OnActiveSec=
+# after its own start and up to AccuracySec=, 1min by default, later; an
+# elapsed timer ignores the next start unless RemainAfterElapse=no
+# (systemd.timer(5)); and a oneshot runs each ExecStart= in order.
+# ks_systemctl stands in for the service's systemctl: a start of a failed
+# path unit puts it back to watching (src/core/path.c, path_start). ks_trip
+# sets ks_window to the earliest and latest second of the restart.
+ks_value() { sed -n "s/^$2=//p" -- "$ks_units/$1"; } # UNIT KEY: each value of KEY in the installed UNIT
+ks_seconds() { [[ $1 =~ ^([0123456789]+)s?$ ]] && printf '%s' "${BASH_REMATCH[1]}"; } # SPAN: plain seconds, as the shipped timer writes them
+ks_systemctl() { # start UNIT
+  printf '%s\n' "$*" >>"$tmp/ks-recover.log"
+  [[ $# == 2 && $1 == start ]] || return 64
+  rm -f -- "$tmp/units/$2.failed"
+  touch "$tmp/units/$2.active"
+}
+ks_trip() {
+  local timer service line delay accuracy
+  ks_window=""
+  rm -f -- "$tmp/units/vgs-kill-switch.path.active"
+  touch "$tmp/units/vgs-kill-switch.path.failed"
+  for timer in $(ks_value vgs-kill-switch.path OnFailure); do
+    [[ $timer == *.timer && -f $ks_units/$timer ]] || return 1
+    [[ ! -e $tmp/units/$timer.elapsed ]] || continue
+    delay="$(ks_seconds "$(ks_value "$timer" OnActiveSec)")" || return 1
+    accuracy="$(ks_value "$timer" AccuracySec)" || return 1
+    if [[ -z $accuracy ]]; then accuracy=60; else accuracy="$(ks_seconds "$accuracy")" || return 1; fi
+    service="$(ks_value "$timer" Unit)" || return 1
+    service="${service:-${timer%.timer}.service}"
+    ks_window="$delay $((delay + accuracy))"
+    [[ $(ks_value "$timer" RemainAfterElapse) == no ]] || touch "$tmp/units/$timer.elapsed"
+    [[ -f $ks_units/$service && $(ks_value "$service" Type) == oneshot ]] || return 1
+    while IFS= read -r line; do
+      [[ $line == "/usr/bin/systemctl "* ]] || return 1
+      # shellcheck disable=SC2086 # the unit's own words, as systemd splits them
+      ks_systemctl ${line#/usr/bin/systemctl } || return 1
+    done < <(ks_value "$service" ExecStart)
+  done
+}
+ks_recovers() { ks_trip && test -e "$tmp/units/vgs-kill-switch.path.active" -a ! -e "$tmp/units/vgs-kill-switch.path.failed"; }
+# A burst lasts at most the path unit's 10 s trigger window, so a restart
+# 50 to 70 s after the failure starts the next burst about a minute later.
+ks_minute() { [[ $ks_window =~ ^([0123456789]+)\ ([0123456789]+)$ ]] && ((BASH_REMATCH[1] >= 50 && BASH_REMATCH[2] <= 70)); }
+rm -f -- "$tmp/sudo.log" "$tmp/ks-recover.log"
+check "a path unit its trigger limit failed watches again through the shipped units" ks_recovers
+check "the recovery starts the path unit and nothing else" test "$(cat "$tmp/ks-recover.log")" == "start vgs-kill-switch.path"
+check "the recovery restarts it about a minute after the failure" ks_minute
+check "the recovered kill switch reads ready with no apply" test "$(step_state vpn-kill-switch)" == "ready granted"
+check "a second failure recovers too" ks_recovers
+check "the recovery runs no sudo" no_sudo
+# Controls: an installed unit missing one rule, then the shipped units again.
+ks_shipped() { # the shipped units installed, the timer never elapsed
+  local name
+  for name in "${ks_names[@]}"; do cp -- "$ks_src/$name" "$ks_units/$name"; done
+  rm -f -- "${tmp:?}/units/vgs-kill-switch-recover.timer.elapsed"
+}
+ks_mutant() { # NAME UNIT NEEDLE REPLACEMENT
+  ks_shipped
+  check "the $1 control's text occurs once" test "$(python3 -c 'import sys; print(open(sys.argv[1]).read().count(sys.argv[2]))' "$ks_src/$2" "$3")" == 1
+  python3 -c 'import sys; p, o, a, b = sys.argv[1:]; s = open(p).read(); open(o, "w").write(s.replace(a, b))' "$ks_src/$2" "$ks_units/$2" "$3" "$4"
+}
+ks_mutant no-on-failure vgs-kill-switch.path $'OnFailure=vgs-kill-switch-recover.timer\n' ''
+check "the no-on-failure control leaves the path unit failed" test "$(ks_recovers && echo green || echo red)" == red
+ks_mutant elapsed-timer vgs-kill-switch-recover.timer $'RemainAfterElapse=no\n' ''
+ks_recovers || true
+check "the elapsed-timer control leaves a second failure failed" test "$(ks_recovers && echo green || echo red)" == red
+ks_mutant default-accuracy vgs-kill-switch-recover.timer $'AccuracySec=1s\n' ''
+ks_trip || true
+check "the default-accuracy control restarts it up to two minutes later" test "$(ks_minute && echo green || echo red)" == red
+ks_shipped
+check "the shipped units are back in place" ks_installed
+
 # undo stops the units first, deletes the rule, then removes what VGS made.
 rm -f -- "$tmp/sudo.log" "$tmp/nft.log"
 run_tty "undo vpn-kill-switch succeeds" 0 undo vpn-kill-switch
-check "undo disables the units, deletes the table, removes the files and directories, then the record" test "$(sudo_calls)" == "$(session \
+check "undo stops the recovery, disables the units, deletes the table, removes the files and directories, then the record" test "$(sudo_calls)" == "$(session \
+  "-- $(p systemctl) stop vgs-kill-switch-recover.timer" \
+  "-- $(p systemctl) stop vgs-kill-switch-recover.service" \
   "-- $(p systemctl) disable --now vgs-kill-switch.path" \
   "-- $(p systemctl) disable --now vgs-kill-switch-status.socket" \
   "-- $(p systemctl) disable --now vgs-kill-switch.service" \
@@ -1693,6 +1772,8 @@ check "undo disables the units, deletes the table, removes the files and directo
   "-- $(p rm) -f -- $ks_units/vgs-kill-switch.path" \
   "-- $(p rm) -f -- $ks_units/vgs-kill-switch-status.socket" \
   "-- $(p rm) -f -- $ks_units/vgs-kill-switch-status@.service" \
+  "-- $(p rm) -f -- $ks_units/vgs-kill-switch-recover.timer" \
+  "-- $(p rm) -f -- $ks_units/vgs-kill-switch-recover.service" \
   "-- $(p systemctl) daemon-reload" \
   "-- $(p rm) -rf -- $ks_cache" \
   "-- $(p rm) -rf -- $vpn_dir" \

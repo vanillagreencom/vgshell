@@ -65,6 +65,8 @@ f share/vgshell/config/shell.json
 f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam
 f share/vgshell/config/system/kill-switch/vgs-kill-switch
+f share/vgshell/config/system/kill-switch/vgs-kill-switch-recover.service
+f share/vgshell/config/system/kill-switch/vgs-kill-switch-recover.timer
 f share/vgshell/config/system/kill-switch/vgs-kill-switch-status.socket
 f share/vgshell/config/system/kill-switch/vgs-kill-switch-status@.service
 f share/vgshell/config/system/kill-switch/vgs-kill-switch.path
