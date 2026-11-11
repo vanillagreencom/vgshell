@@ -2885,7 +2885,7 @@ reuse_mutant open "$judged" '( -n ${ended[$row]-} && -z ${unproved[$row]-} )' '(
 reuse_mutant outside "$judged" '  [[ ${fields[0]-} == 0 ]] || return 1' '  :'
 reuse_mutant rank "$judged" '((smoke_record_failures > worst_count[$row] ||' '((smoke_record_failures < worst_count[$row] ||'
 reuse_mutant reading "$judged" '[[ $judged == true && -n ${smoke_attempt_ended[$row]-} ]] || unproved' '[[ $judged == true ]] || unproved'
-reuse_mutant collect-first scripts/validate "trap 'stop_rows; records_finish; " "trap 'records_finish; stop_rows; "
+reuse_mutant collect-first scripts/validate "trap 'set +e; stop_rows; records_finish; " "trap 'set +e; records_finish; stop_rows; "
 reuse_mutant reaped scripts/validate $'"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]] &&\n       ! kill -0 -- "-$pid" 2>/dev/null; then' '"scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then'
 # name|signal|stand-in that waits|before the cut|after the cut|mutant|wanted lines, ^ between them
 reuse_cases=(
@@ -4434,14 +4434,19 @@ flock 9
 sleep "$secs"
 SH
 }
-# hold_run DIR SIGNAL...: start validate, send each SIGNAL 0.5 s apart once
-# both rows hold their locks; sets status, secs (from the first signal to
-# validate's end) and freed, the locks free within 1 s of that end.
+# hold_run DIR [NAME=VALUE...] SIGNAL...: start validate in a session and
+# process group of its own, with each NAME=VALUE in its environment, send
+# each SIGNAL 0.5 s apart once both rows hold their locks; sets status,
+# secs (from the first signal to validate's end) and freed, the locks free
+# within 1 s of that end. setsid execs validate in place, since the job
+# that runs it leads no group, so the job's pid is validate's.
 hold_run() {
   local dir="$1" pid lock signal started
+  local -a env=()
   shift
+  while [[ $1 == *=* ]]; do env+=("$1"); shift; done
   mkdir -p "$dir/tmp"
-  (cd -- "$dir" && exec "${base_env[@]}" TMPDIR="$dir/tmp" VGS_VALIDATE_JOBS=2 bash scripts/validate tools --full) >"$dir.out" 2>&1 &
+  (cd -- "$dir" && exec "${base_env[@]}" "${env[@]}" TMPDIR="$dir/tmp" VGS_VALIDATE_JOBS=2 setsid bash scripts/validate tools --full) >"$dir.out" 2>&1 &
   pid=$!
   for _ in $(seq 1 100); do
     [[ -e $dir/.git/ready-a && -e $dir/.git/ready-b ]] && break
@@ -4486,7 +4491,7 @@ for spec in TERM@143 HUP@129; do
   fi
 done
 d="$tmp/jobs-HUP-control"; hold_rows "$d"
-hold_mutant "$d" "trap 'stop_rows; records_finish; chmod" "trap 'records_finish; chmod"
+hold_mutant "$d" "trap 'set +e; stop_rows; records_finish; chmod" "trap 'set +e; records_finish; chmod"
 hold_run "$d" HUP
 if [[ $freed == 0 ]]; then
   ok "control: a validate whose exit path stops no row leaves its rows running"
@@ -4524,6 +4529,65 @@ if [[ $secs -ge 8 ]]; then
   ok "control: a stop that ignores a repeat signal waits for its deadline"
 else
   fail "control: a stop that ignores a repeat signal ended in ${secs}s"
+fi
+hold_cleanup "$d"
+# A signal handled once validate has begun to exit and before stop_rows has
+# begun its stop still lets the stop, records_finish and the scratch
+# removal run, and the exit status stays the first signal's. bash runs a
+# trap only between commands, and of two signals that both arrive before
+# it runs the first one's trap it runs only that one when that trap exits
+# (bash 5.3, measured by stopping validate, queueing a HUP and a TERM and
+# continuing it), so no signal sent from outside lands in the window on
+# every run. The file BASH_ENV names puts a TERM there: it makes the first
+# command of validate's own EXIT trap a TERM to validate, whose trap then
+# runs before stop_rows. The control is a copy whose on_signal leaves
+# without marking the stop begun.
+printf '%s\n' 'unset BASH_ENV' 'trap() {' \
+  '  if [[ $# == 2 && $2 == EXIT && $BASHPID == "$$" ]]; then builtin trap "kill -s TERM $$; $1" EXIT; else builtin trap "$@"; fi' \
+  '}' >"$tmp/exit-signal"
+d="$tmp/jobs-exit-signal"; hold_rows "$d"
+hold_run "$d" "BASH_ENV=$tmp/exit-signal" HUP
+if [[ $status == 129 && $freed == 2 && -z "$(ls -A -- "$d/tmp")" ]]; then
+  ok "a signal before the stop begins leaves validate to stop its rows and remove its scratch directory"
+else
+  fail "a signal before the stop begins: exit=$status freed=$freed scratch=[$(ls -A -- "$d/tmp")]"; sed 's/^/        /' "$d.out"
+fi
+d="$tmp/jobs-exit-signal-control"; hold_rows "$d"
+hold_mutant "$d" $'  stopping=true\n  exit "$1"\n' $'  exit "$1"\n'
+hold_run "$d" "BASH_ENV=$tmp/exit-signal" HUP
+if [[ $freed != 2 || -n "$(ls -A -- "$d/tmp")" ]]; then
+  ok "control: a signal before an unmarked stop ends validate before it stops its rows"
+else
+  fail "control: a signal before an unmarked stop still let validate stop its rows: exit=$status"
+fi
+hold_cleanup "$d"
+# A signal to validate's whole process group during the stop, as a second
+# Ctrl-C at a terminal sends, also ends the stop's own foreground command,
+# and that command's status must not end the EXIT trap before
+# records_finish and the scratch removal. The file BASH_ENV names makes
+# the stop's first sleep a child that sends TERM to its process group,
+# validate's own under setsid, so the signal ends that foreground command
+# on every run. validate's INT is a TERM here, since a job a script starts
+# ignores INT, and bash cannot trap a signal ignored at its start. The rows
+# ignore TERM, so the stop is still waiting when its sleep runs. The
+# control is a copy whose EXIT trap leaves errexit on.
+printf '%s\n' 'unset BASH_ENV' 'sleep() {' \
+  '  if [[ $BASHPID == "$$" ]]; then unset -f sleep; command sh -c '"'"'kill -s TERM 0; exec sleep 30'"'"'; else command sleep "$@"; fi' \
+  '}' >"$tmp/group-signal"
+d="$tmp/jobs-group-signal"; hold_rows "$d" ignore
+hold_run "$d" "BASH_ENV=$tmp/group-signal" HUP
+if [[ $status == 129 && $freed == 2 && -z "$(ls -A -- "$d/tmp")" ]]; then
+  ok "a group signal during the stop leaves validate to finish its stop and remove its scratch directory"
+else
+  fail "a group signal during the stop: exit=$status freed=$freed scratch=[$(ls -A -- "$d/tmp")]"; sed 's/^/        /' "$d.out"
+fi
+d="$tmp/jobs-group-signal-control"; hold_rows "$d" ignore
+hold_mutant "$d" "trap 'set +e; stop_rows;" "trap 'stop_rows;"
+hold_run "$d" "BASH_ENV=$tmp/group-signal" HUP
+if [[ $status != 129 || -n "$(ls -A -- "$d/tmp")" ]]; then
+  ok "control: a group signal during a stop under errexit ends validate before its scratch removal"
+else
+  fail "control: a group signal during a stop under errexit still let validate finish: exit=$status"
 fi
 hold_cleanup "$d"
 

@@ -2834,7 +2834,8 @@ start_rows() {
 # whose leader is gone, is waited on but never signalled: the stop
 # reached it, and with its leader gone nothing proves the number still
 # the row's. The wait is what puts each attempt's closing reading before
-# records_finish.
+# records_finish. A signal that arrives before it has found the groups
+# KILLs none, and the stop goes on.
 row_groups=()
 stopping=false
 kill_groups() { # SIGNAL
@@ -2867,13 +2868,20 @@ stop_rows() {
   done
   kill_groups KILL
 }
-# A signal exits through the EXIT trap; one that arrives while the rows are
-# being stopped KILLs their groups instead of ending validate mid-stop.
+# A signal exits through the EXIT trap. Each exit taken while these traps
+# are set marks the stop begun before it leaves, so a later signal neither
+# ends validate before the trap's stop, records_finish and scratch removal
+# have run nor changes its exit status: it KILLs the row groups stop_rows
+# has found, none before it has looked. A signal to validate's whole
+# process group, as a second Ctrl-C at a terminal sends, also ends the
+# trap's own foreground command, such as stop_rows' sleep; the trap turns
+# errexit off first, so that command's status does not end it either.
 on_signal() { # EXIT-STATUS
   if [[ $stopping == true ]]; then kill_groups KILL; return 0; fi
+  stopping=true
   exit "$1"
 }
-trap 'stop_rows; records_finish; chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
+trap 'set +e; stop_rows; records_finish; chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
 trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 trap 'on_signal 129' HUP
@@ -2885,7 +2893,7 @@ while :; do
   pid="" status=0
   wait -n -p pid || status=$?
   if [[ -z $pid ]]; then
-    printf 'validate: wait=no-child status=%s running=%s\n' "$status" "${#row_of_pid[@]}" >&2; exit 1
+    printf 'validate: wait=no-child status=%s running=%s\n' "$status" "${#row_of_pid[@]}" >&2; stopping=true; exit 1
   fi
   # Only a row's job counts; any other child is passed over.
   [[ -n ${row_of_pid[$pid]-} ]] || continue
