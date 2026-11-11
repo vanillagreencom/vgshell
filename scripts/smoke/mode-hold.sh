@@ -99,10 +99,12 @@ monitor_rule() {
 }
 # output_mode NAME MODE [SCALE]: the nested compositor applies
 # monitor_rule's rule now through `hyprctl eval`; the reply is hyprctl's.
-# A configuration reload drops the rule but leaves the output at its mode
-# and scale, unless a rule the configuration loads gives the output
-# another. Under a hold a reload applies the held rule again from
-# mode_hold_file. A row restores the mode it read first.
+# A configuration reload drops the rule and applies the configuration's
+# own: under a hold the held rule again from mode_hold_file, otherwise
+# the sandbox's default `mode = "preferred"` rule (harness.sh), whose mode
+# the host's display stack picks; the VGS-2407 main control at 6621bf332
+# (Hyprland 0.57.1, aquamarine 0.16.0) read 1920x1080 scale=1 after it.
+# A row restores the mode it read first.
 output_mode() { hypr eval "$(monitor_rule "$@")"; }
 # mode_scale_of NAME [all]: output NAME's mode and scale as `WxH scale=S`, such
 # as `3510x1866 scale=2`, the mode in device pixels; returns 1 with
