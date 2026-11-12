@@ -19,6 +19,12 @@ assert default_bound
 IPC_CALL_BOUND_S = int(default_bound[1])
 
 
+def assignment(name):
+    found = re.search(r"(?m)^" + name + r"=.*\n", source)
+    assert found, name
+    return found.group()
+
+
 def function(name):
     one_line = re.search(r"(?m)^" + name + r"\(\).*}\n", source)
     if one_line:
@@ -194,11 +200,13 @@ with tempfile.TemporaryDirectory(prefix="smoke-ipc-") as scratch:
     production = root / "production.sh"
     names = ("ipc_call_last", "ipc_failed", "ipc_page", "ipc_via", "ipc",
              "ipc_at", "ipc_timeout_check", "ipc_oversize_check", "smoke_row",
-             "reader_stderr", "expect_poll", "now_ms", "cpu_some_us",
-             "cpu_some_pct", "load_average", "smoke_row_secs")
-    production.write_text(default_bound[0] + "\n" + "".join(
+             "reader_stderr", "expect_poll", "now_ms", "world_pressure_path",
+             "pressure_some_us", "cpu_some_us", "host_cpu_some_us",
+             "cpu_some_pct", "load_average", "smoke_row_mark", "smoke_row_secs")
+    production.write_text(default_bound[0] + "\n" + "".join(map(assignment, (
+        "smoke_rows_ms", "host_pressure_file"))) + "".join(
         function(name).replace("ipc_call_last()", "case_ipc_call_last()", 1)
-        if name == "ipc_call_last" else function(name) for name in names))
+        if name == "ipc_call_last" else function(name) for name in names) + assignment("world_pressure_file"))
     stub = root / "qs"
     stub.write_text('''#!/usr/bin/env bash
 set -euo pipefail
@@ -334,6 +342,7 @@ fi
         # The overseer compares row windows before changing slot holds.
         assert re.search(r"(?m)^qml-smoke: row-secs row=example secs=[0-9]+ "
                          r"cpu_some_pct=(?:[0-9]+\.[0-9]|unmeasured) "
+                         r"host_cpu_some_pct=(?:[0-9]+\.[0-9]|unmeasured) "
                          r"load1=(?:[0-9]+\.[0-9]{2}|unmeasured)$", result.stdout), result.stdout
         # smoke_row consumes this machine-read record to fail the row.
         records = (folder / "rows/example.ipc-timeout.log").read_text().splitlines()
@@ -366,18 +375,22 @@ fi
 source "$1"
 now_ms() { echo 3000; }
 cpu_some_us() { echo 1100000; }
+host_cpu_some_us() { echo 600000; }
 load_average() { echo 12.34; }
-smoke_row_secs example 1000 100000
-smoke_row_secs unread 1000 ""
+smoke_rows_ms=0 smoke_rows_cpu_us=0 smoke_rows_host_us=0
+smoke_row_secs example 1000 100000 100000
+smoke_rows_ms=0 smoke_rows_cpu_us=0 smoke_rows_host_us=0
+smoke_row_secs unread 1000 "" 100000
 load_average() { :; }
-smoke_row_secs empty 3000 ""
+smoke_rows_ms=0 smoke_rows_cpu_us=0 smoke_rows_host_us=0
+smoke_row_secs empty 3000 "" ""
 ''', "_", str(timing)], env=ENV, capture_output=True, text=True,
                             timeout=IPC_CALL_BOUND_S)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
-        "qml-smoke: row-secs row=example secs=2 cpu_some_pct=50.0 load1=12.34",
-        "qml-smoke: row-secs row=unread secs=2 cpu_some_pct=unmeasured load1=12.34",
-        "qml-smoke: row-secs row=empty secs=0 cpu_some_pct=unmeasured load1=unmeasured",
+        "qml-smoke: row-secs row=example secs=2 cpu_some_pct=50.0 host_cpu_some_pct=25.0 load1=12.34",
+        "qml-smoke: row-secs row=unread secs=2 cpu_some_pct=unmeasured host_cpu_some_pct=25.0 load1=12.34",
+        "qml-smoke: row-secs row=empty secs=0 cpu_some_pct=unmeasured host_cpu_some_pct=unmeasured load1=unmeasured",
     ], result.stdout
 
     check_ok = root / "ok.sh"

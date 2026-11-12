@@ -2004,13 +2004,10 @@ expect_poll "no card is left before the emoji latencies" 0 note_status onScreen
 # IPC on each poll. Each reader is one smoke IPC round trip a poll, the
 # cost the budgets were measured with: the budgets and their runs are in
 # scripts/qml-smoke.sh's header. Each reading is judged by harness.sh's
-# latency_pressure_check with the higher of two CPU pressures over its
-# window: the host's, and this run's own cgroup's, where the shell, the
-# notify call and each reader's process run. A reading above the pressure
-# limit is unmeasured, not a pass or a miss. The host figure is a mean over
-# every busy CPU (PSI weights each CPU by its non-idle time), so beside a
-# busy fleet it can stay low while the path's own processes wait; the
-# cgroup figure counts only this run's tasks. VGS-1339 measured the toast
+# latency_pressure_check with the world's CPU pressure over its window,
+# where the shell, the notify call and each reader's process run; the
+# host's is printed beside it as a note. A reading above the pressure
+# limit is unmeasured, not a pass or a miss. VGS-1339 measured the toast
 # path on cachy (Ryzen 9 9950X) on 2026-10-11 with timing logs at each
 # step: at rest the reading was 55 and 59 ms (host 1.0 and 1.1%, own 0.5%),
 # the card drawn 22 and 34 ms after the notify call; under a dsync 4 KiB
@@ -2022,38 +2019,16 @@ emoji_body="ada: :smoke-party: ship :smoke-party: it :smoke-party: now :smoke-pa
 toast_images() { ipc smoke layerTextsWithin vgs.notifications NotificationCard summary "[acme] in latency" '<img src='; }
 inbox_images() { ipc smoke itemImageTextCount panel vgs.notifications Panel; }
 latency_bound_ms=5000
-# The `some` total of this run's own cgroup's CPU pressure in microseconds,
-# as harness.sh's cpu_some_us reads the host's. Prints nothing when the
-# cgroup or its pressure file is unreadable, which the verdict reads as
-# unread.
-own_cpu_some_us() {
-  local cgroup kind rest
-  cgroup="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null)"
-  [[ -n $cgroup ]] || return 0
-  { while read -r kind rest; do
-      if [[ $kind == some && $rest =~ total=([0-9]+) ]]; then printf '%s\n' "${BASH_REMATCH[1]}"; return 0; fi
-    done <"/sys/fs/cgroup$cgroup/cpu.pressure"; } 2>/dev/null || true
-}
-# higher_pct HOST_PCT OWN_PCT: the higher of two cpu_some_pct readings, or
-# unmeasured when either is.
-higher_pct() {
-  if [[ ! $1 =~ ^[0-9]+\.[0-9]$ || ! $2 =~ ^[0-9]+\.[0-9]$ ]]; then echo unmeasured
-  elif ((10#${1/./} >= 10#${2/./})); then echo "$1"
-  else echo "$2"
-  fi
-}
-# path_pressure READING HOST_START_US OWN_START_US START_MS: prints both
-# pressures of the window from START_MS to now and sets path_pressure_pct
-# to the higher one.
+# path_pressure READING WORLD_START_US HOST_START_US START_MS: prints the
+# world's and the host's pressure of the window from START_MS to now and
+# sets path_pressure_pct to the world's, which judges the reading.
 path_pressure() {
-  local ms host own
+  local ms host
   ms=$(( $(date +%s%3N) - $4 ))
-  host="$(cpu_some_pct "$2" "$(cpu_some_us)" "$ms")"
-  own="$(cpu_some_pct "$3" "$(own_cpu_some_us)" "$ms")"
-  printf '  latency_%s_pressure host_cpu_some_pct=%s own_cpu_some_pct=%s\n' "$1" "$host" "$own"
-  path_pressure_pct="$(higher_pct "$host" "$own")"
+  path_pressure_pct="$(cpu_some_pct "$2" "$(cpu_some_us)" "$ms")"
+  host="$(cpu_some_pct "$3" "$(host_cpu_some_us)" "$ms")"
+  printf '  latency_%s_pressure cpu_some_pct=%s host_cpu_some_pct=%s\n' "$1" "$path_pressure_pct" "$host"
 }
-path_verdict() { latency_pressure_verdict "$1" "$(higher_pct "$2" "$3")" "$4"; } # MS HOST_PCT OWN_PCT BUDGET_MS
 # latency_since LABEL START WANT CMD...: sets latency_ms to the
 # milliseconds from START until CMD prints a count of WANT or more, or to
 # -1 after latency_bound_ms. A read that fails or answers a state word
@@ -2172,29 +2147,48 @@ expect "control: a latency reader that raises fails once and reads -1" "1 -1" la
 expect "control: the failed latency reading names the reader's traceback" 1 grep -c -F -- "the planted latency reader: the reader raised a Python traceback" "$sandbox/latency-traceback-control.log"
 notify_now() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify Slack 0 "" "$1" "$emoji_body" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null; }
 cpu_start="$(cpu_some_us)"
-own_start="$(own_cpu_some_us)"
+host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
 notify_now "[acme] in latency"
 latency_since "the emoji toast latency reader" "$start" "$monitors" toast_images
 emoji_toast_ms="$latency_ms"
-path_pressure emoji_toast "$cpu_start" "$own_start" "$start"
+path_pressure emoji_toast "$cpu_start" "$host_start" "$start"
 latency_pressure_check notifications emoji_toast "$emoji_toast_ms" "$path_pressure_pct" "$emoji_toast_budget_ms"
-expect "control: the emoji toast budget rejects a low-pressure miss" over path_verdict "$((emoji_toast_budget_ms + 1))" 0.0 0.0 "$emoji_toast_budget_ms"
-expect "control: the emoji toast budget excludes a fast reading on a busy host" unmeasured path_verdict "$emoji_toast_budget_ms" 2.9 0.0 "$emoji_toast_budget_ms"
-expect "control: the emoji toast budget excludes a slow reading whose own processes waited" unmeasured path_verdict "$((emoji_toast_budget_ms + 1))" 0.0 2.9 "$emoji_toast_budget_ms"
-expect "control: an unread own pressure leaves the reading unread" unread path_verdict "$emoji_toast_budget_ms" 0.0 unmeasured "$emoji_toast_budget_ms"
+# The control for harness.sh's pressure gate: both pressure files are
+# planted, each reading a stall total at a window's start and another at
+# its end 1000 ms later, and a reading inside the toast budget is judged
+# through cpu_some_us, as every latency reading is. A busy host beside a
+# quiet world is measured; a busy world is not, whatever the host reads.
+pressure_gate_cases() {
+  local dir="$sandbox/pressure-gate" host world want got
+  mkdir -p -- "$dir"
+  while read -r host world want; do
+    got="$(world_pressure_file="$dir/world" host_pressure_file="$dir/host"
+      printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=1000000\n' | tee -- "$dir/world" >"$dir/host"
+      start="$(cpu_some_us)"
+      printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=%s\n' "$((1000000 + host * 1000))" >"$dir/host"
+      printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=%s\n' "$((1000000 + world * 1000))" >"$dir/world"
+      latency_pressure_verdict "$emoji_toast_budget_ms" "$(cpu_some_pct "$start" "$(cpu_some_us)" 1000)" "$emoji_toast_budget_ms")"
+    [[ $got == "$want" ]] || { echo "host=$host world=$world got=$got want=$want"; return; }
+  done <<'CASES'
+500 0 within
+0 500 unmeasured
+CASES
+  echo ok
+}
+expect "control: the pressure gate judges the world's pressure, never the host's" ok pressure_gate_cases
 expect "dismissing the latency toast is allowed" ok notes dismiss-all
 expect "Silence turns on for the inbox latency" on notes silence on
 expect "clearing the history before the inbox latency is allowed" ok notes clear-history
 for i in $(seq 1 40); do notify_now "[acme] in inbox $i"; done
 expect_poll "the forty emoji notifications are in the history" 40 note_status history
 cpu_start="$(cpu_some_us)"
-own_start="$(own_cpu_some_us)"
+host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
 latency_since "the emoji inbox latency reader" "$start" 1 inbox_images
 emoji_inbox_ms="$latency_ms"
-path_pressure emoji_inbox "$cpu_start" "$own_start" "$start"
+path_pressure emoji_inbox "$cpu_start" "$host_start" "$start"
 latency_pressure_check notifications emoji_inbox "$emoji_inbox_ms" "$path_pressure_pct" "$emoji_inbox_budget_ms"
 expect "all forty emoji rows remain in the panel model" 40 panel_count
 expect "the emoji inbox constructs only its visible cards" True python3 -c 'import sys; print(0 < int(sys.argv[1]) < 40)' "$(inbox_images)"
@@ -2212,12 +2206,12 @@ expect_poll "the forty-card history closed" '""' read_notes panelMode
 for i in $(seq 41 100); do notify_now "[acme] in inbox $i"; done
 expect_poll "the hundred emoji notifications are in the history" 100 note_status history
 cpu_start="$(cpu_some_us)"
-own_start="$(own_cpu_some_us)"
+host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
 latency_since "the full history latency reader" "$start" 1 inbox_images
 full_history_ms="$latency_ms"
-path_pressure full_history "$cpu_start" "$own_start" "$start"
+path_pressure full_history "$cpu_start" "$host_start" "$start"
 latency_pressure_check notifications full_history "$full_history_ms" "$path_pressure_pct" "$emoji_inbox_budget_ms"
 expect "all hundred emoji rows remain in the panel model" 100 panel_count
 expect "the full history constructs only its visible cards" True python3 -c 'import sys; print(0 < int(sys.argv[1]) < 100)' "$(inbox_images)"
@@ -6466,7 +6460,7 @@ for panel_latency_state in loaded refused; do
             expect_poll "the $panel_latency_action motion is sampled" True panel_latency_sampled
             panel_latency_record >"$panel_latency_dir/$panel_latency_state-$panel_latency_action-$panel_latency_trial.json"
         done
-        printf '{"hostCpuSomePct":%s,"openCpuSomePct":%s}\n' "$(cpu_some_pct "$panel_latency_cpu" "$(cpu_some_us)" "$(( $(now_ms)-panel_latency_start ))")" "$panel_latency_open_pct" >"$panel_latency_dir/$panel_latency_state-pressure-$panel_latency_trial.json"
+        printf '{"cpuSomePct":%s,"openCpuSomePct":%s}\n' "$(cpu_some_pct "$panel_latency_cpu" "$(cpu_some_us)" "$(( $(now_ms)-panel_latency_start ))")" "$panel_latency_open_pct" >"$panel_latency_dir/$panel_latency_state-pressure-$panel_latency_trial.json"
         expect "the timing panel closes" ok notes close
         expect_poll "the timing panel is destroyed" absent ipc smoke readInstance panel vgs.notifications opened
         if ((panel_latency_trial == 3 || panel_latency_trial == 5)); then
@@ -6484,7 +6478,7 @@ import json,pathlib,statistics,sys
 root=pathlib.Path(sys.argv[1]);failed=[];checks=[];motion=[]
 for state in ('loaded','refused'):
     trials=range(1,6) if (root/f'{state}-pressure-5.json').exists() else range(1,4)
-    pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['hostCpuSomePct'] for i in trials]
+    pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['cpuSomePct'] for i in trials]
     open_pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['openCpuSomePct'] for i in trials]
     for action,bound in [('open',140),('history',50),('inbox',50)]:
         action_trials=trials if action=='open' else range(1,4)
@@ -6528,7 +6522,7 @@ for state in ('loaded','refused'):
             for i,v in enumerate(readings):
                 trial_gaps=[b-a for a,b in zip(v['frames'],v['frames'][1:]) if a<v['first']+400]
                 checks.append((f'{state}-open-{i+1}-gap',max(trial_gaps) if trial_gaps else -1,pressure[i],limit))
-    print(f'notification-panel-latency: store={state} host_cpu_some_pct={pressure}')
+    print(f'notification-panel-latency: store={state} cpu_some_pct={pressure}')
     print(f'notification-panel-latency: store={state} open_cpu_some_pct={open_pressure}')
 (root/'pressure-checks.tsv').write_text(''.join(f'{name}\t{ms}\t{pressure:.1f}\t{bound}\n' for name,ms,pressure,bound in checks))
 (root/'motion-checks.tsv').write_text(''.join(f'{name}\t{first}\t{last}\t{pressure:.1f}\n' for name,first,last,pressure in motion))

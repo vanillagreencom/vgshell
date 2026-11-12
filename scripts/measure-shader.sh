@@ -15,7 +15,7 @@
 # keeps 600 samples; a reading is their 90th percentile. GPU timestamps
 # keep compositor pacing out of GPU cost.
 # A scene after which the output no longer reads the held mode fails, and
-# each scene line records the host's CPU pressure.
+# each scene line records the world's CPU pressure (harness.sh's cpu_some_us).
 # Vulkan is required for device identity and timestamps. QSG_NO_VSYNC=1
 # requests swap interval 0; Wayland can still pace frameSwapped callbacks.
 # CPU readings above harness.sh's latency_pressure_limit are not measured

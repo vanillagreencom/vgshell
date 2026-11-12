@@ -2,7 +2,10 @@
 """Disposable launcher observation and guarded capture controller.
 
 prepare TREE [--slow] instruments only a harness copy. measure KEYBOARD PID
-SOCKET FIELD_JSON SURFACE_JSON OUTPUT takes twelve separate 50 ms o presses.
+SOCKET FIELD_JSON SURFACE_JSON PRESSURE OUTPUT takes twelve separate 50 ms o
+presses. PRESSURE is the world's cpu.pressure file, harness.sh's
+world_pressure_file, whose stall total judges each trial; the host's
+/proc/pressure files and load are recorded beside it.
 The first includes provider loading. Later presses retain the provider cache
 but clear the display model. summary.json and per-trial PPM/JSON files retain
 request-to-first-changed-glyph capture-return upper bounds, not presentation.
@@ -147,13 +150,15 @@ def first_glyph(baseline, final, captures, glyph_columns):
     return matching, len(channels)
 
 
-def context():
-    return {name: Path("/proc", name).read_text().strip() for name in
-            ("loadavg", "pressure/cpu", "pressure/memory", "pressure/io")}
+def context(pressure):
+    reading = {name: Path("/proc", name).read_text().strip() for name in
+               ("loadavg", "pressure/cpu", "pressure/memory", "pressure/io")}
+    reading["world/cpu"] = Path(pressure).read_text().strip()
+    return reading
 
 
-def cpu_total(reading):
-    return int(re.search(r"^some .* total=(\d+)$", reading["pressure/cpu"], re.M)[1])
+def cpu_total(reading, name="world/cpu"):
+    return int(re.search(r"^some .* total=(\d+)$", reading[name], re.M)[1])
 
 
 def glyph_geometry(field_json, surface_json):
@@ -264,7 +269,7 @@ def measure(args):
             if (ready["appProviderWarm"] != (index > 0) or ready["text"] != ""
                     or ready["fixtureApps"] != 60 or ready["themeState"] != "absent"):
                 raise ValueError(f"workload: cache-theme-fixture-not-ready facts={ready}")
-            before = context()
+            before = context(args.pressure)
             key_offset = (out / "keyboard.log").stat().st_size
             send = {}
             send_errors = []
@@ -285,7 +290,7 @@ def measure(args):
             deadline = time.monotonic() + 1
             while time.monotonic() < deadline:
                 captures.append(snap(trialdir / f"frame-{len(captures):03d}.ppm"))
-            after = context()
+            after = context(args.pressure)
             thread.join(timeout=2)
             if thread.is_alive() or send_errors:
                 raise RuntimeError(f"input: sender-failed errors={send_errors}")
@@ -310,6 +315,7 @@ def measure(args):
             bracket = visible["end"] - max(send["down"], prior_start)
             elapsed = captures[-1]["end"] - captures[0]["start"]
             pressure = (cpu_total(after) - cpu_total(before)) / (elapsed * 10)
+            host_pressure = (cpu_total(after, "pressure/cpu") - cpu_total(before, "pressure/cpu")) / (elapsed * 10)
             reached = [e for e in facts["events"] if e["kind"] == "filter-end" and e["text"] == "o"]
             if (facts["fixtureApps"] != 60 or not reached
                     or reached[0]["fixtureRows"] != 60 or reached[0]["rows"] < 60):
@@ -326,7 +332,7 @@ def measure(args):
                      "firstGlyphAdvance": advance, "glyphColumns": glyph_columns,
                      "keyboard": keyboard, "facts": facts,
                      "before": before, "after": after, "upperMs": upper, "bracketMs": bracket,
-                     "cpuSomePct": pressure, "discriminantChannels": channels,
+                     "cpuSomePct": pressure, "hostCpuSomePct": host_pressure, "discriminantChannels": channels,
                      "firstMatchingCapture": first, "captures": []}
             for capture in captures:
                 trial["captures"].append({k: v for k, v in capture.items() if k != "pixels"})
@@ -340,6 +346,7 @@ def measure(args):
             "maxBracketMs": max(t["bracketMs"] for t in trials),
             "maxCaptureMs": max(c["end"] - c["start"] for t in trials for c in t["captures"]),
             "maxCpuSomePct": max(t["cpuSomePct"] for t in trials),
+            "maxHostCpuSomePct": max(t["hostCpuSomePct"] for t in trials),
             "maxLoad": max(float(t[edge]["loadavg"].split()[0])
                            for t in trials for edge in ("before", "after")),
             "singleCharacter": all(t["facts"]["text"] == "o" for t in trials),
@@ -369,7 +376,7 @@ def main():
     instrument.add_argument("tree", type=Path)
     instrument.add_argument("--slow", action="store_true")
     capture = commands.add_parser("measure")
-    for name in ("keyboard", "pid", "socket", "field", "surface"):
+    for name in ("keyboard", "pid", "socket", "field", "surface", "pressure"):
         capture.add_argument(name)
     capture.add_argument("output", type=Path)
     args = parser.parse_args()

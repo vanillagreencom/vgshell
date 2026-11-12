@@ -393,6 +393,12 @@ jarvis_bubble_user_caption() {
   expect "the user's committed words reach the caption" ok ipc smoke heldStatusSet transcript \
     "{\"gen\": $gen, \"role\": \"user\", \"text\": \"scripted utterance\", \"stage\": \"final\", \"rev\": 1}"
 }
+# Whether the user's caption cleared Jarvis's words. The caption reaches
+# Words inside the heldStatusSet call that writes it: PluginStatus.set
+# stores the record, and the bubble's caption and words bindings
+# (Bubble.qml) re-evaluate in that turn, so the call's `ok` is the state
+# this waits on and one reading judges it.
+jarvis_bubble_user_cleared() { expect "a caption of the user's words clears Jarvis's words" empty jarvis_bubble_handed; }
 # What the scripted voice was asked to say since record FROM, each sentence
 # named: the long request's two stated steps, its answer, and any other line,
 # which in that turn is the acknowledgement.
@@ -955,7 +961,7 @@ expect "the user's committed words are not drawn while the brain thinks" absent 
 expect_poll "Jarvis's acknowledgement draws while the brain thinks" "On it." jarvis_bubble_shown
 expect_poll "thinking draws its own look" thinking jarvis_bubble_look
 jarvis_bubble_user_caption
-expect_poll "a caption of the user's words clears Jarvis's words" empty jarvis_bubble_handed
+jarvis_bubble_user_cleared
 jarvis_key_gate reply
 expect_poll "the reply draws the latest lines of Jarvis's words" latest-lines jarvis_bubble_words
 jarvis_bubble_earlier="$(ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["transcript"]))')"
@@ -1406,7 +1412,7 @@ PY
       jarvis_bubble_user_caption
       jarvis_bubble_failures="$(
         failures=0 behaviour_failures=0
-        expect_poll "a caption of the user's words clears Jarvis's words" empty jarvis_bubble_handed >"$sandbox/$jarvis_bubble_mutant.log"
+        jarvis_bubble_user_cleared >"$sandbox/$jarvis_bubble_mutant.log"
         echo "$failures"
       )"
       expect "control: dropping the role check fails the same words assertion" 1 printf '%s\n' "$jarvis_bubble_failures" ;;

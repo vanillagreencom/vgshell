@@ -69,7 +69,8 @@
 # unmeasured check and no failure; failed, it holds a failure, or, with
 # cause=fatal-bash, the row ended its attempt in a fatal Bash error, with
 # cause=incomplete-attempt, an attempt that exited 0 left it unrun, and
-# with cause=record-unreadable, its record cannot be read; blocked
+# with cause=record-unreadable, its record cannot be read, and with
+# cause=no-progress, the run stopped in it for making no progress; blocked
 # producer=<row>, it reads a row that ended in a fatal Bash error, so it
 # did not run; unreached, the driver read no record for it: a stopped or
 # cancelled run never reached it, or left it open before a failed or
@@ -84,6 +85,20 @@
 # named as <row>:unreached and not counted. A passing run prints
 # `qml-smoke: ok`. A cancelled run then prints `qml-smoke: cancelled
 # signal=<INT|TERM|HUP> status=<status>` and exits that status.
+#
+# Only no progress stops a run; its time never does. An attempt whose
+# run.log takes no new line for VGS_SMOKE_IDLE_SECS (a positive whole
+# number of seconds; unset or empty, 600) is stopped as a cancel is, and
+# the run ends there, resuming nothing. Its completion records hold
+# `exit` 1, `reason` no-progress, `requestedStop` 1 and `noProgress`
+# {row, idleSecs, boundSecs}, `row` the top-level row it hung in or setup
+# between rows. The driver then prints `qml-smoke: no-progress row=<row>
+# idle-secs=<n> bound-secs=<b>` with a note, after the row's
+# `row-result ... status=failed cause=no-progress` line, and exits 1. The
+# bound is over four times the longest gap between two check lines inside
+# one row in the retained runs of 2026-11-09 to 11-12 on cachy (Ryzen 9
+# 9950X): 137 s, bar-controls (VGS-2465). Every check line, row-secs line
+# and harness step line counts as progress.
 #
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
@@ -426,6 +441,16 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
   qml_smoke_log_pid=""
   qml_smoke_phase=between
   qml_smoke_completions=()
+  qml_smoke_watch_pid=""
+  qml_smoke_hung_row=""
+  # A background call expands its words in the child, so the watcher takes
+  # the driver's PID from here.
+  qml_smoke_driver_pid=$BASHPID
+  qml_smoke_idle_secs="${VGS_SMOKE_IDLE_SECS:-600}"
+  if [[ ! $qml_smoke_idle_secs =~ ^[1-9][0-9]*$ ]]; then
+    printf 'qml-smoke: refused: VGS_SMOKE_IDLE_SECS=%s want=positive-seconds\n' "$qml_smoke_idle_secs" >&2
+    exit 2
+  fi
   printf 'qml-smoke: completion=%s/completion.json\n' "$qml_smoke_driver"
   # Each child stays with this driver until its wait completes. As in the
   # fence's monitor wait, checking its parent excludes a reused foreign PID.
@@ -436,6 +461,33 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
   qml_smoke_wait_child() {
     while qml_smoke_owns_child "$1"; do wait "$1" || true; done
     wait "$1"
+  }
+  # qml_smoke_watch ATTEMPT DRIVER_PID: the attempt's progress watcher, a
+  # child of the driver. When ATTEMPT/run.log takes no new line for
+  # qml_smoke_idle_secs it records the open row in ATTEMPT/no-progress and
+  # sends the driver USR1, the no-progress stop. It signals only while the
+  # driver is still its parent, so it never signals a reused PID, and it
+  # ends once the driver is gone.
+  qml_smoke_watch() {
+    local log="$1/run.log" size="" now changed="$EPOCHSECONDS" row=setup fields=()
+    while read -r -a fields 2>/dev/null <"/proc/$BASHPID/stat" && [[ ${fields[3]-} == "$2" ]]; do
+      now="$(stat -c %s -- "$log" 2>/dev/null)" || now=""
+      [[ $now == "$size" ]] || { size="$now" changed="$EPOCHSECONDS"; }
+      if ((EPOCHSECONDS - changed >= qml_smoke_idle_secs)); then
+        [[ ! -f $1/active ]] || read -r row <"$1/active" || row=setup
+        printf 'row=%s idle-secs=%s bound-secs=%s\n' "$row" "$((EPOCHSECONDS - changed))" "$qml_smoke_idle_secs" >"$1/no-progress"
+        kill -USR1 "$2"
+        return 0
+      fi
+      sleep 1
+    done
+  }
+  # qml_smoke_watch_end: stop and reap the attempt's watcher.
+  qml_smoke_watch_end() {
+    [[ -n $qml_smoke_watch_pid ]] || return 0
+    ! qml_smoke_owns_child "$qml_smoke_watch_pid" || kill -TERM "$qml_smoke_watch_pid" 2>/dev/null || true
+    wait "$qml_smoke_watch_pid" 2>/dev/null || true
+    qml_smoke_watch_pid=""
   }
   qml_smoke_cancel() {
     ((qml_smoke_cancel_status != 0 || (qml_smoke_cancel_status=$2)))
@@ -477,10 +529,19 @@ try:
         payload["attempts"] = records
     # Completeness remains the recorder's collection judgment. A native
     # product verdict does not promote incomplete observations to complete.
-    for stop in (0, 129, 130, 143):
+    # Stop 1 is the no-progress stop; its watcher wrote the attempt's
+    # no-progress record before it signalled.
+    hung = root / "no-progress" if kind == "attempt" else pathlib.Path(records[-1]).parent / "no-progress" if records else None
+    progress = None
+    if hung is not None and hung.is_file():
+        fields = dict(item.split("=", 1) for item in hung.read_text().split())
+        progress = dict(row=fields["row"], idleSecs=int(fields["idle-secs"]), boundSecs=int(fields["bound-secs"]))
+    for stop in (0, 1, 129, 130, 143):
         status = stop or (1 if reader else native)
-        reason = {0: "passed", 1: "failed", 77: "not-measured"}.get(status, "interrupted:" + str(status))
+        reason = "no-progress" if stop == 1 else {0: "passed", 1: "failed", 77: "not-measured"}.get(status, "interrupted:" + str(status))
         value = dict(payload, exit=status, reason=reason, requestedStop=stop)
+        if stop == 1:
+            value["noProgress"] = progress
         with (root / (".completion-" + str(stop))).open("x") as file:
             json.dump(value, file)
             file.write("\n")
@@ -492,6 +553,7 @@ PY
   trap 'qml_smoke_cancel TERM 143' TERM
   trap 'qml_smoke_cancel INT 130' INT
   trap 'qml_smoke_cancel HUP 129' HUP
+  trap 'qml_smoke_cancel USR1 1' USR1
   while ((${#qml_smoke_pending[@]})); do
     ((qml_smoke_cancel_status == 0)) || break
     qml_smoke_left=()
@@ -534,6 +596,8 @@ PY
         "$BASH" -c 'qml_smoke_attempt=$1; qml_smoke_completion=$2; shift 2; source "$@"' "$self" "$qml_smoke_attempt" "$qml_smoke_completion" "$self" \
         "${argv[@]}" --rows "$qml_smoke_next" --log-dir "$smoke_log_dir" >&"$qml_smoke_log_fd" 2>&1 {qml_smoke_log_fd}>&- &
       qml_smoke_fence_pid=$!
+      qml_smoke_watch "$qml_smoke_attempt" "$qml_smoke_driver_pid" &
+      qml_smoke_watch_pid=$!
       if ((qml_smoke_cancel_status != 0)); then qml_smoke_cancel stop "$qml_smoke_cancel_status"; fi
     fi
     exec {qml_smoke_log_fd}>&-
@@ -542,6 +606,7 @@ PY
       qml_smoke_wait_child "$qml_smoke_fence_pid" || qml_smoke_attempt_status=$?
       qml_smoke_fence_pid=""
     fi
+    qml_smoke_watch_end
     qml_smoke_log_status=0
     qml_smoke_wait_child "$qml_smoke_log_pid" || qml_smoke_log_status=$?
     qml_smoke_log_pid=""
@@ -587,6 +652,10 @@ PY
     if [[ $qml_smoke_log_status != 0 ]]; then
       qml_smoke_status=1
       break
+    fi
+    if ((qml_smoke_cancel_status == 1)); then
+      qml_smoke_hung_row="$(sed -n 's/^row=\([^ ]*\) .*/\1/p' -- "$qml_smoke_attempt/no-progress")" || qml_smoke_hung_row=""
+      qml_smoke_status=1
     fi
     ((qml_smoke_cancel_status == 0)) || break
     qml_smoke_open=""
@@ -635,6 +704,9 @@ PY
       printf 'qml-smoke: row-result row=%s status=failed cause=fatal-bash\n' "$qml_smoke_row"
     elif [[ -n ${qml_smoke_blocked[$qml_smoke_row]-} ]]; then
       printf 'qml-smoke: row-result row=%s status=blocked producer=%s\n' "$qml_smoke_row" "${qml_smoke_blocked[$qml_smoke_row]}"
+    elif [[ $qml_smoke_row == "$qml_smoke_hung_row" ]]; then
+      qml_smoke_failures=$((qml_smoke_failures + 1))
+      printf 'qml-smoke: row-result row=%s status=failed cause=no-progress\n' "$qml_smoke_row"
     elif [[ $qml_smoke_incomplete == true && " ${qml_smoke_pending[*]} " == *" $qml_smoke_row "* ]]; then
       qml_smoke_failures=$((qml_smoke_failures + 1))
       printf 'qml-smoke: row-result row=%s status=failed cause=incomplete-attempt\n' "$qml_smoke_row"
@@ -680,7 +752,9 @@ PY
     printf 'qml-smoke: failed-operation=completion-publish path=%s/completion.json\n' "$qml_smoke_driver" >&2
     exit 1
   fi
-  if ((qml_smoke_run_stop != 0)); then
+  if ((qml_smoke_run_stop == 1)); then
+    printf 'qml-smoke: no-progress %s note="a step that is silent by design prints its state; never drop a check or raise the bound to pass"\n' "$(<"$qml_smoke_attempt/no-progress")"
+  elif ((qml_smoke_run_stop != 0)); then
     case "$qml_smoke_run_stop" in 129) qml_smoke_cancel_signal=HUP ;; 130) qml_smoke_cancel_signal=INT ;; 143) qml_smoke_cancel_signal=TERM ;; esac
     printf 'qml-smoke: cancelled signal=%s status=%s\n' "$qml_smoke_cancel_signal" "$qml_smoke_run_stop"
   elif ((qml_smoke_run_exit == 0)); then
