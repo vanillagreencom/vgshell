@@ -365,12 +365,14 @@ for phase, attempt_stop, worlds, native in cases:
                 os.kill(child.pid, signal.SIGTERM)
                 if phase != 'after-run-seal':
                     accepted = directory / 'accepted'
-                    while not accepted.exists() and child.poll() is None and time.monotonic() < deadline:
+                    # The driver's >> creates the file before printf writes
+                    # its line, so wait for a whole line, not the file.
+                    while not (accepted.exists() and accepted.read_text().endswith('\n')) and child.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
                     assert accepted.read_text().splitlines() == ['143'], 'first-stop-not-acknowledged'
                     # A different repeated signal cannot replace the first.
                     os.kill(child.pid, signal.SIGHUP)
-                    while len(accepted.read_text().splitlines()) < 2 and child.poll() is None and time.monotonic() < deadline:
+                    while accepted.read_text().count('\n') < 2 and child.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
                     assert accepted.read_text().splitlines() == ['143', '143'], 'mixed-stop-replaced-first'
                 with (pathlib.Path(ready['path']) / 'release').open('w') as release:
