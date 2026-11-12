@@ -12,6 +12,8 @@
 # qmltestrunner start, offscreen and shader, to get the QV4_ Env pragmas of
 # shell/shell.qml, which a copy of the runner that does not apply them
 # fails, and an Env pragma with no `=` to be refused.
+# The final count requires no qml-unit.* folder in the world's TMPDIR;
+# a copy without its exit trap leaves one under a case's own TMPDIR.
 #
 # Exit 0 when every row holds, 1 otherwise, 77 when the runner could not
 # measure, since a mutation nothing runs proves nothing: qmltestrunner is
@@ -34,7 +36,7 @@
 # scripts/validate --full check every mutation.
 #
 # The unmutated copy, the mutations, the two argument rows, the display
-# lock row, the GC mode row and the log rows run side by side, at most
+# lock row, the GC mode row, the cleanup control and the log rows run side by side, at most
 # VGS_VALIDATE_JOBS at once, a positive integer
 # (unset or empty: nproc), and print in that order; another value is
 # refused with exit 2, `test-qml-unit: refused: jobs=<value>`.
@@ -2421,6 +2423,10 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+count_qml_unit_roots() {
+  find "$1" -mindepth 1 -maxdepth 1 -type d -name 'qml-unit.*' -printf '.\n' | wc -l
+}
+
 # One fresh copy of the module under test at $1.
 fresh() {
   rm -rf -- "$1"
@@ -2605,6 +2611,34 @@ PY
   done
 }
 
+cleanup_case() {
+  local dir="$tmp/cleanup" tree="$tmp/cleanup/tree" count status=0
+  mkdir -p -- "$dir/tmp" "$tree/scripts"
+  ln -s -- "$repo/shell" "$tree/shell"
+  ln -s -- "$repo/scripts/smoke" "$tree/scripts/smoke"
+  python3 - "$runner" "$tree/scripts/qml-unit.sh" <<'PY'
+import sys
+source, copy = sys.argv[1:]
+text = open(source, encoding="utf-8").read()
+trap = 'trap \'rm -rf -- "${root:?}"\' EXIT\n'
+assert text.count(trap) == 1, "the runner registers its cleanup once"
+open(copy, "w", encoding="utf-8").write(text.replace(trap, ""))
+PY
+  chmod +x "$tree/scripts/qml-unit.sh"
+  printf '#!/bin/sh\nexit 0\n' >"$dir/runner"
+  chmod +x "$dir/runner"
+  printf 'import QtTest\nTestCase { name: "cleanup" }\n' >"$dir/tst_cleanup.qml"
+  TMPDIR="$dir/tmp" QML_UNIT_RUNNER="$dir/runner" "$tree/scripts/qml-unit.sh" --tests "$repo/scripts/qml-tests" "$dir/tst_cleanup.qml" >"$dir/out" 2>&1 || status=$?
+  count="$(count_qml_unit_roots "$dir/tmp")" || count=unreadable
+  printf 'test-qml-unit: temporary-roots=%s scope=control runner-exit=%s\n' "$count" "$status"
+  if [[ $status -eq 0 && $count == 1 ]]; then
+    ok "control: a runner without its exit trap leaves its temporary folder"
+  else
+    fail "control: cleanup count [$count], runner exit $status, want one folder after a successful run"
+    tail -n 5 "$dir/out"
+  fi
+}
+
 # The shell's QV4_ Env pragmas, read here from shell/shell.qml, must reach
 # qmltestrunner on the offscreen and the shader path: a stand-in runner
 # records the environment each start gets, under a stand-in xvfb-run that
@@ -2702,6 +2736,7 @@ run_case() { # KIND [INDEX]
     unknown-argument)
       if out="$("$runner" --nope 2>&1)"; then fail "an unknown argument passed"; elif [[ $out == "qml-unit: refused: argument=--nope" ]]; then ok "an unknown argument is refused"; else fail "an unknown argument: got $out"; fi ;;
     xvfb-lock) xvfb_lock_case ;;
+    cleanup) cleanup_case ;;
     gc-mode) gc_mode_case ;;
     log) log_case "$2" ;;
     *) fail "test-qml-unit: case=$1 unknown" ;;
@@ -2718,7 +2753,7 @@ cases=(copy)
 for index in "${!mutations[@]}"; do
   [[ ${mutation_plan[index]} == skip\ * ]] || cases+=("mutation $index")
 done
-cases+=(missing-runner unknown-argument xvfb-lock gc-mode)
+cases+=(missing-runner unknown-argument xvfb-lock gc-mode cleanup)
 for index in "${!logs[@]}"; do cases+=("log $index"); done
 active=0
 for i in "${!cases[@]}"; do
@@ -2746,6 +2781,12 @@ for i in "${!cases[@]}"; do
     fail "${cases[i]}: the case's job ended before it reported"
   fi
 done
+
+count="$(count_qml_unit_roots "$TMPDIR")" || count=unreadable
+printf 'test-qml-unit: temporary-roots=%s scope=world\n' "$count"
+if [[ $count != 0 ]]; then
+  fail "the world's temporary directory holds [$count] qml-unit folders, want zero"
+fi
 
 if [[ $failures -eq 0 ]]; then
   echo "test-qml-unit: ok mutations=$ran_mutations skipped=$skipped_mutations logs=${#logs[@]}"

@@ -171,6 +171,7 @@ engine_environment=()
 [[ -z $engine_settings ]] || mapfile -t engine_environment <<<"$engine_settings"
 
 root="$(mktemp -d "$TMPDIR/qml-unit.XXXXXX")"
+trap 'rm -rf -- "${root:?}"' EXIT
 imports="$root/imports"
 mkdir -p "$imports/qs/Commons" "$imports/qs/Core" "$imports/qs/Unit" "$imports/Quickshell/Io" "$imports/Qt/labs/folderlistmodel" "$root/home" "$root/runtime"
 chmod 700 "$root/runtime"
