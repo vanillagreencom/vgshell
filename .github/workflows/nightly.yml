@@ -65,9 +65,10 @@ jobs:
           # tests measure text drawn in no font. ttf-liberation supplies
           # the Liberation Sans family the ImageText layout test names.
           # xorg-server-xvfb and xorg-xauth give the MultiEffect unit test
-          # the X display that scripts/qml-unit.sh draws it on.
+          # the X display that scripts/qml-unit.sh draws it on. bind gives
+          # the VPN kill switch row dig.
           pacman -Syu --noconfirm --needed \
-            git base-devel nodejs python python-dbus python-gobject python-numpy jq rclone \
+            git base-devel nodejs python python-dbus python-gobject python-numpy jq rclone bind \
             qt6-declarative quickshell util-linux bubblewrap lua gnupg sequoia-sqv \
             libsecret xdg-dbus-proxy sudo tmux ghostty neovim fd fzf gum file glib2 xdg-utils imagemagick ffmpeg \
             qt6-shadertools pipewire pipewire-audio ttf-dejavu ttf-liberation wayland-protocols \

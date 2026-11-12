@@ -11,6 +11,8 @@
 # the namespaces prints `test-vpn-kill-switch: status=not-measured
 # reason=<key>` and exits 77, and so does one that cannot build the unit's
 # read-only view, reason=limited-view, once every other check has passed.
+# A host missing tools from the suite's list gets one such line naming every
+# one of them, in list order: reason=missing-<tool>[,<tool>...].
 #
 # `unshare --user --map-root-user --net --mount` makes the laptop. tmpfs
 # mounts there give it its own /run, /var/lib and /usr/local, so the
@@ -72,13 +74,17 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
 script="$repo/config/system/kill-switch/vgs-kill-switch"
 hotel_py="$repo/scripts/fixtures/kill-switch/hotel.py"
 
+tools=(unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node awk)
+
 not_measured() { printf '%s: status=not-measured reason=%s\n' "$suite" "$1"; exit 77; } # KEY
 
 if [[ ${1-} != --laptop ]]; then
   (($# == 0)) || exit 2
-  for tool in unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node awk; do
-    command -v "$tool" >/dev/null || not_measured "missing-$tool"
+  missing=()
+  for tool in "${tools[@]}"; do
+    command -v "$tool" >/dev/null || missing+=("$tool")
   done
+  ((${#missing[@]} == 0)) || { IFS=,; not_measured "missing-${missing[*]}"; }
   # The binary itself, not a version manager's shim, which reads the
   # caller's home: the laptop's PATH is fixed and its /usr/local is its own.
   node_bin="$(node -e 'process.stdout.write(process.execPath)')" || not_measured node-unresolved
@@ -138,6 +144,25 @@ await() { # COMMAND...
   done
   return 1
 }
+
+# The tool check, run on a PATH that holds every listed tool but dig and
+# ping and the two commands the script runs before it: one line names both.
+tool_check_names_every_missing_tool() {
+  local tool target out rc=0
+  mkdir -- "$tmp/tool-path" || return 1
+  for tool in readlink dirname "${tools[@]}"; do
+    case $tool in
+      dig | ping) continue ;;
+      # The laptop's fixed PATH need not hold node; NODE_BIN is the binary.
+      node) target="$NODE_BIN" ;;
+      *) target="$(command -v "$tool")" || return 1 ;;
+    esac
+    ln -s -- "$target" "$tmp/tool-path/$tool" || return 1
+  done
+  out="$(PATH="$tmp/tool-path" "$BASH" "$self" 2>&1)" || rc=$?
+  ((rc == 77)) && [[ $out == "$suite: status=not-measured reason=missing-dig,ping" ]]
+}
+check "tool check names every missing tool in one not-measured line" tool_check_names_every_missing_tool
 
 real_setpriv="$(command -v setpriv)"
 real_nft="$(command -v nft)"
