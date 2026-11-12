@@ -221,7 +221,7 @@ for old, phase in [
     ('    qml_smoke_completions+=("$qml_smoke_completion")\n', 'after-attempt-seal'),
     ('      continue\n    fi\n    if [[ $qml_smoke_attempt_status != 0 ]]; then', 'between-attempts'),
     ("  # Final run seal: later stop signals cannot alter this record or exit.\n", 'before-run-seal'),
-    ('  if ((qml_smoke_run_stop != 0)); then\n', 'after-run-seal'),
+    ('  if ((qml_smoke_run_stop == 1)); then\n', 'after-run-seal'),
 ]:
     call = f'  completion_barrier {phase}\n'
     driver = change(driver, old, old + call if phase in ('pending-reader', 'early-reader', 'after-attempt-seal') else call + old)
