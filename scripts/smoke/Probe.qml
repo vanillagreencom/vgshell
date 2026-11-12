@@ -2645,6 +2645,32 @@ Scope {
             return JSON.stringify({ pid: process.processId, lifetime: service.lifetime, retries: service.retries,
                 cause: service.cause, audioHealth: service.audioHealth, status: service.shell.status.values });
         }
+        // The one active ParticleOrb in a plugin's layers as `PHASE:settled`
+        // once each eased look value has reached the value its phase's tone
+        // sets, `PHASE:easing` while one still moves, or `orbs=N`. A phase
+        // change rebinds the tone and starts each Behavior's animation in
+        // the same turn, so a settled reading of the phase is the look's
+        // final state, which jarvis-bubble's look reader then reads once.
+        // The pairs are ParticleOrb.qml's eased values and their tone keys.
+        function orbEased(id: string): string {
+            const pairs = { topStop: "top", upperStop: "upper", lowerStop: "lower", bottomStop: "bottom",
+                coreTint: "core", hotTint: "hot", ringRadius: "radius", amp: "amp", scatter: "scatter",
+                sparks: "sparks", interior: "interior", rim: "rim", saturation: "saturation",
+                presence: "presence", brightness: "brightness", fold: "fold", throbDepth: "throbDepth",
+                driveAmp: "driveAmp", driveScatter: "driveScatter", driveBright: "driveBright", driveRadius: "driveRadius" };
+            const orbs = [];
+            for (const entry of Layers.entries.filter(e => e.pluginId === id))
+                for (const screen of Object.keys(entry.screens).sort())
+                    for (const item of root.descendants(entry.screens[screen]))
+                        if (root.matchesType(item, "ParticleOrb") && item.active) orbs.push(item);
+            if (orbs.length !== 1) return "orbs=" + orbs.length;
+            const orb = orbs[0];
+            const eased = root.descendants(orb).find(item => item !== orb && item.transition !== undefined && item.topStop !== undefined);
+            if (eased === undefined) return "eased=absent";
+            const moving = Object.keys(pairs).some(name => typeof eased[name] === "number"
+                ? eased[name] !== orb.tone[pairs[name]] : !Qt.colorEqual(eased[name], orb.tone[pairs[name]]));
+            return orb.phase + (moving ? ":easing" : ":settled");
+        }
         function instanceGeometry(hostKey: string, id: string): string { return root.geometry(root.instance(hostKey, id)); }
         function barSectionGeometry(hostKey: string, section: string): string {
             if (ConfigLogic.SECTIONS.indexOf(section) === -1) return "unknown";

@@ -215,6 +215,14 @@ rows=[" ".join(t for _,t in sorted(drawn[top])) for top in sorted(drawn)]
 print("latest-lines" if text.endswith(" "+" ".join(rows)) else "wrong-order")
 ' "$views" "$labels" "$lines" "$jarvis_bubble_reply"
 }
+# PHASE draws its own look: the probe's orbEased reads the orb in PHASE
+# with every eased value at its target, the state the look waits on, and
+# then one look reading judges it. A look bound to another phase settles
+# too, on that phase's values, so its failure needs no poll bound.
+jarvis_bubble_look_drawn() { # PHASE
+  expect_poll "the orb settles in the $1 look" "$1:settled" ipc smoke orbEased vgs.jarvis
+  expect "$1 draws its own look" "$1" jarvis_bubble_look
+}
 # The phase whose look the shown orb draws: the orb's phase once each
 # uniform of its shader holds what that phase's look in the shipped table
 # (Appearance.js, read through the shell's library loader) sets: the six
@@ -826,7 +834,7 @@ jarvis_bubble_client="$other_pid"
 expect_poll "the client below Jarvis has keyboard focus" '["smoke.other", "Other window"]' active_window
 jarvis_bubble_begin
 geometry expect_poll "the bubble clears reserved space and sits at bottom centre" bottom-centre jarvis_bubble_geometry
-expect_poll "listening draws its own look" listening jarvis_bubble_look
+jarvis_bubble_look_drawn listening
 expect "the bubble takes no keyboard focus" '["smoke.other", "Other window"]' active_window
 geometry expect_poll "the orb draws without a Jarvis bar widget" drawn jarvis_bubble_pixels
 expect "control: hide only the bubble's shader" ok ipc smoke layerShaderSet vgs.jarvis ParticleOrb false
@@ -959,7 +967,7 @@ expect "the user's partial words are not drawn" absent jarvis_bubble_handed 'scr
 jarvis_bubble_think
 expect "the user's committed words are not drawn while the brain thinks" absent jarvis_bubble_handed 'scripted utterance'
 expect_poll "Jarvis's acknowledgement draws while the brain thinks" "On it." jarvis_bubble_shown
-expect_poll "thinking draws its own look" thinking jarvis_bubble_look
+jarvis_bubble_look_drawn thinking
 jarvis_bubble_user_caption
 jarvis_bubble_user_cleared
 jarvis_key_gate reply
@@ -996,7 +1004,7 @@ rest_pointer || fail "the pointer returns to rest after the words' menu"
 # Motion uses the active reply, the open quiet conversation and a fault.
 # Motion scale 0 must still the same fault look.
 expect_poll "the reply speaks behind the played gate" speaking jarvis_key_state phase
-expect_poll "speaking draws its own look" speaking jarvis_bubble_look
+jarvis_bubble_look_drawn speaking
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
 expect_poll "speaking swaps frames" advancing jarvis_bubble_advancing
 jarvis_bubble_rate="$(jarvis_bubble_look_value state.idle.frameRate)" || fail "the waiting look's frame rate is unreadable"
@@ -1419,7 +1427,7 @@ PY
     look)
       jarvis_bubble_failures="$(
         failures=0 behaviour_failures=0
-        expect_poll "listening draws its own look" listening jarvis_bubble_look >"$sandbox/$jarvis_bubble_mutant.log"
+        jarvis_bubble_look_drawn listening >"$sandbox/$jarvis_bubble_mutant.log"
         echo "$failures"
       )"
       expect "control: a look bound to another state fails the same look reader" 1 printf '%s\n' "$jarvis_bubble_failures"
