@@ -2,7 +2,8 @@
 # and ends the process groups spawn recorded. The world owns the temporary
 # trees and retains row evidence after the namespace ends.
 #
-# Ignore repeat stop signals while closing producers and the recorder.
+# Ignore repeat stop signals from the first stop on, and every stop while
+# closing producers and the recorder after any other exit.
 # SIGKILL is handled by the world's PID namespace and after-namespace copy.
 # A stop that TERMs every process of the world, as a systemd unit's stop
 # does, reaches this cleanup and every process it ends at once. The world's
@@ -15,8 +16,11 @@ if ! "${source_repo:-${repo:-${BASH_SOURCE[0]%/scripts/smoke/teardown.sh}}}/scri
   exit 77
 fi
 
+# cleanup STATUS: STATUS is the exit status the world ends with. Nothing
+# before its ignore acts, so a stop the trap below runs there, which runs
+# this cleanup again and exits, leaves one teardown.
 cleanup() {
-  local original_status=$?
+  local original_status=$1
   local teardown_started_us="${EPOCHREALTIME/./}"
   trap '' TERM INT HUP
   # A stop that signals every process of the world, as a unit's stop does,
@@ -54,4 +58,22 @@ cleanup() {
   fi
   printf 'qml-smoke: fixed-us phase=teardown us=%s\n' "$(( ${EPOCHREALTIME/./} - teardown_started_us ))"
 }
-trap cleanup EXIT
+# A unit's stop hands this shell two stops: the unit's own TERM and the copy
+# gpu-fence.sh's forward hands CMD's process group. Untrapped, the first
+# reaches cleanup through Bash's exit path, and a second that comes before
+# cleanup's own ignore kills the shell outright, closing reading and all
+# (Bash 5.3 sig.c, termsig_sighandler: `if (handling_termsig) kill_shell
+# (sig);`). So each stop is trapped, and the trap ignores every later stop,
+# then runs cleanup itself and exits with the stop's status. It never exits
+# into the EXIT trap: a stop still pending when another exit starts that
+# trap, as the SIGPIPE of a write to an output the stop ended does, runs
+# before its first command (Bash 5.3 execute_cmd.c, execute_command:
+# `QUIT; run_pending_traps ();`), and an exit there would end the EXIT trap
+# before cleanup. Bash runs a trap only once the foreground command ends; a
+# stop that comes through the fence reaches that command too, since the
+# fence hands it to each process group of CMD's session that CMD's
+# processes are in, the one GNU timeout makes for a bounded call included.
+trap 'trap "" TERM INT HUP; trap - EXIT; cleanup 143; exit 143' TERM
+trap 'trap "" TERM INT HUP; trap - EXIT; cleanup 130; exit 130' INT
+trap 'trap "" TERM INT HUP; trap - EXIT; cleanup 129; exit 129' HUP
+trap 'cleanup "$?"' EXIT
