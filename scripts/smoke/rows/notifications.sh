@@ -4713,11 +4713,12 @@ panel_sheet_card() { # MODE SUMMARY
   expect_poll "the $1 sheet hovers the card $2" "$want" panel_hovered_faces
   fade_capture_layout "panel-sheet-$1-settle-items.json"
 }
-# One sweep frame: the pointer DY below the top of RECT, which the card
-# OWNER's slot alone then holds.
-panel_sheet_sweep() { # MODE FRAME RECT DY OWNER
+# One sweep frame: the pointer DY below the top of RECT, DX in from its
+# left edge or at its centre without DX, which the card OWNER's slot alone
+# then holds.
+panel_sheet_sweep() { # MODE FRAME RECT DY OWNER [DX]
   local x y want evidence prior_failures="$failures"
-  read -r x y < <(panel_point "$3" - "$4") || return
+  read -r x y < <(panel_point "$3" "${6:--}" "$4") || return
   hover "$x" "$y" || return
   want="$(python3 -c 'import json,sys;print(json.dumps([sys.argv[1]]))' "$5")" || return
   expect_poll "the $1 sheet sweep frame $2 hovers one card" "$want" panel_hovered_faces
@@ -4726,8 +4727,8 @@ panel_sheet_sweep() { # MODE FRAME RECT DY OWNER
     # settles layout. Parent indices link each card to its hover slot.
     # These sequential advisory reads neither retry nor excuse the check.
     if evidence="$(mktemp -d "$smoke_log_dir/notifications-sheet-$1-$2.XXXXXX")"; then
-      printf 'mode=%s\nframe=%s\nowner=%s\nrequested=%s,%s\ninput-card=%s\ndy=%s\n' \
-        "$1" "$2" "$5" "$x" "$y" "$3" "$4" >"$evidence/request.txt" ||
+      printf 'mode=%s\nframe=%s\nowner=%s\nrequested=%s,%s\ninput-card=%s\ndy=%s\ndx=%s\n' \
+        "$1" "$2" "$5" "$x" "$y" "$3" "$4" "${6:--}" >"$evidence/request.txt" ||
         printf 'panel-sheet: evidence request unavailable\n' >&2
       ipc smoke descendantGeometry panel vgs.notifications >"$evidence/items.json" 2>"$evidence/items.stderr" ||
         printf 'panel-sheet: evidence slot geometry unavailable\n' >&2
@@ -4751,7 +4752,7 @@ panel_sheet_sweep() { # MODE FRAME RECT DY OWNER
 # and high in the lower card, where the slot under the gap is the upper
 # card's. Each is taken once its state reads back and the layout rests.
 panel_sheet() { # MODE
-  local upper lower rect next points x y at edge
+  local upper lower rect next points inset x y edge
   hover 1 1 || return
   expect "the $1 sheet inbox opens" ok notes inbox
   expect_poll "the $1 sheet inbox holds its list focus" True panel_focus_on_list
@@ -4780,10 +4781,19 @@ rows=json.load(sys.stdin)["rows"];print(rows[6]["summary"]+"\t"+rows[7]["summary
   rect="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$upper")" || return
   next="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$lower")" || return
   [[ $rect == \[* && $next == \[* ]] || { echo 'panel-sheet: sweep-cards-absent' >&2; return 1; }
-  points="$(python3 -c 'import json,sys
+  # The gap's point sits a quarter of the card in from its left edge. The
+  # gap's hover grows the upper card's action row under it, right-aligned
+  # under the text, and a point on one of its pills opens that pill's
+  # tooltip over the lower card's top edge, where frame 3 moves. A move
+  # onto a tooltip window in its first frames gives the pointer to that
+  # window, and the panel then reads no hover until the pointer moves
+  # again: Quickshell applies the tooltip's pass-through mask only once the
+  # window's first frame is drawn (src/window/proxywindow.cpp at 2b4501a,
+  # onExposed; VGS-2514 run notes).
+  read -r points inset < <(python3 -c 'import json,sys
 u=json.loads(sys.argv[1]);l=json.loads(sys.argv[2]);bottom=u[1]+u[3]
-print(bottom+(l[1]-bottom)/2-u[1])' "$rect" "$next")" || return
-  panel_sheet_sweep "$1" 2 "$rect" "$points" "$upper" || return
+print(bottom+(l[1]-bottom)/2-u[1], u[2]/4)' "$rect" "$next") || return
+  panel_sheet_sweep "$1" 2 "$rect" "$points" "$upper" "$inset" || return
   next="$(ipc smoke itemGeometry panel vgs.notifications NotificationCard "$lower")" || return
   [[ $next == \[* ]] || { echo 'panel-sheet: sweep-lower-absent' >&2; return 1; }
   panel_sheet_sweep "$1" 3 "$next" 3 "$lower" || return
