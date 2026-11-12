@@ -173,6 +173,17 @@ const path = require("path");
 const stub = ${JSON.stringify(w.stub)};
 fs.appendFileSync(stub + "/confirm.calls", JSON.stringify(process.argv.slice(2)) + "\\n");
 if (fs.existsSync(stub + "/edit-at-confirm")) fs.writeFileSync(${JSON.stringify(path.join(w.mirror, "edit.txt"))}, "changed after comparison\\n");
+// Lock files an editor makes and removes beside an open document while the
+// owner confirms, in the folder \`lock-files-at-confirm\` names. A 64 KiB
+// block, ext4's largest, holds at most 248 names of 255 bytes, so 256 such
+// names grow the folder on ext4, whose directory never shrinks when a child
+// leaves; on btrfs and tmpfs the move out of it shrinks it.
+if (fs.existsSync(stub + "/lock-files-at-confirm")) {
+  const folder = fs.readFileSync(stub + "/lock-files-at-confirm", "utf8");
+  const locks = Array.from({ length: 256 }, (_, i) => path.join(folder, ".~lock." + String(i).padStart(248, "0")));
+  for (const lock of locks) fs.writeFileSync(lock, "", { flag: "wx" });
+  for (const lock of locks) fs.unlinkSync(lock);
+}
 if (fs.existsSync(stub + "/pause-at-confirm")) {
   const file = ${JSON.stringify(path.join(w.state, "control.json"))};
   const c = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -2869,6 +2880,8 @@ function caseInitializationPreparation(runner, only) {
         if (name === "occupied") write(destination, "keep destination\n");
         if (name === "decline") write(path.join(w.stub, "decline"), "");
         if (name === "changed-at-confirm") write(path.join(w.stub, "edit-at-confirm"), "");
+        // The folder the download leaves changes size on every file system.
+        if (name === "download") write(path.join(w.stub, "lock-files-at-confirm"), path.join(w.mirror, "reports"));
         assert.equal(cli(w, ["service-mode", "true"], runner).status, 0);
         const roots = snapshot([w.mirror, w.drive]);
         const out = cli(w, ["initialize", "--pair", "docs"], runner);
