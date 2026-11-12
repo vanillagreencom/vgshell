@@ -340,13 +340,14 @@ var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", u
 
 // What a page draws of ENTRY, a `rows` entry of PluginLogic.statusRows, for
 // PLUGIN, { enabled, name }: { rows, add, text }. ROWS are its published
-// rows, each with the `key` its line keeps across writes, its id, and its
-// `buttons`, one per row action it offers, as a line action { kind, key,
-// name, row, label, text, tone, icon, removesItem }: KIND `row`, ROW the
-// row's id, TEXT the words a RowAction draws, its label, and
-// REMOVES_ITEM for a danger action with no mark of its own, which removes
-// the row it stands on and so draws the trash mark alone, its TEXT its
-// label and the row's, as its tooltip and accessible name name the row.
+// rows, each with the `key` its line keeps across writes, its id, and
+// its row actions as line actions { kind, key, name, row, label, text,
+// iconName } (KIND `row`, ROW the row's id), in its own order, split
+// as ContentRow stacks them: `menu` holds each danger action with no mark
+// of its own, which removes the row it stands on, its TEXT its label
+// alone, such as Remove, led by the trash mark;
+// `buttons` holds every other action, TEXT its label and ICON_NAME its
+// mark, each a small button under the row.
 // ADD is the line action under the list (lineAction): while the plugin is
 // on, the entry's action on the whole list, such as Add, once the list is
 // reported; while it is off, Turn on for a Details list the user changes
@@ -362,11 +363,14 @@ function rowsView(entry, plugin) {
     if (entry.report !== "reported") return { rows: [], add: add, text: "Not reported" };
     return {
         rows: entry.value.map(function (row) {
-            return Object.assign({ key: row.id, buttons: row.actions.map(function (action) {
+            var buttons = [];
+            var menu = [];
+            row.actions.forEach(function (action) {
                 var removes = action.tone === "danger" && action.icon === "";
-                return { kind: "row", key: entry.key + " " + row.id + " " + action.name, name: action.name, row: row.id, label: action.label,
-                    text: removes ? action.label + " " + row.label : action.label, tone: action.tone, icon: action.icon, removesItem: removes };
-            }) }, row);
+                (removes ? menu : buttons).push({ kind: "row", key: entry.key + " " + row.id + " " + action.name, name: action.name, row: row.id, label: action.label,
+                    text: action.label, iconName: removes ? "trash" : action.icon });
+            });
+            return Object.assign({ key: row.id, buttons: buttons, menu: menu }, row);
         }),
         add: add,
         text: entry.value.length === 0 ? "None yet" : ""

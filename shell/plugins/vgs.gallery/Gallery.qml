@@ -1354,6 +1354,57 @@ Item {
                             ]
                         }
                         ContentRow { text: "Printers"; secondary: "Turn this plugin on to add its widget"; iconName: "printer"; width: parent.width; trailing: [ Button { size: "sm"; variant: "secondary"; text: "Settings"; iconName: "settings"; anchors.verticalCenter: parent.verticalCenter } ] }
+                        // Stacked content rows: a state, a line, small buttons
+                        // and a row menu under the name. A row that opens its
+                        // folder takes the list's cursor; the others are passive.
+                        // focus-indicator: ListItem's FocusRing and the list's ListCursor plate show the focused row
+                        ContentRow {
+                            property string focusExample: "Stacked content row"
+                            text: "Documents"
+                            iconName: "folder-sync"
+                            status: "Sync stopped"
+                            statusTone: "warning"
+                            detail: "Drive/Documents ⇄ ~/Drive/Documents"
+                            actions: [{ key: "setup", text: "Set up two-way sync" }]
+                            menuActions: [{ key: "remove", text: "Remove", iconName: "trash" }]
+                            clickable: true
+                            cursor: listRowsCursor
+                            focusPolicy: Qt.StrongFocus
+                            highlighted: visualFocus
+                            width: parent.width
+                        }
+                        ContentRow {
+                            text: "Agent uploads"
+                            iconName: "folder-sync"
+                            status: "Up to date"
+                            statusTone: "success"
+                            detail: "Drive/VGS/Uploads ⇄ ~/inbox/agent-uploads"
+                            menuActions: [{ key: "remove", text: "Remove", iconName: "trash" }]
+                            clickable: true
+                            cursor: listRowsCursor
+                            width: parent.width
+                        }
+                        ContentRow {
+                            text: "Taxes"
+                            iconName: "folder-sync"
+                            status: "2 files need you"
+                            statusTone: "danger"
+                            detail: "Drive/Finance/Taxes ⇄ ~/Documents/Taxes"
+                            actions: [{ key: "setup", text: "Set up two-way sync", disabledReason: "Fix the 2 files first" }]
+                            menuActions: [{ key: "remove", text: "Remove", iconName: "trash" }]
+                            width: parent.width
+                        }
+                        ContentRow {
+                            text: "Music"
+                            iconName: "folder-sync"
+                            status: "Syncing"
+                            statusTone: "info"
+                            detail: "Drive/Music ⇄ ~/Music"
+                            menuActions: [{ key: "remove", text: "Remove", iconName: "trash" }]
+                            width: parent.width
+                        }
+                        ContentRow { text: "Photos"; iconName: "folder-sync"; detail: "Drive/Photos ⇄ ~/Pictures"; menuActions: [{ key: "remove", text: "Remove", iconName: "trash" }]; width: parent.width }
+                        ContentRow { text: "crashy"; iconName: "bell-off"; actions: [{ key: "unmute", text: "Unmute" }]; width: parent.width }
                         // Navigation rows: the whole row opens a page and ends in a
                         // chevron; the list's cursor draws the hover.
                         NavigationRow { text: "Bluetooth"; secondary: "1.4.0  Included"; iconName: "bluetooth"; cursor: listRowsCursor; width: parent.width }

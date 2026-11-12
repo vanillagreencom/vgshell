@@ -14,7 +14,7 @@ VGS syncs folders on this computer with Google Drive. Choose copy-only sync or t
 - Google Docs, Sheets, Slides and Drawings stay on Drive. With two-way on, download-only Word, Excel, PowerPoint and SVG copies use a separate folder, offered from the flyout. Edit and rename native documents on Drive.
 - When both sides changed, the newer file wins. VGS keeps a losing local version in recovery for 30 days; a resolved losing Drive version goes to Trash. If neither version is newer, both changed files stay for you to choose. A removal made while the other side edits a file can preserve the edit.
 - Google controls Trash and revision retention. Emptying Trash can remove its recovery. For ordinary overwrites, Google may remove a revision after 30 days or 100 newer versions. To retain it, select Keep forever in [Manage versions](https://support.google.com/drive/answer/2409045).
-- Turning two-way sync off selects copy-only runs: newer files copy both ways, and removed files return at the next sync. Changing the switch itself changes no files and keeps pauses.
+- Turning two-way sync off selects copy-only runs: newer files copy both ways, and removed files come back at the next sync. Changing the switch itself changes no files and keeps pauses.
 - Editor temporary files, unfinished downloads, Git folders, keys and credential files are never copied.
 - A bar icon and its flyout show the sync state and the files that need you, with the fix one click away where VGS can run it.
 - A notification when Google Drive needs you: a sign-in, a failed sync or a file that needs you.
@@ -37,7 +37,7 @@ After an actual copy-only run, or a change to the account, folders or sync rules
 
 Google document copies in the separate download folder can keep old names after a Drive-side rename or removal. Copy-only sync downloads these copies into the synced folder; the setup preview handles them before two-way sync starts.
 
-The Settings tab lists your folder pairs. Remove beside a pair stops its sync after you confirm. Sign out, on the Setup tab, stops the sync and removes the sign-in from your keyring. Either way, your files stay on this computer and in Google Drive. Disabling the plugin does not stop the hourly sync.
+The Settings tab lists your folder pairs. Remove, in a pair's More actions menu, stops its sync after you confirm. Sign out, on the Setup tab, stops the sync and removes the sign-in from your keyring. Either way, your files stay on this computer and in Google Drive. Disabling the plugin does not stop the hourly sync.
 
 ## Get your Google Drive keys
 

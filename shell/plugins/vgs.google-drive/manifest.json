@@ -35,7 +35,7 @@
   "settings": { "twoWaySync": true },
   "schema": {
     "twoWaySync": { "type": "boolean", "label": "Two-way sync", "group": "Sync",
-      "description": "On: changes on either side update the other. Off: copy newer files both ways; removed files return.",
+      "description": "On: changes and removals on either side update the other. Off: newer files copy both ways, and removed files come back.",
       "info": "On sends local removals to Drive Trash and keeps Drive-side removals in local recovery. A folder that needs setup stops syncing until you select Set up two-way sync and confirm its preview. This switch changes no files and preserves pauses. A copy-only run requires setup again before two-way sync. An update keeps existing folder pairs on copy-only sync unless you saved a choice." }
   },
   "setupGuide": {"title": "Google Drive needs keys from your own Google account", "text": "It is free and takes about 5 minutes in Google Cloud.", "link": "Open the step-by-step guide", "readme": "get-your-google-drive-keys"},
@@ -43,7 +43,7 @@
     "sync": {"type": "state", "label": "Google Drive sync", "info": "On follows ordinary-file moves, renames and removals on either side. Local removals go to Drive Trash. Drive-side removals and replaced local versions stay in local recovery for 30 days. A folder that needs setup stops syncing until you select Set up two-way sync and confirm its preview. Off copies newer files both ways and restores removed files at the next sync."},
     "lastSync": {"type": "time", "label": "Last sync"},
     "account": {"type": "state", "label": "Account", "plain": true},
-    "pairs": {"type": "rows", "label": "Folder pairs", "settings": true, "icon": "folder-sync", "folderProperty": "local", "hint": "Each pair keeps one Google Drive folder and one folder on this computer the same. Remove stops the sync of a pair and deletes no file.", "action": {"label": "Add a folder pair", "tui": "add-pair"}, "rowActions": {"initialize": {"label": "Set up two-way sync", "tui": "initialize"}, "remove": {"label": "Remove", "tui": "remove-pair", "tone": "danger"}}},
+    "pairs": {"type": "rows", "label": "Folder pairs", "settings": true, "icon": "folder-sync", "folderProperty": "local", "hint": "Each pair keeps one Google Drive folder and one folder on this computer the same. Removing a pair stops its sync and deletes no files.", "action": {"label": "Add a folder pair", "tui": "add-pair"}, "rowActions": {"initialize": {"label": "Set up two-way sync", "tui": "initialize"}, "remove": {"label": "Remove", "tui": "remove-pair", "tone": "danger"}}},
     "cloud": {"type": "data", "label": "Google Drive status"},
     "cloudKeys": {"type": "state", "label": "Google Cloud keys", "setup": true, "hint": "Paste the two keys of your Google Cloud client. VGS keeps them in your keyring.", "info": "Google Drive signs in through a client you make in your own Google Cloud account. The client has two keys, a Client ID and a Client secret. The guide at the top of this tab shows each step to make them."},
     "keys": {"type": "presenceList", "label": "Keys", "step": "cloudKeys"},

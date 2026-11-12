@@ -74,6 +74,15 @@ Item {
             compare(content.textStart, Theme.icon.size.md + Theme.listItem.iconGap);
         }
 
+        // A content row with no stacked part builds none: no stacked lines,
+        // no row menu button and no menu.
+        function test_a_plain_content_row_builds_no_stacked_part() {
+            const found = [content];
+            for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
+            compare(found.filter(item => item instanceof IconButton || item instanceof Menu).length, 0, "a plain content row builds no row menu");
+            compare([content.stacked, content.stackItem, content.menuButton], [false, null, null], "a plain content row builds no stacked lines");
+        }
+
         function test_a_navigation_row_takes_the_click() {
             verify(showsHand(bare, bare.width / 2), "a navigation row shows the hand");
             mouseClick(bare);

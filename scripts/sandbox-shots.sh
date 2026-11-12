@@ -12752,7 +12752,10 @@ ADNEEDS
   expect "Web Content is muted" ok ipc vgs.agent-debug invoke mute "Web Content"
   expect_poll "two muted programs are published" 2 agent_debug_muted_count
   plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-settings-muted" settings
-  link_hover_shot "agent-debug-$mode-settings-muted-unmute-hover" Unmute
+  # Unmute is a small button under its program (ContentRow `actions`).
+  hover_on "the pointer rests on the Unmute button" "$settings_kind" vgs.settings Button Unmute "$settings_surface" \
+    && take_posed "agent-debug-$mode-settings-muted-unmute-hover"
+  park_pointer
   plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-setup" setup
   # Setup with gum missing: the sandbox shell's gum is the device stand-in
   # in $shim (scripts/smoke/devices.sh), and the stand-in registry keeps the

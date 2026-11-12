@@ -268,8 +268,8 @@ var STATUS_CHOICE_KEYS = ["label", "value"];
 // declared `folderProperty` admits one additional, optional folder path.
 var STATUS_ROW_KEYS = ["id", "label", "secondary", "state", "actions"];
 var STATUS_ROW_STATE_KEYS = ["tone", "text"];
-// The tones of a row's state that need the user: a page draws such a state
-// as a chip, and every other tone as plain text.
+// The tones of a state that need the user: a `plain` state draws as text
+// only while its tone is none of these (statusRowTone).
 var STATUS_ROW_CHIP_TONES = ["warning", "danger"];
 // A plugin-published launcher provider can expose a category of dynamic
 // rows. The ceiling admits a 150-row catalog with growth room and keeps
@@ -1775,12 +1775,10 @@ function statusTone(type, value) {
 // access }, `hint`, `info` and `secret` "" when the item omits them, `tone`
 // its presence's, and `access` what the page offers for its secret,
 // SECRET_ACCESS by its presence, "" for an item without one; a `rows`
-// value's rows each as { id, label, secondary, folder, state, tone, chip, actions },
+// value's rows each as { id, label, secondary, folder, state, tone, actions },
 // `folder` the declared folder property's path or "" while absent,
 // `secondary` and `state`, the state's text, "" when the row omits them,
-// `tone` the state's badge tone, "" for none, `chip` whether the state
-// needs the user, a tone of STATUS_ROW_CHIP_TONES, which a page draws as a
-// chip and any other state as text, and `actions` each row action it
+// `tone` the state's badge tone, "" for none, and `actions` each row action it
 // offers, in its own order, as { name, label, tone, icon }, `tone` and
 // `icon` as statusActionTone and statusActionIcon read them; any other
 // value as published.
@@ -1794,7 +1792,6 @@ function statusRowValue(entry, value) {
             folder: entry.folderProperty !== undefined && hasOwn(row, entry.folderProperty) ? row[entry.folderProperty] : "",
             state: row.state === undefined ? "" : row.state.text,
             tone: tone === "" ? "" : STATUS_STATE_TONES[tone],
-            chip: STATUS_ROW_CHIP_TONES.indexOf(tone) !== -1,
             actions: (row.actions === undefined ? [] : row.actions).map(function (name) {
                 var action = entry.rowActions[name];
                 return { name: name, label: action.label, tone: statusActionTone(action), icon: statusActionIcon(action) };
@@ -1961,8 +1958,7 @@ function statusRows(manifest, values) {
 // The tone a page draws reported VALUE of ENTRY in (statusTone), or "" for
 // a value the page draws as plain text: that of a `plain` state while it
 // needs nothing, a tone outside STATUS_ROW_CHIP_TONES, so its page draws
-// a chip only while the state needs the user, as a `rows` entry's states
-// draw.
+// a chip only while the state needs the user.
 function statusRowTone(entry, value) {
     if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return "";
     return statusTone(entry.type, value);

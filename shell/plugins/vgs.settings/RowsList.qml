@@ -6,24 +6,23 @@ import "Steps.js" as Steps
 
 // A `rows` status entry of a plugin's page (PluginLogic.statusRows) as a
 // section of its own, the list full width under its label: one ContentRow
-// per published row, led by the entry's `icon`, with the row's label, its
-// secondary line and, at its end, its state, as plain text for a calm state
-// and as a chip for one that needs the user (`chip`), then its row actions.
-// A row with a declared folder opens it through the page's file-reference
-// route; ListCursor owns its hover and keyboard-focus plate. Other rows
-// stay passive. Each row action keeps its own focus and click.
-// A danger action that removes its row
-// draws the trash mark alone (RowAction's `removesItem`), its text, which
-// names the row, its tooltip and accessible name. The rows are the groups
-// of one GroupList, divided as a section's groups are. Under the list stand
-// "None yet" or "Not reported" while it shows no row, the entry's action on
-// the whole list, such as Add, its hint, whose `link` words open an address
-// through `openLink` and whose page reference opens a page through the
-// section's `pageActivated`, and `reply`, the refusal of the last press
-// on the list, in the error colour. While the plugin is off the list reads
-// so, with Turn on under it (Steps.rowsView). A press records its line
-// action in `lastPress` and emits `pressed` with it, which the page routes
-// and whose reply it hands back.
+// per published row, led by the entry's `icon`, with the row's label and,
+// stacked under it, its state with its tone's mark, its secondary line and
+// a small button for each row action, and its removing action in the row's
+// menu, whose entry is the action's label alone (Steps.rowsView, ContentRow). A row with
+// a declared folder opens it through the page's file-reference route;
+// ListCursor owns its hover and keyboard-focus plate. Other rows stay
+// passive and draw no plate. Each row action keeps its own focus and click,
+// which opens no folder. The rows are the groups of one GroupList, divided
+// as a section's groups are. Under the list stand "None yet" or "Not
+// reported" while it shows no row, the entry's action on the whole list,
+// such as Add, its hint, whose `link` words open an address through
+// `openLink` and whose page reference opens a page through the section's
+// `pageActivated`, and `reply`, the refusal of the last press on the list,
+// in the error colour. While the plugin is off the list reads so, with Turn
+// on under it (Steps.rowsView). A press records its line action in
+// `lastPress` and emits `pressed` with it, which the page routes and whose
+// reply it hands back.
 Section {
     id: root
 
@@ -54,18 +53,22 @@ Section {
 
     GroupList {
         id: list
+        // The list ends at its last row's drawn ink, so what stands under
+        // it, its action or its hint, stands `stack.heading` below that ink,
+        // as the token measures, whatever box or plate the row draws. The
+        // ink is floored, as ClearingInset floors it, so the list keeps a
+        // whole-pixel height and the page under it scrolls in whole pixels.
+        readonly property Item lastRow: rows.count > 0 ? rows.itemAt(rows.count - 1) : null
         width: root.width
         visible: root.view.rows.length > 0
+        height: implicitHeight - (lastRow === null ? 0 : Math.floor(lastRow.drawnInkBelow))
 
         Repeater {
+            id: rows
             model: ScriptModel {
                 values: root.view.rows
                 objectProp: "key"
             }
-            // A trash mark drawn alone ends its ink on the content edge,
-            // as a list item's does (ListField), so its square, whose hit
-            // target and focus ring reach past the mark, stands past that
-            // edge by `overhang`.
             ContentRow {
                 id: line
                 required property var modelData
@@ -78,46 +81,15 @@ Section {
                 Keys.onReturnPressed: if (clickable) clicked()
                 Keys.onEnterPressed: if (clickable) clicked()
                 onClicked: if (clickable) root.pageActivated("file:" + encodeURIComponent(modelData.folder + "/"), "")
-                rightPadding: -actions.overhang
                 iconName: root.entry === null ? "" : root.entry.icon
                 text: modelData.label
-                secondary: modelData.secondary
-                trailing: [
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: !line.modelData.chip && text !== ""
-                        role: "itemHint"
-                        text: line.modelData.state
-                    },
-                    Badge {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: line.modelData.chip
-                        text: line.modelData.state
-                        tone: line.modelData.tone === "" ? "neutral" : line.modelData.tone
-                    },
-                    RowActions {
-                        id: actions
-                        // How far the last action's square reaches past
-                        // its ink, RowAction's `glyphEnd`: 0 for any
-                        // action but a trash mark drawn alone.
-                        readonly property real overhang: shown.length === 0 ? 0 : shown[shown.length - 1].glyphEnd
-                        anchors.verticalCenter: parent.verticalCenter
-                        Repeater {
-                            // Keyed, so a status write elsewhere, which hands
-                            // the page new objects, keeps each action and the
-                            // keyboard focus it holds.
-                            model: ScriptModel { values: line.modelData.buttons; objectProp: "key" }
-                            RowAction {
-                                required property var modelData
-                                text: modelData.text
-                                tone: modelData.tone === "" ? "accent" : modelData.tone
-                                markName: modelData.icon
-                                removesItem: modelData.removesItem
-                                onClicked: root.press(modelData)
-                            }
-                        }
-                    }
-                ]
+                status: modelData.state
+                statusTone: modelData.tone
+                detail: modelData.secondary
+                actions: modelData.buttons
+                menuActions: modelData.menu
+                onActionTriggered: action => root.press(action)
+                onMenuActionTriggered: action => root.press(action)
             }
         }
     }

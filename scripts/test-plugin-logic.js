@@ -579,11 +579,11 @@ function suite(ctx, configLogic, check) {
         check("rows value: " + name, ctx.statusWrite(rowsManifest, {}, "pairs", value).ok, accepted);
     const published = ctx.statusWrite(rowsManifest, {}, "pairs", [pair("a", { state: { tone: "warning", text: "1 to review" } }), pair("b"), { id: "c", label: "C" }]).values;
     const rowsRow = ctx.statusRows(rowsManifest, published)[0];
-    check("rows: the Status row carries each row, its chip and its row actions", [rowsRow.settings, rowsRow.icon, rowsRow.declaredTuis, rowsRow.action, rowsRow.value], [true, "folder-sync", ["add", "remove"],
+    check("rows: the Status row carries each row, its state and its row actions", [rowsRow.settings, rowsRow.icon, rowsRow.declaredTuis, rowsRow.action, rowsRow.value], [true, "folder-sync", ["add", "remove"],
         { label: "Add a folder pair", icon: "", tone: "", offered: true, tui: "add" }, [
-            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", folder: "", state: "1 to review", tone: "warning", chip: true, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
-            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", folder: "", state: "Up to date", tone: "success", chip: false, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
-            { id: "c", label: "C", secondary: "", folder: "", state: "", tone: "", chip: false, actions: [] }]]);
+            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", folder: "", state: "1 to review", tone: "warning", actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
+            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", folder: "", state: "Up to date", tone: "success", actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
+            { id: "c", label: "C", secondary: "", folder: "", state: "", tone: "", actions: [] }]]);
     const foldersRaw = rowsRaw();
     foldersRaw.status.pairs.folderProperty = "local";
     const foldersManifest = ctx.validateManifest(foldersRaw, "/p").manifest;
@@ -3405,7 +3405,7 @@ const CONTROLS = [
     ["a source action runs while its plugin is off", "if (!enabled)\n            return { ok: false, answer: statusActionRefusal(key, \"disabled\") };\n        var item", "var item"],
     ["a key list's row carries no source", "sourceAction: entry.sourceAction === undefined ? null : { label: entry.sourceAction.label, tui: entry.sourceAction.tui },", "sourceAction: null,"],
     ["a row action runs on a row that does not offer it", "return published.id === row && published.actions !== undefined && published.actions.indexOf(rowAction) !== -1;", "return true;"],
-    ["a row's state is never a chip", 'var STATUS_ROW_CHIP_TONES = ["warning", "danger"];', "var STATUS_ROW_CHIP_TONES = [];"],
+    ["a plain state that needs the user draws as text", 'var STATUS_ROW_CHIP_TONES = ["warning", "danger"];', "var STATUS_ROW_CHIP_TONES = [];"],
     ["a schema field may be an action", 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];', 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];'],
     ["a requirement may sit beside a field", '"floor", "install", "drmDriver"];', '"floor", "install", "drmDriver", "setting"];'],
     ["a listed screen may sit beside a field", 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "settings"];', 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "setting", "settings"];'],
