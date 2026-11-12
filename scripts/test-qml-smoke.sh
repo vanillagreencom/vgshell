@@ -16,9 +16,10 @@
 # --case late-exit stops real initial and resumed worlds during EXIT.
 # The full run also plants a row that goes silent, with TERM ignored, after
 # a row that prints slowly past the bound: the driver's no-progress stop
-# goes unanswered, so the driver kills the fence one bound later, and the
-# run ends within two bounds of the stop naming the silent row, never the
-# slow one.
+# goes unanswered, so the driver ends the world through its namespace init
+# one bound later, the fence keeps the hung row's evidence, and the run
+# ends within two bounds of the stop naming the silent row, never the slow
+# one.
 # Each cancellation case has the private PID namespace and 60 s readiness /
 # 30 s stop bounds of test-smoke-owner.sh --live. A world still starting at
 # the readiness bound is not measured when the case's window's CPU pressure,
@@ -687,7 +688,11 @@ elif label == 'no-progress':
     assert by_row['hang'] == ('failed', ' cause=no-progress'), by_row
     assert all(value == unreached for name, value in by_row.items() if name != 'hang'), by_row
     assert len(attempts) == 1, log
-    assert re.search(r'^qml-smoke: no-progress stop=unanswered fence=killed after-secs=15$', log, re.M), log
+    ended = re.findall(r'^qml-smoke: no-progress stop=unanswered world=ended after-secs=15 root=(\S+) evidence=(\S+)$', log, re.M)
+    assert len(ended) == 1 and 'fence=killed' not in log, log
+    evidence = Path(ended[0][1])
+    assert evidence.parent.parent == root and evidence.name == 'hang' and (evidence / 'row/hang.out').is_file(), (ended, log)
+    assert not Path(ended[0][0]).exists(), ended
     assert re.search(r'^qml-smoke: no-progress row=hang idle-secs=[0-9]+ bound-secs=15 note=', log, re.M), log
     stopped = attempts[0].parent / 'no-progress'
     record = attempts[0].parent.parent / 'completion.json'

@@ -90,9 +90,13 @@
 # run.log takes no new line for VGS_SMOKE_IDLE_SECS (a positive whole
 # number of seconds; unset or empty, 600) is stopped as a cancel is, and
 # the run ends there, resuming nothing. A world still running one bound
-# after that stop, as one whose teardown hangs with TERM ignored, has its
-# fence killed, which ends its namespace (scripts/smoke/gpu-fence.sh) and
-# leaves the attempt no completion record. The run's record holds
+# after that stop, as one whose teardown hangs with TERM ignored, is ended:
+# the driver kills the namespace init the fence recorded in its root's
+# info, so the fence's own wait returns and its release keeps the world's
+# evidence and removes the root (scripts/smoke/gpu-fence.sh). A fence still
+# running one bound after that is killed. Either way the attempt has no
+# completion record. The stop line names the root and the hung row's
+# evidence. The run's record holds
 # `exit` 1, `reason` no-progress, `requestedStop` 1 and `noProgress`
 # {row, idleSecs, boundSecs}, `row` the top-level row it hung in or setup
 # between rows, and so does the attempt's when its world ended. The driver
@@ -446,6 +450,7 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
   qml_smoke_phase=between
   qml_smoke_completions=()
   qml_smoke_watch_pid=""
+  qml_smoke_end_step=0
   qml_smoke_hung_row=""
   # A background call expands its words in the child, so the watcher takes
   # the driver's PID from here.
@@ -469,15 +474,16 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
   # qml_smoke_watch ATTEMPT DRIVER_PID: the attempt's progress watcher, a
   # child of the driver. When ATTEMPT/run.log takes no new line for
   # qml_smoke_idle_secs it records the open row in ATTEMPT/no-progress and
-  # sends the driver USR1, the no-progress stop; one bound after that it
-  # sends USR2, on which the driver kills a fence the stop has not ended.
+  # sends the driver USR1, the no-progress stop; each bound after that it
+  # sends USR2, on which the driver ends a world the stop has not ended,
+  # then the fence (qml_smoke_end_world).
   # It signals only while the driver is still its parent, so it never
   # signals a reused PID, and it ends once the driver is gone.
   qml_smoke_watch() {
     local log="$1/run.log" size="" now changed="$EPOCHSECONDS" stopped="" row=setup fields=()
     while read -r -a fields 2>/dev/null <"/proc/$BASHPID/stat" && [[ ${fields[3]-} == "$2" ]]; do
       if [[ -n $stopped ]]; then
-        if ((EPOCHSECONDS - stopped >= qml_smoke_idle_secs)); then kill -USR2 "$2"; return 0; fi
+        if ((EPOCHSECONDS - stopped >= qml_smoke_idle_secs)); then kill -USR2 "$2"; stopped="$EPOCHSECONDS"; fi
         sleep 1
         continue
       fi
@@ -492,12 +498,35 @@ if [[ -z ${qml_smoke_attempt:-} ]]; then
       sleep 1
     done
   }
-  # qml_smoke_end_fence: the no-progress stop's bound. A fence that is
-  # still this driver's child a bound after the stop is killed.
-  qml_smoke_end_fence() {
-    if [[ $qml_smoke_phase == attempt && -n $qml_smoke_fence_pid ]] && qml_smoke_owns_child "$qml_smoke_fence_pid"; then
+  # qml_smoke_end_world: the no-progress stop's bound, one step per USR2
+  # while the attempt's fence is still this driver's child. The first
+  # kills the namespace init the fence's root records in info (bubblewrap
+  # --info-fd's child-pid and pid-namespace), only while that PID is still
+  # in that namespace: a KILL from the parent namespace ends the namespace
+  # (pid_namespaces(7)), the fence's wait on its monitor returns, and its
+  # release keeps the world's evidence. The second, for a fence that still
+  # has not ended, kills the fence.
+  qml_smoke_end_world() {
+    local root="" init="" ns="" sandbox="" row
+    [[ $qml_smoke_phase == attempt && -n $qml_smoke_fence_pid ]] && qml_smoke_owns_child "$qml_smoke_fence_pid" || return 0
+    if ((qml_smoke_end_step++ > 0)); then
       kill -KILL -- "$qml_smoke_fence_pid" 2>/dev/null || true
-      printf 'qml-smoke: no-progress stop=unanswered fence=killed after-secs=%s\n' "$qml_smoke_idle_secs" >&2
+      printf 'qml-smoke: no-progress stop=unanswered fence=killed after-secs=%s\n' "$((2 * qml_smoke_idle_secs))" >&2
+      return 0
+    fi
+    [[ ! -f $qml_smoke_attempt/world ]] || IFS= read -r -d '' root <"$qml_smoke_attempt/world" || true
+    if [[ -n $root ]]; then
+      init="$(sed -n 's/^ *"child-pid": *\([0-9]*\),*$/\1/p' -- "$root/info" 2>/dev/null)" || init=""
+      ns="$(sed -n 's/^ *"pid-namespace": *\([0-9]*\),*$/\1/p' -- "$root/info" 2>/dev/null)" || ns=""
+    fi
+    [[ ! -f $qml_smoke_attempt/sandbox ]] || read -r sandbox <"$qml_smoke_attempt/sandbox" || sandbox=""
+    row="$(sed -n 's/^row=\([^ ]*\) .*/\1/p' -- "$qml_smoke_attempt/no-progress" 2>/dev/null)" || row=""
+    if [[ -n $init && -n $ns && "$(readlink -- "/proc/$init/ns/pid" 2>/dev/null)" == "pid:[$ns]" ]]; then
+      kill -KILL -- "$init" 2>/dev/null || true
+      printf 'qml-smoke: no-progress stop=unanswered world=ended after-secs=%s root=%s evidence=%s\n' \
+        "$qml_smoke_idle_secs" "$root" "$smoke_log_dir/smoke-evidence-${sandbox:-unread}/${row:-setup}" >&2
+    else
+      printf 'qml-smoke: no-progress stop=unanswered world=unread after-secs=%s root=%s\n' "$qml_smoke_idle_secs" "${root:-unread}" >&2
     fi
   }
   # qml_smoke_watch_end: stop and reap the attempt's watcher.
@@ -575,7 +604,7 @@ PY
   trap 'qml_smoke_cancel INT 130' INT
   trap 'qml_smoke_cancel HUP 129' HUP
   trap 'qml_smoke_cancel USR1 1' USR1
-  trap 'qml_smoke_end_fence' USR2
+  trap 'qml_smoke_end_world' USR2
   while ((${#qml_smoke_pending[@]})); do
     ((qml_smoke_cancel_status == 0)) || break
     qml_smoke_left=()
