@@ -9,7 +9,8 @@ import "../../shell/plugins/vgs.agent-warden"
 // tone, `neutral` in textMuted, under the shipped vgs theme and the
 // catalog's flexoki-light, with its count on or off, and never in the
 // badge foreground of that tone; its corner count takes the level of that
-// tone.
+// tone, `neutral` for a calm or information-only state, so one state
+// takes one colour in both themes whatever hue the accent has.
 Item {
     id: root
     width: 200
@@ -53,11 +54,13 @@ Item {
         function test_states_draw_their_colour_role(data) {
             compare(UnitTheme.override(themeTokens(data.theme)), "ok");
             widget.settings = ({ showCount: data.showCount });
+            const item = level => ({ kind: "any", key: "any", level: level, title: "Something.", detail: null, actions: [] });
             const rows = [
-                [{ state: "calm", agents: 2 }, "textMuted", "neutral", "normal"],
-                [{ state: "look", issues: 1, items: [{ kind: "leftover", level: "look", count: 1, processes: 1 }] }, "warning", "warning", "warning"],
-                [{ state: "problem", issues: 1, items: [{ kind: "scan-failed", level: "problem" }] }, "danger", "danger", "danger"],
-                [{ state: "not-set-up" }, "textMuted", "neutral", "normal"]
+                [{ state: "calm", agents: 2, items: [], causes: [] }, "textMuted", "neutral", "neutral"],
+                [{ state: "info", agents: 2, items: [item("info")], causes: [] }, "textMuted", "neutral", "neutral"],
+                [{ state: "warn", agents: 2, items: [item("warn")], causes: [] }, "warning", "warning", "warning"],
+                [{ state: "danger", agents: 2, items: [item("danger")], causes: [] }, "danger", "danger", "danger"],
+                [{ state: "not-set-up", agents: null, items: [], causes: null }, "textMuted", "neutral", "neutral"]
             ];
             for (const [detail, role, badge, level] of rows) {
                 widget.shell = { status: { values: { detail: detail } } };
@@ -68,20 +71,10 @@ Item {
             }
         }
 
-        // Working draws once a move is reported, and its tooltip reads
-        // Commons.Duration, which the unit runner does not host; its tone
-        // is read through the widget's own map.
-        function test_working_is_the_accent_data() { return themes(); }
-        function test_working_is_the_accent(data) {
-            compare(UnitTheme.override(themeTokens(data.theme)), "ok");
-            compare(String(Qt.color(widget.toneColor("accent"))), String(Qt.color(Theme.color.accent)));
-            verify(String(Qt.color(widget.toneColor("accent"))) !== String(Qt.color(Theme.badge.tone.accent.foreground)));
-        }
-
         function test_an_unknown_tone_throws() {
             let message = "";
             try { widget.toneColor("loud"); } catch (e) { message = e.message; }
-            compare(message, 'agent-warden widget: tone "loud" is not one of neutral, accent, warning, danger');
+            compare(message, 'agent-warden widget: tone "loud" is not one of neutral, warning, danger');
         }
     }
 }

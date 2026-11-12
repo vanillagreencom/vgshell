@@ -6,11 +6,11 @@ Agent Warden shows whether your AI coding agents stay within their memory and pr
 
 ## Features
 
-- A shield in the bar that shows the agents' state, with the number of running agents or problems beside it.
-- A panel that describes the state in one sentence, lists the most serious problems first and shows how close the agents' memory is to the point where they slow down.
-- A line in the panel that shows the most serious warning vsys found on the computer, in vsys's own words, with the programs involved.
-- Open vsys in the panel opens the vsys dashboard, at that warning when vsys supports it.
-- A notification when an agent nears a limit, when agents wait for memory, when the warden cannot apply a limit or cleans up after an agent, and when it stops checking.
+- A shield in the bar that shows the agents' state: grey while nothing needs you, yellow for a warning, red for a problem, and crossed out while Agent Warden is not checking. The number on it counts the running agents, or the warnings and problems while there are any.
+- A panel that describes the state in one sentence and lists each warning and problem, most serious first, in vsys's own words, with the button that acts on it. It shows how close the agents' memory is to the point where they slow down.
+- The warnings vsys finds on the rest of the computer, in the same list, with the programs involved.
+- Open vsys in the panel opens the vsys dashboard.
+- A notification for each warning and problem the warden reports, with its level and its buttons, and one when Agent Warden stops checking.
 - Click the shield to open and close the panel. Choose a key under Keys on the plugin's Settings page to open it with a key.
 
 ## How it works
@@ -31,7 +31,7 @@ vsys warden install
 
 | Setting | What it changes |
 | --- | --- |
-| Show count | Shows the number of running agents or problems on the corner of the shield. |
+| Show count | Shows the number of running agents, or of warnings and problems while there are any, on the corner of the shield. |
 | Hide when idle | Hides the shield when no agents run and nothing needs attention. |
 | Notifications | Alerts for problems, all events or none. |
 

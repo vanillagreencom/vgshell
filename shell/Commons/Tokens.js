@@ -724,11 +724,16 @@ var TOKENS = {
         duration: duration(900)
     },
 
+    // `fill` is the accent, the default for a bar that shows progress;
+    // `neutral` fills a bar that measures a quantity at rest, such as
+    // memory in use, in the muted ink with no hue, since a theme's accent
+    // may be any hue and an accent fill can read as a warning.
     progress: {
         height: length("{space.xs}"),
         radius: length("{radius.full}"),
         track: color("{color.border}"),
         fill: color("{color.accent}"),
+        neutral: color("{color.textMuted}"),
         indeterminateShare: share(0.3),
         duration: duration(1200)
     },
@@ -785,13 +790,17 @@ var TOKENS = {
             info: tone("info")
         },
         // The unread count (Badge's `unread` variant): each level's fill
-        // and figures, and `corner`, the count at a bar item's top-right:
+        // and figures, `neutral` a count at rest, such as running agents,
+        // in muted ink with no hue, since a theme's accent may be any hue
+        // and an accent count can read as a warning or error count; and
+        // `corner`, the count at a bar item's top-right:
         // a circle `height` across, a stacked line tall, with a `border`
         // ring in `borderColor`, the bar's background, parting it from the
         // glyph. At the shipped 24 px item the corner count is a 12 px
         // circle with a 1 px ring.
         unread: {
             tone: {
+                neutral: { background: color("{color.textMuted}"), foreground: color("contrast({color.textMuted})") },
                 normal: { background: color("{color.accent}"), foreground: color("{color.onAccent}") },
                 warning: { background: color("{color.warning}"), foreground: color("{color.onWarning}") },
                 danger: { background: color("{color.danger}"), foreground: color("{color.onDanger}") }

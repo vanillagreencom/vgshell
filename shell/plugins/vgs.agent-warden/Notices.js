@@ -1,6 +1,4 @@
 .pragma library
-.import qs.Commons 1.0 as Commons
-.import "WardenLogic.js" as WardenLogic
 .import "ViewLogic.js" as ViewLogic
 
 // The Agent Warden plugin's notices, pure so
@@ -8,24 +6,29 @@
 // a status holds, which of them are new, what each new one says, and the
 // core notify options that send it.
 //
-// An episode is a condition that opens and later clears, keyed
-// `<kind>:<scope>` as the warden keys its own, one notice per episode
-// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#rules;
-// `episode_key` in vsys warden/agent-warden).
+// An episode is a condition that opens and later clears, one notice per
+// episode. Each item of the warden's status is one, keyed by the item's
+// `key`, which vsys keeps the same from one check to the next while its
+// state holds
+// (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#rules).
+// The plugin's own stale status is one more, keyed NOT_CHECKING.
 // The service remembers the keys of the open episodes; an episode is sent
 // once when it opens and again only after it has cleared and opened again.
 // A key clears only on evidence: a fresh status that no longer holds it. A
-// status that cannot tell, such as one with no lane listing or a stale
-// one, keeps what it cannot judge.
+// status that cannot tell, an unreadable or stale one, keeps the keys it
+// cannot judge.
 //
-// The observation boundary is shell/plugins/vgs.agent-warden/README.md § How it works.
-// The words carry numbers from status.json and the figures, names and lists
-// written as the flyout writes them (ViewLogic.js). No text names a
-// process id or a scope unit.
+// The words of an item's notice are vsys's own: its title and detail.
+// The observation boundary is
+// shell/plugins/vgs.agent-warden/README.md § How it works.
 
 // The `notify` setting's values, least first: each sends what the one
 // before it sends and more.
 var MODES = ["off", "problems", "everything"];
+// The least MODES value that sends an item of each level: `problems`
+// sends what asks the reader for a step, `everything` adds what the warden
+// handles itself.
+var LEAST = { "danger": "problems", "warn": "problems", "info": "everything" };
 // The most episode keys the service remembers. A new episode that finds
 // them all in use is neither sent nor remembered, so it is tried again on
 // the next status and never sent twice.
@@ -33,28 +36,8 @@ var MAX_EPISODES = 64;
 // How often the service touches the warden's heartbeat file. The warden
 // leaves every notice to the plugin while the file is less than 120 s old.
 var HEARTBEAT_MS = 60000;
-// The action the core returns when Open vsys is pressed.
-var ACTION = "open";
-var ACTION_LABEL = "Open vsys";
-// The scope of an episode no single scope owns, and of the warden's own.
-var SLICE = "agents.slice";
-var WARDEN = "agent-warden";
-
-// Each episode kind: whether it requests the transient hint, its urgency,
-// the least MODES value that sends it, whether it offers Open vsys, and
-// whether the episodes one status opens go out as one notice.
-var KINDS = {
-    "tasks": { transient: false, urgency: "normal", least: "problems", action: true, grouped: false },
-    "memory": { transient: false, urgency: "normal", least: "problems", action: true, grouped: false },
-    "not-moving": { transient: false, urgency: "critical", least: "problems", action: true, grouped: false },
-    "move-failure": { transient: false, urgency: "normal", least: "problems", action: true, grouped: false },
-    "reaped": { transient: false, urgency: "low", least: "problems", action: false, grouped: true },
-    "not-checking": { transient: false, urgency: "normal", least: "problems", action: false, grouped: false },
-    "moved": { transient: true, urgency: "low", least: "everything", action: false, grouped: true }
-};
-// The kinds whose episodes a fresh status judges, which a status that
-// cannot be judged keeps.
-var ALL_KINDS = Object.keys(KINDS);
+// The key of the plugin's own episode: the warden stopped writing.
+var NOT_CHECKING = "not-checking:agent-warden";
 
 // Whether the service owns the notices: while it reads a status document
 // (STATUS, WardenLogic.readStatus's answer or the service's absent and
@@ -66,132 +49,37 @@ function owns(status) {
     return status.kind === "read";
 }
 
-function key(kind, scope) {
-    return kind + ":" + scope;
-}
-
-function kindOf(k) {
-    return k.slice(0, k.indexOf(":"));
-}
-
-// An event's scope, or SLICE for an event no single scope owns.
-function eventScope(e) {
-    return e.scope === null ? SLICE : e.scope;
-}
-
-// The recent events of KINDS_READ, one per scope, the newest of each,
-// as { scope, event }, oldest scope first.
-function latestByScope(doc, kindsRead, now) {
-    var events = [];
-    kindsRead.forEach(function (kind) { events = events.concat(WardenLogic.recent(doc, kind, now)); });
-    events.sort(function (a, b) { return a.id - b.id; });
-    var out = [];
-    events.forEach(function (e) {
-        var scope = eventScope(e);
-        var at = out.findIndex(function (row) { return row.scope === scope; });
-        if (at !== -1) out.splice(at, 1);
-        out.push({ scope: scope, event: e });
-    });
-    return out;
-}
-
-// The episodes the status FILE holds at NOW, with
-// DETAIL, WardenLogic.derive's answer for them:
-//   { open, held }
-// `open` lists each open episode as { key, kind, ... } with the numbers
-// and names its words need; `held` is { kinds, keys }, the kinds and keys
-// the status cannot judge, which the service keeps as they are.
-//   tasks, memory   an agent's lane near that ceiling: tool, worktree,
-//                   used, limit; scope the lane's unit
-//   not-moving      moves wait for memory headroom: memory, max, tools;
-//                   scope SLICE
-//   move-failure    a recent move of a process tree that failed or left
-//                   part behind: partial, tools, interval; scope the
-//                   tree's unit
-//   reaped          a recent cleanup of leftover work: processes; scope
-//                   the leftover unit
-//   moved           a recent move back into limits: tools; scope the
-//                   tree's unit
-//   not-checking    the warden stopped writing: checkedAt; scope WARDEN
-function conditionsOf(file, detail, now) {
-    var all = { kinds: ALL_KINDS.slice(), keys: [] };
+// The episodes DETAIL, WardenLogic.derive's answer, holds: { open, keep }.
+// `open` lists each open episode as { key, item } for an item of a fresh
+// status, or { key: NOT_CHECKING, checkedAt } for a stale one; `keep` is
+// whether a remembered key not open stays remembered, because the status
+// cannot tell whether its condition cleared.
+function conditionsOf(detail) {
     switch (detail.state) {
     case "not-set-up":
-        return { open: [], held: all };
+        return { open: [], keep: true };
     case "not-checking":
-        if (detail.reason !== "stale") return { open: [], held: all };
-        return {
-            open: [{ key: key("not-checking", WARDEN), kind: "not-checking", checkedAt: detail.checkedAt }],
-            held: { kinds: ALL_KINDS.filter(function (k) { return k !== "not-checking"; }), keys: [] }
-        };
+        if (detail.reason !== "stale") return { open: [], keep: true };
+        return { open: [{ key: NOT_CHECKING, checkedAt: detail.checkedAt }], keep: true };
     case "calm":
-    case "working":
-    case "look":
-    case "problem":
-        break;
-    default:
-        throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
+    case "info":
+    case "warn":
+    case "danger":
+        return { open: detail.items.map(function (item) { return { key: item.key, item: item }; }), keep: false };
     }
-    if (file.kind !== "read") throw new Error("agent-warden: a fresh state from file kind=" + JSON.stringify(file.kind));
-    var doc = file.doc;
-    var open = [];
-    var held = { kinds: [], keys: [] };
-
-    if (doc.lanes === null) {
-        held.kinds.push("tasks", "memory");
-    } else {
-        WardenLogic.agentLanes(doc).forEach(function (lane) {
-            var near = WardenLogic.nearOf(lane);
-            var reads = {
-                tasks: { used: lane.tasks, limit: WardenLogic.numberOrNull(lane.tasksMax) },
-                memory: { used: lane.memory, limit: WardenLogic.numberOrNull(lane.memoryHigh) }
-            };
-            WardenLogic.NEAR_IDS.forEach(function (kind) {
-                var k = key(kind, lane.scope);
-                if (near.indexOf(kind) !== -1)
-                    open.push({ key: k, kind: kind, tool: lane.label.tool, worktree: lane.label.worktree, used: reads[kind].used, limit: reads[kind].limit });
-                else if (reads[kind].used === null)
-                    held.keys.push(k);
-            });
-        });
-    }
-
-    if (doc.waiting === null) {
-        held.kinds.push("not-moving");
-    } else if (doc.waiting.length > 0) {
-        var slice = doc.slice;
-        open.push({
-            key: key("not-moving", SLICE), kind: "not-moving",
-            memory: slice === null ? null : slice.memory,
-            max: slice === null ? null : WardenLogic.numberOrNull(slice.max),
-            tools: WardenLogic.unique(doc.waiting.map(function (t) { return t.tool; }))
-        });
-    }
-
-    latestByScope(doc, ["partial", "failed"], now).forEach(function (row) {
-        open.push({ key: key("move-failure", row.scope), kind: "move-failure", partial: row.event.kind === "partial", tools: WardenLogic.toolsOf(doc, [row.event]), interval: doc.interval });
-    });
-    latestByScope(doc, ["reaped"], now).forEach(function (row) {
-        open.push({ key: key("reaped", row.scope), kind: "reaped", processes: row.event.processes });
-    });
-    latestByScope(doc, ["moved"], now).forEach(function (row) {
-        open.push({ key: key("moved", row.scope), kind: "moved", tools: WardenLogic.toolsOf(doc, [row.event]) });
-    });
-    return { open: open, held: held };
-}
-
-function isHeld(held, k) {
-    return held.keys.indexOf(k) !== -1 || held.kinds.indexOf(kindOf(k)) !== -1;
+    throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
 
 // One status's step through MEMORY, the keys the service remembers, with
 // CONDITIONS, conditionsOf's answer: { memory, opened, dropped }. `memory`
-// keeps each remembered key that is still open or held and adds each new
-// open one, up to MAX_EPISODES; `opened` lists the new episodes, which are
-// the ones to send; `dropped` counts the new ones past the ceiling.
+// keeps each remembered key that is still open, or every remembered key
+// when CONDITIONS keep them, and adds each new open one, up to
+// MAX_EPISODES; `opened` lists the new episodes, which are the ones to
+// send; `dropped` counts the new ones past the ceiling. A fresh status
+// that holds one key twice opens it once.
 function step(memory, conditions) {
     var openKeys = conditions.open.map(function (e) { return e.key; });
-    var next = memory.filter(function (k) { return openKeys.indexOf(k) !== -1 || isHeld(conditions.held, k); });
+    var next = memory.filter(function (k) { return conditions.keep || openKeys.indexOf(k) !== -1; });
     var opened = [];
     var dropped = 0;
     conditions.open.forEach(function (e) {
@@ -212,136 +100,68 @@ function forget(memory, keys) {
     return memory.filter(function (k) { return keys.indexOf(k) === -1; });
 }
 
-function sends(kind, mode) {
+function sends(least, mode) {
     var rank = MODES.indexOf(mode);
     if (rank === -1) throw new Error("agent-warden: notify=" + JSON.stringify(mode) + " unknown");
-    return rank >= MODES.indexOf(KINDS[kind].least);
-}
-
-function kindOfEpisode(e) {
-    var kind = KINDS[e.kind];
-    if (kind === undefined) throw new Error("agent-warden: episode kind=" + JSON.stringify(e.kind) + " unknown");
-    return kind;
+    return rank >= MODES.indexOf(least);
 }
 
 // The notices for OPENED, step's new episodes, under MODE, one of MODES,
-// at NOW; VSYS is whether the last scan found vsys. Each notice is
-// { kind, keys, transient, urgency, action, title, body, tone, icon }:
-// `keys` the episodes it tells of, `action` whether it offers Open vsys,
-// `tone` and `icon` a move notice's. A kind KINDS groups goes out as one notice
-// after the others, in KINDS order.
+// at NOW; VSYS is whether the last scan found vsys, whose TUI every action
+// opens. Each notice is { keys, title, body, tone, icon, urgency,
+// transient, actions }: `keys` the episodes it tells of, `tone` the
+// level's notify tone, "" for a calm one, `actions` the item's actions
+// the vsys TUI takes, each { label, args }, none without vsys.
 function notices(opened, mode, vsys, now) {
     var out = [];
-    var groups = {};
     opened.forEach(function (e) {
-        var kind = kindOfEpisode(e);
-        if (!sends(e.kind, mode)) return;
-        if (kind.grouped) {
-            if (groups[e.kind] === undefined) groups[e.kind] = [];
-            groups[e.kind].push(e);
-        } else {
-            out.push(notice(e.kind, [e], vsys, now));
+        if (e.key === NOT_CHECKING) {
+            if (sends("problems", mode)) out.push(stopped(e, now));
+            return;
         }
-    });
-    ALL_KINDS.forEach(function (k) {
-        if (groups[k] !== undefined) out.push(notice(k, groups[k], vsys, now));
+        if (!sends(LEAST[e.item.level], mode)) return;
+        var look = ViewLogic.LEVEL_LOOKS[e.item.level];
+        out.push({
+            keys: [e.key],
+            title: e.item.title,
+            body: e.item.detail === null ? "" : e.item.detail,
+            tone: look.notice,
+            icon: look.icon,
+            urgency: look.urgency,
+            transient: look.transient,
+            actions: vsys ? ViewLogic.actionsOf(e.item) : []
+        });
     });
     return out;
 }
 
-function notice(kind, episodes, vsys, now) {
-    var look = KINDS[kind];
-    var words = copy(kind, episodes, vsys, now);
+// The notice for the plugin's own stale episode E: the crossed shield in
+// the card's own ink, as the bar draws not checking in grey. It offers no
+// action: a notice's actions open the vsys TUI, and Start checks is the
+// panel's own setup step.
+function stopped(e, now) {
     return {
-        kind: kind,
-        keys: episodes.map(function (e) { return e.key; }),
-        transient: look.transient,
-        urgency: look.urgency,
-        action: look.action && vsys,
-        title: words.title,
-        body: words.body,
-        tone: look.transient ? "info" : "",
-        icon: look.transient ? ViewLogic.ITEM_ICONS[kind] : ""
+        keys: [e.key],
+        title: "Agent Warden has stopped checking",
+        body: "The last check was " + ViewLogic.ago(e.checkedAt, now) + ", so agent limits are not applied.",
+        tone: "",
+        icon: "shield-off",
+        urgency: "normal",
+        transient: false,
+        actions: []
     };
 }
 
-// Several tools as a sentence names them, or FALLBACK for none.
-function toolsOr(tools, fallback) {
-    return tools.length > 0 ? ViewLogic.listed(tools) : fallback;
-}
-
-// The tools of EPISODES, each once, in order.
-function toolsIn(episodes) {
-    return WardenLogic.unique(episodes.reduce(function (all, e) { return all.concat(e.tools); }, []));
-}
-
-// The title and body of KIND's notice for EPISODES; VSYS is whether the
-// sentence pointing at vsys applies.
-function copy(kind, episodes, vsys, now) {
-    var e = episodes[0];
-    var n = episodes.length;
-    switch (kind) {
-    case "tasks":
-        return {
-            title: "An agent is near its process limit",
-            body: (e.used === null ? ViewLogic.who(e) + " is near its process limit."
-                : e.limit === null ? ViewLogic.who(e) + " is running " + ViewLogic.plural(e.used, "process", "processes") + "."
-                : ViewLogic.who(e) + " is at " + ViewLogic.grouped(e.used) + " of its " + ViewLogic.grouped(e.limit) + " limit.")
-                + " Let the work finish if you need it." + (vsys ? " Open vsys to stop work you do not need." : "")
-        };
-    case "memory":
-        return {
-            title: "An agent is near its memory limit",
-            body: (e.used === null ? ViewLogic.who(e) + " is near its memory limit." : ViewLogic.who(e) + " is using " + ViewLogic.gb(e.used) + " GB.")
-                + (e.limit === null ? "" : " Agent Warden slows it at " + ViewLogic.gb(e.limit) + " GB to keep your computer responsive.")
-                + (vsys ? " Open vsys to stop work you do not need." : "")
-        };
-    case "not-moving":
-        return {
-            title: "Agents are close to their memory limit",
-            body: (e.memory === null || e.max === null ? "" : "Agents are using " + ViewLogic.gb(e.memory) + " of " + ViewLogic.gb(e.max) + " GB. ")
-                + "Agent Warden needs free memory before it can limit " + toolsOr(e.tools, "an agent") + ". Close agents you do not need."
-        };
-    case "move-failure":
-        return {
-            title: e.partial ? "Some agent processes still have no limits" : "Could not apply limits to an agent",
-            body: (e.partial ? "Part of " + toolsOr(e.tools, "an agent") : toolsOr(e.tools, "An agent"))
-                + " is still running without limits. Agent Warden will try again in " + Commons.Duration.format(e.interval) + "."
-        };
-    case "reaped":
-        if (n > 1)
-            return {
-                title: "Cleaned up after " + ViewLogic.grouped(n) + " finished agents",
-                body: ViewLogic.grouped(n) + " finished agents left work running. Agent Warden stopped that work."
-            };
-        return {
-            title: "Cleaned up after a finished agent",
-            body: (e.processes === null ? "A finished agent left work running. Agent Warden stopped that work."
-                : "A finished agent left " + ViewLogic.plural(e.processes, "process", "processes") + " running. Agent Warden stopped " + (e.processes === 1 ? "it." : "them."))
-        };
-    case "moved":
-        var tools = toolsIn(episodes);
-        return {
-            title: "Moved " + (n === 1 ? "an agent back into its limits" : ViewLogic.grouped(n) + " agents back into their limits"),
-            body: (tools.length === 0 ? (n === 1 ? "It was" : "They were") : ViewLogic.listed(tools) + (tools.length === 1 ? " was" : " were"))
-                + " running without limits. Agent Warden applied limits to keep your computer responsive."
-        };
-    case "not-checking":
-        return {
-            title: "Agent Warden has stopped checking",
-            body: "The last check was " + ViewLogic.ago(e.checkedAt, now) + ". Agent Warden is not applying limits. Open its panel to restart checks."
-        };
-    }
-    throw new Error("agent-warden: notice kind=" + JSON.stringify(kind) + " unknown");
-}
-
-// The options shell.notify.send takes for NOTICE. A move back into limits
-// needs no answer, so it requests the transient hint and offers no action.
-// A notice with no action observes delivery without waiting for dismissal.
+// The options shell.notify.send takes for NOTICE. A notice with no tone
+// leaves `tone` out, which the core reads as none. Each action's id is
+// its index in NOTICE.actions, which the service's press reads back. A
+// notice with no action observes delivery without waiting for dismissal.
 function shellOptions(notice) {
-    var options = { title: notice.title, message: notice.body, urgency: notice.urgency, transient: notice.transient, wait: false,
-        actions: notice.action ? [{ id: ACTION, label: ACTION_LABEL }] : [] };
+    var options = {
+        title: notice.title, message: notice.body, icon: notice.icon,
+        urgency: notice.urgency, transient: notice.transient, wait: false,
+        actions: notice.actions.map(function (a, i) { return { id: String(i), label: a.label }; })
+    };
     if (notice.tone !== "") options.tone = notice.tone;
-    if (notice.icon !== "") options.icon = notice.icon;
     return options;
 }

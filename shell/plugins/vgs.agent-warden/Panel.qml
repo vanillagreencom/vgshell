@@ -4,20 +4,21 @@ import qs.Commons
 import qs.Ui
 import "ViewLogic.js" as View
 
-// The Agent Warden flyout: a heading, one status sentence, at most three
-// items with no process id or scope name, the agent group's memory meter
-// when it is known, vsys's own verdict on the computer when vsys is
-// installed, in its own words, and a footer with the check time and a link
-// to vsys, which opens vsys at the cause that line shows. A state
-// that needs setting up offers its one button instead: Set up or Update
-// opens the `setup` TUI, Start it starts the warden's timer, and Get vsys
-// raises the core's requirement notice. Every word comes from ViewLogic.js
-// and every value from the service's published `detail`.
+// The Agent Warden flyout: a heading, one status sentence, one Callout for
+// each item of the warden's status and each warn or danger cause of vsys's
+// summary (View.rows), in vsys's words drawn as plain text, each with its
+// actions as links under its text, which open vsys's TUI with the action's
+// arguments; the agent group's memory meter when it is known; the line
+// that says vsys found nothing, when it did; the one setup button a state
+// that needs setting up offers: Set up opens the `setup` TUI, Start checks
+// starts the warden's timer, and Install vsys raises the core's
+// requirement notice; and a footer with the check time and Open vsys, which
+// opens vsys's home. Every word comes from ViewLogic.js and every value
+// from the service's published `detail`.
 //
 // A panel is built on summon and destroyed on hide, so its lifetime is one
-// open: it runs `vsys --once --summary` once per open() and holds the
-// clock at seconds while it lives. The observation boundary is
-// shell/plugins/vgs.agent-warden/README.md § How it works.
+// open: it holds the clock at seconds while it lives. The observation
+// boundary is shell/plugins/vgs.agent-warden/README.md § How it works.
 Item {
     id: root
 
@@ -29,33 +30,38 @@ Item {
     readonly property var setupButton: detail === null ? null : View.setup(detail, vsysMissing)
     readonly property var footerLink: View.link(vsysMissing, setupButton)
     readonly property var memory: detail === null ? null : View.meter(detail.memory)
-    // The last summary's line, { text, tone, open }, or null while none was
-    // read.
-    property var summary: null
+    // The rows change only with the detail, so they are not built again
+    // each second.
+    readonly property var rows: detail === null ? [] : View.rows(detail)
     // Why the last press did not hand off, "" when it did or before one.
     property string problem: ""
     property Item initialFocus: primaryButton.visible ? primaryButton : linkButton
 
+    // Each open and close is reported to the service, which reads vsys's
+    // summary for the flyout alone while no fresh status comes. A close
+    // that finds the service gone, as when the plugin is disabled, needs
+    // no answer, so only a refused open is logged.
     function open(payloadJson) {
         problem = "";
         Time.holdSeconds(root, true);
-        // A new run drops the last line, so a run that fails shows none
-        // rather than an earlier verdict.
-        if (!vsysMissing && !summaryRun.running) {
-            summary = null;
-            summaryRun.completion = null;
-            summaryRun.running = true;
-        }
+        if (shell === null) return;
+        const reply = shell.ipc.call("panel", "open");
+        if (reply !== "ok") console.warn("agent-warden: panel=open " + reply);
     }
-    function close() { Time.holdSeconds(root, false); }
+    function close() {
+        Time.holdSeconds(root, false);
+        if (shell !== null) shell.ipc.call("panel", "closed");
+    }
     Component.onDestruction: Time.holdSeconds(root, false)
 
-    // Do ACTION, one of View.setup's or View.link's; answers the
-    // capability's reply. A press that handed off closes the flyout.
-    function press(action) {
+    // Do ACTION, one of View.setup's or View.link's, or `item`, an item's
+    // action, which opens the vsys TUI with ARGS; answers the capability's
+    // reply. A press that handed off closes the flyout.
+    function press(action, args) {
         let reply;
         switch (action) {
-        case "open": reply = shell.tui.run("vsys", summary === null ? [] : summary.open); break;
+        case "open": reply = shell.tui.run("vsys", []); break;
+        case "item": reply = shell.tui.run("vsys", args); break;
         case "setup": reply = shell.tui.run("setup"); break;
         case "start": reply = shell.run.detached(View.START_ARGV); break;
         case "get-vsys": reply = shell.requirements.offer(["vsys"]); break;
@@ -65,30 +71,6 @@ Item {
         if (problem === "") shell.surfaces.hide("panel");
         else console.warn("agent-warden: action=" + action + " " + reply);
         return reply;
-    }
-
-    // One `vsys --once --summary` per open. vsys exits 2 after it prints
-    // the summary when it could not read a source, so the line follows the
-    // summary alone, whatever the exit code: a run that did not start or
-    // printed what this plugin cannot read is logged once and shows no line.
-    Process {
-        id: summaryRun
-        // The run's exit, { code, status }, null until `exited` arrives: a
-        // command that fails to start emits `runningChanged` alone.
-        property var completion: null
-
-        command: ["vsys", "--once", "--summary"]
-        stdout: StdioCollector { id: summaryOut }
-        stderr: StdioCollector { id: summaryErr }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const read = completion === null ? null : View.readSummary(summaryOut.text);
-            if (read !== null && read.kind === "read") root.summary = View.summaryLine(read);
-            else if (completion === null || completion.code !== 0 || completion.status !== 0)
-                console.warn("agent-warden: summary=failed " + JSON.stringify(completion) + (read === null ? "" : " cause=" + read.cause) + " " + summaryErr.text.trim().split("\n")[0]);
-            else console.warn("agent-warden: summary=unreadable cause=" + read.cause);
-        }
     }
 
     implicitWidth: Theme.size.panel.md
@@ -120,25 +102,27 @@ Item {
         Column {
             id: itemList
             width: layout.contentWidth
-            visible: root.detail !== null && root.detail.items.length > 0
-            // The model changes only with the detail; each row's words
-            // follow the clock, so the rows are not rebuilt each second.
-            // A row takes no click, so it draws no box and its text sits
-            // on the content edge.
+            spacing: Theme.stack.group
+            visible: root.rows.length > 0
             Repeater {
-                model: root.detail === null ? [] : View.shownItems(root.detail)
-                ListItem {
+                model: root.rows
+                Callout {
                     required property var modelData
-                    readonly property var row: View.itemRow(modelData, root.now)
+                    required property int index
                     // The list, not `parent`, which is null while the
                     // repeater tears the row down.
                     width: itemList.width
-                    leftPadding: 0
-                    rightPadding: 0
-                    clickable: false
-                    iconName: row.icon
-                    text: row.text
-                    secondary: row.secondary
+                    plain: true
+                    tone: modelData.tone
+                    iconName: modelData.icon
+                    title: modelData.title
+                    text: modelData.text
+                    links: modelData.actions.map(action => action.label)
+                    // modelData is the model's converted copy of the row,
+                    // whose lists are not JS arrays, which the core's
+                    // argument judge refuses, so the press reads the
+                    // action from the panel's own rows.
+                    onActionActivated: action => root.press("item", root.rows[index].actions[action].args)
                 }
             }
         }
@@ -147,8 +131,12 @@ Item {
             width: layout.contentWidth
             spacing: Theme.row.lineGap
             visible: root.memory !== null
+            // Memory in use is a quantity at rest: the warden's items and
+            // vsys's causes say when it needs attention, and the plugin
+            // judges no level of its own.
             ProgressBar {
                 width: parent.width
+                tone: "neutral"
                 value: root.memory === null ? 0 : root.memory.value
             }
             Label {
@@ -161,15 +149,10 @@ Item {
             role: "hint"
             width: layout.contentWidth
             wrapMode: Text.Wrap
-            visible: root.summary !== null && !root.vsysMissing
-            // vsys's title and program names carry text processes on the
-            // machine supply, and Text's default AutoText draws text that
-            // looks like markup as rich text
-            // (https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop),
-            // so markup in them draws as the characters it is.
-            textFormat: Text.PlainText
-            text: root.summary === null ? "" : root.summary.text
-            color: root.summary === null ? Theme.color.textFaint : Theme.badge.tone[root.summary.tone].foreground
+            // Only the clear verdict is a line; a warn or danger cause is a
+            // row of its level.
+            visible: text !== ""
+            text: root.detail === null ? "" : View.summaryClear(root.detail)
         }
 
         Button {

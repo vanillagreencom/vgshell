@@ -144,7 +144,8 @@ T.AbstractButton {
     // icons, unless a spinner stands left of them.
     readonly property bool lineIcons: stackedShown && caption === "" && !spinning
     readonly property bool lineCaptions: stackedShown && caption !== "" && !spinning
-    // "normal", "warning" or "danger".
+    // "normal", "warning" or "danger"; countLevel also takes "neutral",
+    // which ranks as normal.
     property string textLevel: "normal"
     property string detailLevel: "normal"
     property string countLevel: "normal"

@@ -27,6 +27,11 @@
 # after it whose display-role Label reads "Readable after the update".
 # Request one scene and one mode per invocation of either, so each theme
 # has a fresh shell lifetime.
+# warden-states, taken only when named, is the Agent Warden panel opened
+# from its shield over each state of vsys's status fixtures, then one
+# notification card per level; the fixtures are this checkout's, so a
+# --rev tree reads the same statuses. --warden-shots LIST, a comma list of
+# its shot names such as warning-plus-info,notice-info, takes only those.
 #
 
 # SCENE is gallery, gallery-callouts, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
@@ -609,6 +614,7 @@ fi
 argv=("$@")
 timeout_s=60
 keep=false
+warden_shots=""
 out=""
 rev=""
 modes=""
@@ -645,6 +651,7 @@ while [[ $# -gt 0 ]]; do
     --disable) disable_arg="$2"; shift 2 ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
+    --warden-shots) warden_shots="$2"; shift 2 ;;
     --title-inventory) title_inventory=true; shift ;;
     --baseline-side) baseline_side="${2:-}"; shift 2 ;;
     --baseline-ledger) baseline_ledger="${2:-}"; shift 2 ;;
@@ -652,6 +659,7 @@ while [[ $# -gt 0 ]]; do
     restart-owed|font-rewrite) scenes+=("$1"); shift ;;
     jarvis-restart) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
+    warden-states) scenes+=("$1"); shift ;;
 
     link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
@@ -818,6 +826,7 @@ scene_ships() {
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
     tooltips) scene_ships bar ;;
     panels) ships_plugin vgs.agent-warden vgs.updates vgs.themes ;;
+    warden-states) ships_plugin vgs.agent-warden vgs.notifications ;;
     capture) ships_plugin vgs.capture ;;
     capture-notifications) ships_plugin vgs.capture vgs.notifications ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
@@ -3357,7 +3366,14 @@ scene_tooltips() { # MODE
 # planted snapshot, with its System row expanded and then the pointer on
 # a row. Nothing presses Refresh, so no check runs.
 warden_panel_texts() { ipc smoke itemTexts panel vgs.agent-warden Panel; }
-warden_panel_lines() { warden_panel_texts | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin)[0])' "$shots_vsys_line"; }
+# The summary's cause title, which a tree from before vsys's status items
+# draws in one line with its programs and a later tree as a row's title;
+# under the quiet summary, the line that says vsys found nothing.
+warden_panel_lines() {
+  local line="$shots_vsys_title"
+  [[ $warden_shot_vsys == memory ]] || line="vsys found no problems on this computer."
+  warden_panel_texts | py_reply 'import json,sys; print(any(sys.argv[1] in t for t in json.load(sys.stdin)[0]))' "$line"
+}
 updates_window() {
   local rows
   rows="$(ipc smoke readInstance window vgs.updates rows)" || return
@@ -3411,6 +3427,158 @@ scene_panels() { # MODE
   expect_poll "the Updates window is gone" closed updates_window
   expect "the window started no check" False updates_checking
   scene_themes_panel "$1"
+}
+
+# warden-states, taken only when named: the Agent Warden panel opened from
+# its shield over each state of vsys's status fixtures, then one
+# notification card per level, on a tree from before vsys's status items
+# (WardenLogic.js without LEVELS) and on one after. Each tree names its
+# states its own way, so each row names both.
+warden_shot_items=false
+# A tree whose service counts vsys's summary causes in its state reads a
+# calm or info status as warn under the stand-in vsys's one warning.
+warden_shot_summary=false
+# The stand-in vsys's summary: `memory`, its one memory warning, or
+# `quiet`, a summary that finds nothing (warden_shot_vsys_put).
+warden_shot_vsys=memory
+warden_shot_vsys_put() { # memory|quiet
+  local verdict='[]'
+  [[ $1 == quiet ]] || verdict='[{"cause": "memory-high", "level": "warn", "subject": "/agents.slice", "title": "1 group is near the memory threshold", "processes": [{"pid": 4242, "name": "node"}, {"pid": 4243, "name": "bash"}], "open": []}]'
+  printf '{"schema": "vsys.summary.v2", "time": 1, "verdict": %s, "meters": [], "errors": []}\n' "$verdict" >"$sandbox/vsys-summary.json.tmp" &&
+    mv -f -- "$sandbox/vsys-summary.json.tmp" "$sandbox/vsys-summary.json" || fail "writing the stand-in vsys's $1 summary failed"
+  warden_shot_vsys="$1"
+}
+warden_shot_want() { # AFTER BEFORE: the state the tree reads
+  if "$warden_shot_summary" && [[ $warden_shot_vsys == memory && ( $1 == calm || $1 == info ) ]]; then echo warn
+  elif "$warden_shot_items"; then echo "$1"; else echo "$2"; fi
+}
+# warden_shot_put NAME: status NAME written fresh, as warden_put writes
+# it: a fixture's name, `not-json` for text no JSON reader takes, or
+# `near-limit+leftover-idle`, near-limit's status with leftover-idle's
+# item, orphans and leftover lanes added.
+warden_shot_put() {
+  if [[ $1 == not-json ]]; then
+    printf 'not json\n' >"$warden_dir/status.tmp" && mv -f -- "$warden_dir/status.tmp" "$warden_dir/status.json"
+    return
+  fi
+  [[ $1 == *+* ]] || { warden_put "$1" 0 >/dev/null; return; }
+  python3 - "$warden_fixtures/status-${1%%+*}.json" "$warden_fixtures/status-${1#*+}.json" "$warden_dir" <<'PY2'
+import json, os, sys, time
+base, extra = (json.load(open(path)) for path in sys.argv[1:3])
+orphans = [o["scope"] for o in extra["orphans"]]
+base["items"] += extra["items"]
+base["orphans"] += extra["orphans"]
+base["lanes"] += [lane for lane in extra["lanes"] if lane["scope"] in orphans]
+base["leftovers"] = extra["leftovers"]
+base["time"] = int(time.time())
+for event in base["events"]:
+    event["time"] = base["time"]
+tmp = os.path.join(sys.argv[3], "status.tmp.%d" % os.getpid())
+json.dump(base, open(tmp, "w"))
+os.replace(tmp, os.path.join(sys.argv[3], "status.json"))
+PY2
+}
+# warden_shot_status NAME AFTER BEFORE: status NAME written, then read back
+# as the tree's state.
+warden_shot_status() {
+  local want
+  want="$(warden_shot_want "$2" "$3")"
+  warden_shot_put "$1" || fail "writing the warden's $1 status failed"
+  expect_poll "the warden reads its $1 status as $want" "$want" warden_detail_state
+}
+# warden_shot_notify MODE: the plugin's `notify` setting written into its
+# plugins row, as rows/agent-warden.sh writes it; then the service reads it.
+warden_shot_notify() {
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY2' || fail "writing the warden's notify setting failed"
+import json, os, sys
+path, mode = sys.argv[1], sys.argv[2]
+data = json.load(open(path))
+rows = data.setdefault("plugins", [])
+at = [i for i, r in enumerate(rows) if r == "vgs.agent-warden" or (isinstance(r, dict) and r.get("id") == "vgs.agent-warden")]
+if not at:
+    rows.append({"id": "vgs.agent-warden"})
+    at = [len(rows) - 1]
+row = rows[at[0]] if isinstance(rows[at[0]], dict) else {"id": "vgs.agent-warden"}
+row["notify"] = mode
+rows[at[0]] = row
+json.dump(data, open(path + ".tmp", "w"), indent=2)
+os.replace(path + ".tmp", path)
+PY2
+  expect_poll "the warden reads notify: $1" "\"$1\"" ipc smoke readInstance service vgs.agent-warden mode
+}
+# The Agent Warden cards on screen as `<count> <boxes>`.
+warden_shot_cards() { ipc smoke layerItems vgs.notifications NotificationCard app | py_reply 'import json,sys
+t = sys.stdin.read().strip()
+rows = json.loads(t) if t.startswith("[") else []
+boxes = [r[1] for r in rows if r[2].get("app") == "Agent Warden"]
+print(len(boxes), json.dumps(boxes))'; }
+# warden_shot_cards_settled LABEL: the warden's cards on screen, one or
+# more, the same in two readings 0.3 s apart, so every notice one status
+# sent is in and none moves; a low toast lasts 5 s
+# (NotificationLogic.LOW_LIFETIME), so the readings stay short.
+warden_shot_cards_settled() {
+  local first second
+  for _ in $(seq 1 40); do
+    first="$(warden_shot_cards)" || first=""
+    sleep 0.3
+    second="$(warden_shot_cards)" || second=""
+    [[ -n $first && $first == "$second" && $first != 0\ * ]] && { ok "$1"; return 0; }
+  done
+  fail "$1: the cards never settled: ${second:-unread}"
+  return 1
+}
+warden_shot_open() { # LABEL
+  bar_widget_reveal vgs.agent-warden || { fail "$1: the shield could not be revealed"; return 1; }
+  click_in vgs:bar "$(bar_key)" vgs.agent-warden BarItem "Agent Warden" || { fail "$1: the click on the shield failed"; return 1; }
+  expect_poll "$1: the shield opens the warden's panel" True warden_panel_lines
+}
+warden_shot_close() { # LABEL
+  expect "$1: the warden's panel hides" ok ipc shell hide panel vgs.agent-warden
+  expect_poll "$1: the warden's panel is gone" absent warden_panel_texts
+}
+scene_warden-states() { # MODE
+  local mode="$1" row name fixture after before level notify
+  ! tree_has shell/plugins/vgs.agent-warden/WardenLogic.js "var LEVELS" || warden_shot_items=true
+  ! tree_has shell/plugins/vgs.agent-warden/WardenLogic.js "function withCauses" || warden_shot_summary=true
+  warden_shot_notify off
+  # NAME FIXTURE AFTER BEFORE VSYS: the shot's name, the status written,
+  # the state each tree reads it as, and the stand-in vsys's summary, which
+  # the service reads again at the new status.
+  for row in "calm calm calm calm quiet" "info-only leftover-idle info look quiet" "warning-near-limit near-limit warn look memory" \
+    "warning-leftover-busy leftover-busy warn look memory" "warning-plus-info near-limit+leftover-idle warn look memory" \
+    "critical holding-off danger problem memory" "unreadable not-json not-checking not-checking memory"; do
+    read -r name fixture after before vsys <<<"$row"
+    [[ -z $warden_shots || ,$warden_shots, == *,$name,* ]] || continue
+    warden_shot_vsys_put "$vsys"
+    warden_shot_status "$fixture" "$after" "$before"
+    warden_shot_open "$name" || continue
+    park_pointer
+    take "warden-states-$mode-$name"
+    warden_shot_close "$name"
+  done
+  [[ -z $warden_shots || ,$warden_shots, == *,notice-* ]] || return 0
+  notes_on "Warden notice shots"
+  warden_shot_vsys_put memory
+  # LEVEL FIXTURE AFTER BEFORE NOTIFY: the card's level, the status
+  # written, the state each tree reads it as and the `notify` setting that
+  # sends it.
+  for row in "info reaped info problem everything" "warning near-limit warn look problems" "critical holding-off danger problem problems"; do
+    read -r level fixture after before notify <<<"$row"
+    [[ -z $warden_shots || ,$warden_shots, == *,notice-$level,* ]] || continue
+    # A calm status holds no episode, so the next one opens fresh.
+    warden_shot_status calm calm calm
+    notes_clear "warden notice $level"
+    warden_shot_notify "$notify"
+    warden_shot_status "$fixture" "$after" "$before"
+    warden_shot_cards_settled "the $level notice is on screen" || continue
+    # A card keeps drawing while it shows, so shot() never sees two equal
+    # frames before a low toast's 5 s end; its place has settled above,
+    # so the last frame of a 1 s window is the card at rest.
+    SHOT_SETTLE_S=1 take "warden-states-$mode-notice-$level"
+  done
+  warden_shot_status calm calm calm
+  notes_off "Warden notice shots"
+  warden_shot_notify off
 }
 
 # Capture's enablement and placement, `ENABLED PLACED` as listPlugins
@@ -11368,9 +11536,9 @@ for scene in "${scenes[@]}"; do
     *) need_setup "$scene" ;;
   esac
 done
-# What vsys's summary reads as in the warden's panel: one warning's title
-# and its programs.
-shots_vsys_line='1 group is near the memory threshold: claude. Programs: node and bash.'
+# The title of vsys's one summary warning in the warden's panel, in vsys's
+# wording since VSY-279.
+shots_vsys_title='1 group is near the memory threshold'
 for scene in "${setups[@]}"; do
   case $scene in
     gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab|capture-notifications) ;;
@@ -11561,7 +11729,7 @@ PY
       cat >"$shim/vsys" <<'SH'
 #!/usr/bin/env bash
 [[ "$*" == "--once --summary" ]] || exit 0
-printf '%s\n' '{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice", "title": "1 group is near the memory threshold: claude", "processes": [{"pid": 4242, "name": "node"}, {"pid": 4243, "name": "bash"}], "open": []}], "meters": [], "errors": []}'
+printf '%s\n' '{"schema": "vsys.summary.v2", "time": 1, "verdict": [{"cause": "memory-high", "level": "warn", "subject": "/agents.slice", "title": "1 group is near the memory threshold", "processes": [{"pid": 4242, "name": "node"}, {"pid": 4243, "name": "bash"}], "open": []}], "meters": [], "errors": []}'
 SH
       chmod 755 "$shim/notify-send" "$shim/vsys"
       mkdir -p -- "$warden_dir"
@@ -11575,6 +11743,24 @@ SH
       expect_poll "the updates service reads the planted snapshot" 6 updates_pending
       expect "the updates service runs no check" False updates_checking
       expect "enabling vgs.themes for its panel is allowed" ok ipc shell setPluginEnabled vgs.themes true ;;
+    warden-states)
+      # The warden reads each status from its runtime dir, with a vsys
+      # stand-in whose summary the scene writes, panels' one memory warning
+      # until a shot names another (warden_shot_vsys_put); notices go to the
+      # sandbox's own notification server, which the scene turns on for its
+      # cards.
+      warden_shot_vsys_put memory
+      cat >"$shim/vsys" <<SH
+#!/usr/bin/env bash
+[[ "\$*" == "--once --summary" ]] || exit 0
+cat -- '$sandbox/vsys-summary.json'
+SH
+      chmod 755 "$shim/vsys"
+      mkdir -p -- "$warden_dir"
+      warden_put calm 0 >/dev/null || fail "writing the warden's calm status failed"
+      tree_rescan "the warden's stand-ins are scanned"
+      expect "enabling vgs.agent-warden is allowed" ok ipc shell setPluginEnabled vgs.agent-warden true
+      expect_poll "vgs.agent-warden is built" True record_exists vgs.agent-warden ;;
     devtools)
       devtools_stand_ins
       tree_rescan "the Dev Tools stand-ins are scanned"

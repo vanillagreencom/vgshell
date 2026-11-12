@@ -492,9 +492,10 @@ Item {
                 Column {
                     width: parent.width
                     spacing: Theme.stack.group
-                    // Each state with a title, text and a link; with wrapped
-                    // text and no title beside a button; and as the one-line
-                    // banner with a button and no icon.
+                    // Each state with a title, text and a link; with a row
+                    // of links under the text; with wrapped text and no
+                    // title beside a button; and as the one-line banner
+                    // with a button and no icon.
                     Repeater {
                         model: [
                             { tone: "danger", mark: "circle-alert", line: "VPN dropped: traffic blocked", action: "Turn VPN off" },
@@ -514,6 +515,14 @@ Item {
                                 linkText: "Read the guide"
                                 onActivated: linkText = "The guide action was selected"
                                 onPageActivated: (page, tab) => text = "The page link was selected."
+                            }
+                            Callout {
+                                tone: example.modelData.tone
+                                iconName: example.modelData.mark
+                                title: "Callout with links"
+                                text: "Each action is a link in one row under the text."
+                                links: ["Show details", "Stop"]
+                                onActionActivated: index => text = "The link " + links[index] + " was selected."
                             }
                             Callout {
                                 tone: example.modelData.tone

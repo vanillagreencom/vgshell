@@ -4,41 +4,38 @@
 
 // What the Agent Warden widget and flyout show, pure so
 // scripts/test-agent-warden-view.js runs it under node: the words, icons and
-// tones of the `detail` the service publishes (WardenLogic.derive's answer),
-// the button each state offers, and the reading of `vsys --once --summary`.
-// The warden's file carries numbers and ids; every word the user reads is
-// here, save a summary cause's title and program names, which vsys writes.
-// No text names a process id or a scope unit: `detail` carries neither, and
-// the summary line draws no process id or subject.
+// tones of the `detail` the service publishes (WardenLogic.derive's answer
+// with WardenLogic.withCauses' summary causes), the rows of its items and
+// causes, the button each state offers, and the reading of
+// `vsys --once --summary`. Every word the user reads is here, save the
+// warden's item titles, details and action labels and a summary cause's
+// title and program names, which vsys writes and the flyout draws as plain
+// text. vsys names no process id or scope unit in them, and a summary row
+// draws no process id or subject.
 
 // The icon and tone of each state WardenLogic.STATES names. A tone names
 // the Theme.color state role the widget draws in; `neutral` is textMuted.
 var STATE_LOOKS = {
     "calm": { icon: "shield-check", tone: "neutral" },
-    "working": { icon: "shield-check", tone: "accent" },
-    "look": { icon: "shield-alert", tone: "warning" },
-    "problem": { icon: "shield-x", tone: "danger" },
+    "info": { icon: "shield-check", tone: "neutral" },
+    "warn": { icon: "shield-alert", tone: "warning" },
+    "danger": { icon: "shield-x", tone: "danger" },
     "not-checking": { icon: "shield-off", tone: "neutral" },
     "not-set-up": { icon: "shield-question-mark", tone: "neutral" }
 };
 // The look before the service has derived a state.
 var PENDING_LOOK = { icon: "shield", tone: "neutral" };
-// The flyout's icon for each item kind WardenLogic.itemsOf answers; a
-// `near` item takes the icon of the ceiling it is near.
-var ITEM_ICONS = {
-    "scan-failed": "circle-x",
-    "headroom": "hourglass",
-    "move-failed": "circle-alert",
-    "partial": "split",
-    "reaped": "broom",
-    "near-memory": "memory-stick",
-    "near-tasks": "cpu",
-    "slowdown": "gauge",
-    "leftover": "layers",
-    "moved": "shield-check"
+// The look of each item level WardenLogic.LEVELS names, the shield's icon
+// family: the Callout tone and icon a flyout row draws, and the icon,
+// notify tone, urgency and transient hint of its notice. A Callout draws
+// `info` in neutral shades, but a notification card draws its info tone
+// in a hue, so an info notice names no tone and the card draws its shield
+// in its own ink, the calm grey.
+var LEVEL_LOOKS = {
+    "danger": { icon: "shield-x", tone: "danger", notice: "danger", urgency: "critical", transient: false },
+    "warn": { icon: "shield-alert", tone: "warning", notice: "warning", urgency: "normal", transient: false },
+    "info": { icon: "shield", tone: "info", notice: "", urgency: "low", transient: true }
 };
-// The flyout shows at most this many items, most serious first.
-var MAX_ITEMS = 3;
 // The argv `start` hands shell.run.detached: the timer an explicit
 // `vsys warden install` enables
 // (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md#the-approach).
@@ -50,7 +47,7 @@ var START_ARGV = ["systemctl", "--user", "start", "agent-warden.timer"];
 // (https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/verdict.md#rules).
 var SUMMARY_SCHEMA = "vsys.summary.v2";
 var SUMMARY_LEVELS = ["ok", "warn", "danger"];
-// The summary line names at most this many programs of the cause it shows.
+// A summary row names at most this many programs of its cause.
 var MAX_PROGRAMS = 3;
 // The arguments shell.tui.run takes after a script, as the core judges
 // them (shell/Core/PluginLogic.js tuiArgsValid, which judges them again at
@@ -86,85 +83,50 @@ function ago(ms, now) {
     return Commons.Duration.format(Math.max(0, Math.floor((now - ms) / 1000)), 1) + " ago";
 }
 
-// Who a lane is: its tool, and the worktree it runs in when the warden
-// named one.
-function who(item) {
-    return item.worktree === null || item.worktree === "" ? item.tool : item.tool + " in " + item.worktree;
+function levelLook(level) {
+    var look = LEVEL_LOOKS[level];
+    if (look === undefined) throw new Error("agent-warden: item level=" + JSON.stringify(level) + " unknown");
+    return look;
 }
 
-// One item of `detail.items` as the flyout's row draws it at NOW:
-// { text, secondary, icon }.
-function itemRow(item, now) {
-    switch (item.kind) {
-    case "scan-failed":
-        return { icon: ITEM_ICONS["scan-failed"], text: "Agent Warden's last check failed", secondary: "It tries again on its next check" };
-    case "headroom":
-        return {
-            icon: ITEM_ICONS.headroom,
-            text: "Agents are close to their memory limit",
-            secondary: item.waiting.length > 0 ? "Waiting for free memory before applying limits to " + listed(item.waiting)
-                : item.memory !== null && item.max !== null ? gb(item.memory) + " of " + gb(item.max) + " GB in use" : ""
-        };
-    case "move-failed":
-        return {
-            icon: ITEM_ICONS["move-failed"],
-            text: item.tools.length > 0 ? "Could not apply limits to " + listed(item.tools) : "Could not apply limits to an agent",
-            secondary: plural(item.count, "try", "tries") + " failed in the last " + Commons.Duration.format(300, 1)
-        };
-    case "partial":
-        return {
-            icon: ITEM_ICONS.partial,
-            text: "Part of " + (item.tools.length > 0 ? listed(item.tools) : "an agent") + " still runs without limits",
-            secondary: "Agent Warden tries again on its next check"
-        };
-    case "reaped":
-        return {
-            icon: ITEM_ICONS.reaped,
-            text: item.count === 1 ? "Cleaned up after a finished agent" : "Cleaned up after " + grouped(item.count) + " finished agents",
-            secondary: "Stopped " + plural(item.processes, "leftover process", "leftover processes")
-        };
-    case "near":
-        if (item.near.indexOf("memory") !== -1)
-            return {
-                icon: ITEM_ICONS["near-memory"],
-                text: who(item) + " is near its memory limit",
-                secondary: item.memory === null ? "" : gb(item.memory) + " GB" + (item.memoryHigh === null ? "" : ", slowed at " + gb(item.memoryHigh) + " GB")
-            };
-        return {
-            icon: ITEM_ICONS["near-tasks"],
-            text: who(item) + " is near its process limit",
-            secondary: item.tasks === null ? "" : grouped(item.tasks) + (item.tasksMax === null ? " running" : " of its " + grouped(item.tasksMax) + " limit")
-        };
-    case "slowdown":
-        return { icon: ITEM_ICONS.slowdown, text: "Agents are slowed down to save memory", secondary: gb(item.memory) + " GB in use, slowed from " + gb(item.high) + " GB" };
-    case "leftover":
-        return {
-            icon: ITEM_ICONS.leftover,
-            text: "Leftover work from " + (item.count === 1 ? "a finished agent" : grouped(item.count) + " finished agents") + " is idle",
-            secondary: plural(item.processes, "process", "processes") + ", cleaned up if it gets busy"
-        };
-    case "moved":
-        return { icon: ITEM_ICONS.moved, text: movedText(item), secondary: ago(item.at, now) };
-    }
-    throw new Error("agent-warden: item kind=" + JSON.stringify(item.kind) + " unknown");
+// The actions of ITEM the vsys TUI takes, in vsys's order, each
+// { label, args }: an action whose `args` openValid refuses is not offered.
+function actionsOf(item) {
+    return item.actions.filter(function (a) { return openValid(a.args); })
+        .map(function (a) { return { label: a.label, args: a.args.slice() }; });
 }
 
-function movedText(item) {
-    return "Moved " + (item.count === 1 ? "an agent" : grouped(item.count) + " agents") + " back into limits";
+// One item of `detail.items` as the flyout's Callout draws it:
+// { key, tone, icon, title, text, actions }, ACTIONS actionsOf's, each a
+// link under the text.
+function calloutRow(item) {
+    var look = levelLook(item.level);
+    return { key: item.key, tone: look.tone, icon: look.icon, title: item.title, text: item.detail === null ? "" : item.detail, actions: actionsOf(item) };
 }
 
-// The items the flyout draws for DETAIL: its first MAX_ITEMS, most serious
-// first, each drawn through itemRow.
-function shownItems(detail) {
-    return detail.items.slice(0, MAX_ITEMS);
+// The summary causes of DETAIL, none before a summary was read.
+function causesOf(detail) {
+    return detail.causes === null ? [] : detail.causes;
 }
 
-// The `moved` item a Working state carries; derive answers Working only
-// when one is recent.
-function movedItem(detail) {
-    for (var i = 0; i < detail.items.length; i++)
-        if (detail.items[i].kind === "moved") return detail.items[i];
-    throw new Error("agent-warden: state=working without a moved item");
+// The flyout's rows for DETAIL: every item and every summary cause, in
+// level order, danger first, each list keeping vsys's order within a
+// level and the warden's items before the summary's causes. Each draws as
+// vsys sends it; two that tell of one thing, such as the summary's memory
+// warning and the warden's slowdown, both draw.
+function rows(detail) {
+    var causes = causesOf(detail);
+    var all = detail.items.map(calloutRow).concat(summaryRows(causes));
+    var levels = detail.items.map(function (i) { return i.level; }).concat(causes.map(function (c) { return c.level; }));
+    return all.map(function (row, i) { return { row: row, rank: WardenLogic.LEVELS.indexOf(levels[i]), at: i }; })
+        .sort(function (a, b) { return a.rank - b.rank || a.at - b.at; })
+        .map(function (r) { return r.row; });
+}
+
+// How many items and summary causes of DETAIL are at LEVEL.
+function atLevel(detail, level) {
+    var of = function (x) { return x.level === level; };
+    return detail.items.filter(of).length + causesOf(detail).filter(of).length;
 }
 
 // "within its limits" or "within their limits" for N agents.
@@ -172,24 +134,31 @@ function running(n) {
     return plural(n, "agent", "agents") + (n === 1 ? " is running within its limits" : " are running within their limits");
 }
 
-// The flyout's one status sentence for DETAIL. VSYS_MISSING is whether the
-// last scan did not find vsys, which ships the warden.
+// The flyout's one status sentence for DETAIL: while the warden is read,
+// it counts every warning and problem the flyout lists, the warden's items
+// and the summary's causes, as the shield's badge does.
+// VSYS_MISSING is whether the last scan did not find vsys, which ships the
+// warden.
 function sentence(detail, vsysMissing) {
     switch (detail.state) {
     case "calm":
+    case "info":
         if (detail.agents === null) return "Agents are within their limits.";
         return detail.agents === 0 ? "No agents are running." : running(detail.agents) + ".";
-    case "working":
-        return movedText(movedItem(detail)) + ".";
-    case "look":
-        return detail.issues === 1 ? "One warning needs your attention." : grouped(detail.issues) + " warnings need your attention.";
-    case "problem":
-        return detail.issues === 1 ? "One problem needs your attention." : grouped(detail.issues) + " problems need your attention.";
+    case "warn":
+    case "danger":
+        var problems = atLevel(detail, "danger");
+        var warnings = atLevel(detail, "warn");
+        var counts = [];
+        if (problems > 0) counts.push(plural(problems, "problem", "problems"));
+        if (warnings > 0) counts.push(plural(warnings, "warning", "warnings"));
+        return listed(counts) + (problems + warnings === 1 ? " needs" : " need") + " your attention.";
     case "not-checking":
         switch (detail.reason) {
         case "stale": return "Agent Warden has stopped checking.";
         case "unreadable": return "Agent Warden's status can't be read.";
         case "schema": return "Update VGS to read Agent Warden status.";
+        case "old-vsys": return "Agent Warden needs a newer vsys.";
         }
         throw new Error("agent-warden: reason=" + JSON.stringify(detail.reason) + " unknown");
     case "not-set-up":
@@ -204,19 +173,18 @@ function tooltip(detail, now) {
     if (detail === null) return "Agent Warden is starting";
     switch (detail.state) {
     case "calm":
+    case "info":
         if (detail.agents === null) return "Agents are within their limits";
         return detail.agents === 0 ? "No agents running" : plural(detail.agents, "agent", "agents") + " running within " + (detail.agents === 1 ? "its" : "their") + " limits";
-    case "working":
-        var moved = movedItem(detail);
-        return movedText(moved) + " " + ago(moved.at, now);
-    case "look":
-    case "problem":
-        return itemRow(detail.items[0], now).text;
+    case "warn":
+    case "danger":
+        return rows(detail)[0].title.replace(/[.]$/, "");
     case "not-checking":
         switch (detail.reason) {
         case "stale": return "Agent Warden hasn't checked in " + Commons.Duration.format(Math.max(0, Math.floor((now - detail.checkedAt) / 1000)), 1);
         case "unreadable": return "Agent Warden's status can't be read";
         case "schema": return "Agent Warden's status needs a newer VGS";
+        case "old-vsys": return "Agent Warden needs a newer vsys";
         }
         throw new Error("agent-warden: reason=" + JSON.stringify(detail.reason) + " unknown");
     case "not-set-up": return "Agent Warden isn't set up";
@@ -224,21 +192,21 @@ function tooltip(detail, now) {
     throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
 
-// The count on the shield's corner badge: the running agents while all
-// is good, the things that need a look or attention, and none otherwise,
-// as whole digits, which BarItem caps; "" for none, for zero, or when
-// SHOW_COUNT is off.
+// The count on the shield's corner badge: the running agents while
+// nothing needs attention, the warn and danger items and causes while
+// something does, and none otherwise, as whole digits, which BarItem caps; "" for none,
+// for zero, or when SHOW_COUNT is off.
 function count(detail, showCount) {
     if (!showCount || detail === null) return "";
     var n;
     switch (detail.state) {
     case "calm":
-    case "working":
+    case "info":
         n = detail.agents;
         break;
-    case "look":
-    case "problem":
-        n = detail.issues;
+    case "warn":
+    case "danger":
+        n = atLevel(detail, "warn") + atLevel(detail, "danger");
         break;
     default:
         n = null;
@@ -247,9 +215,11 @@ function count(detail, showCount) {
 }
 
 // The badge level of a widget TONE: a warning or danger shield gets a
-// badge of its own level, every other tone the normal one.
+// badge of its own level; every other shield counts running agents, a
+// quantity at rest, in the badge's neutral level, which no theme's accent
+// can make read as a warning or problem count.
 function countLevel(tone) {
-    return tone === "warning" || tone === "danger" ? tone : "normal";
+    return tone === "warning" || tone === "danger" ? tone : "neutral";
 }
 
 // What the bar widget draws for DETAIL at NOW: { icon, tone, count,
@@ -260,10 +230,10 @@ function widget(detail, now, showCount) {
     return { icon: look.icon, tone: look.tone, count: count(detail, showCount), countLevel: countLevel(look.tone), tooltip: tooltip(detail, now) };
 }
 
-// Whether the widget is idle, which `hideWhenIdle` hides: all good with no
-// agent running.
+// Whether the widget is idle, which `hideWhenIdle` hides: nothing needs
+// attention and no agent runs.
 function idle(detail) {
-    return detail !== null && detail.state === "calm" && detail.agents === 0;
+    return detail !== null && (detail.state === "calm" || detail.state === "info") && detail.agents === 0;
 }
 
 // The one setup button the flyout offers in place of its items for DETAIL,
@@ -301,12 +271,13 @@ function meter(memory) {
     if (memory === null) return null;
     var limit = memory.high !== null ? memory.high : memory.max;
     if (limit === null || limit === 0) return null;
-    var point = memory.high !== null ? "slowdown point" : "limit";
-    return {
-        value: Math.min(1, memory.used / limit),
-        text: memory.used >= limit ? "Agent memory: " + gb(memory.used) + " GB, past the " + gb(limit) + " GB " + point
-            : "Agent memory: " + gb(memory.used) + " of " + gb(limit) + " GB" + (memory.high !== null ? " before slowdown" : "")
-    };
+    var used = "Agents use " + gb(memory.used) + " GB";
+    var text;
+    if (memory.high !== null)
+        text = used + (memory.used >= limit ? " and are slowed down above " : " and slow down at ") + gb(limit) + " GB.";
+    else
+        text = used + (memory.used >= limit ? ", past their " : " of their ") + gb(limit) + " GB limit.";
+    return { value: Math.min(1, memory.used / limit), text: text };
 }
 
 // The words for a capability's REPLY to a press, "" for one that handed
@@ -396,36 +367,30 @@ function readSummary(text) {
     return { kind: "read", causes: causes };
 }
 
-// The flyout's line for SUMMARY, readSummary's `read` answer: { text, tone,
-// open }. The line shows the most serious cause, the first `danger` one or
-// else the first, in vsys's own title, with its programs and how many more
-// problems (`danger`) and warnings (`warn`) there are, each count with its
-// noun so it never reads as more programs; OPEN is that cause's vsys
-// arguments, [] for none.
-function summaryLine(summary) {
-    if (summary.causes.length === 0) return { tone: "neutral", text: "vsys found no problems on this computer.", open: [] };
-    var shown = summary.causes[0];
-    for (var i = 0; i < summary.causes.length; i++)
-        if (summary.causes[i].level === "danger") {
-            shown = summary.causes[i];
-            break;
+// The flyout's rows for SUMMARY's causes, readSummary's `read` answer's,
+// in vsys's verdict order, each drawn as an item of its level is
+// (calloutRow): vsys's title, one sentence that names its main programs,
+// and one action: Show in vsys
+// when vsys gives the arguments that open it at the cause, else Open vsys,
+// which opens vsys's home as the footer's link does.
+function summaryRows(causes) {
+    return causes.map(function (cause, i) {
+        var look = levelLook(cause.level);
+        var title = /[.!?]$/.test(cause.title) ? cause.title : cause.title + ".";
+        var text = "";
+        if (cause.names.length > 0) {
+            var names = cause.names.slice(0, MAX_PROGRAMS);
+            if (cause.names.length > MAX_PROGRAMS) names.push(plural(cause.names.length - MAX_PROGRAMS, "other", "others"));
+            text = (cause.names.length === 1 ? "The main program is " : "The main programs are ") + listed(names) + ".";
         }
-    var text = /[.!?]$/.test(shown.title) ? shown.title : shown.title + ".";
-    if (shown.names.length > 0) {
-        var names = shown.names.slice(0, MAX_PROGRAMS);
-        if (shown.names.length > MAX_PROGRAMS) names.push(grouped(shown.names.length - MAX_PROGRAMS) + " more");
-        text += " Programs: " + listed(names) + ".";
-    }
-    var problems = 0;
-    var warnings = 0;
-    for (var j = 0; j < summary.causes.length; j++) {
-        if (summary.causes[j] === shown) continue;
-        if (summary.causes[j].level === "danger") problems += 1;
-        else warnings += 1;
-    }
-    var more = [];
-    if (problems > 0) more.push(plural(problems, "more problem", "more problems"));
-    if (warnings > 0) more.push(plural(warnings, "more warning", "more warnings"));
-    if (more.length > 0) text += " vsys found " + listed(more) + ".";
-    return { tone: shown.level === "danger" ? "danger" : "warning", text: text, open: shown.open };
+        var actions = [{ label: cause.open.length === 0 ? "Open vsys" : "Show in vsys", args: cause.open.slice() }];
+        return { key: "summary:" + i, tone: look.tone, icon: look.icon, title: title, text: text, actions: actions };
+    });
+}
+
+// The flyout's line when DETAIL's summary causes are none, neutral words
+// with no level colour; "" while there are causes, which summaryRows
+// draws, or before the summary is read.
+function summaryClear(detail) {
+    return detail.causes !== null && detail.causes.length === 0 ? "vsys found no problems on this computer." : "";
 }

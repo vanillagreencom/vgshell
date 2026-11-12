@@ -6,34 +6,38 @@
 // publishes from that state.
 //
 // The warden, which vsys ships, writes $XDG_RUNTIME_DIR/agent-warden/status.json
-// every tick, numbers and ids only, null for a reading it could not take;
-// the contract is
-// https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md,
-// schema 1.0. A minor version adds
-// fields and enum values an older reader ignores, so this file checks only
-// the fields it reads and skips an event kind or a `near` id it does not
-// know. A major version it does not know is refused whole.
+// every tick, numbers and ids only, null for a reading it could not take,
+// and from schema 1.3 its `items`: what needs saying, each with its level,
+// its words and the vsys arguments that act on it. The contract is
+// https://github.com/vanillagreencom/vsys/blob/main/docs/architecture/warden.md.
+// The warden judges every state; this file reads its `items` and judges
+// none of its own. A minor version adds fields an older reader ignores, so
+// this file checks only the fields it reads. A 1.x document before 1.3
+// has no `items` and reads as needing a newer vsys. A major version it
+// does not know is refused whole.
 
-// The status schema major this plugin reads.
+// The status schema major this plugin reads, and the first minor of it
+// that carries `items`.
 var SUPPORTED_MAJOR = 1;
+var ITEMS_MINOR = 3;
 // A status whose `time` is further than this from now, either way, is
 // stale: three missed ticks of the warden's default 30 s interval. The far
 // side covers a clock set back after the warden wrote.
 var STALE_AFTER_MS = 90000;
-// An event this recent still shapes the state: a move shows as Working, a
-// failed or partial move and a cleanup as a Problem.
-var RECENT_MS = 300000;
-// The event kinds whose recent window shapes the state.
-var RECENT_KINDS = ["moved", "failed", "partial", "reaped"];
+// The warden's default check interval, which the service's summary runs
+// keep while no fresh status sets their pace.
+var TICK_MS = 30000;
 var GIB = 1073741824;
 
 // The consumer states `derive` answers, in the order the widget ranks them.
-var STATES = ["calm", "working", "look", "problem", "not-checking", "not-set-up"];
-// Why a status is not checking: too old, unreadable, or a major version
-// this plugin does not read.
-var NOT_CHECKING_REASONS = ["stale", "unreadable", "schema"];
-// The `near` ids of a lane this plugin knows.
-var NEAR_IDS = ["tasks", "memory"];
+// calm, info, warn and danger are a fresh status's: no item, info items
+// only, a warn item and no danger item, a danger item.
+var STATES = ["calm", "info", "warn", "danger", "not-checking", "not-set-up"];
+// Why a status is not checking: too old, unreadable, a major version this
+// plugin does not read, or a 1.x status from before `items`.
+var NOT_CHECKING_REASONS = ["stale", "unreadable", "schema", "old-vsys"];
+// The item levels the contract fixes, most serious first.
+var LEVELS = ["danger", "warn", "info"];
 
 function isObject(v) {
     return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -54,10 +58,6 @@ function isLimit(v) {
 
 function stringOrNull(v) {
     return v === null || typeof v === "string";
-}
-
-function boolOrNull(v) {
-    return v === null || typeof v === "boolean";
 }
 
 // The first field of a list whose rows fail `check`, "" when every row
@@ -85,19 +85,33 @@ function firstFailing(row, checks) {
 function laneError(lane) {
     if (!isObject(lane.label)) return "label";
     if (!stringOrNull(lane.label.tool)) return "label.tool";
-    if (!stringOrNull(lane.label.worktree)) return "label.worktree";
-    if (!Array.isArray(lane.near) || lane.near.some(function (n) { return typeof n !== "string"; })) return "near";
-    return firstFailing(lane, [
-        ["scope", function (v) { return typeof v === "string"; }],
-        ["tasks", countOrNull], ["tasksMax", isLimit],
-        ["memory", countOrNull], ["memoryHigh", isLimit]
+    return firstFailing(lane, [["scope", function (v) { return typeof v === "string"; }]]);
+}
+
+function nonEmpty(v) {
+    return typeof v === "string" && v !== "";
+}
+
+// An action's `args` stay unread here: ViewLogic.openValid judges them
+// where they are handed to the vsys TUI.
+function actionError(action) {
+    return firstFailing(action, [["id", nonEmpty], ["label", nonEmpty]]);
+}
+
+function itemError(item) {
+    var field = firstFailing(item, [
+        ["kind", nonEmpty], ["key", nonEmpty],
+        ["level", function (v) { return LEVELS.indexOf(v) !== -1; }],
+        ["title", nonEmpty], ["detail", stringOrNull]
     ]);
+    if (field !== "") return field;
+    return listError(item, "actions", false, actionError);
 }
 
 function sliceError(slice) {
     if (slice === null) return "";
     if (!isObject(slice)) return "slice";
-    var field = firstFailing(slice, [["memory", countOrNull], ["high", isLimit], ["max", isLimit], ["headroomOk", boolOrNull]]);
+    var field = firstFailing(slice, [["memory", countOrNull], ["high", isLimit], ["max", isLimit]]);
     return field === "" ? "" : "slice." + field;
 }
 
@@ -105,35 +119,15 @@ function sliceError(slice) {
 // the contract gives it, or "" when every field this file reads has.
 function shapeError(doc) {
     if (typeof doc.time !== "number" || !isFinite(doc.time)) return "time";
-    if (typeof doc.interval !== "number" || !isFinite(doc.interval) || doc.interval <= 0) return "interval";
-    if (!stringOrNull(doc.error)) return "error";
     var checks = [
         function () { return sliceError(doc.slice); },
         function () { return listError(doc, "lanes", true, laneError); },
         function () {
-            return listError(doc, "waiting", true, function (t) {
-                return firstFailing(t, [["tool", function (v) { return typeof v === "string"; }], ["pid", isCount], ["processes", isCount]]);
-            });
-        },
-        function () {
-            return listError(doc, "outside", true, function (t) {
-                return firstFailing(t, [["tool", function (v) { return typeof v === "string"; }], ["pid", isCount]]);
-            });
-        },
-        function () {
             return listError(doc, "orphans", true, function (o) {
-                return firstFailing(o, [["scope", function (v) { return typeof v === "string"; }], ["processes", isCount]]);
+                return firstFailing(o, [["scope", function (v) { return typeof v === "string"; }]]);
             });
         },
-        function () {
-            return listError(doc, "events", false, function (e) {
-                return firstFailing(e, [
-                    ["time", function (v) { return typeof v === "number" && isFinite(v); }],
-                    ["kind", function (v) { return typeof v === "string"; }],
-                    ["scope", stringOrNull], ["pid", countOrNull], ["processes", countOrNull]
-                ]);
-            });
-        }
+        function () { return listError(doc, "items", false, itemError); }
     ];
     for (var i = 0; i < checks.length; i++) {
         var field = checks[i]();
@@ -145,6 +139,7 @@ function shapeError(doc) {
 // One read of status.json as a tagged value:
 //   { kind: "read", doc }            a document this plugin reads
 //   { kind: "schema", schema }       a major version it does not read
+//   { kind: "old-vsys", schema }     a 1.x document from before `items`
 //   { kind: "unreadable", cause }    not JSON, or a field of the wrong type;
 //                                    `cause` is `json` or `field=<path>`
 function readStatus(text) {
@@ -158,6 +153,7 @@ function readStatus(text) {
     var version = typeof doc.schema === "string" ? /^(\d+)\.(\d+)$/.exec(doc.schema) : null;
     if (version === null) return { kind: "unreadable", cause: "field=schema" };
     if (Number(version[1]) !== SUPPORTED_MAJOR) return { kind: "schema", schema: doc.schema };
+    if (Number(version[2]) < ITEMS_MINOR) return { kind: "old-vsys", schema: doc.schema };
     var field = shapeError(doc);
     if (field !== "") return { kind: "unreadable", cause: "field=" + field };
     return { kind: "read", doc: doc };
@@ -165,41 +161,6 @@ function readStatus(text) {
 
 function numberOrNull(limit) {
     return typeof limit === "number" ? limit : null;
-}
-
-// An event's time in whole milliseconds since the epoch.
-function eventMs(e) {
-    return Math.round(e.time * 1000);
-}
-
-// Whether an event at T milliseconds is still in the recent window at NOW.
-function isRecent(t, now) {
-    return now - t <= RECENT_MS;
-}
-
-// The events of KIND in the last RECENT_MS before NOW.
-function recent(doc, kind, now) {
-    return doc.events.filter(function (e) {
-        return e.kind === kind && isRecent(eventMs(e), now);
-    });
-}
-
-function unique(list) {
-    return list.filter(function (v, i) { return list.indexOf(v) === i; });
-}
-
-// The tools of the process trees EVENTS name, from this tick's `outside`.
-function toolsOf(doc, events) {
-    var outside = doc.outside === null ? [] : doc.outside;
-    var tools = [];
-    events.forEach(function (e) {
-        outside.forEach(function (t) { if (t.pid === e.pid) tools.push(t.tool); });
-    });
-    return unique(tools);
-}
-
-function sum(list, key) {
-    return list.reduce(function (n, row) { return n + (row[key] === null ? 0 : row[key]); }, 0);
 }
 
 function orphanScopes(doc) {
@@ -216,59 +177,6 @@ function agentLanes(doc) {
     });
 }
 
-// The ceilings LANE is near that this plugin knows, in the warden's order.
-function nearOf(lane) {
-    return lane.near.filter(function (n) { return NEAR_IDS.indexOf(n) !== -1; });
-}
-
-// The items a fresh status holds, most serious first. Each is
-// { kind, level, ... } with numbers and names only: no pid and no scope
-// unit, which the flyout never shows.
-//   problem  scan-failed        the warden's scan or plan failed
-//            headroom           agents are at the slice's memory headroom
-//                               and moves wait: memory, max, waiting tools
-//            move-failed        recent moves that failed: count, tools
-//            partial            recent moves that left part behind: count, tools
-//            reaped             recent cleanups of leftover work: count,
-//                               processes
-//   look     near               an agent near its task or memory ceiling:
-//                               tool, worktree, near, memory, memoryHigh,
-//                               tasks, tasksMax
-//            slowdown           agents above the slice's slowdown point:
-//                               memory, high
-//            leftover           leftover work from finished agents: count,
-//                               processes
-//   info     moved              recent moves back into limits: count, at
-function itemsOf(doc, now) {
-    var items = [];
-    var slice = doc.slice;
-    var waiting = doc.waiting === null ? [] : doc.waiting;
-    if (doc.error !== null) items.push({ kind: "scan-failed", level: "problem" });
-    if ((slice !== null && slice.headroomOk === false) || waiting.length > 0)
-        items.push({ kind: "headroom", level: "problem", memory: slice === null ? null : slice.memory, max: slice === null ? null : numberOrNull(slice.max), waiting: unique(waiting.map(function (t) { return t.tool; })) });
-    var failed = recent(doc, "failed", now);
-    if (failed.length > 0) items.push({ kind: "move-failed", level: "problem", count: failed.length, tools: toolsOf(doc, failed) });
-    var partial = recent(doc, "partial", now);
-    if (partial.length > 0) items.push({ kind: "partial", level: "problem", count: partial.length, tools: toolsOf(doc, partial) });
-    var reaped = recent(doc, "reaped", now);
-    if (reaped.length > 0) items.push({ kind: "reaped", level: "problem", count: reaped.length, processes: sum(reaped, "processes") });
-    if (doc.lanes !== null) {
-        agentLanes(doc).forEach(function (lane) {
-            var near = nearOf(lane);
-            if (near.length > 0)
-                items.push({ kind: "near", level: "look", tool: lane.label.tool, worktree: lane.label.worktree, near: near, memory: lane.memory, memoryHigh: numberOrNull(lane.memoryHigh), tasks: lane.tasks, tasksMax: numberOrNull(lane.tasksMax) });
-        });
-    }
-    if (slice !== null && slice.memory !== null && typeof slice.high === "number" && slice.memory >= slice.high)
-        items.push({ kind: "slowdown", level: "look", memory: slice.memory, high: slice.high });
-    if (doc.orphans !== null && doc.orphans.length > 0)
-        items.push({ kind: "leftover", level: "look", count: doc.orphans.length, processes: sum(doc.orphans, "processes") });
-    var moved = recent(doc, "moved", now);
-    if (moved.length > 0)
-        items.push({ kind: "moved", level: "info", count: moved.length, at: Math.max.apply(null, moved.map(eventMs)) });
-    return items;
-}
-
 // The agent group's memory for the flyout's meter, bytes, or null when the
 // slice or its use is unknown.
 function meterOf(slice) {
@@ -276,26 +184,44 @@ function meterOf(slice) {
     return { used: slice.memory, high: numberOrNull(slice.high), max: numberOrNull(slice.max) };
 }
 
+// The items of DOC as the plugin keeps them: the fields the contract
+// names, in vsys's order, which is level order.
+function readItems(doc) {
+    return doc.items.map(function (item) {
+        return {
+            kind: item.kind, key: item.key, level: item.level, title: item.title, detail: item.detail,
+            actions: item.actions.map(function (a) { return { id: a.id, label: a.label, args: a.args }; })
+        };
+    });
+}
+
+// The fresh state ITEMS mean: the most serious level among them, calm for
+// none.
+function stateOf(items) {
+    var has = function (level) { return items.some(function (i) { return i.level === level; }); };
+    return has("danger") ? "danger" : has("warn") ? "warn" : has("info") ? "info" : "calm";
+}
+
 function blank(state, reason) {
-    return { state: state, reason: reason, checkedAt: null, agents: null, issues: 0, items: [], memory: null };
+    return { state: state, reason: reason, checkedAt: null, agents: null, items: [], memory: null };
 }
 
 // The consumer state of FILE, the status read, at NOW milliseconds since
 // the epoch, or null while a read is pending. The answer is the `detail`
 // the service publishes:
-//   { state, reason, checkedAt, agents, issues, items, memory }
+//   { state, reason, checkedAt, agents, items, memory }
 // `state` is one of STATES; `reason` one of NOT_CHECKING_REASONS for
 // not-checking, else null; `checkedAt` the status's time in milliseconds;
 // `agents` the running agents as of that time, null when the warden could
-// not list them; `issues` the problem and look items; `items` itemsOf's;
-// `memory` meterOf's. A stale status keeps its time and agent count and
-// drops its items and meter.
+// not list them; `items` readItems'; `memory` meterOf's. A stale status
+// keeps its time and agent count and drops its items and meter.
 function derive(file, now) {
     switch (file.kind) {
     case "pending": return null;
     case "absent": return blank("not-set-up", null);
     case "unreadable": return blank("not-checking", "unreadable");
     case "schema": return blank("not-checking", "schema");
+    case "old-vsys": return blank("not-checking", "old-vsys");
     case "read": break;
     default: throw new Error("agent-warden: file kind=" + JSON.stringify(file.kind) + " unknown");
     }
@@ -308,33 +234,39 @@ function derive(file, now) {
         stale.agents = agents;
         return stale;
     }
-    var items = itemsOf(doc, now);
-    var count = function (level) { return items.filter(function (i) { return i.level === level; }).length; };
-    var state = count("problem") > 0 ? "problem" : count("look") > 0 ? "look" : count("info") > 0 ? "working" : "calm";
-    return { state: state, reason: null, checkedAt: checkedAt, agents: agents, issues: count("problem") + count("look"), items: items, memory: meterOf(doc.slice) };
+    var items = readItems(doc);
+    return { state: stateOf(items), reason: null, checkedAt: checkedAt, agents: agents, items: items, memory: meterOf(doc.slice) };
+}
+
+// DETAIL, derive's answer, with CAUSES, the warn and danger causes of the
+// last `vsys --once --summary` (ViewLogic.readSummary's), or null while
+// none was read: `causes` holds them, and a fresh state takes the most
+// serious level among its items and the causes, so the shield, the
+// flyout's heading and its rows count the same things. vsys judges every
+// cause; this only ranks the levels it gave. A state that is not fresh
+// keeps its own state and still carries the causes.
+function withCauses(detail, causes) {
+    if (detail === null) return null;
+    var out = Object.assign({}, detail, { causes: causes });
+    if (causes !== null && ["calm", "info", "warn", "danger"].indexOf(detail.state) !== -1)
+        out.state = stateOf(detail.items.concat(causes));
+    return out;
 }
 
 // The first moment after NOW, in milliseconds since the epoch, at which
 // derive's answer for FILE can change while the file does not, or null
 // when only a new read can change it. A fresh status turns stale one
-// millisecond past STALE_AFTER_MS after its time, and a recent event of a
-// RECENT_KINDS kind leaves its window one millisecond past RECENT_MS after
-// its own; a status dated more than STALE_AFTER_MS ahead turns fresh once
-// now is that close to its time. A status already stale in the past stays
-// so. The service holds one timer to this moment and derives again when
-// it fires.
+// millisecond past STALE_AFTER_MS after its time; a status dated more than
+// STALE_AFTER_MS ahead turns fresh once now is that close to its time. A
+// status already stale in the past stays so. The service holds one timer
+// to this moment and derives again when it fires.
 function nextChange(file, now) {
     if (file.kind !== "read") return null;
     var doc = file.doc;
     var checkedAt = Math.round(doc.time * 1000);
     if (now - checkedAt > STALE_AFTER_MS) return null;
     if (checkedAt - now > STALE_AFTER_MS) return checkedAt - STALE_AFTER_MS;
-    var next = checkedAt + STALE_AFTER_MS + 1;
-    doc.events.forEach(function (e) {
-        var t = eventMs(e);
-        if (RECENT_KINDS.indexOf(e.kind) !== -1 && isRecent(t, now)) next = Math.min(next, t + RECENT_MS + 1);
-    });
-    return next;
+    return checkedAt + STALE_AFTER_MS + 1;
 }
 
 // The Settings row for the warden itself, a `state` status value: Running
@@ -342,18 +274,16 @@ function nextChange(file, now) {
 function wardenRow(detail) {
     switch (detail.state) {
     case "calm":
-    case "working":
-    case "look":
-    case "problem":
-        if (detail.items.some(function (i) { return i.kind === "scan-failed"; })) return { tone: "danger", text: "Last check failed" };
-        if (detail.state === "look") return { tone: "warning", text: "Warnings need attention" };
-        if (detail.state === "problem") return { tone: "danger", text: "Problems need attention" };
+    case "info":
         return { tone: "ok", text: "Running" };
+    case "warn": return { tone: "warning", text: "Warnings need attention" };
+    case "danger": return { tone: "danger", text: "Problems need attention" };
     case "not-checking":
         switch (detail.reason) {
         case "stale": return { tone: "warning", text: "Stopped checking" };
         case "unreadable": return { tone: "danger", text: "Could not read status" };
         case "schema": return { tone: "warning", text: "Update VGS to read this status" };
+        case "old-vsys": return { tone: "warning", text: "Needs a newer vsys" };
         }
         throw new Error("agent-warden: reason=" + JSON.stringify(detail.reason) + " unknown");
     case "not-set-up": return { tone: "info", text: "Not set up" };
@@ -378,9 +308,9 @@ function setupRow(detail, vsysMissing) {
         }
         return row;
     case "calm":
-    case "working":
-    case "look":
-    case "problem":
+    case "info":
+    case "warn":
+    case "danger":
     case "not-checking":
         return { tone: "ok", text: "Done" };
     }

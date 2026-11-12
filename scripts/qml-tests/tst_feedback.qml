@@ -6,7 +6,8 @@ import qs.Unit
 
 // Spinner, ProgressBar, Badge and Kbd: the spinner turns only while the
 // theme's duration is above zero, the bar's fill follows its position and
-// slides while indeterminate, a badge draws its tone and logs an unknown
+// slides while indeterminate, a bar's neutral tone draws the muted ink, a
+// badge draws its tone and logs an unknown
 // one, a badge's, a button's and a form row's drawn label ink sits on its
 // box's centre at scale 1 and 2, a verbatim badge keeps its text's case on the same box, and a key cap sizes to its text
 // and draws it in the kbd role.
@@ -185,7 +186,11 @@ Item {
             const bar = Qt.createQmlObject("import qs.Ui\nProgressBar { value: 0.5 }", root);
             compare(bar.tone, "accent");
             compare(String(fill(bar).color), String(Qt.color(Theme.progress.fill)));
-            for (const tone of ["neutral", "info", "success", "warning", "danger"]) {
+            // A quantity at rest draws in the muted ink the bar shares with
+            // a calm shield, whatever hue the theme's accent has.
+            bar.tone = "neutral";
+            compare(String(fill(bar).color), String(Qt.color(Theme.color.textMuted)), "neutral");
+            for (const tone of ["info", "success", "warning", "danger"]) {
                 bar.tone = tone;
                 compare(String(fill(bar).color), String(Qt.color(Theme.badge.tone[tone].foreground)), tone);
             }

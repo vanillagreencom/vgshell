@@ -18,8 +18,9 @@ import qs.Ui
 // width under its implicit width, the chip keeps its side padding and
 // elides the label at its end; at its implicit width the label is whole.
 // `variant: "unread"` draws a circular count, its fill and figures from
-// `Theme.badge.unread.tone` at `level`, `normal` (the accent), `warning`
-// or `danger`; an unknown level is logged and drawn normal. Counts above
+// `Theme.badge.unread.tone` at `level`, `neutral` (muted ink, for a count
+// at rest), `normal` (the accent), `warning` or `danger`; an unknown level
+// is logged and drawn normal. Counts above
 // 99 read 99+ in the next control size while the accessible name keeps
 // the count. `size: "corner"` is the count at a bar item's top-right
 // (BarItem's `count`): a `badge.unread.corner` circle with its ring in the
@@ -44,7 +45,7 @@ T.Control {
     property alias radius: chip.radius
     property alias color: chip.color
     property alias border: chip.border
-    // The unread count's level: "normal", "warning" or "danger".
+    // The unread count's level: "neutral", "normal", "warning" or "danger".
     property string level: "normal"
     readonly property bool unread: variant === "unread"
     readonly property bool corner: unread && size === "corner"

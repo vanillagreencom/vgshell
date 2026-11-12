@@ -5,9 +5,9 @@ import "ViewLogic.js" as View
 
 // The Agent Warden shield in the bar: one icon in the tone of the state
 // the service publishes as `detail`, an optional count, and a tooltip
-// sentence. A click opens or closes the flyout under it. Entering Working
-// pulses the shield once. With `hideWhenIdle` the widget takes no room
-// while no agent runs and all is good. It is one BarItem, the count drawn
+// sentence. A click opens or closes the flyout under it. With
+// `hideWhenIdle` the widget takes no room while no agent runs and nothing
+// needs attention. It is one BarItem, the count drawn
 // as its corner badge at the level of the shield's tone.
 BarWidget {
     id: widget
@@ -16,22 +16,18 @@ BarWidget {
     readonly property var detail: shell === null || shell.status.values.detail === undefined ? null : shell.status.values.detail
     readonly property var view: View.widget(detail, Time.now.getTime(), setting("showCount", true))
     readonly property bool hidden: setting("hideWhenIdle", false) && View.idle(detail)
-    readonly property string wardenState: detail === null ? "" : detail.state
     readonly property color tone: toneColor(view.tone)
 
     visible: !hidden
     implicitWidth: hidden ? 0 : item.implicitWidth
     implicitHeight: barSize
 
-    onWardenStateChanged: if (wardenState === "working") pulse.restart()
-
     function toneColor(tone) {
         switch (tone) {
         case "neutral": return Theme.color.textMuted;
-        case "accent": return Theme.color.accent;
         case "warning": return Theme.color.warning;
         case "danger": return Theme.color.danger;
-        default: throw new Error("agent-warden widget: tone " + JSON.stringify(tone) + " is not one of neutral, accent, warning, danger");
+        default: throw new Error("agent-warden widget: tone " + JSON.stringify(tone) + " is not one of neutral, warning, danger");
         }
     }
 
@@ -53,11 +49,5 @@ BarWidget {
         tone: widget.tone
         tooltip: widget.view.tooltip
         onClicked: widget.toggle()
-    }
-
-    SequentialAnimation {
-        id: pulse
-        NumberAnimation { target: item.contentItem; property: "opacity"; to: Theme.opacity.disabled; duration: Theme.motion.duration.slow; easing.type: Theme.motion.easing.standard }
-        NumberAnimation { target: item.contentItem; property: "opacity"; to: 1; duration: Theme.motion.duration.slow; easing.type: Theme.motion.easing.standard }
     }
 }

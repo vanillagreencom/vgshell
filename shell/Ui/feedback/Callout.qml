@@ -18,16 +18,26 @@ import qs.Ui
 // The text may hold page references, `[words](page:<plugin id>/<tab>)`,
 // drawn as links in running text (LinkText) in the state's
 // `link.foreground`; activating one emits `pageActivated` with its page
-// and tab. `linkText`, when set, is a RowAction under the lines in the
-// state's link colours, which emits `activated`. `buttonText`, when set,
-// is a secondary Button `callout.buttonGap` after the lines at the
-// banner's right end, in the state's ink with its hover and pressed fills,
-// which emits `buttonActivated`. The lines and the button centre on each
-// other, so one line of text beside the button sits level with its label.
-// Each link and the button is its own Tab stop, in that order, with the
-// shared focus ring; `firstStop` is the first one shown, or null, for a
-// host that routes Tab into the banner. A title-less, icon-less banner of
-// one line and a button is the sheet-style error banner.
+// and tab. `plain` draws the title and the text as the characters they
+// are, with no markup and no page or file reference, for words another
+// program supplies: Text's default AutoText draws text that looks like
+// markup as rich text
+// (https://doc.qt.io/qt-6/qml-qtquick-text.html#textFormat-prop).
+// `linkText`, when set, is a RowAction under the lines in the state's
+// link colours, which emits `activated`. `links`, a list of labels, are
+// RowActions in one RowActions row under the lines, after `linkText`'s,
+// in the state's link colours, wrapping at the banner's width; activating
+// one emits `actionActivated` with its index in the list; each carries the
+// title as its accessible description. `buttonText`,
+// when set, is a secondary Button `callout.buttonGap` after the lines at
+// the banner's right end, in the state's ink with its hover and pressed
+// fills, which emits `buttonActivated`. The lines and the button centre
+// on each other, so one line of text beside the button sits level with
+// its label. Each link, each of `links` and the button is its own Tab
+// stop, in that order, with the shared focus ring; `firstStop` is the
+// first one shown, or null, for a host that routes Tab into the banner.
+// A title-less, icon-less banner of one line and a button is the
+// sheet-style error banner.
 //
 // The banner has no motion of its own: it shows, hides and changes state
 // at once, and the surface or layout that holds it moves it, under that
@@ -42,12 +52,15 @@ Rectangle {
     property string linkText: ""
     property string buttonText: ""
     property string tone: "info"
+    property bool plain: false
+    property var links: []
     readonly property var tokens: toneOf(tone)
-    readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : button.visible ? button : null
+    readonly property Item firstStop: body.visible && body.linked ? body : link.visible ? link : linkRepeater.count > 0 ? linkRepeater.itemAt(0) : button.visible ? button : null
     // The first shown line, which the icon leads.
-    readonly property Item leadLine: titleLabel.visible ? titleLabel : body
+    readonly property Item leadLine: titleLabel.visible ? titleLabel : plain ? plainBody : body
 
     signal activated()
+    signal actionActivated(int index)
     signal pageActivated(string page, string tab)
     signal buttonActivated()
 
@@ -101,6 +114,7 @@ Rectangle {
                 visible: text !== ""
                 role: "bodyStrong"
                 color: root.tokens.foreground
+                textFormat: root.plain ? Text.PlainText : Text.AutoText
                 text: root.title
                 wrapMode: Text.Wrap
             }
@@ -111,9 +125,19 @@ Rectangle {
                 role: "body"
                 color: root.tokens.foreground
                 linkColor: root.tokens.link.foreground
-                text: root.text
+                text: root.plain ? "" : root.text
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => root.pageActivated(page, tab)
+            }
+            Label {
+                id: plainBody
+                width: parent.width
+                visible: text !== ""
+                role: "body"
+                color: root.tokens.foreground
+                textFormat: Text.PlainText
+                text: root.plain ? root.text : ""
+                wrapMode: Text.Wrap
             }
             RowAction {
                 id: link
@@ -121,6 +145,25 @@ Rectangle {
                 text: root.linkText
                 tokens: root.tokens.link
                 onClicked: root.activated()
+            }
+            RowActions {
+                id: linkRow
+                width: parent.width
+                visible: root.links.length > 0
+                Repeater {
+                    id: linkRepeater
+                    model: root.links
+                    RowAction {
+                        required property string modelData
+                        required property int index
+                        text: modelData
+                        // The title tells a screen reader which banner's
+                        // action this is, so two banners' Stop links differ.
+                        Accessible.description: root.title
+                        tokens: root.tokens.link
+                        onClicked: root.actionActivated(index)
+                    }
+                }
             }
         }
 

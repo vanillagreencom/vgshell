@@ -4,11 +4,12 @@ import qs.Commons
 
 // A progress bar. The template owns `from`, `to`, `value`, `position` and
 // `indeterminate`; this file draws the track and the filled part, which
-// is `position` long and starts from the right when mirrored. An
-// `tone` defaults to accent, the theme's progress fill. Other tones use
-// the Badge foreground tokens. An
-// indeterminate bar slides a share of the track back and forth on
-// `progress.duration`, and stands still when that duration is zero.
+// is `position` long and starts from the right when mirrored. `tone`
+// defaults to accent, the theme's progress fill; `neutral`, for a bar
+// that measures a quantity at rest, draws `progress.neutral`. Other tones
+// use the Badge foreground tokens. An indeterminate bar slides a share of
+// the track back and forth on `progress.duration`, and stands still when
+// that duration is zero.
 T.ProgressBar {
     id: root
 
@@ -19,6 +20,7 @@ T.ProgressBar {
 
     function toneColor(name) {
         if (name === "accent") return Theme.progress.fill;
+        if (name === "neutral") return Theme.progress.neutral;
         const found = Theme.badge.tone[name];
         if (found !== undefined) return found.foreground;
         console.error('ProgressBar: no tone named "' + name + '"; drawing accent');

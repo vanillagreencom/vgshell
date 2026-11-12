@@ -7,8 +7,8 @@ import qs.Unit
 // Callout, the notice banner: each state, danger, warning and info, in a
 // dark and a light theme, fills with its own background and draws its
 // icon, title, text and button label and outline in its own ink, and its
-// links, the inline page link and the RowAction, in its own link colour,
-// never the accent; the danger and warning states keep their palette
+// links, the inline page link, the RowAction and each of `links`, in its
+// own link colour, never the accent; the danger and warning states keep their palette
 // hue, and the info state takes no hue at all, under a palette whose
 // accent and info are both saturated. An unknown state is logged and
 // drawn as info. The icon centres on the first line of a notice of
@@ -16,9 +16,12 @@ import qs.Unit
 // block. A title-less, icon-less banner of one line and a button is as
 // tall as the button and its padding, the line level with the button's
 // label, the button on the banner's right padding and the line clear of
-// it. The page link, the RowAction and the button are Tab stops in that
-// order, each draws the shared focus ring under keyboard focus, Return
-// on each emits its own signal, and `firstStop` names the first shown.
+// it. The page link, the RowAction, each of `links` and the button are
+// Tab stops in that order, each draws the shared focus ring under
+// keyboard focus, Return on each emits its own signal, one of `links`
+// with its index, and `firstStop` names the first shown. A `plain` notice
+// draws its title and text as the characters they are: markup and a page
+// reference in them are no link and no stop.
 Item {
     id: root
     width: 480
@@ -52,7 +55,10 @@ Item {
         function lines(callout) { return callout.children[0].children[1]; }
         function title(callout) { return lines(callout).children[0]; }
         function body(callout) { return lines(callout).children[1]; }
-        function link(callout) { return lines(callout).children[2]; }
+        function plainBody(callout) { return lines(callout).children[2]; }
+        function link(callout) { return lines(callout).children[3]; }
+        // Each of `links`, in order, past the Repeater that makes them.
+        function actions(callout) { return Array.from(lines(callout).children[4].children).filter(child => child.foreground !== undefined); }
         function button(callout) { return callout.children[0].children[2]; }
         function colour(value) { return String(Qt.color(value)); }
         function descendants(item) { return Array.from(item.children).reduce((all, child) => all.concat([child], descendants(child)), []); }
@@ -73,13 +79,13 @@ Item {
 
         function test_each_state_draws_its_own_fill_and_ink(data) {
             compare(UnitTheme.override(data.theme), "ok");
-            const callout = make({ tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", buttonText: "Try again" });
+            const callout = make({ tone: data.tone, iconName: "info", title: "A title", text: "Read the [guide](page:vgs.gallery) first.", linkText: "Open the guide", links: ["Show", "Stop"], buttonText: "Try again" });
             const want = Theme.callout.tone[data.tone];
             compare(colour(callout.color), colour(want.background), "the fill");
             compare([icon(callout).color, title(callout).color, body(callout).color, button(callout).foreground, button(callout).borderColor].map(colour),
                 Array(5).fill(colour(want.foreground)), "the icon, title, text, button label and outline draw in the state's ink");
-            compare([colour(body(callout).linkColor), colour(link(callout).foreground)], [colour(want.link.foreground), colour(want.link.foreground)],
-                "the page link and the RowAction draw in the state's link colour");
+            compare([colour(body(callout).linkColor), colour(link(callout).foreground)].concat(actions(callout).map(action => colour(action.foreground))), Array(4).fill(colour(want.link.foreground)),
+                "the page link, the RowAction and each of the links draw in the state's link colour");
             verify(!Qt.colorEqual(link(callout).foreground, Theme.color.accent) && !Qt.colorEqual(body(callout).linkColor, Theme.color.accent), "no link draws in the accent");
             compare([colour(button(callout).hoverFill), colour(button(callout).pressedFill)], [colour(want.button.hover), colour(want.button.pressed)], "the button's fills");
             const drawn = [callout.color, want.foreground, want.link.foreground].map(value => Qt.color(value));
@@ -139,15 +145,18 @@ Item {
             callout.destroy();
         }
 
-        // Tab walks the page link, the RowAction and the button in order,
-        // each under the shared ring; Return emits each one's own signal.
+        // Tab walks the page link, the RowAction, each of the links and
+        // the button in order, each under the shared ring; Return emits
+        // each one's own signal.
         function test_the_links_and_the_button_take_the_keyboard() {
-            const callout = make({ tone: "warning", text: "Choose a [Home folder](page:vgs.jarvis/Settings/home).", linkText: "Open Setup", buttonText: "Try again" });
+            const callout = make({ tone: "warning", text: "Choose a [Home folder](page:vgs.jarvis/Settings/home).", linkText: "Open Setup", links: ["Show", "Stop"], buttonText: "Try again" });
             const pages = [];
+            const chosen = [];
             let links = 0;
             let buttons = 0;
             callout.pageActivated.connect((page, tab) => pages.push([page, tab]));
             callout.activated.connect(() => links++);
+            callout.actionActivated.connect(index => chosen.push(index));
             callout.buttonActivated.connect(() => buttons++);
             compare(callout.firstStop, body(callout), "the page link is the first stop");
             callout.firstStop.forceActiveFocus(Qt.TabFocusReason);
@@ -158,6 +167,13 @@ Item {
             verify(ringOf(link(callout)) !== null && ringOf(link(callout)).visible, "the link draws its ring");
             keyClick(Qt.Key_Return);
             compare(links, 1, "Return on the link activates it");
+            for (const action of actions(callout)) {
+                keyClick(Qt.Key_Tab);
+                tryCompare(action, "visualFocus", true);
+                verify(ringOf(action) !== null && ringOf(action).visible, action.text + " draws its ring");
+                keyClick(Qt.Key_Return);
+            }
+            compare(JSON.stringify(chosen), JSON.stringify([0, 1]), "Return on each of the links names its index");
             keyClick(Qt.Key_Tab);
             tryCompare(button(callout), "visualFocus", true);
             verify(ringOf(button(callout)) !== null && ringOf(button(callout)).visible, "the button draws its ring");
@@ -166,10 +182,26 @@ Item {
             compare(buttons, 2, "Return and Space press the button");
             const plain = make({ text: "No link here", buttonText: "Try again" });
             compare(plain.firstStop, button(plain), "with no link the button is the first stop");
+            const listed = make({ text: "No link here", links: ["Show"] });
+            compare(listed.firstStop, actions(listed)[0], "with only links the first of them is the first stop");
             const none = make({ text: "Nothing to do" });
             compare(none.firstStop, null, "a banner with no action has no stop");
             plain.destroy();
+            listed.destroy();
             none.destroy();
+            callout.destroy();
+        }
+
+        // Words another program supplies: the title's markup and the text's
+        // page reference draw as the characters they are, so the banner
+        // takes no stop for them.
+        function test_a_plain_notice_draws_its_words_as_they_are() {
+            const words = "Read the [guide](page:vgs.gallery) <b>now</b>.";
+            const callout = make({ plain: true, iconName: "info", title: "<b>A</b> title", text: words });
+            compare(title(callout).textFormat, Text.PlainText, "the title draws its markup as characters");
+            compare(body(callout).visible, false, "the linked text is not drawn");
+            compare([plainBody(callout).visible, plainBody(callout).text, plainBody(callout).textFormat], [true, words, Text.PlainText], "the text draws as it came");
+            compare(callout.firstStop, null, "the page reference is no stop");
             callout.destroy();
         }
     }

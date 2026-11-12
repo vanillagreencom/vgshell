@@ -11,6 +11,7 @@
   "error": null,
   "events": [],
   "interval": 30,
+  "items": [],
   "lanes": [
     {
       "label": {
@@ -25,10 +26,16 @@
       "tasksMax": 8192
     }
   ],
+  "leftovers": {
+    "failedUnits": 0,
+    "testProcessRepos": [],
+    "testProcesses": 0,
+    "testWorlds": 0
+  },
   "mode": "report",
   "orphans": [],
   "outside": [],
-  "schema": "1.0",
+  "schema": "1.3",
   "slice": {
     "headroomOk": true,
     "high": 68719476736,
