@@ -161,6 +161,7 @@ Item {
             compare(drawn.map(line => actionsOf(line).map(action => [action.text, action.size, action.variant])), [[["Set up two-way sync", "sm", "secondary"]], [], []]);
             compare(drawn.map(line => menuTexts(line)), root.pairs.map(pair => [["Remove", "trash"]]));
             compare(drawn.map(line => moreOf(line).label), root.pairs.map(pair => "More actions for " + pair.label));
+            compare(drawn.map(line => menuOf(line).items().map(entry => entry.Accessible.name)), root.pairs.map(pair => ["Remove " + pair.label]), "a screen reader hears which row Remove removes");
             verify(addOf(window) !== undefined, "Add stands under the list");
             compare(addOf(window).variant, "secondary");
             // The dots' ink, not their square, ends on the list's edge.

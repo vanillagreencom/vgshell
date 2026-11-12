@@ -22,7 +22,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // menu, a "⋯" button at the end of the name's line, named "More actions
 // for" the row, with the tooltip "More actions"; it holds the removing action, so Remove never stands
 // beside a needed step; an entry there is led by its `iconName`, the trash
-// mark for a removing action, in the menu's own ink. Each action is
+// mark for a removing action, in the menu's own ink. An entry reads its
+// action's text alone, and its accessible name adds the row's name, as
+// the button's does, so a screen reader hears which row Remove removes.
+// Each action is
 // { key, text, iconName, disabledReason }, the last two optional, and comes
 // back through `actionTriggered` or `menuActionTriggered`. `key` keeps
 // each button and menu entry, and the focus and highlight it holds, when
@@ -269,6 +272,7 @@ ListItem {
                     MenuItem {
                         required property var modelData
                         text: modelData.text
+                        Accessible.name: modelData.text + " " + root.text
                         iconName: modelData.iconName || ""
                         disabledReason: modelData.disabledReason || ""
                         onTriggered: root.menuActionTriggered(modelData)

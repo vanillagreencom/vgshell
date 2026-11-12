@@ -2243,6 +2243,7 @@ mutations=(
   "a row menu's dots, not their square, end on the list edge|layout/ContentRow.qml|x: root.width - (item === null ? 0 : item.width - item.glyphEnd)|x: root.width - (item === null ? 0 : item.width)|tst_settings_rows.qml"
   "a status write rebuilds a row's buttons|layout/ContentRow.qml|model: ScriptModel { values: root.actions; objectProp: \"key\" }|model: root.actions|tst_settings_rows.qml|test_a_status_write_keeps_a_rows_button_and_its_focus"
   "a status write rebuilds a row's menu entries|layout/ContentRow.qml|model: ScriptModel { values: root.menuActions; objectProp: \"key\" }|model: root.menuActions|tst_settings_rows.qml|test_a_status_write_keeps_a_rows_button_and_its_focus"
+  "a row menu entry's accessible name drops its row|layout/ContentRow.qml|Accessible.name: modelData.text + \" \" + root.text|Accessible.name: modelData.text|tst_settings_rows.qml|test_settings_draws_one_row_per_published_row"
   "a passive stacked row reads its icon box as its first ink|layout/ContentRow.qml|(stacked ? topPadding + headInkAbove : contentInkAbove())|contentInkAbove()|tst_settings_rows.qml"
   "a passive stacked row draws its name below where a plain row does|layout/ContentRow.qml|plated ? stackPad - Math.floor(headInkAbove) : passiveTop|plated ? stackPad - Math.floor(headInkAbove) : stackPad - Math.floor(headInkAbove)|tst_settings_rows.qml"
   "a state on the plate keeps its tone colour|layout/ContentRow.qml|root.lit ? Theme.listItem.selectedForeground : alarm ?|alarm ?|tst_settings_rows.qml"
