@@ -81,8 +81,9 @@ parallel_cases() { # WORKER PREFIX SPEC...
 # one under each root an install ships, bin/, shell/ and config/, each at a
 # path the tree holds, so a fixture that copies the tree in replaces it;
 # refs/remotes/origin/trunk points at it; HEAD is a feature branch on top.
-# It holds the input line reader too, which the script sources, and the
-# readers the smoke row selection's load reading imports.
+# It holds the input line reader and the scratch reaper too, which the
+# script sources, and the readers the smoke row selection's load reading
+# imports.
 # The repository is built once and each fixture is its own copy of it.
 fresh() {
   local dir="$1"
@@ -96,7 +97,7 @@ template() {
   mkdir -p "$dir/scripts/smoke" "$dir/.agents/skills/orch/scripts/lib" "$dir/.agents/skills/commit-guards" "$dir/tools" "$dir/docs/architecture"
   cp -- "$repo/scripts/validate" "$dir/scripts/validate"
   cp -- "$repo/docs/architecture/validation.md" "$dir/docs/architecture/validation.md"
-  cp -- "$repo/scripts/smoke/row-inputs.sh" "$dir/scripts/smoke/row-inputs.sh"
+  cp -- "$repo/scripts/smoke/row-inputs.sh" "$repo/scripts/smoke/reap.sh" "$dir/scripts/smoke/"
   # Selection and scheduler cases have a transparent world stand-in. The
   # boundary cases below replace it with the production world.
   printf '#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
@@ -4336,17 +4337,17 @@ row "--skip-unprepared runs a row with a present declared character device" "$d"
 test_area=offline
 test_args=()
 
-# No two scratch holders of one run get one path. The rows run side by side
-# and share $$, so a name drawn from RANDOM and made without exclusive
-# creation can go to two of them. The file BASH_ENV names makes RANDOM a
+# No two scratch holders of one run get one path. The holders share the
+# run's root and run side by side, so a name drawn from RANDOM and made
+# without exclusive creation can go to two of them. The file BASH_ENV names makes RANDOM a
 # plain variable, so every draw in validate and its rows is one number. The
 # control is a copy that draws its name: its run directory is handed the
 # path its changed-paths file holds.
 printf 'unset RANDOM\nRANDOM=7\n' >"$tmp/one-draw"
 d="$tmp/scratch-own-path"; fresh "$d"
 fresh "$d-control"
-plant "$d-control/scripts/validate" '  mktemp "$@" -- "$root/validate-$$-XXXXXXXX"' \
-  '  local path="$root/validate-$$-$RANDOM"; if [[ $# -gt 0 ]]; then mkdir -- "$path"; else : >"$path"; fi && printf "%s\n" "$path"'
+plant "$d-control/scripts/validate" '  mktemp "$@" -- "$scratch_root/scratch.XXXXXXXX"' \
+  '  local path="$scratch_root/scratch.$RANDOM"; if [[ $# -gt 0 ]]; then mkdir -- "$path"; else : >"$path"; fi && printf "%s\n" "$path"'
 commit "$d-control" drawn-name
 test_area=repo
 row "each scratch holder of one run gets a path of its own" "$d" 0 "BASH_ENV=$tmp/one-draw" "validate: ok"
@@ -4467,11 +4468,14 @@ SH
 # hold_run DIR [NAME=VALUE...] SIGNAL...: start validate in a session and
 # process group of its own, with each NAME=VALUE in its environment, send
 # each SIGNAL 0.5 s apart once both rows hold their locks; sets status,
-# secs (from the first signal to validate's end) and freed, the locks free
-# within 1 s of that end. setsid execs validate in place, since the job
-# that runs it leads no group, so the job's pid is validate's.
+# secs (from the first signal to validate's end), cleared (milliseconds
+# from the first signal until the run's TMPDIR holds no validate root,
+# read every 0.1 s until validate ends, empty when it never did) and
+# freed, the locks free within 1 s of that end. setsid execs validate in
+# place, since the job that runs it leads no group, so the job's pid is
+# validate's.
 hold_run() {
-  local dir="$1" pid lock signal started
+  local dir="$1" pid lock signal started signalled line
   local -a env=()
   shift
   while [[ $1 == *=* ]]; do env+=("$1"); shift; done
@@ -4483,9 +4487,23 @@ hold_run() {
     sleep 0.1
   done
   started=$SECONDS
+  signalled=${EPOCHREALTIME/./}
   for signal in "$@"; do
     kill -s "$signal" "$pid"
     sleep 0.5
+  done
+  # The elapsed-time bound the stop of a unit sets is the claim, so this
+  # reads the clock; validate's end as a zombie (proc(5) state Z) ends it.
+  cleared=""
+  while [[ -z $cleared ]]; do
+    if ! compgen -G "$dir/tmp/validate-*" >/dev/null; then
+      cleared=$(((${EPOCHREALTIME/./} - signalled) / 1000))
+    else
+      read -r line 2>/dev/null <"/proc/$pid/stat" || break
+      line="${line##*) }"
+      [[ ${line%% *} != Z ]] || break
+      sleep 0.1
+    fi
   done
   status=0
   wait "$pid" || status=$?
@@ -4521,7 +4539,7 @@ for spec in TERM@143 HUP@129; do
   fi
 done
 d="$tmp/jobs-HUP-control"; hold_rows "$d"
-hold_mutant "$d" "trap 'set +e; stop_rows; records_finish; chmod" "trap 'set +e; records_finish; chmod"
+hold_mutant "$d" "trap 'set +e; stop_rows; records_finish; scratch_remove" "trap 'set +e; records_finish; scratch_remove"
 hold_run "$d" HUP
 if [[ $freed == 0 ]]; then
   ok "control: a validate whose exit path stops no row leaves its rows running"
@@ -4529,12 +4547,15 @@ else
   fail "control: a validate whose exit path stops no row still ended its rows: freed=$freed"
 fi
 hold_cleanup "$d"
+# The scratch root goes within the 10 s a unit's stop gives between its
+# TERM and its KILL (TimeoutStopSec=10), though the rows hold the stop's
+# wait to its end.
 d="$tmp/jobs-deadline"; hold_rows "$d" ignore
 hold_run "$d" TERM
-if [[ $status == 143 && $freed == 2 && $secs -ge 8 ]]; then
-  ok "rows that ignore TERM end by KILL once the stop's deadline passes"
+if [[ $status == 143 && $freed == 2 && $secs -ge 8 && -n $cleared && $cleared -le 10000 ]]; then
+  ok "rows that ignore TERM end by KILL once the stop's deadline passes, and the scratch root goes within 10 s of the TERM"
 else
-  fail "rows that ignore TERM: exit=$status freed=$freed secs=$secs"; sed 's/^/        /' "$d.out"
+  fail "rows that ignore TERM: exit=$status freed=$freed secs=$secs cleared-ms=[$cleared]"; sed 's/^/        /' "$d.out"
 fi
 d="$tmp/jobs-deadline-control"; hold_rows "$d" ignore
 hold_mutant "$d" $'  kill_groups KILL\n}\n' $'}\n'
@@ -4593,8 +4614,8 @@ fi
 hold_cleanup "$d"
 # A signal to validate's whole process group during the stop, as a second
 # Ctrl-C at a terminal sends, also ends the stop's own foreground command,
-# and that command's status must not end the EXIT trap before
-# records_finish and the scratch removal. The file BASH_ENV names makes
+# and that command's status must neither end the EXIT trap nor change
+# validate's exit status. The file BASH_ENV names makes
 # the stop's first sleep a child that sends TERM to its process group,
 # validate's own under setsid, so the signal ends that foreground command
 # on every run. validate's INT is a TERM here, since a job a script starts
@@ -4620,6 +4641,79 @@ else
   fail "control: a group signal during a stop under errexit still let validate finish: exit=$status"
 fi
 hold_cleanup "$d"
+
+# A run SIGKILLed once its root and changed-paths file exist leaves both;
+# the next run removes them at its start and names the root, and leaves
+# the root of a run still alive alone. Each run's one row writes its pid
+# and, while .git/hold exists, holds until the case KILLs it, so the pid
+# file is the barrier that both scratch paths exist. An old-form root and
+# changed-paths file, aged past 10800 s and named for the live run's pid,
+# survive too: older code held neither open, so only that pid shows they are
+# a live run's. The control is a copy without the reap, run before the real
+# one over the same killed root.
+reap_start() { # DIR TMPDIR: start a held run; sets reap_pid and reap_root
+  local made
+  (cd -- "$1" && exec "${base_env[@]}" TMPDIR="$2" setsid bash scripts/validate repo --changed HEAD) >"$1.out" 2>&1 &
+  reap_pid=$!
+  for _ in $(seq 1 100); do [[ -s $1/.git/row-pid ]] && break; sleep 0.1; done
+  [[ -s $1/.git/row-pid ]] || return 1
+  made=("$2/validate-$reap_pid-"*)
+  [[ ${#made[@]} -eq 1 && -d ${made[0]} ]] || return 1
+  reap_root="${made[0]}"
+}
+reap_lines() { # OUTPUT: its `validate: cleanup=` lines
+  local line
+  while IFS= read -r line; do [[ $line != 'validate: cleanup='* ]] || printf '%s\n' "$line"; done <<<"$1"
+}
+reap_scratch="$tmp/reap-tmp"
+mkdir -- "$reap_scratch"
+for name in killed live next next-control; do
+  jobs_fixture "$tmp/reap-$name" test-held.sh '"repo|held|scripts/test-held.sh|"' <<'SH'
+#!/bin/sh
+[ -e .git/hold ] || exit 0
+echo $$ >.git/row-pid.part && mv .git/row-pid.part .git/row-pid
+exec sleep 300
+SH
+done
+: >"$tmp/reap-killed/.git/hold"
+: >"$tmp/reap-live/.git/hold"
+hold_mutant "$tmp/reap-next-control" $'reap_orphans validate validate- "$scratch_ns" \'^([0-9]+)-[A-Za-z0-9]{8}$\'\n' ''
+if reap_start "$tmp/reap-killed" "$reap_scratch" && killed_root="$reap_root" killed_pid="$reap_pid" &&
+   killed_paths="$(find "$killed_root" -maxdepth 1 -type f)" && [[ -n $killed_paths && $killed_paths != *$'\n'* ]] &&
+   reap_start "$tmp/reap-live" "$reap_scratch" && live_root="$reap_root" live_pid="$reap_pid"; then
+  old_root="$reap_scratch/validate-$live_pid-OldRoot1" old_paths="$reap_scratch/validate-$live_pid-OldFile1"
+  mkdir -- "$old_root"
+  : >"$old_paths"
+  touch -d @1 -- "$old_root" "$old_paths"
+  kill -KILL "$killed_pid"
+  wait "$killed_pid" 2>/dev/null || true
+  status=0
+  out="$(cd -- "$tmp/reap-next-control" && "${base_env[@]}" TMPDIR="$reap_scratch" bash scripts/validate repo --changed HEAD 2>&1)" || status=$?
+  if [[ $status == 0 && -d $killed_root && -z "$(reap_lines "$out")" ]]; then
+    ok "control: a run without the reap leaves a killed run's root"
+  else
+    fail "control: a run without the reap: exit=$status killed-root=$([[ -d $killed_root ]] && echo kept || echo gone)"; printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+  status=0
+  out="$(cd -- "$tmp/reap-next" && "${base_env[@]}" TMPDIR="$reap_scratch" bash scripts/validate repo --changed HEAD 2>&1)" || status=$?
+  reap_want="$(printf '%s\n' "validate: cleanup=reaped path=$killed_root" \
+    "validate: cleanup=kept path=$old_root reason=owner-unproved" "validate: cleanup=kept path=$old_paths reason=owner-unproved" | sort)"
+  if [[ $status == 0 && ! -e $killed_root && ! -e $killed_paths && -d $live_root && -d $old_root && -f $old_paths &&
+        "$(reap_lines "$out" | sort)" == "$reap_want" ]]; then
+    ok "a run removes a killed run's root and changed-paths file at its start, names the root, and leaves a live run's roots of either form"
+  else
+    fail "the reap at a run's start: exit=$status killed-root=$([[ -e $killed_root ]] && echo kept || echo gone) live-root=$([[ -d $live_root ]] && echo kept || echo gone) old-form=$([[ -d $old_root && -f $old_paths ]] && echo kept || echo gone)"
+    printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+  kill -KILL "$(<"$tmp/reap-live/.git/row-pid")" 2>/dev/null || true
+  wait "$live_pid" 2>/dev/null || true
+else
+  fail "the reap case could not hold its runs"; sed 's/^/        /' "$tmp/reap-killed.out" "$tmp/reap-live.out" 2>/dev/null
+  [[ -z ${reap_pid:-} ]] || kill -KILL "$reap_pid" 2>/dev/null || true
+fi
+for name in killed live; do
+  [[ ! -s $tmp/reap-$name/.git/row-pid ]] || kill -KILL "$(<"$tmp/reap-$name/.git/row-pid")" 2>/dev/null || true
+done
 
 d="$tmp/jobs-refused"; fresh "$d"
 for value in 0 01 -1 two; do

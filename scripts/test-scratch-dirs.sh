@@ -120,6 +120,7 @@ if [[ $world_rest == "$world_text" || $world_rest == *"$world_guard"* ]]; then
   fail "world acquisition control: the guard does not match once"
 else
   mkdir -p "$tmp/world-control/scripts/smoke"
+  cp -- "$repo/scripts/smoke/reap.sh" "$tmp/world-control/scripts/smoke/reap.sh"
   printf '%s\n' "${world_text/"$world_guard"/:}" >"$tmp/world-control/scripts/smoke/gpu-fence.sh"
   if run gpu-fence regular-file 'status=not-measured reason=root-failed' "$tmp/world-control/scripts/smoke/gpu-fence.sh" --checkout "$repo" true; then
     fail "control: the world without acquisition validation kept its case green"
@@ -138,6 +139,7 @@ if [[ $mktemp_rest == "$world_text" || $mktemp_rest == *"$mktemp_refusal"* ]]; t
   fail "owner record control: the mktemp refusal does not match once"
 else
   mkdir -p "$tmp/owner-control/scripts/smoke"
+  cp -- "$repo/scripts/smoke/reap.sh" "$tmp/owner-control/scripts/smoke/reap.sh"
   printf '%s\n' "${world_text/"$mktemp_refusal"/"$mktemp_mislabel"}" >"$tmp/owner-control/scripts/smoke/gpu-fence.sh"
   if run gpu-fence failed-empty 'status=not-measured reason=root-failed' "$tmp/owner-control/scripts/smoke/gpu-fence.sh" --checkout "$repo" true; then
     fail "control: a failed mktemp named as the owner record kept its case green"

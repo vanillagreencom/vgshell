@@ -44,6 +44,8 @@ runner="$repo/scripts/jarvis-selftest.sh"
 tmp="$(mktemp -d)" || { echo "test-jarvis-selftest: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-jarvis-selftest: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)" || { echo "test-jarvis-selftest: scratch=resolve-failed" >&2; exit 1; }
+# A mutant of the fence written here sources the reaper beside it.
+cp -- "$repo/scripts/smoke/reap.sh" "$tmp/reap.sh"
 # teardown, the file's exit: the scratch bus and the stand-in service end by
 # the pids this file started. Any other child still running is a case's
 # leak, which would hold the bare wait: each is named and sent TERM, what

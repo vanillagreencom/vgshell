@@ -2,7 +2,7 @@
 // Process-boundary controls for check-packaging's two engine operations.
 // Run inside gpu-fence.sh: curl, the package database and qs are private
 // stand-ins. The real XML reader, engine judge and CLI entry remain in use.
-// inputs: scripts/check-packaging.js scripts/lib/engine-availability.js scripts/preflight-floor.js scripts/validate scripts/smoke/gpu-fence.sh scripts/smoke/row-inputs.sh bin/lib/engine.js bin/lib/judge-files.js packaging/fedora/copr-project flake.nix flake.lock packaging/arch/vgshell-quickshell/*.patch VERSION
+// inputs: scripts/check-packaging.js scripts/lib/engine-availability.js scripts/preflight-floor.js scripts/validate scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/row-inputs.sh bin/lib/engine.js bin/lib/judge-files.js packaging/fedora/copr-project flake.nix flake.lock packaging/arch/vgshell-quickshell/*.patch VERSION
 "use strict";
 const assert = require("node:assert/strict");
 const cp = require("node:child_process");
@@ -114,7 +114,7 @@ function run(world, args, checker = path.join(repo, "scripts/check-packaging.js"
     return { code: result.status, output };
 }
 function runSelected(world) {
-    for (const file of ["scripts/check-packaging.js", "scripts/preflight-floor.js", "scripts/lib/engine-availability.js", "scripts/smoke/gpu-fence.sh", "scripts/smoke/row-inputs.sh"])
+    for (const file of ["scripts/check-packaging.js", "scripts/preflight-floor.js", "scripts/lib/engine-availability.js", "scripts/smoke/gpu-fence.sh", "scripts/smoke/reap.sh", "scripts/smoke/row-inputs.sh"])
         write(path.join(world.root, file), fs.readFileSync(path.join(repo, file)), fs.statSync(path.join(repo, file)).mode);
     const source = fs.readFileSync(path.join(repo, "scripts/validate"), "utf8");
     const rows = source.split("\n").filter(line => line.startsWith('  "cli|engine publication availability|'));

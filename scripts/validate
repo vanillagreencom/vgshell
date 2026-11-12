@@ -116,12 +116,23 @@
 # Every end of validate bash can see stops the running rows first: an INT,
 #   TERM, HUP or QUIT, which exit 130, 143, 129 or 131, and a fatal signal
 #   bash takes for its EXIT trap, such as a PIPE. Each row's process group
-#   gets TERM, then KILL once 10 s have passed or at a repeat signal; then
-#   the nested smoke's per-row results are recorded and the run's scratch
-#   directory is removed. A KILL to validate itself cannot be caught: it
-#   leaves the running rows going, validate's logs under its temporary
-#   directory, and the smoke's results for the next run to record. Each
-#   world still owns its row's root.
+#   gets TERM, then KILL once 10 s have passed or at a repeat signal. Once
+#   the nested smoke's group has ended, or the 10 s have passed, its per-row
+#   results are recorded and the run's scratch root is removed, without
+#   waiting on the other rows, so the removal fits the stop of a unit that
+#   KILLs 10 s after its TERM. A KILL to validate itself cannot be caught:
+#   it leaves the running rows going, its scratch root, and the smoke's
+#   results for the next run to record. Each world still owns its row's
+#   root.
+# Each run keeps all its scratch under one root in TMPDIR, named for its
+#   owner: validate-<pid>-<start>-<pid namespace>-r.XXXXXX. Before it makes
+#   it, a run removes the root of each run whose owner has ended
+#   (reap_orphans in scripts/smoke/reap.sh) and prints its
+#   `validate: cleanup=` lines on stderr. A root of the older
+#   validate-<pid>-XXXXXXXX form, a directory or a file, goes only when its
+#   pid is absent, it is older than 10800 s and no process holds it. A
+#   root that cannot be made exits 1 with
+#   `validate: scratch-root=failed reason=<reason>`.
 set -euo pipefail
 # A read pipes its git command into mapfile, so pipefail gives the read that
 # command's status, and lastpipe keeps mapfile's array in this shell.
@@ -213,14 +224,15 @@ elif [[ ! $jobs_max =~ ^[1-9][0-9]*$ ]]; then
 fi
 failed=()
 skipped=()
-# A scratch file, or with -d a directory, under the row's temporary root. mktemp
-# makes it by exclusive creation: the rows of one run share $$ and run side
-# by side, so a name picked first and created after can go to two rows, and
-# the row that removes it first leaves the other with no file.
+# A scratch file, or with -d a directory, under scratch_root: the run's root,
+# or in a row entry the world's temporary directory, which the world
+# removes with the row. mktemp makes it by exclusive creation: the holders
+# of one run share the root and run side by side, so a name picked first
+# and created after can go to two of them, and the one that removes it
+# first leaves the other with no file.
+scratch_root=""
 scratch_make() { # [-d]
-  local root
-  root="${TMPDIR:-/tmp}"
-  mktemp "$@" -- "$root/validate-$$-XXXXXXXX"
+  mktemp "$@" -- "$scratch_root/scratch.XXXXXXXX"
 }
 scratch_file() { scratch_make; }
 scratch_dir() { scratch_make -d; }
@@ -591,7 +603,7 @@ rows=(
   "tools|smoke configuration restore controls|python3 scripts/test-smoke-user-config.py|scripts/test-smoke-user-config.py scripts/smoke/user-config.sh scripts/smoke/harness.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-widget.sh scripts/smoke/rows/sound.sh scripts/smoke/rows/network.sh scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh"
   "tools|sandbox shot controls|scripts/test-sandbox-shots.sh|scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/shot.sh scripts/smoke/tree.sh bin/lib/engine.js scripts/smoke/Probe.qml shell/Core/MonitorState.qml shell/Core/Compositor.qml shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Core/HyprlandLayer.js bin/lib/qml-library.js scripts/sandbox-shots.sh scripts/clone-world.py scripts/smoke/harness.sh scripts/smoke/rows/googledrive.sh shell/plugins/vgs.google-drive/bin/google-drive shell/plugins/vgs.google-drive/tui/initialize-confirm.sh scripts/smoke/gpu-fence.sh bin/lib/ipc-reply.sh bin/vgshell-theme-judge bin/lib/judge-files.js bin/lib/theme-render.js bin/lib/theme-backgrounds.js bin/lib/theme-select.js bin/lib/theme-catalog.js bin/lib/account-folders.js bin/lib/anchored.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/AccountDirectories.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js themes/targets/gum/* shell/Commons/Glass.js scripts/smoke/devices.sh scripts/smoke/fixtures/devices/rfkill.json scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/*"
   "tools|google drive shot scene reads its states from the code|node scripts/test-google-drive-scene.js|scripts/test-google-drive-scene.js scripts/sandbox-shots.sh shell/plugins/vgs.google-drive/GoogleDriveLogic.js bin/lib/qml-library.js"
-  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh config/voxtype/*|control"
+  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh config/voxtype/*|control"
   "tools|smoke owner controls|scripts/test-smoke-owner.sh|scripts/smoke/gpu-fence.sh scripts/smoke/teardown.sh"
   "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
@@ -631,7 +643,7 @@ rows=(
   "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json @alone|container"
   "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js @alone|entry"
   "tools|launcher glyph capture controls|python3 scripts/test-launcher-latency.py|scripts/smoke/launcher-latency.py"
-  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/RadialBackdrop.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/Field.js shell/plugins/vgs.jarvis/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg shell/Core/PackageManagers.js @alone|entry"
+  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/RadialBackdrop.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/plugins/vgs.jarvis/ParticleOrb.qml shell/plugins/vgs.jarvis/Appearance.js shell/plugins/vgs.jarvis/Field.js shell/plugins/vgs.jarvis/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg shell/Core/PackageManagers.js @alone|entry"
   "qml|smoke fatal row controls|scripts/test-qml-smoke.sh|scripts/qml-smoke.sh scripts/smoke/* scripts/fixtures/jarvis/* scripts/lib/jarvis-env.sh scripts/test-qml-smoke.sh shell/* bin/* config/* themes/* packaging/* VERSION LICENSE README.md"
 )
 
@@ -1800,6 +1812,7 @@ smoke_reads_named() {
 }
 
 if [[ $row_entry == true ]]; then
+  scratch_root="${TMPDIR:-/tmp}"
   unset VGS_VALIDATE_CHANGED
   if ((row_path_count >= 0)); then
     VGS_VALIDATE_CHANGED="$(scratch_file)"
@@ -1824,6 +1837,21 @@ if [[ $catalog_prepare_only == true ]]; then
   catalog_input_prepare
   exit
 fi
+
+# The run's one scratch root, made once, after the reap of the roots whose
+# owner has ended, and removed by the EXIT trap however the run ends but by
+# a KILL. Every later scratch path lives under it.
+source scripts/smoke/reap.sh
+scratch_start="$(proc_start "$$")" || { echo "validate: scratch-root=failed reason=owner-unreadable path=/proc/$$/stat" >&2; exit 1; }
+scratch_ns="$(pid_namespace "$$")" || { echo "validate: scratch-root=failed reason=owner-unreadable path=/proc/$$/ns/pid" >&2; exit 1; }
+reap_orphans validate validate- "$scratch_ns" '^([0-9]+)-[A-Za-z0-9]{8}$'
+scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/validate-$$-$scratch_start-$scratch_ns-r.XXXXXX")" ||
+  { echo 'validate: scratch-root=failed reason=mktemp' >&2; exit 1; }
+scratch_remove() {
+  chmod -R u+rwx -- "$scratch_root" 2>/dev/null || true
+  rm -rf -- "${scratch_root:?}"
+}
+trap 'scratch_remove' EXIT
 
 # The file that records this area's last pass, in the worktree's own git
 # directory, so no other worktree reads it. Empty when git names no git
@@ -2038,7 +2066,7 @@ for i in "${!rows[@]}"; do
   read -r -a patterns <<<"$inputs"
   # run wraps ordinary rows even when their command never names the world.
   if [[ ${owner:-row} == row || $owner == network ]]; then
-    patterns+=(scripts/smoke/gpu-fence.sh)
+    patterns+=(scripts/smoke/gpu-fence.sh scripts/smoke/reap.sh)
   fi
   read -r -a words <<<"$command"
   for word in "${words[@]}"; do
@@ -2210,7 +2238,6 @@ affected=()
 for i in "${!rows[@]}"; do affected[i]=true; done
 if [[ -n $change_base ]]; then
   paths_file="$(scratch_file)"
-  trap 'rm -f -- "${paths_file:?}"' EXIT
   if ! git diff --name-only --no-renames -z "$change_base" -- >"$paths_file" ||
      ! git ls-files -z --others --exclude-standard >>"$paths_file"; then
     echo 'validate: selection=full reason=diff-unreadable' >&2
@@ -2823,10 +2850,18 @@ start_rows() {
 }
 # stop_rows, run by the EXIT trap however validate ends, sends TERM to the
 # group of every job still running, a row started but not yet recorded
-# included, then waits until every row group it started that has not been
-# seen to end has ended, and sends KILL to the groups still alive after
-# 10 s, which outlasts the smoke's own TERM-then-KILL teardown, or at once
-# on a repeat signal. A group is signalled only while its leader is still
+# included, then waits until the nested smoke's group, if it still runs,
+# has ended. The trap then collects the smoke's results (records_finish)
+# and removes the scratch root, and stop_rest waits until every other row
+# group stop_rows found that has not been seen to end has ended. The two
+# waits share one window: KILL goes to the groups still alive after 10 s,
+# which outlasts the smoke's own TERM-then-KILL teardown, or at once on a
+# repeat signal. So a stop that KILLs validate 10 s after its TERM, as a
+# unit's does (TimeoutStopSec), finds the root gone unless the smoke itself
+# took the window; the next run reaps what such a stop leaves. A row still
+# running when the root goes writes to a log no path names, and nothing
+# makes the root again but a row's own write under its home there, which
+# the next run reaps. A group is signalled only while its leader is still
 # validate's child, since a job bash has already reaped can leave its
 # number to another process; once taken, the kernel keeps the group's
 # number while any member lives, so the KILL still reaches members whose
@@ -2845,51 +2880,62 @@ start_rows() {
 # records_finish. A signal that arrives before it has found the groups
 # KILLs none, and the stop goes on.
 row_groups=()
+row_waited=()
+stop_ticks=0
 stopping=false
 kill_groups() { # SIGNAL
   local pid
   for pid in "${row_groups[@]}"; do kill -s "$1" -- "-$pid" 2>/dev/null || true; done
   return 0
 }
-stop_rows() {
-  local pid stat ppid pgrp alive tick
-  local -a pids=() waited=()
-  stopping=true
-  jobs -p >"$run_dir/jobs" 2>/dev/null && mapfile -t pids <"$run_dir/jobs" || pids=()
-  pids+=("${!row_of_pid[@]}" ${smoke_group:+"$smoke_group"})
-  for pid in "${pids[@]}"; do
-    [[ " ${waited[*]} " != *" $pid "* ]] || continue
-    waited+=("$pid")
-    read -r stat 2>/dev/null <"/proc/$pid/stat" || continue
-    read -r _ ppid pgrp _ <<<"${stat##*) }"
-    if [[ $ppid == "$$" && $pgrp == "$pid" ]]; then row_groups+=("$pid"); fi
-  done
-  [[ ${#waited[@]} -gt 0 ]] || return 0
-  kill_groups TERM
-  for ((tick = 0; tick < 100; tick++)); do
+# rows_wait PID...: wait until the group of each PID has ended, at most
+# until 100 ticks of the stop's window, counted across calls, have passed;
+# then KILL every row group.
+rows_wait() {
+  local pid alive
+  while :; do
     alive=false
-    for pid in "${waited[@]}"; do
+    for pid in "$@"; do
       if kill -0 -- "-$pid" 2>/dev/null; then alive=true; fi
     done
     [[ $alive == true ]] || return 0
+    ((stop_ticks++ < 100)) || break
     sleep 0.1
   done
   kill_groups KILL
 }
+stop_rows() {
+  local pid stat ppid pgrp
+  local -a pids=()
+  stopping=true
+  jobs -p >"$run_dir/jobs" 2>/dev/null && mapfile -t pids <"$run_dir/jobs" || pids=()
+  pids+=("${!row_of_pid[@]}" ${smoke_group:+"$smoke_group"})
+  for pid in "${pids[@]}"; do
+    [[ " ${row_waited[*]} " != *" $pid "* ]] || continue
+    row_waited+=("$pid")
+    read -r stat 2>/dev/null <"/proc/$pid/stat" || continue
+    read -r _ ppid pgrp _ <<<"${stat##*) }"
+    if [[ $ppid == "$$" && $pgrp == "$pid" ]]; then row_groups+=("$pid"); fi
+  done
+  [[ ${#row_waited[@]} -gt 0 ]] || return 0
+  kill_groups TERM
+  [[ -z $smoke_group ]] || rows_wait "$smoke_group"
+}
+stop_rest() { rows_wait "${row_waited[@]}"; }
 # A signal exits through the EXIT trap. Each exit taken while these traps
 # are set marks the stop begun before it leaves, so a later signal neither
 # ends validate before the trap's stop, records_finish and scratch removal
 # have run nor changes its exit status: it KILLs the row groups stop_rows
 # has found, none before it has looked. A signal to validate's whole
 # process group, as a second Ctrl-C at a terminal sends, also ends the
-# trap's own foreground command, such as stop_rows' sleep; the trap turns
+# trap's own foreground command, such as rows_wait's sleep; the trap turns
 # errexit off first, so that command's status does not end it either.
 on_signal() { # EXIT-STATUS
   if [[ $stopping == true ]]; then kill_groups KILL; return 0; fi
   stopping=true
   exit "$1"
 }
-trap 'set +e; stop_rows; records_finish; chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
+trap 'set +e; stop_rows; records_finish; scratch_remove; stop_rest' EXIT
 trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 trap 'on_signal 129' HUP

@@ -67,6 +67,7 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 fence="$repo/scripts/smoke/gpu-fence.sh"
+reap="$repo/scripts/smoke/reap.sh"
 native_node="$(node -e 'process.stdout.write(process.execPath)')"
 export PATH="${native_node%/*}:$PATH"
 
@@ -78,6 +79,8 @@ cleanup() {
   rm -rf -- "${TMP_ROOT:?}"
 }
 trap cleanup EXIT
+# A copy of the fence written here sources the reaper beside it.
+cp -- "$reap" "$TMP_ROOT/reap.sh"
 failures=0
 unmeasured=0
 ok() { printf '  ok    %s\n' "$*"; }
@@ -1014,6 +1017,19 @@ mutate() {
   printf '%s\n' "${text/"$2"/"$3"}" >"$4"
   ! cmp -s -- "$1" "$4" || { printf '        mutation left the file unchanged: %s\n' "$2"; return 1; }
 }
+# mutate_fence OLD NEW DIR: DIR/gpu-fence.sh beside DIR/reap.sh, the reaper
+# it sources, with OLD, which must occur once in the two, replaced by NEW.
+mutate_fence() {
+  local file found=0
+  mkdir -- "$3" || return 1
+  cp -- "$fence" "$reap" "$3/"
+  for file in "$fence" "$reap"; do
+    [[ "$(<"$file")" == *"$1"* ]] || continue
+    found=$((found + 1))
+    mutate "$file" "$1" "$2" "$3/${file##*/}" || return 1
+  done
+  [[ $found -eq 1 ]] || { printf '        mutation matched in %s files: %s\n' "$found" "$1"; return 1; }
+}
 
 # Controls, four fields each: label, text, replacement, and the case that
 # must go red.
@@ -1188,9 +1204,8 @@ forward() {
   '(($#)) || exit 0'
   'a call with no command is refused'
   'the next run does not look for orphans'
-  '    reap_orphans
-    kind=r'
-  '    kind=r'
+  '    reap_orphans gpu-fence '
+  '    : gpu-fence '
   "a SIGKILLed run's root is removed by the next run"
   'a root is reaped without its owner bits restored'
   '    chmod_error="$(chmod -R u+rwX -- "$root" 2>&1)" || true'
@@ -1201,16 +1216,16 @@ forward() {
   '      elif false; then'
   "a live run's root survives a run that starts beside it"
   'a root that cannot be removed is not reported'
-  '      note "cleanup=rm-failed path=$root rm-error=$(why "$rm_error")${chmod_error:+ chmod-error=$(why "$chmod_error")}"'
-  '      :'
+  '      printf '"'"'%s: cleanup=rm-failed '
+  '      : '"'"'%s: cleanup=rm-failed '
   'a root that cannot be removed is reported by path'
   'a failed removal drops what rm said'
   'rm_error="$(rm -rf -- "$root" 2>&1)"'
   'rm_error="$(rm -rf -- "$root" 2>/dev/null)"'
   'a root that cannot be removed is reported by path'
   'a reaped root is not named'
-  '      note "cleanup=reaped path=$root"'
-  '      :'
+  '      printf '"'"'%s: cleanup=reaped '
+  '      : '"'"'%s: cleanup=reaped '
   "a SIGKILLed run's root is removed by the next run"
   'a kept root is taken for an orphan'
   '      if [[ $kind == k ]]; then'
@@ -1254,8 +1269,8 @@ run_controls() {
   local i label mutant result diagnostics
   for (( i = 0; i < ${#plants[@]}; i += 4 )); do
     label="${plants[i]}"
-    mutant="$TMP_ROOT/mutant-$1-$i.sh"
-    if ! mutate "$fence" "${plants[i + 1]}" "${plants[i + 2]}" "$mutant"; then fail "control: $label"; continue; fi
+    mutant="$TMP_ROOT/mutant-$1-$i/gpu-fence.sh"
+    if ! mutate_fence "${plants[i + 1]}" "${plants[i + 2]}" "${mutant%/*}"; then fail "control: $label"; continue; fi
     control_mutants["$label"]=$mutant
     result=0
     diagnostics="$(run_case "$mutant" "${plants[i + 3]}" 2>&1)" || result=$?
@@ -1352,6 +1367,8 @@ with tempfile.TemporaryDirectory(prefix="world-control-", dir="/tmp") as mutants
      tempfile.TemporaryDirectory(prefix="world-runtime-", dir=runtime_parent) as runtime, \
      tempfile.TemporaryDirectory(prefix="world-socket-", dir="/tmp") as temporary, \
      tempfile.TemporaryDirectory(prefix="world-input space-", dir="/tmp") as prepared:
+    # A mutant of the fence sources the reaper beside it.
+    shutil.copyfile(Path(fence).with_name("reap.sh"), Path(mutants) / "reap.sh")
     caller = socket.socket(socket.AF_UNIX)
     caller.bind(runtime + "/caller.sock")
     caller.listen()

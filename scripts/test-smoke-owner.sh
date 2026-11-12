@@ -41,6 +41,8 @@ teardown="$repo/scripts/smoke/teardown.sh"
 TMP_ROOT="$(mktemp -d)" || { echo "test-smoke-owner: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-smoke-owner: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-smoke-owner: scratch=resolve-failed" >&2; exit 1; }
+# A mutant of the fence written here sources the reaper beside it.
+cp -- "$repo/scripts/smoke/reap.sh" "$TMP_ROOT/reap.sh"
 # A case a control turned red can leave a folder without write bits.
 trap 'chmod -R u+rwX -- "${TMP_ROOT:?}" 2>/dev/null || true; rm -rf -- "${TMP_ROOT:?}"' EXIT
 failures=0
