@@ -179,7 +179,14 @@ if [[ ! -e $shim/busctl ]]; then
   chmod 755 -- "$shim/busctl"
   share_busctl_planted=planted
 fi
-share_restarts_before="$(device_calls systemctl)"
+# A full run's earlier rows leave the systemctl record longer than one
+# command-line argument may be (128 KiB), so the baseline is a count read
+# through standard input; one long call stands in for those rows.
+share_pad_argv=(--user show "$(printf '%070000d' 0)" "$(printf '%070000d' 0)")
+device_reply systemctl 0 "" "${share_pad_argv[@]}"
+"$shim/systemctl" "${share_pad_argv[@]}"
+expect "control: the systemctl record is longer than one argument may be" True python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]) > 131072)' "$devices_dir/calls/systemctl.calls"
+share_restarts_before="$(device_calls systemctl | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
 # True once the file holds the owner's lines and then the picker's block.
 share_configured() {
   python3 - "$share_xdph" "$share_owner_xdph" "$repo/bin/vgshell-share-picker" <<'PY'
@@ -193,7 +200,7 @@ PY
 share_owner_only() { python3 -c 'import os,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.exists() and p.read_text()==sys.argv[2])' "$share_xdph" "$share_owner_xdph"; }
 # share_calls ARGV...: the calls of ARGV the stand-in systemctl recorded
 # since the row began.
-share_calls() { device_calls systemctl | py_reply 'import json,sys; before=len(json.loads(sys.argv[1])); want=sys.argv[2:]; print(sum(c==want for c in json.load(sys.stdin)[before:]))' "$share_restarts_before" "$@"; }
+share_calls() { device_calls systemctl | py_reply 'import json,sys; before=int(sys.argv[1]); want=sys.argv[2:]; print(sum(c==want for c in json.load(sys.stdin)[before:]))' "$share_restarts_before" "$@"; }
 share_restarts() { share_calls "${share_restart_argv[@]}"; }
 share_restarted() { [[ $(share_restarts) -ge 1 ]] && echo True || echo False; }
 share_dismiss_tools_notice() {
