@@ -11,15 +11,16 @@ import "AccountProviders.js" as Providers
 // orb in the look of the Session's phase, its icon row beside the orb,
 // the state line or the fault under it, the held request in place
 // of that line, and Jarvis's words above the orb while its voice is muted.
-// It draws in the plugin's own look (Appearance.js), and nothing in it
-// meets the wallpaper: the orb stands on a disc, the icon row on a capsule
-// beside it, and the words and the line or the held request each on a card
-// that hugs its lines. Each is a plate of the shared glass (qs.Ui
-// GlassSurface) in the look's `plate` values, with no drop shadow. No
-// plate's box enters another's: the look's `plate.gap` parts them, so each
-// draws as glass (GlassSurface.overContent). A plate shows whole and never
-// fades; what stands on it fades. A passive layer takes clicks only on
-// `inputItems` (D026).
+// It draws in the plugin's own look (Appearance.js). Nothing stands
+// behind the orb: its points read on any wallpaper by their own edge. The
+// icon row stands on a capsule beside it, and the words and the line or
+// the held request each on a card that hugs its lines. Each is a plate of
+// the shared glass (qs.Ui GlassSurface) in the lens form, in the look's
+// `plate` values, with no drop shadow. No plate's box enters another's:
+// the look's `plate.gap` parts them, so each draws as glass
+// (GlassSurface.overContent). A plate shows whole and never fades; what
+// stands on it fades. A passive layer takes clicks only on `inputItems`
+// (D026).
 //
 // While the overlay is active (listening, thinking, acting, speaking, a
 // held request or a fault) the orb takes the pointer on the look's hit
@@ -53,7 +54,7 @@ Item {
     // Console or wrapping a line there must not change this decision.
     // Both boxes are in this layer's coordinates (Service.consoleBox).
     readonly property real bottomWidth: Math.min(look.layout.width, Math.max(0, width - 2 * look.layout.margin))
-    readonly property real bottomInset: Math.round((1 - look.plate.orb.reach) * look.orb.size / 2)
+    readonly property real bottomInset: Math.round((1 - look.orb.reach) * look.orb.size / 2)
     readonly property real bottomOrbTop: (words.visible ? words.y + words.height + look.plate.card.paddingY + look.plate.gap : 0) - bottomInset
     readonly property real bottomBelow: hidden ? look.plate.card.paddingY
         : bottomOrbTop + look.orb.size - bottomInset + look.plate.gap + look.plate.card.paddingY
@@ -169,7 +170,7 @@ Item {
     // The open menu's entries, which scripts/smoke/rows/jarvis-bubble.sh
     // reads, [] while it is closed.
     readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
-    readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea, physicalHint]
+    readonly property var textItems: [words, stateLine, silenceLine, faultAction, question, fullPath, payloadArea]
     readonly property var inputItems: !shown || !visible ? [] : (active && !hidden ? [orbHit] : [])
         .concat(active && iconsShown ? [bridge] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
@@ -221,28 +222,28 @@ Item {
     }
 
     // One answer of the approval prompt in the look's form (Appearance.js
-    // `answer`): Confirm or Yes on its fill with the shimmer, Cancel or No
-    // as bare words. It is a qs.Ui Button handed the look's values, since a
-    // surface draws no private control for what a component draws
-    // (design-system.md § Components). The variant names the answer for
+    // `answer`): a capsule, Confirm or Yes on the tint, Cancel or No quiet,
+    // and the confirming answer of a destructive request quiet too.
+    // It is a qs.Ui Button handed the look's values, since a surface draws
+    // no private control for what a component draws (design-system.md
+    // § Components). The variant names the answer for
     // scripts/smoke/rows/jarvis-bubble.sh and sets the label's weight.
     component Answer: Button {
         required property var look
-        property bool bare: false
+        property bool quiet: false
+        readonly property var form: quiet ? look.answer.quiet : look.answer.tinted
         size: "sm"
-        variant: bare ? "ghost" : "secondary"
+        variant: quiet ? "ghost" : "secondary"
         controlHeight: look.answer.height
-        paddingX: look.answer.paddingX
+        // The label stands on the capsule's centre at any width.
+        paddingX: Math.max(look.answer.paddingX, (width - implicitContentWidth) / 2)
         radius: look.answer.radius
-        restFill: bare ? look.answer.clear : look.answer.fill
-        hoverFill: bare ? look.answer.clear : look.answer.hoverFill
-        pressedFill: look.answer.pressedFill
+        restFill: form.fill
+        hoverFill: form.hoverFill
+        pressedFill: form.pressedFill
         borderColor: look.answer.clear
-        textColor: bare ? look.answer.bareInk : look.answer.ink
-        hoverTextColor: bare ? look.answer.bareHoverInk : look.answer.hoverInk
+        textColor: form.ink
         ringColor: look.icon.ring
-        shimmer: bare ? null : look.answer.shimmer
-        shadow: look.shadow
     }
 
     visible: shown && (hold === null ? true : placed)
@@ -297,25 +298,22 @@ Item {
         readonly property real orbMiddle: orb.x + orb.width / 2
         readonly property real orbCentre: orb.y + orb.height / 2
         readonly property var card: root.look.plate.card
-        // The disc holds everything the orb draws. It stands a whole
-        // number of pixels inside the canvas on every side, so the two
-        // share one centre and the disc's edges fall on whole pixels as
-        // the canvas's do.
-        readonly property real discInset: Math.round((1 - root.look.plate.orb.reach) * orb.width / 2)
-        readonly property real discEnd: orb.y + orb.height - discInset
-        // The disc starts at this box's top, or the plates' gap under the
-        // words' card; the canvas starts its inset above the disc, where
-        // the orb draws nothing.
-        readonly property real orbTop: (words.visible ? words.y + words.height + card.paddingY + root.look.plate.gap : 0) - discInset
+        // The orb draws nothing in the outer `orbInset` of its canvas, a
+        // whole number of pixels, so the plates stand that far inside it.
+        readonly property real orbInset: Math.round((1 - root.look.orb.reach) * orb.width / 2)
+        readonly property real orbEnd: orb.y + orb.height - orbInset
+        // What the orb draws starts at this box's top, or the plates' gap
+        // under the words' card; the canvas starts its inset above that.
+        readonly property real orbTop: (words.visible ? words.y + words.height + card.paddingY + root.look.plate.gap : 0) - orbInset
         // The first line under the orb: inside its card, the plates' gap
-        // under the disc.
+        // under what the orb draws.
         readonly property real below: root.hidden ? card.paddingY
-            : discEnd + root.look.plate.gap + card.paddingY
+            : orbEnd + root.look.plate.gap + card.paddingY
         // The prompt's and the words' width, held inside this overlay's,
         // which the layer bounds, so a narrow screen reflows them.
         readonly property real promptWidth: Math.min(root.look.layout.prompt, Math.max(0, width - 2 * card.paddingX))
         width: Math.min(root.look.layout.width, Math.max(0, root.placementRoom.width - 2 * root.look.layout.margin))
-        height: Math.max(root.hidden ? 0 : discEnd,
+        height: Math.max(root.hidden ? 0 : orbEnd,
             root.hold !== null ? approvalText.y + approvalText.height + card.paddingY
             : stateBox.visible ? stateBox.y + stateBox.height + card.paddingY : 0)
         x: root.placementRoom.x + (root.placementRoom.width - width) / 2
@@ -333,20 +331,6 @@ Item {
             name: "top"
             when: root.overConsole && root.hold !== null
             AnchorChanges { target: overlay; anchors.bottom: undefined; anchors.top: root.top }
-        }
-
-        // The orb's disc, under its particles.
-        GlassSurface {
-            objectName: "orbPlate"
-            visible: orb.visible
-            x: orb.x + overlay.discInset
-            y: orb.y + overlay.discInset
-            width: orb.width - 2 * overlay.discInset
-            height: width
-            optIn: true
-            fill: root.look.plate.orb.fill
-            standard: ({ background: root.look.plate.orb.base, border: root.look.plate.orb.border, radius: root.look.plate.full })
-            elevation: "none"
         }
 
         // An open conversation at rest uses the look's idle pacing.
@@ -382,6 +366,7 @@ Item {
             fill: overlay.card.fill
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
             elevation: "none"
+            lens: root.look.plate.lens
         }
 
         Words {
@@ -432,13 +417,13 @@ Item {
 
         Timer { id: iconHold; interval: root.look.icon.hold }
 
-        // The icon row's capsule, of the card's fill, beside the disc at
+        // The icon row's capsule, of the card's fill, beside the orb at
         // the orb's height. It shows whole while its icons fade.
         GlassSurface {
             id: iconPill
             objectName: "iconPill"
             readonly property var pad: root.look.plate.pill
-            readonly property real rest: orb.x + orb.width - overlay.discInset + root.look.plate.gap
+            readonly property real rest: orb.x + orb.width - overlay.orbInset + root.look.plate.gap
             x: root.besideConsole ? Math.min(rest, Math.max(0, overlay.width - width)) : rest
             y: Math.round(overlay.orbCentre - height / 2)
             width: icons.width + 2 * pad.paddingX
@@ -448,6 +433,7 @@ Item {
             fill: overlay.card.fill
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: root.look.plate.full })
             elevation: "none"
+            lens: root.look.plate.lens
         }
 
         Column {
@@ -502,6 +488,7 @@ Item {
             fill: overlay.card.fill
             standard: ({ background: overlay.card.base, border: overlay.card.border, radius: overlay.card.radius })
             elevation: "none"
+            lens: root.look.plate.lens
         }
 
         Column {
@@ -612,7 +599,7 @@ Item {
                 // (https://doc.qt.io/qt-6/qml-qtquick-column.html). The
                 // overlay keeps the margin to the layer's edge at its bottom,
                 // or at its top over the console.
-                readonly property var others: [question, fullPath, physicalHint, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
+                readonly property var others: [question, fullPath, answerButtons].filter(item => item.visible && item.width > 0 && item.height > 0)
                 readonly property real room: root.height - root.look.layout.margin - overlay.below - overlay.card.paddingY
                     - others.reduce((sum, item) => sum + item.height + approvalText.spacing, 0)
                 width: parent.width
@@ -647,33 +634,27 @@ Item {
                     wrapMode: Text.Wrap
                 }
             }
-            Label {
-                id: physicalHint
-                width: parent.width
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
-                visible: root.hold !== null && root.hold.physical
-                role: "hint"
-                color: root.look.ink.hint
-                text: "Use the button or key to confirm."
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-            }
             Row {
                 id: answerButtons
-                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width
+                topPadding: root.look.answer.gap
                 spacing: root.look.answer.gap
                 // keyboard-path: the effective Confirm and Stop shortcuts.
                 Answer {
                     id: cancel
                     look: root.look
-                    bare: true
+                    quiet: true
+                    width: (answerButtons.width - answerButtons.spacing) / 2
                     text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
                     onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
                 }
                 Answer {
                     id: confirm
                     look: root.look
+                    // A request that needs a press is the destructive kind,
+                    // whose confirming answer takes no tint.
+                    quiet: root.hold !== null && root.hold.physical
+                    width: (answerButtons.width - answerButtons.spacing) / 2
                     text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
                     onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
                 }

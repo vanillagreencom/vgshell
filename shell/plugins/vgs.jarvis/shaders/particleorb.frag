@@ -37,6 +37,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 uTone;    // interior gain, rim gain, saturation, presence
     vec4 uExtra;   // brightness, tilt, fold depth, lattice period in cells
     float uReduce; // above 0.5: the reduced look
+    vec4 uEdge;    // a dot's dark edge: its width as a share of the half-width, its strength
 };
 
 const float PI = 3.14159265;
@@ -100,6 +101,9 @@ void main() {
     vec3 top = uTop.rgb, upper = uUpper.rgb, lower = uLower.rgb, bottom = uBottom.rgb;
     vec3 col = vec3(0.0);
     float alpha = 0.0;
+    // The dark edge round each dot, which shows the dot on a light ground
+    // and is lost on a dark one: coverage alone, with no colour.
+    float edge = 0.0;
     float rr = max(r, 1e-6);
 
     for (int k = 0; k < 4; k++) {
@@ -193,6 +197,9 @@ void main() {
                 vec2 pc = dc.xy * Rp * (1.0 + out_ * uField.z * h5 * h5);
                 float dist = length(uv - pc);
                 float size = uShape.z * dsc * (0.7 + 0.6 * h4);
+                float rim = clamp((size + uEdge.x - dist) / px + 0.5, 0.0, 1.0);
+                if (rim <= 0.0) continue;
+                edge = max(edge, rim * uEdge.y * clamp(wface * 4.0, 0.0, 1.0));
                 float cov = clamp((size - dist) / px + 0.5, 0.0, 1.0);
                 if (cov <= 0.0) continue;
 
@@ -223,6 +230,7 @@ void main() {
     float luma = dot(col, vec3(0.299, 0.587, 0.114));
     col = clamp(mix(vec3(luma), col, uTone.z), 0.0, 1.0);
     float a = clamp(alpha * uExtra.x, 0.0, 1.0);
-    // Premultiplied: colour never exceeds its coverage.
-    fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity;
+    // Premultiplied: colour never exceeds its coverage. The edge lies
+    // under the dots and adds coverage alone.
+    fragColor = vec4(min(col, vec3(a)), a + (1.0 - a) * clamp(edge, 0.0, 1.0)) * qt_Opacity;
 }

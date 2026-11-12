@@ -77,6 +77,19 @@ Item {
     property bool shadowCached: true
     property Item follow: null
     property real padding: 0
+    // The lens form: a surface that hands its look's lens values draws the
+    // lens pass (shaders/glasslens.frag) in place of the sheen and the
+    // hairline while glass is on: `bezel`, the rim band's width, held to a
+    // quarter of the plate's short side; `clarity`, the share of the tint
+    // the band loses, which takes it under the layer rule's blur
+    // threshold; `glint` and `glow`, the light on the rim and inside it;
+    // `exit`, the share of that light the far wall takes; `outline`, the
+    // dark line outside the rim; and `seam`, the line where the band meets
+    // the body. Solid glass draws the same pass over its opaque fill with
+    // no clear band. Content keeps an inset of `bezel` or more: inside it
+    // the pass draws the fill alone.
+    property var lens: null
+    readonly property bool lensed: on && lens !== null
     readonly property real contentInset: padding
     // The corner the body rounds to while glass is on, drawn or solid:
     // `radius` as a real radius, which a pill-shaped radius larger than a
@@ -141,17 +154,37 @@ Item {
         cached: glass.shadowCached
     }
 
+    ShaderEffect {
+        visible: glass.lensed
+        // The dark line lies outside the plate.
+        readonly property real reach: 2
+        x: -reach
+        y: -reach
+        width: parent.width + 2 * reach
+        height: parent.height + 2 * reach
+        blending: true
+        property vector2d uSize: Qt.vector2d(glass.width, glass.height)
+        property real uRadius: glass.corner
+        property real uMargin: reach
+        property color uTint: glass.effectiveFill
+        property vector4d uLens: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
+            : Qt.vector4d(glass.lens.bezel, glass.solid ? 0 : glass.lens.clarity, glass.lens.glint, glass.lens.glow)
+        property vector4d uLight: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
+            : Qt.vector4d(glass.lens.exit, glass.lens.outline, glass.lens.seam, 0)
+        fragmentShader: Qt.resolvedUrl("shaders/glasslens.frag.qsb")
+    }
+
     Rectangle {
         id: body
         anchors.fill: parent
         radius: glass.corner
-        color: glass.effectiveFill
+        color: glass.lensed ? "transparent" : glass.effectiveFill
         clip: true
 
         // Light falling on the top of the glass, fading out `sheenHeight`
         // down, under the fill.
         Rectangle {
-            visible: glass.drawn
+            visible: glass.drawn && !glass.lensed
             anchors.fill: parent
             radius: glass.radius
             z: -1
@@ -165,6 +198,7 @@ Item {
     // The hairline, or the standard border, sits above the content, so no
     // row covers it.
     Rectangle {
+        visible: !glass.lensed
         anchors.fill: parent
         radius: body.radius
         color: "transparent"

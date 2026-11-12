@@ -10,13 +10,14 @@
 // The theme reaches this table through `palette.accent`, which draws an
 // icon toggle's glyph while it is on, `motion.scale`, which scales every
 // duration here (0 stills the orb and shows the words whole), and its
-// `scheme.mode`, which applies LIGHT. Nothing meets the wallpaper: the orb,
-// the icon row and every line stand on a plate of glass (`plate`), and each
-// ink is chosen against the worst ground its plate can show. Dark mode
-// uses light ink on dark plates; LIGHT uses dark ink on light plates and
-// draws the orb in darker stops on its light disc. Text takes its family
-// and size from its qs.Ui Label role; this table hands it its colour and
-// its shadow.
+// `scheme.mode`, which applies LIGHT. The icon row and every line stand on
+// a plate of glass in the lens form (`plate`), and each ink is chosen
+// against the worst ground its plate's body can show. Dark mode uses light
+// ink on dark plates; LIGHT uses dark ink on light plates. Nothing stands
+// behind the orb: each of its points carries a thin dark edge, so one
+// recipe reads on a light, a dark and a busy wallpaper in both modes. Text
+// takes its family and size from its qs.Ui Label role; this table hands it
+// its colour.
 //
 // Each state is one set of the orb shader's inputs (shaders/particleorb.frag).
 // Palette stops run top, upper, lower, bottom over the orb's height; `core`
@@ -160,40 +161,6 @@ function states() {
     return out;
 }
 
-// Light mode's orb stands on a light disc, where a dot shows by being
-// darker than its ground, not brighter: each stop is mixed toward black by
-// `deep`, the lattice's and the rim's weights and the saturation are
-// multiplied, and a dot is larger (LIGHT `orb.dot`). The weights set a
-// dot's coverage; the shader's tone curve lightens a colour as weight
-// stacks, so the rim takes less weight to keep its hue and the lattice
-// more to cover its ground. Motion and shape are dark mode's. A thinned
-// lattice reads as blots at the larger dot, so the two lasting states that
-// thin it keep more of it (`thinned`), the fault's at a lighter weight.
-var LIGHT_ORB = {
-    deep: 0.55, interior: 2.8, rim: 0.5, saturation: 1.7,
-    thinned: { idle: { presence: 0.8 }, error: { presence: 0.95, interior: 1.04 } }
-};
-
-function lightStates() {
-    var out = {};
-    for (var name in STATES) {
-        var base = changed(STATES[name]);
-        var light = {};
-        var stops = ["top", "upper", "lower", "bottom", "core"];
-        for (var i = 0; i < stops.length; i++)
-            light[stops[i]] = "mix(" + base.palette[stops[i]] + ", #000000, " + LIGHT_ORB.deep + ")";
-        // The shader lifts a spark's colour halfway to white, so black is
-        // the darkest spark: a grey point on the light disc.
-        light.hot = "#000000";
-        light.interior = Math.min(4, base.interior * LIGHT_ORB.interior);
-        light.rim = Math.min(4, base.rim * LIGHT_ORB.rim);
-        light.saturation = Math.min(4, base.saturation * LIGHT_ORB.saturation);
-        for (var key in LIGHT_ORB.thinned[name]) light[key] = LIGHT_ORB.thinned[name][key];
-        out[name] = light;
-    }
-    return out;
-}
-
 var TOKENS = {
     palette: {
         accent: color("#ff5a36")
@@ -244,6 +211,16 @@ var TOKENS = {
         // A dot's radius as a share of the canvas half-width: 0.61 px at
         // the 255 px canvas.
         dot: number(0.0048, 0, 0.05),
+        // The dark edge round each dot, as a share of the canvas
+        // half-width, 0.77 px at the 255 px canvas, and its strength: on a
+        // light ground a dot reads by its edge, on a dark one by its core.
+        edge: number(0.006, 0, 0.05),
+        edgeStrength: share(0.66),
+        // The share of the canvas half-width that holds everything the
+        // orb draws: the shader draws nothing past 1.3 of a state's radius
+        // (shaders/particleorb.frag), 0.92 of the half-width at the
+        // widest, speaking at its loudest. The plates stand outside it.
+        reach: share(0.84),
         frequency: number(2.4, 0, 8),
         warp: share(0.22),
         // The fixed tilt about the horizontal axis, in radians.
@@ -272,107 +249,108 @@ var TOKENS = {
     // cuts the corner between the two keeps it. The hold is a wait, not
     // motion, so the motion scale leaves it.
     icon: {
-        rest: color("#b9bcc6"),
-        active: color("#f4f5f8"),
+        rest: color("#dcdee4"),
+        active: color("#ffffff"),
         on: color("readable({palette.accent}, {plate.card.nearInk}, readable(mix({palette.accent}, {icon.active}, 0.5), {plate.card.nearInk}, {icon.active}))"),
         ring: color("#f4f5f8"),
         fade: duration(400),
         easing: easing("inOutQuad"),
         hold: number(250, 0, 1000)
     },
-    // Each line's ink on the text card; LIGHT supplies the dark inks for
-    // its light card. The look hands a Label its colour alone.
+    // Each line's ink on the text card, one plain ink a plate: weight and
+    // size carry the hierarchy, since a dimmer ink would need a denser
+    // body. LIGHT supplies the dark inks for its light card. The look
+    // hands a Label its colour alone.
     ink: {
-        state: color("#e6e8ee"),
+        state: color("#f4f5f8"),
         title: color("#f4f5f8"),
-        action: color("#b9bcc6"),
-        link: color("#9cc3ff"),
+        action: color("#f4f5f8"),
+        link: color("#c4dcff"),
         words: color("#f4f5f8"),
         question: color("#ffffff"),
-        path: color("#e6e8ee"),
-        payload: color("#f4f5f8"),
-        hint: color("#e6e8ee")
+        path: color("#f4f5f8"),
+        payload: color("#f4f5f8")
     },
     // Light text lifts off the dark card; dark text in LIGHT draws no
     // shadow.
     shadow: {
         color: color("#000000"),
-        opacity: share(0.1275),
+        opacity: share(0),
         blur: length(9)
     },
-    // The approval prompt's answers in the soft form, the owner's preferred
-    // one; this group and Bubble.qml's Answer are the one place the form is
-    // chosen. Confirm (Yes) stands on a faint white fill that rises under
-    // the pointer, where its label dims a step and the shimmer crosses it;
-    // Cancel (No) is bare words, a dimmer ink that brightens under the
-    // pointer. A press drops either to the faintest fill.
+    // The approval prompt's answers: two capsules of equal width that fill
+    // the card's row. Cancel (No) is quiet, a faint fill on the card;
+    // Confirm (Yes) stands on the theme's accent with the ink that reads
+    // on it. They are fills, not glass: a plate inside a plate draws
+    // solid.
     answer: {
-        height: length(26),
-        paddingX: length(13),
-        radius: length(13),
-        gap: length(6),
-        fill: color("alpha(#ffffff, 0.075)"),
-        hoverFill: color("alpha(#ffffff, 0.1125)"),
-        pressedFill: color("alpha(#ffffff, 0.06)"),
-        // Neither fill nor border: Cancel's rest and hover, every border.
+        height: length(36),
+        paddingX: length(16),
+        radius: length(18),
+        gap: length(8),
+        // No border on either.
         clear: color("alpha(#ffffff, 0)"),
-        ink: color("#ffffff"),
-        hoverInk: color("#d3d5dc"),
-        bareInk: color("#f4f5f8"),
-        bareHoverInk: color("#ffffff"),
-        // One sweep of the band and the pause after it, repeated while the
-        // pointer rests on Confirm, and the band's half-width as a share of
-        // the label.
-        shimmer: {
-            sweep: duration(1600),
-            pause: duration(600),
-            band: share(0.16),
-            easing: easing("inOutCubic")
+        quiet: {
+            fill: color("alpha(#ffffff, 0.1)"),
+            hoverFill: color("alpha(#ffffff, 0.13)"),
+            pressedFill: color("alpha(#ffffff, 0.07)"),
+            ink: color("#ffffff")
+        },
+        tinted: {
+            fill: color("{palette.accent}"),
+            hoverFill: color("mix({palette.accent}, #ffffff, 0.12)"),
+            pressedFill: color("mix({palette.accent}, #000000, 0.12)"),
+            ink: color("contrast({palette.accent})")
         }
     },
-    // The plates the overlay stands on, each one qs.Ui GlassSurface with no
-    // drop shadow: the compositor blurs the wallpaper behind a plate where
-    // a layer rule asks, and the plate's fill alone holds every ink's
-    // contrast where it does not. A plate without glass draws its `base`
-    // opaque inside `border`. `gap` parts two plates.
+    // The plates the overlay stands on, each one qs.Ui GlassSurface in the
+    // lens form with no drop shadow: the compositor blurs the backdrop
+    // under a plate's body where a layer rule asks, the body's fill alone
+    // holds every ink's contrast where it does not, and the rim's band is
+    // clear. A plate without glass draws its `base` opaque inside
+    // `border`. `gap` parts two plates.
     plate: {
         gap: length(8),
-        // Larger than any side, so a plate rounds to a circle or a capsule.
+        // Larger than any side, so a plate rounds to a capsule.
         full: length(4096),
-        // The orb's disc: dark under dark mode's orb, whose points are
-        // light, and the card's light base under LIGHT's darker orb.
-        // `reach` is the disc's radius as a share of the canvas
-        // half-width; the shader draws nothing past 1.3 of a state's
-        // radius (shaders/particleorb.frag), 0.92 of the half-width at the
-        // widest, speaking at its loudest.
-        orb: {
-            reach: share(0.94),
-            base: color("#020308"),
-            opacity: share(0.9),
-            fill: color("alpha({plate.orb.base}, {plate.orb.opacity})"),
-            border: color("#1b1d24")
+        // The lens (qs.Ui shaders/glasslens.frag): the bezel band's
+        // width; the share of the tint the band loses, which takes it
+        // under the blur threshold; the glint on the rim and the glow
+        // inside it; the share of that light the far wall takes; the dark
+        // line outside the rim; and the line where the band meets the
+        // body.
+        lens: {
+            bezel: length(4),
+            clarity: share(0.45),
+            glint: share(0.85),
+            glow: share(0.2),
+            exit: share(0.8),
+            outline: share(0.5),
+            seam: share(0.1)
         },
         // The card under the words, and under the state line, the fault or
         // the held request: it holds the lines it shows inside its
-        // padding. One line of the state rounds to a capsule.
+        // padding, which is wider than the bezel. One line of the state
+        // rounds to a capsule. The body's alpha stays above the layer
+        // rule's blur threshold and the core's.
         card: {
-            base: color("#101010"),
-            opacity: share(0.8),
+            base: color("#1e1e22"),
+            opacity: share(0.72),
             fill: color("alpha({plate.card.base}, {plate.card.opacity})"),
             // The card as drawn over the wallpaper nearest its ink: white
             // under the dark card, black under the light one. An ink that
             // reads at 4.5:1 on it reads so over any wallpaper.
             nearInk: color("mix(#ffffff, {plate.card.base}, {plate.card.opacity})"),
-            border: color("#2a2a2a"),
-            radius: length(20),
-            paddingX: length(16),
-            paddingY: length(12)
+            border: color("#34343a"),
+            radius: length(26),
+            paddingX: length(18),
+            paddingY: length(14)
         },
         // The capsule of the card's fill behind the icon row, which
-        // stands beside the disc, top to bottom.
+        // stands beside the orb, top to bottom.
         pill: {
-            paddingX: length(4),
-            paddingY: length(8)
+            paddingX: length(9),
+            paddingY: length(12)
         }
     },
     // Jarvis's words while its voice is muted: one more word each step
@@ -386,51 +364,42 @@ var TOKENS = {
         newest: share(1),
         // Every settled line holds 4.5:1 on the card over white; `oldest`
         // is the top line of the three. The line leaving fades from it.
-        middle: share(0.8),
-        oldest: share(0.62)
+        middle: share(0.9),
+        oldest: share(0.82)
     }
 };
 
-// Light mode draws light plates with dark text, icons and answers, and
-// the orb in its darker stops (LIGHT_ORB).
+// Light mode draws light plates with dark text, icons and answers. The
+// orb keeps its recipe.
 var LIGHT = {
-    orb: {
-        // 0.87 px at the 255 px canvas.
-        dot: 0.0068
-    },
-    state: lightStates(),
     plate: {
-        // The card's light base at the dark disc's own thickness: the
-        // orb's points are finer than text.
-        orb: {
-            base: "#f2f2f2",
-            border: "#d2d2d2"
+        lens: {
+            glint: 0.95,
+            glow: 0.3,
+            outline: 0.3,
+            seam: 0.3
         },
         card: {
-            base: "#f2f2f2",
-            opacity: 0.85,
+            base: "#f4f4f6",
+            opacity: 0.72,
             nearInk: "mix(#000000, {plate.card.base}, {plate.card.opacity})",
-            border: "#d2d2d2"
+            border: "#d2d2d6"
         }
     },
     icon: {
-        rest: "#424956",
-        active: "#171c25",
+        rest: "#2a303b",
+        active: "#0c0f15",
         ring: "#171c25"
     },
     ink: {
-        state: "#262c36",
+        state: "#171c25",
         title: "#171c25",
-        action: "#424956",
-        link: "#214b81",
+        action: "#171c25",
+        link: "#1a3f73",
         words: "#171c25",
-        question: "#171c25",
-        path: "#363d4a",
-        payload: "#262c36",
-        hint: "#424956"
-    },
-    shadow: {
-        opacity: 0
+        question: "#0c0f15",
+        path: "#171c25",
+        payload: "#171c25"
     },
     // Older settled caption lines keep their hierarchy without fading dark
     // ink back into the light card. Reveal and lift timing stay shared.
@@ -439,13 +408,12 @@ var LIGHT = {
         oldest: 0.75
     },
     answer: {
-        fill: "alpha(#000000, 0.075)",
-        hoverFill: "alpha(#000000, 0.1125)",
-        pressedFill: "alpha(#000000, 0.06)",
         clear: "alpha(#000000, 0)",
-        ink: "#171c25",
-        hoverInk: "#363d4a",
-        bareInk: "#262c36",
-        bareHoverInk: "#171c25"
+        quiet: {
+            fill: "alpha(#000000, 0.08)",
+            hoverFill: "alpha(#000000, 0.13)",
+            pressedFill: "alpha(#000000, 0.05)",
+            ink: "#171c25"
+        }
     }
 };

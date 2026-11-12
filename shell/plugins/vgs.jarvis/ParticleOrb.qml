@@ -180,6 +180,7 @@ Item {
         property vector4d uExtra: Qt.vector4d(eased.brightness + eased.driveBright * root.driven
             + eased.throbDepth * Math.sin(clock.throb), root.look.orb.tilt, eased.fold, root.latticePeriod)
         property real uReduce: root.reduced ? 1 : 0
+        property vector4d uEdge: Qt.vector4d(root.look.orb.edge, root.look.orb.edgeStrength, 0, 0)
         fragmentShader: Qt.resolvedUrl("shaders/particleorb.frag.qsb")
     }
 
