@@ -370,7 +370,7 @@ fi
                 assert not (retained[0] / "instance.stages.log").exists()
 
     timing = root / "timing.sh"
-    timing.write_text(function("smoke_row_secs") + function("cpu_some_pct"))
+    timing.write_text(function("smoke_row_secs") + function("smoke_row_mark") + function("cpu_some_pct"))
     result = subprocess.run([BASH, "-c", '''set -euo pipefail
 source "$1"
 now_ms() { echo 3000; }
@@ -384,6 +384,14 @@ smoke_row_secs unread 1000 "" 100000
 load_average() { :; }
 smoke_rows_ms=0 smoke_rows_cpu_us=0 smoke_rows_host_us=0
 smoke_row_secs empty 3000 "" ""
+load_average() { echo 12.34; }
+# A row run inside another: the outer row's marks are taken at 0 before
+# the inner row ends, and its line leaves the inner row's span, stall and
+# host stall out.
+smoke_rows_ms=0 smoke_rows_cpu_us=0 smoke_rows_host_us=0
+o_ms="$(smoke_row_mark "$smoke_rows_ms" 0)" o_cpu="$(smoke_row_mark "$smoke_rows_cpu_us" 0)" o_host="$(smoke_row_mark "$smoke_rows_host_us" 0)"
+smoke_row_secs inner 1000 100000 100000
+smoke_row_secs outer "$o_ms" "$o_cpu" "$o_host"
 ''', "_", str(timing)], env=ENV, capture_output=True, text=True,
                             timeout=IPC_CALL_BOUND_S)
     assert result.returncode == 0, result.stderr
@@ -391,6 +399,8 @@ smoke_row_secs empty 3000 "" ""
         "qml-smoke: row-secs row=example secs=2 cpu_some_pct=50.0 host_cpu_some_pct=25.0 load1=12.34",
         "qml-smoke: row-secs row=unread secs=2 cpu_some_pct=unmeasured host_cpu_some_pct=25.0 load1=12.34",
         "qml-smoke: row-secs row=empty secs=0 cpu_some_pct=unmeasured host_cpu_some_pct=unmeasured load1=unmeasured",
+        "qml-smoke: row-secs row=inner secs=2 cpu_some_pct=50.0 host_cpu_some_pct=25.0 load1=12.34",
+        "qml-smoke: row-secs row=outer secs=1 cpu_some_pct=10.0 host_cpu_some_pct=10.0 load1=12.34",
     ], result.stdout
 
     check_ok = root / "ok.sh"

@@ -602,26 +602,6 @@ for planted in updates-bare-refused:77 updates-bare-nested:1 updates-bare-multil
 done
 expect "control: the failures the row handles fail nothing" 3 grep -c -E -- "^updates-bare-refused: handled (after \|\||in a substitution|under set \+e)$" "$sandbox/row-plant-updates-bare-refused.log"
 
-# Control for smoke_row's row time (harness.sh): a row run inside another,
-# as jarvis-keys runs jarvis-bubble, prints its own row-secs line, and the
-# outer row's line leaves its span out, so the outer row reads less time
-# than the inner one it held.
-cat >"$row_plants/updates-span-outer.sh" <<'SH'
-smoke_row updates-span-inner "$row_plants"
-SH
-cat >"$row_plants/updates-span-inner.sh" <<'SH'
-# The inner row's own work, which only its line counts.
-sleep 2
-SH
-row_span_secs() { sed -n "s/^qml-smoke: row-secs row=$1 secs=\([0-9]*\) .*/\1/p" -- "$sandbox/row-plant-updates-span-outer.log"; } # ROW
-row_span_control() {
-  local outer inner
-  planted_row updates-span-outer >/dev/null
-  outer="$(row_span_secs updates-span-outer)" inner="$(row_span_secs updates-span-inner)"
-  if [[ $outer =~ ^[0-9]+$ && $inner =~ ^[0-9]+$ ]] && ((inner >= 2 && outer < inner)); then echo own-span; else echo "outer=$outer inner=$inner"; fi
-}
-expect "control: a row's time leaves out the row run inside it" own-span row_span_control
-
 # Controls for smoke_row's expected-error list and log window (harness.sh):
 # a row starts with no declared errors and reads the shell log from where it
 # starts, so a line one row declares or provokes counts for nothing in the

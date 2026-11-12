@@ -14,9 +14,11 @@
 # and that a unit's stop mid-row leaves the attempt's closing reading.
 # --case unmeasured checks unreached rows before and after world setup.
 # --case late-exit stops real initial and resumed worlds during EXIT.
-# The full run also plants a row that goes silent after a row that prints
-# slowly: the driver's no-progress stop ends the run in the silent row and
-# names it, and leaves the slow row, whose run outlasts the bound, its pass.
+# The full run also plants a row that goes silent, with TERM ignored, after
+# a row that prints slowly past the bound: the driver's no-progress stop
+# goes unanswered, so the driver kills the fence one bound later, and the
+# run ends within two bounds of the stop naming the silent row, never the
+# slow one.
 # Each cancellation case has the private PID namespace and 60 s readiness /
 # 30 s stop bounds of test-smoke-owner.sh --live. A world still starting at
 # the readiness bound is not measured when the case's window's CPU pressure,
@@ -680,15 +682,20 @@ elif label == 'stopped':
     assert re.search(r'^qml-smoke: failed=3$', log, re.M), log
     assert len(attempts) == 1, log
 elif label == 'no-progress':
-    assert by_row['slow'] == ('ok', ''), by_row
+    # The killed world leaves its attempt unsealed, so the driver reads no
+    # row record from it: every row but the hung one is unreached.
     assert by_row['hang'] == ('failed', ' cause=no-progress'), by_row
-    assert by_row['following'] == unreached, by_row
+    assert all(value == unreached for name, value in by_row.items() if name != 'hang'), by_row
     assert len(attempts) == 1, log
+    assert re.search(r'^qml-smoke: no-progress stop=unanswered fence=killed after-secs=15$', log, re.M), log
     assert re.search(r'^qml-smoke: no-progress row=hang idle-secs=[0-9]+ bound-secs=15 note=', log, re.M), log
-    for record in (attempts[0].parent / 'completion.json', attempts[0].parent.parent / 'completion.json'):
-        completion = json.loads(record.read_text())
-        assert completion['exit'] == 1 and completion['reason'] == 'no-progress' and completion['requestedStop'] == 1, completion
-        assert completion['noProgress']['row'] == 'hang' and completion['noProgress']['boundSecs'] == 15, completion
+    stopped = attempts[0].parent / 'no-progress'
+    record = attempts[0].parent.parent / 'completion.json'
+    assert not (attempts[0].parent / 'completion.json').exists(), log
+    completion = json.loads(record.read_text())
+    assert completion['exit'] == 1 and completion['reason'] == 'no-progress' and completion['requestedStop'] == 1, completion
+    assert completion['noProgress']['row'] == 'hang' and completion['noProgress']['boundSecs'] == 15, completion
+    assert record.stat().st_mtime - stopped.stat().st_mtime <= 2 * 15, (record.stat().st_mtime, stopped.stat().st_mtime)
 elif label == 'finish-operation':
     assert all(state == 'ok' for state, _ in by_row.values()), by_row
     assert re.search(r'^qml-smoke: failed=1$', log, re.M), log
@@ -1024,9 +1031,10 @@ printf '# inputs: scripts/smoke/harness.sh\nexit 1\n' >"$tree/scripts/smoke/rows
 printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
 run_case stopped
 # The slow row prints a line every 2 s for 18 s, past the 15 s bound; the
-# hang row then prints one line and goes silent.
+# hang row then prints one line and goes silent with TERM ignored, as a
+# teardown that hangs on a stop does.
 printf '# inputs: scripts/smoke/harness.sh\nfor i in 1 2 3 4 5 6 7 8 9; do sleep 2; ok "slow line $i"; done\n' >"$tree/scripts/smoke/rows/slow.sh"
-printf '# inputs: scripts/smoke/harness.sh\nok "hang starts"\nsleep 120\n' >"$tree/scripts/smoke/rows/hang.sh"
+printf '# inputs: scripts/smoke/harness.sh\nok "hang starts"\ntrap "" TERM\nsleep 600\n' >"$tree/scripts/smoke/rows/hang.sh"
 printf '%s\n' "${core[@]}" provider slow hang following >"$tree/scripts/smoke/rows.list"
 (export VGS_SMOKE_IDLE_SECS=15; run_case no-progress)
 # label | rows completed before the attempt exits 77

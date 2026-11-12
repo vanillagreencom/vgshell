@@ -1451,8 +1451,14 @@ cpu_some_pct() {
 # The pressure ceiling comes from the owner-approved cachy measurement:
 # Ryzen 9 9950X, 2026-10-08, VGS-1100 note 1791448368, highest 1.4%.
 # VGS-1064 directive 1791486985 excludes every reading above twice that
-# pressure, including fast readings. This restates the smoke policy; it
-# changes no product or architecture boundary.
+# pressure, including fast readings. That 1.4% was a reading of the
+# host's file; 2.8 now judges the world's. The world's file reads at or
+# below the host's in every paired reading retained on cachy: the
+# notifications emoji readings of 2026-11-09 to 11-12 (VGS-2397, VGS-2418,
+# VGS-2507 and main-run logs) read the world at 0.0 to 0.4% on a quiet
+# host at 0.3 to 1.5%, and at 13.6 to 27.7% when the host read 66.6 to
+# 76.6% (VGS-2465). This restates the smoke policy; it changes no product
+# or architecture boundary.
 latency_pressure_limit=2.8
 latency_pressure_verdict() { # MS CPU_SOME_PCT BUDGET_MS
   local ms="$1" pressure="$2" budget="$3" pressure_tenths limit_tenths
@@ -1483,7 +1489,8 @@ latency_pressure_check() { # ROW READING MS CPU_SOME_PCT BUDGET_MS
 # or 0 when the topology is unreadable. Host load and load per core are
 # logged beside a reading and judge none: SMT siblings can slow a task
 # without a wait any pressure file counts, and a row that needs a quiet
-# host for that reason states it in its own header.
+# host for that reason states why on its tracker item
+# (docs/architecture/validation.md § Latency budgets).
 latency_cores="$(sort -u /sys/devices/system/cpu/cpu[0-9]*/topology/core_cpus_list 2>/dev/null | wc -l)" || latency_cores=""
 # load_per_core LOAD: a 1-minute load average as /proc/loadavg writes it
 # over latency_cores, floored to two decimals; `unmeasured` when either
