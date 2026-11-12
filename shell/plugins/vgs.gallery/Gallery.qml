@@ -1320,6 +1320,9 @@ Item {
                         Divider { width: parent.width }
                         ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; clickable: false; highlighted: true; width: parent.width }
                         ListItem { text: "Clock"; iconName: "clock"; clickable: false; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
+                        // A row read for its secondary line: it breaks onto a
+                        // second line and is cut past it.
+                        ListItem { text: "Backup"; secondary: "Every 10 minutes, at least 30 seconds after the last run ends, until Friday 25 December 2026, 12 times"; secondaryWraps: true; iconName: "calendar-check"; clickable: false; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
                         // Content rows: one item with its action at its end and no
                         // hover, the same height whatever the secondary line holds.
                         ContentRow { text: "Clock"; secondary: "Show the time and date"; iconName: "clock"; width: parent.width; trailing: [ Button { size: "sm"; variant: "secondary"; text: "Add"; iconName: "plus"; anchors.verticalCenter: parent.verticalCenter } ] }

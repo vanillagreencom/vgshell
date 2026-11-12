@@ -8,7 +8,9 @@ import qs.Unit
 // scroll area's content height follows its children and its bar shows on
 // overflow, a click opens a tab, a list item highlights and clicks and
 // draws its lines as plain text and keeps its height under a long
-// secondary line, a list item that takes no click draws no
+// secondary line, unless it sets secondaryWraps: then the line breaks at
+// spaces onto at most two lines, the row grows by the second and the icon
+// stands on the title's line, a list item that takes no click draws no
 // hover or press and shows no hand while its trailing action keeps its
 // own, a section header draws its eyebrow inside
 // its padding, a surface draws its level and logs an unknown one, and a
@@ -395,6 +397,44 @@ Item {
             compare(long.height, Theme.listItem.twoLineHeight);
             long.destroy();
             short.destroy();
+        }
+
+        // A row whose secondary line is its reading, such as a schedule,
+        // shows it whole up to two lines, broken only at spaces, and cuts
+        // it past them; a rounded corner's wider padding changes nothing.
+        function test_a_wrapping_list_item_breaks_its_secondary_line_at_spaces_onto_two_lines_data() {
+            const short = "Weekly on Monday at 09:00";
+            const two = "Every 10 minutes, at least 30 seconds after the last run ends";
+            const past = two + ", until Friday 25 December 2026, 12 times";
+            return [
+                { tag: "one line", secondary: short, lines: 1, cut: false, radius: 0 },
+                { tag: "two lines", secondary: two, lines: 2, cut: false, radius: 0 },
+                { tag: "past two lines", secondary: past, lines: 2, cut: true, radius: 0 },
+                { tag: "past two lines, rounded", secondary: past, lines: 2, cut: true, radius: 16 }
+            ];
+        }
+        function test_a_wrapping_list_item_breaks_its_secondary_line_at_spaces_onto_two_lines(data) {
+            compare(UnitTheme.override({ radius: { sm: data.radius } }), "ok");
+            const plain = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Clock\"; width: 300; secondary: \"Show the time\" }", root);
+            const oneLine = plain.contentItem.children[1].children[1].height;
+            plain.destroy();
+            const wrapped = Qt.createQmlObject("import qs.Ui\nListItem { text: \"Backup\"; iconName: \"calendar-check\"; width: 300; secondaryWraps: true }", root);
+            wrapped.secondary = data.secondary;
+            const icon = wrapped.contentItem.children[0];
+            const title = wrapped.contentItem.children[1].children[0];
+            const secondary = wrapped.contentItem.children[1].children[1];
+            compare(secondary.lineCount, data.lines);
+            compare(secondary.truncated, data.cut);
+            compare(secondary.text.replace(/\n/g, " "), data.secondary, "the drawn lines hold the whole secondary line");
+            verify(secondary.text.split("\n").length >= secondary.lineCount, "every break falls at a space: " + JSON.stringify(secondary.text));
+            fuzzyCompare(wrapped.height, Theme.listItem.twoLineHeight + (data.lines - 1) * oneLine, 0.5);
+            // The lines' Column places them at its polish; before it, an
+            // icon left on the row's centre still reads on the title's.
+            waitForItemPolished(wrapped.contentItem.children[1]);
+            const iconMid = icon.mapToItem(wrapped, 0, icon.height / 2).y;
+            const titleMid = title.mapToItem(wrapped, 0, 0).y + title.leadingIconCentre;
+            verify(Math.abs(iconMid - titleMid) <= 1, "icon centre " + iconMid + ", title centre " + titleMid);
+            wrapped.destroy();
         }
 
         // A row's text comes from outside the shell, such as a device name

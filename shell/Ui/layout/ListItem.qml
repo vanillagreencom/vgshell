@@ -34,6 +34,11 @@ import qs.Ui
 // lines up under the text. `secondaryTone` "danger" draws the secondary
 // line in the danger colour, for a state that is a failure, such as a
 // stopped printer; "" draws it in its role's colour.
+// The secondary line elides on one line. A row whose secondary line is
+// what it is read for, such as a schedule, sets `secondaryWraps`: the line
+// then breaks only at spaces (LineBreak.atSpaces) onto at most a second
+// line, cut with an ellipsis past it, the row grows by that line, and the
+// icon stands on the title's line, as a leading icon of variable detail does.
 // A row a click cannot change, such as a detail line, sets `clickable`
 // false: a hover puts no plate on it, it takes no press and shows no
 // pointing hand, and a trailing control keeps its own hover, pointer, focus
@@ -59,6 +64,7 @@ T.ItemDelegate {
     property string iconName: ""
     property string secondary: ""
     property string secondaryTone: ""
+    property bool secondaryWraps: false
     property alias trailing: trailingRow.data
     // Visual children in data belong to the icon, including overlays:
     // https://doc.qt.io/qt-6/qml-qtquick-item.html#data-prop
@@ -89,7 +95,7 @@ T.ItemDelegate {
     function inkBelow() { return drawsNoBox ? contentInkBelow() : 0; }
 
     implicitWidth: leftPadding + rightPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth) + (trailingRow.width > 0 ? trailingRow.width + Theme.listItem.gap : 0)
-    implicitHeight: Math.max(secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height, implicitContentHeight + topPadding + bottomPadding)
+    implicitHeight: Math.max((secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height) + secondaryLabel.addedHeight, implicitContentHeight + topPadding + bottomPadding)
     leftPadding: Theme.controlPadding(Theme.listItem.paddingX, Theme.listItem.radius, Math.max(secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height, height), implicitContentHeight)
     rightPadding: leftPadding
     spacing: Theme.listItem.gap
@@ -121,6 +127,7 @@ T.ItemDelegate {
             size: Theme.icon.size.md
             color: root.lit ? Theme.listItem.selectedForeground : Theme.color.textMuted
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: root.secondaryWraps ? lines.y + title.topForLeadingIcon(height, lines.y) - (parent.height - height) / 2 : 0
         }
         Column {
             id: lines
@@ -139,12 +146,18 @@ T.ItemDelegate {
             }
             Label {
                 id: secondaryLabel
+                // The height of the lines after the first, which the row grows by.
+                readonly property real addedHeight: lineCount > 1 ? contentHeight * (lineCount - 1) / lineCount : 0
                 role: "itemHint"
                 color: root.secondaryTone === "danger" ? Theme.color.danger : root.lit ? Theme.listItem.selectedForeground : Theme.text.itemHint.color
                 textFormat: Text.PlainText
                 text: root.secondary
+                spaceWrappedText: root.secondaryWraps ? root.secondary : null
                 visible: root.secondary !== ""
                 width: parent.width
+                wrapMode: root.secondaryWraps ? Text.Wrap : Text.NoWrap
+                // Undefined resets Text's own maximum, no cap.
+                maximumLineCount: root.secondaryWraps ? 2 : undefined
                 elide: Text.ElideRight
             }
         }
