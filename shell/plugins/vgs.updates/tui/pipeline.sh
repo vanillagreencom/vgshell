@@ -49,13 +49,7 @@
 #      tracked devel vgshell-git, the AUR upgrade builds it and no separate
 #      rebuild runs; a run without the AUR step, an Update of VGS alone,
 #      rebuilds it. With Devel off, no tracked devel update, or yay, status
-#      selects the separate rebuild.
-#      A rebuild removes the record
-#      $(updates_state_dir)/rebuild-failed.json before it runs and, when it
-#      fails, writes it: `{ current, helper, exit, conflict }`, the package
-#      version it replaced, the helper, its exit status and the first
-#      package pacman's `:: <a> and <b> are in conflict` line names, or
-#      null. The helper asks sudo itself, so the
+#      selects the separate rebuild. The helper asks sudo itself, so the
 #      phase runs under tui.sh's sudo guard: the credential it caches is
 #      dropped when the phase ends, fails or is interrupted
 #  13. pacman's orphaned packages, removed only on a yes, default no, after
@@ -71,23 +65,36 @@
 #      vgs_tui_reboot_check)
 #  17. the result list, then the failure count and failed parts: the last
 #      output names each failed part, its cause and its next step
+#  18. the outcome file $(updates_state_dir)/outcome.json, written by
+#      rename when the run ends however it ends, which the Updates window
+#      shows until the next run replaces it: `{ ended, text }`, `ended`
+#      `finished` with an empty `text`, `failed` with the first failed
+#      part's result line as `text`, or `stopped` with "You stopped the
+#      update during <part>.";
+#      a run that ends at the start question, or at the review's Stop with
+#      no part failed before it, writes none
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
 # manager asks its own questions in this terminal. -y answers only the
 # pipeline's own start question; the orphan and reboot questions are then
 # reported instead of asked, and the review's questions are still asked.
-# A source step (7 to 10 and 12) that fails records its cause, read from
-# its output (_updates_cause_of), and the run goes on with the next; a run with
-# a failed step exits 1 after the reboot question. After a failed or
-# declined system step the AUR step and the vgshell-git rebuild are
-# skipped, since they build against the system that step left. A package a
-# declined AUR transaction leaves out is not retried by the VGS rebuild.
-# A failed AUR build permits the rebuild only when the package owner proves
-# every failed package is outside VGS's dependency build order.
-# A step a Ctrl-C ended ends the run with 130. Any other failing step ends
-# the run:
-# the ERR trap prints `updates: failed exit=<n> log=<file>` and how to
+# No part's failure ends the run. A source step (7 to 10 and 12) that fails
+# records its cause, read from its output (_updates_cause_of), and the run
+# goes on with the next; a run with a failed step exits 1 after the reboot
+# question. After a failed or declined system step, or a failed paru
+# install, the AUR step and the vgshell-git rebuild are skipped, since they
+# build against the system that step left or need the helper. A refused
+# password skips every step that needs it: the system, the file rows, the
+# snapshot, the AUR, the rebuild and the orphans. An unreadable VGS status,
+# plugin, theme or orphan list skips that part, and a failed orphan removal
+# or shell restart is a failed part. A package a declined AUR transaction
+# leaves out is not retried by the VGS rebuild. A failed AUR build permits
+# the rebuild only when the package owner proves every failed package is
+# outside VGS's dependency build order.
+# A step a Ctrl-C ended ends the run with 130. Any other failing command is
+# a fault of the pipeline itself and ends the run: the ERR trap prints the
+# result list so far, `updates: failed exit=<n> log=<file>` and how to
 # recover, and the session's or the guard's EXIT trap drops the credential.
 #
 # Every refusal prints `updates: refused: <key>=<value>` first. A bad
@@ -103,6 +110,9 @@ _updates_usage="usage: update.sh [-y] | update-source.sh <source> [-y]"
 # its RootDir; a link of that name in /etc/pacman.d/hooks, which the
 # reboot-notice system step makes, turns the hook off but not this read.
 _updates_reboot_hook=usr/share/libalpm/hooks/cachyos-reboot-required.hook
+# The result of a part that failed without words VGS could use, after its
+# label.
+_updates_uncaused=" failed, and VGS could not find the cause. Next: update again."
 
 _updates_diagnostic() { # RAW_LINE
   local dir
@@ -134,9 +144,72 @@ _updates_refuse() { # STATUS FIRST_LINE [ENGLISH...]
 _updates_failed() { # STATUS
   [[ $BASHPID == "${_updates_pid:-}" ]] || return 0
   _updates_diagnostic "updates: failed exit=$1 log=$_updates_log"
-  _updates_recheck failed
-  vgs_tui_failed "$_updates_log" "The update stopped. Read the output above and try again from Updates." \
-    "Select Open last log in Updates to read this run's output."
+  # A fault after the run reached its end, such as a failed reboot, keeps
+  # the end the run recorded.
+  [[ -z $_updates_part_now || -f $VGS_PACKAGE_TRANSACTION/ended ]] ||
+    _updates_ended failed "${_updates_failed_first:-$_updates_part_now$_updates_uncaused}"
+  _updates_result_list
+  vgs_tui_failed "$_updates_log" "The update stopped. Try again from Updates."
+}
+
+# PART, the label of the part that starts now, which the outcome of a run
+# stopped or failing in it names (updates_main's EXIT).
+_updates_part() { # PART
+  _updates_part_now="$1"
+  printf '%s\n' "$1" >"$VGS_PACKAGE_TRANSACTION/part"
+}
+
+# How the run ended, `finished` or `failed`, and TEXT, the sentence a
+# failed run's outcome shows; written once the run reached its end or its
+# error trap.
+_updates_ended() { # finished|failed TEXT
+  printf '%s %s\n' "$1" "$2" >"$VGS_PACKAGE_TRANSACTION/ended"
+}
+
+# Adds LINE, the result of PART, which failed, to the result list. The
+# first one also goes to the run's folder, for the outcome of a run that a
+# review's Stop ends after it (_updates_outcome_write).
+_updates_fail() { # PART LINE
+  _updates_results+=("$2")
+  _updates_failed_parts+=("$1")
+  [[ -z $_updates_failed_first ]] || return 0
+  _updates_failed_first="$2"
+  printf '%s\n' "$2" >"$VGS_PACKAGE_TRANSACTION/failed"
+}
+
+# The outcome file, written by rename so the service never reads half, from
+# the facts the run left in its private folder: none before the first
+# part; the run's own sentence once it reached its end, also when a signal
+# came after; a stop by Ctrl-C (130), a closed window (129) or TERM (143);
+# else the first failed part's result line, as a review's Stop after a
+# failed paru install leaves it; else, for a failing status, the part it
+# ended in for a reason it gave no words for. A run that ended in a part
+# before its own check, stopped, at the review's Stop or in the error
+# trap, asks for the check here, after the outcome is written: the check
+# can wait a minute for the shell, and a second signal in that wait ends
+# this trap. One that ended before its first part leaves the check to the
+# end of its TUI.
+_updates_outcome_write() { # STATUS
+  local status="$1" dir="$VGS_PACKAGE_TRANSACTION" part ended="" text=""
+  [[ -f $dir/part ]] || return 0
+  read -r part <"$dir/part"
+  if [[ -f $dir/ended ]]; then
+    read -r ended text <"$dir/ended"
+  elif [[ $status == 129 || $status == 130 || $status == 143 ]]; then
+    ended=stopped text="You stopped the update during $part. Nothing after it ran."
+  elif [[ -f $dir/failed ]]; then
+    ended=failed
+    read -r text <"$dir/failed"
+  elif [[ $status != 0 ]]; then
+    ended=failed text="$part$_updates_uncaused"
+  fi
+  if [[ -n $ended ]]; then
+    node -e 'const fs = require("node:fs"); const [file, ended, text] = process.argv.slice(1);
+fs.writeFileSync(file + "." + process.pid, JSON.stringify({ ended, text }) + "\n");
+fs.renameSync(file + "." + process.pid, file);' "$(updates_state_dir)/outcome.json" "$ended" "$text" ||
+      _updates_diagnostic "updates: outcome=unwritten exit=$?"
+  fi
+  [[ -f $dir/checked ]] || _updates_recheck
 }
 
 # Runs ARGV from $HOME, as vgshell pkg run runs its steps, so a project's
@@ -227,6 +300,15 @@ process.stdout.write(require(loader).load(judge).transcriptLines(fs.readFileSync
     "$_updates_loader" "$_updates_tree/shell/Core/PackageReview.js" "$1"
 }
 
+# TEXT, a line a step printed, as a result line may show it:
+# PackageReview.failureLines masks its secret shapes and cuts its length
+# (docs/architecture/secrets.md).
+_updates_shown() { # TEXT
+  node -e 'const [loader, judge, text] = process.argv.slice(1);
+process.stdout.write(require(loader).load(judge).failureLines(text).join(" "));' \
+    "$_updates_loader" "$_updates_tree/shell/Core/PackageReview.js" "$1"
+}
+
 # The lines a tool starts a failure with, once terminal controls and leading
 # space are gone: pacman's `error: `, which its pm_printf writes to stderr
 # before an ALPM_LOG_ERROR message (src/pacman/util.c). A failed commit
@@ -249,6 +331,8 @@ _updates_refusal_question='(::[[:space:]]+(Proceed to review|Proceed with instal
 # the step's own text; a question its manager left unanswered can precede
 # it on its line.
 _updates_scan_line='(^|[[:space:]])shell=(rescan-started|rescan-queued|not-running)[[:space:]]*$'
+# The characters of a package name, as the build lines below read them.
+_updates_package='[A-Za-z0-9@_+.-]+'
 
 # The cause of a failed step from its output in FILE, stdout and stderr in
 # the order the terminal showed them with the answers the user typed, once
@@ -256,22 +340,26 @@ _updates_scan_line='(^|[[:space:]])shell=(rescan-started|rescan-queued|not-runni
 # refused:` or `vgs-tui: refused:` key line and English after it. A
 # question and its answer can precede the key on its line, as `vgshell
 # plugin update`'s [y/N] does, and that text is never a cause. With a key
-# line the cause is the last line after the last one, else its value, such
-# as git's message after a `fetch=` refusal. `vgshell pkg run`'s closing
+# line the cause is the last line after the last one, such as git's message
+# after a `fetch=` refusal, else none: _updates_unworded holds the key, which
+# only the developer log shows. `vgshell pkg run`'s closing
 # block, a `rescan=` refusal after its steps, is the exception: there the
 # cause is the last error line the steps printed before it, else their last
 # line. Its other closing line, the scan line, is read as no line at all.
 # Without a key line it is the last error line, else the last line
 # that holds text. A question the step printed text after, with no answer
-# echoed, gives that text instead. Sets _updates_cause, and
+# echoed, gives that text instead, passed through _updates_shown. pacman's
+# known errors, a theme lock and a failed build give VGS's own sentence.
+# Sets _updates_cause, and
 # _updates_declined to 1 when the user said no: the `declined=` refusal of
 # `vgshell plugin|theme update`, or a step whose own text ends on a [Y/n]
 # or [y/N] question answered no or left unanswered, as pacman and an AUR
 # helper leave one. Also sets _updates_next for the result line's action.
 _updates_cause_of() { # FILE
-  local line rest out last="" fault="" keyed=0 value="" held="" held_fault="" tail="" after="" own="" phase="" built="" package summary="" build_state=unknown transaction_fault=""
+  local line rest out last="" fault="" keyed=0 value="" held="" held_fault="" tail="" after="" own="" built="" package summary="" build_state=unknown transaction_fault=""
   _updates_declined=0
   _updates_refused=0
+  _updates_unworded=""
   _updates_failed_builds=()
   _updates_build_complete=0
   out="$(_updates_plain "$1")"
@@ -316,7 +404,6 @@ _updates_cause_of() { # FILE
             $line =~ $_updates_refusal_question ]]; then
       build_state=transaction transaction_fault="$line"
     fi
-    if [[ $line =~ ^==\>\ ERROR:\ A\ failure\ occurred\ in\ ([a-z]+)\(\)\. ]]; then phase="${BASH_REMATCH[1]}"; fi
     if [[ $line =~ ^error:\ packages\ failed\ to\ build:\ (.+)$ ]]; then
       built="${BASH_REMATCH[1]//,/ }" summary="$line"
     elif [[ -z $built && $line =~ failed\ to\ build[:\ ]+[\'\"]?([A-Za-z0-9@_+.-]+-[^[:space:]-]+-[^[:space:]-]+) ]]; then
@@ -334,9 +421,9 @@ _updates_cause_of() { # FILE
   if [[ $keyed == 0 ]]; then
     own="$last" _updates_cause="${fault:-$last}"
   elif [[ $value == rescan=* ]]; then
-    own="${tail:-$held}" _updates_cause="${held_fault:-${held:-${after:-$value}}}"
+    own="${tail:-$held}" _updates_cause="${held_fault:-${held:-$after}}"
   else
-    _updates_cause="${after:-$value}"
+    _updates_cause="$after"
   fi
   # A per-package message is useful copy, not permission to rebuild.
   if [[ $build_state == build && -n $summary && $own == "$summary" ]]; then _updates_build_complete=1; fi
@@ -344,11 +431,46 @@ _updates_cause_of() { # FILE
     rest="${BASH_REMATCH[2]}"
     if [[ $rest =~ $_updates_answer && $rest != *[Yy]* ]]; then _updates_declined=1; fi
   fi
-  _updates_next="update again; if it fails again, the log names the cause. Select Open last log in Updates."
-  # VGS's theme refusal and makepkg's build errors can precede a closing
-  # line such as Aborting, so map the whole output the step supplied.
+  _updates_next="update again."
   if [[ -n $transaction_fault ]]; then
     [[ -z $summary || $own != "$summary" ]] || _updates_cause="$transaction_fault"
+  fi
+  # The step's own line, masked and cut as a failure shows it.
+  [[ -z $_updates_cause ]] || _updates_cause="$(_updates_shown "$_updates_cause")"
+  # VGS's sentences replace it. VGS's theme refusal, makepkg's build errors
+  # and pacman's errors can precede a closing line such as Aborting, so map
+  # the whole output the step supplied.
+  if [[ -n $transaction_fault ]]; then
+    # pacman's English errors: libalpm's lock error, which `failed to init
+    # transaction (%s)` carries, and which a running manager's lock and a
+    # stale one a crash left both give; the download error a database sync
+    # and a package download end on, `failed to synchronize all databases
+    # (%s)` and `failed to commit transaction (%s)` carrying `failed to
+    # retrieve some files`, never the per-mirror `failed retrieving file`,
+    # after which the next mirror can still succeed; and the conflict line,
+    # `%s-%s and %s-%s are in conflict`, after a question that asks to
+    # remove the second, the installed package (strings of pacman 7.1.0's
+    # /usr/bin/pacman and libalpm.so, read 2026-11-11). A version holds no
+    # hyphen but the one before its release, so a name is the word without
+    # its last two hyphenated parts. Another locale keeps pacman's own line.
+    case "$out" in
+      *"unable to lock database"*)
+        _updates_cause="Another package manager is running, or one that stopped left its lock behind."
+        _updates_next="update again when it has finished. If none is running, delete the lock file pacman names, then update again."
+        ;;
+      *"failed to synchronize all databases (failed to retrieve some files)"*|*"failed to commit transaction (failed to retrieve some files)"*)
+        _updates_cause="The package servers could not be reached."
+        _updates_next="update again when the network works."
+        ;;
+      *)
+        while IFS= read -r line; do
+          if [[ $line =~ (^|[[:space:]])::\ ($_updates_package-[^[:space:]-]+-[^[:space:]-]+)\ and\ ($_updates_package-[^[:space:]-]+-[^[:space:]-]+)\ are\ in\ conflict ]]; then
+            _updates_cause="${BASH_REMATCH[2]%-*-*} conflicts with ${BASH_REMATCH[3]%-*-*}, which is installed."
+            break
+          fi
+        done <<<"$out"
+        ;;
+    esac
   else
     case "$out" in
       *"another theme command holds the theme lock"*)
@@ -356,16 +478,22 @@ _updates_cause_of() { # FILE
         _updates_next="wait for it to finish, then update again from the Updates panel."
         ;;
       *"A failure occurred in "*|*"failed to build"*)
-        _updates_cause="${_updates_failed_builds[*]:-The package} could not be built${phase:+: $phase() failed}."
-        _updates_next="open this package in your AUR helper to resolve the build failure or wait for its maintainer to fix it, then update from Updates. Open last log has the full output."
+        _updates_cause="VGS could not build ${_updates_failed_builds[*]:-the package}."
+        _updates_next="wait for its maintainer to fix the package, then update again."
         ;;
     esac
   fi
+  # A key is for the log: a refusal with no words after it, and none VGS
+  # has, gives none.
+  [[ $keyed == 0 || -n $_updates_cause ]] || _updates_unworded="$value"
 }
 
 # Runs one source step, ARGV, and adds its result to _updates_results as
 # `LABEL <result>.`: installed; skipped when the user declined it; failed
-# with its cause and next step, else `exit <n>`. _updates_outcome is installed,
+# with its cause and next step, else `exit <n>`; or, for a refusal that gave
+# only its key, which goes to diagnostics.log, failed with no cause VGS
+# could find. A failed step's LABEL names its packages, and the
+# outcome of a run stopped in it names the same. _updates_outcome is installed,
 # declined or failed, and _updates_exit the step's exit status. The run goes
 # on after a failure, so neither errexit nor the ERR trap sees it.
 #
@@ -387,8 +515,12 @@ _updates_cause_of() { # FILE
 # pacman still reaches the end of its transaction and unlocks its database
 # instead of dying by SIGPIPE. A step a Ctrl-C ended, 130, ends the run.
 _updates_source() { # ID LABEL ARGV...
-  local id="$1" label="$2" status=0
+  local id="$1" label="$2" part="$2" status=0
   shift 2
+  if [[ $id == aur ]]; then part="AUR packages"
+  elif [[ $label == System ]]; then part="System packages"
+  fi
+  _updates_part "$part"
   vgs_tui_interval_open
   "$@" || status=$?
   _updates_exit="$status"
@@ -408,10 +540,11 @@ _updates_source() { # ID LABEL ARGV...
     _updates_diagnostic "updates: transcript=unread source=$id reason=$vgs_tui_unread"
     _updates_declined=0
     _updates_refused=0
+    _updates_unworded=""
     _updates_failed_builds=()
     _updates_build_complete=0
     _updates_cause="VGS could not read this step's output."
-    _updates_next="select Open last log in Updates to read the step's output."
+    _updates_next="update again."
   fi
   if [[ $_updates_declined == 1 ]]; then
     _updates_outcome=declined
@@ -420,15 +553,15 @@ _updates_source() { # ID LABEL ARGV...
   fi
   _updates_outcome=failed
   _updates_diagnostic "updates: failed source=$id exit=$status"
-  if [[ $id == aur ]]; then label="AUR packages"
-  elif [[ $label == System ]]; then label="System packages"
+  if [[ -n $_updates_unworded ]]; then
+    _updates_diagnostic "updates: unworded source=$id refusal=$_updates_unworded"
+    _updates_fail "$part" "$part$_updates_uncaused"
+  else
+    local cause="${_updates_cause:-exit $status}"
+    [[ $cause == *[.!?] ]] || cause+="."
+    _updates_fail "$part" "$part failed. $cause Next: $_updates_next"
   fi
-  local cause="${_updates_cause:-exit $status}"
-  [[ $cause == *[.!?] ]] || cause+="."
-  _updates_results+=("$label failed. $cause Next: $_updates_next")
-  _updates_failed_parts+=("$label")
-  _updates_failures=$((_updates_failures + 1))
-  vgs_tui_warn "$label failed. The rest of the update goes on."
+  vgs_tui_warn "$part failed. The rest of the update goes on."
 }
 
 # The shared TUI word wrapper owns line breaks. Reserve PREFIX's columns
@@ -446,30 +579,29 @@ _updates_result() { # WIDTH PREFIX TEXT [SGR]
   done
 }
 
-# The record of a failed vgshell-git rebuild, as the header states: the
-# installed version CURRENT, the HELPER and its EXIT status, and the first
-# package of pacman's conflict line in the step's output, the cause file.
-# pacman prints its conflict question on stderr as `:: <name>-<version> and
-# <name>-<version> are in conflict...`, and a version holds no hyphen but
-# the one before its release, so the name is the word without its last two
-# hyphenated parts. Written by rename, so the service never reads half.
-_updates_rebuild_failed() { # CURRENT HELPER EXIT
-  local file conflict=null line
-  file="$(updates_state_dir)/rebuild-failed.json"
-  while IFS= read -r line; do
-    if [[ $line =~ (^|[[:space:]])::\ ([^[:space:]]+-[^[:space:]-]+-[^[:space:]-]+)\ and\ [^[:space:]]+\ are\ in\ conflict ]]; then
-      conflict="\"$(_updates_json_text "${BASH_REMATCH[2]%-*-*}")\""
-      break
-    fi
-  done < <(_updates_plain "$_updates_cause_file")
-  printf '{"current":"%s","helper":"%s","exit":%s,"conflict":%s}\n' "$(_updates_json_text "$1")" "$(_updates_json_text "$2")" "$3" "$conflict" >"$file.part"
-  mv -f -- "$file.part" "$file"
-}
-# TEXT with JSON's two escapes a string needs here: bin/facts refuses a
-# control character in the values this takes.
-_updates_json_text() { # TEXT
-  local text="${1//\\/\\\\}"
-  printf '%s' "${text//\"/\\\"}"
+# The result list, then the failed parts' count and names. Plain lines wrap
+# within the window. A line with no part of its own has no hanging indent.
+_updates_result_list() {
+  local columns width result prefix label failed_parts=""
+  [[ ${#_updates_results[@]} -gt 0 ]] || return 0
+  columns="$(vgs_tui_columns)"
+  width=$((columns - 2 * _vgs_tui_edge))
+  (( width > 0 )) || width=1
+  vgs_tui_step "Update result"
+  for result in "${_updates_results[@]}"; do
+    case "$result" in
+      *" failed. "*) prefix="${result%%" failed. "*} " ;;
+      *" skipped. "*) prefix="${result%%" skipped. "*} " ;;
+      *" failed, and "*) prefix="${result%%" failed, and "*} " ;;
+      *" installed.") prefix="${result%" installed."} " ;;
+      *) prefix="" ;;
+    esac
+    _updates_result "$width" "$prefix" "${result#"$prefix"}"
+  done
+  [[ ${#_updates_failed_parts[@]} -gt 0 ]] || return 0
+  _updates_result "$width" '' "${#_updates_failed_parts[@]} of ${#_updates_results[@]} parts failed" "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >&2
+  for label in "${_updates_failed_parts[@]}"; do failed_parts+="${failed_parts:+, }$label"; done
+  _updates_result "$width" 'Failed parts: ' "$failed_parts"
 }
 
 # The directory a run writes its log in, and the last run's log in it,
@@ -569,13 +701,14 @@ _updates_vgs_package_version() {
 
 # The plugins or themes behind their upstream, into _updates_behind; a
 # checkout whose probe failed warns, and a probe that failed as a whole
-# skips the source.
+# skips the source and returns 1, so the plan box shows it skipped.
 _updates_outdated() { # plugin|theme SOURCE
   local out facts key value
   _updates_behind=()
   if ! out="$("$_updates_vgshell" "$1" outdated --json)"; then
-    _updates_diagnostic "updates: skipped=$2 reason=outdated-failed"; vgs_tui_warn "Could not check $2 for updates. This step was skipped."
-    return 0
+    _updates_diagnostic "updates: skipped=$2 reason=outdated-failed"
+    _updates_results+=("${2^} skipped. VGS could not check them for updates. Update again later.")
+    return 1
   fi
   facts="$(_updates_facts outdated "$2" <<<"$out")"
   while read -r key value; do
@@ -595,18 +728,26 @@ _updates_update_each() { # plugin|theme ID...
   done
 }
 
+# The orphans' result line when their list or its build tools could not
+# be read, and DIAGNOSTIC in the developer log.
+_updates_orphans_unread() { # DIAGNOSTIC
+  _updates_diagnostic "updates: $1"
+  _updates_results+=("Orphaned packages skipped. VGS could not check which packages are unused. Update again later.")
+}
+
 _updates_orphans() {
   local out info status=0 orphans=()
+  _updates_part "Orphaned packages"
   out="$(pacman -Qtdq)" || status=$?
   # pacman -Qtdq exits 1 when no package is orphaned.
   if [[ $status -eq 1 && -z $out ]]; then return 0; fi
   if [[ $status -ne 0 ]]; then
-    _updates_diagnostic "updates: orphans=unreadable exit=$status"; vgs_tui_warn "Could not check for unused packages. Package removal was skipped."
+    _updates_orphans_unread "orphans=unreadable exit=$status"
     return 0
   fi
   mapfile -t orphans <<<"$out"
   vgs_tui_step "Orphaned packages"
-  info="$("$_updates_vgshell" pkg orphan-info "${orphans[@]}")" || return 1
+  info="$("$_updates_vgshell" pkg orphan-info "${orphans[@]}")" || { _updates_orphans_unread "orphans=info-failed exit=$?"; return 0; }
   out="$(node - "$info" <<'JS'
 const info = JSON.parse(process.argv[2]);
 // REVISIT(D128): declared build tools stay out of the removal offer.
@@ -623,7 +764,7 @@ if (info.unavailable.length) {
 console.error("Pacman does not retain build declarations. Other orphaned packages may be build tools from earlier source builds.");
 console.log(candidates.map(row => row.name).join("\n"));
 JS
-  )" || return 1
+  )" || { _updates_orphans_unread "orphans=unjudged exit=$?"; return 0; }
   orphans=()
   if [[ -n $out ]]; then mapfile -t orphans <<<"$out"; fi
   if [[ ${#orphans[@]} -eq 0 ]]; then return 0; fi
@@ -634,20 +775,28 @@ JS
   status=0
   vgs_tui_confirm "Remove ${#orphans[@]} orphaned package(s)?" --default=false || status=$?
   case "$status" in
-    0) "$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}" || { _updates_diagnostic "updates: orphans=remove-failed exit=$?"; vgs_tui_warn "Could not remove the unused packages. Try again from Updates."; } ;;
+    0)
+      "$_updates_vgshell" pkg run remove --manager pacman "${orphans[@]}" || {
+        _updates_diagnostic "updates: orphans=remove-failed exit=$?"
+        _updates_fail "Orphaned packages" "Orphaned packages failed. VGS could not remove them. Next: update again and remove them when it asks."
+        vgs_tui_warn "Orphaned packages failed. The rest of the update goes on."
+      } ;;
     1) echo "Keeping the orphaned packages." ;;
     *) exit "$status" ;;
   esac
 }
 
+# The run's one check, asked as `run` so the service starts no second one
+# when the TUI ends (Service.qml).
 _updates_recheck() {
   local reply status polls=0 line unavailable
+  : >"$VGS_PACKAGE_TRANSACTION/checked"
   # restart waits for core `shell guarded`, while ServiceGate builds the
   # plugin services after the bars. A package rescan can also replace this
   # service. Wait for its registered check handler, not just the core PID.
   while :; do
     status=0
-    reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke check '' 2>&1)" || status=$?
+    reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke check run 2>&1)" || status=$?
     if [[ $status == 0 && ( $reply == started || $reply == queued ) ]]; then return 0; fi
     # bin/vgshell emits its keyed refusal after qs's output, followed by
     # an explanation. Consume that CLI contract, not the bare qs message.
@@ -672,7 +821,7 @@ _updates_reboot_unread() { # DIAGNOSTIC
   _updates_diagnostic "$1"
   [[ $_updates_reboot_warned == 0 ]] || return 0
   _updates_reboot_warned=1
-  vgs_tui_warn "Could not check which updates need a restart."
+  vgs_tui_warn "Could not check which updates need a reboot."
 }
 
 # Sets _updates_core to the packages of CHANGES, `upgrade <name>` and
@@ -725,7 +874,7 @@ _updates_reboot() { # CORE...
       done <<<"$out"
       ;;
     1) ;;
-    *) _updates_diagnostic "updates: reboot-check=failed exit=$status"; vgs_tui_warn "Could not check whether a restart is needed." ;;
+    *) _updates_diagnostic "updates: reboot-check=failed exit=$status"; vgs_tui_warn "Could not check whether a reboot is needed." ;;
   esac
   [[ ${#reasons[@]} -gt 0 ]] || return 0
   if [[ $_updates_yes == 1 ]]; then
@@ -779,12 +928,13 @@ _updates_main() {
   fi
   mv -f -- "$UPDATES_LOG_PART" "$_updates_log"
   _updates_pid=$BASHPID
-  trap '_updates_failed $?' ERR
-  # The result list, the failed steps' count, whether a reboot read warned,
-  # and the file a failed source step's output is cut into: one file, since
-  # the lock holds one run at a time.
-  _updates_results=() _updates_failed_parts=() _updates_failures=0 _updates_reboot_warned=0
+  # The result list, the failed parts and the first one's result, the part
+  # now running, whether a reboot read warned, and the file a failed source
+  # step's output is cut into: one file, since the lock holds one run at a
+  # time.
+  _updates_results=() _updates_failed_parts=() _updates_failed_first="" _updates_part_now="" _updates_reboot_warned=0
   _updates_cause_file="$state/.step-output"
+  trap '_updates_failed $?' ERR
 
   # What the run acts on: the plugin's settings and the system's managers.
   local out facts key value aur_command=() snapshot_setting="" trust=false
@@ -849,21 +999,27 @@ _updates_main() {
   # Each source's plan, for the box and the steps. A package source whose
   # plan the table refuses, as it refuses nix's, leaves the run.
   local -A labels=()
-  local plan=() kept=() id label vgs_package="" vgs_current="" vgs_step="" vgs_reason="" plugins=() themes=()
+  local plan=() kept=() id label vgs_package="" vgs_step="" vgs_reason="" vgs_unread=0 plugins=() themes=()
   local primary_planned=0 elevator="" elevator_refused=""
   local _updates_plan_text _updates_plan_elevator _updates_plan_elevator_refused
   if _updates_in vgs "${run[@]}"; then
-    out="$("$_updates_vgshell" self status --json)"
-    facts="$(_updates_facts self <<<"$out")"
-    while read -r key value; do
-      case "$key" in
-        package) vgs_package="$value" ;;
-        current) vgs_current="$value" ;;
-        step) vgs_step="$value" ;;
-        reason) vgs_reason="$value" ;;
-        error) _updates_diagnostic "VGS: $value"; vgs_tui_warn "Could not check VGS for updates." ;;
-      esac
-    done <<<"$facts"
+    if out="$("$_updates_vgshell" self status --json)" && facts="$(_updates_facts self <<<"$out")"; then
+      while read -r key value; do
+        case "$key" in
+          package) vgs_package="$value" ;;
+          step) vgs_step="$value" ;;
+          reason) vgs_reason="$value" ;;
+          error) _updates_diagnostic "VGS: $value"; vgs_unread=1 ;;
+        esac
+      done <<<"$facts"
+    else
+      _updates_diagnostic "updates: vgs-status=unread exit=$?"; vgs_unread=1
+    fi
+    # A status VGS could not read runs no VGS step; the rest of the run goes on.
+    if [[ $vgs_unread == 1 ]]; then
+      vgs_step=""
+      _updates_results+=("VGS skipped. VGS could not check it for updates. Update again later.")
+    fi
   fi
   for id in "${run[@]}"; do
     case "$id" in
@@ -919,14 +1075,20 @@ _updates_main() {
   fi
   if [[ ${#aur_command[@]} -gt 0 ]] && _updates_in aur "${run[@]}"; then plan+=("AUR: install updates after system updates"); fi
   if _updates_in plugins "${run[@]}"; then
-    _updates_outdated plugin plugins
-    plugins=("${_updates_behind[@]}")
-    plan+=("Plugins: ${plugins[*]:-current}")
+    if _updates_outdated plugin plugins; then
+      plugins=("${_updates_behind[@]}")
+      plan+=("Plugins: ${plugins[*]:-current}")
+    else
+      plan+=("Plugins: skipped")
+    fi
   fi
   if _updates_in themes "${run[@]}"; then
-    _updates_outdated theme themes
-    themes=("${_updates_behind[@]}")
-    plan+=("Themes: ${themes[*]:-current}")
+    if _updates_outdated theme themes; then
+      themes=("${_updates_behind[@]}")
+      plan+=("Themes: ${themes[*]:-current}")
+    else
+      plan+=("Themes: skipped")
+    fi
   fi
 
   # A snapshot and the VGS version check guard every step that replaces
@@ -971,6 +1133,10 @@ _updates_main() {
   out="$(df --output=avail --block-size=1 /)"
   avail="${out##*$'\n'}"
   avail="${avail//[[:space:]]/}"
+  # 10 GiB covers the largest one-run need measured on 2026-11-11: the
+  # biggest pacman transaction whose packages were still in the cache plus
+  # the biggest AUR build folder, 8.4 GiB on home (5.6 + 2.7), 4.0 on
+  # jarvis-mbp (0.2 + 3.8) and 3.5 on px13 (1.3 + 2.2).
   if [[ ! $avail =~ $_updates_digits ]]; then
     _updates_diagnostic "updates: free-space=unreadable"; vgs_tui_warn "Could not check free disk space."
   elif ((avail < 10 * 1024 * 1024 * 1024)); then
@@ -996,31 +1162,69 @@ _updates_main() {
 
   # A missing helper is a separate prerequisite transaction. It reviews
   # before its own credentials and ends them before Updates binds its plan.
+  # Without it the AUR builds and the VGS package cannot run.
+  local ignore=() aur_blocked=""
   if [[ $rebuild == 1 && $vgs_step == install-helper ]]; then
     vgs_tui_step "Installing paru for VGS updates"
     _updates_source paru Paru _updates_run _updates_install_helper
-    [[ $_updates_outcome == installed ]] || exit 1
-    aur_binary=paru
-    vgs_step=rebuild
+    if [[ $_updates_outcome == installed ]]; then
+      aur_binary=paru
+      vgs_step=rebuild
+    else
+      aur_blocked="paru could not be installed"
+    fi
   fi
   # The run.
-  local review_system=0 review_aur=0
+  local review_system=0 review_aur=0 review_rebuild=0
   if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_system=1; fi
-  if _updates_in aur "${run[@]}"; then review_aur=1; fi
-  if [[ $review_system == 1 || $review_aur == 1 || $rebuild == 1 ]]; then
-    _updates_package_review "$review_system" "$review_aur" "$rebuild" "$aur_binary" "${aur_command[@]}"
+  if [[ -z $aur_blocked ]]; then
+    review_rebuild="$rebuild"
+    if _updates_in aur "${run[@]}"; then review_aur=1; fi
   fi
+  if [[ $review_system == 1 || $review_aur == 1 || $review_rebuild == 1 ]]; then
+    _updates_part "Package review"
+    _updates_package_review "$review_system" "$review_aur" "$review_rebuild" "$aur_binary" "${aur_command[@]}"
+  fi
+  local rebuild_run=0
+  if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then rebuild_run=1; fi
   local vgs_before=""
   if [[ $replaces == 1 ]]; then vgs_before="$(_updates_vgs_package_version)"; fi
-  if [[ $session == 1 ]]; then vgs_tui_sudo_session start; fi
+  # A refused password skips every step that needs it, the snapshot
+  # included; the steps that need none still run. A session that never
+  # started has nothing to end.
+  local denied=0
+  if [[ $session == 1 ]] && ! vgs_tui_sudo_session start; then
+    denied=1 session=0 snapshot_tool=""
+    _updates_diagnostic "updates: sudo=refused"
+    # The parts the refusal skips, in the order the run takes them; a part
+    # the review excluded or a failed paru install blocks keeps that cause
+    # alone. A refusal that leaves only the snapshot out, as on a VGS run
+    # whose rebuild the review excluded, skips no part.
+    local skipped=() skipped_text="" i
+    if [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; then skipped+=("system packages"); fi
+    for id in "${run[@]}"; do
+      if _updates_file_source "$id"; then skipped+=("${labels[$id],,}"); fi
+    done
+    if [[ -z $aur_blocked ]] && _updates_in aur "${run[@]}"; then skipped+=("AUR packages"); fi
+    if [[ -z $aur_blocked && $rebuild_run == 1 ]]; then skipped+=("the VGS package"); fi
+    for ((i = 0; i < ${#skipped[@]}; i++)); do
+      if ((i == 0)); then skipped_text="${skipped[i]}"
+      elif ((i == ${#skipped[@]} - 1)); then skipped_text+=" and ${skipped[i]}"
+      else skipped_text+=", ${skipped[i]}"
+      fi
+    done
+    if [[ ${#skipped[@]} -gt 0 ]]; then
+      _updates_part "System packages"
+      _updates_fail "System packages" "VGS could not get permission to change the system, so it skipped $skipped_text. Next: update again and enter your password."
+    fi
+  fi
   # A failed snapshot said what went wrong; it does not block the update,
   # but it must not pass for one either.
   if [[ -n $snapshot_tool ]]; then
     status=0
     _updates_snapshot "$snapshot_tool" "$elevator" || status=$?
     if [[ $status -ne 0 ]]; then
-      _updates_diagnostic "updates: snapshot=failed exit=$status"; vgs_tui_warn "The snapshot failed."
-      vgs_tui_warn "Continuing the update without a snapshot."
+      _updates_diagnostic "updates: snapshot=failed exit=$status"; vgs_tui_warn "Snapshot failed. The rest of the update goes on."
     fi
   fi
   # The installed packages before the first package step, which the
@@ -1044,11 +1248,11 @@ _updates_main() {
   # An AUR build links against the system the system step left: after a
   # failed or declined system upgrade, whose databases are already synced,
   # the AUR step and the rebuild would be a partial upgrade.
-  local ignore=() aur_blocked=""
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes|aur) ;;
       *)
+        if [[ $denied == 1 ]] && { [[ $id == "$primary" ]] || _updates_file_source "$id"; }; then continue; fi
         ignore=()
         if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
         if [[ $id == pacman ]]; then
@@ -1069,11 +1273,11 @@ _updates_main() {
   if [[ ${#themes[@]} -gt 0 ]]; then _updates_update_each theme "${themes[@]}"; fi
   if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi
 
-  local rebuild_run=0
-  if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then rebuild_run=1; fi
   if [[ -n $aur_blocked ]]; then
     if _updates_in aur "${run[@]}"; then _updates_results+=("AUR skipped. ${aur_blocked^}."); fi
     if [[ $rebuild_run == 1 ]]; then _updates_results+=("VGS package skipped. ${aur_blocked^}."); fi
+  elif [[ $denied == 1 ]]; then
+    : # The refusal's one result line stands for the AUR and the VGS package.
   elif [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then
     local guarded=0
     if command -v sudo >/dev/null; then
@@ -1081,6 +1285,7 @@ _updates_main() {
       guarded=1
     fi
     if _updates_in aur "${run[@]}"; then
+      _updates_part "AUR packages"
       ignore=()
       if [[ ${#aur_command[@]} -gt 0 ]]; then
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
@@ -1112,10 +1317,8 @@ _updates_main() {
       fi
     fi
     if [[ $rebuild_run == 1 ]]; then
-      rm -f -- "${state:?}/rebuild-failed.json"
-      vgs_tui_step "Rebuilding VGS"
+      vgs_tui_step "Rebuilding the VGS package"
       _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run reinstall --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[aur]}" vgshell-git
-      if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed "$vgs_current" "$aur_binary" "$_updates_exit"; fi
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi
@@ -1138,40 +1341,28 @@ _updates_main() {
   fi
   if [[ ${#changes[@]} -gt 0 ]]; then _updates_reboot_packages "${changes[@]}"; fi
 
-  if [[ $primary == pacman ]] && [[ $upgrades == 1 ]]; then _updates_orphans; fi
+  if [[ $primary == pacman && $upgrades == 1 && $denied == 0 ]]; then _updates_orphans; fi
   if [[ -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
+    _updates_part "Shell restart"
     vgs_tui_step "Restarting the shell on the updated VGS"
-    "$_updates_vgshell" restart || { _updates_diagnostic "updates: restart=failed exit=$?"; vgs_tui_warn "VGS could not restart. Save your work and restart the computer."; }
+    "$_updates_vgshell" restart || {
+      _updates_diagnostic "updates: restart=failed exit=$?"
+      _updates_fail "Shell restart" "Shell restart failed. Next: save your work and restart the computer."
+      vgs_tui_warn "Shell restart failed."
+    }
   fi
   rm -f -- "${_updates_cause_file:?}"
-  local ended=success
-  if [[ $_updates_failures -gt 0 ]]; then ended=failed; fi
-  _updates_recheck "$ended"
+  local ended=finished
+  if [[ ${#_updates_failed_parts[@]} -gt 0 ]]; then ended=failed; fi
+  # The end is recorded before the check, which can wait a minute for the
+  # shell: a window closed in that wait keeps the run's own outcome.
+  if [[ $ended == failed ]]; then _updates_ended failed "$_updates_failed_first"; else _updates_ended finished ""; fi
+  _updates_recheck
   _updates_reboot "${_updates_core[@]}"
-  # Plain lines wrap within the window. Keep the result after the restart,
-  # recheck and reboot output so the failed parts remain in view.
-  local columns width result prefix
-  if [[ ${#_updates_results[@]} -gt 0 ]]; then
-    columns="$(vgs_tui_columns)"
-    width=$((columns - 2 * _vgs_tui_edge))
-    (( width > 0 )) || width=1
-    vgs_tui_step "Update result"
-    for result in "${_updates_results[@]}"; do
-      case "$result" in
-        *" failed. "*) prefix="${result%%" failed. "*} " ;;
-        *" skipped. "*) prefix="${result%%" skipped. "*} " ;;
-        *) prefix="${result%" installed."} " ;;
-      esac
-      _updates_result "$width" "$prefix" "${result#"$prefix"}"
-    done
-  fi
-  if [[ $ended == failed ]]; then
-    _updates_result "$width" '' "$_updates_failures of ${#_updates_results[@]} parts failed" "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >&2
-    local failed_parts=""
-    for label in "${_updates_failed_parts[@]}"; do failed_parts+="${failed_parts:+, }$label"; done
-    _updates_result "$width" 'Failed parts: ' "$failed_parts"
-  fi
-  [[ $ended == success ]] || exit 1
+  # Keep the result after the restart, recheck and reboot output so the
+  # failed parts remain in view.
+  _updates_result_list
+  [[ $ended == finished ]] || exit 1
 }
 
 # The transaction lifetime is outside the credential-session subshell, whose
@@ -1207,7 +1398,9 @@ updates_main() (
 
   VGS_PACKAGE_TRANSACTION="$("$_updates_vgshell" pkg review-transaction)" || exit 1
   export VGS_PACKAGE_TRANSACTION
-  trap '_updates_package_cleanup' EXIT
+  # The outcome's one writer: this EXIT has the run's status, and the
+  # credential session's traps in the run's own subshell cannot replace it.
+  trap '_updates_outcome_write $?; _updates_package_cleanup' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM

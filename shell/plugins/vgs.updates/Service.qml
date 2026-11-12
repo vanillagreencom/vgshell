@@ -3,8 +3,9 @@ import Quickshell
 import Quickshell.Io
 import "UpdatesLogic.js" as Logic
 
-// Owns vgs.updates runtime state: cached snapshot readback, one check
-// process, cadence timers, IPC and every status write. The widget and the window
+// Owns vgs.updates runtime state: cached snapshot readback, the last update
+// run's outcome, one check process, cadence timers, IPC and every status
+// write. The widget and the window
 // read status only; this service is the single writer.
 Item {
     id: root
@@ -25,7 +26,16 @@ Item {
     property string phase: "idle"
     readonly property bool checking: phase !== "idle"
     property string admission: "unknown"
+    // Whether a run's end, its own check or its TUI's, arrived during a
+    // refresh that may have read the packages before the run's last step:
+    // that refresh is replaced once.
     property bool queued: false
+    // Whether the update run now ending asked its own check (`check run`,
+    // tui/pipeline.sh), so its TUI's end starts none.
+    property bool runChecked: false
+    // The last update run's outcome, UpdatesLogic.runOutcome of
+    // outcome.json, null before one is read.
+    property var lastRun: null
     // The TUI state this instance last read, null before the first read.
     property var lastTuiState: null
     property string checkFailure: ""
@@ -33,6 +43,7 @@ Item {
     property var reported: ({})
     readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/updates"
     readonly property string statusPath: stateDir + "/status.json"
+    readonly property string outcomePath: stateDir + "/outcome.json"
     readonly property string bootPath: "/proc/stat"
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
@@ -75,11 +86,16 @@ Item {
     // and this handler can run before onShellChanged does, so the first read
     // is recorded and judged by nothing (UpdatesLogic.tuiRunEnded). It reads
     // the state from its source, since the binding may not have followed a
-    // new `shell` yet.
+    // new `shell` yet. A run that asked its own check starts no second one;
+    // one stopped before it asked, or a TUI that asks none, gets this one.
     onCurrentTuiStateChanged: {
         if (shell === null) return;
         const state = shell.tui.state;
-        if (Logic.tuiRunEnded(lastTuiState, state)) requestCheck("tui");
+        if (Logic.tuiRunEnded(lastTuiState, state)) {
+            outcomeReader.reload();
+            if (runChecked) runChecked = false;
+            else requestCheck("tui");
+        }
         lastTuiState = state;
     }
 
@@ -87,12 +103,13 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.shortcut.register("toggle", "Open or close Updates", () => root.toggleWindow());
-        shell.ipc.handle("check", () => root.requestCheck("ipc"));
+        shell.ipc.handle("check", arg => root.requestCheck(arg === "run" ? "run" : "ipc"));
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
         // handleChoice reports only the user's Settings press, never a
         // config edit or reload (plugin API, status.handleChoice).
         shell.status.handleChoice("rebootNotice", value => root.takeRebootRequest(value));
         cacheReader.path = statusPath;
+        outcomeReader.path = outcomePath;
         bootReader.path = bootPath;
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
@@ -134,8 +151,9 @@ Item {
     }
 
     function requestCheck(reason) {
+        if (reason === "run") runChecked = true;
         if (checking && phase !== "publishing") {
-            if (reason === "tui") queued = true;
+            if (reason === "run" || reason === "tui") queued = true;
             return "queued";
         }
         phase = "startup";
@@ -155,8 +173,8 @@ Item {
     }
 
     function finishRefresh() {
-        // A completed update run invalidates this refresh. Keep the mask
-        // through its one replacement, including offline admission.
+        // Keep the mask through the one replacement, including offline
+        // admission.
         if (queued) {
             queued = false;
             phase = "startup";
@@ -201,11 +219,20 @@ Item {
         return true;
     }
 
+    function takeOutcome(outcome) {
+        if (outcome === null) {
+            console.warn("updates: outcome refused: " + outcomePath);
+            return;
+        }
+        lastRun = outcome;
+        publishNow();
+    }
+
     function publishNow(completed) {
         if (shell === null) return false;
         const notice = Logic.rebootNoticeValue(rebootStep);
         const values = Object.assign(Logic.publishValues(snapshot, completed === true ? false : checking, Date.now(), currentIntervalMs, checkFailure, aurCommand, admission),
-            { admission: admission },
+            { admission: admission, lastRun: lastRun },
             { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice), rebootNoticeOwner: Logic.rebootNoticeOwnerValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
         const next = Object.assign({}, reported);
@@ -237,6 +264,17 @@ Item {
             if (error !== FileViewError.FileNotFound) console.warn("updates: cache unreadable: " + error);
             root.publishNow();
             root.maybeCheck();
+        }
+    }
+
+    // Reads the last run's outcome when start() sets its path and again at
+    // each TUI end; it watches nothing, since only a run writes the file.
+    FileView {
+        id: outcomeReader
+        printErrors: false
+        onLoaded: root.takeOutcome(Logic.runOutcome(text()))
+        onLoadFailed: error => {
+            if (error !== FileViewError.FileNotFound) console.warn("updates: outcome unreadable: " + error);
         }
     }
 

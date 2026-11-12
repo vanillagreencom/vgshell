@@ -60,6 +60,7 @@
     "checking": {"type": "data", "label": "Checking"},
     "admission": {"type": "data", "label": "Internet access"},
     "sources": {"type": "data", "label": "Sources"},
+    "lastRun": {"type": "data", "label": "Last update"},
     "rebootNotices": {"type": "choices", "label": "Reboot notices"},
     "rebootNoticeOwner": {"type": "state", "label": "Reboot notice"},
     "rebootNotice": {"type": "state", "label": "Reboot notice", "hidden": true, "actions": {"vgsOnly": {"label": "Turn off CachyOS notices outside VGS", "system": "reboot-notice"}, "both": {"label": "Turn on CachyOS notices outside VGS", "undo": "reboot-notice"}}}

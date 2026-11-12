@@ -74,8 +74,7 @@ Item {
             startup();
             compare(checks().length, 0, "admission precedes every check");
             admission(4);
-            compare(service.requestCheck("ipc"), "queued");
-            compare(service.queued, false, "open/manual requests join this refresh");
+            compare(service.requestCheck("ipc"), "queued", "open/manual requests join this refresh");
             const during = Logic.windowRows(root.values)[0];
             compare([during.spinning, during.badge, during.lines.length, during.detail, during.more, during.updatable], [true, "", 0, "", "", false]);
             compare(Logic.widgetView(root.values, false).badge, "");
@@ -111,15 +110,27 @@ Item {
             view.refresh(); admission(4);
             compare(checks().length, 1, "Refresh retries the same admission path");
         }
-        function test_tui_completion_keeps_the_mask_through_one_replacement() {
+        // A TUI run ends: the service reads its outcome, and starts the
+        // run's check unless the run asked it.
+        function endRun(endedAt) {
+            service.shell = Object.assign({}, root.facade, { tui: { state: { "vgs.updates/update": { running: false, endedAt: endedAt } } } });
+        }
+        function test_a_run_that_checked_starts_no_second_check() {
             startup(); view.open("{}"); admission(4);
-            service.requestCheck("tui"); service.requestCheck("tui");
-            process("bin/check").finish(0, 0, snapshot(10), "");
+            compare(root.facade.ipc.call("check", "run"), "queued", "the run's own check joins the open's refresh");
+            process("bin/check").finish(0, 0, snapshot(3), "");
             compare(root.values.checking, true);
-            compare(root.values.pending, 97, "the superseded result is never published");
+            compare(root.values.pending, 97, "a refresh the run's check joined is replaced, never published");
             admission(4); process("bin/check").finish(0, 0, snapshot(2), "");
-            compare(root.values.pending, 2); compare(service.checking, false);
+            compare(root.values.pending, 2);
+            endRun(1);
+            compare(service.checking, false, "the run's end starts no third check");
             compare(checks().length, 0);
+            reader(service.outcomePath).finishRead(JSON.stringify({ ended: "failed", text: "Flatpak failed." }));
+            compare(root.values.lastRun, { ended: "failed", text: "Flatpak failed." }, "the run's outcome is published");
+            endRun(2);
+            admission(4);
+            compare(checks().length, 1, "a run that asked no check gets one at its end");
         }
         // expected-log: updates: refused: status=test-unavailable -- planted publication failure
         function test_refused_publication_never_clears_the_mask() {

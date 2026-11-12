@@ -4,7 +4,8 @@ import qs.Commons
 import qs.Ui
 import "UpdatesLogic.js" as Logic
 
-// The Updates window: where updates stand, one row per source the service
+// The Updates window: where updates stand, how the last update run ended,
+// one row per source the service
 // published with its count, the packages it lists when opened and its own
 // Update when it has updates, a row with a detail opened on it, and a footer with Update everything over
 // Refresh, the last check's time in the shell's one wording of a past
@@ -31,6 +32,8 @@ FocusScope {
         : requestState === "failed" ? Object.assign({}, published, { checking: false, admission: "unavailable" }) : published
     readonly property var view: Logic.widgetView(values, false)
     readonly property var rows: Logic.windowRows(values)
+    // How the last update run ended (UpdatesLogic.runOutcome), or null.
+    readonly property var outcome: values.lastRun ?? null
     // The refusal the last action was answered with, "" for none.
     property string problem: ""
     property Item initialFocus: sections.firstFocus
@@ -131,6 +134,15 @@ FocusScope {
                         color: root.view.tone === "warning" ? Theme.color.warning : Theme.color.textMuted
                         wrapMode: Text.Wrap
                     }
+                }
+                // How the last update run failed or stopped, kept until the
+                // next run's outcome replaces it. The footer's Open last log
+                // is its action, so the notice has none.
+                Callout {
+                    width: parent.width
+                    visible: root.outcome !== null && root.outcome.ended !== "finished"
+                    tone: visible && root.outcome.ended === "stopped" ? "warning" : "danger"
+                    text: visible ? root.outcome.text : ""
                 }
                 Label {
                     width: parent.width

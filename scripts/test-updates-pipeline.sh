@@ -72,6 +72,7 @@ printf '0.1.0\n' >"$tree/VERSION"
 calls="$tmp/calls"; fix="$tmp/fix"; rt="$tmp/rt"; state="$tmp/state"
 mkdir -p "$fix" "$rt" "$state"
 log="$state/vgshell/updates/update.log"
+outcome="$state/vgshell/updates/outcome.json"
 # Keep the test terminal's input open like a live terminal. An early EOF
 # from /dev/null can be echoed by the nested script(1) log recorder.
 mkfifo "$tmp/terminal-input"
@@ -106,8 +107,12 @@ stub() { # DIR NAME BODY
 # $FIX/ask-<id> it asks pacman's [Y/n] and reads the answer, for
 # $FIX/ask-default-no-<id> a [y/N]; both then exit 1, as a no does. For
 # $FIX/unprefixed-<id> it fails after an error line the error table does
-# not name. For $FIX/faulted-<id> it fails as pacman's failed commit does, in its order
-# and streams: pm_printf's `error: ` line and the conflicting file on
+# not name; for $FIX/keyed-<id> after a refusal's key line alone; for
+# $FIX/locked-<id>, $FIX/unreachable-<id> and $FIX/unfetched-<id> after
+# pacman's lock, database download and package download errors. For
+# $FIX/faulted-<id> it fails as pacman's failed commit does, in its order
+# and streams, after a mirror's failed download the next mirror served:
+# pm_printf's `error: ` line and the conflicting file on
 # stderr, then `Errors occurred, no packages were upgraded.` on stdout
 # (pacman src/pacman/sync.c sync_prepare_execute and src/pacman/util.c
 # pm_printf, master read through the GitLab API on 2026-10-17; both
@@ -117,6 +122,14 @@ stub() { # DIR NAME BODY
 # transcript's path, which script(1) no longer writes, and fails. `plugin|theme update` for an ID
 # declines, as its [y/N] question answered no does, for $FIX/decline-<id>,
 # and refuses an offline fetch with git's message for $FIX/offline-<id>.
+# `self status` fails while $FIX/fail-self-status exists, `pkg orphan-info`
+# while $FIX/fail-orphan-info does, `pkg review-custom-consume` while
+# $FIX/fail-consume does, `pkg run remove` while $FIX/fail-remove does,
+# `restart` while $FIX/fail-restart does and `power reboot` while
+# $FIX/fail-reboot does. `pkg review` answers Stop while $FIX/review-stop
+# exists, and excludes the package $FIX/review-skip names while it exists. `ipc call ... check` leaves $FIX/ended-at-check when the run had
+# recorded its end, and $FIX/outcome-at-check when the outcome file was
+# written, before it was asked.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
 stub "$tree/bin" vgshell 'pkg_run() {
@@ -134,7 +147,11 @@ stub "$tree/bin" vgshell 'pkg_run() {
   [ ! -e "$FIX/ask-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; read -r answer; exit 1; }
   [ ! -e "$FIX/ask-default-no-$5" ] || { printf ":: Remove the old kernel? [y/N] " >&2; read -r answer; exit 1; }
   [ ! -e "$FIX/unprefixed-$5" ] || { printf "mise ERROR Failed to install core:node@22.0.0\n" >&2; exit 1; }
-  [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
+  [ ! -e "$FIX/keyed-$5" ] || { printf "vgshell: refused: step=failed exit=1\n" >&2; exit 1; }
+  [ ! -e "$FIX/locked-$5" ] || { printf "error: failed to init transaction (unable to lock database)\nerror: could not lock database: File exists\n" >&2; exit 1; }
+  [ ! -e "$FIX/unreachable-$5" ] || { printf ":: Synchronizing package databases...\nerror: failed retrieving file \047core.db\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to synchronize all databases (failed to retrieve some files)\n" >&2; exit 1; }
+  [ ! -e "$FIX/unfetched-$5" ] || { printf "error: failed retrieving file \047crush-2-1-x86_64.pkg.tar.zst\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to commit transaction (failed to retrieve some files)\n" >&2; exit 1; }
+  [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed retrieving file \047crush-2-1-x86_64.pkg.tar.zst\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
   [ ! -e "$FIX/transcript-gone-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; printf "error: failed to install crush\n" >&2; exit 1; }
   [ ! -e "$FIX/transcript-replaced-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; : >"$VGS_TUI_TRANSCRIPT"; printf "error: failed to install crush\n" >&2; exit 1; }
 }
@@ -146,17 +163,21 @@ order() {
 case "$1 $2" in
   "pkg review-transaction") exec node "$(cat "${0%/*}/review-owner")" review-transaction ;;
   "pkg review")
-    printf "{\"version\":1,\"decision\":\"proceed\",\"reviewed\":[],\"skipped\":[],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
+    d=proceed; [ ! -e "$FIX/review-stop" ] || d=stop
+    s=""; [ ! -e "$FIX/review-skip" ] || s="\"$(cat "$FIX/review-skip")\""
+    printf "{\"version\":1,\"decision\":\"$d\",\"reviewed\":[],\"skipped\":[$s],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
   "pkg review-custom-mode")
     if [ -e "$FIX/devel-status" ]; then
       exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3"
     fi
     echo unknown ;;
-  "pkg review-custom-consume") : ;;
-  "pkg orphan-info"|"pkg rebuild-allowed") shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
+  "pkg review-custom-consume") [ ! -e "$FIX/fail-consume" ] || exit 3 ;;
+  "pkg orphan-info"|"pkg rebuild-allowed") [ "$2" != orphan-info ] || [ ! -e "$FIX/fail-orphan-info" ] || exit 1; shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
   # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
   # its tree and its retry.
   "pkg ensure-helper") [ ! -e "$FIX/fail-ensure-helper" ] || exit 1 ;;
+  "restart ") [ ! -e "$FIX/fail-restart" ] || exit 1 ;;
+  "power reboot") [ ! -e "$FIX/fail-reboot" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
   "pkg file-check") [ ! -e "$FIX/unused-file-source" ] || exit 2; exit 1 ;;
@@ -173,11 +194,12 @@ case "$1 $2" in
       aur) echo "{\"manager\":\"aur\",\"binary\":\"paru\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"paru\",\"-Sua\"]],\"elevator\":null}" ;;
       *) echo "vgshell: refused: manager=$4 action=upgrade reason=unsupported" >&2; exit 1 ;;
     esac ;;
-  "self status") cat "$FIX/self.json" ;;
+  "self status") [ ! -e "$FIX/fail-self-status" ] || exit 3; cat "$FIX/self.json" ;;
   "self update") echo "ok updated=vgs from=a to=b" ;;
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
+    [ "$3" != remove ] || [ ! -e "$FIX/fail-remove" ] || exit 1
     if [ "$3" = reinstall ] && [ "$5" = aur ]; then
       shift 5
       exec paru -S "$@"
@@ -199,6 +221,8 @@ case "$1 $2" in
   "ipc call")
     case "$5" in
       check)
+        [ ! -e "$VGS_PACKAGE_TRANSACTION/ended" ] || : >"$FIX/ended-at-check"
+        [ ! -e "$XDG_STATE_HOME/vgshell/updates/outcome.json" ] || : >"$FIX/outcome-at-check"
         if [ -e "$FIX/real-ipc" ]; then exec "$FIX/real-ipc" "$@"; fi
         if [ -e "$FIX/ipc-check-refuses" ]; then echo "refused: ipc=check reason=test"; exit 8; fi
         echo started ;;
@@ -462,6 +486,7 @@ pipeline() {
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 seq_is() { [[ "$(cat "$tmp/seq")" == "$(printf '%s\n' "$@")" ]]; } # LINE...
+seq_tail_is() { [[ "$(tail -n "$#" "$tmp/seq")" == "$(printf '%s\n' "$@")" ]]; } # LINE...
 has_call() { grep -qxF -- "$1" "$tmp/seq"; }
 no_call() { ! grep -q -- "^$1" "$tmp/seq"; } # PREFIX
 # Whether no call starting with PREFIX comes before the first call
@@ -531,16 +556,17 @@ full_seq=("vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgs
   "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "pacman -Q" "vgshell self update"
   "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager flatpak" "vgshell pkg run upgrade --manager mise"
   "vgshell plugin update acme.one" "vgshell theme update night" "sudo -k"
-  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Q" "pacman -Qtdq" "vgshell ipc call vgs.updates invoke check ")
+  "vgshell pkg run upgrade --manager aur" "sudo -k" "pacman -Q" "pacman -Qtdq" "vgshell ipc call vgs.updates invoke check run")
 row_full() {
   reset_fix
   pipeline update.sh
   assert "a full run exits 0" test "$status" == 0
   assert "a full run takes every step in order, the AUR after the session ends" seq_is "${full_seq[@]}"
   assert "a plugin update gets no --yes by default" has_call "vgshell plugin update acme.one"
-  assert "a finished run asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
+  assert "a finished run asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
+  assert "a finished run records its end before its check" test -e "$fix/ended-at-check"
   assert "no snapshot tool warns nothing" out_lacks "snapshot=failed"
-  assert "no snapshot tool keeps the update going quietly" out_lacks "without a snapshot"
+  assert "no snapshot tool keeps the update going quietly" out_lacks "Snapshot failed."
   assert "the log keeps the plan box" grep -qF "Update everything" "$log"
   assert "a full run lists each source installed" result_has "System installed."
   assert "a full run lists each plugin installed" result_has "Plugin acme.one installed."
@@ -565,7 +591,7 @@ row_snapshot() {
   assert "the snapshot comes before VGS" before "sudo snapper -c root cleanup number" "vgshell self update"
   touch "$fix/fail-snapper"
   PIPE_PATH="$snapper_dir" pipeline update.sh
-  assert "a failed snapshot warns" out_has "The snapshot failed."
+  assert "a failed snapshot warns" out_has "Snapshot failed. The rest of the update goes on."
   assert "a failed snapshot does not stop the update" has_call "vgshell pkg run upgrade --manager pacman"
   assert "a failed snapshot leaves the exit 0" test "$status" == 0
 }
@@ -582,12 +608,14 @@ row_failure() {
   assert "the plugin update runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell plugin update acme.one"
   assert "the AUR runs after the failed source" before "vgshell pkg run upgrade --manager mise" "vgshell pkg run upgrade --manager aur"
   assert "the result list names the failed source with its cause line" result_has "mise failed. error: failed to install crush."
-  assert "an unknown cause gives a next step and the log button" result_has "Next: update again; if it fails again, the log names the cause. Select Open last log in Updates."
+  assert "an unknown cause gives a next step" result_has "mise failed. error: failed to install crush. Next: update again."
   assert "the result list names the later source installed" result_has "AUR installed."
   assert "the failure stays in the developer log" diag_has "updates: failed source=mise exit=9"
-  assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
+  assert "a failed source asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
   assert "a failed source is not a stopped run" out_lacks "The update stopped."
   assert "a failed source still asks to reboot after an upgraded kernel" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
+  assert "the outcome is the first failed part's result line" json_is "$outcome" \
+    'd == {"ended": "failed", "text": "mise failed. error: failed to install crush. Next: update again."}'
 }
 # A failed theme change and AUR build skip the VGS rebuild and leave one
 # end block after the shell restart and reboot answer. These wording
@@ -604,7 +632,7 @@ row_failed_end() {
     echo 1 >"$fix/answer-reboot"
     PIPE_COLUMNS="$columns" pipeline update.sh
     assert "two failed parts keep the failure exit" test "$status" == 1
-    assert "two failed parts still recheck before the reboot answer" none_before "gum confirm --affirmative=Reboot" "vgshell ipc call vgs.updates invoke check "
+    assert "two failed parts still recheck before the reboot answer" none_before "gum confirm --affirmative=Reboot" "vgshell ipc call vgs.updates invoke check run"
     assert "the final block wraps sentences and aligns every line at $columns columns" python3 - "$tmp/out" "$columns" <<'PY'
 import pathlib
 import re
@@ -642,7 +670,7 @@ expected = {
     "Plugin acme.one": "Plugin acme.one installed.",
     "Theme tokyo-night": "Theme tokyo-night failed. Another theme change is still running. Next: wait for it to finish, then update again from the Updates panel.",
     "VGS package": None,
-    "AUR packages": "AUR packages failed. The package could not be built: build() failed. Next: open this package in your AUR helper to resolve the build failure or wait for its maintainer to fix it, then update from Updates. Open last log has the full output.",
+    "AUR packages": "AUR packages failed. VGS could not build the package. Next: wait for its maintainer to fix the package, then update again.",
 }
 assert results.keys() == expected.keys(), results
 for part, sentence in expected.items():
@@ -666,7 +694,9 @@ PY
 # A fetch the plugin update refuses names git's message; `vgshell pkg
 # run`'s closing refusal leaves its manager's line; a line printed after a
 # question answered yes shares its line and is the cause alone; a question
-# left unanswered on stderr, as a no leaves pacman's, reads skipped.
+# left unanswered on stderr, as a no leaves pacman's, reads skipped. A
+# refusal with only its key reads in words and logs the key, and pacman's
+# lock, download and conflict errors read as VGS's sentences.
 row_cause() {
   reset_fix
   touch "$fix/offline-acme.one"
@@ -690,6 +720,27 @@ row_cause() {
   touch "$fix/decline-rescan-pacman"
   pipeline update.sh
   assert "a question answered no before pkg run's closing refusal reads skipped" result_has "System skipped. You declined it."
+  reset_fix
+  touch "$fix/keyed-flatpak"
+  pipeline update.sh
+  assert "a refusal with only its key reads without the key" result_has "Flatpak failed, and VGS could not find the cause. Next: update again. mise installed."
+  assert "a refusal with only its key puts the key in the developer log" diag_has "updates: unworded source=flatpak refusal=step=failed exit=1"
+  assert "a refusal with only its key is a failed part" result_has "Failed parts: Flatpak"
+  # pacman's English errors read as VGS's sentences.
+  local fixture sentence
+  while IFS='|' read -r fixture sentence; do
+    reset_fix
+    if [[ $fixture == conflict-paru ]]; then self_json package '"vgshell-git"' rebuild; fi
+    touch "$fix/$fixture"
+    pipeline update.sh
+    assert "$fixture reads as its sentence" result_has "$sentence"
+  done <<'ROWS'
+locked-pacman|System packages failed. Another package manager is running, or one that stopped left its lock behind. Next: update again when it has finished. If none is running, delete the lock file pacman names, then update again.
+unreachable-pacman|System packages failed. The package servers could not be reached. Next: update again when the network works.
+unfetched-pacman|System packages failed. The package servers could not be reached. Next: update again when the network works.
+faulted-pacman|System packages failed. error: failed to commit transaction (conflicting files). Next: update again.
+conflict-paru|VGS package failed. quickshell conflicts with quickshell-git, which is installed. Next:
+ROWS
 }
 # After a failed or declined system upgrade the AUR step and the vgshell-git
 # rebuild build against the system it left, so they are skipped; every
@@ -809,25 +860,38 @@ row_reboot_unread() {
   pipeline update.sh
   assert "a failed RootDir read stays in the developer log" diag_has "updates: reboot-hook=unread exit=1"
   assert "a failed mounts read stays in the developer log" diag_has "updates: mounts=unread exit=1"
-  assert "two failed reboot reads warn once" test "$(grep -cF "Could not check which updates need a restart." "$tmp/out")" == 1
+  assert "two failed reboot reads warn once" test "$(grep -cF "Could not check which updates need a reboot." "$tmp/out")" == 1
   assert "a failed reboot read leaves the run successful" test "$status" == 0
   reset_fix
   touch "$fix/fail-pacman-q"
   pipeline update.sh
   assert "a failed package list stays in the developer log" diag_has "updates: installed=unread when=before"
-  assert "a failed package list warns" out_has "Could not check which updates need a restart."
+  assert "a failed package list warns" out_has "Could not check which updates need a reboot."
 }
-# A step that fails outside the sources ends the run: the ERR trap prints
-# the recovery message.
+# A command that fails outside the sources ends the run: the ERR trap
+# prints the result list so far and the recovery message. Before the first
+# part the run has no outcome, and its TUI's end asks the check.
 row_stopped() {
   reset_fix
   touch "$fix/fail-detect"
   pipeline update.sh
   assert "a failed read ends the run with its status" test "$status" == 5
-  assert "a failed read asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check " "$tmp/seq")" == 1
-  assert "a failed read names the log in its recovery message" out_has "Select Open last log in Updates to read this run's output."
+  assert "a failed read before any part leaves the check to the TUI's end" no_call "vgshell ipc call vgs.updates invoke check"
+  assert "a failed read names the log in its recovery message" out_has "The details are in"
   assert "the failure code stays in the developer log" grep -qsF "updates: failed exit=5" "$state/vgshell/updates/diagnostics.log"
   assert "a failed read runs no step" test "$(grep -c 'pkg run' "$tmp/seq")" == 0
+  assert "a failed read before any part writes no outcome" test ! -e "$outcome"
+  reset_fix
+  settings "paru -Sua --devel" false
+  touch "$fix/fail-consume"
+  pipeline update.sh
+  assert "a failure after the sources ends the run with its status" test "$status" == 3
+  # The recovery message after the list is the trap's own colour, so the
+  # list is read as the output's text.
+  assert "the error trap prints the result list so far" out_has "Theme night installed."
+  assert "the error trap's run asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
+  assert "the error trap's outcome names the part it stopped in" json_is "$outcome" \
+    'd == {"ended": "failed", "text": "AUR packages failed, and VGS could not find the cause. Next: update again."}'
 }
 # A Ctrl-C in a source step ends the run with 130 and drops the credential.
 row_interrupted() {
@@ -836,15 +900,22 @@ row_interrupted() {
   pipeline update.sh
   assert "an interrupted step ends the run with 130" test "$status" == 130
   assert "an interrupted step runs no later source" no_call "vgshell pkg run upgrade --manager flatpak"
-  assert "an interrupted step drops the credential last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
+  assert "an interrupted step drops the credential, then asks its one check" seq_tail_is "sudo -k" "vgshell ipc call vgs.updates invoke check run"
+  assert "an interrupted step's outcome names the part it stopped in" json_is "$outcome" \
+    'd == {"ended": "stopped", "text": "You stopped the update during System packages. Nothing after it ran."}'
+  assert "an interrupted step's outcome is written before its check" test -e "$fix/outcome-at-check"
 }
 row_reboot() {
   reset_fix
   printf '%s\nwayland-test\n' "$hyprland_pid" >"$rt/hypr/session/hyprland.lock"
   pipeline update.sh
   assert "a replaced Hyprland asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
-  assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check " "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
+  assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check run" "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
   assert "a yes reboots" test "$(tail -n 1 "$tmp/seq")" == "vgshell power reboot"
+  touch "$fix/fail-reboot"
+  pipeline update.sh
+  assert "a failed reboot keeps the finished run's outcome" json_is "$outcome" 'd == {"ended": "finished", "text": ""}'
+  rm -f -- "${fix:?}/fail-reboot"
   echo 1 >"$fix/answer-reboot"
   pipeline update.sh
   assert "a no does not reboot" test "$(grep -c '^systemctl' "$tmp/seq")" == 0
@@ -916,6 +987,21 @@ row_orphans() {
   rm -f -- "$fix/answer-orphans"
   pipeline update.sh
   assert "a yes removes the orphans through the package table" has_call "vgshell pkg run remove --manager pacman foo bar"
+  touch "$fix/fail-orphan-info"
+  pipeline update.sh
+  assert "an unreadable orphan list is a skipped part" result_has "Orphaned packages skipped. VGS could not check which packages are unused. Update again later."
+  assert "an unreadable orphan list leaves the run successful" test "$status" == 0
+  assert "the run's check follows an unreadable orphan list" before "vgshell pkg orphan-info foo bar" "vgshell ipc call vgs.updates invoke check run"
+  # The parts outside the sources: a failed removal and restart fail, and
+  # an unreadable plugin list is skipped.
+  rm -f -- "${fix:?}/fail-orphan-info" "${fix:?}/plugins.json"
+  touch "$fix/fail-remove" "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/fail-restart"
+  pipeline update.sh
+  assert "an unreadable plugin list is a skipped part" result_has "Plugins skipped. VGS could not check them for updates. Update again later."
+  assert "an unreadable plugin list shows as skipped in the plan box" out_has "Plugins: skipped"
+  assert "a failed orphan removal is a failed part" result_has "Orphaned packages failed. VGS could not remove them."
+  assert "a failed shell restart is a failed part" result_has "Shell restart failed. Next: save your work and restart the computer."
+  assert "failed removal and restart end the run with 1" test "$status" == 1
   reset_fix
   printf 'cli11\ncmake\nvulkan-headers\nttfx-codegen\nttfx-tests\nother\n' >"$fix/orphans"
   printf 'ttfx\n' >"$fix/foreign"
@@ -1114,7 +1200,7 @@ row_aur_failure() {
   touch "$fix/interrupt-paru"
   pipeline update.sh
   assert "an interrupted AUR step ends the run with 130" test "$status" == 130
-  assert "an interrupted AUR step drops the credential it cached, last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
+  assert "an interrupted AUR step drops the credential it cached" seq_tail_is "sudo -k" "vgshell ipc call vgs.updates invoke check run"
 }
 # Paru's review refusal exits 1 at the question; yay's review refusal exits
 # 1 after ErrUserAbort prints its cause. Neither may retry the declined
@@ -1193,7 +1279,7 @@ SH
     assert "$route $ending reports its original result" test "$status" == "$expected"
     if [[ $rebuild == yes ]]; then
       assert "$route $ending still rebuilds independent VGS" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
-      assert "$route $ending reports package, cause and a pacman-valid next step" result_has "AUR packages failed. ${cause:-ttfx could not be built: check() failed.} Next: open this package in your AUR helper"
+      assert "$route $ending reports package, cause and a pacman-valid next step" result_has "AUR packages failed. ${cause:-VGS could not build ttfx.} Next: wait for its maintainer to fix the package"
       assert "$route $ending never recommends self update" out_lacks "Next: vgshell self update"
     else
       assert "$route $ending does not re-offer the engine through VGS" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
@@ -1216,8 +1302,8 @@ table dependency failed 1 no
 custom dependency failed 1 no
 table build-dependency failed 1 no
 table mixed failed 1 no
-table recorded-2.1 failed 1 yes vgs-fixture-check-only could not be built: check() failed.
-table recorded-2.2 failed 1 yes vgs-fixture-check-only could not be built: check() failed.
+table recorded-2.1 failed 1 yes VGS could not build vgs-fixture-check-only.
+table recorded-2.2 failed 1 yes VGS could not build vgs-fixture-check-only.
 custom unrelated failed 1 yes
 table unknown failed 1 no
 table missing-target failed 1 no
@@ -1316,6 +1402,21 @@ row_doas() {
   assert "a doas update takes its snapshot through doas" has_call "doas snapper -c root create -c number -d VGS update"
   assert "a doas update names doas in the plan box" out_has "Snapshot: snapper through doas, first"
   assert "a doas update runs the system step" has_call "vgshell pkg run upgrade --manager pacman"
+  # A refused sudo password skips what needs it; the rest runs.
+  reset_fix
+  touch "$fix/sudo-refuses"
+  PIPE_PATH="$snapper_dir" pipeline update.sh
+  assert "a refused password is the result's one line for the system" result_has "VGS could not get permission to change the system, so it skipped system packages and AUR packages. Next: update again and enter your password. VGS installed. Flatpak installed."
+  assert "a refused password runs no system, AUR or snapshot step" test "$(grep -c -e 'pkg run upgrade --manager pacman' -e 'pkg run upgrade --manager aur' -e 'snapper -c' "$tmp/seq")" == 0
+  assert "a refused password still runs Flatpak" has_call "vgshell pkg run upgrade --manager flatpak"
+  # A rebuild the review excluded keeps the review's cause alone.
+  reset_fix
+  self_json package '"vgshell-git"' rebuild
+  touch "$fix/sudo-refuses"
+  echo vgshell-git >"$fix/review-skip"
+  PIPE_PATH="$snapper_dir" pipeline update.sh
+  assert "an excluded rebuild reads as the review's skip" result_has "vgshell-git skipped. Review excluded this package."
+  assert "a refused password leaves out the rebuild the review excluded" result_has "so it skipped system packages and AUR packages. Next: update again and enter your password."
 }
 # update-source.sh vgs on a vgshell-git behind: the rebuild replaces the
 # package, so a snapshot comes first and the running shell restarts on the
@@ -1331,26 +1432,26 @@ row_vgs_only() {
   assert "a VGS rebuild alone restarts the running shell" has_call "vgshell restart"
   assert "a VGS rebuild alone upgrades no other package" test "$(grep -c -e 'pkg run upgrade' -e '^pacman -[^Q]' "$tmp/seq")" == 0
 }
-# The new helper step runs through stand-ins only. Each failing producer
-# prevents the following build and VGS rebuild, and scratch is removed.
+# The new helper step runs through stand-ins only. A failed install skips
+# the VGS rebuild with its cause, and the rest of the run goes on.
 row_vgs_helper() {
-  local failure expected
-  while read -r failure expected; do
-    reset_fix
-    self_json package '"vgshell-git"' install-helper
-    printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[],"sources":[]}\n' >"$fix/detect.json"
-    [[ $failure == none ]] || touch "$fix/fail-$failure"
-    pipeline update-source.sh vgs
-    assert "helper $failure exits $expected" test "$status" == "$expected"
-    if [[ $failure == none ]]; then
-      assert "helper success installs paru before VGS" before "vgshell pkg ensure-helper" "vgshell pkg run reinstall --manager aur vgshell-git"
-    else
-      assert "helper $failure prevents VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
-    fi
-  done <<'ROWS'
-none 0
-ensure-helper 1
-ROWS
+  reset_fix
+  self_json package '"vgshell-git"' install-helper
+  printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[],"sources":[]}\n' >"$fix/detect.json"
+  pipeline update-source.sh vgs
+  assert "helper success exits 0" test "$status" == 0
+  assert "helper success installs paru before VGS" before "vgshell pkg ensure-helper" "vgshell pkg run reinstall --manager aur vgshell-git"
+  touch "$fix/fail-ensure-helper"
+  pipeline update.sh
+  assert "a failed helper install exits 1" test "$status" == 1
+  assert "a failed helper install prevents the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+  assert "a failed helper install skips the VGS package with its cause" result_has "VGS package skipped. Paru could not be installed."
+  assert "the system step runs after a failed helper install" has_call "vgshell pkg run upgrade --manager pacman"
+  rm -f -- "${outcome:?}"
+  touch "$fix/review-stop"
+  pipeline update.sh
+  assert "a review Stop after a failed helper install keeps the failure" json_is "$outcome" \
+    'd["ended"] == "failed" and d["text"].startswith("Paru failed. ")'
   reset_fix
   self_json package '"vgshell-git"' install-helper
   pipeline update-source.sh vgs
@@ -1440,7 +1541,7 @@ JS
       assert "tracked devel update plans the AUR upgrade for VGS" out_has "VGS: the AUR updates install the new VGS package"
     elif [[ $expected == unknown ]]; then
       assert "$pending advisory failure skips the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur"
-      assert "$pending advisory failure warns without a protocol failure" out_has "Could not check VGS for updates."
+      assert "$pending advisory failure is a skipped part without a protocol failure" result_has "VGS skipped. VGS could not check it for updates. Update again later."
       assert "$pending advisory failure retains its cause" diag_has "VGS: $(node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1])).error)' "$fix/self.json")"
       assert "$pending advisory failure still updates unrelated sources" has_call "vgshell pkg run upgrade --manager flatpak"
       assert "$pending advisory failure still updates plugins" has_call "vgshell plugin update acme.one"
@@ -1492,36 +1593,19 @@ ROWS
   assert "a status that could not check exits 0" test "$status" == 0
   assert "a status that could not check rebuilds nothing" no_call "vgshell pkg run reinstall --manager aur"
   assert "a status that could not check keeps its error in the developer log" diag_has "VGS: compare=http status=404 url=x"
-}
-# A rebuild that fails writes its record: the installed version the status
-# named, the helper, its exit and the package pacman's conflict line names
-# first, without its version, or null with no such line. The next rebuild
-# that succeeds leaves none.
-row_rebuild_failed() {
-  local record="$state/vgshell/updates/rebuild-failed.json"
   reset_fix
-  self_json package '"vgshell-git"' rebuild
-  touch "$fix/conflict-paru"
-  pipeline update-source.sh vgs
-  assert "a rebuild the helper fails ends the run with 1" test "$status" == 1
-  assert "a conflicting rebuild records its exit and the first conflicting package" json_is "$record" \
-    'd == {"current": "0.1.0.r1.gabc1234", "helper": "paru", "exit": 1, "conflict": "quickshell"}'
-  assert "the record leaves no partial file" test ! -e "$record.part"
-  mv -- "${fix:?}/conflict-paru" "${fix:?}/pkgver-paru"
-  pipeline update-source.sh vgs
-  assert "a rebuild that fails with no conflict line records a null conflict" json_is "$record" \
-    'd == {"current": "0.1.0.r1.gabc1234", "helper": "paru", "exit": 4, "conflict": None}'
-  mv -- "${fix:?}/pkgver-paru" "${fix:?}/passed-paru"
-  pipeline update-source.sh vgs
-  assert "a rebuild that succeeds exits 0" test "$status" == 0
-  assert "a rebuild that succeeds leaves no record" test ! -e "$record"
+  touch "$fix/fail-self-status"
+  pipeline update.sh
+  assert "an unreadable VGS status is a skipped part" result_has "VGS skipped. VGS could not check it for updates. Update again later. System installed."
+  assert "an unreadable VGS status runs no VGS step" no_call "vgshell self update"
+  assert "an unreadable VGS status leaves the run successful" test "$status" == 0
 }
 row_source() {
   reset_fix
   pipeline update-source.sh flatpak
   assert "one source runs its step alone" seq_is \
     "vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell pkg plan upgrade flatpak" \
-    "gum confirm -- Start the update?" "vgshell pkg run upgrade --manager flatpak" "vgshell ipc call vgs.updates invoke check "
+    "gum confirm -- Start the update?" "vgshell pkg run upgrade --manager flatpak" "vgshell ipc call vgs.updates invoke check run"
   pipeline update-source.sh aur
   assert "the AUR alone holds no session" test "$(grep -c '^sudo /usr/bin/true' "$tmp/seq")" == 0
   assert "the AUR alone drops the credential after it" before "vgshell pkg run upgrade --manager aur" "sudo -k"
@@ -1803,7 +1887,7 @@ if [[ $# -gt 0 ]]; then
 fi
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_build_progress; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_devel; row_vgs_step; row_source; row_verified_file; row_release_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -1872,21 +1956,18 @@ control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
 control rebuild-by-package '[[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
 control release-aur-command-unread '&& $aur_here == 1 ]]; then vgs_reason=package-manager' '&& false ]]; then vgs_reason=package-manager' row_vgs_step
-control rebuild-unrecorded 'if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed' 'if false; then _updates_rebuild_failed' row_rebuild_failed
-control conflict-versioned 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]%-*-*}")\""' 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]}")\""' row_rebuild_failed
-control record-kept '      rm -f -- "${state:?}/rebuild-failed.json"' '      :' row_rebuild_failed
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
 control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
-control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
+control no-success-recheck '  _updates_recheck' '  :' row_reboot
 control recheck-before-service 'local reply status polls=0' 'local reply status polls=300' row_recheck_replaced_tree
-control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
+control no-failure-recheck '[[ -f $dir/checked ]] || _updates_recheck' ':' row_stopped
 control source-stops-run '  "$@" || status=$?' '  "$@"' row_failure
 # The step's stderr split from stdout through a pipe, as before VGS-1839.
 control stderr-split '  "$@" || status=$?' '  { "$@"; } 2> >(exec tee -a -- "$_updates_cause_file" >&2) || status=$?' row_order
 control key-at-line-start '(^|[[:space:]])(vgshell|vgs-tui):' '(^)(vgshell|vgs-tui):' row_full
-control refusal-cause-held '    _updates_cause="${after:-$value}"' '    _updates_cause="$held"' row_cause
-control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held_fault:-${held:-${after:-$value}}}"' 'own="${tail:-$held}" _updates_cause="${after:-$value}"' row_cause
+control refusal-cause-held '    _updates_cause="$after"' '    _updates_cause="$held"' row_cause
+control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held_fault:-${held:-$after}}"' 'own="${tail:-$held}" _updates_cause="$after"' row_cause
 control cause-ignores-error-line 'own="$last" _updates_cause="${fault:-$last}"' 'own="$last" _updates_cause="$last"' row_cause_output
 control scan-line-read '      if [[ $line =~ $_updates_scan_line ]]; then' '      if false; then' row_answer
 control scan-line-cause '      if [[ $line =~ $_updates_scan_line ]]; then' '      if false; then' row_cause_output
@@ -1920,15 +2001,15 @@ check "the old partial-output loss fails the foreign metadata row" test "$red" -
 check "the old loss reaches the known tool with unread build use" out_has "ttfx-codegen (build use unknown)"
 check "the old loss drops the known package's build declaration" out_lacks "ttfx-codegen (build tool for ttfx)"
 control raw-build-output 'vgs_tui_log --build-progress "$_updates_log"' 'vgs_tui_log' row_build_progress
-control generic-build-failure '_updates_cause="${_updates_failed_builds[*]:-The package} could not be built${phase:+: $phase() failed}."' '_updates_cause="A package could not be built."' row_aur_rebuild_stopped
-control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a restart."' '  :' row_reboot_unread
+control generic-build-failure '_updates_cause="VGS could not build ${_updates_failed_builds[*]:-the package}."' '_updates_cause="VGS could not build a package."' row_aur_rebuild_stopped
+control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a reboot."' '  :' row_reboot_unread
 control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
-control cause-keeps-escapes 'require(loader).load(judge).transcriptLines(fs.readFileSync(file,"utf8"))' 'fs.readFileSync(file,"utf8").split("\n")' row_failure
-control failure-exits-0 '  [[ $ended == success ]] || exit 1' '  :' row_failure
+control cause-keeps-escapes 'require(loader).load(judge).transcriptLines(fs.readFileSync(file,"utf8"))' 'fs.readFileSync(file,"utf8").split("\n")' row_cause
+control failure-exits-0 '  [[ $ended == finished ]] || exit 1' '  :' row_failure
 control no-failure-next-step ' Next: $_updates_next' '' row_failed_end
 control result-unwrapped '  _vgs_tui_lines lines "$width" "$text"' '  lines=("$text")' row_failed_end
 control result-without-hanging-indent '    printf -v prefix '"'"'%*s'"'"' "${#prefix}" '"'"''"'"'' '    prefix=""' row_failed_end
-control failed-summary-at-left '    _updates_result "$width" '"'"'Failed parts: '"'"' "$failed_parts"' '    printf '"'"'Failed parts: %s\n'"'"' "$failed_parts"' row_failed_end
+control failed-summary-at-left '  _updates_result "$width" '"'"'Failed parts: '"'"' "$failed_parts"' '  printf '"'"'Failed parts: %s\n'"'"' "$failed_parts"' row_failed_end
 control interrupt-goes-on 'if [[ $status -eq 130 ]]; then' 'if false; then' row_interrupted
 control declined-fails 'if [[ $_updates_declined == 1 ]]; then' 'if false; then' row_full
 control reboot-ignores-upgrades 'if [[ $# -gt 0 ]]; then' 'if false; then' row_reboot_core

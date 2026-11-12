@@ -2,8 +2,8 @@
 .import qs.Commons 1.0 as Commons
 
 // Pure decisions for vgs.updates: probe normalization, snapshot judging,
-// status derivation, publish diffs, check cadence, failure retry and TUI run
-// end detection for the service, the packages that need a reboot for the
+// status derivation, publish diffs, check cadence, failure retry, the last
+// run's outcome and TUI run end detection for the service, the packages that need a reboot for the
 // pipeline, the reboot notice's status
 // for the service, and what the bar widget and
 // the window draw from the published status. QML owns I/O and timers; bin/check owns
@@ -136,24 +136,15 @@ function normalizePkg(probe) {
 // and `none` runs nothing, with the reason when VGS is behind.
 var SELF_STEPS = { self: [null], rebuild: [null], "install-helper": [null], "aur-upgrade": [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
 
-// The VGS row from `vgshell self status --json` and FAILED, the
-// rebuild-failed.json record a failed vgshell-git rebuild of
-// tui/pipeline.sh left, or null. VGS counts one update only when its step
-// runs and no other row counts it: `aur-upgrade`'s vgshell-git is in the
-// AUR row's list, so that row counts it. Its `note` is one of:
+// The VGS row from `vgshell self status --json`. VGS counts one update only
+// when its step runs and no other row counts it: `aur-upgrade`'s
+// vgshell-git is in the AUR row's list, so that row counts it. Its `note`
+// is one of:
 //   { kind: "installHelper" }   install paru before rebuilding VGS
 //   { kind: "aurUpgrade" }      the AUR row lists the update, and the VGS
 //                                row's Update installs it
 //   { kind: "reason", reason }   behind, and the step is `none` for REASON
-//   { kind: "rebuildFailed", conflict }
-//                                the rebuild of this same installed version
-//                                failed: still behind with step `rebuild`
-//                                or `aur-upgrade`, whose Update of VGS
-//                                alone runs that rebuild, and FAILED names
-//                                the status's `current`
-// A record for another version or step is stale and ignored: a rebuilt or
-// current package drops it.
-function normalizeSelf(probe, checkedAt, failed) {
+function normalizeSelf(probe, checkedAt) {
     var parsed = parseProbeJson("self", probe);
     if (!parsed.ok) return sourceRow("vgs", null, [], checkedAt, parsed.error);
     var row = parsed.value;
@@ -165,8 +156,6 @@ function normalizeSelf(probe, checkedAt, failed) {
     var packages = behind ? [{ name: row.package || "vgs", old: row.current === undefined ? null : row.current, new: row.latest === undefined ? null : row.latest }] : [];
     var note = null;
     if (behind && row.step === "install-helper") note = { kind: "installHelper" };
-    else if (behind && (row.step === "rebuild" || row.step === "aur-upgrade") && isPlainObject(failed) && failed.current === row.current)
-        note = { kind: "rebuildFailed", conflict: failed.conflict };
     else if (behind && row.step === "aur-upgrade") note = { kind: "aurUpgrade" };
     else if (behind && row.reason !== null) note = { kind: "reason", reason: row.reason };
     return sourceRow("vgs", counted ? 1 : 0, packages, checkedAt, null, note);
@@ -205,13 +194,12 @@ function normalizeOutdated(source, probe, checkedAt) {
     return sourceRow(source, count, packages, checkedAt, errors.length > 0 ? errors.join("; ") : null);
 }
 
-// PROBES holds the four probe results and `rebuildFailed`, the
-// rebuild-failed.json record or null.
+// PROBES holds the four probe results.
 function normalizeSnapshot(probes, now) {
     var checkedAt = typeof now === "number" ? now : Date.now();
     var sources = [];
     sources = sources.concat(normalizePkg(probes.pkg));
-    sources.push(normalizeSelf(probes.self, checkedAt, probes.rebuildFailed));
+    sources.push(normalizeSelf(probes.self, checkedAt));
     sources.push(normalizeOutdated("plugins", probes.plugins, checkedAt));
     sources.push(normalizeOutdated("themes", probes.themes, checkedAt));
     return { checkedAt: checkedAt, sources: sources, error: null };
@@ -224,7 +212,18 @@ function parseSnapshotText(text) {
     } catch (e) {
         return { ok: false, error: "not-json" };
     }
-    return snapshotFromObject(parsed);
+    return snapshotFromObject(withoutRebuildFailed(parsed));
+}
+
+// D107: a status.json the previous release cached can carry the VGS row's
+// `rebuildFailed` note, which outcome.json replaced; without it the row
+// reads as its count until the next check rewrites the cache. The next
+// release removes this step.
+function withoutRebuildFailed(value) {
+    if (!isPlainObject(value) || !Array.isArray(value.sources)) return value;
+    return Object.assign({}, value, { sources: value.sources.map(function (row) {
+        return isPlainObject(row) && isPlainObject(row.note) && row.note.kind === "rebuildFailed" ? Object.assign({}, row, { note: null }) : row;
+    }) });
 }
 
 function snapshotFromObject(value) {
@@ -402,7 +401,7 @@ function statusRecordBytes(values) {
 function statusWrites(previous, next) {
     var before = previous || {};
     var out = [];
-    var keys = ["pending", "lastCheck", "checkState", "sources", "admission", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
+    var keys = ["lastRun", "pending", "lastCheck", "checkState", "sources", "admission", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
     // Readers see each write. Mask before entry and unmask only after all
     // fields belong to the complete accepted result or qualified history.
     if (next.checking === true) keys.unshift("checking");
@@ -481,6 +480,22 @@ function shouldRunCheck(snapshot, checking, now, interval, failedAt, bootedAt) {
 // UTC time, which orders as text. `running` decides nothing: a short run
 // can end before any read shows it running, and an earlier run's running
 // record can be listed after a later run's end.
+
+// TEXT, the last update run's outcome.json (tui/pipeline.sh), as the
+// service publishes it: { ended, text }, `ended` finished, failed or
+// stopped and `text` the sentence of a failed or stopped run, empty for a
+// finished one; null for a file that is not one.
+var RUN_ENDINGS = ["finished", "failed", "stopped"];
+function runOutcome(text) {
+    var value;
+    try {
+        value = JSON.parse(String(text));
+    } catch (e) {
+        return null;
+    }
+    if (!isPlainObject(value) || RUN_ENDINGS.indexOf(value.ended) < 0 || typeof value.text !== "string" || (value.text === "" && value.ended !== "finished")) return null;
+    return { ended: value.ended, text: value.text };
+}
 
 function tuiRunEnded(previous, current) {
     if (previous === null) return false;
@@ -822,15 +837,6 @@ var SELF_REASON_TEXT = {
     "no-aur-helper": "This computer needs an AUR helper, paru or yay, to update VGS."
 };
 
-// The VGS row's detail after a failed rebuild: the package pacman named in
-// conflict when it named one, and the retry, whose update window shows the
-// helper's output as it runs. It names no log: the row stays until the
-// next rebuild, while every later update run replaces the last log.
-function rebuildFailedText(note) {
-    if (note.conflict !== null) return note.conflict + " conflicts with a package on this computer, so the VGS package did not rebuild. Select Update to try again.";
-    return "The VGS package did not rebuild. Select Update to try again.";
-}
-
 // A row's line, badge, Update and detail: an error first, then the VGS
 // row's note, then the count. The line is one elided line beside the
 // badge, so a sentence that must be read whole is the `detail`, which the
@@ -850,10 +856,7 @@ function rowReading(row) {
         // The AUR row counts this update, so this row counts none and
         // still offers its own Update.
         case "aurUpgrade": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: true, detail: "The AUR updates include this version. Select Update to install it." };
-        // The retry is the same Update: `rebuild` counts 1, and
-        // `aur-upgrade` counts 0 because the AUR row counts its package.
-        case "rebuildFailed": return { secondary: "The last update failed", badge: "Update failed", badgeTone: "danger", updatable: true, detail: rebuildFailedText(note) };
-        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, aurUpgrade, reason, rebuildFailed");
+        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, aurUpgrade, reason");
         }
     }
     return { secondary: row.count === 0 ? "Up to date" : countText(row.count, "update"), badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };

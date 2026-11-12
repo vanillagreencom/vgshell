@@ -83,9 +83,8 @@ if [[ $module_status == 2 ]] && grep -qxF "qml-library: refused: unreadable path
 else
   fail "normalizer refuses a missing page-reference module: exit=$module_status"
 fi
-# The record of a failed vgshell-git rebuild that tui/pipeline.sh leaves in
-# the state directory reaches the VGS row of the snapshot. The control is
-# the normalizer with the record's read removed, whose row carries none.
+# D107: the check deletes the failed-rebuild record outcome.json replaced,
+# and no reader of it is left: the VGS row carries no note from it.
 record_dir="$root/record"
 mkdir -p -- "$record_dir"
 for name in pkg plugins themes; do printf '[]\n' >"$record_dir/.$name.rec.out"; done
@@ -93,25 +92,10 @@ printf '{"version":"0.1.0","method":"package","package":"vgshell-git","current":
   "$(printf 'b%.0s' {1..40})" >"$record_dir/.self.rec.out"
 for name in pkg self plugins themes; do printf '0\n' >"$record_dir/.$name.rec.status"; : >"$record_dir/.$name.rec.err"; done
 printf '{"current":"0.1.0.r2.gaaaaaaa","helper":"paru","exit":1,"conflict":"quickshell"}\n' >"$record_dir/rebuild-failed.json"
-# record_note NORMALIZER: the VGS row's note of the snapshot NORMALIZER
-# writes from the record directory, as one JSON line.
-record_note() {
-  "${run_env[@]}" node "$1" "$root/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.updates/UpdatesLogic.js" "$record_dir" rec |
-    node -e 'let t = ""; process.stdin.on("data", d => t += d).on("end", () => console.log(JSON.stringify(JSON.parse(t).sources.find(s => s.source === "vgs").note)))'
-}
-want_note='{"kind":"rebuildFailed","conflict":"quickshell"}'
-got_note="$(record_note "$repo/shell/plugins/vgs.updates/NormalizeCheck.js" || :)"
-if [[ $got_note == "$want_note" ]]; then ok "a failed rebuild's record reaches the VGS row"; else fail "a failed rebuild's record reaches the VGS row: $got_note"; fi
-no_record="$root/NormalizeCheck-no-record.js"
-python3 - "$repo/shell/plugins/vgs.updates/NormalizeCheck.js" "$no_record" <<'PY'
-import pathlib, sys
-source = pathlib.Path(sys.argv[1]).read_text()
-old = 'rebuildFailed: rebuildFailed() };'
-assert source.count(old) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(old, 'rebuildFailed: null };'))
-PY
-got_note="$(record_note "$no_record" || :)"
-if [[ $got_note == null ]]; then ok "control: without the record's read the VGS row has no note"; else fail "control: without the record's read the VGS row has no note: $got_note"; fi
+got_note="$("${run_env[@]}" node "$repo/shell/plugins/vgs.updates/NormalizeCheck.js" "$root/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.updates/UpdatesLogic.js" "$record_dir" rec |
+  node -e 'let t = ""; process.stdin.on("data", d => t += d).on("end", () => console.log(JSON.stringify(JSON.parse(t).sources.find(s => s.source === "vgs").note)))' || :)"
+if [[ ! -e $record_dir/rebuild-failed.json ]]; then ok "the check deletes the old failed-rebuild record"; else fail "the check deletes the old failed-rebuild record"; fi
+if [[ $got_note == null ]]; then ok "the VGS row carries no note from the old record"; else fail "the VGS row carries no note from the old record: $got_note"; fi
 # Process groups: each probe's vgshell leaves a grandchild in its group. TERM
 # to bin/check must reach it. The private group owner also forwards a
 # parent-death signal, held by test-owned-group.py.
