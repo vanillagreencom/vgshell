@@ -403,6 +403,11 @@
 # 69 when the shell is not running, 78 when `run` or `restart` finds a tool below the runtime
 # floor. `vgshell --help` prints the short screen from help_text and exits 0.
 set -euo pipefail
+# A read pipes its producer into mapfile: pipefail gives the read that
+# producer's status, and lastpipe, which holds while job control is off
+# (bash(1), shopt), keeps the array in this shell. A wait on a process
+# substitution fails once Bash has reaped it.
+shopt -s lastpipe
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 root="$(cd -- "$(dirname -- "$self")/.." && pwd)"
@@ -1920,8 +1925,7 @@ theme_probe() { # NAME
 theme_outdated() { # FORMAT
   local names=()
   theme_lock_hold "outdated=themes" -s -w "$theme_lock_wait_s"
-  mapfile -d '' -t names < <(node "$theme_judge" checkouts "$config_home/vgshell")
-  wait "$!" || exit $?
+  node "$theme_judge" checkouts "$config_home/vgshell" | mapfile -d '' -t names || exit $?
   outdated_rows theme_probe "${names[@]}"
   outdated_print "$1"
 }

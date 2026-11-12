@@ -456,7 +456,7 @@ unset THEME_BIN
 chmod 000 "$themes"
 tinst "theme outdated refuses a themes directory it cannot read" "$cfg" "$rt_empty" 1 "" "vgshell: refused: themes=unreadable path=$themes error=EACCES" theme outdated --json
 # The must-fail control: a copy that never reads the judge's status.
-tree_control unwaited bin/vgshell 'wait "$!" || exit $?' 'true'
+tree_control unwaited bin/vgshell "mapfile -d '' -t names || exit \$?" "mapfile -d '' -t names || true"
 tinst "the unwaited mutant reports an unreadable directory as empty" "$cfg" "$rt_empty" 0 "[]" "$any_out" theme outdated --json
 unset THEME_BIN
 chmod 700 "$themes"
