@@ -68,9 +68,10 @@ Item {
     property real radius: standard === raised ? Theme.radius.glass : standard.radius
     // `wide` for a large card, `tight` for a small transient surface: a
     // group of `Theme.glass.shadow`. One the table lacks is logged and
-    // drawn as wide.
+    // drawn as wide. `none` draws no shadow, for a plate whose hairline
+    // alone marks its edge on the wallpaper.
     property string elevation: "wide"
-    readonly property var shadow: shadowOf(elevation)
+    readonly property var shadow: elevation === "none" ? null : shadowOf(elevation)
     // Cache the shadow only for a surface that keeps its size; a resizing
     // or morphing surface would rebuild the cache every frame.
     property bool shadowCached: true
@@ -130,13 +131,13 @@ Item {
     Binding on transformOrigin { when: glass.follow !== null; value: glass.follow ? glass.follow.transformOrigin : Item.Center }
 
     RectangularShadow {
-        visible: glass.drawn
+        visible: glass.drawn && glass.elevation !== "none"
         anchors.fill: parent
         radius: glass.corner
-        blur: glass.shadow.blur
-        spread: glass.shadow.spread
-        offset: Qt.vector2d(0, glass.shadow.offsetY)
-        color: glass.shadow.color
+        blur: glass.shadow === null ? 0 : glass.shadow.blur
+        spread: glass.shadow === null ? 0 : glass.shadow.spread
+        offset: Qt.vector2d(0, glass.shadow === null ? 0 : glass.shadow.offsetY)
+        color: glass.shadow === null ? "transparent" : glass.shadow.color
         cached: glass.shadowCached
     }
 

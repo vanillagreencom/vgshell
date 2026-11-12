@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Measure each passive shader layer on a real GPU in the nested sandbox:
 # VoiceOrb, Voice's plasma orb and Jarvis's particle orb in its full and
-# reduced looks, and the shared RadialBackdrop at Jarvis's largest field.
+# reduced looks, and the shared RadialBackdrop as the disc behind Voice's
+# plasma orb.
 # Usage: scripts/measure-shader.sh [--shader NAME] [--calibrate FILE [--runs N]] [--keep]
 # Default: check every shader against its record in
 # scripts/shader/ceilings.json and prove its 256-step control. --shader

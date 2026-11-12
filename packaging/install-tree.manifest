@@ -444,7 +444,6 @@ f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Composer.js
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
-f share/vgshell/shell/plugins/vgs.jarvis/Field.js
 f share/vgshell/shell/plugins/vgs.jarvis/FleetRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/History.js
 f share/vgshell/shell/plugins/vgs.jarvis/HomeRepair.qml

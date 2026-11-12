@@ -6,7 +6,7 @@ import qs.Unit
 
 // GlassSurface: with glass on it draws the shadow, the handed fill and
 // radius, the sheen and the hairline, from Theme.glass and the elevation it
-// is handed; with glass on over its window's own content, the same fill
+// is handed, and no shadow at the elevation `none`; with glass on over its window's own content, the same fill
 // made opaque and lifted, at the same corner under the hairline; with glass
 // off it draws the standard look it is handed, the raised surface's by
 // default, and none of the glass. The surface's own choice decides until
@@ -396,6 +396,17 @@ Item {
         function test_the_default_fill_and_elevation() {
             compare(String(bodyOf(unnamed).color), "#cc101010");
             compare([shadowOf(unnamed).blur, String(shadowOf(unnamed).color)], [90, "#8c000000"]);
+        }
+
+        // A plate on the wallpaper draws every layer of the glass but the
+        // shadow, and names no group of the shadow table.
+        function test_the_none_elevation_draws_no_shadow() {
+            unnamed.elevation = "none";
+            verify(unnamed.drawn);
+            verify(!shadowOf(unnamed).visible);
+            compare(String(bodyOf(unnamed).color), "#cc101010");
+            verify(sheenOf(unnamed).visible);
+            compare([edgeOf(unnamed).border.width, String(edgeOf(unnamed).border.color)], [1, "#17e8e8e8"]);
         }
 
         // expected-log: GlassSurface: no elevation named "flat" -- the test names an unknown elevation on purpose

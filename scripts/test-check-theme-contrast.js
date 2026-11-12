@@ -89,7 +89,8 @@ const TERMINAL_SLOT_ROWS = [
 // plants its defect.
 function copyCheck(copy) {
     for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
-        "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
+        "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js",
+        "shell/plugins/vgs.jarvis/Appearance.js"]) {
         fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
         fs.copyFileSync(path.join(repo, file), path.join(copy, file));
     }
@@ -220,6 +221,39 @@ try {
         assertStatus(opaque, 0);
         assert.doesNotMatch(opaque.stdout, /listItem\./);
     });
+
+    // Jarvis's overlay inks as they drew before VGS-2433 put them on glass
+    // plates, each planted alone in a disposable copy judged on the shipped
+    // tree. A toggle that is on in the accent alone falls short as the
+    // notice link did, on the same card fill. The caption's top line at its
+    // old opacity falls short, which holds the line's opacity in the
+    // reading. Light mode's Confirm label under the pointer in its old ink
+    // falls short on its hover fill and reads on the bare card, which
+    // holds the answer's own fill in the ground.
+    for (const [name, needle, replacement, lines] of [
+        ["a Jarvis toggle that is on in the accent alone", /on: color\("readable\(.*\)"\),/, 'on: color("{palette.accent}"),',
+            [/^short    vgs: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=3\.35 floor=4\.5$/m,
+                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #000000 ratio=4\.15 floor=4\.5$/m]],
+        ["Jarvis's top caption line at its old opacity", /oldest: share\(0\.62\)/, "oldest: share(0.22)",
+            [/^short    vgs: jarvis\.ink\.words at jarvis\.words\.oldest on jarvis\.plate\.card\.fill over #ffffff ratio=1\.85 floor=4\.5$/m]],
+        ["light mode's Confirm label under the pointer in its old ink", /hoverInk: "#363d4a",/, 'hoverInk: "#424956",',
+            [/^short    catalog\/flexoki-light: jarvis\.answer\.hoverInk on jarvis\.answer\.hoverFill over jarvis\.plate\.card\.fill over #000000 ratio=4\.4\d floor=4\.5$/m]]
+    ]) {
+        row(`control: ${name} is a shortfall`, dir => {
+            const copy = path.join(dir, "copy");
+            copyCheck(copy);
+            const look = path.join(copy, "shell", "plugins", "vgs.jarvis", "Appearance.js");
+            const source = fs.readFileSync(look, "utf8");
+            assert.equal(source.split(needle).length, 2, "the planted text matches once");
+            fs.writeFileSync(look, source.replace(needle, () => replacement));
+            const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+                { encoding: "utf8", env: env(path.join(dir, "env")) });
+            assertStatus(proc, 1);
+            for (const line of lines) assert.match(proc.stdout, line);
+            const others = proc.stdout.split("\n").filter(line => line.startsWith("short ") && !/ jarvis\./.test(line));
+            assert.deepEqual(others, [], "the planted ink alone falls short");
+        });
+    }
 
     row("direct package shortfall exits one", dir => {
         fs.mkdirSync(dir, { recursive: true });

@@ -75,6 +75,7 @@ Item {
             compare(shown.length, root.look.words.lines);
             const bottom = shown[shown.length - 1];
             compare(bottom.y + bottom.height, words.implicitHeight, "the newest line sits at the bottom");
+            compare([words.shownLines, words.shownHeight], [root.look.words.lines, words.implicitHeight], "a full window reports its lines");
             verify(textOf(bottom).endsWith("end"), "the bottom line ends the caption: " + textOf(bottom));
             const tail = shown.map(textOf).join(" ");
             verify(text.endsWith(" " + tail), "the lines are the caption's last, in order: " + tail);
@@ -107,6 +108,7 @@ Item {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             words.text = "Done in one";
             tryVerify(() => words.settled && words.shown === "Done in one", 100);
+            compare([words.shownLines, words.shownHeight], [1, words.lineBox], "one line reports one line's box for a ground that hugs it");
         }
 
         function test_a_caption_that_grows_inside_its_last_word_keeps_its_words() {

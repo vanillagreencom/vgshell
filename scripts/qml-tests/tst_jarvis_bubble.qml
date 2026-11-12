@@ -9,7 +9,10 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // The Jarvis overlay's fault card: a fault's action that names a page
 // draws the reference's words with no Markdown, and a click on them opens
 // the page through `shell.surfaces.openPage` (design-system.md § Copy).
-// The service is a stand-in that hands the card a Session record.
+// The overlay beside the Console: its plates, text and pointer regions
+// clear the Console's box, and the judgement that moves it reads the
+// plates' own extent. The service is a stand-in that hands the card a
+// Session record.
 Item {
     id: root
     width: 600
@@ -27,9 +30,10 @@ Item {
         property var consoleKey: null
         property var heldKey: null
         property var effectiveKeys: null
+        property var values: ({})
         property var shell: ({
             settings: { voiceProvider: "local" },
-            status: { values: {} },
+            status: { values: service.values },
             surfaces: { openPage: (page, tab) => { root.opened = root.opened.concat([[page, tab]]); } }
         })
         function attachBubble(bubble) {}
@@ -57,6 +61,7 @@ Item {
             service.sessionState = null;
             service.microphoneMute = { kind: "ready", muted: false };
             service.consoleBox = null;
+            service.values = {};
             service.focusedOutput = "SMOKE-1";
             bubble.screen = { name: "SMOKE-1" };
             root.width = 600;
@@ -75,6 +80,7 @@ Item {
         function links() {
             return collect(bubble, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
         }
+        function plates() { return collect(bubble, n => n.glassSurface === true && n.visible, []); }
 
         function test_fault_placement_tracks_console_without_a_hold_data() {
             return [
@@ -123,8 +129,6 @@ Item {
                 mouseMove(root, at.x, at.y);
                 tryCompare(bubble, "iconOpacity", 1);
             }
-            const field = findChild(bubble, "field");
-            verify(field !== null);
             // A second frame must keep the same answer after the fitted
             // width reflows the text and the overlay no longer intersects.
             for (let frame = 0; frame < 2; frame++) {
@@ -135,11 +139,14 @@ Item {
                 const right = overlay.x >= box.x + box.width;
                 verify(left || right, "the whole overlay stands beside Console");
                 if (data.side !== "either") compare(left ? "left" : "right", data.side, "use the side with more measured room");
-                verify(field.width > 0 && field.height > 0, "clearance cannot pass by collapsing the field");
-                verify(field.x >= 0 && field.x + field.width <= root.width,
-                    "the drawn field stays on this output");
-                verify(left ? field.x + field.width <= box.x : field.x >= box.x + box.width,
-                    "the field's drawn extent also clears Console");
+                const drawn = plates();
+                verify(drawn.length >= (data.icons ? 3 : 2), "the side draws the disc, the card and the shown capsule: " + drawn.map(plate => plate.objectName));
+                for (const plate of drawn) {
+                    const rect = plate.mapToItem(bubble, 0, 0, plate.width, plate.height);
+                    verify(rect.width > 0 && rect.height > 0, "clearance cannot pass by collapsing " + plate.objectName);
+                    verify(rect.x >= 0 && rect.x + rect.width <= root.width, plate.objectName + " stays on this output");
+                    verify(left ? rect.x + rect.width <= box.x : rect.x >= box.x + box.width, plate.objectName + " also clears Console");
+                }
                 fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5,
                     "a non-held overlay keeps its bottom edge, not the held prompt's top edge");
                 for (const item of bubble.textItems.filter(item => bubble.drawn(item) && item.height > 0)) {
@@ -169,6 +176,36 @@ Item {
                 "closing or clearing the Console returns the fault orb to the bottom");
             fuzzyCompare(overlay.x + overlay.width / 2, root.width / 2, 0.5,
                 "closing or clearing Console restores centred placement");
+        }
+
+        // The judgement reads the box the plates take at the bottom centre:
+        // a Console that ends just above their top leaves the overlay
+        // there, and one that reaches a pixel into it moves the overlay.
+        function test_the_console_judgement_reads_the_plates_extent_data() {
+            const open = { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" } };
+            return [
+                { tag: "a state line", state: open },
+                { tag: "a fault", state: Object.assign({ fault: { kind: "error", reason: "jarvis-test=unknown" } }, open) },
+                { tag: "words over the orb", state: Object.assign({ playback: { kind: "playing" }, voiceMute: { kind: "on" } }, open),
+                  caption: "The meeting moved to Thursday at three, and the room is the same as last week. I added it to your calendar and told Dana you will join a few minutes late." }
+            ];
+        }
+        function test_the_console_judgement_reads_the_plates_extent(data) {
+            root.width = 1200;
+            if (data.caption) service.values = { transcript: { role: "assistant", gen: 0, text: data.caption } };
+            service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())), data.state);
+            verify(renderedFrame(bubble));
+            const overlay = findChild(bubble, "overlay");
+            const top = Math.min(...plates().map(plate => plate.mapToItem(bubble, 0, 0).y));
+            if (data.caption) verify(plates().some(plate => plate.objectName === "wordsCard"), "the words draw on their card");
+            fuzzyCompare(top, overlay.y, 0.5, "the plates start at the overlay's top");
+            const over = bottom => ({ output: "SMOKE-1", x: 0, y: 0, width: root.width, height: bottom });
+            service.consoleBox = over(top - 1);
+            verify(renderedFrame(bubble));
+            compare(bubble.overConsole, false, "a Console that ends above the plates leaves them");
+            service.consoleBox = over(top + 1);
+            verify(renderedFrame(bubble));
+            compare(bubble.overConsole, true, "a Console a pixel into the plates moves them");
         }
 
         function test_digital_silence_is_a_reading_with_a_microphone_link() {

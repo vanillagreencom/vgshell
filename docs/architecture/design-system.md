@@ -45,7 +45,17 @@ A private control or literal drawing value creates a second style system that th
 - Pass the look's own values to composed controls. The shared system key hint is the exception. GlassSurface takes the look's fill, rounding and elevation, but draws the standard surface while glass is off. Review holds supplied values.
 - Draw a look's own button through `Button` with the look's values, never a private control: height, side padding, corner, rest, hover and pressed fills, border, label inks, ring and `shimmer`. The shimmer sweeps the label while the pointer rests on it, stops without another frame when the pointer leaves and stays still at motion scale zero. Its `shadow` draws the look's text shadow under the label and the shimmer. `scripts/qml-tests/tst_button.qml` checks the inputs and the shimmer; `scripts/qml-tests/tst_jarvis_prompt.qml` checks Jarvis's approval answers.
 - Draw each line of a look's text over the look's text shadow, when the look sets one, through the line's own layer and `TextShadow`, so a still line redraws no blur. The look owns the shadow and the inks. `scripts/qml-tests/tst_textshadow.qml` checks the shadow and its stillness; `scripts/qml-tests/tst_jarvis_prompt.qml` and `tst_jarvis_words.qml` check Jarvis's lines, answers and inks.
-- Draw Jarvis's overlay over its look's one fading `field`, dark with light ink in dark mode and white with dark ink in light mode. The orb's round particle centre has no flat filled disc. The orb and halo, the icon row while it shows and each content column's box share the field. Keep every line at 4.5:1 against its composed field and place content where the field reaches 60% of its box's peak. The look owns the values; `scripts/qml-tests/tst_jarvis_field.qml` checks placement, and rendered UI review judges the inks.
+- Draw Jarvis's overlay on glass plates in its look's `plate` values: the orb on a disc, the icon row on a capsule beside the disc, and the words and the state line, fault or held request each on a card that hugs its lines. Dark mode draws dark plates with light ink. Light mode draws light plates with dark ink and the orb in darker stops. `scripts/qml-tests/tst_jarvis_plates.qml` checks the plates, `scripts/check-theme-contrast.js` holds every ink on its plate, and rendered UI review judges the orb's points.
+
+### Glass plates over wallpaper
+
+- Give text, icons and fine drawing over the wallpaper a `GlassSurface` plate as their ground, in new work and when a surface is next redrawn. A plate bounds what its content meets; a fading field or a shadow does not.
+- Choose each ink against its plate's worst ground: the fill over white for a dark plate, over black for a light plate. Blur and wallpaper only move the ground toward the fill. Judge a label on a filled control on that fill over the plate. `scripts/check-theme-contrast.js` holds 4.5:1 for the looks it judges, in every shipped and catalogued theme.
+- Draw no drop shadow behind a plate on the wallpaper: hand `elevation: "none"`. The plate's hairline marks its edge. `scripts/qml-tests/tst_glasssurface.qml` checks the elevation.
+- Ask the compositor for blur through a layer rule in the plugin's manifest, with `ignoreAlpha` under every plate's fill alpha. Blur strength belongs to the user and can be off, so the fill alone carries the contrast.
+- Keep each plate's box clear of every other plate's. `GlassSurface` draws a plate solid when another plate's box lies under it.
+- Never fade a plate's own opacity. A fill that crosses the rule's alpha gains or loses its blur during the fade. Show the plate whole and fade its content.
+- Hand each plate `standard` from the look, so a plate keeps its look while glass is off.
 
 ### Components
 

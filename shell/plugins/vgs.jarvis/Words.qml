@@ -62,6 +62,10 @@ Item {
     property int dropped: 0
     property int start: 0
     readonly property int lineCount: count === 0 ? 0 : dropped + lines.length
+    // The lines the window shows and their height, at the bottom of this
+    // item: the box an owner's ground hugs.
+    readonly property int shownLines: Math.min(lineCount, window)
+    readonly property real shownHeight: shownLines * lineBox
     readonly property bool settled: count === list.length && !reveal.running && !fade.running && !rise.running
     // The previous caption's words, which the next must extend.
     property var held: []

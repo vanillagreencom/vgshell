@@ -233,7 +233,7 @@ Item {
         }
 
         // The prompt's lines and answers draw the mode's ink, which
-        // tst_jarvis_field.qml holds to its measured contrast.
+        // scripts/check-theme-contrast.js holds to 4.5:1 on its card.
         function test_lines_draw_the_looks_ink_in_both_modes_data() {
             return [{ tag: "dark", light: false }, { tag: "light", light: true }];
         }

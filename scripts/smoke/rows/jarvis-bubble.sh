@@ -527,20 +527,26 @@ print("blocked" if entries and all(e.get("disabledReason") for e in entries) els
 '
 }
 # Read all built copies, including the unmapped ones: hidden ordinary
-# content must not hand Words a caption or retain an orb field.
+# content must not hand Words a caption or retain the orb's disc, the
+# words' card or the icon capsule; required text keeps its card alone.
 jarvis_bubble_hidden() { # quiet|required
-  local bubbles orbs
-  bubbles="$(ipc smoke layerItems vgs.jarvis Bubble hidden,words,capturePresented,iconsShown,fieldBoxes,presented,shown)" &&
-    orbs="$(ipc smoke layerItems vgs.jarvis ParticleOrb visible,active)" || return 1
+  local bubbles orbs plates
+  bubbles="$(ipc smoke layerItems vgs.jarvis Bubble hidden,words,capturePresented,iconsShown,presented,shown)" &&
+    orbs="$(ipc smoke layerItems vgs.jarvis ParticleOrb visible,active)" &&
+    plates="$(ipc smoke layerItems vgs.jarvis GlassSurface objectName,visible)" || return 1
   py_reply '
 import json,sys
-rows=json.load(sys.stdin); orbs=json.loads(sys.argv[1]); required=sys.argv[2]=="required"
+rows=json.load(sys.stdin); orbs=json.loads(sys.argv[1]); plates=json.loads(sys.argv[2]); required=sys.argv[3]=="required"
+names={"orbPlate","wordsCard","iconPill","textCard"}
+built={v["objectName"] for _,_,v in plates}
+if not names<=built: sys.exit("jarvis-bubble: plates-reader=missing " + ",".join(sorted(names-built)))
+shown=sorted(v["objectName"] for _,_,v in plates if v["visible"] and v["objectName"] in names)
 ok=bool(rows) and bool(orbs) and all(v["hidden"] and v["words"]=="" and not v["capturePresented"] and not v["iconsShown"] for _,_,v in rows)
 ok=ok and all(not v["visible"] and not v["active"] for _,_,v in orbs)
-if required: ok=ok and any(v["shown"] and v["presented"] and len(v["fieldBoxes"])==1 for _,_,v in rows)
-else: ok=ok and all(len(v["fieldBoxes"])==0 and not v["shown"] for _,_,v in rows)
+if required: ok=ok and any(v["shown"] and v["presented"] for _,_,v in rows) and shown==["textCard"]
+else: ok=ok and shown==[] and all(not v["shown"] for _,_,v in rows)
 print("required" if ok and required else "quiet" if ok else "wrong-content")
-' "$orbs" "$1" <<<"$bubbles"
+' "$orbs" "$plates" "$1" <<<"$bubbles"
 }
 jarvis_bubble_hidden_loss() {
   expect_poll "loss of the focused bar badge retires capture" closed jarvis_key_state capture
@@ -842,8 +848,7 @@ if ! orb_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
   jarvis_bubble_abandon
   return 0
 fi
-# A box can sit at a half pixel, as the overlay's height adds the orb's
-# ring, 87.975 px; bash arithmetic takes whole numbers.
+# Bash arithmetic takes whole numbers.
 read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*map(round, json.loads(sys.argv[1])))' "$orb_box")
 # The listening orb takes the pointer on its centre alone: its canvas left
 # of the ring is decorative.
@@ -856,11 +861,15 @@ if ! mute_box="$(jarvis_bubble_required_box RowButton label 'Mute microphone')";
   return 0
 fi
 read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*map(round, json.loads(sys.argv[1])))' "$mute_box")
-# The canvas just above the shown icon row is decorative too.
-if ((mute_y - 6 > orb_y)); then
-  jarvis_bubble_pass "$((mute_x + mute_w / 2))" "$((mute_y - 6))"
+# The row's capsule stands beside the canvas, the microphone the middle
+# of its three icons at the orb's height. The disc right of the hit
+# square and above the way to the capsule is decorative too: 100 px right
+# of the orb's centre and 38 px above the microphone's icon, past the
+# 150 px square and the capsule's 8 px of padding over its first icon.
+if ((mute_x >= orb_x + orb_w)); then
+  jarvis_bubble_pass "$((orb_x + orb_w / 2 + 100))" "$((mute_y - 38))"
 else
-  fail "the orb's canvas reaches above the icon row: orb=$orb_box mute=$mute_box"
+  fail "the icon capsule enters the orb's canvas: orb=$orb_box mute=$mute_box"
 fi
 expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
 # A right click on the listening orb's centre opens the Jarvis menu at the

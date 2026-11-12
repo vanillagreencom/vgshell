@@ -53,6 +53,9 @@
       { "shortcut": "confirm", "key": "SUPER+CTRL+Y", "info": "Confirms the Jarvis request shown on screen." },
       { "shortcut": "deny", "key": null, "info": "Cancels the Jarvis request shown on screen." },
       { "shortcut": "console", "key": "SUPER+ALT+C", "info": "Opens the Jarvis console: type to Jarvis, see its coding tasks and what it refused." }
+    ],
+    "layerRules": [
+      { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 }
     ]
   },
   "menu": {
