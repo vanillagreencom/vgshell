@@ -24,9 +24,11 @@ vgs_pkg_review_settings() { # OWNER [inline]
 Separate the command and each option with a space.
 Quotes and symbols are passed as typed.
 The command starts in the folder of its own review.
-An agent with its own sandbox can then change no other review and no update.
-A command whose first word is claude starts in the folder that all reviews
-and updates share, so its sandbox lets it change them.
+A command whose first word is claude starts in one fixed folder.
+Neither folder holds an update or another review,
+so an agent with its own sandbox cannot change them.
+A claude command asks you before it reads its review files
+or writes its verdict, unless your options allow or deny that.
 VGS does not limit a command that has no sandbox.'
     local heading='Set agent review before a package installs or updates'
     local purpose='Choose whether to review packages, which AI agent to use, and an optional command.'

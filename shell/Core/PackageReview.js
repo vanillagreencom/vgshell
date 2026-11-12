@@ -7,21 +7,33 @@ function isPlainObject(value) { return value !== null && typeof value === "objec
 function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
 // Every review agent, shipped or saved, starts in its own review's evidence
-// folder, so a sandboxed agent can write nothing else in the agent home,
-// unless its row sets startsInHome (reviewCommand).
+// folder, unless its row sets startsInHome (reviewCommand): then it starts
+// in the stable agent home. The package owner makes every transaction,
+// review and retry folder beside that home, never beneath it, so neither
+// start folder holds a file a later update step trusts.
 var REVIEW_AGENTS = [
     // Claude asks nothing: --tools leaves no shell, --strict-mcp-config loads no
-    // MCP server, dontAsk denies any call no rule allows, and verdictRule
-    // allows the write of one review's verdict alone (reviewCommand). --tools
-    // takes every following word, so other flags follow it; the rule is one
-    // `--allowedTools=` word, so the prompt after it stays positional.
+    // MCP server, dontAsk denies any call no rule allows, and access adds this
+    // review's evidence folder as a working directory, so its reads ask
+    // nothing, and allows the write of its verdict alone (reviewCommand).
+    // Edits in an added directory still follow dontAsk. The verdict rule
+    // takes Claude's `//path` form for an absolute path. --tools takes every
+    // following word, so other flags follow it; each access word is one
+    // `--flag=value` word, so the prompt after it stays positional.
     // Claude asks its folder-trust question in every folder it has not
     // trusted (VGS-2448), so it and a saved command whose first word is
     // claude start in the stable agent home, trusted once, not in a new
-    // evidence folder per review.
-    // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference
+    // evidence folder per review. Read, Glob and Grep prompt for a path
+    // outside the working directories (tools-reference), which dontAsk
+    // denies, hence the added evidence folder. Claude reads an added
+    // folder's own .claude configuration; VGS alone writes the evidence
+    // folder's top level, and recipes sit beneath its build/ folder.
+    // No real Claude session has measured --add-dir or the //path verdict
+    // rule under dontAsk; the quoted Claude Code docs are the evidence.
+    // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference,
+    // https://code.claude.com/docs/en/tools-reference
     { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
-        "--strict-mcp-config", "--permission-mode", "dontAsk"], verdictRule: "--allowedTools=Edit(./{verdict})", startsInHome: true },
+        "--strict-mcp-config", "--permission-mode", "dontAsk"], access: ["--add-dir={evidence}", "--allowedTools=Edit(/{evidence}/verdict)"], startsInHome: true },
     // workspace-write lets Codex's shell write only in its working directory,
     // /tmp and $TMPDIR (`codex debug prompt-input`, codex-cli 0.167.0), and
     // that directory is one review's evidence folder, so no other review,
@@ -132,15 +144,16 @@ function reviewPlan(settings, found) {
 }
 
 // How PLAN runs on one review: { argv, before its prompt, and cwd }. REVIEW
-// holds the stable agent home, that review's evidence folder and its verdict
-// path relative to the home. A shipped agent with a verdictRule may write
-// that verdict alone; a saved command runs as written. Either starts in the
-// home when the row its first word names sets startsInHome, else in the
-// evidence folder, so a saved command that names a sandboxed agent cannot
-// write a transaction, a receipt or another review in the home.
+// holds the stable agent home and that review's absolute evidence folder.
+// A shipped agent with access words gains them for that folder; a saved
+// command runs as written. Either starts in the home when the row its first
+// word names sets startsInHome, else in the evidence folder. No
+// transaction, receipt or other review lies beneath either folder, so a
+// command that may write its working directory cannot reach one.
 function reviewCommand(plan, review) {
     var row = reviewAgentRow(plan.agent);
-    var argv = plan.state === "agent" && row !== null && hasOwn(row, "verdictRule") ? plan.command.concat([row.verdictRule.replace("{verdict}", review.verdict)]) : plan.command.slice();
+    var argv = plan.state === "agent" && row !== null && hasOwn(row, "access")
+        ? plan.command.concat(row.access.map(function (word) { return word.split("{evidence}").join(review.evidence); })) : plan.command.slice();
     return { argv: argv, cwd: row !== null && row.startsInHome === true ? review.home : review.evidence };
 }
 
