@@ -1776,9 +1776,10 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # is not UTF-8, and failed-load a reader that raises at import. Expected row sets are
 # written here, not derived from the selector. A control runs a copy of
 # validate with one rule removed, committed so the plan judges the planted
-# change alone, and wants the exact plan that rule's loss gives. No fixture
-# reaches the tracked-list-unreadable branch: git ls-files fails only where
-# the diff read before it fails too, and that selects the full area first.
+# change alone, and wants the exact plan that rule's loss gives. The
+# tracked-list-unreadable case reaches its branch through a git stand-in
+# that fails only `git ls-files -z`, since a real failure of that read also
+# fails the diff read before it, and that selects the full area first.
 smoke_fixture() { # DIR [VARIANT]
   local dir="$1" variant="${2:-rows}" row listed='bar hyprland-consent session launcher notifications notifications-keys other bare stale twice blank lost start-order auth-sentinel'
   fresh "$dir"
@@ -2219,6 +2220,35 @@ PY
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
 row "control: a runner that lists no row no longer names its own reason" "$d" 0 "" \
   "validate: smoke-rows=all reason=core-row-missing row=bar"
+# A tracked-file list whose git command fails runs every row and names why,
+# even when the command wrote the whole list first. The git stand-in fails
+# only that read, `git ls-files -z`, and passes every other call through;
+# the control, a copy of validate that ignores the read's status, selects
+# the launcher change's rows as usual.
+real_git="$(command -v git)"
+mkdir -p "$tmp/failing-ls-files"
+printf '#!/bin/sh\nif [ "$*" = "ls-files -z" ]; then "%s" ls-files -z; exit 1; fi\nexec "%s" "$@"\n' "$real_git" "$real_git" >"$tmp/failing-ls-files/git"
+chmod +x "$tmp/failing-ls-files/git"
+failing_ls_files="PATH=$tmp/failing-ls-files:$(dirname -- "$node_bin"):$PATH"
+d="$tmp/smoke-rows-tracked-list"; smoke_fixture "$d"
+printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+row "a tracked-file list whose read fails runs every row" "$d" 0 "$failing_ls_files" \
+  "scripts/qml-smoke.sh" "validate: smoke-rows=all reason=tracked-list-unreadable"
+d="$tmp/smoke-rows-tracked-list-control"; smoke_fixture "$d"
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+old = "if ! git ls-files -z | mapfile"
+source = path.read_text()
+assert source.count(old) == 1, old
+path.write_text(source.replace(old, "if ! { git ls-files -z || true; } | mapfile"))
+PY
+"${base_env[@]}" git -C "$d" commit -q -am control
+printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+row "control: a read that ignores its status selects from a failed list" "$d" 0 "$failing_ls_files" \
+  "$smoke_launcher" "validate: smoke-rows=some selected=11 total=14" \
+  "!validate: smoke-rows=all reason=tracked-list-unreadable"
 # The self-check names each line that cannot select, with the line to add
 # or fix, and leaves the exit status alone, on a listing run and a real one.
 d="$tmp/smoke-rows-self-check"; smoke_fixture "$d"

@@ -123,6 +123,12 @@
 #   directory, and the smoke's results for the next run to record. Each
 #   world still owns its row's root.
 set -euo pipefail
+# A read pipes its git command into mapfile, so pipefail gives the read that
+# command's status, and lastpipe keeps mapfile's array in this shell.
+# lastpipe holds only while job control is off (bash(1), shopt), and
+# start_row turns it on only to start a row. A process substitution keeps
+# no such status: a wait on it fails once Bash has reaped it.
+shopt -s lastpipe
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
@@ -1551,7 +1557,7 @@ smoke_rows_read() {
   for row in "${smoke_core[@]}"; do
     if [[ " ${smoke_names[*]} " != *" $row "* ]]; then smoke_read_fault="core-row-missing row=$row"; return 0; fi
   done
-  if ! mapfile -d '' -t smoke_tracked < <(git ls-files -z) || ! wait "$!" || [[ ${#smoke_tracked[@]} -eq 0 ]]; then
+  if ! git ls-files -z | mapfile -d '' -t smoke_tracked || [[ ${#smoke_tracked[@]} -eq 0 ]]; then
     smoke_read_fault=tracked-list-unreadable; return 0
   fi
   if smoke_input_read harness=scripts/smoke/harness.sh scripts/smoke/harness.sh; then
@@ -1948,8 +1954,9 @@ rebased_scope() { # FILE
   if ! old_point="$(branch_point "$base_commit")" || ! point="$(branch_point)"; then
     printf 'validate: scope=unreadable reason=branch-point base=%s\n' "$base_commit" >&2; return 1
   fi
-  if ! mapfile -d '' -t own_paths < <(git diff --name-only --no-renames -z "$old_point" "$base_commit" -- &&
-       git diff --name-only --no-renames -z "$point" -- && git ls-files -z --others --exclude-standard) || ! wait "$!" ||
+  if ! { git diff --name-only --no-renames -z "$old_point" "$base_commit" -- &&
+         git diff --name-only --no-renames -z "$point" -- && git ls-files -z --others --exclude-standard; } |
+       mapfile -d '' -t own_paths ||
      ! mapfile -d '' -t paths <"$file"; then
     printf 'validate: scope=unreadable reason=diff base=%s\n' "$base_commit" >&2; return 1
   fi
@@ -2064,7 +2071,7 @@ if [[ $input_hash == true ]]; then
     input_members+="$i "
     input_records+=("${rows[i]}")
   done
-  if ! mapfile -d '' -t input_entries < <(git ls-tree -r -z "$input_tree") || ! wait "$!"; then
+  if ! git ls-tree -r -z "$input_tree" | mapfile -d '' -t input_entries; then
     echo 'validate: input-hash=unreadable-inputs' >&2; exit 1
   fi
   for entry in "${input_entries[@]}"; do
@@ -2420,7 +2427,7 @@ record_moved() { # rows|smoke POINT
   local -a paths
   [[ -z ${record_moved_set[$point]+set} ]] || return 0
   if [[ ! $point =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] ||
-     ! mapfile -d '' -t paths < <(git diff-tree -r -z --name-only --no-renames "$point" "$record_point" -- 2>/dev/null) || ! wait "$!"; then
+     ! git diff-tree -r -z --name-only --no-renames "$point" "$record_point" -- 2>/dev/null | mapfile -d '' -t paths; then
     record_moved_set[$point]=unreadable; return 0
   fi
   for path in "${paths[@]}"; do
@@ -2534,7 +2541,7 @@ record_prepare() {
     reuse_reason=tree-unreadable; return 0
   fi
   if ! record_point="$(branch_point)"; then reuse_reason=no-branch-point; return 0; fi
-  if ! mapfile -d '' -t raw < <(git diff-tree -r -z --no-renames "$record_point" "$pass_tree") || ! wait "$!"; then
+  if ! git diff-tree -r -z --no-renames "$record_point" "$pass_tree" | mapfile -d '' -t raw; then
     reuse_reason=diff-unreadable; return 0
   fi
   for ((j = 0; j + 1 < ${#raw[@]}; j += 2)); do
