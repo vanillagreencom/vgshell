@@ -108,7 +108,7 @@ function verify(logic) {
   same(logic.commandWords(' cmd "word quoted" $(literal)'),["cmd",'"word','quoted"',"$(literal)"]);
   assert.equal(logic.reviewPlan({agent:"codex"},["claude"]).state,"missing");
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
-  const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk"];
+  const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk","--no-chrome"];
   same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords);
   const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","never"];
   same(logic.reviewPlan({agent:"codex"},["codex"]).command,codexWords);

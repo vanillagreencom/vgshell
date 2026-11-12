@@ -28,12 +28,18 @@ var REVIEW_AGENTS = [
     // denies, hence the added evidence folder. Claude reads an added
     // folder's own .claude configuration; VGS alone writes the evidence
     // folder's top level, and recipes sit beneath its build/ folder.
-    // No real Claude session has measured --add-dir or the //path verdict
-    // rule under dontAsk; the quoted Claude Code docs are the evidence.
+    // Under dontAsk, real sessions on Claude Code 2.1.321 read the added
+    // folder and wrote the verdict through the //path rule, and were denied
+    // writes outside it (VGS-2497).
+    // --no-chrome turns Claude in Chrome off for this session alone, so a
+    // review asks no Chrome startup question; either answer to it rewrites
+    // the owner's account-wide browser setting. A real session on Claude
+    // Code 2.1.321 showed the question without the flag and not with it
+    // (VGS-2513).
     // https://code.claude.com/docs/en/permissions, https://code.claude.com/docs/en/cli-reference,
-    // https://code.claude.com/docs/en/tools-reference
+    // https://code.claude.com/docs/en/tools-reference, https://code.claude.com/docs/en/chrome
     { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--tools", "Read,Glob,Grep,Write",
-        "--strict-mcp-config", "--permission-mode", "dontAsk"], access: ["--add-dir={evidence}", "--allowedTools=Edit(/{evidence}/verdict)"], startsInHome: true },
+        "--strict-mcp-config", "--permission-mode", "dontAsk", "--no-chrome"], access: ["--add-dir={evidence}", "--allowedTools=Edit(/{evidence}/verdict)"], startsInHome: true },
     // workspace-write lets Codex's shell write only in its working directory,
     // /tmp and $TMPDIR (`codex debug prompt-input`, codex-cli 0.167.0), and
     // that directory is one review's evidence folder, so no other review,
