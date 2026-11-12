@@ -188,7 +188,7 @@ function verifyUserBindLifecycle() {
     const context = vm.createContext({
         active: true, keymapRevision: 0, foreignKeys: ["SUPER+SHIFT+S"],
         foreignBindRows: [{ key: "SUPER+SHIFT+S", description: "Old bind" }], userBindRows: [],
-        bindsFailure: "", layerBinds: [], State: state, console: { error: error => calls.push(error) },
+        bindsFailure: "", bindsPending: false, userBindsPending: false, layerBinds: [], State: state, console: { error: error => calls.push(error) },
         bindsReader: { read: (...args) => calls.push(["binds", ...args]) },
         userBindsReader: { read: (...args) => calls.push(["user", ...args]) },
         readDevices: () => {}, readOptions: () => {}, readUserValues: () => {}, readPermissions: () => {}
@@ -199,8 +199,8 @@ function verifyUserBindLifecycle() {
     assert.ok(reload, "the production reload handler is available");
     vm.runInContext("(function(event) {" + reload[1] + "})({name:'configreloaded'})", context);
     assert.equal(context.keymapRevision, 1, "reload invalidates key identities");
-    same([context.foreignKeys, context.foreignBindRows, context.userBindRows], [null, null, null],
-        "reload invalidates stale user bindings before a replacement read");
+    same([context.bindsPending, context.userBindsPending], [true, true],
+        "reload marks both readings pending before a replacement read");
     same(calls, [["binds", state.BINDS_REQUEST, null], ["user", state.USER_BINDS_REQUEST, null]],
         "reload requests both existing readers");
     const callback = stateSource.match(/id: bindsReader[\s\S]*?onReadDone: \(request, text, failure\) => \{([\s\S]*?)\n        \}\n    \}/);
@@ -209,6 +209,7 @@ function verifyUserBindLifecycle() {
     context.text = JSON.stringify([bind]);
     vm.runInContext("(function(request,text,failure) {" + callback[1] + "})(null,text,'')", context);
     same(context.foreignKeys, ["SUPER+SHIFT+S"], "successful refresh restores the key reading");
+    same([context.bindsPending, context.userBindsPending], [false, true], "the binds answer is current; the user binds still pending");
     same(context.foreignBindRows, [{ key: "SUPER+SHIFT+S", description: "Move window down" }], "hint and admission use one reply");
     vm.runInContext("(function(request,text,failure) {" + callback[1] + "})(null,'','binds=failed')", context);
     same([context.foreignKeys, context.foreignBindRows], [null, null], "failed read grants no empty admission");

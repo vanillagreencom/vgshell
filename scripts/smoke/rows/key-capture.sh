@@ -22,7 +22,10 @@
 # capture waits until Hyprland holds the bind the step wrote. The control
 # for that wait asks the shell to write the layer and reload Hyprland once
 # a capture entered the submap: the reload leaves it and the shell ends
-# the capture on Hyprland's submap change.
+# the capture on Hyprland's submap change. Hyprland's bind list reads a
+# reload's layer before the shell has read its binds and keys again, and
+# the shell refuses a render until then, so the row forces one more reload
+# after the last bind wait and waits for the shell's own readiness past it.
 # No latency is measured; each reading polls every 200 ms.
 # inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/KeyField.qml shell/Commons/Reply.js shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.themes/manifest.json shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandState.qml scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
@@ -37,6 +40,18 @@ kc_marker() { [[ -f $1 ]] && echo 1 || echo 0; }
 # layer the step before it wrote loaded.
 kc_bound() { hypr -j binds | py_reply 'import json,sys; b=[x for x in json.load(sys.stdin) if x["description"] == sys.argv[1] and x.get("submap", "") in ("", "default")]; print("%d %s" % (b[0]["modmask"], b[0]["key"].lower()) if b else "absent")' "$1"; }
 kc_loaded() { expect_poll "$1: Hyprland holds the layer's $2 bind as $3" "$3" kc_bound "$2"; }
+# kc_revision: the shell's keymap revision, which each configreloaded it
+# reads raises. kc_ready REVISION: `ready` once the revision passed
+# REVISION and the shell holds the current admitted plan with its writer
+# and key resolver idle, the tuple rows/hyprland.sh waits on; else the
+# reading.
+kc_revision() { ipc smoke hyprlandReadiness | py_reply 'import json,sys; print(json.load(sys.stdin).get("keymapRevision", "unread"))'; }
+kc_ready() {
+  ipc smoke hyprlandReadiness | py_reply 'import json,sys
+d=json.load(sys.stdin)
+r=[d.get(k) for k in ("available", "admitted", "currentPlan", "writerPhase", "resolvingKeys", "keymapRevision")]
+print("ready" if r[:5] == [True, True, True, "idle", False] and isinstance(r[5], int) and r[5] > int(sys.argv[1]) else json.dumps(r))' "$1"
+}
 kc_open() {
   expect "$1: Settings is summoned on its own page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.settings"}'
   expect_poll "$1: the Settings window shows its own page" '"vgs.settings"' ipc smoke readInstance window vgs.settings page
@@ -111,7 +126,13 @@ kc_typed "F5 typed" "F5" F5 "0 f5"
 
 # The control for the waits: the layer reload a key store starts, run
 # after the capture entered the submap. The capture timeout ends a capture
-# as `timeout`, so only the reload's leave logs `end=compositor`.
+# as `timeout`, so only the reload's leave logs `end=compositor`. A reload
+# lands between the last bind wait and the render; the render waits for
+# the shell's readiness past it, before the capture so the wait spends
+# none of the capture's timeout.
+read_count kc_revision_before "control reload: the shell's keymap revision before the forced reload" kc_revision
+expect "control reload: the nested instance reloads after the last bind wait" ok hypr reload config-only
+expect_poll "control reload: the shell admits current keys past the forced reload" ready kc_ready "$kc_revision_before"
 type_keys -k Return || fail "control reload: Return on the field failed"
 expect_poll "control reload: Return starts a capture" true settings_key_field capturing
 expect_poll "control reload: the capture enters the pass-through submap" vgs:passthrough key_submap

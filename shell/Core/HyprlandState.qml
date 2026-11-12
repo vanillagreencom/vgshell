@@ -68,6 +68,14 @@ Scope {
     // State.userBinds' binds, where the user's configuration binds each
     // key; null while unread or after a failed read.
     property var userBindRows: null
+    // Whether a re-read of the binds reply (foreignKeys, foreignBindRows)
+    // or of the user's binds (userBindRows) is out. A re-read keeps the
+    // last answer readable, so an open window keeps naming the user's line
+    // through a reload; the layer admits keys only from readings that are
+    // not pending, so it never takes old user binds under a new keymap
+    // revision.
+    property bool bindsPending: false
+    property bool userBindsPending: false
     // The bind line edit running, { done, said }, or null.
     property var bindEdit: null
     // The user's configuration directory and Hyprland directory, as
@@ -101,6 +109,8 @@ Scope {
         foreignBindRows = null;
         bindsFailure = "";
         userBindRows = null;
+        bindsPending = false;
+        userBindsPending = false;
         userPermissions = null;
     }
 
@@ -193,12 +203,10 @@ Scope {
 
     function readBinds() {
         if (!active) return;
-        // HyprctlReader drops an in-flight reply when a new read is queued.
-        // Invalidate both readings now, so a reload never admits old user
-        // binds under its new keymap revision while replacements are pending.
-        foreignKeys = null;
-        foreignBindRows = null;
-        userBindRows = null;
+        // HyprctlReader drops an in-flight reply when a new read is queued,
+        // so each reader's next answer is the one for this read.
+        bindsPending = true;
+        userBindsPending = true;
         bindsReader.read(State.BINDS_REQUEST, null);
         userBindsReader.read(State.USER_BINDS_REQUEST, null);
     }
@@ -395,6 +403,7 @@ Scope {
             } else if (!root.same(read.binds, root.userBindRows)) {
                 root.userBindRows = read.binds;
             }
+            root.userBindsPending = false;
         }
     }
 
@@ -466,6 +475,7 @@ Scope {
                 if (!root.same(read.binds, root.foreignBindRows)) root.foreignBindRows = read.binds;
                 if (!root.same(read.keys, root.foreignKeys)) root.foreignKeys = read.keys;
             }
+            root.bindsPending = false;
         }
     }
 }

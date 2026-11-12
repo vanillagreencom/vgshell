@@ -2420,7 +2420,7 @@ Scope {
             return JSON.stringify({ available: true, admitted: layer.admissionReady,
                 currentPlan: layer.rendered !== null && layer.bindPlan !== null && layer.rendered.plan === layer.bindPlan,
                 writerPhase: layer.machine.phase, resolvingKeys: state.resolvingKeys,
-                keyboards: state.devices.keyboards });
+                keymapRevision: state.keymapRevision, keyboards: state.devices.keyboards });
         }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
         function rememberBarWidgets(hostKey: string): string {

@@ -3,15 +3,26 @@ import QtTest
 import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Core
+import "../../shell/plugins/vgs.settings"
 
 // HyprlandState's binds read, which the key capture's hint reads: a failed
 // read names its failure and empties the keys, a later read clears it, and
-// turning the reads off forgets both. The Process stand-in answers each
-// `hyprctl -j binds` by hand.
+// turning the reads off forgets both. A reload's re-read keeps the last
+// answer, so a Settings key row that cites the user's line keeps its link
+// until and after both readers answer. The Process stand-in answers each
+// `hyprctl -j binds` and user binds read by hand.
 Item {
     id: root
     HyprlandState { id: state }
     Component { id: resolutionFixture; HyprlandState {} }
+    Component { id: registryFixture; ShortcutRegistry {} }
+    Component {
+        id: keyFieldFixture
+        KeyField {
+            pluginId: "acme.keys"
+            bind: ({ shortcut: "open", key: "SUPER+SPACE", default: "SUPER+SPACE", description: "Open" })
+        }
+    }
 
     TestCase {
         name: "hyprland-state-binds"
@@ -229,6 +240,53 @@ Item {
             } finally {
                 owner.active = false;
                 owner.destroy();
+            }
+        }
+
+        // OWNER's running read of reader LABEL, answered with TEXT.
+        function answerRead(owner, label, text) {
+            let reader;
+            for (const child of owner.data) if (child.label === label) reader = child;
+            verify(reader !== undefined, "the " + label + " reader exists");
+            let process;
+            for (const child of reader.data) if (child.running && child.command !== undefined) process = child;
+            verify(process !== undefined, "the " + label + " read runs");
+            process.finish(0, 0, text, "");
+        }
+
+        // The key row's ShortcutField link, which the key-capture smoke row
+        // reads, is the cited user line's place and line; the stand-in
+        // Quickshell environment puts the configuration under
+        // env:XDG_CONFIG_HOME.
+        function test_a_reload_keeps_the_cited_user_line() {
+            const owner = resolutionFixture.createObject(root);
+            const registry = registryFixture.createObject(root, { bindsSource: owner });
+            const sections = Registry.hyprlandSections;
+            let field = null;
+            Registry.hyprlandSections = [{ id: "acme.keys", binds: [{ shortcut: "open", key: "SUPER+SPACE" }] }];
+            const binds = JSON.stringify([{ submap: "", modmask: 64, key: "space", keycode: 0, description: "User space", dispatcher: "exec" }]);
+            const userBinds = "error: vgs-user-binds=" + JSON.stringify([{ file: "env:XDG_CONFIG_HOME/hypr/hyprland.lua", line: 7,
+                text: 'hl.bind("SUPER + SPACE", f)', modmask: 64, key: "space", keycode: 0 }]) + "\n";
+            const link = "env:XDG_CONFIG_HOME/hypr/hyprland.lua line 7";
+            try {
+                owner.active = true;
+                answerRead(owner, "binds", binds);
+                answerRead(owner, "user-binds", userBinds);
+                field = keyFieldFixture.createObject(root, { capture: registry.provider({ id: "acme.other", active: true, onDispose: fn => () => {} }).capture });
+                verify(field !== null);
+                compare(field.shortcutField.hintLink, link, "the answered reads cite the user's line");
+                Hyprland.rawEvent({ name: "configreloaded", data: "" });
+                compare(field.shortcutField.hintLink, link, "the re-read keeps the cited line before either reader answers");
+                answerRead(owner, "binds", binds);
+                compare(field.shortcutField.hintLink, link, "the cited line stands while the user binds are read");
+                answerRead(owner, "user-binds", userBinds);
+                compare(field.shortcutField.hintLink, link, "both answers cite the user's line");
+            } finally {
+                if (field !== null) field.destroy();
+                registry.destroy();
+                owner.active = false;
+                owner.destroy();
+                Registry.hyprlandSections = sections;
             }
         }
 

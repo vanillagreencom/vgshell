@@ -406,7 +406,15 @@ Item {
             verify(Registry.hyprlandKeyIdentities !== null);
             compare(LayerLogic.sameKey("SUPER+code:44", "SUPER+J", Registry.hyprlandKeyIdentities), true);
             finishWrite();
+            // A reload marks both readings pending while it reads them again;
+            // their last answer asks no key read under the new revision.
+            Capabilities.hyprland.bindsPending = true;
+            Capabilities.hyprland.userBindsPending = true;
             Capabilities.hyprland.keymapRevision++;
+            wait(0); // resolveBindKeys runs through Qt.callLater.
+            compare(Capabilities.hyprland.pendingKeys, null, "readings a re-read replaces are not current");
+            Capabilities.hyprland.bindsPending = false;
+            Capabilities.hyprland.userBindsPending = false;
             tryVerify(() => Capabilities.hyprland.pendingKeys !== null);
             compare(Registry.hyprlandKeyIdentities, null, "pending layout facts cannot claim a current foreign identity");
             verify(Registry.hyprlandBindPlan !== null, "the live admitted bind plan remains available");

@@ -10,6 +10,8 @@ QtObject {
         property int keymapRevision: 0
         property var foreignKeys: []
         property var userBindRows: []
+        property bool bindsPending: false
+        property bool userBindsPending: false
         property bool resolvingKeys: false
         property var pendingKeys: null
         property var devices: null

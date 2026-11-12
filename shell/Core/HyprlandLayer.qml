@@ -56,8 +56,11 @@ Scope {
 
     // PluginLogic.hyprlandSection for every enabled plugin.
     readonly property var sections: Registry.hyprlandSections
+    // Both binds readings, answered for the latest reload: a re-read keeps
+    // the last answer for the window, never for admission.
     readonly property bool bindSourcesReady: Capabilities.hyprland.foreignKeys !== null
         && Capabilities.hyprland.userBindRows !== null
+        && !Capabilities.hyprland.bindsPending && !Capabilities.hyprland.userBindsPending
     readonly property string bindRequest: Registry.scanned && Config.ready && bindSourcesReady
         ? JSON.stringify([Layer.requestedBindKeys(sections, Capabilities.hyprland.foreignKeys,
             Capabilities.hyprland.userBindRows), Capabilities.hyprland.keymapRevision]) : ""
