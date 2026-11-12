@@ -162,7 +162,9 @@ with tempfile.TemporaryDirectory(prefix="smoke-anr-") as scratch:
         namespace["subprocess"] = transport
     print("smoke-anr: required-client-evidence=checked empty-input=allowed")
     helpers = root / "functions.sh"
-    helpers.write_text("".join(function(name) for name in ("py_dumps", "py_reply", "shell_crash_check", "shell_crash_new", "shell_crash_reports", "anr_row_boundary", "smoke_row", "now_ms", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_secs")))
+    helpers.write_text("".join(function(name) for name in ("py_dumps", "py_reply", "shell_crash_check", "shell_crash_new", "shell_crash_reports", "anr_row_boundary", "smoke_row", "now_ms", "world_pressure_path", "pressure_some_us", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_mark", "smoke_row_secs"))
+                       + "".join(re.search(r"(?m)^" + name + r"=.*\n", source).group()
+                                 for name in ("world_pressure_file", "host_pressure_file", "smoke_rows_ms")))
     driver = root / "driver.sh"
     driver.write_text('''set -euo pipefail
 repo="$1" sandbox="$2" display_record_dir="$3"

@@ -2004,13 +2004,10 @@ expect_poll "no card is left before the emoji latencies" 0 note_status onScreen
 # IPC on each poll. Each reader is one smoke IPC round trip a poll, the
 # cost the budgets were measured with: the budgets and their runs are in
 # scripts/qml-smoke.sh's header. Each reading is judged by harness.sh's
-# latency_pressure_check with the higher of two CPU pressures over its
-# window: the host's, and this run's own cgroup's, where the shell, the
-# notify call and each reader's process run. A reading above the pressure
-# limit is unmeasured, not a pass or a miss. The host figure is a mean over
-# every busy CPU (PSI weights each CPU by its non-idle time), so beside a
-# busy fleet it can stay low while the path's own processes wait; the
-# cgroup figure counts only this run's tasks. VGS-1339 measured the toast
+# latency_pressure_check with the world's CPU pressure over its window,
+# where the shell, the notify call and each reader's process run; the
+# host's is printed beside it as a note. A reading above the pressure
+# limit is unmeasured, not a pass or a miss. VGS-1339 measured the toast
 # path on cachy (Ryzen 9 9950X) on 2026-10-11 with timing logs at each
 # step: at rest the reading was 55 and 59 ms (host 1.0 and 1.1%, own 0.5%),
 # the card drawn 22 and 34 ms after the notify call; under a dsync 4 KiB
@@ -2022,38 +2019,16 @@ emoji_body="ada: :smoke-party: ship :smoke-party: it :smoke-party: now :smoke-pa
 toast_images() { ipc smoke layerTextsWithin vgs.notifications NotificationCard summary "[acme] in latency" '<img src='; }
 inbox_images() { ipc smoke itemImageTextCount panel vgs.notifications Panel; }
 latency_bound_ms=5000
-# The `some` total of this run's own cgroup's CPU pressure in microseconds,
-# as harness.sh's cpu_some_us reads the host's. Prints nothing when the
-# cgroup or its pressure file is unreadable, which the verdict reads as
-# unread.
-own_cpu_some_us() {
-  local cgroup kind rest
-  cgroup="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null)"
-  [[ -n $cgroup ]] || return 0
-  { while read -r kind rest; do
-      if [[ $kind == some && $rest =~ total=([0-9]+) ]]; then printf '%s\n' "${BASH_REMATCH[1]}"; return 0; fi
-    done <"/sys/fs/cgroup$cgroup/cpu.pressure"; } 2>/dev/null || true
-}
-# higher_pct HOST_PCT OWN_PCT: the higher of two cpu_some_pct readings, or
-# unmeasured when either is.
-higher_pct() {
-  if [[ ! $1 =~ ^[0-9]+\.[0-9]$ || ! $2 =~ ^[0-9]+\.[0-9]$ ]]; then echo unmeasured
-  elif ((10#${1/./} >= 10#${2/./})); then echo "$1"
-  else echo "$2"
-  fi
-}
-# path_pressure READING HOST_START_US OWN_START_US START_MS: prints both
-# pressures of the window from START_MS to now and sets path_pressure_pct
-# to the higher one.
+# path_pressure READING WORLD_START_US HOST_START_US START_MS: prints the
+# world's and the host's pressure of the window from START_MS to now and
+# sets path_pressure_pct to the world's, which judges the reading.
 path_pressure() {
-  local ms host own
+  local ms host
   ms=$(( $(date +%s%3N) - $4 ))
-  host="$(cpu_some_pct "$2" "$(cpu_some_us)" "$ms")"
-  own="$(cpu_some_pct "$3" "$(own_cpu_some_us)" "$ms")"
-  printf '  latency_%s_pressure host_cpu_some_pct=%s own_cpu_some_pct=%s\n' "$1" "$host" "$own"
-  path_pressure_pct="$(higher_pct "$host" "$own")"
+  path_pressure_pct="$(cpu_some_pct "$2" "$(cpu_some_us)" "$ms")"
+  host="$(cpu_some_pct "$3" "$(host_cpu_some_us)" "$ms")"
+  printf '  latency_%s_pressure cpu_some_pct=%s host_cpu_some_pct=%s\n' "$1" "$path_pressure_pct" "$host"
 }
-path_verdict() { latency_pressure_verdict "$1" "$(higher_pct "$2" "$3")" "$4"; } # MS HOST_PCT OWN_PCT BUDGET_MS
 # latency_since LABEL START WANT CMD...: sets latency_ms to the
 # milliseconds from START until CMD prints a count of WANT or more, or to
 # -1 after latency_bound_ms. A read that fails or answers a state word
@@ -2172,29 +2147,48 @@ expect "control: a latency reader that raises fails once and reads -1" "1 -1" la
 expect "control: the failed latency reading names the reader's traceback" 1 grep -c -F -- "the planted latency reader: the reader raised a Python traceback" "$sandbox/latency-traceback-control.log"
 notify_now() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify Slack 0 "" "$1" "$emoji_body" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null; }
 cpu_start="$(cpu_some_us)"
-own_start="$(own_cpu_some_us)"
+host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
 notify_now "[acme] in latency"
 latency_since "the emoji toast latency reader" "$start" "$monitors" toast_images
 emoji_toast_ms="$latency_ms"
-path_pressure emoji_toast "$cpu_start" "$own_start" "$start"
+path_pressure emoji_toast "$cpu_start" "$host_start" "$start"
 latency_pressure_check notifications emoji_toast "$emoji_toast_ms" "$path_pressure_pct" "$emoji_toast_budget_ms"
-expect "control: the emoji toast budget rejects a low-pressure miss" over path_verdict "$((emoji_toast_budget_ms + 1))" 0.0 0.0 "$emoji_toast_budget_ms"
-expect "control: the emoji toast budget excludes a fast reading on a busy host" unmeasured path_verdict "$emoji_toast_budget_ms" 2.9 0.0 "$emoji_toast_budget_ms"
-expect "control: the emoji toast budget excludes a slow reading whose own processes waited" unmeasured path_verdict "$((emoji_toast_budget_ms + 1))" 0.0 2.9 "$emoji_toast_budget_ms"
-expect "control: an unread own pressure leaves the reading unread" unread path_verdict "$emoji_toast_budget_ms" 0.0 unmeasured "$emoji_toast_budget_ms"
+# The control for harness.sh's pressure gate: both pressure files are
+# planted, each reading a stall total at a window's start and another at
+# its end 1000 ms later, and a reading inside the toast budget is judged
+# through cpu_some_us, as every latency reading is. A busy host beside a
+# quiet world is measured; a busy world is not, whatever the host reads.
+pressure_gate_cases() {
+  local dir="$sandbox/pressure-gate" host world want got
+  mkdir -p -- "$dir"
+  while read -r host world want; do
+    got="$(world_pressure_file="$dir/world" host_pressure_file="$dir/host"
+      printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=1000000\n' | tee -- "$dir/world" >"$dir/host"
+      start="$(cpu_some_us)"
+      printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=%s\n' "$((1000000 + host * 1000))" >"$dir/host"
+      printf 'some avg10=0.00 avg60=0.00 avg300=0.00 total=%s\n' "$((1000000 + world * 1000))" >"$dir/world"
+      latency_pressure_verdict "$emoji_toast_budget_ms" "$(cpu_some_pct "$start" "$(cpu_some_us)" 1000)" "$emoji_toast_budget_ms")"
+    [[ $got == "$want" ]] || { echo "host=$host world=$world got=$got want=$want"; return; }
+  done <<'CASES'
+500 0 within
+0 500 unmeasured
+CASES
+  echo ok
+}
+expect "control: the pressure gate judges the world's pressure, never the host's" ok pressure_gate_cases
 expect "dismissing the latency toast is allowed" ok notes dismiss-all
 expect "Silence turns on for the inbox latency" on notes silence on
 expect "clearing the history before the inbox latency is allowed" ok notes clear-history
 for i in $(seq 1 40); do notify_now "[acme] in inbox $i"; done
 expect_poll "the forty emoji notifications are in the history" 40 note_status history
 cpu_start="$(cpu_some_us)"
-own_start="$(own_cpu_some_us)"
+host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
 latency_since "the emoji inbox latency reader" "$start" 1 inbox_images
 emoji_inbox_ms="$latency_ms"
-path_pressure emoji_inbox "$cpu_start" "$own_start" "$start"
+path_pressure emoji_inbox "$cpu_start" "$host_start" "$start"
 latency_pressure_check notifications emoji_inbox "$emoji_inbox_ms" "$path_pressure_pct" "$emoji_inbox_budget_ms"
 expect "all forty emoji rows remain in the panel model" 40 panel_count
 expect "the emoji inbox constructs only its visible cards" True python3 -c 'import sys; print(0 < int(sys.argv[1]) < 40)' "$(inbox_images)"
@@ -2212,12 +2206,12 @@ expect_poll "the forty-card history closed" '""' read_notes panelMode
 for i in $(seq 41 100); do notify_now "[acme] in inbox $i"; done
 expect_poll "the hundred emoji notifications are in the history" 100 note_status history
 cpu_start="$(cpu_some_us)"
-own_start="$(own_cpu_some_us)"
+host_start="$(host_cpu_some_us)"
 start="$(date +%s%3N)"
 notes history >/dev/null
 latency_since "the full history latency reader" "$start" 1 inbox_images
 full_history_ms="$latency_ms"
-path_pressure full_history "$cpu_start" "$own_start" "$start"
+path_pressure full_history "$cpu_start" "$host_start" "$start"
 latency_pressure_check notifications full_history "$full_history_ms" "$path_pressure_pct" "$emoji_inbox_budget_ms"
 expect "all hundred emoji rows remain in the panel model" 100 panel_count
 expect "the full history constructs only its visible cards" True python3 -c 'import sys; print(0 < int(sys.argv[1]) < 100)' "$(inbox_images)"
@@ -4352,49 +4346,63 @@ fade_output() { # PNG
 }
 # Captured card paint is compared with the same Panel without its mask.
 # The reference changes no geometry, inventory, selection or wallpaper.
-fade_active_value() { # PNG REFERENCE ITEMS VIEW SURFACE INK SUMMARY EDGE BAND OUTPUT_WIDTH OUTPUT_HEIGHT
+fade_active_value() { # PAIRS VIEW SURFACE INK SUMMARY EDGE BAND OUTPUT_WIDTH OUTPUT_HEIGHT
+  # PAIRS holds one `PNG<TAB>REFERENCE<TAB>ITEMS` line per reading; each
+  # reading prints one line, in order, the card's paint in PNG against
+  # REFERENCE as JSON or the state word that stopped it. A capture is
+  # decoded once for every reading that names it: png_rgba takes about
+  # 0.8 s on a 1920x1080 capture, and a fade pair's three last readings
+  # share three captures (VGS-2465).
   python3 -c "$png_rgba_py"'
-image,reference=png_rgba(sys.argv[1]),png_rgba(sys.argv[2])
-if isinstance(image,str) or isinstance(reference,str): print("png-unreadable");sys.exit()
-iw,ih,pixels=image;rw,rh,ref=reference
-if (iw,ih)!=(rw,rh): print("reference-size-mismatch");sys.exit()
-items=json.load(open(sys.argv[3]));view,surface=map(json.loads,sys.argv[4:6])
-ink=bytes.fromhex(json.loads(sys.argv[6])[-6:]);summary,edge=sys.argv[7:9];band=float(sys.argv[9])
-sx,sy=iw/float(sys.argv[10]),ih/float(sys.argv[11])
-vx,vy,vw,vh=view["box"]
-cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["text"]==summary]
-if len(cards)!=1: print("current-card-unreadable");sys.exit()
-card=cards[0];cx,cy,cw,ch=card["box"]
-zone_top,zone_bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
-top,bottom=max(cy,zone_top,vy),min(cy+ch,zone_bottom,vy+vh)
-travel=view["contentHeight"]-view["height"]
-if travel<=0 or not 0<view["contentY"]<travel or bottom-top<=0: print("card-outside-fade");sys.exit()
-titles=[i for i in items if i["name"]=="notificationTitleText" and i["visible"] and i["text"]==summary and i["box"][1]>=cy and i["box"][1]+i["box"][3]<=cy+ch]
-if len(titles)!=1: print("current-title-unreadable");sys.exit()
-tx,ty,tw,th=titles[0]["box"]
-left=math.ceil((surface[0]+tx)*sx);right=math.floor((surface[0]+tx+tw)*sx)
-start=math.ceil((surface[1]+max(ty,top))*sy);end=math.floor((surface[1]+min(ty+th,bottom))*sy)
-if not(0<=left<right<=iw and 0<=start<end<=ih): print("title-outside-fade-output");sys.exit()
-cores=[(x,y) for y in range(start,end) for x in range(left,right) if ref[y][4*x:4*x+3]==ink]
-matched=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=2 for x,y in cores)
-# Compare the card interior as well as title ink. The shipped edge-light
-# shader animates only signed distances from -14 to 1, so omit that live
-# edge band from same-pixel comparisons rather than freezing its clock.
-cl=math.ceil((surface[0]+cx+cw*0.1)*sx);cr=math.floor((surface[0]+cx+cw*0.9)*sx)
-ct=math.ceil((surface[1]+top)*sy);cb=math.floor((surface[1]+bottom)*sy)
-if not(0<=cl<cr<=iw and 0<=ct<cb<=ih): print("card-outside-output");sys.exit()
-radius=min(cw,ch)/2
-points=[]
-for y in range(ct,cb):
-    for x in range(cl,cr):
-        lx,ly=(x+0.5)/sx-surface[0],(y+0.5)/sy-surface[1]
-        qx=abs(lx-cx-cw/2)-(cw/2-radius)
-        qy=abs(ly-cy-ch/2)-(ch/2-radius)
-        distance=math.hypot(max(qx,0),max(qy,0))+min(max(qx,qy),0)-radius
-        if distance < -14: points.append((x,y))
-paint_count=len(points)
-paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 for x,y in points)
-print(json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel}))
+decoded={}
+def capture(path):
+    if path not in decoded: decoded[path]=png_rgba(path)
+    return decoded[path]
+view,surface=map(json.loads,sys.argv[2:4])
+ink=bytes.fromhex(json.loads(sys.argv[4])[-6:]);summary,edge=sys.argv[5:7];band=float(sys.argv[7])
+def judge(image_path,reference_path,items_path):
+    image,reference=capture(image_path),capture(reference_path)
+    if isinstance(image,str) or isinstance(reference,str): return "png-unreadable"
+    iw,ih,pixels=image;rw,rh,ref=reference
+    if (iw,ih)!=(rw,rh): return "reference-size-mismatch"
+    items=json.load(open(items_path))
+    sx,sy=iw/float(sys.argv[8]),ih/float(sys.argv[9])
+    vx,vy,vw,vh=view["box"]
+    cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["text"]==summary]
+    if len(cards)!=1: return "current-card-unreadable"
+    card=cards[0];cx,cy,cw,ch=card["box"]
+    zone_top,zone_bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
+    top,bottom=max(cy,zone_top,vy),min(cy+ch,zone_bottom,vy+vh)
+    travel=view["contentHeight"]-view["height"]
+    if travel<=0 or not 0<view["contentY"]<travel or bottom-top<=0: return "card-outside-fade"
+    titles=[i for i in items if i["name"]=="notificationTitleText" and i["visible"] and i["text"]==summary and i["box"][1]>=cy and i["box"][1]+i["box"][3]<=cy+ch]
+    if len(titles)!=1: return "current-title-unreadable"
+    tx,ty,tw,th=titles[0]["box"]
+    left=math.ceil((surface[0]+tx)*sx);right=math.floor((surface[0]+tx+tw)*sx)
+    start=math.ceil((surface[1]+max(ty,top))*sy);end=math.floor((surface[1]+min(ty+th,bottom))*sy)
+    if not(0<=left<right<=iw and 0<=start<end<=ih): return "title-outside-fade-output"
+    cores=[(x,y) for y in range(start,end) for x in range(left,right) if ref[y][4*x:4*x+3]==ink]
+    matched=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=2 for x,y in cores)
+    # Compare the card interior as well as title ink. The shipped edge-light
+    # shader animates only signed distances from -14 to 1, so omit that live
+    # edge band from same-pixel comparisons rather than freezing its clock.
+    cl=math.ceil((surface[0]+cx+cw*0.1)*sx);cr=math.floor((surface[0]+cx+cw*0.9)*sx)
+    ct=math.ceil((surface[1]+top)*sy);cb=math.floor((surface[1]+bottom)*sy)
+    if not(0<=cl<cr<=iw and 0<=ct<cb<=ih): return "card-outside-output"
+    radius=min(cw,ch)/2
+    points=[]
+    for y in range(ct,cb):
+        for x in range(cl,cr):
+            lx,ly=(x+0.5)/sx-surface[0],(y+0.5)/sy-surface[1]
+            qx=abs(lx-cx-cw/2)-(cw/2-radius)
+            qy=abs(ly-cy-ch/2)-(ch/2-radius)
+            distance=math.hypot(max(qx,0),max(qy,0))+min(max(qx,qy),0)-radius
+            if distance < -14: points.append((x,y))
+    paint_count=len(points)
+    paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 for x,y in points)
+    return json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel})
+for reading in sys.argv[1].splitlines():
+    print(judge(*reading.split("\t")))
 ' "$@"
 }
 fade_paint_same() { # SAMPLE_JSON
@@ -4460,7 +4468,7 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE
     (( $(now_ms) < deadline_ms )) || break
     same="$(fade_capture_geometry_same "$items" "$next_items")" || return
     if [[ $same == True ]]; then
-      paint="$(fade_active_value "$next_png" "$prefix.png" "$next_items" "$(<"$next_view")" "$(<"$next_surface")" "$(<"$next_ink")" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+      paint="$(fade_active_value "$next_png"$'\t'"$prefix.png"$'\t'"$next_items" "$(<"$next_view")" "$(<"$next_surface")" "$(<"$next_ink")" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
       [[ $paint == \{* ]] || { printf 'notification-capture: paint=%s\n' "$paint" >&2; return 1; }
       if [[ $(fade_paint_same "$paint") == True ]]; then
         return 0
@@ -4487,7 +4495,7 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   # The pair runs row waits through $(); controls fail on planted output paths.
   local smoke_poll_scope=$((BASH_SUBSHELL))
   local prefix="$1" summary="$2" edge="$3" probe="${1##*/}" items restore_items view_file surface_file ink_file
-  local view surface ink rc=0 status sample restored same saved
+  local view surface ink rc=0 status sample restored same saved readings values paints=()
   items="$(fade_probe_file "$probe-items.json")" || return
   restore_items="$(fade_probe_file "$probe-restored-items.json")" || return
   view_file="$(fade_probe_file "$probe-view.json")" || return
@@ -4508,14 +4516,20 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   fade_read_geometry "$probe-restored-items.json" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
-  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  # The restoration, the sample and the restored sample are read in one
+  # call, so each capture is decoded once; with no reference only the
+  # restoration is read.
+  readings="$prefix-restored.png"$'\t'"$prefix.png"$'\t'"$restore_items"
+  ((rc!=0)) || readings+=$'\n'"$prefix.png"$'\t'"$prefix-reference.png"$'\t'"$items"$'\n'"$prefix-restored.png"$'\t'"$prefix-reference.png"$'\t'"$restore_items"
+  values="$(fade_active_value "$readings" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  mapfile -t paints <<<"$values"
+  saved="${paints[0]-}"
   [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
   printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
   [[ $(fade_paint_same "$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
   ((rc==0)) || { printf 'notification-capture: reference-step status=%s\n' "$rc" >&2; return "$rc"; }
-  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
-  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  sample="${paints[1]-}" restored="${paints[2]-}"
   [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
   printf '%s\n' "$sample" >"$prefix.json"
   printf '%s\n' "$restored" >"$prefix-restored.json"
@@ -4618,7 +4632,7 @@ fade_reference_reads_unsettled() { # PREFIX SUMMARY EDGE
   view="$(<"$view_file")" || return
   surface="$(<"$surface_file")" || return
   ink="$(<"$ink_file")" || return
-  value="$(fade_active_value "$prefix-reference.png" "$prefix.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  value="$(fade_active_value "$prefix-reference.png"$'\t'"$prefix.png"$'\t'"$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $value == \{* ]] || { printf 'notification-capture: control-paint=%s\n' "$value" >&2; return 1; }
   fade_paint_same "$value"
 }
@@ -6466,7 +6480,7 @@ for panel_latency_state in loaded refused; do
             expect_poll "the $panel_latency_action motion is sampled" True panel_latency_sampled
             panel_latency_record >"$panel_latency_dir/$panel_latency_state-$panel_latency_action-$panel_latency_trial.json"
         done
-        printf '{"hostCpuSomePct":%s,"openCpuSomePct":%s}\n' "$(cpu_some_pct "$panel_latency_cpu" "$(cpu_some_us)" "$(( $(now_ms)-panel_latency_start ))")" "$panel_latency_open_pct" >"$panel_latency_dir/$panel_latency_state-pressure-$panel_latency_trial.json"
+        printf '{"cpuSomePct":%s,"openCpuSomePct":%s}\n' "$(cpu_some_pct "$panel_latency_cpu" "$(cpu_some_us)" "$(( $(now_ms)-panel_latency_start ))")" "$panel_latency_open_pct" >"$panel_latency_dir/$panel_latency_state-pressure-$panel_latency_trial.json"
         expect "the timing panel closes" ok notes close
         expect_poll "the timing panel is destroyed" absent ipc smoke readInstance panel vgs.notifications opened
         if ((panel_latency_trial == 3 || panel_latency_trial == 5)); then
@@ -6484,7 +6498,7 @@ import json,pathlib,statistics,sys
 root=pathlib.Path(sys.argv[1]);failed=[];checks=[];motion=[]
 for state in ('loaded','refused'):
     trials=range(1,6) if (root/f'{state}-pressure-5.json').exists() else range(1,4)
-    pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['hostCpuSomePct'] for i in trials]
+    pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['cpuSomePct'] for i in trials]
     open_pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['openCpuSomePct'] for i in trials]
     for action,bound in [('open',140),('history',50),('inbox',50)]:
         action_trials=trials if action=='open' else range(1,4)
@@ -6528,7 +6542,7 @@ for state in ('loaded','refused'):
             for i,v in enumerate(readings):
                 trial_gaps=[b-a for a,b in zip(v['frames'],v['frames'][1:]) if a<v['first']+400]
                 checks.append((f'{state}-open-{i+1}-gap',max(trial_gaps) if trial_gaps else -1,pressure[i],limit))
-    print(f'notification-panel-latency: store={state} host_cpu_some_pct={pressure}')
+    print(f'notification-panel-latency: store={state} cpu_some_pct={pressure}')
     print(f'notification-panel-latency: store={state} open_cpu_some_pct={open_pressure}')
 (root/'pressure-checks.tsv').write_text(''.join(f'{name}\t{ms}\t{pressure:.1f}\t{bound}\n' for name,ms,pressure,bound in checks))
 (root/'motion-checks.tsv').write_text(''.join(f'{name}\t{first}\t{last}\t{pressure:.1f}\n' for name,first,last,pressure in motion))

@@ -151,10 +151,13 @@ exec "$BASH" "$script" "$source_repo" "$sandbox" "$runtime" "$mode" "$@"
     # copier. Only compositor/IPC/recorder transports are neutral fixtures.
     harness = (REPO / "scripts/smoke/harness.sh").read_text()
     terminal_helpers = root / "terminal-functions.sh"
-    names = ("py_reply", "smoke_row", "now_ms", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_secs")
+    names = ("py_reply", "smoke_row", "now_ms", "world_pressure_path", "pressure_some_us", "cpu_some_us",
+             "cpu_some_pct", "load_average", "smoke_row_mark", "smoke_row_secs")
     functions = [re.search(r"(?ms)^" + name + r"\(\).*?^}\n", harness) for name in names]
-    assert all(functions)
-    terminal_helpers.write_text("".join(item.group() for item in functions))
+    variables = [re.search(r"(?m)^" + name + r"=.*\n", harness)
+                 for name in ("world_pressure_file", "host_pressure_file", "smoke_rows_ms")]
+    assert all(functions) and all(variables)
+    terminal_helpers.write_text("".join(item.group() for item in functions + variables))
     terminal_child = root / "terminal.sh"
     terminal_child.write_text(r'''set -euo pipefail
 source_repo="$1" sandbox="$2" rt_dir="$3"

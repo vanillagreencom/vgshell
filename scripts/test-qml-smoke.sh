@@ -14,12 +14,18 @@
 # and that a unit's stop mid-row leaves the attempt's closing reading.
 # --case unmeasured checks unreached rows before and after world setup.
 # --case late-exit stops real initial and resumed worlds during EXIT.
+# The full run also plants a row that goes silent, with TERM ignored, after
+# a row that prints slowly past the bound: the driver's no-progress stop
+# goes unanswered, so the driver ends the world through its namespace init
+# one bound later, the fence keeps the hung row's evidence, and the run
+# ends within two bounds of the stop naming the silent row, never the slow
+# one.
 # Each cancellation case has the private PID namespace and 60 s readiness /
 # 30 s stop bounds of test-smoke-owner.sh --live. A world still starting at
-# the readiness bound is not measured when the case's CPU pressure is above
-# harness.sh's latency_pressure_limit or the 1-minute load per physical
-# core above its latency_load_limit: the run then ends 77 with the reading,
-# unless a case failed. Its end contains defects.
+# the readiness bound is not measured when the case's window's CPU pressure,
+# read from the run's own cgroup as harness.sh's cpu_some_us reads it, is
+# above harness.sh's latency_pressure_limit: the run then ends 77 with the
+# reading, unless a case failed. Its end contains defects.
 set -euo pipefail
 selected_case=all
 unmeasured_cases=()
@@ -215,7 +221,7 @@ for old, phase in [
     ('    qml_smoke_completions+=("$qml_smoke_completion")\n', 'after-attempt-seal'),
     ('      continue\n    fi\n    if [[ $qml_smoke_attempt_status != 0 ]]; then', 'between-attempts'),
     ("  # Final run seal: later stop signals cannot alter this record or exit.\n", 'before-run-seal'),
-    ('  if ((qml_smoke_run_stop != 0)); then\n', 'after-run-seal'),
+    ('  if ((qml_smoke_run_stop == 1)); then\n', 'after-run-seal'),
 ]:
     call = f'  completion_barrier {phase}\n'
     driver = change(driver, old, old + call if phase in ('pending-reader', 'early-reader', 'after-attempt-seal') else call + old)
@@ -359,12 +365,14 @@ for phase, attempt_stop, worlds, native in cases:
                 os.kill(child.pid, signal.SIGTERM)
                 if phase != 'after-run-seal':
                     accepted = directory / 'accepted'
-                    while not accepted.exists() and child.poll() is None and time.monotonic() < deadline:
+                    # The driver's >> creates the file before printf writes
+                    # its line, so wait for a whole line, not the file.
+                    while not (accepted.exists() and accepted.read_text().endswith('\n')) and child.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
                     assert accepted.read_text().splitlines() == ['143'], 'first-stop-not-acknowledged'
                     # A different repeated signal cannot replace the first.
                     os.kill(child.pid, signal.SIGHUP)
-                    while len(accepted.read_text().splitlines()) < 2 and child.poll() is None and time.monotonic() < deadline:
+                    while accepted.read_text().count('\n') < 2 and child.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
                     assert accepted.read_text().splitlines() == ['143', '143'], 'mixed-stop-replaced-first'
                 with (pathlib.Path(ready['path']) / 'release').open('w') as release:
@@ -676,6 +684,25 @@ elif label == 'stopped':
     assert '  ok    following-ran' not in log, log
     assert re.search(r'^qml-smoke: failed=3$', log, re.M), log
     assert len(attempts) == 1, log
+elif label == 'no-progress':
+    # The killed world leaves its attempt unsealed, so the driver reads no
+    # row record from it: every row but the hung one is unreached.
+    assert by_row['hang'] == ('failed', ' cause=no-progress'), by_row
+    assert all(value == unreached for name, value in by_row.items() if name != 'hang'), by_row
+    assert len(attempts) == 1, log
+    ended = re.findall(r'^qml-smoke: no-progress stop=unanswered world=ended after-secs=15 root=(\S+) evidence=(\S+)$', log, re.M)
+    assert len(ended) == 1 and 'fence=killed' not in log, log
+    evidence = Path(ended[0][1])
+    assert evidence.parent.parent == root and evidence.name == 'hang' and (evidence / 'row/hang.out').is_file(), (ended, log)
+    assert not Path(ended[0][0]).exists(), ended
+    assert re.search(r'^qml-smoke: no-progress row=hang idle-secs=[0-9]+ bound-secs=15 note=', log, re.M), log
+    stopped = attempts[0].parent / 'no-progress'
+    record = attempts[0].parent.parent / 'completion.json'
+    assert not (attempts[0].parent / 'completion.json').exists(), log
+    completion = json.loads(record.read_text())
+    assert completion['exit'] == 1 and completion['reason'] == 'no-progress' and completion['requestedStop'] == 1, completion
+    assert completion['noProgress']['row'] == 'hang' and completion['noProgress']['boundSecs'] == 15, completion
+    assert record.stat().st_mtime - stopped.stat().st_mtime <= 2 * 15, (record.stat().st_mtime, stopped.stat().st_mtime)
 elif label == 'finish-operation':
     assert all(state == 'ok' for state, _ in by_row.values()), by_row
     assert re.search(r'^qml-smoke: failed=1$', log, re.M), log
@@ -801,7 +828,9 @@ with log_path.open('wb') as stream:
             os.kill(child.pid, getattr(signal, 'SIG' + kind))
             if stop_phase == 'late-exit':
                 accepted = attempt.parent / 'accepted'
-                while child.poll() is None and not accepted.exists() and time.monotonic() < deadline:
+                # As in the completion cases, the driver's >> creates the
+                # file before its line lands: wait for the whole line.
+                while child.poll() is None and not (accepted.exists() and accepted.read_text().endswith('\n')) and time.monotonic() < deadline:
                     time.sleep(0.01)
                 if not accepted.exists() or accepted.read_text().strip() != str(expected):
                     problems.append('stop-not-acknowledged')
@@ -867,25 +896,25 @@ with log_path.open('wb') as stream:
     print(json.dumps({'case': 'cancel-' + phase + '-' + kind, 'public_pid': child.pid, 'exit': child.returncode, 'expected_exit': expected, 'world_roots': list(map(str, roots)), 'before_producers': before, 'problems': problems}), flush=True)
     for line in log_path.read_text(errors='replace').splitlines():
         print('  CONTROL  ' + line)
-    # 77 hands the host-load judgement to cancel_case.
+    # 77 hands the pressure judgement to cancel_case.
     sys.exit(77 if not_ready else bool(problems))
 PY
   if [[ $selected_case == all || $selected_case == producer ]]; then
     python3 "$TMP_ROOT/cancel-case.py" --test-producers
   fi
   [[ $selected_case != producer ]] || exit 0
-  # The latency rows' host reader and busy judge. Sourcing harness.sh
+  # The latency rows' pressure reader and busy judge. Sourcing harness.sh
   # starts a world, so only these definitions are taken from it.
   python3 - "$repo/scripts/smoke/harness.sh" >"$TMP_ROOT/contention.sh" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
-for name in ('now_ms', 'cpu_some_us', 'cpu_some_pct', 'load_average', 'load_per_core',
-             'latency_pressure_verdict', 'latency_load_verdict', 'latency_busy_reason'):
+for name in ('now_ms', 'world_pressure_path', 'pressure_some_us', 'cpu_some_us', 'host_cpu_some_us',
+             'cpu_some_pct', 'load_average', 'load_per_core', 'latency_pressure_verdict'):
     found = (re.findall(r'(?m)^' + name + r'\(\) \{.*\}\n', text)
              or re.findall(r'(?ms)^' + name + r'\(\) \{[^\n]*\n.*?^\}\n', text))
     assert len(found) == 1, (name, len(found))
     sys.stdout.write(found[0])
-for name in ('latency_pressure_limit', 'latency_load_limit', 'latency_cores'):
+for name in ('world_pressure_file', 'host_pressure_file', 'latency_pressure_limit', 'latency_cores'):
     found = re.findall(r'(?m)^' + name + r'=.*\n', text)
     assert len(found) == 1, (name, len(found))
     sys.stdout.write(found[0])
@@ -895,10 +924,11 @@ PY
   # private PID namespace; returns 0, 1 or 77, judged as the header says
   # over the window of the case. An unreadable reading fails.
   cancel_case() {
-    local name="$1" bound="$2" start_ms start_us status=0 load per_core pressure
+    local name="$1" bound="$2" start_ms start_us host_start_us status=0 load per_core pressure host_pressure
     shift 2
     start_ms="$(now_ms)"
     start_us="$(cpu_some_us)"
+    host_start_us="$(host_cpu_some_us)"
     timeout -k 2 100 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \
       python3 "$TMP_ROOT/cancel-case.py" "$@" "$bound" || status=$?
     case $status in
@@ -909,40 +939,43 @@ PY
     load="$(load_average)"
     per_core="$(load_per_core "$load")"
     pressure="$(cpu_some_pct "$start_us" "$(cpu_some_us)" $(( $(now_ms) - start_ms )))"
-    printf '  ready=late bound_s=%s load=%s load_per_core=%s cpu_some_pct=%s\n' "$bound" "${load:-unmeasured}" "$per_core" "$pressure"
-    if [[ $(latency_load_verdict 0 "$pressure" "$per_core" 0) == unmeasured ]]; then
-      printf '  not-measured %s ready-at-%s\n' "$name" "$(latency_busy_reason "$pressure" "$per_core")"
+    host_pressure="$(cpu_some_pct "$host_start_us" "$(host_cpu_some_us)" $(( $(now_ms) - start_ms )))"
+    printf '  ready=late bound_s=%s cpu_some_pct=%s host_cpu_some_pct=%s load=%s load_per_core=%s\n' "$bound" "$pressure" "$host_pressure" "${load:-unmeasured}" "$per_core"
+    if [[ $(latency_pressure_verdict 0 "$pressure" 0) == unmeasured ]]; then
+      printf '  not-measured %s ready-at-cpu_some_pct=%s-above-%s\n' "$name" "$pressure" "$latency_pressure_limit"
       return 77
     fi
     printf '  FAIL  %s\n' "$name"
     return 1
   }
   if [[ $selected_case != late-exit ]]; then
-    # Controls of that verdict at a planted host reading, on a stand-in
-    # entry: one still starting at the bound, and one that ended without
-    # the ready line, a defect at any load.
+    # Controls of that verdict at planted pressures, on a stand-in entry:
+    # one still starting at the bound while the run's own processes wait,
+    # the same while only the host is busy, and one that ended without the
+    # ready line, a defect at any pressure. A busy stall total grows with
+    # the clock, every microsecond stalled; a quiet one never moves.
     mkdir -- "$TMP_ROOT/starting" "$TMP_ROOT/starting/scripts" "$TMP_ROOT/ended" "$TMP_ROOT/ended/scripts"
     printf '#!/bin/sh\nexec sleep 300\n' >"$TMP_ROOT/starting/scripts/qml-smoke.sh"
     printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/ended/scripts/qml-smoke.sh"
     chmod +x "$TMP_ROOT/starting/scripts/qml-smoke.sh" "$TMP_ROOT/ended/scripts/qml-smoke.sh"
-    # entry | planted 1-minute load on 16 cores | ready bound | status | reading line
+    planted_stall() { if [[ $1 == busy ]]; then echo "$(( $(date +%s%N) / 1000 ))"; else echo 0; fi; }
+    # entry | world | host | ready bound | status | reading line (extended regex)
     controls=(
-      'starting|99.00|0|77|  ready=late bound_s=0 load=99.00 load_per_core=6.18 cpu_some_pct=0.0'
-      'starting|16.00|0|1|  ready=late bound_s=0 load=16.00 load_per_core=1.00 cpu_some_pct=0.0'
-      'ended|99.00|60|1|'
+      'starting|busy|quiet|0|77|^  ready=late bound_s=0 cpu_some_pct=[1-9][0-9]+\.[0-9] host_cpu_some_pct=0\.0 load='
+      'starting|quiet|busy|0|1|^  ready=late bound_s=0 cpu_some_pct=0\.0 host_cpu_some_pct=[1-9][0-9]+\.[0-9] load='
+      'ended|busy|busy|60|1|'
     )
     for control in "${controls[@]}"; do
-      IFS='|' read -r entry planted_load bound want reading <<<"$control"
-      name="control-$entry-load-$planted_load"
+      IFS='|' read -r entry planted_world planted_host bound want reading <<<"$control"
+      name="control-$entry-world-$planted_world-host-$planted_host"
       mkdir -- "$TMP_ROOT/$name"
       status=0
       output="$(
-        cpu_some_us() { echo 0; }
-        load_average() { echo "$planted_load"; }
-        latency_cores=16
+        cpu_some_us() { planted_stall "$planted_world"; }
+        host_cpu_some_us() { planted_stall "$planted_host"; }
         cancel_case "$name" "$bound" "$TMP_ROOT/$entry" "$TMP_ROOT/$name" TERM initial row
       )" || status=$?
-      if [[ $status != "$want" ]] || { [[ -n $reading ]] && ! grep -q -x -F -- "$reading" <<<"$output"; } ||
+      if [[ $status != "$want" ]] || { [[ -n $reading ]] && ! grep -q -E -- "$reading" <<<"$output"; } ||
         { [[ -z $reading ]] && grep -q '^  ready=' <<<"$output"; }; then
         printf '%s\n' "$output"
         printf '  FAIL  %s status=%s want=%s\n' "$name" "$status" "$want"
@@ -1006,6 +1039,14 @@ run_case early-zero
 printf '# inputs: scripts/smoke/harness.sh\nexit 1\n' >"$tree/scripts/smoke/rows/stopped.sh"
 printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
 run_case stopped
+# The slow row prints a line every 2 s for 18 s, past the 15 s bound; the
+# hang row then prints one line and goes silent with TERM ignored, as a
+# teardown that hangs on a stop does.
+printf '# inputs: scripts/smoke/harness.sh\nfor i in 1 2 3 4 5 6 7 8 9; do sleep 2; ok "slow line $i"; done\n' >"$tree/scripts/smoke/rows/slow.sh"
+printf '# inputs: scripts/smoke/harness.sh\nok "hang starts"\ntrap "" TERM\nsleep 600\n' >"$tree/scripts/smoke/rows/hang.sh"
+printf '%s\n' "${core[@]}" provider slow hang following >"$tree/scripts/smoke/rows.list"
+(export VGS_SMOKE_IDLE_SECS=15; run_case no-progress)
+printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
 # label | rows completed before the attempt exits 77
 unreached_cases=(
   'pre-world|'

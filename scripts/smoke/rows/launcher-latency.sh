@@ -13,8 +13,9 @@
 # No capture sleep; normal capture median 16.568 ms, maximum 21.732 ms;
 # largest glyph observation bracket 38.392 ms. These are final-glyph-like
 # capture-return upper bounds, including FIFO/helper dispatch, not scanout.
-# CPU/load exclusions use harness.sh's shared 2.8%/1.00-per-core limits;
-# an unread or busy population cannot pass. All raw samples stay retained.
+# A trial whose world CPU pressure is above harness.sh's shared 2.8% limit
+# is not measured; host pressure and load are recorded beside it. An
+# unread or busy population cannot pass. All raw samples stay retained.
 # The plain TextInput's box starts at the query, after the separate
 # SearchGlyph. Character rectangles bound the discriminator to the first
 # character's columns, excluding the adjacent caret. The measured ceiling
@@ -69,7 +70,7 @@ launcher_latency_measure() { # normal|slow
   surface="$(surface_box vgs:overlay)" || return 1
   output="$smoke_log_dir/launcher-latency-$kind"
   "${shell_env[@]}" python3 "$repo/scripts/smoke/launcher-latency.py" measure \
-    "$sandbox/keyboard" "$shell_qs_pid" "$socket" "$rect" "$surface" "$output" || return 1
+    "$sandbox/keyboard" "$shell_qs_pid" "$socket" "$rect" "$surface" "$world_pressure_file" "$output" || return 1
   cp -- "$instance_log" "$output/shell.log" || return 1
   cp -- "$sandbox/tree-launcher-latency-$kind/shell/Commons/Theme.qml" "$output/Theme.qml" || return 1
   cp -- "$sandbox/tree-launcher-latency-$kind/shell/plugins/vgs.launcher/Launcher.qml" "$output/Launcher.qml" || return 1
@@ -87,7 +88,7 @@ if [[ $launcher_latency_complete == true ]] && ! launcher_latency_measure slow; 
 fi
 launcher_latency_judge() {
   local launcher_latency_kind launcher_latency_summary launcher_latency_values
-  local launcher_latency_min launcher_latency_max launcher_latency_pressure launcher_latency_load launcher_latency_single launcher_latency_pair
+  local launcher_latency_min launcher_latency_max launcher_latency_pressure launcher_latency_host launcher_latency_load launcher_latency_single launcher_latency_pair
   local launcher_latency_per_core launcher_latency_verdict
   for launcher_latency_kind in normal slow; do
   launcher_latency_summary="$smoke_log_dir/launcher-latency-$launcher_latency_kind/summary.json"
@@ -95,19 +96,19 @@ launcher_latency_judge() {
 import json, math, sys
 v = json.load(open(sys.argv[1]))
 print(math.floor(v["minUpperMs"]), math.ceil(v["maxUpperMs"]),
-      "%.1f" % v["maxCpuSomePct"], "%.2f" % v["maxLoad"],
+      "%.1f" % v["maxCpuSomePct"], "%.1f" % v["maxHostCpuSomePct"], "%.2f" % v["maxLoad"],
       v["singleCharacter"], v["onePressRelease"])
 PY
 )" || return 1
-  read -r launcher_latency_min launcher_latency_max launcher_latency_pressure launcher_latency_load launcher_latency_single launcher_latency_pair \
+  read -r launcher_latency_min launcher_latency_max launcher_latency_pressure launcher_latency_host launcher_latency_load launcher_latency_single launcher_latency_pair \
     <<<"$launcher_latency_values"
   launcher_latency_per_core="$(load_per_core "$launcher_latency_load")" || return 1
-  launcher_latency_verdict="$(latency_load_verdict "$launcher_latency_max" "$launcher_latency_pressure" "$launcher_latency_per_core" "$launcher_latency_budget_ms")" || return 1
-  printf 'launcher-latency: source=%s min_ms=%s max_ms=%s budget_ms=%s cpu_some_pct=%s load_per_core=%s result=%s proof=%s\n' \
+  launcher_latency_verdict="$(latency_pressure_verdict "$launcher_latency_max" "$launcher_latency_pressure" "$launcher_latency_budget_ms")" || return 1
+  printf 'launcher-latency: source=%s min_ms=%s max_ms=%s budget_ms=%s cpu_some_pct=%s host_cpu_some_pct=%s load_per_core=%s result=%s proof=%s\n' \
     "$launcher_latency_kind" "$launcher_latency_min" "$launcher_latency_max" "$launcher_latency_budget_ms" \
-    "$launcher_latency_pressure" "$launcher_latency_per_core" "$launcher_latency_verdict" "$launcher_latency_summary"
+    "$launcher_latency_pressure" "$launcher_latency_host" "$launcher_latency_per_core" "$launcher_latency_verdict" "$launcher_latency_summary"
   if [[ $launcher_latency_verdict == unmeasured ]]; then
-    not_measured launcher-latency "$(latency_busy_reason "$launcher_latency_pressure" "$launcher_latency_per_core")"
+    not_measured launcher-latency "cpu_some_pct=$launcher_latency_pressure-above-$latency_pressure_limit"
   elif [[ $launcher_latency_kind == slow ]]; then
     if [[ $launcher_latency_verdict == over && $launcher_latency_min -gt $launcher_latency_budget_ms ]]; then
       ok "control: repeated shared hint solving exceeds the glyph budget on every press"

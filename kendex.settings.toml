@@ -171,7 +171,16 @@ REVIEW_MAX_CYCLES = "1"
 # Diff-scoped local checks, including the isolated smoke only when affected.
 DEV_VALIDATE_CMD = "scripts/validate"
 DEV_VALIDATE_RANGE_CMD = "scripts/validate"
-DEV_VALIDATE_TIMEOUT_SECS = "7200"
+# A run's time is a reading, never a stop: only a run that makes no
+# progress is stopped, which scripts/qml-smoke.sh does for the nested
+# smoke (docs/architecture/validation.md § Latency budgets). dev-validate-run
+# still ends every run at this bound, so it is a temporary backstop over
+# twice the slowest full run read, 9600 s (VGS-2387), with the slot and
+# load wait it also counts; it goes when kendex ships a warning past the
+# expected time and a stop only on no progress (VGS-2465 kendex report).
+DEV_VALIDATE_TIMEOUT_SECS = "21600"
+# The expected run time the run-time warning reads: a time is a reading, never a stop.
+DEV_VALIDATE_EXPECTED_SECS = "7200"
 
 # Read by a dev round that changes a view, which builds to this doc, and by
 # the `needs-ui-review` pass, which judges that round's screenshots against it.

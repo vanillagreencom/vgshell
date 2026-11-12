@@ -31,7 +31,7 @@
 # read. The runner's relaunch line for each kill names session=locked,
 # the runner's own reading of the same lock. The time from the kill to the
 # confirmed lock with the lock screen is judged against lock_back_budget_ms,
-# below, by harness.sh's latency_pressure_check with the host's CPU
+# below, by harness.sh's latency_pressure_check with the world's CPU
 # pressure over the same window; its control is a planted reading one
 # millisecond over the budget at the pressure limit, which must read over.
 #

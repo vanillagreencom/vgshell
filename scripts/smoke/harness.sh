@@ -1396,19 +1396,42 @@ JSON
 esac
 
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
-# The host's CPU pressure stall total in microseconds: the `total=` field of
-# the `some` line of /proc/pressure/cpu, the time in which at least one
-# runnable task on the host waited for a CPU. Prints nothing when pressure
-# stall information is unreadable.
-cpu_some_us() {
+# CPU pressure is read from the run's own processes: the cgroup this
+# harness runs in, which gpu-fence.sh's bubblewrap shares with every
+# process of the world, as it unshares no cgroup namespace. A lane run's
+# cgroup is its systemd unit, which holds the runner, validate and this one
+# world while the nested smoke runs alone (VGS-2465 notes the units read on
+# 2026-11-12). The host's file is read only for logs: another lane's load
+# raises it without slowing this world's tasks unless they wait, which the
+# world's own file counts. A row's readings are judged by the world's.
+# world_pressure_path: that cgroup's cpu.pressure, from the unified
+# hierarchy's `0::` line of /proc/self/cgroup; nothing when it is unread.
+world_pressure_path() {
+  local lines
+  lines="$(</proc/self/cgroup)" 2>/dev/null || return 0
+  [[ $lines =~ (^|$'\n')0::(/[^$'\n']*) ]] || return 0
+  printf '/sys/fs/cgroup%s/cpu.pressure\n' "${BASH_REMATCH[2]%/}"
+}
+world_pressure_file="$(world_pressure_path)"
+host_pressure_file=/proc/pressure/cpu
+# pressure_some_us FILE: the `total=` field of the `some` line of a PSI
+# file, the microseconds in which at least one runnable task it covers
+# waited for a CPU. Prints nothing when FILE is empty or unreadable, which
+# a verdict reads as unread.
+pressure_some_us() {
   local kind rest
+  [[ -n $1 ]] || return 0
   { while read -r kind rest; do
       if [[ $kind == some && $rest =~ total=([0-9]+) ]]; then printf '%s\n' "${BASH_REMATCH[1]}"; return 0; fi
-    done </proc/pressure/cpu; } 2>/dev/null || true
+    done <"$1"; } 2>/dev/null || true
 }
+# cpu_some_us: the world's stall total, which every latency reading is
+# judged by. host_cpu_some_us: the host's, a logged note beside it.
+cpu_some_us() { pressure_some_us "$world_pressure_file"; }
+host_cpu_some_us() { pressure_some_us "$host_pressure_file"; }
 # cpu_some_pct START_US END_US MS: the percent of a window of MS
-# milliseconds in which some runnable task on the host waited for a CPU,
-# from the cpu_some_us totals read at its start and its end, with one
+# milliseconds in which some runnable task waited for a CPU, from two
+# stall totals read at its start and its end, with one
 # decimal; `unmeasured` when either total is empty or the window has no
 # length. It is a record for reading a slow window, not a gate. The load
 # average is no measure of this: it counts tasks running on a CPU and
@@ -1428,8 +1451,14 @@ cpu_some_pct() {
 # The pressure ceiling comes from the owner-approved cachy measurement:
 # Ryzen 9 9950X, 2026-10-08, VGS-1100 note 1791448368, highest 1.4%.
 # VGS-1064 directive 1791486985 excludes every reading above twice that
-# pressure, including fast readings. This restates the smoke policy; it
-# changes no product or architecture boundary.
+# pressure, including fast readings. That 1.4% was a reading of the
+# host's file; 2.8 now judges the world's. The world's file reads at or
+# below the host's in every paired reading retained on cachy: the
+# notifications emoji readings of 2026-11-09 to 11-12 (VGS-2397, VGS-2418,
+# VGS-2507 and main-run logs) read the world at 0.0 to 0.4% on a quiet
+# host at 0.3 to 1.5%, and at 13.6 to 27.7% when the host read 66.6 to
+# 76.6% (VGS-2465). This restates the smoke policy; it changes no product
+# or architecture boundary.
 latency_pressure_limit=2.8
 latency_pressure_verdict() { # MS CPU_SOME_PCT BUDGET_MS
   local ms="$1" pressure="$2" budget="$3" pressure_tenths limit_tenths
@@ -1457,7 +1486,11 @@ latency_pressure_check() { # ROW READING MS CPU_SOME_PCT BUDGET_MS
   esac
 }
 # The host's physical cores: the distinct sibling lists of its CPUs. Empty
-# or 0 when the topology is unreadable.
+# or 0 when the topology is unreadable. Host load and load per core are
+# logged beside a reading and judge none: SMT siblings can slow a task
+# without a wait any pressure file counts, and a row that needs a quiet
+# host for that reason states why on its tracker item
+# (docs/architecture/validation.md § Latency budgets).
 latency_cores="$(sort -u /sys/devices/system/cpu/cpu[0-9]*/topology/core_cpus_list 2>/dev/null | wc -l)" || latency_cores=""
 # load_per_core LOAD: a 1-minute load average as /proc/loadavg writes it
 # over latency_cores, floored to two decimals; `unmeasured` when either
@@ -1476,36 +1509,6 @@ load_per_core() {
 load_average() {
   local load rest
   { read -r load rest </proc/loadavg && printf '%s\n' "$load"; } 2>/dev/null || true
-}
-# The host-load limit comes from the VGS-1527 theme-latency readings on
-# cachy (16 physical cores, 32 threads): measured medians 110.5 and
-# 122.5 ms at 1-minute load 12 to 15.9 were within the 150 ms bound,
-# 154.5 and 164.5 ms at load 19.1 to 36 were over (main batch
-# 20261013T001445Z), cpu_some_pct 0.4 to 2.4 in all (VGS-1527 completion
-# summary). Above one runnable task per physical core, SMT siblings share
-# a core's execution units, so each task runs slower without waiting in
-# the run queue that CPU pressure counts.
-latency_load_limit=1.00
-latency_load_verdict() { # MS CPU_SOME_PCT LOAD_PER_CORE BUDGET_MS
-  local per_core="$3" result per_core_hundredths limit_hundredths
-  result="$(latency_pressure_verdict "$1" "$2" "$4")"
-  if [[ $result == unread || ! $per_core =~ ^[0-9]+\.[0-9]{2}$ ]]; then
-    echo unread
-    return
-  fi
-  per_core_hundredths=$((10#${per_core%.*} * 100 + 10#${per_core#*.}))
-  limit_hundredths=$((10#${latency_load_limit%.*} * 100 + 10#${latency_load_limit#*.}))
-  if ((per_core_hundredths > limit_hundredths)); then echo unmeasured
-  else echo "$result"
-  fi
-}
-# latency_busy_reason CPU_SOME_PCT LOAD_PER_CORE: the not-measured reason,
-# each reading over its limit, joined by -and-.
-latency_busy_reason() {
-  local reason=""
-  [[ $(latency_pressure_verdict 0 "$1" 0) != unmeasured ]] || reason="cpu_some_pct=$1-above-$latency_pressure_limit"
-  [[ $(latency_load_verdict 0 0.0 "$2" 0) != unmeasured ]] || reason="${reason:+$reason-and-}load_per_core=$2-above-$latency_load_limit"
-  printf '%s\n' "$reason"
 }
 # click X Y: one left click at that layout position on the nested seat.
 # click_centre HOST_KEY ID: the same on the centre of a built instance.
@@ -2234,7 +2237,7 @@ theme_idle() { # [IPC_FN]
 # bar surface with a client, polled every 10 ms from the compositor's
 # layer list, which answers in a few milliseconds; the reading carries at
 # most one poll interval. first_bar_cpu_some_pct records beside it
-# cpu_some_pct of that window, from the host-wide pressure stall `some`
+# cpu_some_pct of that window, from the world's pressure stall `some`
 # totals read before the spawn and at the reading.
 #
 # qs buffers stdout when redirected, so the shell's own per-instance log
@@ -3935,21 +3938,22 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 # expect_run_end LABEL KEY reads that stamp through run_idle_at every
 # 0.2 s and prints latency_run_end_ms, the core's idle stamp minus the time
 # of the call. The poll only fetches the stamp, so a slow read adds nothing
-# to the reading. Beside it the line prints the 1-minute load at the read,
-# its load_per_core and the cpu_some_pct of the window from the call to
-# the read. A reading past run_end_ceiling_ms is not measured when that
-# pressure is above latency_pressure_limit or that load per core above
-# latency_load_limit, and fails at or below both. A key that a read begun
-# after the ceiling still finds busy fails at once at or below both
-# limits, printed as latency_run_end_ms=over; above either, the reads go
-# on to the poll bound smoke_poll_tries gives, so a run that ends late
-# under load is not measured and a run that never ends still fails, at
-# any load. Both clocks are CLOCK_REALTIME milliseconds. A failure prints
+# to the reading. Beside it the line prints the world's cpu_some_pct of
+# the window from the call to the read, and as notes the host's
+# cpu_some_pct, the 1-minute load at the read and its load_per_core. A
+# reading past run_end_ceiling_ms is not measured when the world's
+# pressure is above latency_pressure_limit, and fails at or below it. A
+# key that a read begun after the ceiling still finds busy fails at once
+# at or below the limit, printed as latency_run_end_ms=over; above it, the
+# reads go on to the poll bound smoke_poll_tries gives, so a run that ends
+# late while the world's processes wait is not measured and a run that
+# never ends still fails, at any pressure. Both clocks are CLOCK_REALTIME
+# milliseconds. A failure prints
 # what the record directory holds for the key beside the core's view, so
 # a run whose ended record is on disk while the core still reports it
 # running reads as a listing the core missed, not a slow presenter.
-# scripts/smoke/rows/tui.sh holds the controls, each at a planted load:
-# a run that never ends fails below the load limit and above it, a run
+# scripts/smoke/rows/tui.sh holds the controls, each at a planted world
+# pressure: a run that never ends fails below the limit and above it, a run
 # that ends past the ceiling fails with its reading below the limit and
 # is not measured above it, and a run that ends in time passes through a
 # reader slower than the ceiling.
@@ -3960,21 +3964,20 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 # 2026-10-09 to 2026-10-11 (VGS-1336) shows the core read the run ended 2
 # to 87 ms after the presenter's end, median 3 ms, at cpu_some_pct 0.2 to
 # 11.1, while the poll's readings were 48 to 559 ms. Those poll readings
-# are no longer the reading. The load limits follow the readings on the
-# same host on 2026-10-22 (VGS-2002): the jarvis-setup and jarvis-input
-# rows through nested-slot.sh read 0 to 99 ms at load_per_core 0.41 to
-# 0.59 and cpu_some_pct 0.0 to 10.9, while main batch 20261022T023613Z
-# read 517 to 574 ms for the same checks at 1-minute load 46 to 67 half
-# an hour before them and 15-minute load 40.84 about 15 minutes after
-# jarvis-input.
+# are no longer the reading. On the same host on 2026-10-22 (VGS-2002)
+# the jarvis-setup and jarvis-input rows through nested-slot.sh read 0 to
+# 99 ms at load_per_core 0.41 to 0.59 and host cpu_some_pct 0.0 to 10.9,
+# while main batch 20261022T023613Z read 517 to 574 ms for the same checks
+# at 1-minute load 46 to 67 half an hour before them.
 run_end_ceiling_ms=500
 run_idle_at() { ipc smoke tuiIdleAt "$1"; } # KEY
 expect_run_end() { # LABEL KEY
-  local label="$1" key="$2" start start_us began got reading load per_core pressure bound err="$sandbox/reader-$BASHPID.stderr"
+  local label="$1" key="$2" start start_us host_start_us began got reading load per_core pressure host_pressure notes bound err="$sandbox/reader-$BASHPID.stderr"
   smoke_poll_tries 200
   bound=$((smoke_poll_n * 200))
   start="$(now_ms)"
   start_us="$(cpu_some_us)"
+  host_start_us="$(host_cpu_some_us)"
   while :; do
     began="$(now_ms)"
     if ! got="$(run_idle_at "$key" 2>"$err")"; then got="a failed read${got:+: $got}"; fi
@@ -3982,14 +3985,16 @@ expect_run_end() { # LABEL KEY
     load="$(load_average)"
     per_core="$(load_per_core "$load")"
     pressure="$(cpu_some_pct "$start_us" "$(cpu_some_us)" $(( $(now_ms) - start )))"
+    host_pressure="$(cpu_some_pct "$host_start_us" "$(host_cpu_some_us)" $(( $(now_ms) - start )))"
+    notes="cpu_some_pct=$pressure host_cpu_some_pct=$host_pressure load=${load:-unmeasured} load_per_core=$per_core"
     if [[ $got =~ ^[0-9]+$ ]]; then
       reading=$(( got > start ? got - start : 0 ))
-      printf '  latency_run_end_ms=%d ceiling_ms=%d load=%s load_per_core=%s cpu_some_pct=%s\n' "$reading" "$run_end_ceiling_ms" "${load:-unmeasured}" "$per_core" "$pressure"
+      printf '  latency_run_end_ms=%d ceiling_ms=%d %s\n' "$reading" "$run_end_ceiling_ms" "$notes"
       if (( reading <= run_end_ceiling_ms )); then ok "$label"; return 0; fi
-      if [[ $(latency_load_verdict "$reading" "$pressure" "$per_core" "$run_end_ceiling_ms") == unmeasured ]]; then
+      if [[ $(latency_pressure_verdict "$reading" "$pressure" "$run_end_ceiling_ms") == unmeasured ]]; then
         # sandbox-shots.sh calls this outside a row; its run reports the
         # entry under its own name.
-        not_measured "${smoke_row_name:-${0##*/}}" "run_end=${reading}ms-at-$(latency_busy_reason "$pressure" "$per_core")"
+        not_measured "${smoke_row_name:-${0##*/}}" "run_end=${reading}ms-at-cpu_some_pct=$pressure-above-$latency_pressure_limit"
         return 0
       fi
       fail "$label: the core ended the run $reading ms after the call, past the ceiling of $run_end_ceiling_ms ms"
@@ -3997,8 +4002,8 @@ expect_run_end() { # LABEL KEY
       return 0
     fi
     if (( began - start > run_end_ceiling_ms )) &&
-      { [[ $(latency_load_verdict 0 "$pressure" "$per_core" 0) != unmeasured ]] || (( began - start > bound )); }; then
-      printf '  latency_run_end_ms=over ceiling_ms=%d load=%s load_per_core=%s cpu_some_pct=%s\n' "$run_end_ceiling_ms" "${load:-unmeasured}" "$per_core" "$pressure"
+      { [[ $(latency_pressure_verdict 0 "$pressure" 0) != unmeasured ]] || (( began - start > bound )); }; then
+      printf '  latency_run_end_ms=over ceiling_ms=%d %s\n' "$run_end_ceiling_ms" "$notes"
       fail "$label: got $got from a read begun $(( began - start )) ms after the call, past the ceiling of $run_end_ceiling_ms ms"
       run_end_records "$key"
       return 0
@@ -4074,10 +4079,24 @@ source "$repo/scripts/smoke/leaks.sh"
 # writes after the stop; a unit's stop ends it with the rest.
 # rows/updates.sh holds the controls. A row prints
 # `qml-smoke: row-secs row=NAME secs=<whole seconds> cpu_some_pct=<pct>
-# load1=<load>`, including harness steps. CPU pressure covers the row window;
-# load1 is the host 1-minute load at its end.
-# The overseer uses pressure and load to compare faults and slot holds
-# (VGS-2062 design note § 6 item 4; docs/architecture/validation.md § Faults).
+# host_cpu_some_pct=<pct> load1=<load>`, including harness steps. Its
+# seconds and pressures cover its own span: a row run inside it, as
+# jarvis-keys runs jarvis-bubble, prints its own line and leaves the outer
+# row's. cpu_some_pct is the world's, host_cpu_some_pct the host's, and
+# load1 the host 1-minute load at its end. The overseer uses the host
+# readings to compare faults and slot holds (VGS-2062 design note § 6
+# item 4; docs/architecture/validation.md § Faults).
+# smoke_rows_ms, smoke_rows_cpu_us and smoke_rows_host_us total the own
+# spans of the rows that have ended. A row's marks are its start values
+# less those totals then, so at its end the rows that ended inside it,
+# whose own spans sum to its nested span, drop out of its own. A row run
+# in a subshell, as a control's plant, stays inside its caller's span.
+smoke_rows_ms=0 smoke_rows_cpu_us=0 smoke_rows_host_us=0
+# smoke_row_mark TOTAL VALUE: VALUE less TOTAL, or nothing for an unread
+# VALUE.
+smoke_row_mark() {
+  [[ -z $2 ]] || echo "$(($2 - $1))"
+}
 smoke_row_drain_s=5
 anr_row_boundary() { # PHASE ROW
   local report lines line owner="$BASHPID"
@@ -4096,16 +4115,25 @@ for incident in json.load(sys.stdin):
     row_class=behaviour fail "anr-dialog: row=$2 observation=$line"
   done <<<"$lines"
 }
-smoke_row_secs() { # NAME START_MS START_CPU_US
-  local ended_ms pressure load
-  ended_ms="$(now_ms)"
-  pressure="$(cpu_some_pct "$3" "$(cpu_some_us)" "$((ended_ms - $2))")"
+smoke_row_secs() { # NAME MARK_MS MARK_CPU_US MARK_HOST_US
+  local own_ms cpu host own_cpu="" own_host="" load
+  own_ms=$(( $(now_ms) - $2 - smoke_rows_ms ))
+  cpu="$(cpu_some_us)" host="$(host_cpu_some_us)"
+  [[ -z $3 || -z $cpu ]] || own_cpu=$((cpu - $3 - smoke_rows_cpu_us))
+  [[ -z $4 || -z $host ]] || own_host=$((host - $4 - smoke_rows_host_us))
   load="$(load_average)"
-  printf 'qml-smoke: row-secs row=%s secs=%s cpu_some_pct=%s load1=%s\n' "$1" "$(((ended_ms - $2) / 1000))" "$pressure" "${load:-unmeasured}"
+  printf 'qml-smoke: row-secs row=%s secs=%s cpu_some_pct=%s host_cpu_some_pct=%s load1=%s\n' "$1" "$((own_ms / 1000))" \
+    "$(cpu_some_pct "${own_cpu:+0}" "$own_cpu" "$own_ms")" "$(cpu_some_pct "${own_host:+0}" "$own_host" "$own_ms")" "${load:-unmeasured}"
+  smoke_rows_ms=$((smoke_rows_ms + own_ms))
+  smoke_rows_cpu_us=$((smoke_rows_cpu_us + ${own_cpu:-0}))
+  smoke_rows_host_us=$((smoke_rows_host_us + ${own_host:-0}))
 }
 smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line
-  local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started="$(now_ms)" smoke_row_cpu_started="$(cpu_some_us)"
+  local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started smoke_row_cpu_started smoke_row_host_started
+  smoke_row_started="$(smoke_row_mark "$smoke_rows_ms" "$(now_ms)")"
+  smoke_row_cpu_started="$(smoke_row_mark "$smoke_rows_cpu_us" "$(cpu_some_us)")"
+  smoke_row_host_started="$(smoke_row_mark "$smoke_rows_host_us" "$(host_cpu_some_us)")"
   local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
   local devices_private_shim=""
@@ -4128,7 +4156,7 @@ smoke_row() { # NAME [DIR]
     anr_row_boundary end "$smoke_row_name"
     leak_row_end "$smoke_row_name" "$smoke_row_dir"
     leak_row_restore "$smoke_row_name" "$smoke_row_dir" true 1
-    smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
+    smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started" "$smoke_row_host_started"
     return 0
   fi
   # Every row starts with the pointer at rest, wherever the row before it
@@ -4317,7 +4345,7 @@ PY
   fi
   leak_row_restore "$smoke_row_name" "$smoke_row_dir" "$smoke_row_failed" "$smoke_row_original_status"
   [[ $smoke_row_top != true ]] || row_log_tail "$smoke_row_name"
-  smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
+  smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started" "$smoke_row_host_started"
   # A failed restoration leaves no valid starting world for a later row.
   [[ $smoke_row_abandon_status == 0 ]] || exit "$smoke_row_source_status"
 }
