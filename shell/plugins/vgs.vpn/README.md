@@ -51,11 +51,15 @@ A reading VGS cannot take reads Could not check, never a pass. A connection that
 
 ## Connect automatically
 
-Connect automatically, in the VPN section of System Settings, connects one profile by itself. Choose the profile, then turn on the Wi-Fi networks you trust under Trusted networks. The list shows the Wi-Fi networks this computer has saved, and Connected beside the ones it is on.
+Connect automatically, in the VPN section of System Settings, connects one profile by itself. Choose the profile, then turn on the networks you trust under Trusted networks. The list shows the wired network this computer is on, the Wi-Fi networks it has saved, and Connected beside the ones it is on.
 
 When this computer joins a network that is not on the list, or VGS starts on one, VGS connects the profile. On a trusted network VGS does nothing. When a VPN profile is already connected, VGS leaves it.
 
-Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. A wired, Bluetooth or mobile network is never trusted, because its saved profile matches any cable, phone or carrier, so the VPN connects on it.
+Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password.
+
+A wired network is trusted by its router and its address range. Turning on the wired network saves the router's hardware address and the address range this computer has on it. A hotel or office cable has another router, so the VPN connects on it. A network that copies both the router's hardware address and the address range is trusted too. When VGS cannot read the router, for example just after the cable connects, the wired network is not trusted and the VPN connects.
+
+A Bluetooth or mobile network is never trusted, because its saved profile matches any phone or carrier, so the VPN connects on it.
 
 VGS connects the profile as its switch does. With the kill switch on, the block is in place before the profile connects.
 

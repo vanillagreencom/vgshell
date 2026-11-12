@@ -25,6 +25,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugi
 const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/Service.qml"), "utf8");
 const bodySource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/VpnBody.qml"), "utf8");
 const leakSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/LeakCheck.qml"), "utf8");
+const wiredSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/WiredIdentity.qml"), "utf8");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 // A checkout with CRLF endings reads as nmcli's LF output.
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8").replace(/\r\n/g, "\n");
@@ -2081,14 +2082,47 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
 // Connect automatically (VGS-2399). One table judges the decision over a
 // run of list reads, each the world nmcli prints: list.txt's profiles with
 // Home tunnel off, Fixture Wi-Fi, which the setting trusts, Hotel Wi-Fi on
-// no list and a wired profile, which no setting can trust, with the user's
-// deliberate off between reads. Lab tunnel is the chosen profile.
+// no list and a wired profile, which its uuid cannot trust and its
+// router's entry can (WIRED_TABLE), with the user's deliberate off
+// between reads. Lab tunnel is the chosen profile.
 const HOTEL = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const WIFI = "0f3e2d1c-4b5a-4968-8776-5a4b3c2d1e0f";
 const WIRED = "3c9d8e7f-6a5b-4c4d-9e3f-2a1b0c9d8e7f";
 const TWIN = "6d5c4b3a-2f1e-4d0c-9b8a-7f6e5d4c3b2a";
 const GONE = "11111111-2222-4333-8444-555555555555";
 const UP = "activated";
+// The wired identity's reads (VpnLogic.wiredIdentity) in the shapes
+// NetworkManager 1.58.1 and iproute2 7.3.0 print them: the device read
+// as nmcli(1) and the issue's wired-host reading of 2026-11-11 give it,
+// the neighbour read as recorded in a network namespace on 2026-11-11
+// (`ip neigh replace ... nud STATE`, then `ip -j neigh show`), with
+// documentation addresses (RFC 5737) and locally administered hardware.
+const HOME_ROUTE = "IP4.GATEWAY:192.0.2.1\nIP4.ADDRESS[1]:192.0.2.10/24\n";
+const OTHER_ROUTE = "IP4.GATEWAY:198.51.100.1\nIP4.ADDRESS[1]:198.51.100.10/24\n";
+const HOME_NEIGH = '[{"dst":"192.0.2.1","lladdr":"02:00:5e:00:53:01","state":["REACHABLE"]}]\n';
+const HOTEL_NEIGH = '[{"dst":"192.0.2.1","lladdr":"02:00:5e:00:53:02","state":["REACHABLE"]}]\n';
+const OTHER_NEIGH = '[{"dst":"198.51.100.1","lladdr":"02:00:5e:00:53:01","state":["REACHABLE"]}]\n';
+const INCOMPLETE_NEIGH = '[{"dst":"192.0.2.1","state":["INCOMPLETE"]}]\n';
+const FAILED_NEIGH = '[{"dst":"192.0.2.1","state":["FAILED"]}]\n';
+const WIRED_HOME = "wired 192.0.2.0/24 02:00:5e:00:53:01";
+// name, device read [code, output], neighbour read [code, output], the
+// identity or null for unread.
+const IDENTITY_TABLE = [
+    ["a connected device and a REACHABLE router", [0, HOME_ROUTE], [0, HOME_NEIGH], { subnet: "192.0.2.0/24", router: "02:00:5e:00:53:01" }],
+    ["a STALE router keeps its hardware address", [0, "IP4.GATEWAY:192.0.2.1\nIP4.ADDRESS[1]:192.0.2.10/24\n"],
+        [0, '[{"dst":"192.0.2.1","lladdr":"02:00:5E:00:53:01","state":["STALE"]}]\n'], { subnet: "192.0.2.0/24", router: "02:00:5e:00:53:01" }],
+    ["the subnet is the address's that holds the router", [0, "IP4.GATEWAY:192.0.2.1\nIP4.ADDRESS[1]:10.9.0.4/16\nIP4.ADDRESS[2]:192.0.2.10/25\n"], [0, HOME_NEIGH],
+        { subnet: "192.0.2.0/25", router: "02:00:5e:00:53:01" }],
+    ["an empty IP4.GATEWAY is unread", [0, "IP4.GATEWAY:\n"], [0, HOME_NEIGH], null],
+    ["a router no address holds is unread", [0, "IP4.GATEWAY:192.0.2.1\nIP4.ADDRESS[1]:198.51.100.10/24\n"], [0, HOME_NEIGH], null],
+    ["a failed device read is unread", [10, "Error: Device 'enp10s0' not found.\n"], [0, HOME_NEIGH], null],
+    ["no router entry is unread", [0, HOME_ROUTE], [0, "[]\n"], null],
+    ["an INCOMPLETE entry without lladdr is unread", [0, HOME_ROUTE], [0, INCOMPLETE_NEIGH], null],
+    ["a FAILED entry is unread", [0, HOME_ROUTE], [0, FAILED_NEIGH], null],
+    ["another router's entry is unread", [0, HOME_ROUTE], [0, OTHER_NEIGH], null],
+    ["a failed neighbour read is unread", [0, HOME_ROUTE], [1, ""], null],
+    ["a neighbour read outside JSON is unread", [0, HOME_ROUTE], [0, "192.0.2.1 dev enp10s0 lladdr 02:00:5e:00:53:01 REACHABLE\n"], null]
+];
 // A list read of WORLD: { home, lab, wifi, hotel, wired } states, "" for
 // off, and `extra` lines as nmcli prints them.
 function autoWorld(world) {
@@ -2108,13 +2142,33 @@ function autoRead(logic, code, output) {
     return { networks: plain(logic.networkList(code, output)), profiles: plain(logic.compose(logic.list(code, output), {}, {}, {}, null, "")) };
 }
 
-function autoConnectSuite(logic, service = serviceSource) {
+function autoConnectSuite(logic, service = serviceSource, wired = wiredSource) {
+    for (const [name, [routeCode, route], [neighCode, neigh], identity] of IDENTITY_TABLE)
+        assert.deepEqual(plain(logic.wiredIdentity(logic.wiredRoute(routeCode, route), neighCode, neigh)), identity, name);
+    // A capture saves one readable identity and refuses anything else.
+    assert.deepEqual(plain(logic.wiredCapture([{ subnet: "192.0.2.0/24", router: "02:00:5e:00:53:01" }])), { value: WIRED_HOME });
+    // The wired row's line: none for a read router, the one unread line
+    // whether a capture or a network change left the router unread, and a
+    // capture's line over a read's.
+    const unreadLine = logic.wiredCapture([null]).problem;
+    const oneCable = logic.wiredCapture([]).problem;
+    assert.ok(unreadLine !== "" && oneCable !== unreadLine, "an unread capture has its own line");
+    for (const [name, identities, problem, line] of [
+        ["no read yet publishes no line", null, "", ""],
+        ["a read identity publishes no line", [{ subnet: "192.0.2.0/24", router: "02:00:5e:00:53:01" }], "", ""],
+        ["an unread change publishes the capture's unread line", [null], "", unreadLine],
+        ["one unread cable of two publishes the unread line", [{ subnet: "192.0.2.0/24", router: "02:00:5e:00:53:01" }, null], "", unreadLine],
+        ["a capture's line stands over an unread read", [null], oneCable, oneCable]
+    ]) assert.equal(logic.wiredStatus(identities, problem).problem, line, name);
+    for (const identities of [[null], [], [null, null]]) assert.equal(typeof logic.wiredCapture(identities).problem, "string", JSON.stringify(identities));
     // Each step a read of its world, with `choice` the setting's profile
     // (Lab tunnel unless set), `trusted` the setting's items (Fixture Wi-Fi
     // unless set), `busy` while a change runs, `raw` a read's own
     // [code, output] and `reply` the switch's answer to the connect the
-    // read decided (Lab tunnel's row, with a reason); or "off", the user
-    // turning a profile off.
+    // read decided (Lab tunnel's row, with a reason), `devices` the wired
+    // identity reads of each active wired profile, [route code, route
+    // output, neighbour code, neighbour output], read for that change; or
+    // "off", the user turning a profile off.
     const run = steps => {
         let memory = logic.autoConnectStart();
         let last = null;
@@ -2122,8 +2176,9 @@ function autoConnectSuite(logic, service = serviceSource) {
             if (step === "off") { memory = plain(logic.autoConnectOff(memory)); continue; }
             const [code, output] = step.raw || [0, autoWorld(step)];
             const read = autoRead(logic, code, output);
-            const trusted = logic.trustedUuids(step.trusted === undefined ? [{ name: "1", network: WIFI }] : step.trusted);
-            last = plain(logic.autoConnectPlan(memory, step.choice === undefined ? LAB : step.choice, trusted, read.networks, read.profiles, step.busy === true));
+            const trusted = logic.trustedRead(step.trusted === undefined ? [{ name: "1", network: WIFI }] : step.trusted);
+            const wired = step.devices === undefined ? null : step.devices.map(([routeCode, route, neighCode, neigh]) => logic.wiredIdentity(logic.wiredRoute(routeCode, route), neighCode, neigh));
+            last = plain(logic.autoConnectPlan(memory, step.choice === undefined ? LAB : step.choice, trusted, read.networks, read.profiles, step.busy === true, wired));
             if (step.reply !== undefined && last.uuid !== "")
                 last.memory = plain(logic.autoConnectReply(last.memory, step.reply, read.profiles.rows.find(row => row.uuid === last.uuid), "a reason"));
             memory = last.memory;
@@ -2137,7 +2192,6 @@ function autoConnectSuite(logic, service = serviceSource) {
         ["a trusted network coming up connects nothing", [{}, { wifi: UP }], "trusted", "", null],
         ["a trusted and an untrusted network up together connect", [{ wifi: UP }, { wifi: UP, hotel: UP }], "connect", LAB, null],
         ["a wired network on no list connects", [{}, { wired: UP }], "connect", LAB, null],
-        ["a wired profile saved as trusted counts as untrusted", [{}, { wired: UP, trusted: [{ name: "1", network: WIRED }] }], "connect", LAB, null],
         ["a Bluetooth profile saved as trusted counts as untrusted", [{}, { extra: "Phone:" + TWIN + ":bluetooth:activated", trusted: [{ name: "1", network: TWIN }] }], "connect", LAB, null],
         ["a mobile profile saved as trusted counts as untrusted", [{}, { extra: "Carrier:" + TWIN + ":gsm:activated", trusted: [{ name: "1", network: TWIN }] }], "connect", LAB, null],
         ["an unknown uplink type is a network not trusted", [{ wifi: UP }, { wifi: UP, extra: "DSL:" + TWIN + ":pppoe:activated" }], "connect", LAB, null],
@@ -2170,6 +2224,24 @@ function autoConnectSuite(logic, service = serviceSource) {
         ["a refused connect turned off on purpose stays off and drops its reason", [{}, { hotel: UP, reply: "refused: profile=plugin-needed" }, "off", { hotel: UP }], "settled", "", null],
         ["a connect refused while its profile is read shows no reason", [{}, { hotel: UP, reply: "refused: profile=reading" }], "connect", LAB, null]
     ];
+    // Wired trust (VGS-2506): Hotel Ethernet up on one device whose reads
+    // are recorded outputs, the home entry saved with Fixture Wi-Fi.
+    const HOME_ENTRY = { name: "2", network: WIRED_HOME };
+    const homeTrust = [{ name: "1", network: WIFI }, HOME_ENTRY];
+    const WIRED_TABLE = [
+        ["the home cable connects nothing", [{}, { wired: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, HOME_NEIGH]] }], "trusted", ""],
+        ["a hotel cable on the same subnet with another router connects", [{}, { wired: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, HOTEL_NEIGH]] }], "connect", LAB],
+        ["the same router on another subnet connects", [{}, { wired: UP, trusted: homeTrust, devices: [[0, OTHER_ROUTE, 0, OTHER_NEIGH]] }], "connect", LAB],
+        ["an absent router entry connects", [{}, { wired: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, "[]\n"]] }], "connect", LAB],
+        ["an INCOMPLETE router entry connects", [{}, { wired: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, INCOMPLETE_NEIGH]] }], "connect", LAB],
+        ["a FAILED router entry connects", [{}, { wired: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, FAILED_NEIGH]] }], "connect", LAB],
+        ["a wired network with no IPv4 router connects", [{}, { wired: UP, trusted: homeTrust, devices: [[0, "IP4.GATEWAY:\n", 0, ""]] }], "connect", LAB],
+        ["the home cable beside an untrusted Wi-Fi connects", [{}, { wired: UP, hotel: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, HOME_NEIGH]] }], "connect", LAB],
+        ["a wired profile uuid saved as trusted still connects", [{}, { wired: UP, trusted: [{ name: "1", network: WIRED }] }], "connect", LAB],
+        ["the home cable waits for its identity", [{}, { wired: UP, trusted: homeTrust }], "identify", ""],
+        ["the home cable's identity decides the change that waited", [{}, { wired: UP, trusted: homeTrust }, { wired: UP, trusted: homeTrust, devices: [[0, HOME_ROUTE, 0, HOME_NEIGH]] }], "trusted", ""]
+    ];
+    for (const [name, steps, why, uuid] of WIRED_TABLE) AUTO_TABLE.push([name, steps, why, uuid, null]);
     for (const [name, steps, why, uuid, problem] of AUTO_TABLE) {
         const got = run(steps);
         assert.deepEqual([got.why, got.uuid, got.memory.problem === null ? null : got.memory.problem.kind], [why, uuid, problem], name);
@@ -2187,11 +2259,11 @@ function autoConnectSuite(logic, service = serviceSource) {
     // A saved network's name reaches labels as text: no `<` for markup.
     assert.deepEqual(plain(logic.networkList(0, "<img src=x> Lobby:" + TWIN + ":802-11-wireless:\n").rows).map(row => row.name), ["img src=x> Lobby"]);
     assert.equal(many.rows[0].uuid, "00000079-0000-4000-8000-000000000000", "an active network comes first");
-    const published = read => {
+    const published = (read, items = []) => {
         const manifestOk = core.validateManifest(manifest, "/p");
         assert.equal(manifestOk.ok, true, manifestOk.error);
         let values = {};
-        for (const [key, value] of [["networks", read.networks], ["networkChoices", logic.networkChoices(read.networks)], ["vpnChoices", logic.vpnChoices(read.profiles)]]) {
+        for (const [key, value] of [["networks", read.networks], ["networkChoices", logic.networkChoices(read.networks, items)], ["vpnChoices", logic.vpnChoices(read.profiles)]]) {
             const result = core.statusWrite(manifestOk.manifest, values, key, plain(value));
             assert.equal(result.ok, true, key + ": " + result.error);
             values = plain(result.values);
@@ -2200,9 +2272,10 @@ function autoConnectSuite(logic, service = serviceSource) {
     };
     const wide = published({ networks: many, profiles: autoRead(logic, 0, autoWorld({})).profiles });
     assert.equal(wide.networkChoices.length, logic.NETWORK_MAX);
-    const fixtureValues = published(autoRead(logic, 0, autoWorld({ hotel: UP })));
-    // Only Wi-Fi profiles are offered to trust, the active ones first.
-    assert.deepEqual(fixtureValues.networkChoices.map(choice => choice.value), [HOTEL, WIFI]);
+    const fixtureValues = published(autoRead(logic, 0, autoWorld({ hotel: UP })), [HOME_ENTRY, HOME_ENTRY]);
+    // A saved wired entry is offered once whether or not it is active, then
+    // the saved Wi-Fi profiles, the active ones first.
+    assert.deepEqual(fixtureValues.networkChoices.map(choice => choice.value), [WIRED_HOME, HOTEL, WIFI]);
     assert.deepEqual(fixtureValues.vpnChoices.map(choice => choice.value), ["off", HOME, OFFICE, TRAVEL, CAMPUS, BRANCH, LAB]);
     // Settings stores what Off stands for as the empty setting.
     assert.equal(plain(core.settingChoices(core.validateManifest(manifest, "/p").manifest, fixtureValues, { autoConnect: "", trustedNetworks: [] })).autoConnect[0].value, "");
@@ -2215,6 +2288,16 @@ function autoConnectSuite(logic, service = serviceSource) {
     assert.deepEqual(plain(logic.trustedChange(items.concat([{ name: "3", network: WIFI }]), WIFI, true)), items.concat([{ name: "3", network: WIFI }]));
     assert.deepEqual(plain(logic.trustedChange([{ name: "2", network: WIFI.toUpperCase() }, { name: "1", network: WIRED }], WIFI, false)), [{ name: "1", network: WIRED }]);
     assert.deepEqual(plain(logic.trustedChange(undefined, WIFI, true)), [{ name: "1", network: WIFI }]);
+    // The wired kind beside them: turning the active wired network on adds
+    // its one entry and leaves every Wi-Fi entry; off removes that entry
+    // alone; a saved Wi-Fi uuid reads as before.
+    const wifiItems = [{ name: "1", network: WIFI }, { name: "2", network: HOTEL.toUpperCase() }];
+    const homeValue = logic.wiredCapture([logic.wiredIdentity(logic.wiredRoute(0, HOME_ROUTE), 0, HOME_NEIGH)]).value;
+    assert.equal(homeValue, WIRED_HOME);
+    const withHome = plain(logic.trustedChange(wifiItems, homeValue, true));
+    assert.deepEqual(withHome, wifiItems.concat([{ name: "3", network: WIRED_HOME }]));
+    assert.deepEqual(plain(logic.trustedChange(withHome, homeValue, false)), wifiItems);
+    assert.deepEqual(plain(logic.trustedRead(withHome)), { wifi: [WIFI, HOTEL], wired: [WIRED_HOME] });
 
     // A decided change keeps a failure of the chosen profile until its own
     // profile connects or another is chosen, and keeps no refusal; a wait
@@ -2224,9 +2307,9 @@ function autoConnectSuite(logic, service = serviceSource) {
         ["its profile now connected", LAB, LAB, autoRead(logic, 0, autoWorld({ hotel: UP, lab: UP })), false]]) {
         for (const kind of ["refused", "failed"]) {
             const memory = { seen: HOTEL, pending: false, problem: { kind, uuid, name: "a profile", reason: "" } };
-            const got = plain(logic.autoConnectPlan(memory, choice, [WIFI], read.networks, read.profiles, false));
+            const got = plain(logic.autoConnectPlan(memory, choice, { wifi: [WIFI], wired: [] }, read.networks, read.profiles, false, null));
             assert.equal(got.memory.problem === null ? null : got.memory.problem.kind, kept && kind === "failed" ? kind : null, kind + " of " + name);
-            const waiting = plain(logic.autoConnectPlan(Object.assign({}, memory, { pending: true }), choice, [WIFI], read.networks, read.profiles, true));
+            const waiting = plain(logic.autoConnectPlan(Object.assign({}, memory, { pending: true }), choice, { wifi: [WIFI], wired: [] }, read.networks, read.profiles, true, null));
             assert.equal(waiting.memory.problem === null ? null : waiting.memory.problem.kind, kept ? kind : null, kind + " of " + name + " while waiting");
         }
     }
@@ -2250,20 +2333,30 @@ function autoConnectSuite(logic, service = serviceSource) {
     // read, waits, and the step's reading decides again; a step that reads
     // unknown waits on one fresh probe; a connect that starts and then
     // fails leaves its line.
-    const serviceFunction = (owner, name) => {
-        const found = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(service);
+    const serviceFunction = (owner, name, source = service) => {
+        const found = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(source);
         assert.ok(found, name);
         const params = found[1].split(",").map(param => param.trim()).filter(param => param !== "");
         owner[name] = new Function("Logic", "owner", "console", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner, { log() {}, warn() {} });
     };
     const autoOwner = (reply, fields = {}) => {
-        const owner = Object.assign({ registered: true, autoMemory: logic.autoConnectStart(), autoChoice: LAB, autoAction: "", autoProbe: "", trusted: [WIFI],
+        const owner = Object.assign({ registered: true, autoMemory: logic.autoConnectStart(), autoChoice: LAB, autoAction: "", autoProbe: "", trusted: { wifi: [WIFI], wired: [] },
+            wiredCapturing: false, wiredProblem: "", launched: [],
             networks: hotelRead.networks, profiles: hotelRead.profiles, profileAction: null, stateWrite: null, killStep: { state: "absent", reason: "" },
             killSwitch: null, asked: [], probes: [], reply, probeReply: "ok",
             shell: { requirements: { missing: [] }, system: { refresh(done) { owner.probes.push(done); return owner.probeReply; } } },
             actProfile(request) { owner.asked.push(plain(request)); return owner.reply; } }, fields);
         owner.root = owner;
-        for (const name of ["autoConnect", "autoRetry", "autoEnded"]) serviceFunction(owner, name);
+        for (const name of ["autoConnect", "autoRetry", "autoEnded", "forgetWired", "wiredSettled"]) serviceFunction(owner, name);
+        // WiredIdentity's own functions over reader doubles that record
+        // each launch as [key, argv].
+        const reader = key => Object.defineProperty({ key }, "running", { get: () => false, set(on) { if (on) owner.launched.push([key, this.command]); } });
+        const identity = { nmcliEnvironment: {}, missing: [], value: null, run: null, linkReader: reader("link"), routeReader: reader("route"),
+            neighReader: reader("neigh"), deadline: { restart() {}, stop() {} }, settled: () => owner.wiredSettled() };
+        Object.defineProperty(identity, "reading", { get: () => identity.run !== null });
+        identity.root = identity;
+        for (const name of ["read", "forget", "next", "launch", "ended", "found"]) serviceFunction(identity, name, wired);
+        owner.wiredIdentity = identity;
         return owner;
     };
     const connected = autoOwner("ok");
@@ -2340,6 +2433,25 @@ function autoConnectSuite(logic, service = serviceSource) {
     const unprobeable = autoOwner("ok", { killStep: { state: "unknown", reason: "probe-failed" }, probeReply: "refused" });
     unprobeable.autoConnect();
     assert.deepEqual([unprobeable.probes.length, unprobeable.asked.length], [1, 1], "a probe the core refuses decides at once");
+    // A network change while the wired read is out: the old read's end
+    // decides nothing, a fresh read starts for the new change, and that
+    // read alone decides it.
+    const wiredRace = autoOwner("ok", Object.assign({ trusted: { wifi: [WIFI], wired: [WIRED_HOME] } }, autoRead(logic, 0, autoWorld({ wired: UP }))));
+    const wiredLink = "GENERAL.STATE:activated\nGENERAL.IP-IFACE:enp10s0\n";
+    const wiredStep = (key, text) => wiredRace.wiredIdentity.ended(key, 0, text, "");
+    wiredRace.autoConnect();
+    wiredStep("link", wiredLink);
+    wiredStep("route", HOME_ROUTE);
+    Object.assign(wiredRace, autoRead(logic, 0, autoWorld({ wired: UP, wifi: UP })));
+    wiredRace.autoConnect();
+    const launches = wiredRace.launched.length;
+    wiredStep("neigh", HOME_NEIGH);
+    assert.deepEqual(plain([wiredRace.asked, wiredRace.launched.slice(launches)]), plain([[], [["link", logic.linkArgv(WIRED)]]]),
+        "a read a network change overtook decides nothing, and a fresh one starts");
+    wiredStep("link", wiredLink);
+    wiredStep("route", HOME_ROUTE);
+    wiredStep("neigh", HOTEL_NEIGH);
+    assert.deepEqual(wiredRace.asked, [{ kind: "profile-up", id: LAB }], "the fresh read alone decides the change");
 }
 
 suite(load(file, commons));
@@ -2567,7 +2679,7 @@ try {
         ["Connect automatically waits for the kill switch step's reading", "|| killStep === undefined ||", "||"],
         ["an unknown kill switch step waits on a fresh probe", ' || (unknown && autoProbe !== "done")', ""],
         ["a pending change asks for one probe", 'if (!memory.pending) autoProbe = "";', 'if (plan.why !== "waiting") autoProbe = "";'],
-        ["a new network change asks for its own probe", 'if (networks.state === "available" && Logic.networkKey(networks) !== autoMemory.seen) autoProbe = "";', ""],
+        ["a new network change asks for its own probe", '            autoProbe = "";\n            forgetWired();', '            forgetWired();'],
         ["an accepted automatic connect is followed to its end", 'if (reply === "ok") autoAction = row.uuid;', ""],
         ["a stage that stops an automatic connect leaves its line", "        autoEnded(ended.uuid, true, profileProblem.text);\n", ""],
         ["a connect's end reaches Connect automatically", 'if (action.kind === "profile-up") root.autoEnded(action.uuid, failed, failed ? root.profileProblem.text : "");', ""],
@@ -2577,6 +2689,12 @@ try {
         assert.throws(() => suite(load(file, commons), serviceSource.replace(old, replacement)), undefined, "control: " + name);
         console.log("vpn-logic: control=" + name + " red");
     }
+    // The wired read's stale guard: a read a network change overtook ends
+    // as if it were the new change's.
+    const staleNeedle = "        if (run !== null) run = Object.assign({}, run, { stale: true });\n        else value = null;";
+    assert.equal(wiredSource.split(staleNeedle).length - 1, 1, "stale guard");
+    assert.throws(() => autoConnectSuite(load(file, commons), serviceSource, wiredSource.replace(staleNeedle, "        value = null;")), undefined, "control: stale guard");
+    console.log("vpn-logic: control=a read a network change overtook is discarded red");
 
     // The root script's own reader agrees with STATE_TABLE and reads
     // stateText's output back, and its status_pattern accepts exactly the
@@ -2633,8 +2751,8 @@ try {
     // Each Connect automatically control changes the shipped decision and
     // must redden its table.
     for (const [name, needle, replacement] of [
-        ["a trusted network connects nothing", 'if (networks.active.every(uuid => networks.activeWifi.indexOf(uuid) !== -1 && trusted.indexOf(uuid) !== -1)) return plan("trusted", decided);', 'if (false) return plan("trusted", decided);'],
-        ["only a Wi-Fi profile can be trusted", "networks.activeWifi.indexOf(uuid) !== -1 && trusted.indexOf(uuid)", "trusted.indexOf(uuid)"],
+        ["a trusted network connects nothing", 'if (untrusted.length === 0) return plan("trusted", decided);', 'if (false) return plan("trusted", decided);'],
+        ["only a Wi-Fi profile can be trusted by its uuid", "networks.activeWifi.indexOf(uuid) === -1 || trusted.wifi.indexOf(uuid) === -1", "trusted.wifi.indexOf(uuid) === -1"],
         ["a network name drops the markup it holds", "const text = clip(String(value)", "const text = String(String(value)"],
         ["a refused connect stays undecided", "{ pending: true, problem: shown ?", "{ pending: memory.pending, problem: shown ?"],
         ["a passing refusal shows no reason", "const shown = found !== null && USER_REFUSALS.indexOf(found[1]) !== -1;", "const shown = found !== null;"],

@@ -1229,12 +1229,17 @@ function checkView(check, row, held) {
 // (D129). The types are the connection.type setting names nmcli prints in
 // terse mode (scripts/fixtures/vpn/list.txt; nm-settings-nmcli(5)).
 //
-// Only a Wi-Fi profile can be trusted (overseer ruling on VGS-2399): a
-// profile names a connection setting, not a place, and a wired, Bluetooth
-// or mobile profile matches any network on its port or device. A Wi-Fi
-// profile matches every network with the same name and password, or the
-// same name when it is open.
+// A profile names a connection setting, not a place (overseer ruling on
+// VGS-2399). A Wi-Fi profile is trusted by its uuid: it matches every
+// network with the same name and password, or the same name when it is
+// open. A wired profile matches any cable in its port, so a wired network
+// is trusted by its router instead (VGS-2506, wiredIdentity): a hotel
+// cable on the same subnet has another router, and a network that copies
+// both the subnet and the router's hardware address is trusted too. A
+// Bluetooth or mobile profile matches any phone or carrier and is never
+// trusted.
 var WIFI_TYPE = "802-11-wireless";
+var WIRED_TYPE = "802-3-ethernet";
 // Every other activated connection is a network that is not trusted,
 // unknown uplink types included (pppoe, vlan, bond), except these, which
 // carry no uplink of their own and stay up on any network: the VPN
@@ -1250,7 +1255,7 @@ var CHOICE_MAX = 60;
 // The longest problem line the Settings field takes (PluginLogic.STATUS_TEXT_MAX).
 var PROBLEM_MAX = 200;
 
-function emptyNetworks(state) { return { state: state, rows: [], active: [], activeWifi: [], count: 0 }; }
+function emptyNetworks(state) { return { state: state, rows: [], active: [], activeWifi: [], activeWired: [], wiredName: "", count: 0 }; }
 
 // A printable choice label of at most CHOICE_MAX characters, as line()
 // keeps text: no control character and no `<`, which a label's AutoText
@@ -1261,17 +1266,20 @@ function choiceLabel(value, fallback) {
 }
 
 // The networks of the list read: { state: "available", rows, active,
-// activeWifi, count }. `rows` are the saved Wi-Fi profiles, the only ones
-// a user can trust, [{ uuid, name, type, active }], the active ones first
-// and at most NETWORK_MAX; `active` is the uuid of every activated
-// connection that is not LOCAL_TYPES, and `activeWifi` of those that are
-// Wi-Fi, each sorted. `unreadable` for a read that failed or a row outside
-// the grammar, which decides nothing.
+// activeWifi, activeWired, wiredName, count }. `rows` are the saved Wi-Fi
+// profiles, the ones a user trusts by uuid, [{ uuid, name, type, active }],
+// the active ones first and at most NETWORK_MAX; `active` is the uuid of
+// every activated connection that is not LOCAL_TYPES, and `activeWifi` and
+// `activeWired` of those that are Wi-Fi and wired, each sorted;
+// `wiredName` is the name of the first active wired profile, "" for none.
+// `unreadable` for a read that failed or a row outside the grammar, which
+// decides nothing.
 function networkList(code, text) {
     if (code !== 0) return emptyNetworks("unreadable");
     const rows = [];
     const active = [];
     const activeWifi = [];
+    const wired = [];
     for (const raw of String(text).split(/\r?\n/)) {
         if (raw === "") continue;
         const fields = Commons.Nmcli.fields(raw);
@@ -1281,12 +1289,15 @@ function networkList(code, text) {
         const uuid = fields[1].toLowerCase();
         const up = fields[3] === "activated";
         if (up) active.push(uuid);
+        if (up && fields[2] === WIRED_TYPE) wired.push({ uuid: uuid, name: choiceLabel(fields[0], "Wired network") });
         if (fields[2] !== WIFI_TYPE) continue;
         if (up) activeWifi.push(uuid);
         rows.push({ uuid: uuid, name: choiceLabel(fields[0], "Wi-Fi"), type: "Wi-Fi", active: up });
     }
     const shown = rows.filter(row => row.active).concat(rows.filter(row => !row.active));
-    return { state: "available", rows: shown.slice(0, NETWORK_MAX), active: active.sort(), activeWifi: activeWifi.sort(), count: rows.length };
+    wired.sort((a, b) => a.uuid < b.uuid ? -1 : a.uuid > b.uuid ? 1 : 0);
+    return { state: "available", rows: shown.slice(0, NETWORK_MAX), active: active.sort(), activeWifi: activeWifi.sort(),
+        activeWired: wired.map(row => row.uuid), wiredName: wired.length === 0 ? "" : wired[0].name, count: rows.length };
 }
 
 // The choices of the Connect automatically select: Off, which stands for
@@ -1295,30 +1306,128 @@ function vpnChoices(profiles) {
     const rows = isPlain(profiles) && profiles.state === "available" ? profiles.rows : [];
     return [{ label: "Off", value: "off" }].concat(rows.map(row => ({ label: choiceLabel(row.name, typeName(row.type, row.service)), value: row.uuid })));
 }
-// The choices of a Trusted networks item: each saved Wi-Fi profile by uuid.
-function networkChoices(networks) {
-    return isPlain(networks) && networks.state === "available" ? networks.rows.map(row => ({ label: row.name, value: row.uuid })) : [];
+// The choices of a Trusted networks item: each saved wired entry of
+// ITEMS, the `trustedNetworks` setting, whether or not it is active, then
+// each saved Wi-Fi profile by uuid.
+function networkChoices(networks, items) {
+    const wired = trustedRead(items).wired.filter((value, index, all) => all.indexOf(value) === index).map(value => {
+        const found = WIRED_ENTRY.exec(value);
+        return { label: "Wired network " + found[1] + " · " + found[2], value: value };
+    });
+    const rows = isPlain(networks) && networks.state === "available" ? networks.rows.map(row => ({ label: row.name, value: row.uuid })) : [];
+    return wired.concat(rows).slice(0, NETWORK_MAX);
 }
 
-// The trusted networks' uuids from the `trustedNetworks` setting, a list
-// of { name, network } items; an item with no network chosen yet trusts
-// nothing. A saved uuid that is not a Wi-Fi profile trusts nothing either
-// (autoConnectPlan).
-function trustedUuids(items) {
-    return (Array.isArray(items) ? items : []).filter(item => isPlain(item) && typeof item.network === "string" && UUID.test(item.network))
-        .map(item => item.network.toLowerCase());
+// The identity of a wired network (VGS-2506): the IPv4 subnet of the
+// device's address that holds its router, and the router's hardware
+// address. `nmcli -t -f IP4.GATEWAY,IP4.ADDRESS device show IFACE`
+// (wiredRouteArgv) prints `IP4.GATEWAY:<router>` and
+// `IP4.ADDRESS[n]:<address>/<prefix>` for a connected device, and an
+// empty `IP4.GATEWAY:` with exit 0 for one with no IPv4 router or no
+// connection (NetworkManager 1.58.1 on a wired host, 2026-11-11; nmcli(1)
+// `device show`). `ip -j neigh show ROUTER dev IFACE` (wiredNeighArgv)
+// prints one object with `dst`, `lladdr` and `state`, `[]` with exit 0
+// for no entry, and no `lladdr` in INCOMPLETE or FAILED (iproute2 7.3.0,
+// on that host and in a network namespace, 2026-11-11). The kernel holds
+// the entry only after traffic to or from the router, and nothing here
+// asks for one: an entry not read is a network not trusted.
+var HARDWARE = /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/;
+// The states whose `lladdr` the kernel resolved or was given (ip-neighbour(8)).
+var NEIGH_STATES = ["REACHABLE", "STALE", "DELAY", "PROBE", "PERMANENT"];
+// A wired entry's `network`, beside a Wi-Fi entry's profile uuid.
+var WIRED_ENTRY = /^wired (\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}) ([0-9a-f]{2}(?::[0-9a-f]{2}){5})$/;
+
+// A dotted IPv4 address as one number, or null (IPV4, the leak check's).
+function ipv4Number(text) {
+    if (!IPV4.test(text)) return null;
+    const parts = text.split(".").map(Number);
+    return ((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3];
 }
-// The `trustedNetworks` setting with network UUID trusted when WANTED, or
-// not. Every other item stays as it is; a new item takes the lowest whole
-// number no item names, as the Settings page's list editor names one.
-function trustedChange(items, uuid, wanted) {
+function ipv4Text(number) { return [number >>> 24, (number >>> 16) & 255, (number >>> 8) & 255, number & 255].join("."); }
+function wiredRouteArgv(device) { return ["nmcli", "-t", "-f", "IP4.GATEWAY,IP4.ADDRESS", "device", "show", device]; }
+function wiredNeighArgv(device, route) { return ["ip", "-j", "neigh", "show", route.router, "dev", device]; }
+// { router, subnet } from the device read, or null for no IPv4 router, a
+// router no address's subnet holds, or a read that failed.
+function wiredRoute(code, text) {
+    if (code !== 0) return null;
+    const lines = String(text).split(/\r?\n/);
+    const gateways = lines.map(line => /^IP4\.GATEWAY:(.*)$/.exec(line)).filter(found => found !== null);
+    const router = gateways.length === 1 ? ipv4Number(gateways[0][1]) : null;
+    if (router === null) return null;
+    for (const line of lines) {
+        const found = /^IP4\.ADDRESS\[\d+\]:([0-9.]+)\/(\d{1,2})$/.exec(line);
+        const address = found === null ? null : ipv4Number(found[1]);
+        const prefix = found === null ? 33 : Number(found[2]);
+        if (address === null || prefix > 32) continue;
+        const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+        const subnet = (address & mask) >>> 0;
+        if (subnet === ((router & mask) >>> 0)) return { router: ipv4Text(router), subnet: ipv4Text(subnet) + "/" + prefix };
+    }
+    return null;
+}
+// { subnet, router }, the router's hardware address in lower case, from
+// ROUTE and the neighbour read, or null: unread.
+function wiredIdentity(route, code, text) {
+    if (!isPlain(route) || code !== 0) return null;
+    let entries;
+    try { entries = JSON.parse(String(text)); } catch (error) { return null; }
+    if (!Array.isArray(entries) || entries.length !== 1 || !isPlain(entries[0])) return null;
+    const entry = entries[0];
+    const hardware = typeof entry.lladdr === "string" ? entry.lladdr.toLowerCase() : "";
+    if (entry.dst !== route.router || !HARDWARE.test(hardware) || !Array.isArray(entry.state) || entry.state.length === 0
+        || entry.state.some(state => NEIGH_STATES.indexOf(state) === -1)) return null;
+    return { subnet: route.subnet, router: hardware };
+}
+function wiredEntry(identity) { return "wired " + identity.subnet + " " + identity.router; }
+// The line a wired network's row shows while its router is unread, after
+// the switch's read (trust-wired) or the read at a network change. It says
+// only why the switch reads off: the switch beside it is the one action,
+// and turning it on reads the router again.
+var WIRED_UNREAD = "VGS could not read the router.";
+// The entry the active wired network would save, from IDENTITIES, one
+// wiredIdentity per active wired profile: { value } or { problem },
+// the line its row shows when it cannot be trusted.
+function wiredCapture(identities) {
+    if (!Array.isArray(identities) || identities.length !== 1) return { problem: "VGS can trust a wired network only while one cable is connected." };
+    if (identities[0] === null) return { problem: WIRED_UNREAD };
+    return { value: wiredEntry(identities[0]) };
+}
+// The published `wired`: { value, problem }, VALUE the active wired
+// network's entry from IDENTITIES (WiredIdentity's value), "" for none,
+// and PROBLEM the capture's line, else WIRED_UNREAD while a read left an
+// identity unread, so a connect on the trusted cable says why.
+function wiredStatus(identities, problem) {
+    const capture = wiredCapture(identities);
+    const unread = Array.isArray(identities) && identities.indexOf(null) !== -1;
+    return { value: capture.value === undefined ? "" : capture.value, problem: problem !== "" ? problem : unread ? WIRED_UNREAD : "" };
+}
+
+// The trusted networks of the `trustedNetworks` setting, a list of
+// { name, network } items: { wifi, wired }, the profile uuids and the
+// wired entries. An item with no network chosen yet trusts nothing. A
+// saved uuid that is not a Wi-Fi profile trusts nothing either
+// (autoConnectPlan).
+function trustedRead(items) {
+    const read = { wifi: [], wired: [] };
+    for (const item of Array.isArray(items) ? items : []) {
+        if (!isPlain(item) || typeof item.network !== "string") continue;
+        if (UUID.test(item.network)) read.wifi.push(item.network.toLowerCase());
+        else if (WIRED_ENTRY.test(item.network)) read.wired.push(item.network);
+    }
+    return read;
+}
+// The `trustedNetworks` setting with NETWORK, a profile uuid or a wired
+// entry, trusted when WANTED, or not. Every other item stays as it is; a
+// new item takes the lowest whole number no item names, as the Settings
+// page's list editor names one.
+function trustedChange(items, network, wanted) {
     const list = Array.isArray(items) ? items.filter(isPlain) : [];
-    const holds = item => typeof item.network === "string" && item.network.toLowerCase() === uuid;
+    const holds = item => typeof item.network === "string" && item.network.toLowerCase() === network;
     if (!wanted) return list.filter(item => !holds(item));
     if (list.some(holds)) return list;
     let n = 1;
     while (list.some(item => item.name === String(n))) n += 1;
-    return list.concat([{ name: String(n), network: uuid }]);
+    return list.concat([{ name: String(n), network: network }]);
 }
 
 // The decision's memory: `seen`, the active networks of the last readable
@@ -1333,21 +1442,25 @@ function autoConnectStart() { return { seen: null, pending: false, problem: null
 function networkKey(networks) { return networks.active.join(" "); }
 
 // One decision, at each list read, over MEMORY: CHOICE, the setting's
-// profile uuid or ""; TRUSTED, trustedUuids; NETWORKS, networkList;
+// profile uuid or ""; TRUSTED, trustedRead; NETWORKS, networkList;
 // PROFILES, the published profiles; BUSY while a profile change or a kill
 // switch write runs, or before the kill switch step's first reading, which
-// decides whether the connect writes the state file first. Answers { why,
-// uuid, memory }: `uuid` the profile to connect, else "". A change of the
-// active networks, the first readable list included, is decided once: it
-// connects the chosen profile while an active network is not a trusted
-// Wi-Fi profile and no VPN profile is up. A change the switch refused
+// decides whether the connect writes the state file first; WIRED, one
+// wiredIdentity per active wired profile, read for this change, or null
+// before the read. Answers { why, uuid, memory }: `uuid` the profile to
+// connect, else "". A change of the active networks, the first readable
+// list included, is decided once: it connects the chosen profile while an
+// active network is neither a trusted Wi-Fi profile nor a wired network
+// whose identity is a trusted wired entry, and no VPN profile is up. A
+// change that a wired identity could still decide waits, as `identify`,
+// for WIRED. A change the switch refused
 // stays undecided (autoConnectReply), so the next read connects once its
 // cause is gone. A deliberate off (autoConnectOff) leaves it decided until
 // the next change. With no
 // profile chosen, a change is decided as it comes, so choosing one later
 // connects nothing until the next change. An unreadable list decides
 // nothing and keeps its change pending.
-function autoConnectPlan(memory, choice, trusted, networks, profiles, busy) {
+function autoConnectPlan(memory, choice, trusted, networks, profiles, busy, wired) {
     const wanted = typeof choice === "string" ? choice.toLowerCase() : "";
     const readable = isPlain(networks) && networks.state === "available" && isPlain(profiles) && profiles.state === "available";
     const key = readable ? networkKey(networks) : null;
@@ -1368,7 +1481,14 @@ function autoConnectPlan(memory, choice, trusted, networks, profiles, busy) {
     const decided = { seen: key, pending: false, problem: null };
     if (profiles.rows.some(candidate => candidate.state === "activated" || candidate.state === "activating")) return plan("connected", decided);
     if (networks.active.length === 0) return plan("offline", decided);
-    if (networks.active.every(uuid => networks.activeWifi.indexOf(uuid) !== -1 && trusted.indexOf(uuid) !== -1)) return plan("trusted", decided);
+    const untrusted = networks.active.filter(uuid => networks.activeWifi.indexOf(uuid) === -1 || trusted.wifi.indexOf(uuid) === -1);
+    if (untrusted.length === 0) return plan("trusted", decided);
+    if (trusted.wired.length > 0 && untrusted.every(uuid => networks.activeWired.indexOf(uuid) !== -1)) {
+        if (wired === null) return plan("identify", { seen: key, pending: true, problem: ours ? memory.problem : null });
+        // One identity per active wired profile, each a trusted entry.
+        if (wired.length === untrusted.length && wired.every(identity => identity !== null && trusted.wired.indexOf(wiredEntry(identity)) !== -1))
+            return plan("trusted", decided);
+    }
     return plan("connect", decided, row.uuid);
 }
 // The user turned a profile off: no network change is pending.

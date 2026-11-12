@@ -11,8 +11,9 @@ import "VpnLogic.js" as Logic
 // lease {id,open}; action {kind,id} with the profile's uuid for
 // profile-up, profile-down, profile-remove, profile-details and
 // profile-check, the leak check (LeakCheck); import,
-// refresh (the edited uuid, or empty for metadata), open and kill-switch
-// with the mode to write, block, block-lan or off. A password
+// refresh (the edited uuid, or empty for metadata), open, kill-switch
+// with the mode to write, block, block-lan or off, and trust-wired, which
+// saves the active wired network's identity as a trusted entry. A password
 // connect is no IPC action: its masked prompt calls VpnLogic.submitConnect, which reaches
 // connectWithPassword here directly with the one-use stdin closure.
 // nmcli's output stays in this file: VpnLogic parses the fields a view
@@ -91,11 +92,11 @@ Item {
     // ends it when it ends.
     property bool killSettlePoll: false
     // Connect automatically: the profile the setting names, "" for Off,
-    // the trusted networks' uuids, the saved networks of the last list
-    // read (VpnLogic.networkList) and the decision's memory, whose problem
-    // line Settings and the section draw.
+    // the trusted networks (VpnLogic.trustedRead), the saved networks of
+    // the last list read (VpnLogic.networkList) and the decision's memory,
+    // whose problem line Settings and the section draw.
     readonly property string autoChoice: shell === null || typeof shell.settings.autoConnect !== "string" ? "" : shell.settings.autoConnect
-    readonly property var trusted: Logic.trustedUuids(shell === null ? [] : shell.settings.trustedNetworks)
+    readonly property var trusted: Logic.trustedRead(shell === null ? [] : shell.settings.trustedNetworks)
     property var networks: Logic.emptyNetworks("reading")
     property var autoMemory: Logic.autoConnectStart()
     // The uuid of the connect Connect automatically started, until it
@@ -121,6 +122,26 @@ Item {
     onAutoProblemChanged: publishAuto()
     onVpnChoicesChanged: publishAuto()
     onNetworksChanged: publishAuto()
+    onTrustedChanged: publishAuto()
+
+    // Connect automatically's wired trust: the active wired profiles'
+    // identities (WiredIdentity), read once per network change while a
+    // wired entry is saved and a wired network is active, and at a capture
+    // (trust-wired), which saves the active wired network's entry once its
+    // read settles. `wiredProblem` is the line a capture that could not
+    // trust the network leaves on its row, until the next capture or
+    // network change; the published `wired` (VpnLogic.wiredStatus) shows
+    // an unread identity's line otherwise.
+    property bool wiredCapturing: false
+    property string wiredProblem: ""
+    readonly property var wiredStatus: Logic.wiredStatus(wiredIdentity.value, wiredProblem)
+    onWiredStatusChanged: publishAuto()
+    WiredIdentity {
+        id: wiredIdentity
+        nmcliEnvironment: root.nmcliEnvironment
+        missing: root.shell === null ? [] : root.shell.requirements.missing
+        onSettled: root.wiredSettled()
+    }
 
     readonly property var killSwitch: Logic.killSwitchState(killStep, killFile, killStatus, killChanging || stage !== null, killProblem, killSettling)
     readonly property var killSetup: Logic.killSwitchSetup(killStep)
@@ -168,7 +189,8 @@ Item {
         report("autoConnectProblem", autoProblem === "" ? null : autoProblem);
         report("vpnChoices", vpnChoices);
         report("networks", networks);
-        report("networkChoices", Logic.networkChoices(networks));
+        report("networkChoices", Logic.networkChoices(networks, shell === null ? [] : shell.settings.trustedNetworks));
+        report("wired", wiredStatus);
     }
     Component.onCompleted: Logic.attachConnect(root)
     Component.onDestruction: {
@@ -185,6 +207,7 @@ Item {
             shell.ipc.handle("refresh", arg => root.refresh(arg));
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             shell.ipc.handle("kill-switch", arg => root.setKillSwitch(arg));
+            shell.ipc.handle("trust-wired", () => root.trustWired());
             refresh();
         }
         publish();
@@ -456,9 +479,14 @@ Item {
     // refusal leaves pending does not probe at every read.
     function autoConnect() {
         const unknown = Logic.stepWord(killStep) === "unknown";
-        if (networks.state === "available" && Logic.networkKey(networks) !== autoMemory.seen) autoProbe = "";
+        if (networks.state === "available" && Logic.networkKey(networks) !== autoMemory.seen) {
+            autoProbe = "";
+            forgetWired();
+        }
+        if (networks.state === "available" && networks.activeWired.length > 0 && trusted.wired.length > 0 && wiredIdentity.value === null) wiredIdentity.read(networks.activeWired);
         const plan = Logic.autoConnectPlan(autoMemory, autoChoice, trusted, networks, profiles,
-            profileAction !== null || stateWrite !== null || killStep === undefined || (unknown && autoProbe !== "done"));
+            profileAction !== null || stateWrite !== null || killStep === undefined || (unknown && autoProbe !== "done"),
+            wiredIdentity.value);
         let memory = plan.memory;
         if (plan.why === "waiting" && unknown && autoProbe === "" && profileAction === null && stateWrite === null) {
             autoProbe = "running";
@@ -486,6 +514,48 @@ Item {
     // A change still pending, decided again over the current list.
     function autoRetry() {
         if (registered && autoMemory.pending && profileAction === null) autoConnect();
+    }
+
+    // A network change: the identity read for the last one no longer holds.
+    function forgetWired() {
+        wiredProblem = "";
+        wiredIdentity.forget();
+    }
+    // A wired read settled: a capture waiting on it saves, or reads again
+    // when a network change discarded it; a pending change is decided.
+    function wiredSettled() {
+        if (wiredCapturing) {
+            if (wiredIdentity.value === null) wiredIdentity.read(networks.activeWired);
+            else captured();
+        }
+        autoRetry();
+    }
+    // trust-wired: read the active wired network's identity now and save it
+    // as a trusted entry once read; one that cannot be read refuses with
+    // the line its row shows (VpnLogic.wiredCapture).
+    function trustWired() {
+        if (networks.state !== "available" || networks.activeWired.length === 0) return "refused: wired=inactive";
+        wiredProblem = "";
+        wiredCapturing = true;
+        if (!wiredIdentity.reading) {
+            wiredIdentity.forget();
+            wiredIdentity.read(networks.activeWired);
+        }
+        return "ok";
+    }
+    function captured() {
+        wiredCapturing = false;
+        const capture = Logic.wiredCapture(wiredIdentity.value);
+        if (capture.value === undefined) {
+            wiredProblem = capture.problem;
+            console.log("vpn: operation=trust-wired completion=unread");
+            return;
+        }
+        const reply = shell.configure.set("trustedNetworks", Logic.trustedChange(shell.settings.trustedNetworks, capture.value, true));
+        if (reply !== "ok") {
+            wiredProblem = "VGS could not save this setting.";
+            console.warn("vpn: operation=trust-wired completion=" + reply);
+        }
     }
     // The connect Connect automatically started ended, FAILED with the
     // problem line TEXT or not.

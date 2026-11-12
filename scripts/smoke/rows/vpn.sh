@@ -19,7 +19,10 @@
 # in System Settings, connects the chosen profile when a Wi-Fi profile on
 # no list comes up, as NetworkManager's device signal reaches the shell
 # through the mock's wlan0 (fixtures/devices/network.py), and not when the
-# trusted one does.
+# trusted one does. The mock's enp10s0 under a wired profile draws one
+# Trusted networks row; its switch saves the network by its router, read
+# through the nmcli and ip stand-ins, and the cable connecting again
+# connects nothing with the same router and Lab tunnel with another.
 # Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
 # Import callback, drop Import's availability guard and put the password
@@ -769,7 +772,7 @@ rescan "the nmcli stand-in returns"
 # purpose stays off on the same network and comes up at the next change.
 vpn_hotel=7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
 vpn_wifi=0f3e2d1c-4b5a-4968-8776-5a4b3c2d1e0f
-vpn_wifi_event() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1" 2>&1; } # wifi-up|wifi-down
+vpn_net_event() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1" 2>&1; } # wifi-up|wifi-down|wired|wired-up|wired-down|unwired
 # vpn_networks HOTEL FIXTURE LAB: list.txt with Hotel Wi-Fi added, Home
 # tunnel off and each named profile's state as nmcli prints it.
 vpn_networks() {
@@ -801,10 +804,10 @@ PYVPNAUTO
 vpn_trusted_saved() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=next((r for r in d.get("plugins",[]) if r.get("id")=="vgs.vpn"),{}); print(json.dumps([i.get("network") for i in r.get("trustedNetworks",[])]))' "$home/.config/vgshell/shell.json"; }
 vpn_auto_change() { # LABEL HOTEL: a network change through wlan0, down then up
   vpn_networks "" "" "" || fail "$1: the list could not be planted"
-  expect "$1: wlan0 leaves its network on the mock" ok vpn_wifi_event wifi-down
+  expect "$1: wlan0 leaves its network on the mock" ok vpn_net_event wifi-down
   expect_poll "$1: the device signal reads no network up" '[]' vpn_active
   vpn_networks "$2" "$([[ $2 == activated ]] && echo "" || echo activated)" "" || fail "$1: the list could not be planted"
-  expect "$1: wlan0 joins a network on the mock" ok vpn_wifi_event wifi-up
+  expect "$1: wlan0 joins a network on the mock" ok vpn_net_event wifi-up
 }
 device_reply nmcli 0 "" connection up uuid "$vpn_lab"
 device_reply nmcli 0 "" connection down uuid "$vpn_lab"
@@ -842,7 +845,61 @@ expect "auto off: Lab tunnel turned off on purpose stays off on the same network
 vpn_auto_change "auto next" activated
 expect_poll "auto next: the next network change brings Lab tunnel up again" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_before"
 expect_poll "auto next: the automatic connect ends" null vpn_profiles action
-expect "auto: wlan0 leaves its network on the mock again" ok vpn_wifi_event wifi-down
+expect "auto: wlan0 leaves its network on the mock again" ok vpn_net_event wifi-down
+
+# Wired trust (VGS-2506): Wired connection 1 up on the mock's enp10s0,
+# whose interface and router the nmcli and ip stand-ins answer, the router
+# as 192.0.2.1 with the hardware address vpn_router plants. With Connect automatically off, the
+# row's switch saves the home cable's entry. Then, with Lab tunnel chosen,
+# the cable connecting again with the same router connects nothing, and
+# with another router's hardware address brings Lab tunnel up with no
+# press. Each decision lands with the identity read it waited for, which
+# publishes the network's entry again (VpnLogic.wiredCapture).
+vpn_wired=3c9d8e7f-6a5b-4c4d-9e3f-2a1b0c9d8e7f
+vpn_wired_entry="wired 192.0.2.0/24 02:00:5e:00:53:01"
+vpn_wired_list() { # STATE: list.txt, Home tunnel off, with Wired connection 1 at STATE
+  vpn_plant "$vpn_home=" "$vpn_wifi=" "$vpn_lab=" || return 1
+  device_reply nmcli 0 "$(cat -- "$sandbox/vpn-list.txt")"$'\n'"Wired connection 1:$vpn_wired:802-3-ethernet:$1" "${vpn_list_argv[@]}"
+}
+vpn_router() { device_reply ip 0 "[{\"dst\":\"192.0.2.1\",\"lladdr\":\"$1\",\"state\":[\"REACHABLE\"]}]" -j neigh show 192.0.2.1 dev enp10s0; } # HARDWARE
+# The active wired network's entry the service published, "" for none.
+vpn_wired_value() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("wired"); print("unpublished" if v is None else json.dumps(v["value"]))'; }
+vpn_wired_change() { # LABEL: enp10s0 leaves its network, then joins it again
+  vpn_wired_list "" || fail "$1: the list could not be planted"
+  expect "$1: enp10s0 leaves its network on the mock" ok vpn_net_event wired-down
+  expect_poll "$1: the device signal reads no network up" '[]' vpn_active
+  expect_poll "$1: no wired entry reads published" '""' vpn_wired_value
+  vpn_wired_list activated || fail "$1: the list could not be planted"
+  expect "$1: enp10s0 joins its network again on the mock" ok vpn_net_event wired-up
+  expect_poll "$1: the device signal reads the wired network up" "[\"$vpn_wired\"]" vpn_active
+}
+device_reply nmcli 0 $'GENERAL.STATE:activated\nGENERAL.IP-IFACE:enp10s0' -t -f GENERAL.STATE,GENERAL.IP-IFACE connection show uuid "$vpn_wired"
+device_reply nmcli 0 $'IP4.GATEWAY:192.0.2.1\nIP4.ADDRESS[1]:192.0.2.10/24' -t -f IP4.GATEWAY,IP4.ADDRESS device show enp10s0
+vpn_router 02:00:5e:00:53:01
+expect "wired: Connect automatically is off" ok vpn_auto_settings '{"autoConnect": null}'
+vpn_wired_list activated || fail "wired: the list could not be planted"
+expect "wired: the mock's wired devices come up" ok vpn_net_event wired
+expect "wired: a refresh reads the wired network up" ok vpn_refresh
+expect_poll "wired: Wired connection 1 reads up" "[\"$vpn_wired\"]" vpn_active
+expect "wired: System Settings opens on VPN" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+expect_poll "wired: Trusted networks draws the active wired network as one row" true vpn_named window ContentRow vpn-trusted-row-wired visible
+expect "wired: its switch reads untrusted" false vpn_named window Switch vpn-trusted-wired checked
+vpn_scoped_press ContentRow "Wired connection 1" Switch "" || fail "wired: the Trusted networks switch of Wired connection 1 could not be pressed"
+expect_poll "wired: the switch saves the network by its router beside Fixture Wi-Fi" "[\"$vpn_wifi\", \"$vpn_wired_entry\"]" vpn_trusted_saved
+expect_poll "wired: the wired network reads trusted" true vpn_named window Switch vpn-trusted-wired checked
+expect "wired: System Settings closes" ok ipc shell hide window vgs.system
+expect "wired: Lab tunnel connects automatically" ok vpn_auto_settings "{\"autoConnect\": \"$vpn_lab\"}"
+read_count vpn_before "wired: nmcli calls are unreadable" vpn_call_count
+vpn_wired_change "wired home"
+expect_poll "wired home: the router's read publishes the home entry again" "\"$vpn_wired_entry\"" vpn_wired_value
+expect "wired home: the same router connects nothing" '[]' vpn_changes "$vpn_before"
+expect "wired home: no change is in flight" null vpn_profiles action
+vpn_router 02:00:5e:00:53:02
+vpn_wired_change "wired hotel"
+expect_poll "wired hotel: another router's hardware address brings Lab tunnel up with no press" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_before"
+expect_poll "wired hotel: the automatic connect ends" null vpn_profiles action
+expect "wired: the mock's wired devices go" ok vpn_net_event unwired
+device_reply_clear ip
 expect "auto: Connect automatically turns off" ok vpn_auto_settings '{"autoConnect": null, "trustedNetworks": null, "pollSeconds": null}'
 
 # The kill switch (D129), with the vpn-kill-switch step's world set up in

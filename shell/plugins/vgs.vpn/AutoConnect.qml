@@ -6,13 +6,19 @@ import "VpnLogic.js" as Logic
 
 // Connect automatically, in System Settings: the profile to connect on a
 // network not on the trusted list, from the service's `vpnChoices`, and
-// Trusted networks, one row with a switch per saved Wi-Fi profile of the
-// service's last list read (`networks`), the active ones first; only a
-// Wi-Fi profile can be trusted (VpnLogic.networkList). Both write the plugin's
-// own settings, `autoConnect` and `trustedNetworks`, which the Settings
-// page draws from the manifest too; the labels, hints and info are the
-// manifest's, so both pages read alike. The line under the profile is the
-// service's `autoConnectProblem`, the field's error on both pages.
+// Trusted networks: while a wired network is active, one row with a
+// switch for it, then one row with a switch per saved Wi-Fi profile of the
+// service's last list read (`networks`), the active ones first. A Wi-Fi
+// profile is trusted by its uuid, a wired network by its router
+// (VpnLogic.wiredIdentity): its switch asks the service to read the
+// router and save it (trust-wired), and reads on while the service's
+// `wired` value, the active wired network's entry, is saved; the row's
+// line says why when the service could not trust it. Both sections write
+// the plugin's own settings, `autoConnect` and `trustedNetworks`, which
+// the Settings page draws from the manifest too; the labels, hints and
+// info are the manifest's, so both pages read alike. The line under the
+// profile is the service's `autoConnectProblem`, the field's error on both
+// pages.
 Column {
     id: root
 
@@ -26,7 +32,8 @@ Column {
     // Off is the first choice and stands for the empty setting.
     readonly property int chosenIndex: chosen === "" ? 0 : choices.findIndex((choice, index) => index > 0 && choice.value === chosen)
     readonly property var networks: values.networks !== undefined && values.networks !== null ? values.networks : Logic.emptyNetworks("reading")
-    readonly property var trusted: Logic.trustedUuids(shell === null ? [] : shell.settings.trustedNetworks)
+    readonly property var trusted: Logic.trustedRead(shell === null ? [] : shell.settings.trustedNetworks)
+    readonly property var wired: values.wired !== undefined && values.wired !== null ? values.wired : ({ value: "", problem: "" })
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.stack.group
@@ -78,8 +85,35 @@ Column {
             visible: text !== ""
             role: "hint"
             text: root.networks.state === "unreadable" ? "VGS could not read your saved networks"
-                : root.networks.state === "available" && root.networks.rows.length === 0 ? "No saved Wi-Fi networks yet" : ""
+                : root.networks.state === "available" && root.networks.rows.length === 0 && root.networks.activeWired.length === 0 ? "No saved Wi-Fi networks yet" : ""
             wrapMode: Text.Wrap
+        }
+        ContentRow {
+            objectName: "vpn-trusted-row-wired"
+            width: root.width
+            visible: root.networks.activeWired.length > 0
+            iconName: "ethernet-port"
+            text: root.networks.wiredName
+            secondary: root.wired.problem !== "" ? root.wired.problem : "Wired · Connected"
+            secondaryTone: root.wired.problem !== "" ? "danger" : ""
+            // A problem line wraps rather than elides: the two-cables line is
+            // longer than a narrow row.
+            secondaryWraps: root.wired.problem !== ""
+            trailing: [
+                Switch {
+                    objectName: "vpn-trusted-wired"
+                    anchors.verticalCenter: parent.verticalCenter
+                    size: "sm"
+                    Accessible.name: "Trust " + root.networks.wiredName
+                    checked: root.wired.value !== "" && root.trusted.wired.indexOf(root.wired.value) !== -1
+                    onToggled: {
+                        const wanted = checked;
+                        checked = Qt.binding(() => root.wired.value !== "" && root.trusted.wired.indexOf(root.wired.value) !== -1);
+                        if (wanted) root.replied(root.shell.ipc.call("trust-wired", ""), "VGS could not read this network.");
+                        else root.save("trustedNetworks", Logic.trustedChange(root.shell.settings.trustedNetworks, root.wired.value, false));
+                    }
+                }
+            ]
         }
         Repeater {
             // Keyed rows keep a switch's focus while the list is read again:
@@ -101,11 +135,11 @@ Column {
                         anchors.verticalCenter: parent.verticalCenter
                         size: "sm"
                         Accessible.name: "Trust " + networkRow.modelData.name
-                        checked: root.trusted.indexOf(networkRow.modelData.uuid) !== -1
+                        checked: root.trusted.wifi.indexOf(networkRow.modelData.uuid) !== -1
                         onToggled: {
                             const wanted = checked;
                             const uuid = networkRow.modelData.uuid;
-                            checked = Qt.binding(() => root.trusted.indexOf(networkRow.modelData.uuid) !== -1);
+                            checked = Qt.binding(() => root.trusted.wifi.indexOf(networkRow.modelData.uuid) !== -1);
                             root.save("trustedNetworks", Logic.trustedChange(root.shell.settings.trustedNetworks, uuid, wanted));
                         }
                     }

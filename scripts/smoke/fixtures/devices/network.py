@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Network row operations on S08's existing NetworkManager mock.
 
-Usage: network.py SANDBOX_BUS prepare|fail|drop-active|replace|restore|wired|unmanage|unwired|wifi-up|wifi-down|calls
+Usage: network.py SANDBOX_BUS prepare|fail|drop-active|replace|restore|wired|unmanage|unwired|wifi-up|wifi-down|wired-up|wired-down|calls
 
 prepare makes the existing Wi-Fi saved and makes saved-profile activation
 stay Connecting until fail emits NetworkManager's NoSecrets failure. An
@@ -15,7 +15,9 @@ with its cable in and enp11s0 with no cable; unmanage marks both as
 devices NetworkManager does not manage; unwired removes both. wifi-up
 and wifi-down set wlan0's State property to activated or disconnected,
 the world's own, as NetworkManager's PropertiesChanged carries a joined
-or a left network; vpn.sh reads its Connect automatically through them.
+or a left network, and wired-up and wired-down set enp10s0's State the
+same way, a cable that connects again; vpn.sh reads its Connect
+automatically through them.
 No operation contacts the host's bus or devices.
 """
 import json
@@ -135,9 +137,11 @@ next_device.AddProperty("{WIFI}", "ActiveAccessPoint", dbus.ObjectPath("/"))
         for path in paths:
             manager.EmitSignal(NM, "DeviceRemoved", "o", [dbus.ObjectPath(path)])
             root.RemoveObject(path)
-    elif action in ("wifi-up", "wifi-down"):
+    elif action in ("wifi-up", "wifi-down", "wired-up", "wired-down"):
         # NMDeviceState: 100 activated, 30 disconnected.
-        device.UpdateProperties(DEV, dbus.Dictionary({"State": dbus.UInt32(100 if action == "wifi-up" else 30)}, signature="sv"))
+        if action.startswith("wired"):
+            device = dbus.Interface(bus.get_object(NM, MANAGER + "/Devices/enp10s0"), MOCK)
+        device.UpdateProperties(DEV, dbus.Dictionary({"State": dbus.UInt32(100 if action.endswith("-up") else 30)}, signature="sv"))
     elif action in ("portal", "limited", "full", "checks-off"):
         value = {"portal": 2, "limited": 3, "full": 4, "checks-off": 4}[action]
         manager.AddMethod(NM, "CheckConnectivity", "", "u", 'ret = self.props["org.freedesktop.NetworkManager"]["Connectivity"]')

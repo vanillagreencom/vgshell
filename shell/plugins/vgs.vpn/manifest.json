@@ -49,7 +49,7 @@
       "type": "string",
       "label": "Profile",
       "description": "Connects on a network not on your trusted list",
-      "info": "When this computer joins a network that is not on your trusted list, or VGS starts on one, VGS connects this profile by itself. With the kill switch on, the block is in place before it connects. If you turn the VPN off, it stays off until this computer changes networks.",
+      "info": "When this computer joins a network that is not on your trusted list, or VGS starts on one, VGS connects this profile by itself. A wired network is trusted by its router and its address range. With the kill switch on, the block is in place before it connects. If you turn the VPN off, it stays off until this computer changes networks.",
       "optionsFrom": "vpnChoices",
       "problem": "autoConnectProblem",
       "group": "Connect automatically"
@@ -57,8 +57,8 @@
     "trustedNetworks": {
       "type": "list",
       "label": "Trusted networks",
-      "description": "On these Wi-Fi networks the VPN does not connect by itself",
-      "info": "Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. A wired, Bluetooth or mobile network is never trusted, because its saved profile matches any cable, phone or carrier, so the VPN connects on it.",
+      "description": "On these networks the VPN does not connect by itself",
+      "info": "Trusting a saved Wi-Fi network trusts every network with the same name and password, or the same name when it has no password. Trusting the wired network this computer is on saves its router and address range: a cable to another router is not trusted, but a network that copies both is. If VGS cannot read the router, the wired network is not trusted. A Bluetooth or mobile network is never trusted.",
       "group": "Connect automatically",
       "items": {
         "network": {
@@ -148,7 +148,7 @@
         "nix": "iproute2"
       },
       "optional": true,
-      "purpose": "Finds the network your IPv4 and IPv6 traffic uses, for the leak check"
+      "purpose": "Finds the network your traffic uses, for the leak check, and the router of a wired network, to trust it"
     },
     {
       "command": "varlinkctl",
@@ -214,6 +214,10 @@
     "networks": {
       "type": "data",
       "label": "Networks"
+    },
+    "wired": {
+      "type": "data",
+      "label": "Wired network"
     },
     "autoConnectProblem": {
       "type": "text",
