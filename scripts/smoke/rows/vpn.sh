@@ -15,11 +15,16 @@
 # absent from status, configuration, the log and every recorded argv.
 # With the kill switch's step set up in the fakes' tree, its switches
 # write the state file and a connect waits for the table armed for it.
+# Connect automatically, with a Wi-Fi profile on the trusted list pressed
+# in System Settings, connects the chosen profile when a Wi-Fi profile on
+# no list comes up, as NetworkManager's device signal reaches the shell
+# through the mock's wlan0 (fixtures/devices/network.py), and not when the
+# trusted one does.
 # Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
 # Import callback, drop Import's availability guard and put the password
 # on nmcli's argv, and corrupt the detached editor argv.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/Ui/controls/Field.qml shell/Ui/layout/ContentRow.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]vpn')
 devices_ready vpn || return 0
@@ -280,16 +285,18 @@ vpn_status_private() { ipc smoke statusValues vgs.vpn | py_reply 'import json,re
 vpn_install_drawn() { vpn_named window RowAction "vpn-install-plugin:$vpn_office" visible; }
 vpn_openvpn_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print(next(r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.vpn" for r in p["requirements"] if r["name"]=="org.freedesktop.NetworkManager.openvpn"))'; }
 
-# vpn_press NAME TYPE TEXT: one pointer press on the control TYPE reading
-# TEXT in the profile row drawing NAME, brought into System Settings'
-# view first.
-vpn_press() {
+# vpn_scoped_press SCOPE NAME TYPE TEXT: one pointer press on the control
+# TYPE reading TEXT in the SCOPE item drawing NAME, brought into System
+# Settings' view first. vpn_press NAME TYPE TEXT presses one in the
+# profile row drawing NAME.
+vpn_scoped_press() {
   local shown
-  shown="$(ipc smoke revealScopedText window vgs.system ProfileRow "$1" "$2" "$3")" || return 1
-  [[ $shown =~ ^[0-9.]+$ ]] || { echo "vpn_press: no $2 '$3' in $1: $shown" >&2; return 1; }
-  [[ $(view_at_rest window vgs.system "$1") == \{* ]] || { echo "vpn_press: the view holding $1 is not at rest" >&2; return 1; }
-  click_item "scoped:System Settings" window vgs.vpn ProfileRow "$1" "$2" "$3"
+  shown="$(ipc smoke revealScopedText window vgs.system "$1" "$2" "$3" "$4")" || return 1
+  [[ $shown =~ ^[0-9.]+$ ]] || { echo "vpn_press: no $3 '$4' in $2: $shown" >&2; return 1; }
+  [[ $(view_at_rest window vgs.system "$2") == \{* ]] || { echo "vpn_press: the view holding $2 is not at rest" >&2; return 1; }
+  click_item "scoped:System Settings" window vgs.vpn "$1" "$2" "$3" "$4"
 }
+vpn_press() { vpn_scoped_press ProfileRow "$@"; }
 vpn_expand() { # LABEL UUID NAME
   [[ $(vpn_expanded "$2") == true ]] && return 0
   vpn_press "$3" ListItem "$3" || { fail "$1: the row of $3 could not be pressed"; return 0; }
@@ -752,6 +759,91 @@ expect_poll "profiles read nmcli missing" '"missing"' vpn_profiles state
 expect_poll "the VPN icon hides while nmcli is missing" hidden vpn_bar
 mv -- "$sandbox/vpn-nmcli-hidden" "$shim/nmcli"
 rescan "the nmcli stand-in returns"
+
+# Connect automatically (VGS-2399): Lab tunnel chosen, Fixture Wi-Fi
+# trusted by its switch in System Settings, the poll at 60 s and no view
+# open, so the list read NetworkManager's device signal starts decides:
+# wlan0's State on the mock goes to activated as the list shows a Wi-Fi
+# profile up. The trusted profile connects nothing; Hotel Wi-Fi, on no
+# list, brings Lab tunnel up with no press. Lab tunnel turned off on
+# purpose stays off on the same network and comes up at the next change.
+vpn_hotel=7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+vpn_wifi=0f3e2d1c-4b5a-4968-8776-5a4b3c2d1e0f
+vpn_wifi_event() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1" 2>&1; } # wifi-up|wifi-down
+# vpn_networks HOTEL FIXTURE LAB: list.txt with Hotel Wi-Fi added, Home
+# tunnel off and each named profile's state as nmcli prints it.
+vpn_networks() {
+  vpn_plant "$vpn_home=" "$vpn_wifi=$2" "$vpn_lab=$3" || return 1
+  device_reply nmcli 0 "$(cat -- "$sandbox/vpn-list.txt")"$'\n'"Hotel Wi-Fi:$vpn_hotel:802-11-wireless:$1" "${vpn_list_argv[@]}"
+}
+# The uuids of the networks the last list read published as up.
+vpn_active() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("networks"); print("unpublished" if v is None else json.dumps(v["active"]))'; }
+# vpn_auto_settings JSON: the VPN plugin row's keys set to JSON's values,
+# a null removing its key, and the configuration read again.
+vpn_auto_settings() {
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" <<'PYVPNAUTO' || return 1
+import json, sys
+d = json.load(open(sys.argv[1]))
+row = next((r for r in d.setdefault("plugins", []) if r.get("id") == "vgs.vpn"), None)
+if row is None:
+    row = {"id": "vgs.vpn"}
+    d["plugins"].append(row)
+for key, value in json.loads(sys.argv[2]).items():
+    if value is None:
+        row.pop(key, None)
+    else:
+        row[key] = value
+print(json.dumps(d))
+PYVPNAUTO
+  ipc shell reloadConfig
+}
+# The trusted networks the configuration holds, by uuid.
+vpn_trusted_saved() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=next((r for r in d.get("plugins",[]) if r.get("id")=="vgs.vpn"),{}); print(json.dumps([i.get("network") for i in r.get("trustedNetworks",[])]))' "$home/.config/vgshell/shell.json"; }
+vpn_auto_change() { # LABEL HOTEL: a network change through wlan0, down then up
+  vpn_networks "" "" "" || fail "$1: the list could not be planted"
+  expect "$1: wlan0 leaves its network on the mock" ok vpn_wifi_event wifi-down
+  expect_poll "$1: the device signal reads no network up" '[]' vpn_active
+  vpn_networks "$2" "$([[ $2 == activated ]] && echo "" || echo activated)" "" || fail "$1: the list could not be planted"
+  expect "$1: wlan0 joins a network on the mock" ok vpn_wifi_event wifi-up
+}
+device_reply nmcli 0 "" connection up uuid "$vpn_lab"
+device_reply nmcli 0 "" connection down uuid "$vpn_lab"
+vpn_networks "" "" "" || fail "auto: the list could not be planted"
+expect "auto: a refresh reads no network up" ok vpn_refresh
+expect_poll "auto: no network reads up" '[]' vpn_active
+expect "auto: Lab tunnel connects automatically, read every 60 s" ok vpn_auto_settings "{\"autoConnect\": \"$vpn_lab\", \"pollSeconds\": 60}"
+expect "auto: System Settings opens on VPN" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+expect_poll "auto: Connect automatically shows Lab tunnel" '"Lab tunnel"' vpn_named window Select vpn-auto-connect currentText
+expect_poll "auto: Trusted networks draws Fixture Wi-Fi untrusted" false vpn_named window Switch "vpn-trusted:$vpn_wifi" checked
+expect "auto: Trusted networks draws Hotel Wi-Fi untrusted" false vpn_named window Switch "vpn-trusted:$vpn_hotel" checked
+vpn_scoped_press ContentRow "Fixture Wi-Fi" Switch "" || fail "auto: the Trusted networks switch of Fixture Wi-Fi could not be pressed"
+expect_poll "auto: the switch saves Fixture Wi-Fi by its profile" "[\"$vpn_wifi\"]" vpn_trusted_saved
+expect_poll "auto: Fixture Wi-Fi reads trusted" true vpn_named window Switch "vpn-trusted:$vpn_wifi" checked
+expect "auto: System Settings closes" ok ipc shell hide window vgs.system
+read_count vpn_before "auto: nmcli calls are unreadable" vpn_call_count
+vpn_auto_change "auto trusted" ""
+expect_poll "auto trusted: the device signal reads Fixture Wi-Fi up" "[\"$vpn_wifi\"]" vpn_active
+expect "auto trusted: a trusted network coming up connects nothing" '[]' vpn_changes "$vpn_before"
+expect "auto trusted: no change is in flight" null vpn_profiles action
+vpn_auto_change "auto" activated
+expect_poll "auto: Hotel Wi-Fi, on no list, brings Lab tunnel up with no press" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_before"
+expect_poll "auto: the automatic connect ends" null vpn_profiles action
+vpn_networks activated "" activated || fail "auto: the list could not be planted"
+expect "auto: a refresh reads Lab tunnel connected" ok vpn_refresh
+expect_poll "auto: Lab tunnel reads connected" 1 vpn_profiles activeCount
+expect "auto: Lab tunnel is turned off on purpose" ok vpn_act profile-down "$vpn_lab"
+expect_poll "auto: the off ends" null vpn_profiles action
+read_count vpn_before "auto off: nmcli calls are unreadable" vpn_call_count
+vpn_networks activated "" "" || fail "auto off: the list could not be planted"
+expect "auto off: a refresh reads Lab tunnel off" ok vpn_refresh
+expect_poll "auto off: Lab tunnel reads off" 0 vpn_profiles activeCount
+expect "auto off: the same read has Hotel Wi-Fi up" "[\"$vpn_hotel\"]" vpn_active
+expect "auto off: Lab tunnel turned off on purpose stays off on the same network" '[]' vpn_changes "$vpn_before"
+vpn_auto_change "auto next" activated
+expect_poll "auto next: the next network change brings Lab tunnel up again" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_before"
+expect_poll "auto next: the automatic connect ends" null vpn_profiles action
+expect "auto: wlan0 leaves its network on the mock again" ok vpn_wifi_event wifi-down
+expect "auto: Connect automatically turns off" ok vpn_auto_settings '{"autoConnect": null, "trustedNetworks": null, "pollSeconds": null}'
 
 # The kill switch (D129), with the vpn-kill-switch step's world set up in
 # the fakes' tree (devices_vpn_kill_tree) and the state file under it

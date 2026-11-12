@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Network row operations on S08's existing NetworkManager mock.
 
-Usage: network.py SANDBOX_BUS prepare|fail|drop-active|replace|restore|wired|unmanage|unwired|calls
+Usage: network.py SANDBOX_BUS prepare|fail|drop-active|replace|restore|wired|unmanage|unwired|wifi-up|wifi-down|calls
 
 prepare makes the existing Wi-Fi saved and makes saved-profile activation
 stay Connecting until fail emits NetworkManager's NoSecrets failure. An
@@ -12,8 +12,11 @@ and removes wlan0 from the manager's list while keeping the old fake object
 alive so the row can read that its scanner was released. restore returns
 wlan0 and removes wlan1. wired adds two Ethernet devices, enp10s0 activated
 with its cable in and enp11s0 with no cable; unmanage marks both as
-devices NetworkManager does not manage; unwired removes both. No
-operation contacts the host's bus or devices.
+devices NetworkManager does not manage; unwired removes both. wifi-up
+and wifi-down set wlan0's State property to activated or disconnected,
+the world's own, as NetworkManager's PropertiesChanged carries a joined
+or a left network; vpn.sh reads its Connect automatically through them.
+No operation contacts the host's bus or devices.
 """
 import json
 import pathlib
@@ -132,6 +135,9 @@ next_device.AddProperty("{WIFI}", "ActiveAccessPoint", dbus.ObjectPath("/"))
         for path in paths:
             manager.EmitSignal(NM, "DeviceRemoved", "o", [dbus.ObjectPath(path)])
             root.RemoveObject(path)
+    elif action in ("wifi-up", "wifi-down"):
+        # NMDeviceState: 100 activated, 30 disconnected.
+        device.UpdateProperties(DEV, dbus.Dictionary({"State": dbus.UInt32(100 if action == "wifi-up" else 30)}, signature="sv"))
     elif action in ("portal", "limited", "full", "checks-off"):
         value = {"portal": 2, "limited": 3, "full": 4, "checks-off": 4}[action]
         manager.AddMethod(NM, "CheckConnectivity", "", "u", 'ret = self.props["org.freedesktop.NetworkManager"]["Connectivity"]')

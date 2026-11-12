@@ -3,8 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // System Settings › VPN: the profiles with Remove profile, Import a VPN
-// file, the empty and NetworkManager-absent states and the Updates section
-// (VpnBody with `expanded`).
+// file, the empty and NetworkManager-absent states, Connect automatically
+// and the Updates section (VpnBody with `expanded`).
 FocusScope {
     id: root
 

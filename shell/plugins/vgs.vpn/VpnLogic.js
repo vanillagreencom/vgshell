@@ -1219,3 +1219,189 @@ function checkView(check, row, held) {
     // A kill switch that is off has its own row in the flyout and section.
     return Object.assign(view, { killShown: result.kill.state !== "off", kill: killLine(result.kill) });
 }
+
+// Connect automatically (VGS-2399). The list read the profiles come from,
+// `nmcli -t -f NAME,UUID,TYPE,STATE connection show`, also holds every
+// saved connection with its state, so the service decides from
+// NetworkManager's own profiles, and NetworkManager's own activation
+// connects the chosen VPN profile, through the same connect a press runs
+// (profileCommand), so the kill switch's state file names it first
+// (D129). The types are the connection.type setting names nmcli prints in
+// terse mode (scripts/fixtures/vpn/list.txt; nm-settings-nmcli(5)).
+//
+// Only a Wi-Fi profile can be trusted (overseer ruling on VGS-2399): a
+// profile names a connection setting, not a place, and a wired, Bluetooth
+// or mobile profile matches any network on its port or device. A Wi-Fi
+// profile matches every network with the same name and password, or the
+// same name when it is open.
+var WIFI_TYPE = "802-11-wireless";
+// Every other activated connection is a network that is not trusted,
+// unknown uplink types included (pppoe, vlan, bond), except these, which
+// carry no uplink of their own and stay up on any network: the VPN
+// profiles themselves, loopback, a tun such as tailscale0, a bridge such
+// as docker0 (a bridge that enslaves the uplink activates the uplink's own
+// profile too), dummy and veth.
+var LOCAL_TYPES = ["vpn", "wireguard", "loopback", "tun", "bridge", "dummy", "veth"];
+// A Settings select offers at most this many choices
+// (PluginLogic.STATUS_LIST_MAX); active networks come first.
+var NETWORK_MAX = 64;
+// The longest label of a published choice (PluginLogic.STATUS_LABEL_MAX).
+var CHOICE_MAX = 60;
+// The longest problem line the Settings field takes (PluginLogic.STATUS_TEXT_MAX).
+var PROBLEM_MAX = 200;
+
+function emptyNetworks(state) { return { state: state, rows: [], active: [], activeWifi: [], count: 0 }; }
+
+// A printable choice label of at most CHOICE_MAX characters, as line()
+// keeps text: no control character and no `<`, which a label's AutoText
+// would read as markup; FALLBACK for a name with nothing printable.
+function choiceLabel(value, fallback) {
+    const text = clip(String(value).replace(/[\u0080-\u009f\u2028\u2029]/g, ""), CHOICE_MAX).trim();
+    return text === "" ? fallback : text;
+}
+
+// The networks of the list read: { state: "available", rows, active,
+// activeWifi, count }. `rows` are the saved Wi-Fi profiles, the only ones
+// a user can trust, [{ uuid, name, type, active }], the active ones first
+// and at most NETWORK_MAX; `active` is the uuid of every activated
+// connection that is not LOCAL_TYPES, and `activeWifi` of those that are
+// Wi-Fi, each sorted. `unreadable` for a read that failed or a row outside
+// the grammar, which decides nothing.
+function networkList(code, text) {
+    if (code !== 0) return emptyNetworks("unreadable");
+    const rows = [];
+    const active = [];
+    const activeWifi = [];
+    for (const raw of String(text).split(/\r?\n/)) {
+        if (raw === "") continue;
+        const fields = Commons.Nmcli.fields(raw);
+        if (fields === null || fields.length !== 4) return emptyNetworks("unreadable");
+        if (LOCAL_TYPES.indexOf(fields[2]) !== -1) continue;
+        if (!UUID.test(fields[1]) || STATES.indexOf(fields[3]) === -1) return emptyNetworks("unreadable");
+        const uuid = fields[1].toLowerCase();
+        const up = fields[3] === "activated";
+        if (up) active.push(uuid);
+        if (fields[2] !== WIFI_TYPE) continue;
+        if (up) activeWifi.push(uuid);
+        rows.push({ uuid: uuid, name: choiceLabel(fields[0], "Wi-Fi"), type: "Wi-Fi", active: up });
+    }
+    const shown = rows.filter(row => row.active).concat(rows.filter(row => !row.active));
+    return { state: "available", rows: shown.slice(0, NETWORK_MAX), active: active.sort(), activeWifi: activeWifi.sort(), count: rows.length };
+}
+
+// The choices of the Connect automatically select: Off, which stands for
+// the empty setting, then each listed profile by uuid.
+function vpnChoices(profiles) {
+    const rows = isPlain(profiles) && profiles.state === "available" ? profiles.rows : [];
+    return [{ label: "Off", value: "off" }].concat(rows.map(row => ({ label: choiceLabel(row.name, typeName(row.type, row.service)), value: row.uuid })));
+}
+// The choices of a Trusted networks item: each saved Wi-Fi profile by uuid.
+function networkChoices(networks) {
+    return isPlain(networks) && networks.state === "available" ? networks.rows.map(row => ({ label: row.name, value: row.uuid })) : [];
+}
+
+// The trusted networks' uuids from the `trustedNetworks` setting, a list
+// of { name, network } items; an item with no network chosen yet trusts
+// nothing. A saved uuid that is not a Wi-Fi profile trusts nothing either
+// (autoConnectPlan).
+function trustedUuids(items) {
+    return (Array.isArray(items) ? items : []).filter(item => isPlain(item) && typeof item.network === "string" && UUID.test(item.network))
+        .map(item => item.network.toLowerCase());
+}
+// The `trustedNetworks` setting with network UUID trusted when WANTED, or
+// not. Every other item stays as it is; a new item takes the lowest whole
+// number no item names, as the Settings page's list editor names one.
+function trustedChange(items, uuid, wanted) {
+    const list = Array.isArray(items) ? items.filter(isPlain) : [];
+    const holds = item => typeof item.network === "string" && item.network.toLowerCase() === uuid;
+    if (!wanted) return list.filter(item => !holds(item));
+    if (list.some(holds)) return list;
+    let n = 1;
+    while (list.some(item => item.name === String(n))) n += 1;
+    return list.concat([{ name: String(n), network: uuid }]);
+}
+
+// The decision's memory: `seen`, the active networks of the last readable
+// list as one key, null before the first; `pending`, a network change not
+// yet decided; `problem`, why the last decision connected nothing, or
+// null: { kind: "unread" }, { kind: "gone" }, or for the chosen profile
+// { kind: "refused", uuid, name, reason }, the reason its switch gave the
+// last connect, which no decision keeps, or { kind: "failed", uuid, name,
+// reason }, a connect that started and did not complete.
+function autoConnectStart() { return { seen: null, pending: false, problem: null }; }
+// The active networks of NETWORKS as the one key `seen` holds.
+function networkKey(networks) { return networks.active.join(" "); }
+
+// One decision, at each list read, over MEMORY: CHOICE, the setting's
+// profile uuid or ""; TRUSTED, trustedUuids; NETWORKS, networkList;
+// PROFILES, the published profiles; BUSY while a profile change or a kill
+// switch write runs, or before the kill switch step's first reading, which
+// decides whether the connect writes the state file first. Answers { why,
+// uuid, memory }: `uuid` the profile to connect, else "". A change of the
+// active networks, the first readable list included, is decided once: it
+// connects the chosen profile while an active network is not a trusted
+// Wi-Fi profile and no VPN profile is up. A change the switch refused
+// stays undecided (autoConnectReply), so the next read connects once its
+// cause is gone. A deliberate off (autoConnectOff) leaves it decided until
+// the next change. With no
+// profile chosen, a change is decided as it comes, so choosing one later
+// connects nothing until the next change. An unreadable list decides
+// nothing and keeps its change pending.
+function autoConnectPlan(memory, choice, trusted, networks, profiles, busy) {
+    const wanted = typeof choice === "string" ? choice.toLowerCase() : "";
+    const readable = isPlain(networks) && networks.state === "available" && isPlain(profiles) && profiles.state === "available";
+    const key = readable ? networkKey(networks) : null;
+    const plan = (why, next, uuid) => ({ why: why, uuid: uuid === undefined ? "" : uuid, memory: next });
+    if (wanted === "") return plan("off", { seen: readable ? key : memory.seen, pending: false, problem: null });
+    if (!readable) return plan("unread", { seen: memory.seen, pending: memory.pending, problem: { kind: "unread" } });
+    const pending = memory.seen !== key || memory.pending;
+    const row = profiles.rows.find(candidate => candidate.uuid === wanted);
+    if (row === undefined) return plan("gone", { seen: key, pending: false, problem: { kind: "gone" } });
+    // A failure of the chosen profile stays until a change is decided again
+    // or the profile connects, and goes with the choice. A refusal is the
+    // switch's answer to the last connect: only a wait, which decides
+    // nothing, keeps it; the next connect asks again.
+    const ours = isPlain(memory.problem) && memory.problem.uuid === wanted && row.state !== "activated";
+    const failed = ours && memory.problem.kind === "failed" ? memory.problem : null;
+    if (!pending) return plan("settled", { seen: key, pending: false, problem: failed });
+    if (busy) return plan("waiting", { seen: key, pending: true, problem: ours ? memory.problem : null });
+    const decided = { seen: key, pending: false, problem: null };
+    if (profiles.rows.some(candidate => candidate.state === "activated" || candidate.state === "activating")) return plan("connected", decided);
+    if (networks.active.length === 0) return plan("offline", decided);
+    if (networks.active.every(uuid => networks.activeWifi.indexOf(uuid) !== -1 && trusted.indexOf(uuid) !== -1)) return plan("trusted", decided);
+    return plan("connect", decided, row.uuid);
+}
+// The user turned a profile off: no network change is pending.
+function autoConnectOff(memory) { return Object.assign({}, memory, { pending: false }); }
+
+// The switch's refusals a user acts on: the profile, its plugin, its saved
+// sign-in or the kill switch. Their reason is the problem line; any other
+// refusal is a state that passes, such as a detail read or a change in
+// flight, and shows none.
+var USER_REFUSALS = ["kill-switch", "plugin-needed", "sign-in", "unsupported"];
+// MEMORY after the connect autoConnectPlan asked for answered REPLY, the
+// IPC action's: `ok` keeps it. Anything else, `busy` included, leaves the
+// change undecided, so the next read asks again and connects once the
+// cause is gone: the chosen profile connects, the user turns it off or the
+// network changes first. A refusal of ROW a user acts on shows REASON, the
+// one its switch shows (rowView), "" for none.
+function autoConnectReply(memory, reply, row, reason) {
+    if (reply === "ok") return memory;
+    const found = /^refused: profile=([a-z-]+)$/.exec(String(reply));
+    const shown = found !== null && USER_REFUSALS.indexOf(found[1]) !== -1;
+    return Object.assign({}, memory, { pending: true, problem: shown ? { kind: "refused", uuid: row.uuid, name: row.name, reason: reason } : null });
+}
+// MEMORY after a connect it started failed later, at the kill switch or in
+// nmcli: ROW's failure with TEXT, the problem line the change left.
+function autoConnectFailed(memory, row, text) {
+    return Object.assign({}, memory, { problem: { kind: "failed", uuid: row.uuid, name: row.name, reason: text } });
+}
+// The problem line under Connect automatically, "" for none.
+function autoConnectText(problem) {
+    if (!isPlain(problem)) return "";
+    if (problem.kind === "unread") return "VGS could not read which networks this computer is on, so it did not connect a VPN.";
+    if (problem.kind === "gone") return "The VPN profile chosen here is gone. Choose another profile.";
+    const text = problem.kind === "failed" ? "VGS tried to connect " + problem.name + " automatically." : "VGS did not connect " + problem.name + " automatically.";
+    const full = problem.reason === "" ? text : text + " " + problem.reason;
+    return full.length > PROBLEM_MAX ? text : full;
+}
