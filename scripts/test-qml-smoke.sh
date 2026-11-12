@@ -1042,6 +1042,7 @@ printf '# inputs: scripts/smoke/harness.sh\nfor i in 1 2 3 4 5 6 7 8 9; do sleep
 printf '# inputs: scripts/smoke/harness.sh\nok "hang starts"\ntrap "" TERM\nsleep 600\n' >"$tree/scripts/smoke/rows/hang.sh"
 printf '%s\n' "${core[@]}" provider slow hang following >"$tree/scripts/smoke/rows.list"
 (export VGS_SMOKE_IDLE_SECS=15; run_case no-progress)
+printf '%s\n' "${core[@]}" provider stopped following ordinary >"$tree/scripts/smoke/rows.list"
 # label | rows completed before the attempt exits 77
 unreached_cases=(
   'pre-world|'
