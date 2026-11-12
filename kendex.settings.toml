@@ -179,6 +179,8 @@ DEV_VALIDATE_RANGE_CMD = "scripts/validate"
 # load wait it also counts; it goes when kendex ships a warning past the
 # expected time and a stop only on no progress (VGS-2465 kendex report).
 DEV_VALIDATE_TIMEOUT_SECS = "21600"
+# The expected run time the run-time warning reads: a time is a reading, never a stop.
+DEV_VALIDATE_EXPECTED_SECS = "7200"
 
 # Read by a dev round that changes a view, which builds to this doc, and by
 # the `needs-ui-review` pass, which judges that round's screenshots against it.
