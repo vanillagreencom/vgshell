@@ -828,7 +828,9 @@ with log_path.open('wb') as stream:
             os.kill(child.pid, getattr(signal, 'SIG' + kind))
             if stop_phase == 'late-exit':
                 accepted = attempt.parent / 'accepted'
-                while child.poll() is None and not accepted.exists() and time.monotonic() < deadline:
+                # As in the completion cases, the driver's >> creates the
+                # file before its line lands: wait for the whole line.
+                while child.poll() is None and not (accepted.exists() and accepted.read_text().endswith('\n')) and time.monotonic() < deadline:
                     time.sleep(0.01)
                 if not accepted.exists() or accepted.read_text().strip() != str(expected):
                     problems.append('stop-not-acknowledged')
