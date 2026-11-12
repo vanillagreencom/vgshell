@@ -215,18 +215,21 @@ world("jg", root => {
     const tree = path.resolve(backend, "../../../..");
     const home = (name, agents, skills = {}, persona = "# Persona\nPERSONA-MARKER\n", memory = "") => {
         const folder = path.join(root, "home-" + name);
-        for (const set of [".agents/skills/jarvis", "skills/own"]) fs.mkdirSync(path.join(folder, set), { recursive: true });
+        for (const set of [".agents/skills/jarvis", "skills"]) fs.mkdirSync(path.join(folder, set), { recursive: true });
         fs.mkdirSync(path.join(folder, "memory"));
         fs.writeFileSync(path.join(folder, "memory/MEMORY.md"), memory);
         fs.writeFileSync(path.join(folder, "AGENTS.md"), agents);
         fs.writeFileSync(path.join(folder, ".agents/skills/jarvis/SKILL.md"), "# Jarvis package\n");
         fs.writeFileSync(path.join(folder, ".agents/skills/jarvis/persona.md"), persona);
-        for (const [file, text] of Object.entries(skills)) fs.writeFileSync(path.join(folder, "skills", file), text);
+        for (const [file, text] of Object.entries(skills)) {
+            fs.mkdirSync(path.dirname(path.join(folder, "skills", file)), { recursive: true });
+            fs.writeFileSync(path.join(folder, "skills", file), text);
+        }
         return folder;
     };
     // Its persona holds a character of two bytes, so a size in characters
     // differs from one in bytes.
-    const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n" },
+    const full = home("full", "\nHOME-MARKER persona\n", { "alpha/SKILL.md": "# Alpha skill\nALPHA-BODY\n" },
         "# Persona\nPERSONA-MARKER caf\u00e9\n", "\n- [Team](facts/team.md): MEMORY-MARKER\n");
     // The package requires one skill, whose SKILL.md joins the index (D126).
     fs.writeFileSync(path.join(full, ".agents/skills/jarvis/SKILL.md"), "---\ndescription: Jarvis package\ndependencies:\n  required: [communication]\n---\n# Jarvis\n");
@@ -243,9 +246,9 @@ world("jg", root => {
     const personaOver = home("persona-over", "", {}, "p".repeat(3073));
     const edge = home("edge", "x".repeat(8192));
     const oversize = home("oversize", "x".repeat(8193));
-    const crowded = home("crowded", "persona", Object.fromEntries(Array.from({ length: 60 }, (_, index) => ["own/s" + index + ".md", "y".repeat(200) + "\n"])));
+    const crowded = home("crowded", "persona", Object.fromEntries(Array.from({ length: 60 }, (_, index) => ["s" + index + "/SKILL.md", "y".repeat(200) + "\n"])));
     const startHome = home("start", "s".repeat(32768));
-    const many = home("many", "persona", Object.fromEntries(Array.from({ length: 257 }, (_, index) => ["own/s" + index + ".md", "z\n"])));
+    const many = home("many", "persona", Object.fromEntries(Array.from({ length: 257 }, (_, index) => ["s" + index + "/SKILL.md", "z\n"])));
     const linked = home("linked", "");
     fs.rmSync(path.join(linked, "AGENTS.md"));
     fs.symlinkSync(path.join(full, "AGENTS.md"), path.join(linked, "AGENTS.md"));

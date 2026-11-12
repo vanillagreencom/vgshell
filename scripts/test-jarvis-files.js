@@ -241,7 +241,7 @@ world(async () => {
     // harness session there would read among them, and state/ takes all
     // three.
     const jarvis = path.join(home, "work/jarvis");
-    const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml",
+    const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml",
         "tmp/lane-mail/overseer/to-lane.jsonl", ".agents/skills/mailbox/scripts/lane-mail"];
     const jarvisHome = require(path.join(backend, "Home.js")).guard(jarvis);
     const homeGate = async (Files, judge = Denied) => {
@@ -260,7 +260,7 @@ world(async () => {
         }
         for (const folder of ["skills", "memory", ".claude", ".codex", "tmp", "."])
             await expectRun("home-folder-" + folder, gated(), "files.delete", { path: path.join(jarvis, folder) }, "failed", /^Refused: protected-path for /);
-        for (const name of ["skills/own/planted.md", ".mcp.json", "AGENTS.override.md", "notes/plan.md", "tmp/lane-mail/overseer/to-lane.cursor"]) {
+        for (const name of ["skills/planted.md", ".mcp.json", "AGENTS.override.md", "notes/plan.md", "tmp/lane-mail/overseer/to-lane.cursor"]) {
             await expectRun("home-new-" + name, gated(), "files.write", { path: path.join(jarvis, name), text: "model text" },
                 "failed", /^Refused: protected-path for /);
             await expectRun("home-moved-in-" + name, gated(), "files.move", { from: handoff, to: path.join(jarvis, name) },
@@ -914,7 +914,7 @@ world(async () => {
     // up, to read what the producer hands the judge for that folder.
     const daemonHome = path.join(home, "daemon-home"), daemonLinked = path.join(home, "daemon-linked");
     for (const [folder, name, text] of [[daemonHome, "AGENTS.md", "home knowledge\n"], [daemonHome, "state/handoff.md", "handoff\n"],
-        [daemonHome, "skills/own/alpha.md", "# Alpha\nDAEMON-SKILL-BODY\n"], [daemonLinked, "AGENTS.md", "home knowledge\n"],
+        [daemonHome, "skills/alpha/SKILL.md", "# Alpha\nDAEMON-SKILL-BODY\n"], [daemonLinked, "AGENTS.md", "home knowledge\n"],
         [daemonLinked, "state/handoff.md", "handoff\n"]]) {
         fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
         fs.writeFileSync(path.join(folder, name), text);

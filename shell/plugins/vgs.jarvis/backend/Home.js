@@ -557,11 +557,11 @@ function indexed(home, topic, file, optional) {
  * The home's skills in topic order: {skills: [{topic, file, line}], complete}.
  * A skill is `<name>/SKILL.md` directly in the base set (baseSet, holding
  * the package and the skills it requires, baseNames), or `<name>.md` or
- * `<name>/SKILL.md` directly in skills/own, which a home may lack, a
+ * `<name>/SKILL.md` directly in skills, which a home may lack, a
  * regular file under a name Tools.homeTopic admits. A folder skill's
  * `references/<reference>.md` is a skill of its own under
  * "<set>/<name>/<reference>", and its `workflows/<workflow>.md` one under
- * "<set>/<name>/workflows/<workflow>", listed for the package and skills/own;
+ * "<set>/<name>/workflows/<workflow>", listed for the package and skills;
  * a required skill's are read by topic alone. Any other entry, a link among
  * them, is no skill. topic is "<set>/<name>", file its path in the home and line its
  * index line. complete is false once a folder holds more than SET_ENTRIES
@@ -582,11 +582,11 @@ function skills(home) {
     const base = baseSet(home);
     const names = baseNames(home, base);
     for (const set of SETS) {
-        const folder = set === "base" ? base : "skills/" + set;
+        const folder = set === "base" ? base : "skills";
         let listed;
         try { listed = listing(home, folder); }
         catch (error) {
-            // The package's init makes no skills/own: the user's first skill does.
+            // The package's init makes no skills: the user's first skill does.
             if (set === "own" && error.message === "jarvis: home=absent") continue;
             throw error;
         }
@@ -630,7 +630,7 @@ function skills(home) {
 function skill(home, topic) {
     const named = Tools.homeTopic(topic);
     if (named === null) fail("absent");
-    const set = named.set === "base" ? baseSet(home) : "skills/" + named.set;
+    const set = named.set === "base" ? baseSet(home) : "skills";
     if (set === RENDER && !baseNames(home, set).includes(named.name)) fail("absent");
     const base = set + "/" + named.name;
     const whole = file => read(home, file, null).text;

@@ -1190,12 +1190,14 @@ expect_run_end "the shared file editor run ends" vgs.jarvis/edit
 expect_poll "editor completion judges the saved home without Talk" ok setup_home_tone
 expect_poll "the saved home no longer offers an Open action" '[null, null]' setup_home_value
 # A skill-count refusal opens the folder selected by that same resolver.
-python3 - "$setup_home_dir/skills/own" <<'PYSKILLS'
+python3 - "$setup_home_dir/skills" <<'PYSKILLS'
 from pathlib import Path
 import sys
 folder=Path(sys.argv[1]); folder.mkdir(parents=True,exist_ok=True)
 for index in range(257):
-    (folder/('entry-%s.md'%index)).write_text('# Skill\nSynthetic skill.\n')
+    skill = folder/('entry-%s'%index)
+    skill.mkdir()
+    (skill/'SKILL.md').write_text('# Skill\nSynthetic skill.\n')
 PYSKILLS
 expect "the daemon judges the oversized skill set" '' ipc smoke invokeInstance service vgs.jarvis hello ''
 expect_poll "the refused skill set offers the selected skills folder" "$(words skills "$setup_home_dir/skills/")" setup_home_value

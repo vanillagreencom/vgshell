@@ -1742,11 +1742,11 @@ async function cases(kit, server, only = null, mutation = false) {
     // that turn with its cause, and no request leaves without the whole
     // persona.
     const homeFolder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-"));
-    for (const set of [".agents/skills/jarvis", "skills/own", "memory"]) fs.mkdirSync(path.join(homeFolder, set), { recursive: true });
+    for (const set of [".agents/skills/jarvis", "skills/alpha", "memory"]) fs.mkdirSync(path.join(homeFolder, set), { recursive: true });
     fs.writeFileSync(path.join(homeFolder, "memory/MEMORY.md"), "");
     fs.writeFileSync(path.join(homeFolder, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
     fs.writeFileSync(path.join(homeFolder, ".agents/skills/jarvis/persona.md"), "# Persona\n");
-    fs.writeFileSync(path.join(homeFolder, "skills/own/alpha.md"), "# Alpha skill\n");
+    fs.writeFileSync(path.join(homeFolder, "skills/alpha/SKILL.md"), "# Alpha skill\n");
     fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "HOME-MARKER-ONE\n");
     await run("home-text", async w => {
         // One whole exchange, then the conversation's end: the system text its first request carried.
@@ -1776,7 +1776,11 @@ async function cases(kit, server, only = null, mutation = false) {
         const over = await exchange("Once more.");
         assert.deepEqual([over.includes("x".repeat(8193)), over.includes("m".repeat(4097))], [true, true], "texts over their budget reach the brain whole");
         assert.equal(w.s().fault.kind, "none", "a text over its budget fails no turn");
-        for (let index = 0; index < 257; index++) fs.writeFileSync(path.join(homeFolder, "skills/own/s" + index + ".md"), "# S\n");
+        for (let index = 0; index < 257; index++) {
+            const folder = path.join(homeFolder, "skills/s" + index);
+            fs.mkdirSync(folder);
+            fs.writeFileSync(path.join(folder, "SKILL.md"), "# S\n");
+        }
         w.runner.dispatch({ type: "new-conversation" });
         const fourth = await say(w, utterance("And again."));
         await settled(() => w.s().fault.kind !== "none", () => w.server.requests.length > fourth, "the overfull skill set fails the turn");
@@ -3461,9 +3465,13 @@ function selection(Engine) {
     // budget holds nothing: each answer names it among its cautions.
     const homes = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "homes-"));
     const homeAt = (name, agents, memory = "", skills = 0) => {
-        for (const set of [".agents/skills/jarvis", "skills/own", "memory"]) fs.mkdirSync(path.join(homes, name, set), { recursive: true });
+        for (const set of [".agents/skills/jarvis", "skills", "memory"]) fs.mkdirSync(path.join(homes, name, set), { recursive: true });
         fs.writeFileSync(path.join(homes, name, "memory/MEMORY.md"), memory);
-        for (let index = 0; index < skills; index++) fs.writeFileSync(path.join(homes, name, "skills/own/s" + index + ".md"), "# S\n");
+        for (let index = 0; index < skills; index++) {
+            const folder = path.join(homes, name, "skills/s" + index);
+            fs.mkdirSync(folder);
+            fs.writeFileSync(path.join(folder, "SKILL.md"), "# S\n");
+        }
         fs.writeFileSync(path.join(homes, name, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
         fs.writeFileSync(path.join(homes, name, ".agents/skills/jarvis/persona.md"), "# Persona\n");
         fs.writeFileSync(path.join(homes, name, "AGENTS.md"), agents);

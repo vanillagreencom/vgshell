@@ -303,7 +303,7 @@ world(() => {
     // delete, and only state/ stays the model's. Two levels below HOME, so
     // the account name rule names none of its entries.
     const jarvis = path.join(home, "work/jarvis");
-    for (const name of ["skills/own", "memory/inbox", "state", ".claude", ".codex", "tmp/lane-mail/overseer", ".agents/skills/mailbox/scripts"]) fs.mkdirSync(path.join(jarvis, name), { recursive: true });
+    for (const name of ["skills", "memory/inbox", "state", ".claude", ".codex", "tmp/lane-mail/overseer", ".agents/skills/mailbox/scripts"]) fs.mkdirSync(path.join(jarvis, name), { recursive: true });
     for (const name of ["AGENTS.md", "CLAUDE.md", "README.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml", "state/handoff.md", "tmp/lane-mail/overseer/to-lane.jsonl",
         ".agents/skills/mailbox/scripts/lane-mail"])
         fs.writeFileSync(path.join(jarvis, name), "synthetic\n");
@@ -315,7 +315,7 @@ world(() => {
         // The layout's entries, then what a harness session in the folder
         // would read, a folder of the user's own, two names beside state, the
         // Jarvis session's mailbox and the kendex mail tool that writes it.
-        for (const name of ["AGENTS.md", "CLAUDE.md", "skills", "skills/own/new.md", "memory", "memory/MEMORY.md", "memory/inbox/note.md",
+        for (const name of ["AGENTS.md", "CLAUDE.md", "skills", "skills/new.md", "memory", "memory/MEMORY.md", "memory/inbox/note.md",
             ".claude", ".claude/settings.json", ".codex", ".codex/config.toml",
             ".mcp.json", "AGENTS.override.md", "README.md", "notes/plan.md", "state.md", "state-2/log.md",
             "tmp", "tmp/lane-mail/overseer", "tmp/lane-mail/overseer/to-lane.jsonl", "tmp/lane-mail/overseer/new.jsonl",

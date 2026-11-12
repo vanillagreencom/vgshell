@@ -8,7 +8,7 @@
 // the package; the package's declaration as its SKILL.md states it; the
 // folder a setting names, the remembered homes list and its Settings
 // offers, the bounded read of its text, the skill index of the package,
-// the skills it requires and skills/own, a memory note read by its path,
+// the skills it requires and skills, a memory note read by its path,
 // the kendex mail tool and the session's mailbox; and a package that is
 // partial or holds a link. Each control edits a copy of Home.js, or of the
 // Tools.js rule it asks, one rule at a time, and must turn a case red.
@@ -260,54 +260,54 @@ world(() => {
             write(".agents/skills/mailbox/SKILL.md", "# Mailbox\n");
             write(".agents/skills/stray.md", "# Stray\n");
             ready(folder);
-            // A home without skills/own lists the base set alone.
+            // A home without skills lists the base set alone.
             let bare;
-            assert.doesNotThrow(() => { bare = Home.skills(folder); }, "a home without skills/own");
+            assert.doesNotThrow(() => { bare = Home.skills(folder); }, "a home without skills");
             assert.deepEqual(bare.skills.map(entry => entry.topic),
                 ["base/communication", "base/jarvis", "base/jarvis/base-one", "base/jarvis/workflows/run"], "lists the base set alone");
-            write("skills/own/alpha.md", "\n# Alpha skill\nbody\n");
-            write("skills/own/beta/SKILL.md", "---\nname: beta\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
-            write("skills/own/gamma.md", "---\nname: gamma\ndescription: >\n  folded\n---\n\nGamma first line\n");
-            write("skills/own/delta.md", "");
-            write("skills/own/epsilon.md", "---\ndescription: >-\n  folded and stripped\n---\nEpsilon first line\n");
-            write("skills/own/eta.md", "---\ndescription: |+2\n    kept\n---\nEta first line\n");
-            write("skills/own/notes.txt", "no skill\n");
-            write("skills/own/plain", "no skill\n");
-            write("skills/own/.hidden.md", "no skill\n");
-            write("skills/own/bad name.md", "no skill\n");
-            write("skills/own/empty-folder/readme.md", "no skill\n");
-            write("skills/own/bad dir/SKILL.md", "no skill\n");
-            write("skills/own/beta/references/one.md", "# One reference\nONE-BODY\n");
+            write("skills/alpha/SKILL.md", "\n# Alpha skill\nbody\n");
+            write("skills/beta/SKILL.md", "---\nname: beta\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
+            write("skills/gamma/SKILL.md", "---\nname: gamma\ndescription: >\n  folded\n---\n\nGamma first line\n");
+            write("skills/delta/SKILL.md", "");
+            write("skills/epsilon/SKILL.md", "---\ndescription: >-\n  folded and stripped\n---\nEpsilon first line\n");
+            write("skills/eta/SKILL.md", "---\ndescription: |+2\n    kept\n---\nEta first line\n");
+            write("skills/notes.txt", "no skill\n");
+            write("skills/plain", "no skill\n");
+            write("skills/.hidden.md", "no skill\n");
+            write("skills/bad name.md", "no skill\n");
+            write("skills/empty-folder/readme.md", "no skill\n");
+            write("skills/bad dir/SKILL.md", "no skill\n");
+            write("skills/beta/references/one.md", "# One reference\nONE-BODY\n");
             // A reference is read on demand: no size bound holds it back.
             const long = "# Long reference\n" + "long line\n".repeat(4096);
             assert.ok(Buffer.byteLength(long) > 40 * 1024);
-            write("skills/own/beta/references/long.md", long);
-            write("skills/own/beta/references/bad name.md", "no skill\n");
-            write("skills/own/beta/references/notes.txt", "no skill\n");
-            write("skills/own/empty-folder/references/orphan.md", "no skill\n");
-            write("skills/own/zeta/SKILL.md", "# Zeta\n");
-            write("skills/own/zeta/references", "a file, not a folder\n");
+            write("skills/beta/references/long.md", long);
+            write("skills/beta/references/bad name.md", "no skill\n");
+            write("skills/beta/references/notes.txt", "no skill\n");
+            write("skills/empty-folder/references/orphan.md", "no skill\n");
+            write("skills/zeta/SKILL.md", "# Zeta\n");
+            write("skills/zeta/references", "a file, not a folder\n");
             // A workflow passes every rule a reference does, and one of a
             // reference's file name is its own topic, never a silent pick.
-            write("skills/own/beta/workflows/one.md", "# One workflow\nONE-WORKFLOW\n");
-            write("skills/own/beta/workflows/long.md", long.replace("reference", "workflow"));
-            write("skills/own/beta/workflows/bad name.md", "no skill\n");
-            write("skills/own/beta/workflows/notes.txt", "no skill\n");
-            write("skills/own/empty-folder/workflows/orphan.md", "no skill\n");
-            write("skills/own/zeta/workflows", "a file, not a folder\n");
-            write("skills/own/kappa/SKILL.md", "# Kappa\n");
-            write("skills/own/kappa/workflows/run.md", "---\ndescription: Load to run kappa.\n---\nRUN-BODY\n");
+            write("skills/beta/workflows/one.md", "# One workflow\nONE-WORKFLOW\n");
+            write("skills/beta/workflows/long.md", long.replace("reference", "workflow"));
+            write("skills/beta/workflows/bad name.md", "no skill\n");
+            write("skills/beta/workflows/notes.txt", "no skill\n");
+            write("skills/empty-folder/workflows/orphan.md", "no skill\n");
+            write("skills/zeta/workflows", "a file, not a folder\n");
+            write("skills/kappa/SKILL.md", "# Kappa\n");
+            write("skills/kappa/workflows/run.md", "---\ndescription: Load to run kappa.\n---\nRUN-BODY\n");
             const outside = path.join(path.dirname(folder), "outside-skill.md");
             fs.writeFileSync(outside, "OUTSIDE-SECRET\n");
-            fs.symlinkSync(outside, path.join(folder, "skills/own/linked.md"));
-            fs.mkdirSync(path.join(folder, "skills/own/linked-folder"));
-            fs.symlinkSync(outside, path.join(folder, "skills/own/linked-folder/SKILL.md"));
-            fs.symlinkSync(outside, path.join(folder, "skills/own/beta/workflows/linked.md"));
-            fs.mkdirSync(path.join(folder, "skills/own/linked-workflows"));
-            fs.writeFileSync(path.join(folder, "skills/own/linked-workflows/SKILL.md"), "# Linked workflows\n");
-            fs.symlinkSync(path.join(folder, "skills/own/beta/workflows"), path.join(folder, "skills/own/linked-workflows/workflows"));
+            fs.symlinkSync(outside, path.join(folder, "skills/linked.md"));
+            fs.mkdirSync(path.join(folder, "skills/linked-folder"));
+            fs.symlinkSync(outside, path.join(folder, "skills/linked-folder/SKILL.md"));
+            fs.symlinkSync(outside, path.join(folder, "skills/beta/workflows/linked.md"));
+            fs.mkdirSync(path.join(folder, "skills/linked-workflows"));
+            fs.writeFileSync(path.join(folder, "skills/linked-workflows/SKILL.md"), "# Linked workflows\n");
+            fs.symlinkSync(path.join(folder, "skills/beta/workflows"), path.join(folder, "skills/linked-workflows/workflows"));
             assert.equal(cp.spawnSync("python3", ["-c", "import os, sys; os.mkfifo(sys.argv[1])",
-                path.join(folder, "skills/own/beta/workflows/fifo.md")]).status, 0, "the test makes a FIFO");
+                path.join(folder, "skills/beta/workflows/fifo.md")]).status, 0, "the test makes a FIFO");
             let listed;
             assert.doesNotThrow(() => { listed = Home.skills(folder); });
             assert.deepEqual(listed, { complete: true, skills: [
@@ -315,20 +315,20 @@ world(() => {
                 { topic: "base/jarvis", file: RENDER + "/SKILL.md", line: "Load for the package." },
                 { topic: "base/jarvis/base-one", file: RENDER + "/references/base-one.md", line: "Base reference" },
                 { topic: "base/jarvis/workflows/run", file: RENDER + "/workflows/run.md", line: "Load to run the package." },
-                { topic: "own/alpha", file: "skills/own/alpha.md", line: "Alpha skill" },
-                { topic: "own/beta", file: "skills/own/beta/SKILL.md", line: "Load for beta work." },
-                { topic: "own/beta/long", file: "skills/own/beta/references/long.md", line: "Long reference" },
-                { topic: "own/beta/one", file: "skills/own/beta/references/one.md", line: "One reference" },
-                { topic: "own/beta/workflows/long", file: "skills/own/beta/workflows/long.md", line: "Long workflow" },
-                { topic: "own/beta/workflows/one", file: "skills/own/beta/workflows/one.md", line: "One workflow" },
-                { topic: "own/delta", file: "skills/own/delta.md", line: "" },
-                { topic: "own/epsilon", file: "skills/own/epsilon.md", line: "Epsilon first line" },
-                { topic: "own/eta", file: "skills/own/eta.md", line: "Eta first line" },
-                { topic: "own/gamma", file: "skills/own/gamma.md", line: "Gamma first line" },
-                { topic: "own/kappa", file: "skills/own/kappa/SKILL.md", line: "Kappa" },
-                { topic: "own/kappa/workflows/run", file: "skills/own/kappa/workflows/run.md", line: "Load to run kappa." },
-                { topic: "own/linked-workflows", file: "skills/own/linked-workflows/SKILL.md", line: "Linked workflows" },
-                { topic: "own/zeta", file: "skills/own/zeta/SKILL.md", line: "Zeta" }] });
+                { topic: "own/alpha", file: "skills/alpha/SKILL.md", line: "Alpha skill" },
+                { topic: "own/beta", file: "skills/beta/SKILL.md", line: "Load for beta work." },
+                { topic: "own/beta/long", file: "skills/beta/references/long.md", line: "Long reference" },
+                { topic: "own/beta/one", file: "skills/beta/references/one.md", line: "One reference" },
+                { topic: "own/beta/workflows/long", file: "skills/beta/workflows/long.md", line: "Long workflow" },
+                { topic: "own/beta/workflows/one", file: "skills/beta/workflows/one.md", line: "One workflow" },
+                { topic: "own/delta", file: "skills/delta/SKILL.md", line: "" },
+                { topic: "own/epsilon", file: "skills/epsilon/SKILL.md", line: "Epsilon first line" },
+                { topic: "own/eta", file: "skills/eta/SKILL.md", line: "Eta first line" },
+                { topic: "own/gamma", file: "skills/gamma/SKILL.md", line: "Gamma first line" },
+                { topic: "own/kappa", file: "skills/kappa/SKILL.md", line: "Kappa" },
+                { topic: "own/kappa/workflows/run", file: "skills/kappa/workflows/run.md", line: "Load to run kappa." },
+                { topic: "own/linked-workflows", file: "skills/linked-workflows/SKILL.md", line: "Linked workflows" },
+                { topic: "own/zeta", file: "skills/zeta/SKILL.md", line: "Zeta" }] });
             for (const entry of listed.skills) assert.doesNotThrow(() => Home.skill(folder, entry.topic), "every listed topic reads back: " + entry.topic);
             assert.equal(Home.skill(folder, "own/alpha"), "\n# Alpha skill\nbody\n");
             assert.equal(Home.skill(folder, "own/beta").includes("# Beta"), true, "a folder's SKILL.md is its body");
@@ -347,9 +347,9 @@ world(() => {
                 ["base/mailbox", "absent"], ["base/stray", "absent"], ["base/absent-skill", "absent"], ["base/scout", "absent"]])
                 keyed(() => Home.skill(folder, topic), cause, topic);
             // A folder past its entry bound answers incomplete, never a part as the whole.
-            for (let index = 0; index < 257; index++) write("skills/own/beta/workflows/w" + index + ".md", "x\n");
+            for (let index = 0; index < 257; index++) write("skills/beta/workflows/w" + index + ".md", "x\n");
             assert.equal(Home.skills(folder).complete, false, "a workflows folder past its bound");
-            fs.rmSync(path.join(folder, "skills/own/beta/workflows"), { recursive: true });
+            fs.rmSync(path.join(folder, "skills/beta/workflows"), { recursive: true });
             assert.equal(Home.skills(folder).complete, true);
             for (let index = 0; index < 257; index++) write(".agents/skills/s" + index + ".md", "x\n");
             assert.equal(Home.skills(folder).complete, false, "the base set past its bound");
@@ -427,7 +427,7 @@ world(() => {
                 fs.writeFileSync(path.join(folder, entry), "#!/bin/sh\n", { mode });
             };
             assert.equal(Home.mailTool(folder), null, "a home without the canonical mail tool");
-            for (const entry of ["skills/own/lane-mail", ".agents/skills/orch/scripts/workflow-state", ".agents/skills/other/scripts/lane-mail",
+            for (const entry of ["skills/lane-mail", ".agents/skills/orch/scripts/workflow-state", ".agents/skills/other/scripts/lane-mail",
                 ".agents/skills/orch/lane-mail", ".agents/skills/mailbox/scripts/other-tool",
                 [".agents", "skills", "orch", "scripts", "lane-mail"].join("/"), "lane-mail", "state/lane-mail"]) {
                 plant(entry);
@@ -651,7 +651,7 @@ world(() => {
         ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")],
         ["notes-list-kind", 'if (!stat.isFile() || !entry.name.endsWith(".md") || !Tools.memoryNote(id)) continue;', 'if (!stat.isFile()) continue;', "notesList"],
         ["notes-list-bound", 'if (found.length > NOTE_ENTRIES) fail("notes-too-many");', "", "notesList"],
-        ["tool-entry", 'const MAIL_TOOL = ".agents/skills/mailbox/scripts/lane-mail";', 'const MAIL_TOOL = "skills/own/lane-mail";', "mailTool"],
+        ["tool-entry", 'const MAIL_TOOL = ".agents/skills/mailbox/scripts/lane-mail";', 'const MAIL_TOOL = "skills/lane-mail";', "mailTool"],
         ["tool-execute", " && (stat.mode & 0o100) !== 0", "", "mailTool"],
         ["tool-file", "stat.isFile() && (stat.mode", "(stat.mode", "mailTool"],
         ["own-repository", "    if (own !== true) return null;\n", "", "ownRepository"],
@@ -664,6 +664,8 @@ world(() => {
         ["tool-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
             ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "mailTool"],
         ["render-place", 'const RENDER = ".agents/skills";', 'const RENDER = ".agents/skill";', "skills"],
+        ["own-place", [['set === "base" ? base : "skills"', 'set === "base" ? base : "private-skills"'],
+            ['named.set === "base" ? baseSet(home) : "skills"', 'named.set === "base" ? baseSet(home) : "private-skills"']], null, "skills"],
         ["render-partial", '        if (!RENDER_FILES.every(name => found.includes(name))) fail("package");\n', "", "renderRefused"],
         ["render-link", '            if (kind === "link") return fail("link");\n', "", "renderRefused"],
         ["render-inner-link", 'fail(kind === "link" ? "link" : "kind")', 'fail("kind")', "renderRefused"],

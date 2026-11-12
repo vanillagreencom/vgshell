@@ -203,7 +203,7 @@ function homeStep(cause, home, repair, main) {
     if (home.kind === "ready") {
         if (cause === "home=text") value.hint = homeReference("AGENTS.md", home, "/AGENTS.md") + " is not plain text: save it as plain text";
         if (cause === "guidance=home-skills-too-large") value.info += " Check the " + homeReference("base skills", home, "/.agents/skills/")
-            + " and " + homeReference("own skills", home, "/skills/own/") + ".";
+            + " and " + homeReference("own skills", home, "/skills/") + ".";
         if (cause === "home=link") value.hint = "Replace the shortcut in your " + homeReference("Home folder", home, "/") + " with the real file";
         if (cause !== "home=text" && cause !== "home=link" && cause !== "guidance=home-skills-too-large")
             value.hint = "Check that you can open and change your " + homeReference("Home folder", home, "/");

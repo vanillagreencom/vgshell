@@ -446,7 +446,7 @@ world(() => {
     // one with no home does (D105).
     const Guidance = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Guidance.js"));
     const persona = fs.mkdtempSync(path.join(home, "jarvis-home-"));
-    for (const folder of [".agents/skills/jarvis", "skills/own", "memory"]) fs.mkdirSync(path.join(persona, folder), { recursive: true });
+    for (const folder of [".agents/skills/jarvis", "skills", "memory"]) fs.mkdirSync(path.join(persona, folder), { recursive: true });
     fs.writeFileSync(path.join(persona, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
     fs.writeFileSync(path.join(persona, ".agents/skills/jarvis/persona.md"), "# Persona\n");
     fs.writeFileSync(path.join(persona, "memory/MEMORY.md"), "");
