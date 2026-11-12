@@ -676,21 +676,29 @@ function recipeFiles(dir, readFile, selected = null) {
 function recipesIdentity(dir) {
     return recipeFiles(dir, identity);
 }
-function agentHome() {
+function ownedFolder(dir, forbiddenMode) {
+    try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; }
+    ownedDirectory(dir, forbiddenMode);
+    return dir;
+}
+// The private folder every transaction, review, bootstrap and retry folder
+// is made in, beside the agent home.
+function workRoot() {
     if (!process.env.XDG_RUNTIME_DIR) refuse("review=runtime-dir-unset");
-    let dir = process.env.XDG_RUNTIME_DIR;
     // The presenter may own a 0755 shared namespace. Forbid non-owner
     // writes there; every review/transaction descendant stays private.
-    for (const [segment, forbiddenMode] of [["vgshell", 0o022], ["package-review", 0o077]]) {
-        dir = path.join(dir, segment);
-        try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; }
-        ownedDirectory(dir, forbiddenMode);
-    }
-    return dir;
+    const shared = ownedFolder(path.join(process.env.XDG_RUNTIME_DIR, "vgshell"), 0o022);
+    return ownedFolder(path.join(shared, "package-review"), 0o077);
+}
+// The stable folder an agent whose row sets startsInHome starts in, trusted
+// once. It holds no transaction, review or retry folder, so an agent that
+// may write its working directory reaches none.
+function agentHome() {
+    return ownedFolder(path.join(workRoot(), "agent"), 0o077);
 }
 // Updates owns the returned transaction lifetime; its outer EXIT removes it.
 function createTransaction() {
-    const dir = fs.mkdtempSync(path.join(agentHome(), "transaction-"));
+    const dir = fs.mkdtempSync(path.join(workRoot(), "transaction-"));
     fs.chmodSync(dir, 0o700);
     return dir;
 }
@@ -802,7 +810,7 @@ async function reviewRequest(request, storage) {
                     // The agent starts in the stable agent home, which its owner
                     // trusts once, or in this review's evidence folder; only this
                     // review's evidence is its to write.
-                    const home = agentHome(), launch = judge.reviewCommand(plan, { home, evidence: dir, verdict: path.relative(home, path.join(dir, "verdict")) });
+                    const launch = judge.reviewCommand(plan, { home: agentHome(), evidence: dir });
                     const shownAgent = await ui("show", "Reviewing the listed packages before installation", ...launch.argv);
                     if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
                     const run = await interactive(launch.argv.concat(prompt), { cwd: launch.cwd });
@@ -1079,7 +1087,7 @@ async function admit(action, manager, names, ignored = [], installs = [], config
     const request = { version: 1, mode: action === "upgrade" ? "upgrade" : "named", action, groups: [{ manager, names, installs, ignored }], sources: action === "upgrade" ? [manager] : [], rebuild: [], config: config || null, customAurArgv: null };
     if (receipt) return consume(receipt, request);
     if (process.env.VGS_PACKAGE_TRANSACTION) refuse("review=authority-missing");
-    const storage = fs.mkdtempSync(path.join(agentHome(), "review-")); fs.chmodSync(storage, 0o700);
+    const storage = fs.mkdtempSync(path.join(workRoot(), "review-")); fs.chmodSync(storage, 0o700);
     try {
         const result = await review(request, storage);
         if (result.decision !== "proceed") return { stop: true, status: result.status || 0 };
@@ -1090,11 +1098,11 @@ async function admit(action, manager, names, ignored = [], installs = [], config
     } finally { fs.rmSync(storage, { recursive: true, force: true }); }
 }
 async function bootstrap() {
-    const storage = fs.mkdtempSync(path.join(agentHome(), "bootstrap-"));
+    const storage = fs.mkdtempSync(path.join(workRoot(), "bootstrap-"));
     fs.chmodSync(storage, 0o700);
     try {
         const result = await review({ version: 1, mode: "bootstrap", action: "install", groups: [{manager:"pacman",names:["paru"],installs:[],ignored:[]}], sources: [], rebuild: [], config: null, customAurArgv: null }, storage);
         return result.decision === "proceed" && !result.skipped.includes("paru") ? 0 : result.status || 1;
     } finally { fs.rmSync(storage, { recursive: true, force: true }); }
 }
-module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, agentHome, ownedDirectory, privateFile, ui, evidenceFailures, orphanInfo, rebuildAllowed };
+module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, workRoot, ownedDirectory, privateFile, ui, evidenceFailures, orphanInfo, rebuildAllowed };

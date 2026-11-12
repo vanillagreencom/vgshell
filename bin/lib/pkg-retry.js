@@ -52,10 +52,10 @@ const channel = (() => {
 
 const stem = key => key.replace("/", "@");
 
-// One private directory for one build's evidence, beneath the review
-// workspace; the caller removes it.
+// One private directory for one build's evidence, in the review work
+// root; the caller removes it.
 function evidenceDir(prefix) {
-    const dir = fs.mkdtempSync(path.join(review.agentHome(), prefix));
+    const dir = fs.mkdtempSync(path.join(review.workRoot(), prefix));
     fs.chmodSync(dir, 0o700);
     return dir;
 }
@@ -151,7 +151,7 @@ function recipe(pkg) {
 }
 
 function retryDir() {
-    const dir = path.join(review.agentHome(), "retry");
+    const dir = path.join(review.workRoot(), "retry");
     try {
         fs.mkdirSync(dir, { mode: 0o700 });
     } catch (e) {

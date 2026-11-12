@@ -99,8 +99,9 @@
 //       Updates' read-only dependency check after an AUR failure; exit 0 only
 //       when a complete helper build order excludes every failed build.
 //   vgshell-pkg review-transaction
-//       Updates allocates its private transaction beneath the stable agent
-//       workspace. It owns the outer EXIT cleanup of the returned directory.
+//       Updates allocates its private transaction in the package owner's
+//       private work folder, beside the agent home. It owns the outer EXIT
+//       cleanup of the returned directory.
 //   vgshell-pkg review --request <private-file> --result <private-empty-file>
 //       Updates prepares one user-side review. Its private one-use receipt
 //       binds each later run's manager, config/includes, pending targets,

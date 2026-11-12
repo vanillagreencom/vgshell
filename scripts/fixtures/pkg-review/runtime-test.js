@@ -107,9 +107,11 @@ try{
   control("receipt-format","one-review",[[owner,'coverage: result.coverage, owner:', 'coverage: result.coverage, skipped: result.skipped, owner:']],/receipt-format: unchanged receipt decision fields/,"receipt-format");
   control("receipt-original-fields","one-review",[[owner,'const origins = state.steps.flatMap(decision => decision.binding === null ? [] : decision.binding.origins);','const origins = Object.values(state.dependents).flat();']],/receipt-format:/,"receipt-format");
   control("helper-order-diagnostic","one-review",[[owner,'process.stderr.write("package-review: " + JSON.stringify','void ("package-review: " + JSON.stringify']],/unread-order: order diagnostics/,"unread-order");
-  control("verdict-rule","one-review",[[owner,'path.relative(home, path.join(dir, "verdict"))','path.relative(home, dir)']],/clean:/,"clean");
+  // Claude's added folder and verdict rule naming a folder other than this
+  // review's evidence fail the clean review.
+  control("claude-access","one-review",[[owner,'{ home: agentHome(), evidence: dir }','{ home: agentHome(), evidence: path.join(dir, "build") }']],/clean:/,"clean");
   // The retry reviews with Codex, whose working root widened to the agent home fails it.
-  control("codex-root","one-review",[[owner,'evidence: dir','evidence: home']],/retry:/,"retry");
+  control("codex-root","one-review",[[owner,'evidence: dir','evidence: agentHome()']],/retry:/,"retry");
   control("helper-review-once","one-review",[["bin/vgshell-pkg",'if (receipt !== undefined) r.plan = table.reviewedBuild','if (false && receipt !== undefined) r.plan = table.reviewedBuild']],/declined: helper review prompts/,"declined");
  }
  if(!only&&select("review-again"))for(const kind of ["failed-agent","no-agent","unreviewable"])for(const decision of ["No","Yes","Stop"]){
@@ -201,7 +203,7 @@ try{
    const firstCredential=calls.findIndex(c=>c.kind==="credential"),review=calls.findIndex(c=>c.kind==="offer");
    assert.ok(firstCredential<0||firstCredential>review);
    assert.equal(calls.some(c=>c.kind==="agent"),scenario==="review");
-   if(scenario==="review")assert.equal(calls.find(c=>c.kind==="agent").cwd,path.join(w.root,"run/vgshell/package-review"));
+   if(scenario==="review")assert.equal(calls.find(c=>c.kind==="agent").cwd,path.join(w.root,"run/vgshell/package-review/agent"));
   }
  }
  if(!only&&select("origin"))for(const manager of ["aur"]){
@@ -224,7 +226,15 @@ try{
   if(kind==="presenter"){
    const dir=allocated.stdout.trim(),base=path.join(ns,"package-review");assert.equal(path.dirname(dir),base);assert.equal(fs.statSync(dir).mode&0o777,0o700);fs.rmSync(dir,{recursive:true});
    const r=tty(w,["run","upgrade","--manager","aur","--config",w.config]);assert.equal(r.status,0,r.stdout+r.stderr);
-   const agent=w.calls().find(c=>c.kind==="agent");assert.equal(agent.cwd,base);assert.ok(agent.reviewDir.startsWith(base+path.sep));assert.ok(!fs.existsSync(agent.reviewDir));
+   const agent=w.calls().find(c=>c.kind==="agent");assert.equal(agent.cwd,path.join(base,"agent"));assert.ok(agent.reviewDir.startsWith(base+path.sep));assert.ok(!fs.existsSync(agent.reviewDir));
+   // A saved claude command starts in the agent home, and neither a
+   // transaction nor its own review folder lies beneath that folder.
+   const saved=create(path.join(scratch,"workspace-saved-claude"),{settings:{agent:"",command:"claude --permission-mode acceptEdits"},choices:["Review","Use Claude Code","Stop"]});
+   const held=cp.spawnSync(process.execPath,[saved.owner,"review-transaction"],{env:saved.env,encoding:"utf8"});assert.equal(held.status,0,held.stderr);
+   tty(saved,["run","upgrade","--manager","aur","--config",saved.config]);
+   const start=saved.calls().find(c=>c.kind==="agent");assert.ok(start&&start.args.includes("acceptEdits"),JSON.stringify(saved.calls()));
+   for(const folder of [held.stdout.trim(),path.dirname(start.reviewDir)])assert.ok(path.relative(start.cwd,folder).startsWith(".."+path.sep),"saved-claude-start: "+start.cwd+" holds "+folder);
+   fs.rmSync(held.stdout.trim(),{recursive:true});
   }else assert.ok(!w.calls().some(c=>["agent","credential","mutation"].includes(c.kind)));
   console.log("package-workspace-proof: "+JSON.stringify({kind,status:allocated.status}));
  }
