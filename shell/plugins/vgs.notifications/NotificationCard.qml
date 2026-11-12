@@ -39,7 +39,9 @@ Item {
     // full-size layout and stays centred while the card is narrower, so the
     // text never reflows.
     property real contentOpacity: 1
-    // [{ id, label }] shown as pills at the right edge while `showActions`.
+    // [{ id, label }] shown while `showActions` as pills at the right edge,
+    // beside the text where they fit, else in a row under it that ends
+    // where the text ends.
     property var actions: []
     property bool showActions: false
     // A short muted line at the right end in the actions' place, such as
@@ -171,7 +173,7 @@ Item {
     Item {
         id: tray
         anchors.right: parent.right
-        anchors.rightMargin: card.trayBelow ? (card.fullWidth - width) / 2 : card.pad
+        anchors.rightMargin: card.trayBelow ? card.textColumn : card.pad
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2 : 0
         width: card.captionMode ? captionText.implicitWidth : actionRow.width

@@ -219,13 +219,8 @@ Item {
             card.destroy();
         }
 
-        function test_long_actions_leave_the_message_readable_data() {
-            return [{ tag: "shipped card", control: false }, { tag: "control: actions consume the message width", control: true }];
-        }
-
-        function test_long_actions_leave_the_message_readable(row) {
-            const card = row.control ? alteredCard("readonly property bool trayBelow:", "readonly property bool trayBelow: false &&")
-                : build(shippedCard);
+        // The Google Drive notice with its long actions shown and settled.
+        function showDriveActions(card) {
             card.summary = "Google Drive folder sync stopped";
             card.body = "Sync stopped for Documents and Agent uploads. Two-way sync needs setup.";
             card.hintIcon = "cloud-alert";
@@ -234,6 +229,16 @@ Item {
             card.showActions = true;
             tryCompare(parts(card).tray, "opacity", 1);
             card.settleHeight();
+        }
+
+        function test_long_actions_leave_the_message_readable_data() {
+            return [{ tag: "shipped card", control: false }, { tag: "control: actions consume the message width", control: true }];
+        }
+
+        function test_long_actions_leave_the_message_readable(row) {
+            const card = row.control ? alteredCard("readonly property bool trayBelow:", "readonly property bool trayBelow: false &&")
+                : build(shippedCard);
+            showDriveActions(card);
             const part = parts(card);
             verify(card.trayReserve > 0, "the holder retains either tray layout while actions draw");
             if (row.control) {
@@ -261,6 +266,38 @@ Item {
             compare(card.trayReserve, 0, "the holder releases the tray only after its fade");
             card.destroy();
             scene.height = scene.look.card.maxHeight;
+        }
+
+        function test_actions_end_at_the_right_data() {
+            return [
+                { tag: "beside the text: two short actions", drive: false, below: false, centred: false, inset: "pad" },
+                { tag: "under the text: the Drive notice's long actions", drive: true, below: true, centred: false, inset: "textColumn" },
+                { tag: "control: the row under the text centred on the card", drive: true, below: true, centred: true, inset: "textColumn" }
+            ];
+        }
+
+        // At rest the pills end at the right: beside the text at the card's
+        // padding, where the curve is furthest out, and under the text where
+        // the text ends, clear of the rounded end.
+        function test_actions_end_at_the_right(row) {
+            const card = row.centred ? alteredCard("anchors.rightMargin: card.trayBelow ? card.textColumn : card.pad",
+                "anchors.rightMargin: card.trayBelow ? (card.fullWidth - width) / 2 : card.pad") : build(shippedCard);
+            if (row.drive) {
+                showDriveActions(card);
+            } else {
+                card.showActions = true;
+                tryCompare(parts(card).tray, "opacity", 1);
+            }
+            compare(card.trayBelow, row.below, "the placement under test");
+            const tray = sceneRect(parts(card).tray, parts(card).tray.width, parts(card).tray.height);
+            const bound = sceneRect(card, card.width, card.height);
+            const end = tray.x + tray.width;
+            const expected = bound.x + bound.width - card[row.inset];
+            if (row.centred)
+                verify(Math.abs(end - expected) > 0.5, "the centred row ends away from the text's end: " + end + " vs " + expected);
+            else
+                fuzzyCompare(end, expected, 0.5, "the actions end " + row.inset + " from the card's right edge");
+            card.destroy();
         }
     }
 }
