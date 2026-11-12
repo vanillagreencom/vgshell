@@ -562,7 +562,7 @@
     },
     "radial-backdrop": {
       "machine": "cachy",
-      "date": "2026-11-04T00:23:46.560739+00:00",
+      "date": "2026-11-12T07:07:38.972688+00:00",
       "backend": "Vulkan",
       "device": "NVIDIA GeForce RTX 5090",
       "warmup": 120,
@@ -572,42 +572,42 @@
       "ceilings": {
         "cpu_sync_ms": 1,
         "cpu_render_ms": 1,
-        "gpu_cost_ms": 0.0382,
+        "gpu_cost_ms": 0.0034000000000000002,
         "presentation_ms": 34
       },
       "readings": {
         "1": {
           "cpu_sync_ms": 0.0,
           "cpu_render_ms": 0.0,
-          "gpu_cost_ms": 0.0050999999999999995,
+          "gpu_cost_ms": 0.0010999999999999994,
           "presentation_ms": 17
         },
         "2": {
           "cpu_sync_ms": 0.0,
           "cpu_render_ms": 0.0,
-          "gpu_cost_ms": 0.0191,
+          "gpu_cost_ms": 0.0017000000000000001,
           "presentation_ms": 17
         }
       },
       "calibration_runs": [
         {
-          "run": "1793751604-2/run-1/radial-backdrop",
-          "cpu_some_pct": 0.9,
+          "run": "1794467034-2/run-1/radial-backdrop",
+          "cpu_some_pct": 0.3,
           "on_cpu_some_pct": {
-            "1": 0.8,
-            "2": 0.6
+            "1": 0.2,
+            "2": 0.3
           },
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.0050999999999999995,
+              "gpu_cost_ms": 0.001,
               "presentation_ms": 17
             },
             "2": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.0182,
+              "gpu_cost_ms": 0.0017000000000000001,
               "presentation_ms": 17
             }
           },
@@ -615,35 +615,35 @@
             "1": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.1613,
+              "gpu_cost_ms": 0.0312,
               "presentation_ms": 17
             },
             "2": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.6043000000000001,
+              "gpu_cost_ms": 0.0784,
               "presentation_ms": 17
             }
           }
         },
         {
-          "run": "1793751604-2/run-2/radial-backdrop",
-          "cpu_some_pct": 0.5,
+          "run": "1794467034-2/run-2/radial-backdrop",
+          "cpu_some_pct": 0.2,
           "on_cpu_some_pct": {
-            "1": 0.4,
-            "2": 0.5
+            "1": 0.2,
+            "2": 0.2
           },
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.0050999999999999995,
+              "gpu_cost_ms": 0.0010999999999999994,
               "presentation_ms": 17
             },
             "2": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.0181,
+              "gpu_cost_ms": 0.0017000000000000001,
               "presentation_ms": 17
             }
           },
@@ -651,35 +651,35 @@
             "1": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.1612,
+              "gpu_cost_ms": 0.031200000000000002,
               "presentation_ms": 17
             },
             "2": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.6042000000000001,
+              "gpu_cost_ms": 0.0774,
               "presentation_ms": 17
             }
           }
         },
         {
-          "run": "1793751604-2/run-3/radial-backdrop",
-          "cpu_some_pct": 0.8,
+          "run": "1794467034-2/run-3/radial-backdrop",
+          "cpu_some_pct": 0.2,
           "on_cpu_some_pct": {
-            "1": 0.4,
-            "2": 0.7
+            "1": 0.2,
+            "2": 0.1
           },
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.0050999999999999995,
+              "gpu_cost_ms": 0.0010999999999999994,
               "presentation_ms": 17
             },
             "2": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.0191,
+              "gpu_cost_ms": 0.0016000000000000007,
               "presentation_ms": 17
             }
           },
@@ -687,13 +687,13 @@
             "1": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.16099999999999998,
+              "gpu_cost_ms": 0.0319,
               "presentation_ms": 17
             },
             "2": {
               "cpu_sync_ms": 0.0,
               "cpu_render_ms": 0.0,
-              "gpu_cost_ms": 0.6045,
+              "gpu_cost_ms": 0.08070000000000001,
               "presentation_ms": 17
             }
           }
