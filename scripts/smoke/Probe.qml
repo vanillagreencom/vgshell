@@ -1812,6 +1812,28 @@ Scope {
                     }
             return root.json(out);
         }
+        // The notification row's vertical text envelope is ink, not leading.
+        // Horizontal edges remain the allocated text column, so an unused
+        // line end cannot hide a column alignment or rounded-end regression.
+        function layerCardTextSpace(id: string, summary: string): string {
+            const card = root.layerItem(id, "NotificationCard", "summary", summary);
+            if (card === null) return "absent";
+            const lines = root.descendants(card).filter(item => item.visible
+                && (item.objectName === "notificationTitleText" && item.text !== ""
+                    || item.objectName === "notificationBodyText" && item.lineCount > 0));
+            if (lines.length === 0) return "no-text";
+            const boxes = lines.map(item => {
+                const at = item.mapToItem(card, 0, 0);
+                return { left: at.x, right: at.x + item.width,
+                    top: at.y + Theme.inkAbove(item), bottom: at.y + item.height - Theme.inkBelow(item) };
+            });
+            return "top=" + Math.round(Math.min(...boxes.map(box => box.top)))
+                + " bottom=" + Math.round(card.height - Math.max(...boxes.map(box => box.bottom)))
+                + " left=" + Math.round(Math.min(...boxes.map(box => box.left)))
+                + " right=" + Math.round(card.width - Math.max(...boxes.map(box => box.right)))
+                + " height=" + Math.round(card.height) + " slot=" + Math.round(card.slotLeft)
+                + " pad=" + Math.round(card.pad) + " column=" + Math.round(card.textColumn);
+        }
         // The count of visible items named TYPE whose PROPERTY text
         // contains NEEDLE, in a plugin's layer copies.
         function layerItemsWith(id: string, type: string, property: string, needle: string): int {

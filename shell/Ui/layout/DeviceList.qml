@@ -128,7 +128,7 @@ FocusScope {
     // each answers its box, but this list shows the plate and a row's fill
     // only while it is engaged, so a heading under it measures its space
     // from the last row's text (SectionHeader).
-    function inkBelow() {
+    readonly property real inkBelow: {
         for (let i = repeater.count - 1; i >= 0; i--) {
             const row = repeater.itemAt(i);
             if (row !== null && row.visible && row.height > 0) return column.bottomPadding + row.contentInkBelow();

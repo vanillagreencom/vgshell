@@ -22,7 +22,7 @@ Rectangle {
 
     width: parent ? parent.width : implicitWidth
     implicitWidth: column.implicitWidth + 2 * contentInset
-    implicitHeight: column.implicitHeight + 2 * contentInset
+    implicitHeight: column.implicitHeight + clearingInset.topPadding + clearingInset.bottomPadding
     color: floating ? "transparent" : Theme.card.background
     border.color: Theme.card.border
     border.width: floating ? 0 : Theme.card.borderWidth
@@ -48,12 +48,13 @@ Rectangle {
         width: root.width
         height: root.height
         top: Theme.card.padding
+        content: column
     }
 
     Column {
         id: column
         x: root.contentInset
-        y: root.contentInset
+        y: clearingInset.topPadding
         width: Math.max(0, root.width - 2 * root.contentInset)
         spacing: Theme.card.gap
     }

@@ -58,8 +58,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // The control's box is centred on the text's capital centre, so a row that
 // centres it beside a chip sets the text level with the chip's; the box
 // holds the underline, so a hover moves nothing.
-// `inkAbove()` is where its text's ink, or the danger mark, starts below
-// that box's top, and `inkBelow()` how far above the box's bottom its
+// `inkAbove` is where its text's ink, or the danger mark, starts below
+// that box's top, and `inkBelow` how far above the box's bottom its
 // text's ink ends, or the mark's where it ends lower or draws alone, so a
 // heading under the action stands `stack.heading` under what it draws at
 // rest, and the hover underline draws in that space and moves nothing.
@@ -87,14 +87,14 @@ T.Button {
         return Theme.rowAction.tone.accent;
     }
 
-    function inkAbove() {
-        const text = label.y + label.inkAbove();
+    readonly property real inkAbove: {
+        const text = label.y + label.inkAbove;
         const top = !mark.visible ? text : label.visible ? Math.min(mark.y, text) : mark.y;
         return contentItem.y + top;
     }
 
-    function inkBelow() {
-        const foot = label.y + label.height - label.inkBelow();
+    readonly property real inkBelow: {
+        const foot = label.y + label.height - label.inkBelow;
         const markFoot = mark.y + mark.height - Theme.inkBelow(mark);
         const lowest = !mark.visible ? foot : label.visible ? Math.max(markFoot, foot) : markFoot;
         return height - contentItem.y - lowest;
@@ -163,7 +163,7 @@ T.Button {
         // above it, such as a FormRow's beside its message.
         Item {
             x: root.removesItem ? root.contentItem.x + mark.x : 0
-            y: root.removesItem ? 0 : Math.floor(root.inkAbove())
+            y: root.removesItem ? 0 : Math.floor(root.inkAbove)
             width: root.removesItem ? mark.width : parent.width
             height: parent.height - y
             FocusRing { target: root; outside: true }

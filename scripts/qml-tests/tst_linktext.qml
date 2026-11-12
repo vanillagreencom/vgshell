@@ -161,6 +161,7 @@ Item {
         id: scaledWindow
         Window { width: 640; height: 120; color: "black" }
     }
+    Component { id: lastLineLink; LinkText { width: 180; wrapMode: Text.Wrap } }
 
     TestCase {
         name: "linktext"
@@ -192,6 +193,32 @@ Item {
 
         function test_styled_text_preserves_explicit_breaks(data) {
             compare(linked.htmlEscaped(data.text), data.want);
+        }
+
+        function test_last_line_uses_the_existing_twin_data() {
+            return [
+                { tag: "empty", text: "", last: "" },
+                { tag: "escaped", text: "<T> &", last: "<T> &" },
+                { tag: "wrapped", text: "gjpqy\nT", last: "T" }
+            ];
+        }
+
+        function test_last_line_uses_the_existing_twin(data) {
+            const item = createTemporaryObject(lastLineLink, root, { text: data.text });
+            verify(item !== null);
+            const label = labelOf(item);
+            const twin = item.children.find(child => child instanceof TextEdit);
+            verify(twin !== undefined);
+            tryCompare(label, "lastLine", data.last);
+            compare(label.twinHolder.twin, null);
+            fuzzyCompare(item.inkBelow, item.height - label.y - label.height + label.inkBelow, 0.001);
+            twin.width = label.width + 1;
+            tryCompare(label, "lastLine", null);
+            compare(label.twinHolder.twin, null, "pending supplied layout never falls back to another twin");
+            fuzzyCompare(item.inkBelow, item.height - label.y - label.height + label.inkBelow, 0.001);
+            twin.width = Qt.binding(() => label.width);
+            tryCompare(label, "lastLine", data.last);
+            compare(label.twinHolder.twin, null);
         }
 
         function test_empty_link_takes_no_tab_focus() {

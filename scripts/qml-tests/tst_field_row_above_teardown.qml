@@ -88,6 +88,40 @@ Item {
         }
     }
     property var headingSeen: null
+    Component {
+        id: inkEdge
+        Item {
+            width: 100; height: 40
+            readonly property real inkAbove: 5
+            readonly property real inkBelow: 7
+        }
+    }
+    Component {
+        id: inkTeller
+        QtObject {
+            property Item edge: null
+            Component.onDestruction: root.inkSeen = [Theme.inkAbove(edge), Theme.inkBelow(edge)]
+        }
+    }
+    property var inkSeen: null
+    // The Label has a live visual parent after its factory owner leaves.
+    // Its text binding stops, but its stored numeric geometry stays readable.
+    // This does not establish that a method on the survivor is uncallable.
+    // https://doc.qt.io/qt-6/qqmlcontext.html#the-context-hierarchy
+    // https://doc.qt.io/qt-6/qtqml-javascript-dynamicobjectcreation.html#maintaining-dynamically-created-objects
+    Component {
+        id: inkOwner
+        Item {
+            property Component factory: Component {
+                Label {
+                    width: 100
+                    text: root.departingText
+                }
+            }
+        }
+    }
+    property Item departingOwner: null
+    property string departingText: "T\nT"
 
     TestCase {
         name: "field_row_above_teardown"
@@ -181,6 +215,39 @@ Item {
             compare(root.headingSeen, 0, "a heading under a marked column takes no space");
             tryCompare(below, "placement", null, 2000);
             compare(below.topPadding, 0);
+        }
+
+        function test_e_a_marked_edge_has_no_ink() {
+            root.inkSeen = null;
+            const doomed = owner.createObject(root);
+            const teller = inkTeller.createObject(doomed);
+            const edge = inkEdge.createObject(doomed);
+            edge.parent = host;
+            teller.edge = edge;
+            compare([Theme.inkAbove(edge), Theme.inkBelow(edge)].join(","), "5,7");
+            doomed.destroy();
+            tryVerify(() => root.inkSeen !== null, 2000, "the teller reads the marked edge");
+            compare(root.inkSeen.join(","), "0,0", "marked edges have no ink");
+        }
+
+        function test_f_a_surviving_label_keeps_numeric_geometry_after_its_binding_stops() {
+            root.departingText = "T\nT";
+            root.departingOwner = inkOwner.createObject(root);
+            const edge = root.departingOwner.factory.createObject(host);
+            verify(edge !== null);
+            tryCompare(edge, "lineCount", 2);
+            compare(typeof edge.inkAbove, "number");
+            compare(typeof edge.inkBelow, "number");
+            const before = [Theme.inkAbove(edge), Theme.inkBelow(edge)];
+            root.departingOwner.destroy();
+            tryCompare(root, "departingOwner", null);
+            verify(edge.visible && edge.width > 0 && edge.height > 0, "the QObject still participates in its live visual parent");
+            root.departingText = "Changed after owner destruction";
+            compare(edge.text, "T\nT", "the extension's binding stopped with its creation context");
+            compare(typeof edge.inkAbove, "number");
+            compare(typeof edge.inkBelow, "number");
+            compare([Theme.inkAbove(edge), Theme.inkBelow(edge)], before, "the surviving Label keeps its stored numeric geometry");
+            edge.destroy();
         }
     }
 }

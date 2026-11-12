@@ -22,17 +22,23 @@ GlassSurface {
     property string text: Math.round(bounded * 100) + "%"
 
     implicitWidth: 2 * Theme.osd.padding + content.width
-    implicitHeight: 2 * Theme.osd.padding + content.height
+    implicitHeight: inset.topPadding + content.height + inset.bottomPadding
     standard: Theme.osd
     elevation: "tight"
     Accessible.role: Accessible.ProgressBar
     Accessible.name: text
 
+    ClearingInset {
+        id: inset
+        pad: Theme.osd.padding
+        content: content
+    }
+
     Row {
         id: content
         x: Theme.osd.padding
-        y: Theme.osd.padding
-        height: Math.max(icon.height, bar.height, label.lineBox)
+        y: inset.topPadding
+        height: Math.max(icon.visible ? icon.height : 0, bar.visible ? bar.height : 0, label.implicitHeight)
         spacing: Theme.osd.gap
 
         Icon {

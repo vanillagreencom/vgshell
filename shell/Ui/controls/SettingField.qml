@@ -461,7 +461,7 @@ Column {
         Item {
             width: parent.width
             implicitHeight: groupSeg.implicitHeight
-            function inkEnd() { return groupSeg.x + groupSeg.width; }
+            readonly property real inkEnd: groupSeg.x + groupSeg.width
 
             SegmentedControl {
                 id: groupSeg
@@ -494,7 +494,7 @@ Column {
         Item {
             width: parent.width
             implicitHeight: seg.implicitHeight
-            function inkEnd() { return seg.x + seg.width; }
+            readonly property real inkEnd: seg.x + seg.width
 
             SegmentedControl {
                 id: seg
@@ -579,8 +579,8 @@ Column {
             // The slider and its value centre in the row: the lower of
             // their drawn bottoms ends it (Theme.inkBelow), the higher of
             // their drawn tops starts it (Theme.inkAbove).
-            function inkBelow() { return height - Math.max(bar.y + bar.height - bar.inkBelow(), shown.y + shown.height - shown.inkBelow()); }
-            function inkAbove() { return Math.min(bar.y + bar.inkAbove(), shown.y + shown.inkAbove()); }
+            readonly property real inkBelow: height - Math.max(bar.y + bar.height - bar.inkBelow, shown.y + shown.height - shown.inkBelow)
+            readonly property real inkAbove: Math.min(bar.y + bar.inkAbove, shown.y + shown.inkAbove)
 
             function commit() {
                 const wanted = bar.value;

@@ -217,7 +217,7 @@ Item {
 
     // A group that ends in a wrapped label whose last line has no
     // descender, as Google Drive's folder line, or with `descent` the same
-    // label read by a descender's ink, as Label.inkBelow() read every
+    // label read by a descender's ink, as Label.inkBelow read every
     // wrapped label by the font's descent: the control the centring must
     // refuse. Built after the theme sets its size, so the list lays out
     // once.
@@ -238,7 +238,7 @@ Item {
                 Item {
                     width: wrapList.width
                     implicitHeight: wrapped.implicitHeight
-                    function inkBelow() { return descent ? wrapped.inkBelow("gjpqy") : wrapped.inkBelow(); }
+                    readonly property real inkBelow: descent ? wrapped.belowLine("gjpqy") : wrapped.inkBelow
                     Label { id: wrapped; width: parent.width; role: "hint"; textFormat: Text.PlainText; wrapMode: Text.Wrap; text: "Quietly gripping jumps, the older one sits in that folder and the rest is here" }
                 }
                 Label { width: wrapList.width; role: "hint"; text: "Next" }
@@ -355,9 +355,10 @@ Item {
         }
 
         // What breaks the rule that each gap between two shown groups is
-        // `groupList.gap`, with one hairline centred in it, in its own
-        // colour, across the list; [] when it holds. A positioner lays out
-        // a turn after a change, so a check waits for it.
+        // `groupList.gap`, with one hairline between their ink edges, in
+        // its own colour, across the list; [] when it holds. Ink-centred
+        // lines can lie inside a row's unused leading, not its box gap.
+        // The image cases below check the centre independently.
         function dividedProblems(owner) {
             const groups = shownGroups(owner);
             const lines = hairlinesOf(owner);
@@ -368,7 +369,9 @@ Item {
                 const line = lines[i - 1];
                 if (groups[i].y - top !== Theme.groupList.gap) out.push("gap" + i + "=" + (groups[i].y - top));
                 if (line.height !== Theme.divider.thickness || line.width !== owner.width) out.push("hairline" + i + ".size=" + line.width + "x" + line.height);
-                if (line.y <= top || line.y + line.height > groups[i].y) out.push("hairline" + i + ".y=" + line.y + " outside " + top + " to " + groups[i].y);
+                const inkEnd = top - Theme.inkBelow(groups[i - 1]);
+                const inkStart = groups[i].y + Theme.inkAbove(groups[i]);
+                if (line.y < inkEnd || line.y + line.height > inkStart) out.push("hairline" + i + ".y=" + line.y + " outside ink " + inkEnd + " to " + inkStart);
                 if (String(line.color) !== String(Qt.color(Theme.groupList.divider))) out.push("hairline" + i + ".color=" + line.color);
             }
             return out;
@@ -548,7 +551,7 @@ Item {
         }
 
         // The ink a hairline reads of the group under it, the line's own
-        // `inkAbove()`, is the line's first drawn row in the image, within
+        // `inkAbove`, is the line's first drawn row in the image, within
         // a pixel, for a link drawn as the value and a text value whose
         // ink starts below their boxes. A line that reports its value's
         // box top in place of its ink is off by that ink offset, which
@@ -556,6 +559,7 @@ Item {
         // nothing, label or value, within 1.5 of its value's box top.
         function test_a_lines_ink_starts_at_its_first_drawn_row() {
             checkDivided(valueInkList);
+            compare(offCentre(valueInkFrame, valueInkList, 2), [], "the dividers centre between the value rows' drawn ink");
             const link = findChild(linkInk, LinkText);
             verify(link !== null && link.lineCount === 1, "the hint is drawn as the value, as one line of a link");
             verify(link.linked, "the hint cites its link's words");

@@ -1349,30 +1349,14 @@ expect "the log says the desktop copy stayed twice" 2 duplicate_count
 expect "the status counts the copies kept" '{"keptDesktop": 2, "keptBrowser": 0}' note_status duplicates
 
 # The space around a card's text, from the card's rectangle and its visible
-# title and body items, as `top=<px> bottom=<px> left=<px> right=<px>
+# title and body ink, as `top=<px> bottom=<px> left=<px> right=<px>
 # height=<px> slot=<px> pad=<px> column=<px>` for the card whose summary is
 # SUMMARY on the first screen, `column` being the stack's text column the
 # card reads; `absent` before the card exists and `no-text` while none of
 # its text lines is visible. The predicate below is the contract and its
 # controls.
 text_space() {
-  local cards texts bodies
-  cards="$(ipc smoke layerItems vgs.notifications NotificationCard summary,slotLeft,pad,textColumn)" || return
-  texts="$(ipc smoke layerItems vgs.notifications QQuickText text,visible,objectName)" || return
-  bodies="$(ipc smoke layerItems vgs.notifications ImageText lineCount,visible,objectName)" || return
-  python3 -c 'import json,sys
-cards, texts, bodies = json.loads(sys.argv[2]), json.loads(sys.argv[3]), json.loads(sys.argv[4])
-card = next(((s, r, v) for s, r, v in cards if v["summary"] == sys.argv[1]), None)
-if card is None: print("absent"); sys.exit()
-screen, (x, y, w, h), values = card
-inside = lambda s, r: s == screen and x <= r[0] < x + w and y <= r[1] < y + h
-# The body is an ImageText, whose box is its drawn text'"'"'s.
-lines = [r for s, r, v in texts if inside(s, r) and v["visible"] and v["text"] and v["objectName"] == "notificationTitleText"]
-lines += [r for s, r, v in bodies if inside(s, r) and v["visible"] and v["lineCount"] > 0 and v["objectName"] == "notificationBodyText"]
-if not lines: print("no-text"); sys.exit()
-top, bottom = min(r[1] for r in lines), max(r[1] + r[3] for r in lines)
-left, right = min(r[0] for r in lines), max(r[0] + r[2] for r in lines)
-print("top=%d bottom=%d left=%d right=%d height=%d slot=%d pad=%d column=%d" % (top - y, y + h - bottom, left - x, x + w - right, h, round(values["slotLeft"]), round(values["pad"]), round(values["textColumn"])))' "$1" "$cards" "$texts" "$bodies"
+  ipc smoke layerCardTextSpace vgs.notifications "$1"
 }
 # Whether a text block's corner, SIDE in from a rounded end and EDGE in
 # from the top or bottom of a container HEIGHT tall, keeps the clearance
@@ -1612,6 +1596,17 @@ expect "control: absent text cannot prove pill clearance" text-absent pill_clear
 expect_poll "a hovered action card keeps its text clear of its pills" clear layer_pill_clear "Hover geometry"
 expect_poll "a card with an image keeps its round slot at the pad and ends its text on the column" ok checked_space Pictured slot
 expect_poll "a Slack faces card keeps its round slot at the pad and ends its text on the column" ok checked_space "[acme] in ada, grace, alan, edsger, barbara" slot
+# Read the tuples while these toast cards are still visible. Opening the
+# inbox hides their text, so a later reading records only "no-text".
+note_card_reading "one-line card geometry measured" "Even one"
+note_card_reading "two-line card geometry measured" "Even two"
+note_card_reading "multiline card geometry measured" "Even multi"
+note_card_reading "browser calendar card geometry measured" "Weekly eStaff"
+note_card_reading "browser message card geometry measured" "New message in master-operator"
+note_card_reading "clamped card geometry measured" "Even max"
+note_card_reading "hover action card geometry measured" "Hover geometry"
+note_card_reading "image avatar card geometry measured" Pictured
+note_card_reading "Slack faces card geometry measured" "[acme] in ada, grace, alan, edsger, barbara"
 for glass_card in "one-line:Even one" "two-line:Even two" "clamped:Even max"; do
   glass_png="$sandbox/glass-${glass_card%%:*}.png"
   grab_glass "${glass_card%%:*}" "${glass_card#*:}" "$glass_png"
@@ -1766,15 +1761,6 @@ expect "the History icon's tooltip names each view" True tips_differ "$header_ti
 click_header_icon History || fail "the second click on the History icon failed"
 expect_poll "a second click on the History icon shows the Inbox again" '"inbox"' read_notes panelMode
 expect_poll "the Inbox's header holds Mark all read again" ok checked_header_controls "Mark all read"
-note_card_reading "one-line card geometry measured" "Even one"
-note_card_reading "two-line card geometry measured" "Even two"
-note_card_reading "multiline card geometry measured" "Even multi"
-note_card_reading "browser calendar card geometry measured" "Weekly eStaff"
-note_card_reading "browser message card geometry measured" "New message in master-operator"
-note_card_reading "clamped card geometry measured" "Even max"
-note_card_reading "hover action card geometry measured" "Hover geometry"
-note_card_reading "image avatar card geometry measured" Pictured
-note_card_reading "Slack faces card geometry measured" "[acme] in ada, grace, alan, edsger, barbara"
 note_header_reading
 notification_geometry_release
 expect "the inbox closes after header geometry" ok notes close
@@ -6514,9 +6500,10 @@ for state in ('loaded','refused'):
             median=int(median)
         # The shared helper accepts <=; integer medians must stay strictly <.
         checks.append((f'{state}-{action}-median',median,median_pressure,bound-1))
-        # Recorded Main geometry for this exact mixed-height fixture:
-        # hundred rows94*68+6*62, fifty rows49*68+1*62, gap8, gutter8, tail24.
-        expected_height = 3826 if action == 'inbox' else 7596
+        # Ink-aware geometry recorded by VGS-2407's recovery, native
+        # notifications-panel-latency.egFiog: six text-only rows are 61,
+        # not the old line-box 62. Media rows remain 68; gap8, gutter8, tail24.
+        expected_height = 3825 if action == 'inbox' else 7590
         if any(v.get('firstContentHeight')!=expected_height for v in readings):failed.append(f'{state}-{action}-scroll-height')
         if any(v.get('retained') is not True for v in readings):failed.append(f'{state}-{action}-retention')
         if any(v.get('firstConstructed')!=v.get('firstVisible') for v in readings):failed.append(f'{state}-{action}-offscreen')

@@ -11,7 +11,7 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // outline, or the checked fill, and a press fills the box. The text draws
 // in `item`; the box centres on its capital centre on a whole pixel, and
 // the control is never shorter than `size.control.sm`, so a click just
-// beside the box still reaches it. `inkEnd()` is where the box, or the
+// beside the box still reaches it. `inkEnd` is where the box, or the
 // text after it, ends, or the unlock mark after them.
 // A set `disabledReason` disables the checkbox: it stays a Tab stop, takes
 // no click or key, draws faded with no hover or press, and shows the
@@ -39,7 +39,7 @@ T.CheckBox {
     rightPadding: mark.room
     implicitHeight: Math.max(Theme.size.control.sm, implicitIndicatorHeight, implicitContentHeight)
 
-    function inkEnd() {
+    readonly property real inkEnd: {
         return root.text === "" ? indicator.x + indicator.width + root.rightPadding : Math.min(root.width, root.implicitWidth);
     }
     spacing: Theme.checkbox.gap
@@ -76,5 +76,5 @@ T.CheckBox {
     contentItem: IndicatorLabel { control: root; opacity: lockState.fade }
 
     DisabledReason { id: lockState; control: root }
-    UnlockMark { id: mark; control: root; bodyEnd: root.inkEnd() - mark.room; centreY: root.indicator.y + root.indicator.height / 2 }
+    UnlockMark { id: mark; control: root; bodyEnd: root.inkEnd - mark.room; centreY: root.indicator.y + root.indicator.height / 2 }
 }

@@ -35,10 +35,10 @@ import "LineBreak.js" as LineBreak
 // Empty, capitals and wrapped lines keep
 // their existing reading, so a link never changes a block's placement.
 // `capTop()` is how far below the label top the first line's capitals
-// start, `inkAbove()` how far below it the first line's ink starts, its
+// start, `inkAbove` how far below it the first line's ink starts, its
 // glyphs' highest ink for a one-line label and the capital top for a
 // wrapped one, whose first line's text it does not know, and
-// `inkBelow(lastLine)` how far above its bottom edge the last
+// `inkBelow` how far above its bottom edge the last
 // line's ink ends: its glyphs' lowest ink (FontMetrics.tightBoundingRect,
 // whose origin is the baseline) for a one-line label, a caller that
 // names the last line's text, or a wrapped label of plain text, whose
@@ -57,6 +57,9 @@ Text {
 
     property string role: "body"
     property var spaceWrappedText: null
+    // undefined selects this label's own last line; null means the
+    // supplier is pending. A string, including "", is known plain text.
+    property var lastLine: undefined
     readonly property var typography: typographyOf(role)
     readonly property real fontHeight: metrics.height
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
@@ -104,9 +107,21 @@ Text {
         return baselineOffset - metrics.capitalHeight;
     }
 
-    function inkAbove() {
-        if (lineCount > 1 || text === "") return capTop();
-        return baselineOffset + metrics.tightBoundingRect(typography.uppercase ? text.toUpperCase() : text).y;
+    // Both edges measure the same glyphs on a single line. Keep that
+    // rectangle once; wrapped labels still measure their last line alone.
+    readonly property var singleLineInk: {
+        if (lineCount > 1 || text === "") return null;
+        // FontMetrics methods read their C++ metrics without capturing a
+        // QML property. Follow that object's font, not just this Text's
+        // baseline, so a font change cannot retain the previous extent.
+        // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/quick/util/qquickfontmetrics.cpp?h=6.11
+        void metrics.font;
+        return metrics.tightBoundingRect(typography.uppercase ? text.toUpperCase() : text);
+    }
+
+    readonly property real inkAbove: {
+        if (singleLineInk === null) return capTop();
+        return baselineOffset + singleLineInk.y;
     }
 
     function lastBaseline() {
@@ -122,17 +137,25 @@ Text {
     // text, while the twin is not laid out at this text and width, or
     // when the label elides.
     function lastLineText() {
-        if (textFormat !== Text.PlainText && textFormat !== Text.AutoText) return null;
+        if (textFormat !== Text.PlainText && textFormat !== Text.AutoText && textFormat !== Text.StyledText) return null;
         if (twinHolder.twin === null) twinHolder.twin = twinComponent.createObject(root);
         const laid = twinHolder.twin;
-        if (truncated || laid.width !== width || laid.length !== text.length) return null;
-        return text.slice(laid.positionAt(0, laid.contentHeight - 1));
+        if (truncated || laid.width !== width || (textFormat !== Text.StyledText && laid.length !== text.length)) return null;
+        // TextEdit positions index plain characters, not the markup bytes:
+        // https://doc.qt.io/qt-6/qml-qtquick-textedit.html#getText-method
+        const plain = textFormat === Text.StyledText ? laid.getText(0, laid.length) : text;
+        return plain.slice(laid.positionAt(0, laid.contentHeight - 1));
     }
 
-    function inkBelow(lastLine) {
+    // LinkText supplies the last line from its already-owned text twin.
+    readonly property real inkBelow: belowLine(lastLine)
+    function belowLine(lastLine) {
+        void metrics.font;
         const lines = Math.max(1, lineCount);
-        const known = lastLine !== undefined ? lastLine : lines === 1 ? text : lastLineText();
-        const ink = known === null ? null : metrics.tightBoundingRect(typography.uppercase ? known.toUpperCase() : known);
+        const known = lastLine !== undefined ? lastLine : lines === 1 && textFormat !== Text.StyledText ? text : lastLineText();
+        const ink = known === null ? null
+            : known === text && singleLineInk !== null ? singleLineInk
+            : metrics.tightBoundingRect(typography.uppercase ? known.toUpperCase() : known);
         const below = ink !== null ? Math.max(0, ink.y + ink.height) : typography.uppercase ? 0 : metrics.descent;
         return height - lastBaseline() - below;
     }

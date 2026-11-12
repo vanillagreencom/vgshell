@@ -477,22 +477,23 @@ Item {
             // One line up to `maxWidth`, then title and plain details
             // wrap; never wider than the output less its gutters, nor,
             // when "clear", than its window's content.
-            readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.paddingX), OverlayState.widthFor(root.anchorItem, Math.min(root.maxWidth + 2 * Theme.tooltip.paddingX, root.clearWidth)))
+            readonly property real paddedWidth: Math.min(Math.max(root.minWidth, content.implicitWidth + 2 * Theme.tooltip.padding), OverlayState.widthFor(root.anchorItem, Math.min(root.maxWidth + 2 * Theme.tooltip.padding, root.clearWidth)))
             // The room under the content: the padding, or what the last
             // line's link ring needs to stand clear of the border.
-            readonly property real paddingBelow: Math.max(Theme.tooltip.paddingY, content.ringBelow + Theme.focusRing.offset + Theme.surface.border)
+            readonly property real paddingBelow: Math.max(sideInset.bottomPadding, content.ringBelow + Theme.focusRing.offset + Theme.surface.border)
             implicitWidth: Math.max(1, paddedWidth)
-            implicitHeight: Math.max(1, content.implicitHeight + Theme.tooltip.paddingY + paddingBelow)
+            implicitHeight: Math.max(1, content.implicitHeight + sideInset.topPadding + paddingBelow)
 
             // Under a rounded theme the text sits in from the sides until it
             // clears the drawn corner.
             ClearingInset {
                 id: sideInset
-                pad: Theme.tooltip.paddingX
+                pad: Theme.tooltip.padding
                 radius: Theme.tooltip.radius
                 width: window.paddedWidth
-                height: content.implicitHeight + Theme.tooltip.paddingY + window.paddingBelow
-                top: Theme.tooltip.paddingY
+                height: window.implicitHeight
+                top: Theme.tooltip.padding
+                content: content
             }
 
             // Solid while glass is on: its text is judged on that fill
@@ -514,7 +515,7 @@ Item {
                 id: content
                 objectName: "tooltipContent"
                 x: sideInset.inset
-                y: Theme.tooltip.paddingY
+                y: sideInset.topPadding
                 width: Math.max(0, window.width - 2 * sideInset.inset)
                 height: column.implicitHeight
                 implicitWidth: Math.min(Math.max(titleWidth, detailWidth), root.maxWidth)

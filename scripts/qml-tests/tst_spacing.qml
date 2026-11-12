@@ -224,19 +224,34 @@ Item {
         function test_rounded_components_clear_their_corners() {
             compare(UnitTheme.override({ radius: { sm: 4096 }, badge: { size: { sm: { paddingX: 2 } } }, kbd: { paddingX: 2 }, listItem: { paddingX: 4 }, menu: { item: { paddingX: 4, radius: 4096 } }, textField: { paddingX: 4 }, segmented: { paddingX: 4, radius: 4096 }, codeLine: { padding: 2 } }), "ok");
             const cases = [
-                ["badge", () => badge.children.find(child => child.role === "label").x - (badge.iconName !== "" ? Theme.icon.size.xs + Theme.badge.gap : 0), 2, badge.height],
-                ["kbd", () => key.sidePadding, 2, key.height],
-                ["two-line list item", () => twoLine.leftPadding, 4, twoLine.height],
-                ["menu item", () => entry.leftPadding, 4, entry.height],
-                ["text field", () => input.leftPadding, 4, input.height],
-                ["select", () => select.leftPadding, 4, select.height],
-                ["segment", () => segment(0).leftPadding, 4, segment(0).height],
-                ["code line", () => code.children.find(child => child.role === "code").x, 2, code.height]
+                ["badge", () => badge.children.find(child => child.role === "label").x - (badge.iconName !== "" ? Theme.icon.size.xs + Theme.badge.gap : 0), 2, () => badge.height],
+                ["kbd", () => key.sidePadding, 2, () => key.height],
+                ["two-line list item", () => twoLine.leftPadding, 4, () => twoLine.height],
+                ["menu item", () => entry.leftPadding, 4, () => entry.height],
+                ["text field", () => input.leftPadding, 4, () => input.height],
+                ["select", () => select.leftPadding, 4, () => select.height],
+                ["segment", () => segment(0).leftPadding, 4, () => segment(0).height]
             ];
             for (const [what, read, pad, height] of cases) {
                 tryVerify(() => read() > pad, 1000, what + " padding " + read() + " grew past its pad " + pad);
-                verify(read() <= height / 2 + Theme.space.xs, what + " padding " + read() + " stays within its round end");
+                // Wrapping can change the height while the side inset settles.
+                // Compare the same layout, not a pre-polish height snapshot.
+                tryVerify(() => read() <= height() / 2 + Theme.space.xs, 1000, what + " padding " + read() + " stays within its round end");
             }
+            // CodeLine trims text leading and includes its Copy control.
+            // Its ink/control envelope can need more side room than the
+            // old line-box height/2 bound allows.
+            tryVerify(() => {
+                const text = code.children.find(child => child.role === "code");
+                const copy = code.copyButton;
+                const corner = Math.min(code.radius, code.width / 2, code.height / 2);
+                const edge = Math.min(text.y + Theme.inkAbove(text), copy.y,
+                    code.height - text.y - text.height + Theme.inkBelow(text), code.height - copy.y - copy.height);
+                const side = Math.min(text.x, code.width - copy.x - copy.width);
+                return side > Theme.codeLine.padding && (edge < Theme.inset.cornerStep
+                    ? side >= corner + Theme.inset.cornerStep
+                    : corner - Math.hypot(Math.max(0, corner - side), Math.max(0, corner - edge)) >= Theme.inset.cornerStep - 1);
+            }, 1000, "the code line's drawn envelope clears its round end");
         }
 
         // A row names where its text starts: the pad, 12, the icon, 16, and
@@ -356,7 +371,7 @@ Item {
             verify(hint.mapToItem(labelRows, 0, hint.height).y < labelBottom, "the hint ends above the label's last line");
             same(() => hintGap(tallLabel, tallChip), Theme.field.gap, "the hint under the chip");
             same(() => topIn(afterTall, labelRows) - labelBottom, Theme.stack.group, "the row after the label");
-            same(() => Theme.inkBelow(tallLabel), tallLabel.height - (labelBottom - topIn(tallLabel, labelRows)) + label.inkBelow(), "the row's ink ends at the label's");
+            same(() => Theme.inkBelow(tallLabel), tallLabel.height - (labelBottom - topIn(tallLabel, labelRows)) + label.inkBelow, "the row's ink ends at the label's");
         }
 
         // A section of blocks, such as a state over a button row, sets its

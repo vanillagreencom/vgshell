@@ -192,8 +192,8 @@ Column {
         Item {
             width: parent.width
             implicitHeight: line.entering ? form.height : valueRow.height
-            function inkAbove() { return line.entering ? Theme.inkAbove(form) : valueRow.inkAbove(); }
-            function inkBelow() { return line.entering ? Theme.inkBelow(form) : valueRow.inkBelow(); }
+            readonly property real inkAbove: line.entering ? Theme.inkAbove(form) : valueRow.inkAbove
+            readonly property real inkBelow: line.entering ? Theme.inkBelow(form) : valueRow.inkBelow
             Item {
                 id: valueRow
                 visible: !line.entering
@@ -210,11 +210,11 @@ Column {
                 // Where the value or the step beside it starts and ends to
                 // draw, so a GroupList centres its hairline on what the line
                 // shows.
-                function inkAbove() {
+                readonly property real inkAbove: {
                     const top = value.y + Theme.inkAbove(value);
                     return step.visible ? Math.min(top, step.y + Theme.inkAbove(step)) : top;
                 }
-                function inkBelow() {
+                readonly property real inkBelow: {
                     const bottom = value.y + value.height - Theme.inkBelow(value);
                     return height - (step.visible ? Math.max(bottom, step.y + step.height - Theme.inkBelow(step)) : bottom);
                 }

@@ -13,11 +13,11 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // track it sits on. Hover lightens the track and a press widens the knob.
 // The text draws in `item`; the track centres on its capital centre on a
 // whole pixel, and the control is never shorter than `size.control.sm`,
-// so a compact track keeps a larger input area. `inkBelow()` is how far
+// so a compact track keeps a larger input area. `inkBelow` is how far
 // above its bottom edge the track or the text ends, for the space a
-// `Section` measures from what it draws, and `inkAbove()` how far below its
+// `Section` measures from what it draws, and `inkAbove` how far below its
 // top edge they start, for the space a key/value row under another
-// measures (Field). `inkEnd()` is where the track,
+// measures (Field). `inkEnd` is where the track,
 // or the text after it, ends, or the unlock mark after them.
 // A set `disabledReason` disables the switch: it stays a Tab stop, takes
 // no click or key, draws faded with no hover or press, and shows the
@@ -55,15 +55,15 @@ T.Switch {
     rightPadding: mark.room
     implicitHeight: Math.max(Theme.size.control.sm, implicitIndicatorHeight, implicitContentHeight)
 
-    function inkBelow() {
+    readonly property real inkBelow: {
         const text = root.text === "" ? 0 : contentItem.y + contentItem.height - Theme.inkBelow(contentItem);
         return height - Math.max(indicator.y + indicator.height, text);
     }
-    function inkAbove() {
+    readonly property real inkAbove: {
         const text = root.text === "" ? height : contentItem.y + Theme.inkAbove(contentItem);
         return Math.min(indicator.y, text);
     }
-    function inkEnd() {
+    readonly property real inkEnd: {
         return root.text === "" ? indicator.x + indicator.width + root.rightPadding : Math.min(root.width, root.implicitWidth);
     }
     spacing: Theme.toggle.gap
@@ -101,5 +101,5 @@ T.Switch {
     contentItem: IndicatorLabel { control: root; opacity: lockState.fade }
 
     DisabledReason { id: lockState; control: root }
-    UnlockMark { id: mark; control: root; bodyEnd: root.inkEnd() - mark.room; centreY: root.indicator.y + root.indicator.height / 2 }
+    UnlockMark { id: mark; control: root; bodyEnd: root.inkEnd - mark.room; centreY: root.indicator.y + root.indicator.height / 2 }
 }

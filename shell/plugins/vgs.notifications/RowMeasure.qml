@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Widgets
+import qs.Commons
 import qs.Ui
 import "NotificationLogic.js" as Logic
 
@@ -54,21 +55,31 @@ ColumnLayout {
         }
     }
     readonly property int badgeStatus: badgeImage.status
-    readonly property real measuredHeight: (rowCard.summary.length > 0 ? Math.max(titleText.implicitHeight,
-        rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
-        + (rowCard.singleLine ? 0 : bodyText.implicitHeight)
-        + (rowCard.summary.length > 0 && !rowCard.singleLine ? spacing : 0)
-    // The hidden scan uses the real card's text items and layout widths.
+    // Both producers use the layout, including its preferred-size rounding
+    // and the height it assigns to wrapped text. QQuickLayout uses explicit
+    // child visibility, not inherited visibility, so the hidden measurer
+    // participates in exactly the same layout without drawing.
+    // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/quicklayouts/qquicklayout.cpp?h=6.11
     function settleLayout() {
         ensurePolished();
         summaryRow.ensurePolished();
         ensurePolished();
+        inset.settle();
     }
-    function fullHeight(mediaHeight) { return Math.max(mediaHeight, measureOnly ? measuredHeight : implicitHeight) + 2 * rowCard.pad; }
+    readonly property real inkAbove: rowCard.summary.length > 0 ? titleText.inkAbove : bodyText.inkAbove
+    readonly property real inkBelow: rowCard.singleLine ? titleText.inkBelow : bodyText.inkBelow
+    ClearingInset {
+        id: inset
+        pad: root.rowCard.pad
+        content: root
+    }
+    function fullHeight(mediaHeight) { return Math.max(mediaHeight + 2 * rowCard.pad, implicitHeight + inset.topPadding + inset.bottomPadding); }
+    readonly property real verticalOffset: (inset.topPadding - inset.bottomPadding) / 2
 
-    // The model measurer has no layout parent. Set the same widths the
-    // card's RowLayout/ColumnLayout give these two text items, then read
-    // Qt's actual wrapped text heights synchronously.
+    // The model measurer has no layout parent. Give this same layout the
+    // card's text-column width, rather than overwriting its children's
+    // width and maximumLineCount bindings and adding their line boxes in
+    // a second height implementation.
     function measure(entry, look, textColumn) {
         const enrichment = Logic.enrich(entry.app || "", entry.desktopEntry || "", entry.appIcon || "", entry.summary || "", entry.body || "");
         const single = Logic.sanitizeBody(entry.body || "", entry.app || "", entry.appIcon || "").length === 0;
@@ -89,10 +100,10 @@ ColumnLayout {
             bodySegments: Logic.emojiSegments(Logic.styledBody(entry.body || "", entry.app || "", entry.appIcon || "", entry.hintPage || "", look.text.link), entry.emoji || null) };
         const mediaHeight = hasMedia ? look.media.size : 0;
         const textWidth = look.card.width - (hasMedia ? look.card.pad : textColumn) - textColumn - (hasMedia ? mediaHeight + look.card.gapIcon : 0);
-        titleText.width = textWidth - (badge ? look.badge.size + look.badge.gap : 0);
-        bodyText.width = textWidth;
-        const summaryHeight = Math.max(titleText.implicitHeight, badge ? look.badge.size + Math.max(0, (titleMetrics.height - look.badge.size) / 2) : 0);
-        bodyText.maximumLineCount = Math.max(1, Math.floor((look.card.maxHeight - 2 * look.card.pad - (rowCard.summary.length > 0 ? summaryHeight + spacing : 0)) / bodyMetrics.height));
+        width = textWidth;
+        // Both a live card's settleHeight and the synchronous model scan
+        // finish the same layout and ink publication before reading size.
+        settleLayout();
         return fullHeight(mediaHeight);
     }
     function iconPath(icon) {

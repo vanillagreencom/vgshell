@@ -1727,14 +1727,14 @@ Item {
             const longContent = firstDescendant(long.contentItem, child => child.objectName === "tooltipContent");
             const shortLabel = firstDescendant(short.contentItem, child => child.objectName === "tooltipTitle");
             const longLabel = firstDescendant(long.contentItem, child => child.objectName === "tooltipTitle");
-            compare(short.width, Math.ceil(shortLabel.implicitWidth) + 2 * Theme.tooltip.paddingX);
-            compare(long.width, Theme.tooltip.maxWidth + 2 * Theme.tooltip.paddingX);
+            compare(short.width, Math.ceil(shortLabel.implicitWidth) + 2 * Theme.tooltip.padding);
+            compare(long.width, Theme.tooltip.maxWidth + 2 * Theme.tooltip.padding);
             verify(longLabel.lineCount > 1, "the long tip wraps: " + longLabel.lineCount);
-            compare(long.height, longContent.height + 2 * Theme.tooltip.paddingY);
-            compare(longContent.x, Theme.tooltip.paddingX);
+            fuzzyCompare(long.height, longContent.y + longContent.height - Theme.inkBelow(longContent) + Theme.tooltip.padding, 1);
+            compare(longContent.x, Theme.tooltip.padding);
             // Under a pill theme with a small pad the text moves in until it
             // clears the round end.
-            compare(UnitTheme.override({ tooltip: { radius: 4096, paddingX: 2 } }), "ok");
+            compare(UnitTheme.override({ tooltip: { radius: 4096, padding: 2 } }), "ok");
             tryVerify(() => shortContent.x > 2, 1000, "the rounded tip's text moved in: " + shortContent.x);
         }
 
@@ -1771,9 +1771,9 @@ Item {
         function test_tooltip_padding_uses_tokens() {
             const window = tipWindow(detailsTip);
             const content = firstDescendant(window.contentItem, child => child.objectName === "tooltipContent");
-            compare(content.x, Theme.tooltip.paddingX);
-            compare(content.y, Theme.tooltip.paddingY);
-            compare(window.height, content.height + 2 * Theme.tooltip.paddingY);
+            compare(content.x, Theme.tooltip.padding);
+            fuzzyCompare(content.y + Theme.inkAbove(content), Theme.tooltip.padding, 1);
+            fuzzyCompare(window.height - (content.y + content.height - Theme.inkBelow(content)), Theme.tooltip.padding, 1);
         }
 
         function test_a_tooltip_removed_from_a_live_anchor_releases_its_handlers() {

@@ -107,6 +107,7 @@ Item {
             jarvisConsole.open(JSON.stringify({ answer: { gen: 2, at: 40 } }));
             const view = collect(jarvisConsole, n => n.fadeExtent !== undefined && n.contentY !== undefined, [])[0];
             const answer = collect(jarvisConsole, n => n.sender === "Jarvis" && n.bodyText === long, [])[0];
+            console.log("console-answer: answer=" + answer.height + " viewport=" + view.height);
             verify(answer.height > view.height, "the answer is taller than the view");
             tryVerify(() => answer.marked, 2000, "the console marks the answer");
             tryCompare(jarvisConsole, "placement", "held");

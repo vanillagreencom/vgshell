@@ -48,7 +48,7 @@ import qs.Ui
 // `contentInkAbove()` and `contentInkBelow()` are how far inside its top
 // and bottom edges the row's content, its icon, lines and trailing items,
 // starts and ends its drawn ink (Theme.inkAbove, Theme.inkBelow), without
-// the plate or fill a selection draws. `inkAbove()` and `inkBelow()` read
+// the plate or fill a selection draws. `inkAbove` and `inkBelow` read
 // that content for a row that draws no box at rest, one with no cursor and
 // not `highlighted`, so a heading under a column of such rows measures from
 // the last row's text. A row of a list with a cursor answers its box, since
@@ -91,8 +91,8 @@ T.ItemDelegate {
             if (child.visible && child.width > 0 && child.height > 0) bottom = Math.max(bottom, child.y + child.height - Theme.inkBelow(child));
         return height - contentItem.y - bottom;
     }
-    function inkAbove() { return drawsNoBox ? contentInkAbove() : 0; }
-    function inkBelow() { return drawsNoBox ? contentInkBelow() : 0; }
+    readonly property real inkAbove: drawsNoBox ? contentInkAbove() : 0
+    readonly property real inkBelow: drawsNoBox ? contentInkBelow() : 0
 
     implicitWidth: leftPadding + rightPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth) + (trailingRow.width > 0 ? trailingRow.width + Theme.listItem.gap : 0)
     implicitHeight: Math.max((secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height) + secondaryLabel.addedHeight, implicitContentHeight + topPadding + bottomPadding)

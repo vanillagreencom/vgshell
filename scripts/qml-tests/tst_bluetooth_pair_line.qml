@@ -31,17 +31,17 @@ Item {
             tryVerify(() => slot.visible && slot.height > 0);
             const oneLine = slot.height;
             compare(line.lineCount, 1, "the first line is one line");
-            compare(slot.inkBelow(), slot.height - line.lastBaseline(), "a one-line slot answers from its baseline");
+            compare(slot.inkBelow, slot.height - line.lastBaseline(), "a one-line slot answers from its baseline");
 
             slot.text = "Sony WH-1000XM5 did not pair. Make sure it is in pairing mode and try again.";
             tryVerify(() => line.lineCount > 1);
             verify(slot.height > oneLine, "a line that wraps to more lines grows the slot");
             compare(slot.height, line.implicitHeight, "the slot takes the wrapped line's height");
-            compare(slot.inkBelow(), slot.height - line.lastBaseline(), "a grown slot answers from the wrapped line's last baseline");
+            compare(slot.inkBelow, slot.height - line.lastBaseline(), "a grown slot answers from the wrapped line's last baseline");
 
-            const grown = [slot.height, slot.inkBelow()];
+            const grown = [slot.height, slot.inkBelow];
             slot.text = "";
-            compare([slot.visible, slot.height, slot.inkBelow()], [true, grown[0], grown[1]], "an emptied line keeps its room and its ink");
+            compare([slot.visible, slot.height, slot.inkBelow], [true, grown[0], grown[1]], "an emptied line keeps its room and its ink");
         }
 
         function test_rewrap() {
@@ -51,7 +51,7 @@ Item {
             narrowed.width = 90;
             tryVerify(() => line.lineCount > 1);
             compare(narrowed.height, line.implicitHeight, "a rewrap grows the slot");
-            compare(narrowed.inkBelow(), narrowed.height - line.lastBaseline(), "a rewrapped slot answers from its last baseline");
+            compare(narrowed.inkBelow, narrowed.height - line.lastBaseline(), "a rewrapped slot answers from its last baseline");
         }
     }
 }

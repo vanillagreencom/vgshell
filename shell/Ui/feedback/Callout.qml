@@ -62,67 +62,80 @@ Rectangle {
     readonly property real band: Math.max(lines.implicitHeight, button.visible ? button.height : 0)
 
     width: parent ? parent.width : implicitWidth
-    implicitHeight: band + 2 * Theme.callout.padding
+    implicitHeight: band + inset.topPadding + inset.bottomPadding
     radius: Theme.callout.radius
     color: tokens.background
 
-    Icon {
-        id: icon
-        visible: root.iconName !== ""
-        name: root.iconName
-        size: Theme.icon.size.md
-        color: root.tokens.foreground
-        x: Theme.callout.padding
-        y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)
+    ClearingInset {
+        id: inset
+        pad: Theme.callout.padding
+        content: content
     }
 
-    Column {
-        id: lines
-        x: Theme.callout.padding + (icon.visible ? icon.width + Theme.callout.iconGap : 0)
-        y: Theme.callout.padding + Math.round((root.band - implicitHeight) / 2)
-        width: Math.max(0, (button.visible ? button.x - Theme.callout.buttonGap : root.width - Theme.callout.padding) - x)
-        spacing: Theme.callout.gap
+    Item {
+        id: content
+        width: root.width
+        height: root.band
+        y: inset.topPadding
 
-        Label {
-            id: titleLabel
-            width: parent.width
-            visible: text !== ""
-            role: "bodyStrong"
+        Icon {
+            id: icon
+            visible: root.iconName !== ""
+            name: root.iconName
+            size: Theme.icon.size.md
             color: root.tokens.foreground
-            text: root.title
-            wrapMode: Text.Wrap
+            x: Theme.callout.padding
+            y: lines.y + root.leadLine.y + root.leadLine.topForLeadingIcon(height, lines.y + root.leadLine.y)
         }
-        LinkText {
-            id: body
-            width: parent.width
-            visible: text !== ""
-            role: "body"
-            color: root.tokens.foreground
-            linkColor: root.tokens.link.foreground
-            text: root.text
-            wrapMode: Text.Wrap
-            onPageActivated: (page, tab) => root.pageActivated(page, tab)
-        }
-        RowAction {
-            id: link
-            visible: root.linkText !== ""
-            text: root.linkText
-            tokens: root.tokens.link
-            onClicked: root.activated()
-        }
-    }
 
-    Button {
-        id: button
-        visible: root.buttonText !== ""
-        x: root.width - Theme.callout.padding - width
-        y: Theme.callout.padding + Math.round((root.band - height) / 2)
-        variant: "secondary"
-        text: root.buttonText
-        textColor: root.tokens.foreground
-        borderColor: root.tokens.foreground
-        hoverFill: root.tokens.button.hover
-        pressedFill: root.tokens.button.pressed
-        onClicked: root.buttonActivated()
+        Column {
+            id: lines
+            x: Theme.callout.padding + (icon.visible ? icon.width + Theme.callout.iconGap : 0)
+            y: Math.round((root.band - implicitHeight) / 2)
+            width: Math.max(0, (button.visible ? button.x - Theme.callout.buttonGap : root.width - Theme.callout.padding) - x)
+            spacing: Theme.callout.gap
+
+            Label {
+                id: titleLabel
+                width: parent.width
+                visible: text !== ""
+                role: "bodyStrong"
+                color: root.tokens.foreground
+                text: root.title
+                wrapMode: Text.Wrap
+            }
+            LinkText {
+                id: body
+                width: parent.width
+                visible: text !== ""
+                role: "body"
+                color: root.tokens.foreground
+                linkColor: root.tokens.link.foreground
+                text: root.text
+                wrapMode: Text.Wrap
+                onPageActivated: (page, tab) => root.pageActivated(page, tab)
+            }
+            RowAction {
+                id: link
+                visible: root.linkText !== ""
+                text: root.linkText
+                tokens: root.tokens.link
+                onClicked: root.activated()
+            }
+        }
+
+        Button {
+            id: button
+            visible: root.buttonText !== ""
+            x: root.width - Theme.callout.padding - width
+            y: Math.round((root.band - height) / 2)
+            variant: "secondary"
+            text: root.buttonText
+            textColor: root.tokens.foreground
+            borderColor: root.tokens.foreground
+            hoverFill: root.tokens.button.hover
+            pressedFill: root.tokens.button.pressed
+            onClicked: root.buttonActivated()
+        }
     }
 }

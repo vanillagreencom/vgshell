@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Widgets
+import qs.Commons
 import qs.Ui
 import "NotificationLogic.js" as Logic
 
@@ -70,7 +71,7 @@ Item {
         content.ensurePolished();
         textBlock.settleLayout();
     }
-    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + 2 * pad : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0) + trayBottomReserve
+    readonly property real fullHeight: captionOnly ? Math.ceil(captionText.implicitHeight) + captionInset.topPadding + captionInset.bottomPadding : textBlock.fullHeight(showsSlot ? mediaSlot.implicitHeight : 0) + trayBottomReserve
     readonly property real pad: look.card.pad
     // The stack's text column: text without media starts this far in from
     // either end, and every text ends this far from the right end.
@@ -119,6 +120,12 @@ Item {
 
     HoverHandler { id: hoverTracker }
 
+    ClearingInset {
+        id: captionInset
+        pad: card.pad
+        content: captionText
+    }
+
     // keyboard-path: the inbox panel's KeyNav selects this card, Enter opens it and Delete dismisses it; toasts take no keyboard
     MouseArea {
         anchors.fill: parent
@@ -165,8 +172,21 @@ Item {
             id: textBlock
             rowCard: card
             Layout.fillWidth: true
+            // Layouts fill height by default. Keep the text's preferred
+            // line boxes instead of stretching its summary row to media,
+            // which adds a second, rounded centring inside the ink offset.
+            // https://doc.qt.io/qt-6/qml-qtquick-layouts-layout.html#fillHeight-attached-prop
+            Layout.fillHeight: false
             Layout.rightMargin: card.trayBelow ? 0 : card.trayReserve
             Layout.alignment: Qt.AlignVCenter
+            // Centre text by its foreground envelope even when media owns
+            // the row height. Media itself stays on the card's centre.
+            // Qt's layout engine snaps alignment to whole pixels. Remove
+            // that rounding before applying the foreground-ink correction,
+            // including when an odd-height text block sits beside media.
+            // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/quicklayouts/qquickgridlayoutengine_p.h?h=6.11
+            // Translate leaves the layout's assigned geometry unchanged.
+            transform: Translate { y: (content.height - textBlock.height) / 2 - textBlock.y + textBlock.verticalOffset }
         }
     }
 
@@ -175,7 +195,7 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: card.trayBelow ? card.textColumn : card.pad
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2 : 0
+        anchors.verticalCenterOffset: card.captionOnly ? (captionInset.topPadding - captionInset.bottomPadding) / 2 : card.trayBelow ? (card.fullHeight - 2 * card.pad - height) / 2 : 0
         width: card.captionMode ? captionText.implicitWidth : actionRow.width
         height: card.captionMode ? captionText.implicitHeight : actionRow.height
         visible: opacity > 0
@@ -184,7 +204,7 @@ Item {
         onOpacityChanged: if (opacity === 0 && card.caption === "") card.heldCaption = ""
         transform: Translate { x: (1 - tray.opacity) * card.look.tray.slide }
 
-        Text {
+        Label {
             id: captionText
             objectName: "notificationCaption"
             anchors.verticalCenter: parent.verticalCenter
@@ -194,6 +214,8 @@ Item {
             color: card.look.text.subtitle.color
             font.family: card.look.font.family.sans
             font.pixelSize: card.look.text.subtitle.size
+            lineHeight: card.look.text.title.lineHeight
+            lineHeightMode: Text.ProportionalHeight
         }
 
         Row {

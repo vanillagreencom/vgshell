@@ -6,9 +6,8 @@ import qs.Ui
 // sunken fill, wrapped at word boundaries, or inside a word longer than a
 // line, so a long command shows whole. Under a rounded theme the text and
 // the button sit in from the sides until they clear the drawn corner. A single
-// line is placed by capital height on the box centre. Wrapped text is
-// top-aligned with CSS half-leading, so the top and bottom padding are
-// equal around the line boxes. The Copy button, an `IconButton` of size
+// line is placed by capital height on the box centre. Wrapped text
+// measures its outer gap to ink through ClearingInset. The Copy button, an `IconButton` of size
 // `sm`, sits inside the padding at the top right. The text is read-only
 // and takes no focus. `copy()`, which the button calls, puts `text` on the
 // clipboard through CopyText, emits `copied()` and shows a check mark on
@@ -35,6 +34,8 @@ Rectangle {
         width: root.width
         height: root.implicitHeight
         top: Theme.codeLine.padding
+        content: button.visible ? button : label
+        endContent: button.visible && button.height >= label.height ? button : label
     }
 
     function copy() {
@@ -43,7 +44,7 @@ Rectangle {
     }
 
     implicitWidth: 2 * sideInset.inset + label.implicitWidth + Theme.codeLine.gap + button.implicitWidth
-    implicitHeight: 2 * Theme.codeLine.padding + Math.max(Math.max(1, label.lineCount) * label.lineBox, button.implicitHeight)
+    implicitHeight: sideInset.topPadding + sideInset.bottomPadding + Math.max(label.implicitHeight, button.visible ? button.implicitHeight : 0)
     radius: Theme.codeLine.radius
     color: Theme.codeLine.background
     border.width: Theme.codeLine.border
@@ -55,8 +56,8 @@ Rectangle {
         text: root.text
         color: Theme.codeLine.foreground
         x: sideInset.inset
-        y: lineCount <= 1 ? topForCapCenter(root.height) : Theme.codeLine.padding + halfLeading
-        width: Math.max(0, button.x - Theme.codeLine.gap - x)
+        y: button.visible && lineCount <= 1 ? topForCapCenter(root.height) : sideInset.topPadding
+        width: Math.max(0, root.width - x - sideInset.inset - (button.visible ? button.width + Theme.codeLine.gap : 0))
         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
     }
 
@@ -66,7 +67,7 @@ Rectangle {
         iconName: root.confirming ? "check" : "copy"
         label: root.copyLabel
         x: root.width - width - sideInset.inset
-        y: Theme.codeLine.padding
+        y: sideInset.topPadding
         onClicked: root.copy()
     }
 

@@ -143,5 +143,34 @@ Item {
             const card = data.make();
             fuzzyCompare(iconBox(card)[2], card.height / 2, 0.5, "the icon's vertical centre is the card's");
         }
+
+        function test_media_keeps_the_text_ink_centred_data() {
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const entry of [
+                    { name: "image and summary", summary: "Pictured", body: "", image: String(Qt.resolvedUrl("images/red.png")) },
+                    { name: "image and body", summary: "", body: "Pictured", image: String(Qt.resolvedUrl("images/red.png")) },
+                    { name: "browser message", app: "", summary: "New message in master-operator", body: "app.slack.com\n\nada: the deployment note is in the channel." }
+                ]) rows.push({ tag: mode + "/" + entry.name, mode: mode,
+                    entry: { app: entry.app || "", summary: entry.summary, body: entry.body, image: entry.image || "" } });
+            return rows;
+        }
+
+        function test_media_keeps_the_text_ink_centred(data) {
+            compare(UnitTheme.override({ scheme: { mode: data.mode } }), "ok");
+            const card = build(data.entry);
+            verify(renderedFrame(card));
+            card.settleHeight();
+            const title = findChild(card, "notificationTitleText");
+            const body = findChild(card, "notificationBodyText");
+            const lines = [title, body].filter(item => item.visible && (item === title ? item.text !== "" : item.lineCount > 0));
+            verify(lines.length > 0, "the card draws text");
+            const top = Math.min(...lines.map(item => item.mapToItem(card, 0, 0).y + Theme.inkAbove(item)));
+            const bottom = card.height - Math.max(...lines.map(item => item.mapToItem(card, 0, item.height).y - Theme.inkBelow(item)));
+            verify(Math.abs(top - bottom) <= 1, "the text's ink has equal vertical gaps: " + top + "/" + bottom);
+            const slot = findChild(card, "notificationMediaSlot");
+            fuzzyCompare(slot.mapToItem(card, 0, slot.height / 2).y, card.height / 2, 0.5, "the media keeps the card's centre");
+            compare(card.slotLeft, card.pad, "media keeps the look's pad");
+        }
     }
 }

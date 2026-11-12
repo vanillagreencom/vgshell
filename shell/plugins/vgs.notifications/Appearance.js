@@ -139,7 +139,7 @@ var TOKENS = {
         squashWide: share(0.16),
         squashFlat: share(0.14),
         lift: length(2),
-        // The space around the card's content, the same above, below and at
+        // The space to the card's drawn content, the same above, below and at
         // both ends at every height. The card grows with its text up to
         // maxHeight and no further: the body then shows the whole lines
         // that fit. At maxHeight the capsule's ends are circles of radius

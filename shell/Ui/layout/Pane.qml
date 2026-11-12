@@ -83,7 +83,9 @@ Item {
     readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
     // The viewport's ring room and its scrollbar gutter must fit inside
     // the container, including when its requested padding is smaller.
-    readonly property real contentInset: Math.max(clearingInset.inset, scroll.focusInset + Math.max(ringRoom, Theme.scrollArea.gutter))
+    readonly property real contentInset: clearingInset.inset
+    readonly property real topPadding: clearingInset.topPadding
+    readonly property real bottomPadding: clearingInset.bottomPadding
     readonly property real contentWidth: Math.max(0, width - 2 * contentInset)
     // The nearest ancestor that declares `settingsPage`, the slot that hosts
     // this plugin, or null, as it is for a pane inside another pane, which
@@ -130,7 +132,7 @@ Item {
     readonly property real bodyGap: hasTitle && headerSlotImplicitHeight === 0 ? headerBodyGap : Math.max(headerBodyGap, stickyGap)
     readonly property real headerGap: headerHeight > 0 && contentBelowHeader ? (bodyContentHeight > 0 ? bodyGap : headerBodyGap) : 0
     readonly property real footerGap: footerHeight > 0 && bodyContentHeight > 0 ? Math.max(gap, stickyGap) : 0
-    readonly property real uncappedHeight: 2 * contentInset + headerHeight + headerGap + bodyContentHeight + footerGap + footerHeight
+    readonly property real uncappedHeight: topPadding + bottomPadding + headerHeight + headerGap + bodyContentHeight + footerGap + footerHeight
     readonly property real cappedHeight: maximumHeight > 0 ? Math.min(uncappedHeight, maximumHeight - rowCut) : uncappedHeight
     // The height the box lays out in: a fitted pane's capped height, or
     // less when its host gives it less, such as a popup held inside a
@@ -144,7 +146,7 @@ Item {
     // its cap without a binding loop and without overflowing.
     readonly property real bodyRoom: {
         const limit = fitToContent ? (maximumHeight > 0 ? maximumHeight : Infinity) : height;
-        return Math.max(0, limit - 2 * contentInset - headerHeight - footerHeight - (headerHeight > 0 ? bodyGap : 0) - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));
+        return Math.max(0, limit - topPadding - bottomPadding - headerHeight - footerHeight - (headerHeight > 0 ? bodyGap : 0) - (footerHeight > 0 ? Math.max(gap, stickyGap) : 0));
     }
     // What the cap takes off evenly pitched rows that overflow the body's
     // room at the cap, so the body shows whole rows and half of the next.
@@ -168,12 +170,29 @@ Item {
     // https://doc.qt.io/qt-6/qml-qtquick-positioner.html
     function firstLabelInset(item) {
         if (item === null || item === undefined) return 0;
-        if (typeof item.titleLabelInset === "function") return item.titleLabelInset();
+        if (typeof item.titleLabelInset === "number") return item.titleLabelInset;
         if (item instanceof Loader) return item.item === null ? 0 : firstLabelInset(item.item);
         if (!(item instanceof Column)) return 0;
         const first = (item.children ?? []).find(child => child.Positioner.isFirstItem);
         return first === undefined ? 0 : firstLabelInset(first);
     }
+
+    // Read a positioner's edge without reading a child's assigned height:
+    // a body may take bodyRoom, which itself reads these insets.
+    // Hidden children stop participating before the next positioning polish.
+    // https://doc.qt.io/qt-6/qml-qtquick-column.html
+    function edgeItem(item, first) {
+        if (!(item instanceof Column)) return item;
+        const child = item.children.find(child => child.visible && (first ? child.Positioner.isFirstItem : child.Positioner.isLastItem));
+        return child === undefined ? null : edgeItem(child, first);
+    }
+
+    // Select edges in the Pane's own context. A child insetter can outlive
+    // that context during QObject teardown and must only read stored data,
+    // never run a selector through the already-cleared Pane id.
+    // https://doc.qt.io/qt-6/qqmlcontext.html#the-context-hierarchy
+    readonly property Item firstInkItem: hasTitle ? titleRow : headerHeight > 0 ? headerSlot : edgeItem(bodyColumn, true)
+    readonly property Item lastInkItem: footerHeight > 0 ? edgeItem(footerColumn, false) : fitToContent ? edgeItem(bodyColumn, false) ?? (headerSlotImplicitHeight > 0 ? headerSlot : titleRow) : null
 
     // A slot's width is its widest child's implicit width, never the
     // children's laid-out boxes: read through `childrenRect`, a header of
@@ -197,11 +216,18 @@ Item {
 
     ClearingInset {
         id: clearingInset
-        pad: root.padding
+        // The gutter and ring establish a real minimum side gap. Use that
+        // same gap vertically, rather than silently keeping a smaller pad.
+        pad: Math.max(root.padding, scroll.focusInset + Math.max(root.ringRoom, Theme.scrollArea.gutter))
         radius: root.cornerRadius
         width: root.width
         height: root.boxHeight
         top: root.padding
+        content: root === null ? null : root.firstInkItem
+        // A fixed viewport ends at its clip, not at the last descendant's
+        // ink. Virtual lists leave unbuilt space there; trimming it would
+        // resize the viewport as it scrolls. Its footer is independent.
+        endContent: root === null ? null : root.lastInkItem
     }
 
     function paddingOf(name) {
@@ -250,10 +276,30 @@ Item {
     Item {
         id: titleRow
         x: root.contentInset
-        y: root.contentInset
+        y: root.topPadding
         width: root.contentWidth
         height: root.titleBlockHeight
         visible: root.hasTitle || titleSlot.children.length > 0 || subtitleSlot.children.length > 0
+
+        readonly property real inkAbove: {
+            const edges = [];
+            if (titleLabel.visible) edges.push(titleLabel.y + Theme.inkAbove(titleLabel));
+            if (titleSlot.children.length > 0) edges.push(Theme.inkAbove(titleSlot));
+            // A control-centred title keeps the control's box as its edge,
+            // not the smaller switch track or gear glyph inside that box.
+            if (switchLoader.item !== null) edges.push(switchLoader.y);
+            if (gear.item !== null) edges.push(Math.round((root.titleRowHeight - gear.item.height) / 2));
+            return edges.length === 0 ? 0 : Math.min(...edges);
+        }
+        readonly property real inkBelow: {
+            if (root.subtitleHeight > 0) return Theme.inkBelow(subtitleColumn);
+            const edges = [];
+            if (titleLabel.visible) edges.push(titleRow.height - titleLabel.y - titleLabel.height + Theme.inkBelow(titleLabel));
+            if (titleSlot.children.length > 0) edges.push(Theme.inkBelow(titleSlot));
+            if (switchLoader.item !== null) edges.push(titleRow.height - switchLoader.y - switchLoader.item.height);
+            if (gear.item !== null) edges.push(titleRow.height - Math.round((root.titleRowHeight - gear.item.height) / 2) - gear.item.height);
+            return edges.length === 0 ? 0 : Math.min(...edges);
+        }
 
         Label {
             id: titleLabel
@@ -304,7 +350,7 @@ Item {
                         // place's start: a tooltip this wide starts on or
                         // after the title's end plus its own padding.
                         const titleEnd = Math.ceil(Math.max(titleLabel.visible ? titleLabel.x + titleLabel.contentWidth : 0, titleSlot.x + titleSlot.implicitWidth));
-                        const text = Math.floor(switchLabel.x - Theme.tooltip.gap - titleEnd - Theme.tooltip.paddingX) - 2 * Theme.tooltip.paddingX;
+                        const text = Math.floor(switchLabel.x - Theme.tooltip.gap - titleEnd - Theme.tooltip.padding) - 2 * Theme.tooltip.padding;
                         return text > 0 ? Math.min(text, Theme.tooltip.maxWidth) : Theme.tooltip.maxWidth;
                     }
                 }
@@ -359,7 +405,7 @@ Item {
     Loader {
         id: gear
         x: root.contentInset + root.contentWidth - (item ? item.width : 0)
-        y: root.contentInset + (root.hasTitle && item ? Math.round((root.titleRowHeight - item.height) / 2) : 0)
+        y: root.topPadding + (root.hasTitle && item ? Math.round((root.titleRowHeight - item.height) / 2) : 0)
         active: root.showsSettings
         sourceComponent: IconButton {
             size: "sm"
@@ -371,8 +417,15 @@ Item {
 
     Slot {
         id: headerSlot
+        // A header without a title still shares its top edge with the
+        // Settings control. The control's box must keep its full pad.
+        readonly property real inkAbove: {
+            const shown = children.filter(child => child.visible);
+            const text = shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + Theme.inkAbove(child)));
+            return gear.item !== null && !root.hasTitle ? Math.min(0, text) : text;
+        }
         x: root.contentInset
-        y: root.contentInset + root.titleBlockHeight + root.titleToHeaderGap + (!root.hasTitle && root.subtitleHeight > 0 && root.headerSlotImplicitHeight > 0 ? root.gap : 0)
+        y: root.topPadding + root.titleBlockHeight + root.titleToHeaderGap + (!root.hasTitle && root.subtitleHeight > 0 && root.headerSlotImplicitHeight > 0 ? root.gap : 0)
         width: root.headerWidth
         height: root.hasTitle ? root.headerSlotImplicitHeight : root.headerHeight
     }
@@ -383,14 +436,14 @@ Item {
     ScrollArea {
         id: scroll
         x: root.contentInset - root.ringRoom - focusInset
-        y: root.contentInset + root.headerHeight + root.headerGap - root.ringRoom
+        y: root.topPadding + root.headerHeight + root.headerGap - root.ringRoom
         width: Math.max(0, root.width - root.contentInset + root.ringRoom + focusInset)
         // A container inset narrower than the bar's gutter still leaves the
         // gutter, so the bar never covers the content.
         rightInset: Math.max(root.contentInset - focusInset, Theme.scrollArea.gutter)
         barHeld: root.cardGrowing
         contentPadding: root.ringRoom
-        height: root.ringRoom * 2 + Math.max(0, root.boxHeight - 2 * root.contentInset - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
+        height: root.ringRoom * 2 + Math.max(0, root.boxHeight - root.topPadding - root.bottomPadding - root.headerHeight - root.headerGap - root.footerGap - root.footerHeight)
 
         Item {
             width: scroll.contentWidth
@@ -437,7 +490,7 @@ Item {
 
     Rule {
         id: headerDivider
-        y: root.contentInset + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)
+        y: root.topPadding + root.headerHeight + Math.min(root.contentInset, root.headerGap - root.ringRoom - height)
         visible: root.headerHeight > 0 && scroll.contentY > 0
     }
 

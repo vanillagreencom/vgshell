@@ -14,7 +14,7 @@ import qs.Commons
 // where the next row of the page would and the first sits where a
 // one-line row's action does. `firstLineHeight` is that first line's height while the
 // actions wrap and 0 while they stand on one line; FormRow reads it to set
-// its label beside the first line. `inkAbove()` and `inkBelow()` are how
+// its label beside the first line. `inkAbove` and `inkBelow` are how
 // far inside its top and bottom edges the highest and the lowest action
 // are drawn.
 Item {
@@ -50,11 +50,11 @@ Item {
     }
     readonly property real firstLineHeight: placed.lines > 1 ? Theme.row.height : 0
 
-    function inkAbove() {
+    readonly property real inkAbove: {
         return shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + Theme.inkAbove(child)));
     }
 
-    function inkBelow() {
+    readonly property real inkBelow: {
         return shown.length === 0 ? 0 : height - Math.max(...shown.map(child => child.y + child.height - Theme.inkBelow(child)));
     }
 

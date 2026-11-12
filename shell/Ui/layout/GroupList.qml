@@ -19,7 +19,7 @@ import qs.Ui
 // has no width or height takes no gap and no hairline, as a Column skips
 // it. A group list inside another is one group of the outer one and
 // divides its own groups the same way, so every group of a section is
-// divided alike whatever holds it. `inkAbove()` and `inkBelow()` are where
+// divided alike whatever holds it. `inkAbove` and `inkBelow` are where
 // the first shown group's drawn content starts and the last one's ends, so
 // an outer list and a section after the list measure from that ink.
 Item {
@@ -27,14 +27,14 @@ Item {
 
     default property alias groups: column.data
 
-    function inkAbove() { return column.shown.length === 0 ? 0 : Theme.inkAbove(column.shown[0]); }
-    function inkBelow() { return height - column.height + (column.shown.length === 0 ? 0 : Theme.inkBelow(column.shown[column.shown.length - 1])); }
+    readonly property real inkAbove: column.shown.length === 0 ? 0 : Theme.inkAbove(column.shown[0])
+    readonly property real inkBelow: height - column.height + (column.shown.length === 0 ? 0 : Theme.inkBelow(column.shown[column.shown.length - 1]))
     // How far a heading over a group list of its own starts its ink below
     // where its rows start theirs, in whole pixels; 0 for any other group.
     function headingLift(group) {
         if (!(group instanceof Column)) return 0;
         const rows = group.children.find(child => child instanceof GroupList && child.visible && child.width > 0 && child.height > 0);
-        return rows === undefined ? 0 : Math.max(0, Math.round(Theme.inkAbove(group) - rows.inkAbove()));
+        return rows === undefined ? 0 : Math.max(0, Math.round(Theme.inkAbove(group) - rows.inkAbove));
     }
     // The y of each hairline, one per gap between two shown groups.
     readonly property var hairlines: column.shown.slice(1).map((child, i) => {

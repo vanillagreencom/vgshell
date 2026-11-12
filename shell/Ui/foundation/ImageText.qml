@@ -69,6 +69,11 @@ Item {
     implicitWidth: drawn.implicitWidth
     implicitHeight: drawn.implicitHeight
 
+    // Inline images occupy the full line. Text-only notifications share
+    // Label's existing ink and last-line measure, including StyledText.
+    readonly property real inkAbove: imageMode ? 0 : drawn.inkAbove
+    readonly property real inkBelow: imageMode ? 0 : drawn.inkBelow
+
     onSegmentsChanged: rebuild()
     onFontChanged: rebuild()
     onWidthChanged: if (imageMode) rebuild()
@@ -195,11 +200,15 @@ Item {
         elide: Text.ElideNone
     }
 
-    Text {
+    Label {
         id: drawn
         width: root.width
         textFormat: Text.StyledText
         font: root.font
+        // Match the native Text used to decide elision, including its
+        // natural line height, rather than Label's role-based leading.
+        lineHeight: measurer.lineHeight
+        lineHeightMode: Text.ProportionalHeight
         color: root.color
         maximumLineCount: root.maximumLineCount
     }

@@ -6,9 +6,9 @@ import qs.Ui
 // Text with cited substrings as independent links. The text property is plain
 // text; every occurrence of `link` is drawn as a link and activates the
 // component. `lineCount` is the wrapped label's line count, for owners that
-// measure whether the message stayed on one line, `inkAbove()` and
+// measure whether the message stayed on one line, `inkAbove` and
 // `topForLeadingIcon()`, for an icon leading the first line, are the
-// label's (Label.qml), and `inkBelow()` is the
+// label's (Label.qml), and `inkBelow` is the
 // label's over the last line's text, which the plain twin
 // lays out at the same width. Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
@@ -45,7 +45,7 @@ import qs.Ui
 // alone. Qt Quick draws a link's or `<u>`'s underline at the font's
 // underline position, which a descender meets (Qt 6.11
 // qquickstyledtext.cpp, parseAnchorAttributes; qquicktextnodeengine.cpp,
-// addTextDecorations). `inkBelow()` counts the underline where it draws
+// addTextDecorations). `inkBelow` counts the underline where it draws
 // at rest; a standalone link's hover underline draws in the space under
 // its words and moves nothing; the ring's box holds the underline's room.
 T.Control {
@@ -235,15 +235,28 @@ T.Control {
         else activated();
     }
 
-    function inkAbove() { return label.y + label.inkAbove(); }
+    readonly property real inkAbove: label.y + label.inkAbove
     function topForLeadingIcon(iconHeight, origin) { return label.y + label.topForLeadingIcon(iconHeight, origin); }
+
+    // positionAt reads layout through a method, so follow its inputs and
+    // layout notifications explicitly, as the link boxes above do.
+    // https://doc.qt.io/qt-6/qml-qtquick-textedit.html#positionAt-method
+    readonly property int lastLineStart: {
+        void twin.font;
+        void twin.wrapMode;
+        void twin.horizontalAlignment;
+        void twin.contentWidth;
+        void twin.lineCount;
+        return !label.truncated && twin.text === drawn && twin.length === drawn.length && twin.width === label.width
+            ? twin.positionAt(0, twin.contentHeight - 1) : -1;
+    }
 
     // An occurrence inside running text is underlined at rest, so the
     // underline reaches the last line when the last occurrence ends past
     // that line's start; a standalone link's ends at its words.
-    function inkBelow() {
-        const lastStart = twin.length === drawn.length ? twin.positionAt(0, twin.contentHeight - 1) : -1;
-        const glyphs = label.inkBelow(lastStart < 0 ? undefined : drawn.slice(lastStart));
+    readonly property real inkBelow: {
+        const lastStart = lastLineStart;
+        const glyphs = label.inkBelow;
         const lastUnderlined = linked && !standalone && lastStart >= 0 && layout.links.some(item => item.end > lastStart);
         return height - label.y - label.height + (lastUnderlined ? Math.min(glyphs, label.height - underlineBottom(label.lineCount - 1)) : glyphs);
     }
@@ -270,6 +283,7 @@ T.Control {
         width: root.width
         text: root.markup(root.drawn, root.linkColor)
         textFormat: Text.StyledText
+        lastLine: root.lastLineStart < 0 ? null : root.drawn.slice(root.lastLineStart)
     }
 
     KeyNav {

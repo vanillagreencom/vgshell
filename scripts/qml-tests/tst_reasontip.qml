@@ -493,8 +493,8 @@ Item {
                     if (Math.abs(image.red(x, y) - Math.round(bg.r * 255)) > 8 || Math.abs(image.green(x, y) - Math.round(bg.g * 255)) > 8 || Math.abs(image.blue(x, y) - Math.round(bg.b * 255)) > 8) last = x;
             verify(last >= 0, "the title has ink");
             const gap = placedBox(tip).x - (last + 1);
-            console.log("reason-gap: theme=" + data.tag + " gap=" + gap + " padding=" + Theme.tooltip.paddingX);
-            verify(gap >= Theme.tooltip.paddingX, "the title ink keeps the tooltip padding: " + gap);
+            console.log("reason-gap: theme=" + data.tag + " gap=" + gap + " padding=" + Theme.tooltip.padding);
+            verify(gap >= Theme.tooltip.padding, "the title ink keeps the tooltip padding: " + gap);
         }
 
         // A header switch named as its title draws no label, and its reason

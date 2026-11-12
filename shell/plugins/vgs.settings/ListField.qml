@@ -94,8 +94,8 @@ Column {
                 width: groups.width
                 implicitHeight: itemFields.height
 
-                function inkAbove() { return Theme.inkAbove(itemFields); }
-                function inkBelow() { return Theme.inkBelow(itemFields); }
+                readonly property real inkAbove: Theme.inkAbove(itemFields)
+                readonly property real inkBelow: Theme.inkBelow(itemFields)
 
                 Column {
                     id: itemFields

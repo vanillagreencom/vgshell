@@ -170,6 +170,17 @@ Item {
         hint: "Some video editors need it"
         Switch { size: "sm" }
     }
+    // A warning starts at the switch's drawn track, above the bottom of
+    // its control box. Even a one-line beside popup would clip this hint.
+    FormRow {
+        id: hintedTrack
+        y: 2200
+        width: 570
+        label: "Clock"
+        labelTooltip: "Keep the clock visible."
+        warning: "A hint under the switch"
+        Switch { size: "sm" }
+    }
     // A label of two lines beside a one-line control: its ring ends under
     // the row box.
     FormRow { id: explainedInfo; y: 1960; width: 420; label: "Format"; labelTooltip: "The clock's format."; info: "It follows the locale."; Select { width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
@@ -419,14 +430,38 @@ Item {
                 verify(ringEnd.y > label.y + label.height, "the ring draws outside the label's box");
                 compare(ringEnd.y > data.row.boxHeight, data.lines > 1, "a ring ends under the row box only around two lines: " + ringEnd.y);
                 compare(start.y >= ringEnd.y + Theme.tooltip.gap || start.x >= ringEnd.x + Theme.tooltip.gap, true, "the tooltip touches the focused label's ring: " + start.x + "," + start.y + " ring " + ringEnd.x + "," + ringEnd.y);
-                verify(start.y >= label.y + label.height - label.inkBelow(), "the tooltip opens under the row's label: " + start.y);
+                verify(start.y >= label.y + label.height - label.inkBelow, "the tooltip opens under the row's label: " + start.y);
                 const controls = data.row.children[2].children;
                 verify(controls.length > 0, "the row holds its control");
                 for (const control of controls)
                     compare(start.y >= control.mapToItem(data.row, 0, control.height).y, true, "the tooltip opens under the row's control: " + start.y);
                 verify(data.hint.visible && data.hint.height > 0, "the row draws its hint");
-                verify(data.row.besideHeight <= data.row.labelBox + 2 * Theme.stack.row, "the tooltip fits the row gap beside the switch: " + data.row.besideHeight);
+                const content = popup.contentItem.children.find(child => child.objectName === "tooltipContent");
+                const title = content.children[0].children[0].children.find(child => child.objectName === "tooltipTitle");
+                compare(title.lineCount, 1, "the shown under-row band holds one line");
+                verify(popup.implicitHeight <= data.row.labelBox + 2 * Theme.stack.row, "the shown band fits the row gap: " + popup.implicitHeight);
+                console.log("formrow-band: candidate=" + data.row.besideHeight + " popup=" + popup.implicitHeight + " ink=" + (title.height - title.inkAbove - title.inkBelow));
                 compare(start.y <= data.hint.mapToItem(data.row, 0, 0).y, true, "the tooltip covers the hint from its top: " + start.y);
+            });
+        }
+
+        function test_a_beside_candidate_that_fits_the_row_cannot_clip_its_hint() {
+            const row = hintedTrack;
+            const hint = row.children.find(child => child.text === row.warning);
+            verify(hint !== undefined && hint.visible);
+            const hintTop = hint.mapToItem(row, 0, 0).y;
+            // Reach the clearance guard, not the independent height guard
+            // that already rejects the two-line beside candidates above.
+            verify(row.besideWrap > 0 && row.besideHeight <= row.labelBox + 2 * Theme.stack.row);
+            verify((row.labelBox + row.besideHeight) / 2 > hintTop, "the beside candidate reaches the hint");
+            showStill(row, tipOf(row), popup => {
+                const anchor = popup.anchor;
+                compare(anchor.edges, Edges.Bottom | Edges.Left, "help opens in the under-row band");
+                const start = tipOf(row).anchorItem.mapToItem(row, anchor.rect.x,
+                    anchor.rect.y + anchor.rect.height - anchor.margins.bottom);
+                verify(start.y <= hintTop, "the band covers the hint from its top");
+                verify(start.x <= hint.x && start.x + popup.implicitWidth >= hint.x + hint.width,
+                    "the band covers the whole hint line, not just its end");
             });
         }
 
@@ -493,6 +528,7 @@ Item {
                 compare(top.x, hinted.row.valueX, "the band starts beside the ring");
                 compare(top.y <= hinted.hint.mapToItem(hintedColumn, 0, 0).y, true, "the band covers the hint from its top: " + top.y);
                 compare(top.y + popup.implicitHeight <= underHinted.y, true, "the band reaches the next row: " + (top.y + popup.implicitHeight) + " next " + underHinted.y);
+                console.log("formrow-clearance: band-bottom=" + (top.y + popup.implicitHeight) + " next-row=" + underHinted.y);
             });
         }
 
@@ -565,8 +601,8 @@ Item {
             compare(labelOf(lined).y, labelOf(single).y, "the label leaves a one-line row's place");
             verify(infoOf(lined).height > 0, "the row draws no info button");
             compare(infoOf(lined).y, infoOf(single).y, "the info button leaves a one-line row's place");
-            compare(lined.inkBelow(), lined.height - stepThree.mapToItem(lined, 0, stepThree.height).y + stepThree.inkBelow());
-            compare(lined.inkAbove(), Math.min(labelOf(lined).y + labelOf(lined).inkAbove(), stepOne.mapToItem(lined, 0, 0).y + stepOne.inkAbove()));
+            compare(lined.inkBelow, lined.height - stepThree.mapToItem(lined, 0, stepThree.height).y + stepThree.inkBelow);
+            compare(lined.inkAbove, Math.min(labelOf(lined).y + labelOf(lined).inkAbove, stepOne.mapToItem(lined, 0, 0).y + stepOne.inkAbove));
         }
 
         function test_a_message_sits_under_the_value_column() {
@@ -741,9 +777,9 @@ Item {
         function test_an_action_keeps_the_rows_height() {
             const message = messageOf(acted);
             verify(undo.visible && undo.height > message.height, "the action is no taller than the message");
-            const shown = [acted.height, acted.inkBelow(), message.y];
+            const shown = [acted.height, acted.inkBelow, message.y];
             undo.visible = false;
-            compare([acted.height, acted.inkBelow(), message.y], shown, "hiding the action moves the row's end, its ink or its message");
+            compare([acted.height, acted.inkBelow, message.y], shown, "hiding the action moves the row's end, its ink or its message");
             undo.visible = true;
         }
 

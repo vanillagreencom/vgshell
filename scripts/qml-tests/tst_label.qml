@@ -57,6 +57,8 @@ Item {
         }
     }
     Field { id: pair; label: "Agents running"; inline: true; width: 300; y: 190; Label { id: pairValue; role: "value"; text: "3" } }
+    Component { id: lastLineLabel; Label { width: 100 } }
+    Component { id: lastLineMetrics; FontMetrics {} }
 
     TestCase {
         name: "label"
@@ -256,6 +258,41 @@ Item {
             verify(eyebrow.capCentre > 0, "the cap centre is measured");
             verify(eyebrow.opticalWidth < eyebrow.implicitWidth, "tracked text has a smaller optical width");
             fuzzyCompare(eyebrow.topForCapCenter(Theme.badge.size.sm.height) + eyebrow.capCentre, Theme.badge.size.sm.height / 2, 1);
+        }
+
+        function test_supplied_last_line_keeps_pending_separate_from_default_data() {
+            return [
+                { tag: "plain", text: "gjpqy\nT", format: Text.PlainText, role: "body" },
+                { tag: "styled", text: "<b>gjpqy</b><br>T", format: Text.StyledText, role: "body" },
+                { tag: "capitals", text: "<b>gjpqy</b><br>T", format: Text.StyledText, role: "eyebrow" }
+            ];
+        }
+
+        function test_supplied_last_line_keeps_pending_separate_from_default(data) {
+            const label = createTemporaryObject(lastLineLabel, root, {
+                text: data.text, textFormat: data.format, role: data.role, lastLine: null
+            });
+            verify(label !== null);
+            tryCompare(label, "lineCount", 2);
+            const metrics = createTemporaryObject(lastLineMetrics, root, { font: label.font });
+            verify(metrics !== null);
+            for (const supplied of [null, "T", "", "gjpqy", null, undefined]) {
+                label.lastLine = supplied;
+                if (supplied === undefined)
+                    tryVerify(() => label.twinHolder.twin !== null && label.lastLineText() === "T");
+                const known = supplied === undefined ? "T" : supplied;
+                const ink = known === null ? null : metrics.tightBoundingRect(label.typography.uppercase ? known.toUpperCase() : known);
+                const depth = ink === null ? label.typography.uppercase ? 0 : metrics.descent : Math.max(0, ink.y + ink.height);
+                const baseline = label.baselineOffset + label.contentHeight / 2;
+                fuzzyCompare(label.inkBelow, label.height - baseline - depth, 0.001);
+                if (supplied !== undefined) {
+                    compare(label.twinHolder.twin, null, "pending and known supplied lines never construct a second twin");
+                } else {
+                    verify(label.twinHolder.twin !== null, "no override retains the standalone last-line owner");
+                    tryCompare(label.twinHolder.twin, "lineCount", 2);
+                    compare(label.lastLineText(), "T");
+                }
+            }
         }
 
         function test_a_link_icon_centres_on_its_words_data() {

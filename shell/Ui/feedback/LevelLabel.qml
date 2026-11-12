@@ -19,11 +19,11 @@ Item {
 
     // The reading's drawn top and bottom, as its Label reads them, for a
     // LevelSlider's ink.
-    function inkAbove() { return label.y + label.inkAbove(); }
-    function inkBelow() { return height - label.y - label.height + label.inkBelow(); }
+    readonly property real inkAbove: label.y + label.inkAbove
+    readonly property real inkBelow: height - label.y - label.height + label.inkBelow
 
     width: Math.min(maxWidth, Math.max(label.implicitWidth, widest.implicitWidth))
-    implicitHeight: label.lineBox
+    implicitHeight: label.implicitHeight
 
     Label { id: widest; visible: false; role: root.role; text: "100%" }
     Label {
@@ -33,6 +33,6 @@ Item {
         width: parent.width
         horizontalAlignment: Text.AlignRight
         elide: Text.ElideRight
-        y: topForCapCenter(parent.height)
+        y: lineCount > 1 ? 0 : topForCapCenter(parent.height)
     }
 }

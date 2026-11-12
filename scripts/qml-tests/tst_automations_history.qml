@@ -97,8 +97,10 @@ Item {
             const shown = rows.map(indexOf).sort((a, b) => a - b);
             compare(shown[0], 0, "the newest run is built at the top");
             compare(shown[shown.length - 1] - shown[0], shown.length - 1, "the built rows are one run of the list");
+            const viewportHeight = view.height;
             view.contentY = view.contentHeight - view.height;
             settle();
+            compare(view.height, viewportHeight, "scrolling a sparse list does not resize its viewport");
             rows = built();
             const end = rows.map(indexOf);
             verify(end.indexOf(root.cap - 1) >= 0, "the oldest run is built at the bottom");

@@ -76,7 +76,7 @@ Item {
             hint.textChanged.connect(() => {
                 slot.textLineBelow();
                 verify(Number.isFinite(rows.field.lineBelow()));
-                verify(Number.isFinite(rows.field.inkBelow()));
+                verify(Number.isFinite(rows.field.inkBelow));
                 reentrantMeasures++;
             });
             rows.field.hint = data.nextHint;
@@ -85,7 +85,7 @@ Item {
             verify(waitForPolish(rows.Window.window));
             slot.textLineBelow();
             verify(Number.isFinite(rows.field.lineBelow()));
-            verify(Number.isFinite(rows.field.inkBelow()));
+            verify(Number.isFinite(rows.field.inkBelow));
             verify(Number.isFinite(rows.below.topPadding));
         }
     }

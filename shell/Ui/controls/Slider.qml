@@ -11,9 +11,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `position` long and starts from the right when mirrored, as the handle
 // does through `visualPosition`. The control is never shorter than
 // `size.control.sm`, so the thin track keeps a larger input area.
-// `inkBelow()` is how far above its bottom edge the track or the handle
+// `inkBelow` is how far above its bottom edge the track or the handle
 // ends, for the space a `Section` measures from what it draws, and
-// `inkAbove()` how far below its top edge they start, for the space a
+// `inkAbove` how far below its top edge they start, for the space a
 // key/value row under another measures (Field).
 T.Slider {
     id: root
@@ -39,11 +39,11 @@ T.Slider {
         return clamp(low + steps * stepSize);
     }
 
-    function inkBelow() {
+    readonly property real inkBelow: {
         return height - Math.max(background.y + background.height, handle.y + handle.height);
     }
 
-    function inkAbove() {
+    readonly property real inkAbove: {
         return Math.min(background.y, handle.y);
     }
 

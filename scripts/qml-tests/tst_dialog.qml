@@ -687,8 +687,8 @@ Item {
             for (const ofDialog of [emptyBody, hiddenBody]) {
                 const p = pane(ofDialog);
                 compare(p.bodyContentHeight, 0);
-                compare(footerSlot(ofDialog).y, p.contentInset + p.headerHeight + Theme.stack.titleSpace);
-                compare(ofDialog.implicitHeight, 2 * p.contentInset + p.headerHeight + Theme.stack.titleSpace + p.footerHeight);
+                compare(footerSlot(ofDialog).y, p.topPadding + p.headerHeight + Theme.stack.titleSpace);
+                compare(ofDialog.implicitHeight, p.topPadding + p.bottomPadding + p.headerHeight + Theme.stack.titleSpace + p.footerHeight);
             }
         }
 

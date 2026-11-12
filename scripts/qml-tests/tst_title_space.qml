@@ -82,7 +82,7 @@ Item {
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
             compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Theme.stack.titleSpace);
-            compare(made.bodyRoom, made.height - 2 * made.contentInset - made.headerHeight - Theme.stack.titleSpace);
+            compare(made.bodyRoom, made.height - made.topPadding - made.bottomPadding - made.headerHeight - Theme.stack.titleSpace);
             made.scrollArea.contentY = 40;
             const divider = made.children[5];
             verify(divider.visible);

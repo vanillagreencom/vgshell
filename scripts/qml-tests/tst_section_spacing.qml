@@ -271,7 +271,7 @@ Item {
                     }
                     Item {
                         visible: actionPage.holder === "boxed"
-                        function inkBelow() { return 0; }
+                        readonly property real inkBelow: 0
                         implicitWidth: boxedAction.implicitWidth
                         implicitHeight: boxedAction.implicitHeight
                         RowAction { id: boxedAction; text: actionPage.label; tone: actionPage.tone }
@@ -546,7 +546,7 @@ Item {
 
         // At 40 px a link's underline ends 9 px under the glyphs of a last
         // line with no descender, past the reading's tolerance: with
-        // LinkText.inkBelow() reading the glyphs alone, "one line" and
+        // LinkText.inkBelow reading the glyphs alone, "one line" and
         // "last of two" read 23 blank rows, not 32, under scripts/qml-unit.sh
         // on a65ec0a61. "last of two" holds the link on both lines, so it
         // fails when only the first occurrence counts; "first of two" holds
@@ -580,7 +580,7 @@ Item {
 
         // The space under a row action is read from its drawn ink, so it
         // holds exactly, not within the glyph tolerance. With the action
-        // read as its box, as before RowAction.inkBelow(), or a Flow read
+        // read as its box, as before RowAction.inkBelow, or a Flow read
         // as its box, as before Theme.inkBelow read a Flow, the heading sat
         // 33 blank rows under its ink; "boxed" is that
         // control and must not read `stack.heading`.

@@ -118,6 +118,20 @@ Item {
             footer: [ Item { width: 10; height: 30 } ]
         }
     }
+    Component {
+        id: assignedInkBody
+        Pane {
+            id: layer
+            width: 240
+            height: 240
+            container: "panel"
+            Item {
+                width: layer.contentWidth
+                height: layer.bodyRoom
+                Label { objectName: "assignedInk"; width: parent.width; height: parent.height; text: "Assigned viewport" }
+            }
+        }
+    }
 
     // A fitted pane of `count` evenly pitched 40 px rows under a 300 px cap,
     // which leaves a 192 px body room.
@@ -355,10 +369,23 @@ Item {
 
         function init() { UnitTheme.reset(); }
         function test_a_titled_body_can_fill_its_room() {
-            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { id: p; width: 240; height: 200; title: "System"; Item { objectName: "filledBody"; width: p.contentWidth; height: p.bodyRoom } }', root);
+            const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { id: p; width: 240; height: 200; title: "System"; Column { objectName: "filledBody"; width: p.contentWidth; height: p.bodyRoom; FormRow { width: parent.width; label: "Level"; Slider {} } } }', root);
             verify(renderedFrame(made));
             const filled = body(made).children.find(item => item.objectName === "filledBody");
             verify(filled !== undefined);
+            compare(filled.mapToItem(made, 0, filled.height).y, made.height - made.contentInset);
+            const gap = made.headerBodyGap;
+            verify(gap < Theme.stack.titleSpace, "the first key removes its centring space");
+            // A resize can exhaust bodyRoom before the positioner polishes.
+            // The title boundary keeps that positioner's first key, without
+            // reading back the height which this very gap assigns.
+            // https://doc.qt.io/qt-6/qml-qtquick-column.html#forceLayout-method
+            made.height = 0;
+            compare(filled.height, 0, "the body has no assigned room during the resize");
+            verify(filled.Positioner.isFirstItem, "the column has not repositioned its first body yet");
+            compare(made.headerBodyGap, gap, "an assigned-height change cannot reselect the title's first key");
+            made.height = 200;
+            verify(renderedFrame(made));
             compare(filled.mapToItem(made, 0, filled.height).y, made.height - made.contentInset);
             made.destroy();
         }
@@ -381,8 +408,8 @@ Item {
             const key = labels(keyed).find(item => item.objectName === "fieldLabel");
             const section = labels(heading).find(item => item.role === "eyebrow");
             verify(key !== undefined && section !== undefined);
-            compare(key.mapToItem(keyed, 0, key.capTop()).y - keyed.contentInset - keyed.headerHeight,
-                section.mapToItem(heading, 0, section.capTop()).y - heading.contentInset - heading.headerHeight);
+            compare(key.mapToItem(keyed, 0, key.capTop()).y - keyed.topPadding - keyed.headerHeight,
+                section.mapToItem(heading, 0, section.capTop()).y - heading.topPadding - heading.headerHeight);
             keyed.destroy();
             heading.destroy();
         }
@@ -478,7 +505,7 @@ Item {
         function test_header_body_and_footer_share_the_content_edge() {
             compare(pane.contentInset, Theme.inset.window);
             compare(headerSlot(pane).x, pane.contentInset);
-            compare(headerSlot(pane).y, pane.contentInset);
+            compare(headerSlot(pane).y, pane.topPadding);
             compare(headerSlot(pane).width, pane.width - 2 * pane.contentInset);
             // The body sits on the content edge; the viewport reaches the
             // ring's room past it.
@@ -488,6 +515,20 @@ Item {
             compare(footerSlot(pane).x, pane.contentInset);
             compare(footerSlot(pane).y, scroll(pane).y + scroll(pane).height - pane.ringRoom + pane.footerGap);
             compare(footerSlot(pane).width, pane.width - 2 * pane.contentInset);
+        }
+
+        function test_body_ink_that_reads_assigned_geometry_settles_without_a_loop() {
+            const made = createTemporaryObject(assignedInkBody, root);
+            const text = findChild(made, "assignedInk");
+            verify(text !== null);
+            for (const height of [240, 180, 300]) {
+                made.height = height;
+                tryVerify(() => Math.abs(text.mapToItem(made, 0, 0).y + Theme.inkAbove(text) - made.padding) <= 1,
+                    1000, "the assigned body keeps the drawn top gap");
+                compare(body(made).children[0].height, made.bodyRoom);
+                compare(text.height, made.bodyRoom);
+                verify(made.scrollArea.height > 0);
+            }
         }
 
         function test_container_sets_the_header_to_body_gap() {
@@ -521,13 +562,13 @@ Item {
             compare(label.y, label.topForCapCenter(titleRow(made).height));
             compare(made.headerSwitch, null);
             compare(made.headerHeight, titleRow(made).height);
-            verify(body(made).mapToItem(made, 0, 0).y >= made.contentInset + made.headerHeight + made.headerGap, "the body starts below the title row");
+            verify(body(made).mapToItem(made, 0, 0).y >= made.topPadding + made.headerHeight + made.headerGap, "the body starts below the title row");
             made.destroy();
         }
 
         function test_header_slot_sits_under_the_title_row() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; container: "panel"; fitToContent: true; title: "Agents"; header: [ Label { role: "body"; text: "Agent Warden is starting."; width: parent.width } ]\nItem { width: parent.width; height: 20 } }', root, "titleWithHeader");
-            compare(headerSlot(made).y, made.contentInset + titleRow(made).height + Theme.stack.titleSpace);
+            compare(headerSlot(made).y, made.topPadding + titleRow(made).height + Theme.stack.titleSpace);
             compare(headerSlot(made).children[0].text, "Agent Warden is starting.");
             compare(made.headerHeight, titleRow(made).height + Theme.stack.titleSpace + headerSlot(made).implicitHeight);
             made.destroy();
@@ -682,7 +723,7 @@ Item {
 
         function test_fit_to_content_caps_the_body() {
             compare(fitted.implicitHeight, 120);
-            compare(fitted.scrollArea.height, 120 - 2 * fitted.contentInset - headerSlot(fitted).height - fitted.headerGap + 2 * fitted.ringRoom);
+            compare(fitted.scrollArea.height, 120 - fitted.topPadding - fitted.bottomPadding - headerSlot(fitted).height - fitted.headerGap + 2 * fitted.ringRoom);
             verify(fitted.scrollArea.overflowing, "the capped pane scrolls its body");
         }
 
@@ -750,10 +791,10 @@ Item {
         function test_header_and_footer_keep_one_gap_when_the_body_is_empty() {
             compare(emptyBody.bodyContentHeight, 0);
             compare(footerSlot(emptyBody).y, headerSlot(emptyBody).y + headerSlot(emptyBody).height + emptyBody.gap);
-            compare(emptyBody.implicitHeight, 2 * emptyBody.contentInset + headerSlot(emptyBody).height + emptyBody.gap + footerSlot(emptyBody).height);
+            compare(emptyBody.implicitHeight, emptyBody.topPadding + emptyBody.bottomPadding + headerSlot(emptyBody).height + emptyBody.gap + footerSlot(emptyBody).height);
             compare(hiddenBody.bodyContentHeight, 0);
             compare(footerSlot(hiddenBody).y, headerSlot(hiddenBody).y + headerSlot(hiddenBody).height + hiddenBody.gap);
-            compare(hiddenBody.implicitHeight, 2 * hiddenBody.contentInset + headerSlot(hiddenBody).height + hiddenBody.gap + footerSlot(hiddenBody).height);
+            compare(hiddenBody.implicitHeight, hiddenBody.topPadding + hiddenBody.bottomPadding + headerSlot(hiddenBody).height + hiddenBody.gap + footerSlot(hiddenBody).height);
         }
 
         // A hidden footer child takes no room, so the footer keeps equal
@@ -772,7 +813,7 @@ Item {
             const made = createTemporaryObject(switchedFooter, root, { shown: data.shown, visible: data.paneShown });
             tryCompare(made, "footerHeight", data.footer);
             compare(made.footerGap, data.footer > 0 ? Math.max(made.gap, made.stickyGap) : 0);
-            compare(made.implicitHeight, 2 * made.contentInset + made.headerHeight + made.headerGap + made.bodyContentHeight + made.footerGap + data.footer);
+            compare(made.implicitHeight, made.topPadding + made.bottomPadding + made.headerHeight + made.headerGap + made.bodyContentHeight + made.footerGap + data.footer);
             if (data.paneShown) {
                 const foot = footerSlot(made);
                 compare(foot.y + foot.height, made.height - made.contentInset, "the footer keeps the container's bottom padding");

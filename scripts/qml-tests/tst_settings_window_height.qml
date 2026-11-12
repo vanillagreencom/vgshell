@@ -554,15 +554,28 @@ Item {
             const settingsChrome = p.pane.uncappedHeight - p.settings.height;
             compare(height, Math.ceil(p.pane.uncappedHeight), "the window is the pane's content and chrome on Settings");
             verify(fits(p.page.scrollArea), "Settings fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
+            fakeCompositor.reads = [];
+            fakeCompositor.calls = [];
             p.tabs.currentIndex = 1;
             rendered(window);
+            // A mapped window publishes its size through fitWindow's
+            // compositor answer, which settles the nested positioners.
+            // One frame alone can still hold the departing tab's height.
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the tab change requests the mapped client");
+            fakeCompositor.answer([fakeCompositor.client({ size: [512, height] })], root.screen.height);
             compare(window.implicitHeight, Math.ceil(settingsChrome + p.details.height), "Details takes the chrome and its own height");
+            compare(fakeCompositor.calls, [["place", "0xb", 70, 60, 512, window.implicitHeight]], "the mapped client takes the settled Details height");
             verify(window.implicitHeight < cap(), "Details fits under the cap: " + window.implicitHeight + " < " + cap());
             verify(fits(p.page.scrollArea), "Details fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
             verify(!p.page.scrollArea.overflowing, "Details that fits does not scroll");
+            const detailsHeight = window.implicitHeight;
+            fakeCompositor.calls = [];
             p.tabs.currentIndex = 0;
             rendered(window);
+            tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the return requests the mapped client");
+            fakeCompositor.answer([fakeCompositor.client({ size: [512, detailsHeight] })], root.screen.height);
             compare(window.implicitHeight, height, "a return to Settings takes the Settings height");
+            compare(fakeCompositor.calls, [["place", "0xb", 70, 60, 512, height]], "the mapped client returns to the settled Settings height");
         }
 
         // The one client of the shell's app-id titled Plugins is placed at

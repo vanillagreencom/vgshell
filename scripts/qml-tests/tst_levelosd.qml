@@ -48,9 +48,11 @@ Item {
             compare(bar.width, Theme.osd.barWidth);
             compare(xIn(column, osd), xIn(bar, osd) + bar.width + Theme.osd.gap);
             compare(osd.width, xIn(column, osd) + column.width + Theme.osd.padding);
-            compare(osd.height, 2 * Theme.osd.padding + partsOf(osd)[2].height);
+            const row = bodyOf(osd).children[1];
+            fuzzyCompare(row.y + Theme.inkAbove(row), Theme.osd.padding, 1);
+            fuzzyCompare(osd.height - row.y - row.height + Theme.inkBelow(row), Theme.osd.padding, 1);
             for (const part of [icon, bar])
-                fuzzyCompare(part.mapToItem(osd, 0, part.height / 2).y, osd.height / 2, 1);
+                fuzzyCompare(part.mapToItem(row, 0, part.height / 2).y, row.height / 2, 1);
             compare(String(bodyOf(osd).color), String(Qt.color(Theme.osd.background)));
             compare(String(osd.children[2].border.color), String(Qt.color(Theme.osd.border)));
             compare(bodyOf(osd).radius, Theme.osd.radius);

@@ -271,7 +271,7 @@ Item {
             const at = mark.mapToItem(control, 0, 0);
             compare(at.x, data.body() + Theme.stack.inline, "the mark starts the gap after the body");
             verify(at.x + mark.width <= control.width, "the mark lies inside the toggle: " + (at.x + mark.width) + " of " + control.width);
-            compare(control.inkEnd !== undefined ? control.inkEnd() : control.width, at.x + mark.width, "the drawn end is the mark's");
+            compare(control.inkEnd !== undefined ? control.inkEnd : control.width, at.x + mark.width, "the drawn end is the mark's");
             compare(control.nextItemInFocusChain(true), mark, "the mark is the Tab stop after the toggle");
             mouseClick(mark);
             compare(root.runs, 1);

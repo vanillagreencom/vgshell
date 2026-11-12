@@ -22,7 +22,7 @@ import qs.Ui
 // however far the label column reaches, a label of two lines or an info
 // mark beside it, and the field ends with the lower of the hint and the row
 // box, so a label taller than the value and the hint still ends the row.
-// `inkBelow()` is how far above its bottom edge the lowest drawn part
+// `inkBelow` is how far above its bottom edge the lowest drawn part
 // ends: the row's, its lines' or its hint's. Width comes from the parent;
 // the label, the control and the hint sit `field.paddingX` in from each
 // side. The default is zero, so a field's unboxed label sits on the
@@ -107,22 +107,22 @@ Column {
     // slot, which starts at the row box's bottom.
     spacing: inline ? 0 : Theme.field.gap
 
-    function titleLabelInset() { return inline ? topPadding + controlRow.titleLabelInset() : 0; }
+    readonly property real titleLabelInset: inline ? topPadding + controlRow.titleLabelInset : 0
 
     // No child's `y` is read, since a positioner sets it on a later polish
     // than a page's height is read for a resize (Theme.inkBelow); the slot
     // takes `spacing` under the row while it has height, and a Column skips
     // a child of none.
-    function inkBelow() {
+    readonly property real inkBelow: {
         const room = hintSlot.visible && hintSlot.height > 0 ? spacing + hintSlot.height : 0;
-        const below = bottomPadding + room + controlRow.inkBelow();
+        const below = bottomPadding + room + controlRow.inkBelow;
         const text = hintSlot.textInkBelow();
         if (text === null) return below;
         const slotTop = bottomPadding + room - spacing;
         return Math.min(below, slotTop - hintSlot.textBottom + text);
     }
 
-    // inkBelow() with each text line read by its font: where a key/value
+    // inkBelow with each text line read by its font: where a key/value
     // row under this one measures from.
     function lineBelow() {
         const room = hintSlot.visible && hintSlot.height > 0 ? spacing + hintSlot.height : 0;
@@ -198,7 +198,7 @@ Column {
         }
         function textInkBelow() {
             const last = lastTextLine();
-            return last === null ? null : last === hintLine ? hintLine.inkBelow() : Theme.inkBelow(subLines);
+            return last === null ? null : last === hintLine ? hintLine.inkBelow : Theme.inkBelow(subLines);
         }
         // The same by the text's font (FormRow.fontBelow): the hint's role
         // through a probe line of it, a link's underline still counted.
@@ -206,7 +206,7 @@ Column {
             const last = lastTextLine();
             if (last !== hintLine) return last === null ? null : controlRow.fontBelow(last);
             const line = controlRow.fontBelow(hintProbe);
-            return hintLine.linked ? Math.min(line, hintLine.inkBelow()) : line;
+            return hintLine.linked ? Math.min(line, hintLine.inkBelow) : line;
         }
         // How far the text sits below where the slot is: none while the
         // Column places it, and the slot's stale `y` for a slot of no

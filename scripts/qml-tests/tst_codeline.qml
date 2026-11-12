@@ -75,7 +75,8 @@ Item {
             verify(label(line).x + label(line).width <= button(line).x - Theme.codeLine.gap, "the text ends before the button");
             compare(button(line).x + button(line).width, line.width - Theme.codeLine.padding);
             compare(button(line).y, Theme.codeLine.padding);
-            compare(line.height, 2 * Theme.codeLine.padding + Math.max(label(line).lineCount * label(line).lineBox, button(line).implicitHeight));
+            const bottom = label(line).y + label(line).height - Theme.inkBelow(label(line));
+            fuzzyCompare(line.height - bottom, Theme.codeLine.padding, 1);
             verify(line.height > short.height, "the wrapped line is taller");
         }
 
@@ -105,8 +106,21 @@ Item {
             compare(button(short).x + button(short).width, short.width - Theme.codeLine.padding);
             compare(button(short).y, Theme.codeLine.padding);
             fuzzyCompare(label(short).y + label(short).capCentre, short.height / 2, 1);
-            fuzzyCompare(label(line).y - label(line).halfLeading, Theme.codeLine.padding, 0.5);
-            fuzzyCompare(line.height - (label(line).y - label(line).halfLeading + label(line).lineCount * label(line).lineBox), Theme.codeLine.padding, 1);
+            compare(label(line).y, Theme.codeLine.padding, "the first control owns the top edge");
+            fuzzyCompare(line.height - (label(line).y + label(line).height - Theme.inkBelow(label(line))), Theme.codeLine.padding, 1);
+        }
+
+        function test_a_round_end_clears_the_current_ink_and_control_box() {
+            compare(UnitTheme.override({ radius: { sm: 4096 }, codeLine: { padding: 2 } }), "ok");
+            tryVerify(() => {
+                const title = label(short), copy = button(short);
+                const corner = Math.min(short.radius, short.width / 2, short.height / 2);
+                const edge = Math.min(title.y + Theme.inkAbove(title), copy.y,
+                    short.height - title.y - title.height + Theme.inkBelow(title), short.height - copy.y - copy.height);
+                const side = Math.min(title.x, short.width - copy.x - copy.width);
+                if (edge < Theme.inset.cornerStep) return side >= corner + Theme.inset.cornerStep;
+                return corner - Math.hypot(Math.max(0, corner - side), Math.max(0, corner - edge)) >= Theme.inset.cornerStep - 1;
+            }, 1000, "the current drawn envelope clears the round end by the shared step");
         }
 
         function test_the_line_reads_its_tokens() {

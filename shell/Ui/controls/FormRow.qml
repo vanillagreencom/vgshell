@@ -62,7 +62,7 @@ import qs.Ui
 // names: it draws on the message's line, on the row's end edge, only while
 // the row has a message, and the message wraps `stack.inline` before it.
 // It centres on the message and keeps the message's height: an action
-// taller than the message overhangs it and does not count in `inkBelow()`,
+// taller than the message overhangs it and does not count in `inkBelow`,
 // so showing or hiding it moves no row and no heading below.
 // Where that would leave the message less than `field.labelWidth`, as in a
 // narrow flyout, the action goes on a line of its own, `field.gap` under
@@ -77,10 +77,10 @@ import qs.Ui
 // value column starts, for content that belongs under it, and
 // `valueBottom` where the value's box ends in the row, for content under
 // the value. Width comes from
-// the parent. `inkBelow()` is how far above its bottom edge the row's
+// the parent. `inkBelow` is how far above its bottom edge the row's
 // lowest drawn part ends, its label, its control as drawn, its message or
 // an action on a line of its own under that message, since the control
-// centres in a taller row box. `inkAbove()` is how far below its top edge
+// centres in a taller row box. `inkAbove` is how far below its top edge
 // the highest drawn part starts, its label or its control as drawn.
 // `lineAbove()` and `lineBelow()` read the same, but a text line, the
 // label, a Label in the slot or the message, by its font rather than the
@@ -225,8 +225,13 @@ Item {
         return slot.x + end;
     }
     readonly property real besideX: controlEnd + Theme.tooltip.gap
-    readonly property real besideWrap: Math.min(Theme.tooltip.maxWidth, width - besideX - 2 * Theme.tooltip.paddingX)
-    readonly property real besideHeight: besideMeasure.implicitHeight + 2 * Theme.tooltip.paddingY
+    readonly property real besideWrap: Math.min(Theme.tooltip.maxWidth, width - besideX - 2 * Theme.tooltip.padding)
+    readonly property real besideHeight: besideMeasure.implicitHeight + besideInset.topPadding + besideInset.bottomPadding
+    ClearingInset {
+        id: besideInset
+        pad: Theme.tooltip.padding
+        content: besideMeasure
+    }
     // Where the first line under the value starts, -1 with no such line.
     // In the row box's frame, as are the label's and the control's tops
     // and the places that read them.
@@ -249,7 +254,7 @@ Item {
     // Whether the band over that line holds the explainer on one line of the
     // value column, the room it has beside a label ring that reaches the line.
     // A wrapped Text's implicitWidth is its width on one line.
-    readonly property bool bandOneLine: underLine && Math.ceil(besideMeasure.implicitWidth) <= valueRoom - 2 * Theme.tooltip.paddingX
+    readonly property bool bandOneLine: underLine && Math.ceil(besideMeasure.implicitWidth) <= valueRoom - 2 * Theme.tooltip.padding
     // Whether the info button holds the explainer: a band under a row with
     // no line under its value, or of more than one line, would cover the
     // next row. The button narrows the label, so this reads neither the
@@ -289,11 +294,11 @@ Item {
         return false;
     }
 
-    function inkBelow() { return drawnBelow(false); }
-    function inkAbove() { return shift + drawnAbove(false); }
+    readonly property real inkBelow: drawnBelow(false)
+    readonly property real inkAbove: shift + drawnAbove(false)
     // A titled Pane removes only the label's centring room from its first
     // row. The label then starts where an unboxed SectionHeader starts.
-    function titleLabelInset() { return labelColumn && label !== "" ? shift + labelTop : 0; }
+    readonly property real titleLabelInset: labelColumn && label !== "" ? shift + labelTop : 0
     function lineBelow() { return drawnBelow(true); }
     function lineAbove() { return shift + drawnAbove(true); }
 
@@ -332,18 +337,18 @@ Item {
     // A link's underline, under the descent line, still ends the message.
     function messageBelow() {
         const line = fontBelow(messageProbe);
-        return message.linked ? Math.min(line, message.inkBelow()) : line;
+        return message.linked ? Math.min(line, message.inkBelow) : line;
     }
 
     // How far above its bottom edge the row's lowest drawn part ends, each
     // text line read by its font while BYFONT holds and by its glyphs
     // otherwise.
     function drawnBelow(byFont) {
-        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - (byFont ? fontBelow(labelText) : labelText.inkBelow()) : 0;
+        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - (byFont ? fontBelow(labelText) : labelText.inkBelow) : 0;
         for (const child of slot.children) {
             if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - (byFont && child instanceof Label ? fontBelow(child) : Theme.inkBelow(child)));
         }
-        if (message.visible) bottom = Math.max(bottom, message.y + message.height - (byFont ? messageBelow() : message.inkBelow()));
+        if (message.visible) bottom = Math.max(bottom, message.y + message.height - (byFont ? messageBelow() : message.inkBelow));
         if (actionSlot.visible && root.actionBelow) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
         return height - bottom;
     }
@@ -351,7 +356,7 @@ Item {
     // How far below the row box's top the row's highest drawn part starts,
     // read as drawnBelow reads.
     function drawnAbove(byFont) {
-        let top = labelColumn && label !== "" ? labelTop + (byFont ? fontAbove(labelText) : labelText.inkAbove()) : ownHeight;
+        let top = labelColumn && label !== "" ? labelTop + (byFont ? fontAbove(labelText) : labelText.inkAbove) : ownHeight;
         for (const child of slot.children) {
             if (child.visible) top = Math.min(top, slotTop + child.y + (byFont && child instanceof Label ? fontAbove(child) : Theme.inkAbove(child)));
         }
@@ -386,7 +391,7 @@ Item {
                 side: root.explainBeside ? "right" : "belowStart"
                 // The side's gap from this box's end puts the tooltip at `besideX`.
                 box: root.explainBeside ? Qt.rect(0, -root.labelTop, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -root.labelTop, root.width - root.underX, root.underText - Theme.tooltip.gap)
-                maxWidth: root.explainBeside ? root.besideWrap : root.width - root.underX - 2 * Theme.tooltip.paddingX
+                maxWidth: root.explainBeside ? root.besideWrap : root.width - root.underX - 2 * Theme.tooltip.padding
                 minWidth: root.explainBeside ? 0 : root.width - root.underX
             }
         }

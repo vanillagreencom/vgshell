@@ -6,7 +6,7 @@ import qs.Ui
 // until the section is left, at the height of its tallest line, so the
 // timed clear empties the text and moves no control below it. A heading
 // below spaces itself from Theme.inkBelow of the item above
-// (SectionHeader); `inkBelow()` answers with the gap under that tallest
+// (SectionHeader); `inkBelow` answers with the gap under that tallest
 // line's last baseline, so neither an empty line nor another line's
 // glyphs move the heading.
 Item {
@@ -20,7 +20,7 @@ Item {
     height: slot
     visible: slot > 0
 
-    function inkBelow() { return baselineGap; }
+    readonly property real inkBelow: baselineGap
 
     // QQuickText emits implicitHeightChanged while it lays out new text,
     // before lineCount, the baseline and contentHeight follow, and emits

@@ -47,7 +47,7 @@ FocusScope {
     // the body, and the footer, as Pane.headerHeight and Pane.bodyRoom add
     // them up. It reads no Pane height the preview feeds, so no binding
     // loops.
-    readonly property real bodyChrome: 2 * pane.contentInset + pane.titleBlockHeight + Theme.stack.titleSpace + tabs.implicitHeight + Theme.stack.section + hintRoom + Theme.stack.group + 2 * stickyGap + pane.footerHeight
+    readonly property real bodyChrome: pane.topPadding + pane.bottomPadding + pane.titleBlockHeight + Theme.stack.titleSpace + tabs.implicitHeight + Theme.stack.section + hintRoom + Theme.stack.group + 2 * stickyGap + pane.footerHeight
     readonly property real hintRoom: Math.max(hint.implicitHeight, otherHint.implicitHeight)
     readonly property real sourcesRoom: Math.max(sources.height, Math.max(screens.length, request.windows.length) * Theme.listItem.twoLineHeight)
     readonly property real choicesHeight: bodyChrome + sourcesRoom + Theme.stack.group

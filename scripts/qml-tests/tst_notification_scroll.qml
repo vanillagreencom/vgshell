@@ -212,6 +212,10 @@ Item {
             return [
                 { tag: "visible wrapped summary", summary: wrapped, body: body, shown: true },
                 { tag: "hidden wrapped summary", summary: wrapped, body: body, shown: false },
+                { tag: "hidden media summary", summary: "Pictured", body: "", image: String(Qt.resolvedUrl("images/red.png")), shown: false },
+                { tag: "hidden media body", summary: "", body: "Pictured", image: String(Qt.resolvedUrl("images/red.png")), shown: false },
+                { tag: "hidden wrapped media summary", summary: "A wrapped image summary with enough words to fill two lines", body: "Image body", image: String(Qt.resolvedUrl("images/red.png")), shown: false },
+                { tag: "hidden explicit lines", summary: "First summary line\nSecond summary line", body: "First body line\nSecond body line\nThird body line", shown: false },
                 { tag: "hidden long body", summary: "Long body", body: body.repeat(8), shown: false },
                 { tag: "hidden body only", summary: "", body: body, shown: false },
                 { tag: "visibility-dependent font control", summary: wrapped, body: body, shown: false, control: true }
@@ -229,13 +233,17 @@ Item {
                 : shippedMeasure.createObject(parent, { rowCard: measureCard(look) });
             verify(measure !== null);
             if (altered !== null) altered.owner.visible = row.shown;
-            const entry = { app: "Measurement test", summary: row.summary, body: row.body };
+            const entry = { app: "Measurement test", summary: row.summary, body: row.body, image: row.image || "" };
             const card = createTemporaryObject(measuredCard, scene, {
-                look: look, textColumn: frame.textColumn, app: entry.app, summary: entry.summary, body: entry.body
+                look: look, textColumn: frame.textColumn, app: entry.app, summary: entry.summary, body: entry.body, image: entry.image
             });
             verify(card !== null);
             try {
+                verify(renderedFrame(card));
                 card.settleHeight();
+                // Panel reuses one hidden layout across successive model
+                // rows. A media row must replace its prior text width too.
+                measure.measure({ app: entry.app, summary: "Geometry filler", body: "Short body" }, look, card.textColumn);
                 const predicted = measure.measure(entry, look, card.textColumn);
                 const title = findChild(measure, "notificationTitleText");
                 verify(title !== null);
@@ -244,7 +252,7 @@ Item {
                 compare(title.font.pixelSize, row.summary.length > 0 ? look.text.title.size : look.text.body.size);
                 if (row.control) return;
                 compare(title.font.weight, row.summary.length > 0 ? look.text.title.weight : Font.Normal);
-                fuzzyCompare(predicted, card.fullHeight, 0.5,
+                compare(predicted, card.fullHeight,
                     "the same content has the same measured and visible card height");
             } finally {
                 if (altered !== null) altered.owner.destroy();

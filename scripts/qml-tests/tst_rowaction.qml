@@ -278,7 +278,7 @@ Item {
             action.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(ring(action), "visible", true);
             const out = Theme.focusRing.offset + Theme.focusRing.width;
-            const ink = Math.floor(action.inkAbove());
+            const ink = Math.floor(action.inkAbove);
             verify(ink > 0, "the text's ink starts on the box's top");
             const box = ring(action).mapToItem(action, 0, 0);
             compare([box.x, box.y, ring(action).width, ring(action).height], [-out, ink - out, action.width + 2 * out, action.height - ink + 2 * out]);
@@ -406,8 +406,8 @@ Item {
             compare(mark(alone).x, 0, "on the control's edge");
             compare(mark(alone).y, mark(danger).y, "level with a text action's mark");
             compare(alone.Accessible.name, alone.text);
-            compare(alone.inkAbove(), mark(alone).y);
-            compare(alone.inkBelow(), alone.height - mark(alone).y - mark(alone).height);
+            compare(alone.inkAbove, mark(alone).y);
+            compare(alone.inkBelow, alone.height - mark(alone).y - mark(alone).height);
             const inkEnd = mark(alone).mapToItem(alone, 0, 0).x + mark(alone).painted[2];
             compare(alone.glyphEnd, alone.width - inkEnd, "glyphEnd reaches the lone mark's ink from the right edge");
             verify(alone.glyphEnd > 0, "the square reaches past the mark's ink");
@@ -502,9 +502,9 @@ Item {
             compare(lines.height, 2 * Theme.row.height + Theme.stack.row);
             fuzzyCompare(one.y + one.height / 2, Theme.row.height / 2, 0.5, "the first line's actions leave its centre");
             fuzzyCompare(three.y + three.height / 2, 1.5 * Theme.row.height + Theme.stack.row, 0.5, "the second line's action leaves its centre");
-            compare(lines.inkAbove(), one.y + one.inkAbove());
-            compare(lines.inkBelow(), lines.height - (three.y + three.height) + three.inkBelow());
-            verify(three.inkBelow() > three.height - (three.contentItem.y + underline(three).y + underline(three).height), "the ink at rest ends above the underline, which draws on hover alone");
+            compare(lines.inkAbove, one.y + one.inkAbove);
+            compare(lines.inkBelow, lines.height - (three.y + three.height) + three.inkBelow);
+            verify(three.inkBelow > three.height - (three.contentItem.y + underline(three).y + underline(three).height), "the ink at rest ends above the underline, which draws on hover alone");
         }
 
         function test_given_the_room_wrapped_actions_return_to_one_line() {

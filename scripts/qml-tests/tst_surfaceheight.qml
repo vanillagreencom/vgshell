@@ -113,7 +113,9 @@ Item {
             compare(pane.scrollArea.bar.visible, false, "no scroll bar for the grow");
             compare(footerDivider.visible, false, "no footer divider for the grow");
             verify(footer.y + footer.height <= holder.height, "the footer stays on the card");
-            tryCompare(holder, "height", holder.target, 5000);
+            // Ink settlement can revise target during this resize. Read
+            // both current values, not the target before the first polish.
+            tryVerify(() => holder.height === holder.target && !holder.surfaceGrowing, 5000, "the card lands on its settled target");
             compare(pane.scrollArea.overflowing, false);
         }
 

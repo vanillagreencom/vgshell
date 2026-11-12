@@ -48,12 +48,12 @@ Item {
         function init() { void Theme.callout; UnitTheme.reset(); }
         function cleanup() { UnitTheme.reset(); }
 
-        function icon(callout) { return callout.children[0]; }
-        function lines(callout) { return callout.children[1]; }
+        function icon(callout) { return callout.children[0].children[0]; }
+        function lines(callout) { return callout.children[0].children[1]; }
         function title(callout) { return lines(callout).children[0]; }
         function body(callout) { return lines(callout).children[1]; }
         function link(callout) { return lines(callout).children[2]; }
-        function button(callout) { return callout.children[2]; }
+        function button(callout) { return callout.children[0].children[2]; }
         function colour(value) { return String(Qt.color(value)); }
         function descendants(item) { return Array.from(item.children).reduce((all, child) => all.concat([child], descendants(child)), []); }
         function ringOf(control) { return descendants(control).find(item => item.target === control && item.outside !== undefined) || null; }
@@ -115,9 +115,9 @@ Item {
             verify(body(callout).lineCount >= 3, "the text wraps onto three lines: " + body(callout).lineCount);
             const leadTop = lead.mapToItem(callout, 0, 0).y;
             const firstLine = lead.height / lead.lineCount;
-            const centre = icon(callout).y + icon(callout).height / 2;
+            const centre = icon(callout).mapToItem(callout, 0, icon(callout).height / 2).y;
             verify(centre > leadTop && centre < leadTop + firstLine, "the icon centres on the first line: " + [centre, leadTop, firstLine]);
-            verify(centre < lines(callout).y + lines(callout).height / 2 - firstLine / 2, "the icon is not on the block's centre");
+            verify(centre < lines(callout).mapToItem(callout, 0, lines(callout).height / 2).y - firstLine / 2, "the icon is not on the block's centre");
             callout.destroy();
         }
 
@@ -135,7 +135,7 @@ Item {
             compare(words.mapToItem(callout, 0, 0).x, Theme.callout.padding, "the line starts on the left padding");
             verify(words.mapToItem(callout, 0, 0).x + words.width <= control.x - Theme.callout.buttonGap, "the line stays clear of the button");
             const lineCentre = words.mapToItem(callout, 0, 0).y + words.height / 2;
-            fuzzyCompare(lineCentre, control.y + control.height / 2, 1, "the line is level with the button");
+            fuzzyCompare(lineCentre, control.mapToItem(callout, 0, control.height / 2).y, 1, "the line is level with the button");
             callout.destroy();
         }
 

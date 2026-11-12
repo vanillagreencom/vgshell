@@ -129,8 +129,8 @@ FocusScope {
     // As wide as the column: the cards with their side room, where the
     // scroll bar sits, wider than the header they sit under.
     implicitWidth: Math.max(header.implicitWidth, listScroll.implicitWidth) + 2 * column.contentInset
-    readonly property real panelMaxHeight: column.contentInset + look.header.height + listScroll.topGutter + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
-    implicitHeight: Math.min(column.contentInset + column.headerHeight + listScroll.implicitHeight, panelMaxHeight)
+    readonly property real panelMaxHeight: column.topPadding + look.header.height + listScroll.topGutter + look.panel.rowCap * (look.card.maxHeight + look.card.gap) + look.stack.tail
+    implicitHeight: Math.min(column.topPadding + column.headerHeight + listScroll.implicitHeight, panelMaxHeight)
 
     onCurrentIndexChanged: {
         if (refreshing) return;
@@ -486,7 +486,7 @@ FocusScope {
         id: listFrame
         width: listScroll.implicitWidth
         x: column.contentInset + (column.contentWidth - width) / 2
-        y: column.contentInset + column.headerHeight
+        y: column.topPadding + column.headerHeight
         height: Math.max(0, Math.min(listScroll.implicitHeight, root.height - y))
 
         CardScroll {
@@ -494,7 +494,7 @@ FocusScope {
             anchors.fill: parent
             scrollObjectName: "notificationPanelScrollBar"
             look: root.look
-            maxHeight: root.panelMaxHeight - column.contentInset - column.headerHeight
+            maxHeight: root.panelMaxHeight - column.topPadding - column.headerHeight
             // The first card stands the card gap under the header, as each
             // card stands it under the one before.
             topGutter: root.look.card.gap

@@ -226,7 +226,7 @@ Singleton {
 
     // How far above its bottom edge an item's drawn content ends, so a
     // `Section` measures the space above its heading from what the eye
-    // sees. An item that declares `inkBelow()`, such as a `Label`, a
+    // sees. An item that declares `inkBelow`, such as a `Label`, a
     // `Switch` or a `FormRow`, answers for itself; a Column ends where the
     // last child it lays out does, above its bottom padding, a Row or a
     // Flow where its lowest shown child does, below its edge for a child
@@ -246,8 +246,16 @@ Singleton {
     // child's `y` only where it wraps a line, which its width decides, not
     // the page's height (https://doc.qt.io/qt-6/qml-qtquick-flow.html).
     function inkBelow(item) {
-        if (item === null || item === undefined) return 0;
-        if (typeof item.inkBelow === "function") return item.inkBelow();
+        // A creation context can die before a still-visible QObject.
+        // Geometry is stored data, never a QML-method lookup: Qt's
+        // QQmlVMEMetaObject::method refuses an invalid context, whereas
+        // readProperty reads its stored value. Bindings stop when their
+        // context dies, so consumers can read the last geometry until the
+        // object leaves the visual tree, without entering its dead code.
+        // https://doc.qt.io/qt-6/qqmlcontext.html#the-context-hierarchy
+        // https://code.qt.io/cgit/qt/qtdeclarative.git/tree/src/qml/qml/qqmlvmemetaobject.cpp?h=6.11
+        if (item === null || item === undefined || item.visible === undefined) return 0;
+        if (typeof item.inkBelow === "number") return item.inkBelow;
         if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + inkBelow(item.item) : 0;
         if (item instanceof Rectangle) return 0;
         if (item.background instanceof Item && item.background.visible) return 0;
@@ -271,19 +279,19 @@ Singleton {
 
     // How far right of its left edge an item's drawn content ends, so a
     // FormRow opens its label's explainer past the control it draws. An
-    // item that declares `inkEnd()`, such as a `Switch`, answers for
+    // item that declares `inkEnd`, such as a `Switch`, answers for
     // itself, and a Loader where its item does; any other item draws to
     // its right edge.
     function inkEnd(item) {
         if (item === null || item === undefined) return 0;
-        if (typeof item.inkEnd === "function") return item.inkEnd();
+        if (typeof item.inkEnd === "number") return item.inkEnd;
         if (item instanceof Loader) return item.item instanceof Item ? item.item.x + inkEnd(item.item) : 0;
         return item.width;
     }
 
     // How far below its top edge an item's drawn content starts, the
     // counterpart of inkBelow, so a GroupList centres its hairline between
-    // what the eye sees of two groups. An item that declares `inkAbove()`,
+    // what the eye sees of two groups. An item that declares `inkAbove`,
     // such as a `Label` or a `FormRow`, answers for itself; a Column starts
     // where the first child it lays out does, below its top padding, a Row
     // or a Flow where its highest shown child does, and a Loader where its
@@ -293,8 +301,8 @@ Singleton {
     // (https://doc.qt.io/qt-6/qml-qtquick-row.html), and a Flow's first
     // line stands at its top.
     function inkAbove(item) {
-        if (item === null || item === undefined) return 0;
-        if (typeof item.inkAbove === "function") return item.inkAbove();
+        if (item === null || item === undefined || item.visible === undefined) return 0;
+        if (typeof item.inkAbove === "number") return item.inkAbove;
         if (item instanceof Loader) return item.item instanceof Item ? inkAbove(item.item) : 0;
         if (item instanceof Rectangle || (item.background instanceof Item && item.background.visible)) return 0;
         const content = item.contentItem;
