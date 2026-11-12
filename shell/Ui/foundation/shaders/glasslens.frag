@@ -32,7 +32,7 @@ layout(std140, binding = 0) uniform buf {
     float uRadius; // its corner
     float uMargin; // the item's reach past the plate on every side
     vec4 uTint;    // the body's fill, premultiplied, as Qt hands a colour
-    vec4 uLens;    // bezel width, the share of the tint the band loses, glint, glow
+    vec4 uLens;    // the band's width, 1 or more; the share of the tint it loses; glint; glow
     vec4 uLight;   // the far wall's share of the light, the outer line, the step's line
 };
 
@@ -64,8 +64,7 @@ void main() {
     float outer = uLight.y * (1.0 - smoothstep(0.0, 1.5, sdf)) * (1.0 - 0.6 * diagonal) * (1.0 - cover);
 
     float depth = max(-sdf, 0.0);
-    // The bezel is at most a quarter of the plate's short side.
-    float bezel = max(min(uLens.x, min(radius, 0.5 * min(halfSize.x, halfSize.y))), 1.0);
+    float bezel = uLens.x;
     // The tint: thin across the band, whole from the bezel's inner end.
     float body = smoothstep(bezel - 0.5, bezel + 0.5, depth);
     float alpha = uTint.a * (1.0 - uLens.y * (1.0 - body));

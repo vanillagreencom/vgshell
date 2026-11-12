@@ -14,7 +14,7 @@
 //   short    <name>: notifications.text.link on notifications.card.fill over <wallpaper> ratio=<r> floor=4.5
 //   short    <name>: tooltip.detail on glass.fill solid ratio=<r> floor=4.5
 //   short    <name>: jarvis.icon.on on jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
-//   short    <name>: jarvis.answer.ink on jarvis.answer.fill over jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: jarvis.answer.tinted.ink on jarvis.answer.tinted.hoverFill over jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
 //   short    <name>: jarvis.ink.words at jarvis.words.oldest on jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
 //   order    catalog/<name>: <stronger> ratio=<r> below <weaker> ratio=<r>
 //   refused  catalog/<name>: <refusal>
@@ -33,9 +33,12 @@
 // Jarvis's overlay draws every line and icon on a glass plate of its own
 // look, which the theme's accent and mode reach: each ink is judged on the
 // card's fill over black and white, a caption line at its line's opacity
-// and an answer's label on the answer's own fill over the card. An icon
-// button draws no fill of its own, so its glyph stands on the capsule,
-// which is the card's fill.
+// and an answer's label on each of the answer's own fills, at rest, under
+// the pointer and pressed, over the card. The confirming answer stands on
+// the theme's accent. An icon button draws no fill of its own, so its
+// glyph stands on the capsule, which is the card's fill. The lens draws
+// the fill alone inside a plate's band, where every line stands
+// (scripts/qml-tests/tst_jarvis_plates.qml).
 // Exit 0: every theme is readable. Exit 1: a shortfall, a hierarchy break
 // or a refusal was reported. Exit 2: bad invocation or a file cannot be read.
 "use strict";
@@ -136,11 +139,11 @@ function noticeLinkShortfalls(look) {
 // lies between it and the card, where it has one. The line leaving the
 // caption fades out from `words.oldest` and is not a line to read.
 const JARVIS_INKS = [
-    ["ink.state"], ["ink.title"], ["ink.action"], ["ink.link"], ["ink.question"], ["ink.path"], ["ink.payload"], ["ink.hint"],
+    ["ink.state"], ["ink.title"], ["ink.action"], ["ink.link"], ["ink.question"], ["ink.path"], ["ink.payload"],
     ["ink.words", "words.newest"], ["ink.words", "words.middle"], ["ink.words", "words.oldest"],
     ["icon.rest"], ["icon.active"], ["icon.on"],
-    ["answer.bareInk"], ["answer.bareHoverInk"],
-    ["answer.ink", null, "answer.fill"], ["answer.hoverInk", null, "answer.hoverFill"]
+    ["answer.quiet.ink", null, "answer.quiet.fill"], ["answer.quiet.ink", null, "answer.quiet.hoverFill"], ["answer.quiet.ink", null, "answer.quiet.pressedFill"],
+    ["answer.tinted.ink", null, "answer.tinted.fill"], ["answer.tinted.ink", null, "answer.tinted.hoverFill"], ["answer.tinted.ink", null, "answer.tinted.pressedFill"]
 ];
 
 // The shortfalls of Jarvis's inks on their plates in the look LOOK

@@ -1,12 +1,14 @@
 # Shared /proc observation for processes that load the bundled fonts.
 # `copies` means both exported private paths are mapped at their current
 # inodes and no installed bundled font is mapped, deleted files included.
+# A name after the directories is a face the process may leave undrawn: its
+# private path is still required, and its file unmapped is no difference.
 set -euo pipefail
 
-font_copies_read() { # PID BUNDLED_DIR PRIVATE_DIR
-  python3 - "$1" "$2" "$3" <<'PY'
+font_copies_read() { # PID BUNDLED_DIR PRIVATE_DIR [UNDRAWN_NAME...]
+  python3 - "$@" <<'PY'
 import os, sys
-qs, bundled, private = sys.argv[1:]
+qs, bundled, private, *undrawn = sys.argv[1:]
 private = os.path.realpath(private)
 try:
     with open(f"/proc/{qs}/environ", "rb") as fh:
@@ -32,7 +34,7 @@ for name in ("VGSHELL_FONT_SANS", "VGSHELL_FONT_MONO"):
     except OSError as exc:
         differences.append(f"{name}=unreadable:{type(exc).__name__}")
         continue
-    if (path, inode) not in files:
+    if (path, inode) not in files and name not in undrawn:
         differences.append(f"{name}=unmapped")
 held = sorted({os.path.basename(path) for path, _ in files if os.path.dirname(path) == bundled})
 if held:

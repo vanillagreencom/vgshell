@@ -114,7 +114,7 @@ Item {
 
         // The voice speaks: the row's body is the card's real Words reading
         // the caption, in the theme's inks at full opacity, at the left
-        // edge, through no shadow; once the phase leaves speaking the
+        // edge; once the phase leaves speaking the
         // service's mode is the answer again and the row draws its body.
         function test_the_voice_speaks_the_words_in_the_card() {
             const caption = { gen: 1, role: "assistant", text: "Tomorrow starts cloudy at nine with a light wind from the west and rain at noon" };
@@ -131,12 +131,10 @@ Item {
             compare(String(words.newestInk), String(Qt.color(Theme.color.text)), "the newest line in the text ink");
             compare(String(words.olderInk), String(Qt.color(Theme.color.textMuted)), "an older line in the muted ink");
             compare([words.newestOpacity, words.middleOpacity, words.oldestOpacity], [1, 1, 1], "every line opaque");
-            compare(words.shadow, null, "no text shadow on a card");
             compare(words.horizontalAlignment, Text.AlignLeft, "the lines start at the left edge");
             const slots = words.children.filter(child => child.line !== undefined && child.visible).sort((a, b) => a.y - b.y);
             verify(slots.length > 1, "the caption takes more than one line");
             for (const slot of slots) {
-                compare(slot.layer.enabled, false, "no line blurs a shadow");
                 compare(slot.children[0].x, 0, "each line starts at the left edge");
             }
             compare(String(slots[slots.length - 1].ink), String(Qt.color(Theme.color.text)), "the newest line draws in the text ink");

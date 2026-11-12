@@ -222,22 +222,26 @@ try {
         assert.doesNotMatch(opaque.stdout, /listItem\./);
     });
 
-    // Jarvis's overlay inks as they drew before VGS-2433 put them on glass
-    // plates, each planted alone in a disposable copy judged on the shipped
-    // tree. A toggle that is on in the accent alone falls short as the
-    // notice link did, on the same card fill. The caption's top line at its
-    // old opacity falls short, which holds the line's opacity in the
-    // reading. Light mode's Confirm label under the pointer in its old ink
-    // falls short on its hover fill and reads on the bare card, which
-    // holds the answer's own fill in the ground.
+    // Defects of Jarvis's overlay inks, each planted alone in a disposable
+    // copy judged on the shipped tree. A toggle that is on in the accent
+    // alone falls short as the notice link did, on the card's fill over
+    // the wallpaper nearest it in each mode. The caption's top line at a
+    // lower opacity falls short, which holds the line's opacity in the
+    // reading. The confirming answer's label in the accent's own colour
+    // reads 1.00 on the accent, not the accent's ratio on the bare card,
+    // which holds the answer's own fill in the ground. A pressed fill in
+    // the label's colour, black on the default accent, reads 1.00, which
+    // holds the pressed state in the reading.
     for (const [name, needle, replacement, lines] of [
         ["a Jarvis toggle that is on in the accent alone", /on: color\("readable\(.*\)"\),/, 'on: color("{palette.accent}"),',
-            [/^short    vgs: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=3\.35 floor=4\.5$/m,
-                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #000000 ratio=4\.15 floor=4\.5$/m]],
-        ["Jarvis's top caption line at its old opacity", /oldest: share\(0\.62\)/, "oldest: share(0.22)",
-            [/^short    vgs: jarvis\.ink\.words at jarvis\.words\.oldest on jarvis\.plate\.card\.fill over #ffffff ratio=1\.85 floor=4\.5$/m]],
-        ["light mode's Confirm label under the pointer in its old ink", /hoverInk: "#363d4a",/, 'hoverInk: "#424956",',
-            [/^short    catalog\/flexoki-light: jarvis\.answer\.hoverInk on jarvis\.answer\.hoverFill over jarvis\.plate\.card\.fill over #000000 ratio=4\.4\d floor=4\.5$/m]]
+            [/^short    vgs: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m,
+                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #000000 ratio=[0-9.]+ floor=4\.5$/m]],
+        ["Jarvis's top caption line at a lower opacity", /oldest: share\(0\.82\)/, "oldest: share(0.22)",
+            [/^short    vgs: jarvis\.ink\.words at jarvis\.words\.oldest on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
+        ["the confirming answer's label in the accent's own colour", /ink: color\("contrast\(\{palette\.accent\}\)"\)/, 'ink: color("{palette.accent}")',
+            [/^short    vgs: jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.fill over jarvis\.plate\.card\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]],
+        ["the confirming answer's pressed fill in its label's colour", /pressedFill: color\("mix\(\{palette\.accent\}, contrast\(\{answer\.tinted\.ink\}\), 0\.05\)"\)/, 'pressedFill: color("#000000")',
+            [/^short    vgs: jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.pressedFill over jarvis\.plate\.card\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]]
     ]) {
         row(`control: ${name} is a shortfall`, dir => {
             const copy = path.join(dir, "copy");

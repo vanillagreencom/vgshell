@@ -140,7 +140,7 @@ Item {
                 verify(left || right, "the whole overlay stands beside Console");
                 if (data.side !== "either") compare(left ? "left" : "right", data.side, "use the side with more measured room");
                 const drawn = plates();
-                verify(drawn.length >= (data.icons ? 3 : 2), "the side draws the disc, the card and the shown capsule: " + drawn.map(plate => plate.objectName));
+                verify(drawn.length >= (data.icons ? 2 : 1), "the side draws the card and the shown capsule: " + drawn.map(plate => plate.objectName));
                 for (const plate of drawn) {
                     const rect = plate.mapToItem(bubble, 0, 0, plate.width, plate.height);
                     verify(rect.width > 0 && rect.height > 0, "clearance cannot pass by collapsing " + plate.objectName);
@@ -178,9 +178,11 @@ Item {
                 "closing or clearing Console restores centred placement");
         }
 
-        // The judgement reads the box the plates take at the bottom centre:
-        // a Console that ends just above their top leaves the overlay
-        // there, and one that reaches a pixel into it moves the overlay.
+        // The judgement reads the box the overlay draws in at the bottom
+        // centre, from the words' card, or from what the orb draws when no
+        // words show, down to the text card: a Console that ends just above
+        // its top leaves the overlay there, and one that reaches a pixel
+        // into it moves the overlay.
         function test_the_console_judgement_reads_the_plates_extent_data() {
             const open = { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" } };
             return [
@@ -196,9 +198,14 @@ Item {
             service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())), data.state);
             verify(renderedFrame(bubble));
             const overlay = findChild(bubble, "overlay");
-            const top = Math.min(...plates().map(plate => plate.mapToItem(bubble, 0, 0).y));
+            const orb = collect(overlay, item => item.phase !== undefined && item.capture !== undefined, [])[0];
+            verify(orb !== undefined, "the overlay draws its orb");
+            // The orb draws nothing in the outer share of its canvas past
+            // the look's reach, a whole number of pixels.
+            const inset = Math.round((1 - bubble.look.orb.reach) * orb.width / 2);
             if (data.caption) verify(plates().some(plate => plate.objectName === "wordsCard"), "the words draw on their card");
-            fuzzyCompare(top, overlay.y, 0.5, "the plates start at the overlay's top");
+            const top = data.caption ? Math.min(...plates().map(plate => plate.mapToItem(bubble, 0, 0).y)) : orb.mapToItem(bubble, 0, inset).y;
+            fuzzyCompare(top, overlay.y, 0.5, "what the overlay draws starts at its box's top");
             const over = bottom => ({ output: "SMOKE-1", x: 0, y: 0, width: root.width, height: bottom });
             service.consoleBox = over(top - 1);
             verify(renderedFrame(bubble));

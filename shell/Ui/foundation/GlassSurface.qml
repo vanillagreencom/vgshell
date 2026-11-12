@@ -2,10 +2,14 @@ import QtQuick
 import QtQuick.Effects
 import qs.Commons
 
-// VGlass, the one shared glass look, or the standard surface. While
-// `drawn`: a soft drop shadow, a translucent fill, a faint top-down sheen
-// and a hairline inner edge, every value from `Theme.glass` or what the
-// surface hands: its own `fill`, `radius` and `elevation`. Every layer
+// VGlass, the one shared glass look, or the standard surface. The
+// material is the lens form, which a surface that hands `lens` draws: the
+// tinted body over the compositor's blur and a clear rim band with its
+// light, in one pass (shaders/glasslens.frag). A surface that hands none
+// still draws the flat form while `drawn`: a soft drop shadow, a
+// translucent fill, a faint top-down sheen and a hairline inner edge.
+// Every value is from `Theme.glass` or what the surface hands: its own
+// `fill`, `radius`, `elevation` and `lens`. Every layer
 // takes the surface's whole geometry and `radius`, so all of them round to
 // the same corner: `clip` cuts only to the bounding box, and a layer of
 // another size rounds to another corner that shows past the surface's
@@ -68,8 +72,8 @@ Item {
     property real radius: standard === raised ? Theme.radius.glass : standard.radius
     // `wide` for a large card, `tight` for a small transient surface: a
     // group of `Theme.glass.shadow`. One the table lacks is logged and
-    // drawn as wide. `none` draws no shadow, for a plate whose hairline
-    // alone marks its edge on the wallpaper.
+    // drawn as wide. `none` draws no shadow, for a plate whose rim alone
+    // marks its edge on the wallpaper.
     property string elevation: "wide"
     readonly property var shadow: elevation === "none" ? null : shadowOf(elevation)
     // Cache the shadow only for a surface that keeps its size; a resizing
@@ -79,18 +83,22 @@ Item {
     property real padding: 0
     // The lens form: a surface that hands its look's lens values draws the
     // lens pass (shaders/glasslens.frag) in place of the sheen and the
-    // hairline while glass is on: `bezel`, the rim band's width, held to a
-    // quarter of the plate's short side; `clarity`, the share of the tint
-    // the band loses, which takes it under the layer rule's blur
-    // threshold; `glint` and `glow`, the light on the rim and inside it;
-    // `exit`, the share of that light the far wall takes; `outline`, the
-    // dark line outside the rim; and `seam`, the line where the band meets
-    // the body. Solid glass draws the same pass over its opaque fill with
-    // no clear band. Content keeps an inset of `bezel` or more: inside it
-    // the pass draws the fill alone.
+    // hairline while glass is on: `bezel`, the rim band's width;
+    // `clarity`, the share of the tint the band loses, which takes it
+    // under the layer rule's blur threshold; `glint` and `glow`, the light
+    // on the rim and inside it; `exit`, the share of that light the far
+    // wall takes; `outline`, the dark line outside the rim; and `seam`,
+    // the line where the band meets the body. Solid glass draws the same
+    // pass over its opaque fill with no clear band. While glass is off no
+    // pass draws.
     property var lens: null
     readonly property bool lensed: on && lens !== null
-    readonly property real contentInset: padding
+    // The band's drawn width: the handed bezel, held to the corner and to
+    // a quarter of the surface's short side, and never under a pixel.
+    readonly property real bezel: lensed ? Math.max(1, Math.min(lens.bezel, corner, Math.min(width, height) / 4)) : 0
+    // Where content starts: inside the band, where the pass draws the fill
+    // alone, so an ink's ground is that fill.
+    readonly property real contentInset: Math.max(padding, bezel)
     // The corner the body rounds to while glass is on, drawn or solid:
     // `radius` as a real radius, which a pill-shaped radius larger than a
     // side needs for the shadow; while it is off, the standard look's.
@@ -145,6 +153,7 @@ Item {
 
     RectangularShadow {
         visible: glass.drawn && glass.elevation !== "none"
+        z: -2
         anchors.fill: parent
         radius: glass.corner
         blur: glass.shadow === null ? 0 : glass.shadow.blur
@@ -152,26 +161,6 @@ Item {
         offset: Qt.vector2d(0, glass.shadow === null ? 0 : glass.shadow.offsetY)
         color: glass.shadow === null ? "transparent" : glass.shadow.color
         cached: glass.shadowCached
-    }
-
-    ShaderEffect {
-        visible: glass.lensed
-        // The dark line lies outside the plate.
-        readonly property real reach: 2
-        x: -reach
-        y: -reach
-        width: parent.width + 2 * reach
-        height: parent.height + 2 * reach
-        blending: true
-        property vector2d uSize: Qt.vector2d(glass.width, glass.height)
-        property real uRadius: glass.corner
-        property real uMargin: reach
-        property color uTint: glass.effectiveFill
-        property vector4d uLens: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
-            : Qt.vector4d(glass.lens.bezel, glass.solid ? 0 : glass.lens.clarity, glass.lens.glint, glass.lens.glow)
-        property vector4d uLight: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
-            : Qt.vector4d(glass.lens.exit, glass.lens.outline, glass.lens.seam, 0)
-        fragmentShader: Qt.resolvedUrl("shaders/glasslens.frag.qsb")
     }
 
     Rectangle {
@@ -204,5 +193,34 @@ Item {
         color: "transparent"
         border.width: glass.on ? Theme.glass.glass.hairlineWidth : Theme.surface.border
         border.color: glass.on ? Theme.glass.glass.hairline : glass.standard.border
+    }
+
+    // The lens pass, built only for a surface that hands a lens, so a
+    // flat surface holds none of it. Qt paints a lower `z` first (Qt 6
+    // Item.z reference), so it draws over the drop shadow and under the
+    // body's content, whatever its place among the children.
+    Loader {
+        id: pass
+        // The dark line lies in the two pixels outside the surface.
+        readonly property real reach: 2
+        active: glass.lens !== null
+        visible: glass.lensed
+        z: -1
+        x: -reach
+        y: -reach
+        width: parent.width + 2 * reach
+        height: parent.height + 2 * reach
+        sourceComponent: ShaderEffect {
+            blending: true
+            property vector2d uSize: Qt.vector2d(glass.width, glass.height)
+            property real uRadius: glass.corner
+            property real uMargin: pass.reach
+            property color uTint: glass.effectiveFill
+            property vector4d uLens: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
+                : Qt.vector4d(glass.bezel, glass.solid ? 0 : glass.lens.clarity, glass.lens.glint, glass.lens.glow)
+            property vector4d uLight: glass.lens === null ? Qt.vector4d(0, 0, 0, 0)
+                : Qt.vector4d(glass.lens.exit, glass.lens.outline, glass.lens.seam, 0)
+            fragmentShader: Qt.resolvedUrl("shaders/glasslens.frag.qsb")
+        }
     }
 }

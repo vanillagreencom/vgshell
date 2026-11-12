@@ -226,17 +226,18 @@ Item {
     // and the confirming answer of a destructive request quiet too.
     // It is a qs.Ui Button handed the look's values, since a surface draws
     // no private control for what a component draws (design-system.md
-    // § Components). The variant names the answer for
-    // scripts/smoke/rows/jarvis-bubble.sh and sets the label's weight.
+    // § Components). Its variant names its role, ghost for the answer that
+    // declines and secondary for the one that confirms, which
+    // scripts/smoke/rows/jarvis-bubble.sh reads; the look hands every
+    // value the variant would draw.
     component Answer: Button {
         required property var look
         property bool quiet: false
         readonly property var form: quiet ? look.answer.quiet : look.answer.tinted
         size: "sm"
-        variant: quiet ? "ghost" : "secondary"
         controlHeight: look.answer.height
-        // The label stands on the capsule's centre at any width.
-        paddingX: Math.max(look.answer.paddingX, (width - implicitContentWidth) / 2)
+        paddingX: look.answer.paddingX
+        centerContent: true
         radius: look.answer.radius
         restFill: form.fill
         hoverFill: form.hoverFill
@@ -317,8 +318,8 @@ Item {
             root.hold !== null ? approvalText.y + approvalText.height + card.paddingY
             : stateBox.visible ? stateBox.y + stateBox.height + card.paddingY : 0)
         x: root.placementRoom.x + (root.placementRoom.width - width) / 2
-        // Qt Quick clips descendants to this box, including shadows and
-        // overwide words on a side too narrow for their natural size.
+        // Qt Quick clips descendants to this box, including overwide
+        // words on a side too narrow for their natural size.
         // https://doc.qt.io/qt-6/qml-qtquick-item.html#clip-prop
         clip: root.besideConsole
         anchors.bottom: parent.bottom
@@ -380,7 +381,6 @@ Item {
             newestOpacity: root.look.words.newest
             middleOpacity: root.look.words.middle
             oldestOpacity: root.look.words.oldest
-            shadow: root.look.shadow
             x: overlay.centre - width / 2
             y: overlay.card.paddingY
             width: overlay.promptWidth
@@ -501,8 +501,6 @@ Item {
             Label {
                 id: stateLine
                 width: parent.width
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
                 role: root.fault !== null ? "bodyStrong" : "label"
                 color: root.fault !== null ? root.look.ink.title : root.look.ink.state
                 text: root.stateText
@@ -513,8 +511,6 @@ Item {
                 id: silenceLine
                 width: parent.width
                 visible: !root.hidden && root.state !== null && root.state.sound.kind === "silent" && !root.micMuted
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
                 role: "body"
                 color: root.look.ink.action
                 linkColor: root.look.ink.link
@@ -531,8 +527,6 @@ Item {
                 id: faultAction
                 width: parent.width
                 visible: root.fault !== null
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
                 role: "body"
                 color: root.look.ink.action
                 linkColor: root.look.ink.link
@@ -560,8 +554,6 @@ Item {
             Label {
                 id: question
                 width: parent.width
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
                 role: "bodyStrong"
                 color: root.look.ink.question
                 text: approvalText.prompt === null ? "" : approvalText.prompt.question
@@ -572,8 +564,6 @@ Item {
             Label {
                 id: fullPath
                 width: parent.width
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
                 visible: text !== ""
                 role: "hint"
                 color: root.look.ink.path
@@ -608,17 +598,6 @@ Item {
                 // while this area hides it
                 // (https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop).
                 visible: payload.text !== ""
-                // The text shadow's layer is this region's, not the
-                // payload's. Qt sizes an Item layer to the item's own
-                // bounding rectangle whatever an ancestor clips
-                // (QQuickItemLayer::updateGeometry, qtdeclarative 6.12), and
-                // bounds its texture to the RHI's maximum texture size,
-                // warning "Unsupported size requested"
-                // (QSGRhiLayer::setSize, qtdeclarative 6.12): a 16 KiB
-                // payload's layer, past 16384 px tall, would not draw at
-                // its size.
-                layer.enabled: true
-                layer.effect: TextShadow { shadow: root.look.shadow }
                 Label {
                     id: payload
                     width: parent.width
@@ -643,6 +622,7 @@ Item {
                 Answer {
                     id: cancel
                     look: root.look
+                    variant: "ghost"
                     quiet: true
                     width: (answerButtons.width - answerButtons.spacing) / 2
                     text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
@@ -651,6 +631,7 @@ Item {
                 Answer {
                     id: confirm
                     look: root.look
+                    variant: "secondary"
                     // A request that needs a press is the destructive kind,
                     // whose confirming answer takes no tint.
                     quiet: root.hold !== null && root.hold.physical

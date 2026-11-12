@@ -247,8 +247,9 @@ f share/vgshell/shell/Ui/foundation/QrMatrix.qml
 f share/vgshell/shell/Ui/foundation/Scrim.qml
 f share/vgshell/shell/Ui/foundation/ShortcutLabels.qml
 f share/vgshell/shell/Ui/foundation/Surface.qml
-f share/vgshell/shell/Ui/foundation/TextShadow.qml
 f share/vgshell/shell/Ui/foundation/TextUnderline.qml
+f share/vgshell/shell/Ui/foundation/shaders/glasslens.frag
+f share/vgshell/shell/Ui/foundation/shaders/glasslens.frag.qsb
 f share/vgshell/shell/Ui/icons/LICENSE
 f share/vgshell/shell/Ui/icons/Lucide.js
 f share/vgshell/shell/Ui/icons/Own.js

@@ -211,15 +211,18 @@ var TOKENS = {
         // A dot's radius as a share of the canvas half-width: 0.61 px at
         // the 255 px canvas.
         dot: number(0.0048, 0, 0.05),
-        // The dark edge round each dot, as a share of the canvas
-        // half-width, 0.77 px at the 255 px canvas, and its strength: on a
-        // light ground a dot reads by its edge, on a dark one by its core.
-        edge: number(0.006, 0, 0.05),
-        edgeStrength: share(0.66),
-        // The share of the canvas half-width that holds everything the
-        // orb draws: the shader draws nothing past 1.3 of a state's radius
-        // (shaders/particleorb.frag), 0.92 of the half-width at the
-        // widest, speaking at its loudest. The plates stand outside it.
+        // The point edge, the one value that sets it: how dark the thin
+        // edge round a point of the front face draws at full brightness.
+        // On a light ground a point reads by its edge, on a dark one by
+        // its core; 0 draws none. The shader scales it by the state's
+        // brightness, throb included, and sets its width from `dot`
+        // (shaders/particleorb.frag).
+        edge: share(0.66),
+        // The share of the canvas half-width the plates stand outside. It
+        // holds the orb's band in every state: the outermost strand rests
+        // at 1.095 of a state's radius (shaders/particleorb.frag), 0.78
+        // of the half-width at the widest, speaking at its loudest. Past
+        // it the shader draws only the thin spray, to 1.3 of the radius.
         reach: share(0.84),
         frequency: number(2.4, 0, 8),
         warp: share(0.22),
@@ -258,8 +261,8 @@ var TOKENS = {
         hold: number(250, 0, 1000)
     },
     // Each line's ink on the text card, one plain ink a plate: weight and
-    // size carry the hierarchy, since a dimmer ink would need a denser
-    // body. LIGHT supplies the dark inks for its light card. The look
+    // size carry the hierarchy, since a dimmer ink would need a stronger
+    // tint. LIGHT supplies the dark inks for its light card. The look
     // hands a Label its colour alone.
     ink: {
         state: color("#f4f5f8"),
@@ -271,18 +274,13 @@ var TOKENS = {
         path: color("#f4f5f8"),
         payload: color("#f4f5f8")
     },
-    // Light text lifts off the dark card; dark text in LIGHT draws no
-    // shadow.
-    shadow: {
-        color: color("#000000"),
-        opacity: share(0),
-        blur: length(9)
-    },
     // The approval prompt's answers: two capsules of equal width that fill
     // the card's row. Cancel (No) is quiet, a faint fill on the card;
     // Confirm (Yes) stands on the theme's accent with the ink that reads
-    // on it. They are fills, not glass: a plate inside a plate draws
-    // solid.
+    // on it, and its fill moves away from that ink under the pointer and,
+    // less far, while pressed, so the label reads in every state under
+    // every accent. They are fills, not glass: a plate inside a plate
+    // draws solid.
     answer: {
         height: length(36),
         paddingX: length(16),
@@ -298,8 +296,8 @@ var TOKENS = {
         },
         tinted: {
             fill: color("{palette.accent}"),
-            hoverFill: color("mix({palette.accent}, #ffffff, 0.12)"),
-            pressedFill: color("mix({palette.accent}, #000000, 0.12)"),
+            hoverFill: color("mix({palette.accent}, contrast({answer.tinted.ink}), 0.12)"),
+            pressedFill: color("mix({palette.accent}, contrast({answer.tinted.ink}), 0.05)"),
             ink: color("contrast({palette.accent})")
         }
     },
@@ -313,6 +311,14 @@ var TOKENS = {
         gap: length(8),
         // Larger than any side, so a plate rounds to a capsule.
         full: length(4096),
+        // The glass tint's strength, the one value that sets it: the
+        // alpha of every plate's fill in both modes. The band's tint, the
+        // ground each ink is judged on and the shader's body all derive
+        // from it. It stays above the blur thresholds, the manifest
+        // rule's 0.6 and the core rule's 0.7, and above the floor one
+        // plain ink needs on the opposite ground, about 0.6
+        // (tst_jarvis_plates.qml, scripts/check-theme-contrast.js).
+        tint: share(0.72),
         // The lens (qs.Ui shaders/glasslens.frag): the bezel band's
         // width; the share of the tint the band loses, which takes it
         // under the blur threshold; the glint on the rim and the glow
@@ -320,27 +326,25 @@ var TOKENS = {
         // line outside the rim; and the line where the band meets the
         // body.
         lens: {
-            bezel: length(4),
-            clarity: share(0.45),
+            bezel: length(3),
+            clarity: share(0.4),
             glint: share(0.85),
             glow: share(0.2),
             exit: share(0.8),
-            outline: share(0.5),
+            outline: share(0.3),
             seam: share(0.1)
         },
         // The card under the words, and under the state line, the fault or
         // the held request: it holds the lines it shows inside its
         // padding, which is wider than the bezel. One line of the state
-        // rounds to a capsule. The body's alpha stays above the layer
-        // rule's blur threshold and the core's.
+        // rounds to a capsule.
         card: {
             base: color("#1e1e22"),
-            opacity: share(0.72),
-            fill: color("alpha({plate.card.base}, {plate.card.opacity})"),
+            fill: color("alpha({plate.card.base}, {plate.tint})"),
             // The card as drawn over the wallpaper nearest its ink: white
             // under the dark card, black under the light one. An ink that
             // reads at 4.5:1 on it reads so over any wallpaper.
-            nearInk: color("mix(#ffffff, {plate.card.base}, {plate.card.opacity})"),
+            nearInk: color("mix(#ffffff, {plate.card.base}, {plate.tint})"),
             border: color("#34343a"),
             radius: length(26),
             paddingX: length(18),
@@ -370,19 +374,17 @@ var TOKENS = {
 };
 
 // Light mode draws light plates with dark text, icons and answers. The
-// orb keeps its recipe.
+// orb keeps its recipe and the plates their tint.
 var LIGHT = {
     plate: {
         lens: {
             glint: 0.95,
             glow: 0.3,
-            outline: 0.3,
             seam: 0.3
         },
         card: {
             base: "#f4f4f6",
-            opacity: 0.72,
-            nearInk: "mix(#000000, {plate.card.base}, {plate.card.opacity})",
+            nearInk: "mix(#000000, {plate.card.base}, {plate.tint})",
             border: "#d2d2d6"
         }
     },

@@ -138,8 +138,8 @@ Item {
         }
 
         // The orb draws at the look's canvas, 15% under the first build's
-        // 300 px, and the icon row's capsule stands beside its disc at the
-        // orb's height.
+        // 300 px, and the icon row's capsule stands the plates' gap right
+        // of what the orb draws, at the orb's height.
         function test_the_orb_draws_at_255_px() {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             put(root.listening);
@@ -148,9 +148,11 @@ Item {
             const centre = orbCentre();
             mouseMove(root, centre.x, centre.y);
             tryCompare(bubble, "iconOpacity", 1, 100);
-            const disc = named("orbPlate");
             const capsule = named("iconPill");
-            compare(capsule.x, disc.x + disc.width + root.look.plate.gap);
+            // The orb draws nothing in the outer share of its canvas past
+            // the look's reach, a whole number of pixels.
+            const inset = Math.round((1 - root.look.orb.reach) * orb().width / 2);
+            compare(capsule.x, orb().x + orb().width - inset + root.look.plate.gap);
             fuzzyCompare(capsule.mapToItem(root, 0, capsule.height / 2).y, centre.y, 0.5);
         }
 
@@ -362,7 +364,6 @@ Item {
                 [look.words.newest, look.words.middle, look.words.oldest], "the look's line opacities");
             compare([String(words[0].newestInk), String(words[0].olderInk)],
                 [String(Qt.color(look.ink.words)), String(Qt.color(look.ink.words))], "the look's words ink");
-            compare(words[0].shadow, look.shadow, "the look's text shadow");
             compare(words[0].horizontalAlignment, Text.AlignHCenter, "centred lines");
             tryCompare(words[0], "shown", caption.text);
             verify(words[0].visible, "the shown muted reply draws before Hide");
@@ -376,7 +377,7 @@ Item {
             compare(bubble.iconsShown, false);
             compare(bubble.capturePresented, false, "required text never claims to be the orb indicator");
             compare(JSON.stringify(all(bubble, []).filter(item => item.glassSurface === true && item.visible).map(item => item.objectName)),
-                data.required ? '["textCard"]' : "[]", "no disc, capsule or words card remains");
+                data.required ? '["textCard"]' : "[]", "no capsule or words card remains");
             compare(holdsOrb(), false);
             if (!data.required) {
                 compare(bubble.inputItems.length, 0, "hidden content has no pointer region");

@@ -12,7 +12,9 @@ import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 // continuous and rising from 0 to 1. A state that can show all day draws
 // at most its look's frame rate and the others every frame. Motion scale 0
 // stills every state, the clocks wrap at their turns, and they reset when
-// the orb goes inactive. The offscreen renderer draws no shader, so a
+// the orb goes inactive. The shader's point edge is the look's one value;
+// what it draws over white is scripts/qml-tests/tst_jarvis_plates.qml's.
+// The offscreen renderer draws no shader, so a
 // drawn frame here is a change of the shader's clock uniform, counted
 // against this test's own FrameAnimation, one tick a frame; the frames a
 // real window swaps are scripts/smoke/rows/jarvis-bubble.sh's.
@@ -183,6 +185,20 @@ Item {
             held[data.clock] = turn - 1e-4;
             tryVerify(() => held[data.clock] < 1, 1000, "the clock passes its turn and starts again: " + held[data.clock]);
             verify(held[data.clock] >= 0, "the clock stays at or above 0: " + held[data.clock]);
+        }
+
+        // The point edge the shader draws is the look's one value: the orb
+        // in a look that states another edge hands the shader that one.
+        function test_the_point_edge_is_the_looks_one_value() {
+            const look = orb.look;
+            verify(look.orb.edge > 0 && look.orb.edge <= 1, "the look states an edge: " + look.orb.edge);
+            compare(shader().uEdge, look.orb.edge);
+            orb.look = Object.assign({}, look, { orb: Object.assign({}, look.orb, { edge: 0.25 }) });
+            try {
+                compare(shader().uEdge, 0.25);
+            } finally {
+                orb.look = Qt.binding(() => Theme.appearance(Appearance.TOKENS, Appearance.LIGHT));
+            }
         }
 
         function test_an_inactive_orb_resets_its_clocks() {

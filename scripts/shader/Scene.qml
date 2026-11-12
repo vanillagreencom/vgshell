@@ -22,7 +22,11 @@ import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 // as its one shipped caller draws it: the disc behind Voice's plasma orb,
 // with the plasma's own shader hidden in every scene, since the disc's
 // cost is far under the plasma's frame-to-frame spread and a reading
-// taken beside it is that spread.
+// taken beside it is that spread. glass-lens is qs.Ui's GlassSurface in
+// the lens form as the largest plate Jarvis's overlay draws: the card of a
+// held request whose payload fills the room this output leaves under the
+// orb, in the overlay's look. The pass's cost grows with the plate's area,
+// so the largest plate bounds the others.
 // The off scene keeps the same
 // animation and background; only the shader stops drawing. The scene
 // selects the shader's own effect by its pack, so a visual that holds a
@@ -38,10 +42,11 @@ ShellRoot {
 
     readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb",
                                     "jarvis-orb-reduced": "particleorb.frag.qsb",
-                                    "radial-backdrop": "radialbackdrop.frag.qsb" })
+                                    "radial-backdrop": "radialbackdrop.frag.qsb", "glass-lens": "glasslens.frag.qsb" })
 
     function plant(item) {
-        const effects = item.children.filter(child => child instanceof ShaderEffect);
+        // A GlassSurface builds its lens pass in a Loader.
+        const effects = item.children.map(child => child instanceof Loader ? child.item : child).filter(child => child instanceof ShaderEffect);
         const effect = effects.find(child => String(child.fragmentShader).endsWith("/" + root.packs[root.shader]));
         if (root.shader === "radial-backdrop") effects.filter(child => child !== effect).forEach(child => { child.visible = false; });
         if (root.mode === "off") effect.visible = false;
@@ -62,7 +67,7 @@ ShellRoot {
             id: visual
             anchors.fill: parent
             sourceComponent: root.shader === "plasma" || root.shader === "radial-backdrop" ? plasma
-                : root.shader.startsWith("jarvis-orb") ? particle : orb
+                : root.shader.startsWith("jarvis-orb") ? particle : root.shader === "glass-lens" ? plate : orb
             onLoaded: root.plant(item)
         }
         // QQuickWindow.update requests rendering even without scene changes:
@@ -112,6 +117,25 @@ ShellRoot {
             phase: "speaking"
             playback: 1
             reduced: root.shader === "jarvis-orb-reduced"
+        }
+    }
+    Component {
+        id: plate
+        GlassSurface {
+            readonly property var look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
+            // The request card's width, and the output's height less the
+            // overlay's two margins, what the orb draws and the plates' gap.
+            // The output is read from Quickshell: inside an Item `layer`
+            // names the item's own layer, not the window above. A
+            // ShellScreen's height is the screen's
+            // (https://quickshell.org/docs/v0.3.1/types/Quickshell/ShellScreen/).
+            implicitWidth: look.layout.prompt + 2 * look.plate.card.paddingX
+            implicitHeight: Quickshell.screens[0].height - 2 * look.layout.margin - Math.round(look.orb.reach * look.orb.size) - look.plate.gap
+            optIn: true
+            fill: look.plate.card.fill
+            standard: ({ background: look.plate.card.base, border: look.plate.card.border, radius: look.plate.card.radius })
+            elevation: "none"
+            lens: look.plate.lens
         }
     }
     IpcHandler {

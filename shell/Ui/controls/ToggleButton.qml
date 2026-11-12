@@ -14,7 +14,6 @@ Button {
     checkable: true
     variant: "tertiary"
     rightInset: mark.room
-    rightPadding: leftPadding + mark.room
 
     UnlockMark { id: mark; control: root; bodyEnd: root.width - mark.room; centreY: root.height / 2 }
 }

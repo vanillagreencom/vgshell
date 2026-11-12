@@ -527,8 +527,8 @@ print("blocked" if entries and all(e.get("disabledReason") for e in entries) els
 '
 }
 # Read all built copies, including the unmapped ones: hidden ordinary
-# content must not hand Words a caption or retain the orb's disc, the
-# words' card or the icon capsule; required text keeps its card alone.
+# content must not hand Words a caption or retain the words' card or the
+# icon capsule; required text keeps its card alone.
 jarvis_bubble_hidden() { # quiet|required
   local bubbles orbs plates
   bubbles="$(ipc smoke layerItems vgs.jarvis Bubble hidden,words,capturePresented,iconsShown,presented,shown)" &&
@@ -537,7 +537,7 @@ jarvis_bubble_hidden() { # quiet|required
   py_reply '
 import json,sys
 rows=json.load(sys.stdin); orbs=json.loads(sys.argv[1]); plates=json.loads(sys.argv[2]); required=sys.argv[3]=="required"
-names={"orbPlate","wordsCard","iconPill","textCard"}
+names={"wordsCard","iconPill","textCard"}
 built={v["objectName"] for _,_,v in plates}
 if not names<=built: sys.exit("jarvis-bubble: plates-reader=missing " + ",".join(sorted(names-built)))
 shown=sorted(v["objectName"] for _,_,v in plates if v["visible"] and v["objectName"] in names)
@@ -861,15 +861,17 @@ if ! mute_box="$(jarvis_bubble_required_box RowButton label 'Mute microphone')";
   return 0
 fi
 read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*map(round, json.loads(sys.argv[1])))' "$mute_box")
-# The row's capsule stands beside the canvas, the microphone the middle
-# of its three icons at the orb's height. The disc right of the hit
-# square and above the way to the capsule is decorative too: 100 px right
-# of the orb's centre and 38 px above the microphone's icon, past the
-# 150 px square and the capsule's 8 px of padding over its first icon.
-if ((mute_x >= orb_x + orb_w)); then
+# The row's capsule stands beside what the orb draws, in the canvas's empty
+# outer rim, the microphone the middle of its three icons at the orb's
+# height. The canvas right of the hit square and above the way to the
+# capsule is decorative too: 100 px right of the orb's centre and 38 px
+# above the microphone's icon, past the 150 px square and the capsule's
+# 12 px of padding over its first icon. The capsule starts right of that
+# point.
+if ((mute_x > orb_x + orb_w / 2 + 100)); then
   jarvis_bubble_pass "$((orb_x + orb_w / 2 + 100))" "$((mute_y - 38))"
 else
-  fail "the icon capsule enters the orb's canvas: orb=$orb_box mute=$mute_box"
+  fail "the icon capsule reaches the decorative point: orb=$orb_box mute=$mute_box"
 fi
 expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
 # A right click on the listening orb's centre opens the Jarvis menu at the
@@ -1321,7 +1323,7 @@ needle,replacement={
     "approval-caption": ('|| root.hold !== null ? ""', '? ""'),
     "approval-kind": ('id: "files.delete", args:', 'id: "files.read", args:'),
     "approval-path": ('path: "/home/fixture/draft.txt"', 'path: "/home/fixture/other.txt"'),
-    "approval-role": ('variant: bare ? "ghost" : "secondary"', 'variant: bare ? "secondary" : "ghost"'),
+    "approval-role": ('variant: "ghost"', 'variant: "secondary"'),
     "approval-order": ('id: answerButtons', 'id: answerButtons\n                    layoutDirection: Qt.RightToLeft')
 }[sys.argv[2]]
 s=p.read_text(); assert s.count(needle)==1

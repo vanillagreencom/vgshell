@@ -11,8 +11,8 @@ import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 // at most three lines draw, the newest at the bottom, and only the tail
 // they need is laid out; a caption that grows inside its last drawn word
 // keeps its words, and one that changes an earlier word starts over;
-// motion scale 0 shows the text whole; each line draws over the look's
-// text shadow. Words takes plain values: the bubble's are its look's, as
+// motion scale 0 shows the text whole. Words takes plain values: the
+// bubble's are its look's, as
 // `words` below is handed them; tst_jarvis_reply_card.qml reads the reply
 // card's real Words and tst_jarvis_overlay.qml the bubble's.
 Item {
@@ -33,7 +33,6 @@ Item {
         newestOpacity: root.look.words.newest
         middleOpacity: root.look.words.middle
         oldestOpacity: root.look.words.oldest
-        shadow: root.look.shadow
     }
 
     TestCase {
@@ -80,28 +79,6 @@ Item {
             const tail = shown.map(textOf).join(" ");
             verify(text.endsWith(" " + tail), "the lines are the caption's last, in order: " + tail);
             verify(bottom.opacity > shown[0].opacity, "the oldest line is fainter");
-        }
-
-        // Each drawn line draws through its layer's shadow, handed the look's
-        // colour, opacity and blur; tst_textshadow.qml holds the effect's own
-        // fixed values.
-        function test_each_line_draws_the_looks_shadow() {
-            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            words.text = Array(20).fill("scripted reply").join(" ");
-            tryVerify(() => words.settled, 1000);
-            const shown = drawn();
-            verify(shown.length > 1, "more than one line draws");
-            const effects = [];
-            const collect = item => { for (const child of item.children) { if (child.shadowEnabled !== undefined) effects.push(child); collect(child); } };
-            collect(root);
-            for (const slot of shown) {
-                verify(slot.layer.enabled, "the line draws through a layer");
-                const effect = effects.find(found => found.source !== null && found.source !== undefined && found.source.sourceItem === slot);
-                verify(effect !== undefined, "an effect draws the line");
-                compare(String(effect.shadowColor), String(Qt.color(root.look.shadow.color)));
-                compare(effect.shadowOpacity, root.look.shadow.opacity);
-                compare(effect.blurMax, root.look.shadow.blur);
-            }
         }
 
         function test_motion_scale_zero_shows_the_text_whole() {

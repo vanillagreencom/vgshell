@@ -13,8 +13,9 @@
 #
 # The core's greeter host: the row starts bin/vgshell greeter, which makes
 # private content-named font copies in the greeter's state/fonts and execs
-# qs on shell/greeter.qml. Its /proc maps must name those copies and no
-# installed bundled font. A direct installed-font start is the must-fail
+# qs on shell/greeter.qml. Its /proc maps must name the sans copy, may name
+# the mono copy, which the greeter maps only when it draws mono text, and
+# must name no installed bundled font. A direct installed-font start is the must-fail
 # control for that observation. Both starts stay in the nested sandbox,
 # with VGS_GREETER_VIEW naming the plugin's view, XDG_DATA_DIRS naming two
 # fixture directories under scripts/smoke/fixtures/greeter, a theme
@@ -117,14 +118,19 @@ greeter_stop() {
   wait "$1" 2>/dev/null || true
   expect_poll "the stopped host leaves no surface" 0 layer_count vgs:greeter
 }
+# The greeter's own text is sans, and its three icon buttons draw no label,
+# so it maps the mono face only when it draws one: the mono copy may stay
+# unmapped (range run dev-validate-20261112T120657Z-1473489, VGS-2433: once
+# qs.Ui's Button built no label under an icon button, the greeter mapped
+# the sans copy alone).
 greeter_font_maps() {
-  font_copies_read "$greeter_pid" "$repo/shell/assets/fonts" "$sandbox/greeter-state/fonts"
+  font_copies_read "$greeter_pid" "$repo/shell/assets/fonts" "$sandbox/greeter-state/fonts" VGSHELL_FONT_MONO
 }
 greeter_installed_maps() {
   local reading
   reading="$(greeter_font_maps)" || return
   if [[ $reading == *VGSHELL_FONT_SANS=outside:* && $reading == *VGSHELL_FONT_MONO=outside:* \
-    && $reading == *bundled=InterVariable.ttf,JetBrainsMono-Variable.ttf ]]; then
+    && $reading == *bundled=InterVariable.ttf* ]]; then
     echo installed-rejected
   else
     printf '%s\n' "$reading"
@@ -165,8 +171,9 @@ printf '{"outputs":{},"primaryOutput":""}\n' >"$sandbox/greeter-theme/vgshell/di
 greeter_screens="$monitors"
 
 # Must-fail control: same real greeter, bypassing only the production copy
-# step. Require both installed faces to be mapped, not a failed startup or
-# unreadable /proc result, before counting the counterexample as detected.
+# step. Require both paths outside the private directory and the installed
+# sans face mapped, not a failed startup or unreadable /proc result, before
+# counting the counterexample as detected.
 greeter_installed_log="$sandbox/greeter-installed-fonts.log"
 spawn_display "$greeter_installed_log" "${greeter_env[@]}" "${bundled_fonts[@]}" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
 greeter_pid="$spawn_pid"

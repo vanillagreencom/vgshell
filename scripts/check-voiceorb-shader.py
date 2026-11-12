@@ -4,9 +4,10 @@
 qsb is a build/validation tool, not a runtime requirement. Find it on PATH
 or in Qt's Linux tool directories; QSB overrides the lookup for test copies.
 Exit 77 when it is absent. Exit 1 on unreadable, invalid, stale or forbidden
-source. SHADERS holds four shipped shaders, VoiceOrb's, RadialBackdrop's,
-vgs.voice's plasma and Jarvis's particle orb, each with its source and the
-rules that source keeps; the judge checks each, or the one --shader names.
+source. SHADERS holds five shipped shaders, VoiceOrb's, RadialBackdrop's,
+GlassSurface's lens, vgs.voice's plasma and Jarvis's particle orb, each with
+its source and the rules that source keeps; the judge checks each, or the
+one --shader names.
 It judges no other shader. --write
 regenerates the pack. --source, with --shader, selects a disposable copy.
 The qsb --qt6 targets and --qsbversion 64 are the reproducible build contract.
@@ -32,15 +33,16 @@ PATTERNS = {
     "loop": r"\b(?:for|while|do)\b",
     "texture": r"\b(?:sampler\w*|texture\w*|texelFetch\w*)\b",
 }
-# The four shaders this judge holds, each with its source and the rules it
-# keeps; another shipped shader is not judged here. VoiceOrb and
-# RadialBackdrop are analytic and need no iteration. Voice's plasma is a short volumetric
+# The five shaders this judge holds, each with its source and the rules it
+# keeps; another shipped shader is not judged here. VoiceOrb, RadialBackdrop
+# and GlassSurface's lens are analytic and need no iteration. Voice's plasma is a short volumetric
 # raymarch and Jarvis's orb tests a bounded set of shells, faces and
 # lattice dots per pixel, so each may loop, every loop to a constant
 # bound. None samples a texture.
 SHADERS = {
     "voiceorb": (ROOT / "shell/Ui/feedback/shaders/voiceorb.frag", ("loop", "texture")),
     "radial-backdrop": (ROOT / "shell/Ui/feedback/shaders/radialbackdrop.frag", ("loop", "texture")),
+    "glass-lens": (ROOT / "shell/Ui/foundation/shaders/glasslens.frag", ("loop", "texture")),
     "plasma": (ROOT / "shell/plugins/vgs.voice/shaders/plasma.frag", ("loop-bound", "texture")),
     "jarvis-orb": (ROOT / "shell/plugins/vgs.jarvis/shaders/particleorb.frag", ("loop-bound", "texture")),
 }
