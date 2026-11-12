@@ -9570,14 +9570,15 @@ PY
 # vpn_shot_check: where the tree ships the leak check, Home tunnel's
 # Check over the readings of scripts/fixtures/vpn/: its interface from the
 # nmcli stand-in, the kill switch's status line, off, from its stand-in,
-# and a route of each family, systemd-resolved's settings and the
-# provider's answer from stand-ins this scene writes into the shim
-# directory (vpn_shot_readers), so no reading reaches the host and no
-# request leaves it. vpn_shot_leak removes them.
+# a route of each family from replies planted on the ip stand-in, and
+# systemd-resolved's settings and the provider's answer from stand-ins
+# this scene writes into the shim directory (vpn_shot_readers), so no
+# reading reaches the host and no request leaves it. vpn_shot_leak
+# removes them.
 vpn_shot_check() {
   tree_has shell/plugins/vgs.vpn/VpnLogic.js '"profile-check"' || return 0
   local name
-  for name in ip varlinkctl curl.row; do
+  for name in varlinkctl curl.row; do
     [[ ! -e $shim/$name ]] || { fail "the VPN check's $name stand-in would replace one already in the shim directory"; return 1; }
   done
   device_reply nmcli 0 "$(<"$repo/scripts/fixtures/vpn/link.txt")" -t -f GENERAL.STATE,GENERAL.IP-IFACE connection show uuid "$vpn_shot_home"
@@ -9588,23 +9589,17 @@ vpn_shot_check() {
   expect_poll "Home tunnel's check shows DNS in the VPN" '"In the VPN"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
   expect_poll "Home tunnel's check draws no kill switch line while it is off" false vpn_shot_read panel Label "vpn-check-kill:$vpn_shot_home" visible
 }
-# vpn_shot_readers IPV6 DNS: the ip, varlinkctl and curl stand-ins: IPv4
-# through the tunnel, IPv6 from fixture IPV6 (route-none.txt, no route, or
-# a route's JSON), DNS from fixture DNS, and the provider's answer, each
+# vpn_shot_readers IPV6 DNS: the ip stand-in's two route answers, IPv4
+# through the tunnel and IPv6 from fixture IPV6 (route-none.txt, no route:
+# exit 2 with its RTNETLINK line on stderr, the only form routeRead in
+# VpnLogic.js reads as no route; or a route's JSON), and the varlinkctl
+# and curl stand-ins: DNS from fixture DNS and the provider's answer, each
 # call to curl marked in $devices_dir/vpn-shot-curl.
 vpn_shot_readers() { # IPV6 DNS
-  local fixtures="$repo/scripts/fixtures/vpn" ipv6
-  if [[ $1 == route-none.txt ]]; then ipv6="cat -- $(printf %q "$fixtures/$1") >&2; exit 2"
-  else ipv6="exec cat -- $(printf %q "$fixtures/$1")"; fi
-  cat >"$shim/ip" <<SH
-#!/usr/bin/env bash
-case "\$*" in
-  "-j -4 route get 192.0.2.1") exec cat -- $(printf %q "$fixtures/route-tunnel.json") ;;
-  "-j -6 route get 2001:db8::1") $ipv6 ;;
-esac
-echo "vpn-shot: ip refused \$*" >&2
-exit 70
-SH
+  local fixtures="$repo/scripts/fixtures/vpn"
+  device_reply ip 0 "$(<"$fixtures/route-tunnel.json")" -j -4 route get 192.0.2.1
+  if [[ $1 == route-none.txt ]]; then device_reply --stderr "$(<"$fixtures/$1")" ip 2 "" -j -6 route get 2001:db8::1
+  else device_reply ip 0 "$(<"$fixtures/$1")" -j -6 route get 2001:db8::1; fi
   cat >"$shim/varlinkctl" <<SH
 #!/usr/bin/env bash
 [[ "\$*" == "--json=short call /run/systemd/resolve/io.systemd.Resolve io.systemd.Resolve.DumpDNSConfiguration {}" ]] && exec cat -- $(printf %q "$fixtures/$2")
@@ -9618,7 +9613,7 @@ SH
 echo "vpn-shot: curl refused \$*" >&2
 exit 70
 SH
-  chmod 755 "$shim/ip" "$shim/varlinkctl" "$shim/curl.row"
+  chmod 755 "$shim/varlinkctl" "$shim/curl.row"
 }
 # vpn_shot_leak MODE: where the tree ships the leak check, Home tunnel's
 # Check again over an IPv6 route out of the Wi-Fi and the Wi-Fi holding the
@@ -9648,7 +9643,8 @@ vpn_shot_leak() { # MODE
   park_pointer
   take "vpn-$1-dropdown-leak"
   ipc smoke scrollTo panel vgs.vpn 0 >/dev/null || fail "the VPN flyout top is unreadable"
-  rm -f -- "${shim:?}/ip" "${shim:?}/varlinkctl" "${shim:?}/curl.row" "${devices_dir:?}/vpn-shot-curl"
+  device_reply_clear ip
+  rm -f -- "${shim:?}/varlinkctl" "${shim:?}/curl.row" "${devices_dir:?}/vpn-shot-curl"
 }
 vpn_shot_curl_called() { [[ -e $devices_dir/vpn-shot-curl ]] && echo called || echo absent; }
 # vpn_shot_held_reply MARKER STATUS STDOUT ARGV...: device_reply whose

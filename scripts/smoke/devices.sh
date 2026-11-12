@@ -124,16 +124,26 @@ devices_write_stand_ins() {
   fi
 }
 
-# device_reply NAME STATUS STDOUT ARGV...: NAME's stand-in answers the call
-# whose argv is ARGV with STDOUT, a newline added when it lacks one, and
-# STATUS. A later reply for the same argv replaces the earlier reply.
-device_reply() { # NAME STATUS STDOUT ARGV...
-  python3 - "$devices_dir/replies/$1.json" "$2" "$3" "${@:4}" <<'PY'
+# device_reply [--stderr TEXT] NAME STATUS STDOUT ARGV...: NAME's stand-in
+# answers the call whose argv is ARGV with STDOUT and, with --stderr, TEXT
+# on stderr, each with a newline added when it lacks one, and STATUS. The
+# flag goes before NAME, so no ARGV word is read as an option. A later
+# reply for the same argv replaces the earlier reply.
+device_reply() { # [--stderr TEXT] NAME STATUS STDOUT ARGV...
+  local stderr=()
+  if [[ $1 == --stderr ]]; then stderr=("$2"); shift 2; fi
+  python3 - "$devices_dir/replies/$1.json" "${#stderr[@]}" "${stderr[@]}" "$2" "$3" "${@:4}" <<'PY'
 import json, os, sys
-path, status, stdout, argv = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4:]
+path, args = sys.argv[1], sys.argv[3:]
+stderr, args = (args[0], args[1:]) if sys.argv[2] == "1" else (None, args)
+status, stdout, argv = int(args[0]), args[1], args[2:]
+line = lambda text: text if text == "" or text.endswith("\n") else text + "\n"
 rows = json.load(open(path)) if os.path.exists(path) else []
 rows = [row for row in rows if row["argv"] != argv]
-rows.append({"argv": argv, "stdout": stdout if stdout == "" or stdout.endswith("\n") else stdout + "\n", "status": status})
+row = {"argv": argv, "stdout": line(stdout), "status": status}
+if stderr is not None:
+    row["stderr"] = line(stderr)
+rows.append(row)
 with open(path + ".next", "w") as out:
     json.dump(rows, out)
 os.replace(path + ".next", path)
