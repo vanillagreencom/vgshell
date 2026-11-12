@@ -8988,15 +8988,20 @@ TSSECTION
 # Travel L2TP and Campus AnyConnect off, as the VGS-1937 v2 sheets draw
 # them. A failed connect of Travel L2TP leaves it needing its password; a
 # held connect of Office VPN shows the bar's spinner, and a later connect
-# that NetworkManager answers with its VPN-service-not-found error leaves
-# Office VPN needing the OpenVPN plugin, its switch disabled. The bar strip
+# that NetworkManager answers with its VPN-service-not-found error, then a
+# scan that finds the OpenVPN plugin gone, leave Office VPN needing the
+# plugin, its switch disabled. The scanner reads the scene's own plugin
+# directories (vpn_shot_scanner), so the host's installed plugins decide
+# nothing. The bar strip
 # shows the connected, the connecting and the warning icon; the flyout and
 # the System Settings section show a profile expanded, the remove
 # confirmation, the missing plugin and the no-profile state. Travel L2TP's
 # switch opens the password prompt: in the flyout empty, with typed text
 # and, after a password connect NetworkManager answers with Unknown
 # reason, with its retry line; in the section, after a plain connect
-# leaves it needing its password again. Where the tree ships the kill
+# leaves it needing its password again. The section's end and every
+# screen of the plugin's Settings page then show Connect automatically
+# over two saved Wi-Fi profiles (vpn_shot_auto). Where the tree ships the kill
 # switch (vpn_kill_shots), its row shows in each state, at the ends of
 # the section and the flyout; a tree without it takes the same frames.
 vpn_shot_home=9d76b882-ead1-4c49-8675-7be6431d5f71
@@ -9010,9 +9015,11 @@ scene_vpn() { # MODE
   local fixtures="$repo/scripts/fixtures/vpn" scroll
   devices_ready vpn-shot || return 0
   vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
+  vpn_shot_scanner || { fail "the VPN shot's plugin directories could not be planted"; return; }
   devices_vpn_kill_tree needed
   expect "VPN enables for its shot" ok ipc shell setPluginEnabled vgs.vpn true
   tree_rescan "the VPN shot reads the nmcli stand-in"
+  expect_poll "the OpenVPN plugin reads installed" present vpn_shot_openvpn
   expect_poll "VPN reads its stand-in profiles" '[["Home tunnel", "activated", "wireguard", "203.0.113.10:51820", "10.20.0.2", ""], ["Office VPN", "", "openvpn", "vpn.example.com", "", ""], ["Travel L2TP", "", "l2tp", "l2tp.example.net", "", ""], ["Campus AnyConnect", "", "openconnect", "vpn.example.edu", "", ""]]' vpn_shot_rows
   backend_widget_shots vpn "$1"
 
@@ -9066,12 +9073,14 @@ scene_vpn() { # MODE
   expect_poll "the remove confirmation closes" false vpn_shot_read window Dialog vpn-remove-confirm visible
   expect "no profile was removed" '[]' vpn_shot_deletes
   vpn_shot_pane_password "$1"
+  vpn_shot_auto_plant || return
   scroll="$(vpn_shot_end)" || { fail "the VPN pane end is unreadable"; return; }
   case "$scroll" in
     moved) park_pointer; vpn_shot_record "vpn-$1-pane-end" "$1"; take "vpn-$1-pane-end" ;;
     fits) ok "the complete VPN pane fits its first frame" ;;
     *) fail "the VPN pane end is unreadable: $scroll" ;;
   esac
+  vpn_shot_auto_page "$1"
   # A tree without the kill switch takes the setup frames at this step
   # too, the before side of their pair.
   if tree_has shell/plugins/vgs.vpn/VpnBody.qml "KillSwitch {"; then vpn_kill_shots "$1"; else vpn_kill_take setup "$1"; fi
@@ -9082,6 +9091,11 @@ scene_vpn() { # MODE
   device_reply nmcli 4 "$(sed 's/NetworkManager\.vpnc/NetworkManager.openvpn/' "$fixtures/up-service-missing.txt")" connection up uuid "$vpn_shot_office"
   expect "Office VPN is asked to connect without its plugin" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_office\"}"
   expect_poll "Office VPN needs the OpenVPN plugin" plugin-needed vpn_shot_failure "$vpn_shot_office"
+  # A declared OpenVPN profile's switch follows the scanner's reading of
+  # the plugin, not the failure (VpnLogic.rowView).
+  rm -f -- "$vpn_shot_plugins/lib/nm-openvpn-service.name"
+  tree_rescan "a scan finds the OpenVPN plugin gone"
+  expect_poll "the OpenVPN plugin reads missing" missing vpn_shot_openvpn
   expect_poll "Office VPN's switch says why it cannot connect" true vpn_shot_blocked window "$vpn_shot_office"
   expect "the VPN pane scrolls back to its Profiles heading" shown vpn_shot_top
   park_pointer
@@ -9112,6 +9126,93 @@ scene_vpn() { # MODE
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
   device_reply_clear nmcli
+  cp -p -- "$vpn_shot_scan_kept" "$repo/bin/vgshell-scan"
+  rm -rf -- "${vpn_shot_plugins:?}"
+  tree_rescan "the scanner reads NetworkManager's plugin directories after the VPN shot"
+}
+# vpn_shot_scanner: the sandbox copy of the scanner reads the scene's
+# plugin directories for NetworkManager's, as rows/vpn.sh's copy does,
+# with the OpenVPN plugin's service file in them; the scene keeps the
+# copy to put back.
+vpn_shot_plugins="$sandbox/vpn-shot-plugins"
+vpn_shot_scan_kept="$sandbox/vgshell-scan.vpn-shot-kept"
+vpn_shot_scanner() {
+  mkdir -p -- "$vpn_shot_plugins/lib" "$vpn_shot_plugins/etc" || return
+  cp -p -- "$repo/bin/vgshell-scan" "$vpn_shot_scan_kept" || return
+  python3 - "$repo/bin/vgshell-scan" "$vpn_shot_plugins" <<'PYVPNDIRS' || return
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+old = 'NM_VPN_DIRECTORIES = ("/usr/lib/NetworkManager/VPN", "/etc/NetworkManager/VPN")'
+assert source.count(old) == 1, old
+root = pathlib.Path(sys.argv[2])
+path.write_text(source.replace(old, "NM_VPN_DIRECTORIES = " + repr((str(root / "lib"), str(root / "etc")))))
+PYVPNDIRS
+  printf '[VPN Connection]\nname=openvpn\nservice=org.freedesktop.NetworkManager.openvpn\nprogram=/usr/lib/nm-openvpn-service\n' \
+    >"$vpn_shot_plugins/lib/nm-openvpn-service.name"
+}
+# vpn_shot_openvpn: the OpenVPN plugin requirement's state as the scan
+# read it.
+vpn_shot_openvpn() { ipc shell listPlugins | py_reply 'import json,sys; print(next((r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.vpn" for r in p["requirements"] if r["name"] == "org.freedesktop.NetworkManager.openvpn"), "absent"))'; }
+# Connect automatically's world: Fixture Wi-Fi, connected, from the
+# fixtures' list, and Hotel Wi-Fi, saved and not connected, beside the
+# four profiles. A tree that ships Trusted networks has Home tunnel chosen
+# and Fixture Wi-Fi trusted, so nothing connects by itself; a tree
+# without it takes the same frames at the same step.
+vpn_shot_hotel=7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+vpn_shot_wifi=0f3e2d1c-4b5a-4968-8776-5a4b3c2d1e0f
+vpn_shot_auto=false
+tree_has shell/plugins/vgs.vpn/manifest.json '"trustedNetworks"' && vpn_shot_auto=true
+vpn_shot_networks() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("networks"); print("unpublished" if v is None else json.dumps([r["name"] for r in v["rows"]]))'; }
+# vpn_shot_auto_set JSON: the vgs.vpn row's keys, a null removing one.
+vpn_shot_auto_set() { # JSON
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PYAUTO' || { fail "the VPN Connect automatically settings could not be written"; return 1; }
+import json, os, sys
+path, keys = sys.argv[1:]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == "vgs.vpn"), None)
+if row is None:
+    row = {"id": "vgs.vpn"}
+    rows.append(row)
+for key, value in json.loads(keys).items():
+    if value is None:
+        row.pop(key, None)
+    else:
+        row[key] = value
+with open(path + ".next", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".next", path)
+PYAUTO
+  expect "VPN's Connect automatically settings reload" ok ipc shell reloadConfig
+  expect_poll "the shell has read VPN's Connect automatically settings" true ipc smoke configSettled
+}
+# vpn_shot_auto_plant: the saved Wi-Fi profiles listed and, on a tree
+# with Trusted networks, the settings read back in the shown section.
+vpn_shot_auto_plant() {
+  local list
+  list="$(grep -E '^(Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect|Fixture Wi-Fi):' "$repo/scripts/fixtures/vpn/list.txt")" || { fail "the VPN stand-in list is unreadable"; return 1; }
+  device_reply nmcli 0 "$list"$'\n'"Hotel Wi-Fi:$vpn_shot_hotel:802-11-wireless:" -t -f NAME,UUID,TYPE,STATE connection show
+  expect "VPN reads the saved Wi-Fi profiles" ok ipc vgs.vpn invoke refresh ""
+  [[ $vpn_shot_auto == true ]] || return 0
+  expect_poll "VPN lists Fixture Wi-Fi and Hotel Wi-Fi" '["Fixture Wi-Fi", "Hotel Wi-Fi"]' vpn_shot_networks
+  vpn_shot_auto_set "{\"autoConnect\": \"$vpn_shot_home\", \"trustedNetworks\": [{\"name\": \"1\", \"network\": \"$vpn_shot_wifi\"}]}" || return 1
+  expect_poll "Connect automatically shows Home tunnel" '"Home tunnel"' vpn_shot_read window Select vpn-auto-connect currentText
+  expect_poll "Fixture Wi-Fi reads trusted" true vpn_shot_read window Switch "vpn-trusted:$vpn_shot_wifi" checked
+  expect_poll "Hotel Wi-Fi reads not trusted" false vpn_shot_read window Switch "vpn-trusted:$vpn_shot_hotel" checked
+}
+# vpn_shot_auto_page MODE: every screen of the plugin's Settings page over
+# that world, then the settings and the Wi-Fi profiles taken away again.
+vpn_shot_auto_page() { # MODE
+  expect "the VPN System window closes for the Settings page" ok ipc shell hide window vgs.system
+  expect "the Settings window opens for the VPN page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for the VPN page" 1 settings_count
+  plugin_page_shots "$1" vgs.vpn "vpn-$1-settings" settings
+  settings_close
+  [[ $vpn_shot_auto == false ]] || vpn_shot_auto_set '{"autoConnect": null, "trustedNetworks": null}' || return
+  vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
+  expect "VPN reads no saved Wi-Fi profile" ok ipc vgs.vpn invoke refresh ""
+  [[ $vpn_shot_auto == false ]] || expect_poll "VPN lists no saved Wi-Fi profile" '[]' vpn_shot_networks
 }
 vpn_kill_state="$devices_vpn_kill_root/vpn/state"
 # vpn_kill_status LINE: the line the vgs-kill-switch stand-in prints for
