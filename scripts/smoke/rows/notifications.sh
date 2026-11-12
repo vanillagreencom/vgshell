@@ -4346,49 +4346,63 @@ fade_output() { # PNG
 }
 # Captured card paint is compared with the same Panel without its mask.
 # The reference changes no geometry, inventory, selection or wallpaper.
-fade_active_value() { # PNG REFERENCE ITEMS VIEW SURFACE INK SUMMARY EDGE BAND OUTPUT_WIDTH OUTPUT_HEIGHT
+fade_active_value() { # PAIRS VIEW SURFACE INK SUMMARY EDGE BAND OUTPUT_WIDTH OUTPUT_HEIGHT
+  # PAIRS holds one `PNG<TAB>REFERENCE<TAB>ITEMS` line per reading; each
+  # reading prints one line, in order, the card's paint in PNG against
+  # REFERENCE as JSON or the state word that stopped it. A capture is
+  # decoded once for every reading that names it: png_rgba takes about
+  # 0.8 s on a 1920x1080 capture, and a fade pair's three last readings
+  # share three captures (VGS-2465).
   python3 -c "$png_rgba_py"'
-image,reference=png_rgba(sys.argv[1]),png_rgba(sys.argv[2])
-if isinstance(image,str) or isinstance(reference,str): print("png-unreadable");sys.exit()
-iw,ih,pixels=image;rw,rh,ref=reference
-if (iw,ih)!=(rw,rh): print("reference-size-mismatch");sys.exit()
-items=json.load(open(sys.argv[3]));view,surface=map(json.loads,sys.argv[4:6])
-ink=bytes.fromhex(json.loads(sys.argv[6])[-6:]);summary,edge=sys.argv[7:9];band=float(sys.argv[9])
-sx,sy=iw/float(sys.argv[10]),ih/float(sys.argv[11])
-vx,vy,vw,vh=view["box"]
-cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["text"]==summary]
-if len(cards)!=1: print("current-card-unreadable");sys.exit()
-card=cards[0];cx,cy,cw,ch=card["box"]
-zone_top,zone_bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
-top,bottom=max(cy,zone_top,vy),min(cy+ch,zone_bottom,vy+vh)
-travel=view["contentHeight"]-view["height"]
-if travel<=0 or not 0<view["contentY"]<travel or bottom-top<=0: print("card-outside-fade");sys.exit()
-titles=[i for i in items if i["name"]=="notificationTitleText" and i["visible"] and i["text"]==summary and i["box"][1]>=cy and i["box"][1]+i["box"][3]<=cy+ch]
-if len(titles)!=1: print("current-title-unreadable");sys.exit()
-tx,ty,tw,th=titles[0]["box"]
-left=math.ceil((surface[0]+tx)*sx);right=math.floor((surface[0]+tx+tw)*sx)
-start=math.ceil((surface[1]+max(ty,top))*sy);end=math.floor((surface[1]+min(ty+th,bottom))*sy)
-if not(0<=left<right<=iw and 0<=start<end<=ih): print("title-outside-fade-output");sys.exit()
-cores=[(x,y) for y in range(start,end) for x in range(left,right) if ref[y][4*x:4*x+3]==ink]
-matched=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=2 for x,y in cores)
-# Compare the card interior as well as title ink. The shipped edge-light
-# shader animates only signed distances from -14 to 1, so omit that live
-# edge band from same-pixel comparisons rather than freezing its clock.
-cl=math.ceil((surface[0]+cx+cw*0.1)*sx);cr=math.floor((surface[0]+cx+cw*0.9)*sx)
-ct=math.ceil((surface[1]+top)*sy);cb=math.floor((surface[1]+bottom)*sy)
-if not(0<=cl<cr<=iw and 0<=ct<cb<=ih): print("card-outside-output");sys.exit()
-radius=min(cw,ch)/2
-points=[]
-for y in range(ct,cb):
-    for x in range(cl,cr):
-        lx,ly=(x+0.5)/sx-surface[0],(y+0.5)/sy-surface[1]
-        qx=abs(lx-cx-cw/2)-(cw/2-radius)
-        qy=abs(ly-cy-ch/2)-(ch/2-radius)
-        distance=math.hypot(max(qx,0),max(qy,0))+min(max(qx,qy),0)-radius
-        if distance < -14: points.append((x,y))
-paint_count=len(points)
-paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 for x,y in points)
-print(json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel}))
+decoded={}
+def capture(path):
+    if path not in decoded: decoded[path]=png_rgba(path)
+    return decoded[path]
+view,surface=map(json.loads,sys.argv[2:4])
+ink=bytes.fromhex(json.loads(sys.argv[4])[-6:]);summary,edge=sys.argv[5:7];band=float(sys.argv[7])
+def judge(image_path,reference_path,items_path):
+    image,reference=capture(image_path),capture(reference_path)
+    if isinstance(image,str) or isinstance(reference,str): return "png-unreadable"
+    iw,ih,pixels=image;rw,rh,ref=reference
+    if (iw,ih)!=(rw,rh): return "reference-size-mismatch"
+    items=json.load(open(items_path))
+    sx,sy=iw/float(sys.argv[8]),ih/float(sys.argv[9])
+    vx,vy,vw,vh=view["box"]
+    cards=[i for i in items if i["type"]=="NotificationCard" and i["visible"] and i["text"]==summary]
+    if len(cards)!=1: return "current-card-unreadable"
+    card=cards[0];cx,cy,cw,ch=card["box"]
+    zone_top,zone_bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
+    top,bottom=max(cy,zone_top,vy),min(cy+ch,zone_bottom,vy+vh)
+    travel=view["contentHeight"]-view["height"]
+    if travel<=0 or not 0<view["contentY"]<travel or bottom-top<=0: return "card-outside-fade"
+    titles=[i for i in items if i["name"]=="notificationTitleText" and i["visible"] and i["text"]==summary and i["box"][1]>=cy and i["box"][1]+i["box"][3]<=cy+ch]
+    if len(titles)!=1: return "current-title-unreadable"
+    tx,ty,tw,th=titles[0]["box"]
+    left=math.ceil((surface[0]+tx)*sx);right=math.floor((surface[0]+tx+tw)*sx)
+    start=math.ceil((surface[1]+max(ty,top))*sy);end=math.floor((surface[1]+min(ty+th,bottom))*sy)
+    if not(0<=left<right<=iw and 0<=start<end<=ih): return "title-outside-fade-output"
+    cores=[(x,y) for y in range(start,end) for x in range(left,right) if ref[y][4*x:4*x+3]==ink]
+    matched=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=2 for x,y in cores)
+    # Compare the card interior as well as title ink. The shipped edge-light
+    # shader animates only signed distances from -14 to 1, so omit that live
+    # edge band from same-pixel comparisons rather than freezing its clock.
+    cl=math.ceil((surface[0]+cx+cw*0.1)*sx);cr=math.floor((surface[0]+cx+cw*0.9)*sx)
+    ct=math.ceil((surface[1]+top)*sy);cb=math.floor((surface[1]+bottom)*sy)
+    if not(0<=cl<cr<=iw and 0<=ct<cb<=ih): return "card-outside-output"
+    radius=min(cw,ch)/2
+    points=[]
+    for y in range(ct,cb):
+        for x in range(cl,cr):
+            lx,ly=(x+0.5)/sx-surface[0],(y+0.5)/sy-surface[1]
+            qx=abs(lx-cx-cw/2)-(cw/2-radius)
+            qy=abs(ly-cy-ch/2)-(ch/2-radius)
+            distance=math.hypot(max(qx,0),max(qy,0))+min(max(qx,qy),0)-radius
+            if distance < -14: points.append((x,y))
+    paint_count=len(points)
+    paint_match=sum(max(abs(pixels[y][4*x+c]-ref[y][4*x+c]) for c in range(3))<=3 for x,y in points)
+    return json.dumps({"summary":summary,"edge":edge,"cardBox":card["box"],"fadeIntersection":[top,bottom],"referenceInkPixels":len(cores),"matchedInkPixels":matched,"cardPixels":paint_count,"matchedCardPixels":paint_match,"contentY":view["contentY"],"travel":travel})
+for reading in sys.argv[1].splitlines():
+    print(judge(*reading.split("\t")))
 ' "$@"
 }
 fade_paint_same() { # SAMPLE_JSON
@@ -4454,7 +4468,7 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE
     (( $(now_ms) < deadline_ms )) || break
     same="$(fade_capture_geometry_same "$items" "$next_items")" || return
     if [[ $same == True ]]; then
-      paint="$(fade_active_value "$next_png" "$prefix.png" "$next_items" "$(<"$next_view")" "$(<"$next_surface")" "$(<"$next_ink")" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+      paint="$(fade_active_value "$next_png"$'\t'"$prefix.png"$'\t'"$next_items" "$(<"$next_view")" "$(<"$next_surface")" "$(<"$next_ink")" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
       [[ $paint == \{* ]] || { printf 'notification-capture: paint=%s\n' "$paint" >&2; return 1; }
       if [[ $(fade_paint_same "$paint") == True ]]; then
         return 0
@@ -4481,7 +4495,7 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   # The pair runs row waits through $(); controls fail on planted output paths.
   local smoke_poll_scope=$((BASH_SUBSHELL))
   local prefix="$1" summary="$2" edge="$3" probe="${1##*/}" items restore_items view_file surface_file ink_file
-  local view surface ink rc=0 status sample restored same saved
+  local view surface ink rc=0 status sample restored same saved readings values paints=()
   items="$(fade_probe_file "$probe-items.json")" || return
   restore_items="$(fade_probe_file "$probe-restored-items.json")" || return
   view_file="$(fade_probe_file "$probe-view.json")" || return
@@ -4502,14 +4516,20 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
   fade_read_geometry "$probe-restored-items.json" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
-  saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  # The restoration, the sample and the restored sample are read in one
+  # call, so each capture is decoded once; with no reference only the
+  # restoration is read.
+  readings="$prefix-restored.png"$'\t'"$prefix.png"$'\t'"$restore_items"
+  ((rc!=0)) || readings+=$'\n'"$prefix.png"$'\t'"$prefix-reference.png"$'\t'"$items"$'\n'"$prefix-restored.png"$'\t'"$prefix-reference.png"$'\t'"$restore_items"
+  values="$(fade_active_value "$readings" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  mapfile -t paints <<<"$values"
+  saved="${paints[0]-}"
   [[ $saved == \{* ]] || { printf 'notification-capture: saved-paint=%s\n' "$saved" >&2; return 1; }
   printf '%s\n' "$saved" >"$prefix-saved-restoration.json"
   [[ $(fade_paint_same "$saved") == True ]] || { echo 'notification-capture: saved-paint-not-restored' >&2; return 1; }
   printf 'notification-capture-restored: geometry=stable saved-paint=restored path=%s\n' "$prefix-saved-restoration.json" >&2
   ((rc==0)) || { printf 'notification-capture: reference-step status=%s\n' "$rc" >&2; return "$rc"; }
-  sample="$(fade_active_value "$prefix.png" "$prefix-reference.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
-  restored="$(fade_active_value "$prefix-restored.png" "$prefix-reference.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  sample="${paints[1]-}" restored="${paints[2]-}"
   [[ $sample == \{* && $restored == \{* ]] || { printf 'notification-capture: sample=%s restored=%s\n' "$sample" "$restored" >&2; return 1; }
   printf '%s\n' "$sample" >"$prefix.json"
   printf '%s\n' "$restored" >"$prefix-restored.json"
@@ -4612,7 +4632,7 @@ fade_reference_reads_unsettled() { # PREFIX SUMMARY EDGE
   view="$(<"$view_file")" || return
   surface="$(<"$surface_file")" || return
   ink="$(<"$ink_file")" || return
-  value="$(fade_active_value "$prefix-reference.png" "$prefix.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  value="$(fade_active_value "$prefix-reference.png"$'\t'"$prefix.png"$'\t'"$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $value == \{* ]] || { printf 'notification-capture: control-paint=%s\n' "$value" >&2; return 1; }
   fade_paint_same "$value"
 }
