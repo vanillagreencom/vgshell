@@ -559,11 +559,25 @@ async function main() {
             mutation("tmux-parsing-" + shape, 'case "$option" in', 'case "${1:1:1}" in',
                 file => good(file, "tmux-override", shape));
         }
-        const termOwner = mutationFile("ignored-owner-signal", 'kill -KILL "$owner"', 'kill -TERM "$owner"');
+        // The world reads the owner's stop request and signals nothing.
+        const termOwner = mutationFile("ignored-owner-signal", "kill -KILL -1", "kill -0 -1");
         await assert.rejects(cancellation(termOwner, "SIGTERM"), assert.AssertionError);
         assert.throws(() => cliTimeout(termOwner), error => error instanceof assert.AssertionError
             && error.actual === true && error.expected === undefined);
         console.log("  ok    control=ignored-owner-signal cli-timeout=expired");
+        clearRuntime();
+        controls++;
+        // The stop path returns at once and leaves its world running. That
+        // world can end no sooner than the fixture's own expiry, 2 s after it
+        // starts, so its lock holder is alive at every CLI exit sample.
+        const earlyReturn = mutationFile("early-return", "if [[ -n $stop ]]; then", "if [[ -n $stop ]] && false; then");
+        await assert.rejects(cancellation(earlyReturn, "SIGTERM"), error => error instanceof assert.AssertionError
+            && error.actual === false && error.expected === true);
+        assert.throws(() => cliTimeout(earlyReturn), error => error instanceof assert.AssertionError
+            && error.actual === 1 && error.expected === 0);
+        // flock(1) returns once the leaked world's lock holder has ended.
+        assert.equal(run("/usr/bin/flock", [path.join(root, "cli-timeout.lock"), "true"], env).status, 0);
+        console.log("  ok    control=early-return cli-timeout=descendant-alive");
         clearRuntime();
         controls++;
         const wrongCli = mutationFile("cli-subshell", '    _jarvis_env_run "$@"', '    jarvis_env_run "$@"');

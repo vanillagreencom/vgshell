@@ -4,6 +4,8 @@
 # STANDINS holds executable regular files, not links or host-tool overrides.
 # COMMAND and every descendant share one private user/network/PID namespace.
 # The PID namespace ends surviving children when COMMAND ends.
+# TERM, INT or HUP stops the world; the owner then exits 143, 130 or 129, and
+# only after every process of its world has ended.
 # Exit 77 means a host dependency or namespaces are unavailable, not a pass.
 # Other command statuses pass through unchanged; invalid arguments exit 2.
 # JARVIS_TEST_ROOT and JARVIS_TEST_TMUX_SOCKET name this invocation's scratch
@@ -55,7 +57,7 @@ _jarvis_env_run() {
   if [[ $# -lt 3 || $2 != -- || -z $3 ]]; then
     _jarvis_env_error 'refused=arguments'; return 2
   fi
-  local standins self scratch allocator root run="" tool real entry name owner="" status=0
+  local standins self scratch allocator root run="" tool real entry name owner stop="" status=0
   standins="$(cd -- "$1" && pwd -P)" || { _jarvis_env_error "standins=unreadable path=$1"; return 1; }
   shift 2
   self="$(readlink -f -- "${BASH_SOURCE[0]}")" || return 1
@@ -73,11 +75,15 @@ _jarvis_env_run() {
   root="$(_jarvis_env_mkdtemp "$scratch")" || return 1
   _jarvis_env_cleanup() {
     local result=$?
-    if [[ -n $owner ]]; then
-      # unshare --fork ignores TERM and INT while waiting. KILL ends that
-      # supervisor; --kill-child then ends its PID namespace and descendants.
-      if kill -0 "$owner" 2>/dev/null; then kill -KILL "$owner" || result=1; fi
-      wait "$owner" 2>/dev/null || :
+    if [[ -n $stop ]]; then
+      # The request ends the world (_jarvis_env_inside). unshare --fork, which
+      # ignores TERM and INT, exits only after it reaps init, and the kernel
+      # reaps a PID namespace's init only once every other process of that
+      # namespace is released (kernel/pid_namespace.c zap_pid_ns_processes).
+      # So this wait returns after the whole world has ended. Waiting for
+      # every child also covers a world started before $owner was assigned.
+      printf '\n' >&"$stop" || result=1
+      wait 2>/dev/null || :
     fi
     rm -rf -- "${root:?}" || { _jarvis_env_error "cleanup=failed path=$root"; exit 1; }
     if [[ -n $run ]]; then rm -rf -- "${run:?}" || { _jarvis_env_error "cleanup=failed path=$run"; exit 1; }; fi
@@ -154,11 +160,16 @@ PY
     cat -- "$root/namespace.log" >&2 || exit 1
     exit 77
   fi
+  # The stop channel: a pipe that the owner and the world hold read-write, so
+  # it never reaches end of file and only a request line wakes the world. Its
+  # name is gone before the world starts.
+  "$allocator" -I -c 'import os, sys; os.mkfifo(sys.argv[1], 0o600)' "$root/stop" || exit 1
+  exec {stop}<>"$root/stop" || exit 1
+  rm -- "$root/stop" || exit 1
   "${clean_env[@]}" "$root/bootstrap/unshare" -rn --pid --fork --mount-proc --kill-child -- \
-    "$root/tools/bash" --noprofile --norc "$self" --inside "$root" "$@" &
+    "$root/tools/bash" --noprofile --norc "$self" --inside "$root" "$stop" "$@" &
   owner=$!
   wait "$owner" || status=$?
-  owner=""
   # Namespace creation can fail between the probe and the real start.
   if [[ ! -f $root/started ]]; then
     _jarvis_env_error 'status=not-measured reason=namespace-start-failed'
@@ -168,12 +179,16 @@ PY
   exit "$status"
 }
 
-# Runs only as the namespace's init process. Bootstrap tools never enter PATH.
+# Refuses unless it is its PID namespace's init, so the stop watcher's KILL -1
+# never reaches a process outside the world. The refusal follows the started
+# marker so the owner reports it as exit 1, a defect, not as an unavailable
+# namespace. Bootstrap tools never enter PATH.
 _jarvis_env_inside() {
   set -euo pipefail
-  local root="$1" bus address
-  shift
+  local root="$1" stop="$2" bus address err
+  shift 2
   : >"$root/started"
+  [[ $$ -eq 1 ]] || { _jarvis_env_error "refused=not-namespace-init pid=$$"; return 1; }
   "$root/bootstrap/ip" link set lo up
   for bus in system session; do
     # No includes, servicedir or standard_session_servicedirs: a request on
@@ -209,9 +224,25 @@ PY
     esac
   done
   cd -- "$HOME"
+  # Setup has finished, so from here on init's own stderr is /dev/null: a
+  # killed command leaves no bash job report in the caller's stderr.
+  exec {err}>&2 2>/dev/null
+  # The owner's stop request is one line on descriptor $stop, pending until
+  # this watcher reads it. The watcher ignores the signals a caller sends the
+  # whole process group, puts the line back for the command's own check, then
+  # KILLs -1: every process of this namespace but init and itself (kill(2)).
+  {
+    trap '' INT TERM HUP
+    if read -r -u "$stop"; then
+      printf '\n' >&"$stop" || :
+      kill -KILL -1 2>/dev/null || :
+    fi
+  } &
   # Keep init alive until the command exits. The kernel then ends its buses,
   # private tmux server and all surviving grandchildren, even after a failure.
-  "$@"
+  # The forked child starts nothing once a request is pending, and a request
+  # after its check finds it alive for the watcher's KILL.
+  (read -t 0 -u "$stop" && exit 1; exec "$@" 2>&"$err" {err}>&- {stop}>&-)
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then

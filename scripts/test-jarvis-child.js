@@ -3,15 +3,30 @@
 // scripts this suite writes; no desktop, audio, bus or network command runs.
 // Each control edits a disposable copy of Child.js, one rule at a time.
 "use strict";
+const cp = require("node:child_process");
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
 const childFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Child.js");
 
-// A killed grandchild may remain a zombie until its new parent reaps it.
-// kill(pid, 0) tests existence, so it cannot judge whether it still runs.
-const runningStat = stat => stat.split(") ").at(-1).split(" ")[0] !== "Z";
+// A killed grandchild may remain a zombie until its new parent reaps it, and
+// reads X while that reap releases it (proc(5)). kill(pid, 0) tests
+// existence, so it cannot judge whether it still runs.
+const runningStat = stat => !["Z", "X"].includes(stat.split(") ").at(-1).split(" ")[0]);
 const alive = pid => {
     try { return runningStat(fs.readFileSync("/proc/" + pid + "/stat", "utf8")); }
     catch (error) { if (error.code === "ENOENT") return false; throw error; }
+};
+// A process this suite did not start can still be exiting when the call that
+// killed it returns. Its pidfd turns readable once the kernel has set its exit
+// state (pidfd_open(2)); a pid already released has ended. Exit 3 means it
+// still ran after MS milliseconds; Python's own failures exit 1.
+const PIDFD_WAIT = "import os, select, sys\n"
+    + "try:\n    handle = os.pidfd_open(int(sys.argv[1]))\nexcept ProcessLookupError:\n    sys.exit(0)\n"
+    + "sys.exit(0 if select.select([handle], [], [], int(sys.argv[2]) / 1000)[0] else 3)\n";
+const awaitEnd = (pid, ms) => {
+    const result = cp.spawnSync("python3", ["-I", "-c", PIDFD_WAIT, String(pid), String(Math.max(0, ms))],
+        { env: { PATH: process.env.PATH }, encoding: "utf8" });
+    if (result.error) throw result.error;
+    assert.ok(result.status === 0 || result.status === 3, "pidfd wait failed: " + result.status + " " + result.stderr);
 };
 const groupOf = pid => Number(fs.readFileSync("/proc/" + pid + "/stat", "utf8").split(") ").at(-1).split(" ")[2]);
 
@@ -41,7 +56,7 @@ world(() => {
     const cleanup = [];
     const cases = [
         ["process-state", async () => {
-            for (const [state, expected] of [["R", true], ["S", true], ["T", true], ["Z", false]])
+            for (const [state, expected] of [["R", true], ["S", true], ["T", true], ["Z", false], ["X", false]])
                 assert.equal(runningStat("17 (fixture ) name) " + state + " 12 34"), expected);
         }],
         ["exited", async Child => {
@@ -75,12 +90,17 @@ world(() => {
             assert.equal(alive(await ready(marker("held"))), false);
         }],
         ["group", async Child => {
+            const started = Date.now();
             for (const name of ["member", "leader"]) fs.rmSync(marker(name), { force: true });
             const held = server("member", false) + `require("node:fs").writeFileSync(${JSON.stringify(marker("leader"))},String(process.pid));setInterval(()=>{},1000)`;
             const result = await Child.run(node, script(held), { ...base, clock: onReady(marker("leader")) });
             assert.equal(result.reason, "timeout");
             const member = await ready(marker("member"));
             cleanup.push(member);
+            // The run resolves on its leader's close, while the killed member,
+            // not this process's child, may still be exiting. A member the
+            // end never killed keeps the wait to the case's deadline.
+            awaitEnd(member, base.deadline - (Date.now() - started));
             assert.equal(alive(member), false, "the end kills the whole group, not only its leader");
         }],
         ["ignored-output", async (Child, clock) => {

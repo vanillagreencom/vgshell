@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -80,7 +81,32 @@ elif mode == "namespace":
     kinds = ("user", "net", "pid")
     mine = [os.readlink("/proc/self/ns/" + kind) for kind in kinds]
     assert all(actual != parent for actual, parent in zip(mine, sys.argv[2:]))
-    assert socket.if_nameindex() == [(1, "lo")]
+    # Once a tunnel module is loaded, the kernel adds its fallback device to
+    # every new network namespace (net.core.fb_tunnels_only_for_init_net=0,
+    # Documentation/admin-guide/sysctl/net.rst). Only those may sit beside lo,
+    # each down and without an address. Ioctls and /proc/net read this world's
+    # namespace; /sys still shows the host's.
+    fallback = {"sit0", "tunl0", "ip6tnl0", "ip6gre0", "gre0", "gretap0",
+                "erspan0", "ip_vti0", "ip6_vti0"}
+    links = socket.if_nameindex()
+    assert links[0] == (1, "lo"), links
+    inet6 = Path("/proc/net/if_inet6")
+    inet6 = {line.split()[-1] for line in inet6.read_text().splitlines()} if inet6.exists() else set()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as query:
+        for _, name in links[1:]:
+            assert name in fallback, "link=unexpected name=" + name
+            request = struct.pack("16s24s", name.encode(), b"")
+            # SIOCGIFFLAGS and SIOCGIFADDR, linux/sockios.h; IFF_UP is 0x1.
+            flags = struct.unpack_from("H", fcntl.ioctl(query, 0x8913, request), 16)[0]
+            assert not flags & 0x1, "link=up name=" + name
+            try:
+                fcntl.ioctl(query, 0x8915, request)
+                inet = True
+            except OSError as error:
+                if error.errno != errno.EADDRNOTAVAIL:
+                    raise
+                inet = False
+            assert not inet and name not in inet6, "link=addressed name=" + name
     result = child(["python3", "-c",
                     "import os; print('\\n'.join(os.readlink('/proc/self/ns/' + k)"
                     " for k in ('user', 'net', 'pid')))"])
