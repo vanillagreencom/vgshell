@@ -1523,8 +1523,10 @@ load_average() {
 # order two worlds that both want the hold cannot deadlock. Each lock wait
 # ends at the driver's no-progress bound, qml_smoke_idle_secs, and the gate
 # is dropped then, so one paused or stuck world stalls no other world past
-# it: a row start goes on without its shared lock, and a timed window runs
-# without the hold and is judged as one without it.
+# it. A row start whose gate wait reaches the bound still takes its shared
+# lock; only one whose shared wait reaches it, behind another world's hold
+# for a whole bound, goes on without it. A timed window whose wait reaches
+# the bound runs without the hold and is judged as one without it.
 # Each lock lives in a holder process of its own, never in a descriptor
 # of this shell, so no process a row or a hold starts inherits it (D053
 # records that leak through an inherited lock), the shell start-order
@@ -1590,14 +1592,26 @@ smoke_lock_drop() { # PID
   wait "$1" 2>/dev/null || true
 }
 # smoke_hold_share: this world's shared lock, taken behind the gate, its
-# holder in smoke_hold_shared. Returns 1 with the cause in smoke_lock_cause.
+# holder in smoke_hold_shared. The gate only keeps a waiting hold from
+# starving, so a gate wait that reached the bound, its cause left in
+# smoke_hold_gate_cause, still takes the shared lock. Returns 1 with the
+# cause in smoke_lock_cause.
 smoke_hold_share() {
-  local gate
-  smoke_lock_take -x gate || return 1
-  gate=$smoke_lock_pid
-  if ! smoke_lock_take -s hold; then smoke_lock_drop "$gate"; return 1; fi
+  local gate=""
+  smoke_hold_gate_cause=""
+  if smoke_lock_take -x gate; then
+    gate=$smoke_lock_pid
+  elif [[ $smoke_lock_cause == wait-bound* ]]; then
+    smoke_hold_gate_cause=$smoke_lock_cause
+  else
+    return 1
+  fi
+  if ! smoke_lock_take -s hold; then
+    [[ -z $gate ]] || smoke_lock_drop "$gate"
+    return 1
+  fi
   smoke_hold_shared=$smoke_lock_pid
-  smoke_lock_drop "$gate"
+  [[ -z $gate ]] || smoke_lock_drop "$gate"
 }
 # smoke_hold_row begin|unwind|end NAME: smoke_row's boundary. A row that no
 # other row holds takes the shared lock as it begins, printing how long it
@@ -1611,7 +1625,7 @@ smoke_hold_row() { # begin|unwind|end NAME
       ((smoke_hold_depth == 1)) || return 0
       started="$(now_ms)"
       if smoke_hold_share; then
-        printf 'qml-smoke: smoke-hold row=%s lock=shared wait_ms=%s\n' "$2" "$(( $(now_ms) - started ))"
+        printf 'qml-smoke: smoke-hold row=%s lock=shared wait_ms=%s%s\n' "$2" "$(( $(now_ms) - started ))" "${smoke_hold_gate_cause:+ gate=none cause=[$smoke_hold_gate_cause]}"
       elif [[ $smoke_lock_cause == wait-bound* ]]; then
         printf 'qml-smoke: smoke-hold row=%s lock=shared hold=none cause=[%s]\n' "$2" "$smoke_lock_cause"
       else

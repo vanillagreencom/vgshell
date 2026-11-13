@@ -15,8 +15,10 @@
 # --case unmeasured checks unreached rows before and after world setup.
 # --case late-exit stops real initial and resumed worlds during EXIT.
 # --case hold runs real worlds against harness.sh's quiet-host hold. While
-# one run holds the hold, a world with a 6 s no-progress bound gives up
-# each lock wait at that bound and finishes, its window logging hold=none.
+# one run holds the hold, a world with a 60 s no-progress bound gives up
+# each lock wait at that bound and finishes, its window logging hold=none;
+# its control, a harness whose lock waits have no bound, is still waiting
+# at twice the bound.
 # Once the holding run is killed, one world's timed window waits for the
 # other world's current row to end, and that world starts no row until the
 # hold ends. Its control takes the hold shared, not exclusively, and its
@@ -605,7 +607,7 @@ if [[ $selected_case == all || $selected_case == hold ]]; then
 hold_seen() { [[ -f $hold_events ]] && grep -qxF -- "$1" "$hold_events"; }'
   cat >"$tree/scripts/smoke/rows/hold-forever.sh" <<'ROW'
 # inputs: scripts/smoke/harness.sh
-hold_forever() { printf 'K held\n' >>"$smoke_log_dir/hold-events"; sleep 540; }
+hold_forever() { printf 'K held\n' >>"$smoke_log_dir/hold-events"; sleep 1200; }
 smoke_hold hold-forever window hold_forever
 ROW
   printf '# inputs: scripts/smoke/harness.sh\nsmoke_hold hold-bounded window true\n' >"$tree/scripts/smoke/rows/hold-bounded.sh"
@@ -663,21 +665,47 @@ if mode == 'shipped':
     # A world killed while it holds the hold: the driver's USR2 kills the
     # world's namespace init, as its no-progress stop does.
     logs = output / 'killed'
-    child, log = start('killed', 'hold-forever', logs)
+    # Its 1500 s no-progress bound outlasts its 1200 s window, which
+    # outlasts both bounded worlds below: at most seven 60 s waits, then a
+    # control that waits 120 s, each behind a world start.
+    child, log = start('killed', 'hold-forever', logs, idle='1500')
     deadline = time.monotonic() + 300
     while events(logs) != ['K held'] and child.poll() is None and time.monotonic() < deadline:
         time.sleep(0.1)
     assert events(logs) == ['K held'], ('killed-run-not-holding', events(logs), log.read_text(errors='replace'))
-    # While K holds, a world whose no-progress bound is 15 s gives up each
-    # lock wait at that bound: its rows start without the shared lock and
-    # its window runs with hold=none, and it finishes while K still holds.
-    bounded, bounded_log = start('bounded', 'hold-bounded', output / 'bounded', idle='15')
-    finish(bounded, bounded_log, 600)
+    # While K holds, a world whose no-progress bound is 60 s, well above
+    # the longest silent core check, gives up each lock wait at that bound:
+    # its rows start without the shared lock and its window runs with
+    # hold=none, and it finishes while K still holds.
+    bounded, bounded_log = start('bounded', 'hold-bounded', output / 'bounded', idle='60')
+    finish(bounded, bounded_log, 900)
     text = bounded_log.read_text(errors='replace')
     assert bounded.returncode == 0, ('bounded-exit', bounded.returncode, text)
     assert child.poll() is None and events(logs) == ['K held'], ('holder-ended-before-bound', text)
-    assert re.search(r'^qml-smoke: smoke-hold row=bar lock=shared hold=none cause=\[wait-bound secs=15 lock=hold mode=-s\]$', text, re.M), text
-    assert re.search(r'^  smoke_hold row=hold-bounded window=window hold=none cause=\[wait-bound secs=15 lock=hold mode=-x\]$', text, re.M), text
+    assert re.search(r'^qml-smoke: smoke-hold row=bar lock=shared hold=none cause=\[wait-bound secs=60 lock=hold mode=-s\]$', text, re.M), text
+    assert re.search(r'^  smoke_hold row=hold-bounded window=window hold=none cause=\[wait-bound secs=60 lock=hold mode=-x\]$', text, re.M), text
+    # Control: the same world over a harness whose holder waits with no
+    # bound is still waiting, with no wait-bound line, at twice the bound.
+    harness = tree / 'scripts/smoke/harness.sh'
+    original = harness.read_text()
+    bounded_wait = 'flock -E 75 -w "$2" "$1" 3'
+    assert original.count(bounded_wait) == 1
+    harness.write_text(original.replace(bounded_wait, 'flock -E 75 "$1" 3'))
+    try:
+        unbounded, unbounded_log = start('unbounded', 'hold-bounded', output / 'unbounded', idle='60')
+        deadline = time.monotonic() + 600
+        waited = 0
+        while unbounded.poll() is None and waited < 120 and time.monotonic() < deadline:
+            time.sleep(1)
+            waited = max([int(s) for s in re.findall(r'^qml-smoke: smoke-hold waiting lock=hold mode=-s secs=([0-9]+)$', unbounded_log.read_text(errors='replace'), re.M)] or [0])
+        text = unbounded_log.read_text(errors='replace')
+        assert waited >= 120 and unbounded.poll() is None and 'wait-bound' not in text, ('control-unbounded-wait-ended', waited, text)
+        unbounded.send_signal(signal.SIGTERM)
+        finish(unbounded, unbounded_log, 120)
+    finally:
+        harness.write_text(original)
+    assert child.poll() is None and events(logs) == ['K held'], ('holder-ended-before-control', text)
+    print(json.dumps(dict(case='hold-control-unbounded', waited_secs=waited, result='rejected')), flush=True)
     child.send_signal(signal.SIGUSR2)
     finish(child, log, 60)
     assert re.search(r'^qml-smoke: no-progress stop=unanswered world=ended ', log.read_text(errors='replace'), re.M), log.read_text(errors='replace')
