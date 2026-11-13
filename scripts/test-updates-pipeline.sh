@@ -136,6 +136,9 @@ stub() { # DIR NAME BODY
 # written, before it was asked.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
+# `pkg check --json --source <id>` answers $FIX/check-<id>.json, else one
+# pending update; a file source answers no row, as one with none of its
+# packages installed does, while $FIX/unused-file-source exists.
 stub "$tree/bin" vgshell 'pkg_run() {
   [ ! -e "$FIX/devel-status" ] || [ "$5" != aur ] || paru -Sua || exit "$?"
   case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" || exit "$?" ;; esac
@@ -188,7 +191,6 @@ case "$1 $2" in
   "power reboot") [ ! -e "$FIX/fail-reboot" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
-  "pkg file-check") [ ! -e "$FIX/unused-file-source" ] || exit 2; exit 1 ;;
   "pkg plan")
     case "$4" in
       pacman) echo "{\"manager\":\"pacman\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-Syu\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
@@ -223,8 +225,9 @@ case "$1 $2" in
     [ ! -e "$FIX/decline-$id" ] || { printf "vgshell: update %s? [y/N] vgshell: refused: declined=%s\nthe checkout stays at its commit\n" "$id" "$id" >&2; exit 1; }
     [ ! -e "$FIX/offline-$id" ] || { printf "vgshell: refused: fetch=%s\nfatal: unable to access https://example.org/acme.git/: Could not resolve host: example.org\n" "$id" >&2; exit 1; } ;;
   "pkg check")
+    case "$5" in *-file) [ ! -e "$FIX/unused-file-source" ] || { echo "[]"; exit 0; } ;; esac
     if [ -e "$FIX/check-$5.json" ]; then cat "$FIX/check-$5.json"
-    else echo "[{\"source\":\"$5\",\"count\":0,\"packages\":[],\"checkedAt\":\"x\",\"error\":null}]"
+    else echo "[{\"source\":\"$5\",\"count\":1,\"packages\":[{\"name\":\"crush\",\"old\":\"1-1\",\"new\":\"2-1\"}],\"checkedAt\":\"x\",\"error\":null}]"
     fi ;;
   "ipc call")
     case "$5" in
@@ -397,6 +400,11 @@ hyprland_pid="$replaced_pid"
 settings() { # AUR_COMMAND TRUST
   printf '{"intervalHours":6,"hideWhenCurrent":false,"aurCommand":"%s","snapshot":"auto","trustPluginUpdates":%s,"placement":"center"}\n' "$1" "$2" >"$fix/settings.json"
 }
+# What `vgshell pkg check --json --source SOURCE` answers: COUNT updates,
+# or COUNT null with ERROR, a JSON string, for a check that failed.
+check_json() { # SOURCE COUNT ERROR
+  printf '[{"source":"%s","count":%s,"packages":[],"checkedAt":"x","error":%s}]\n' "$1" "$2" "$3" >"$fix/check-$1.json"
+}
 # The status `vgshell self status --json` prints: a STEP other than none, or
 # a REASON, is behind.
 self_json() { # METHOD PACKAGE_JSON STEP [REASON]
@@ -545,12 +553,12 @@ assert() {
   fi
 }
 
-# The whole run, in order: the reads, the question, the sudo session, VGS,
-# the system, Flatpak, mise, the plugin and the theme, the session's end,
-# the AUR, the drop after it, the orphans. No snapshot tool is 127: no
-# warning, and the run goes on.
-full_seq=("vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell self status --json"
-  "vgshell pkg plan upgrade pacman" "vgshell pkg plan upgrade flatpak" "vgshell pkg plan upgrade mise" "vgshell pkg plan upgrade aur"
+# The whole run, in order: the reads, the AUR's and the system's update
+# checks, the question, the sudo session, VGS, the system, Flatpak, mise,
+# the plugin and the theme, the session's end, the AUR, the drop after it,
+# the orphans. No snapshot tool is 127: no warning, and the run goes on.
+full_seq=("vgshell plugin settings vgs.updates" "vgshell pkg detect --json" "vgshell pkg check --json --source aur" "vgshell self status --json"
+  "vgshell pkg plan upgrade pacman" "vgshell pkg check --json --source pacman" "vgshell pkg plan upgrade flatpak" "vgshell pkg plan upgrade mise" "vgshell pkg plan upgrade aur"
   "vgshell plugin outdated --json" "vgshell theme outdated --json" "gum confirm -- Start the update?"
   "vgshell pkg owner $tree/VERSION" "sudo -k" "sudo /usr/bin/true" "pacman -Q" "vgshell self update"
   "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager flatpak" "vgshell pkg run upgrade --manager mise"
@@ -575,6 +583,11 @@ row_full() {
   assert "a declined plugin update leaves the exit 0" test "$status" == 0
   assert "a declined plugin update reads skipped" result_has "Plugin acme.one skipped. You declined it."
   assert "a declined plugin update leaves the theme update to run" has_call "vgshell theme update night"
+  # With only AUR packages pending the system upgrade still runs first.
+  reset_fix
+  check_json pacman 0 null
+  pipeline update.sh
+  assert "an AUR-only update upgrades the system before the AUR" before "vgshell pkg run upgrade --manager pacman" "vgshell pkg run upgrade --manager aur"
 }
 row_trusted() {
   reset_fix
@@ -593,6 +606,21 @@ row_snapshot() {
   assert "a failed snapshot warns" out_has "Snapshot failed. The rest of the update goes on."
   assert "a failed snapshot does not stop the update" has_call "vgshell pkg run upgrade --manager pacman"
   assert "a failed snapshot leaves the exit 0" test "$status" == 0
+  # With only Flatpak, mise, plugins and themes pending, no package is
+  # replaced, so the run asks no password and takes no snapshot.
+  reset_fix
+  check_json pacman 0 null
+  check_json aur 0 null
+  PIPE_PATH="$snapper_dir" pipeline update.sh
+  assert "a run with no package update exits 0" test "$status" == 0
+  assert "a run with no package update asks no password" no_call "sudo /usr/bin/true"
+  assert "a run with no package update takes no snapshot" no_call "sudo snapper"
+  assert "a run with no package update runs no system step" no_call "vgshell pkg run upgrade --manager pacman"
+  assert "a run with no package update runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
+  assert "a run with no package update still updates Flatpak" has_call "vgshell pkg run upgrade --manager flatpak"
+  assert "a run with no package update still updates mise" has_call "vgshell pkg run upgrade --manager mise"
+  assert "a run with no package update still updates the plugin" has_call "vgshell plugin update acme.one"
+  assert "a run with no package update still updates the theme" has_call "vgshell theme update night"
 }
 # A failed source records its cause and the run goes on with every later
 # source; the result list follows the reboot question, and the run
@@ -741,32 +769,33 @@ faulted-pacman|System packages failed. error: failed to commit transaction (conf
 conflict-paru|VGS package failed. quickshell conflicts with quickshell-git, which is installed. Next:
 ROWS
 }
-# After a failed or declined system upgrade the AUR step and the vgshell-git
-# rebuild build against the system it left, so they are skipped; every
-# other source still runs.
+# A failed, declined or unread system upgrade skips each step that acts on
+# the system it left, the AUR, the VGS package, a file source and the
+# orphan removal, each with its result line; every other source still runs.
 row_system_failed() {
-  reset_fix
-  touch "$fix/fail-pacman"
-  pipeline update.sh
-  assert "a failed system upgrade ends the run with 1" test "$status" == 1
-  assert "a failed system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
-  assert "a failed system upgrade lists the AUR skipped with its cause" result_has "AUR skipped. The system upgrade failed, and AUR packages build against it."
-  assert "a later source installs after a failed system upgrade" result_has "mise installed."
-  assert "a plugin updates after a failed system upgrade" result_has "Plugin acme.one installed."
-  reset_fix
-  self_json package '"vgshell-git"' rebuild
-  touch "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/fail-pacman"
-  pipeline update.sh
-  assert "a failed system upgrade rebuilds no vgshell-git" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
-  assert "a failed system upgrade lists the rebuild skipped" result_has "VGS package skipped. The system upgrade failed, and AUR packages build against it."
-  reset_fix
-  self_json package '"vgshell-git"' rebuild
-  touch "$fix/decline-pacman"
-  pipeline update.sh
-  assert "a declined system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
-  assert "a declined system upgrade rebuilds no VGS package" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
-  assert "a declined system upgrade lists the AUR skipped with its cause" result_has "AUR skipped. You declined the system upgrade, and AUR packages build against it."
-  assert "a later source installs after a declined system upgrade" result_has "mise installed."
+  local fixture expected cause
+  while IFS='|' read -r fixture expected cause; do
+    reset_fix
+    self_json package '"vgshell-git"' rebuild
+    printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"},{"id":"verified-file","binary":"pacman"},{"id":"flatpak","binary":"flatpak"}],"sources":[{"id":"mise","binary":"mise"}]}\n' >"$fix/detect.json"
+    if [[ $fixture == unread-pacman ]]; then check_json pacman null '"exit=1"'; else touch "$fix/$fixture"; fi
+    pipeline update.sh
+    assert "$fixture ends the run with $expected" test "$status" == "$expected"
+    assert "$fixture runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
+    assert "$fixture rebuilds no VGS package" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+    assert "$fixture installs no verified package" no_call "vgshell pkg run upgrade --manager verified-file"
+    assert "$fixture removes no orphan" no_call "pacman -Qtdq"
+    assert "$fixture lists the AUR skipped with its cause" result_has "AUR skipped. $cause, and AUR packages build against it."
+    assert "$fixture lists the VGS package skipped with its cause" result_has "VGS package skipped. $cause, and AUR packages build against it."
+    assert "$fixture lists the verified packages skipped with their cause" result_has "Verified packages skipped. $cause, and these packages install against it."
+    assert "$fixture lists the clean-up skipped with its cause" result_has "Orphaned packages skipped. $cause, and clean-up runs only after a system upgrade."
+    assert "$fixture still installs a later source" result_has "mise installed."
+    assert "$fixture still updates a plugin" result_has "Plugin acme.one installed."
+  done <<'ROWS'
+fail-pacman|1|The system upgrade failed
+decline-pacman|0|You declined the system upgrade
+unread-pacman|1|VGS could not check the system for updates
+ROWS
 }
 # The terminal shows pacman's question on its own line after its whole
 # size summary, which it writes to stdout before the question on stderr,
@@ -1004,7 +1033,7 @@ row_orphans() {
   touch "$fix/fail-remove" "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/fail-restart"
   pipeline update.sh
   assert "an unreadable plugin list is a skipped part" result_has "Plugins skipped. VGS could not check them for updates. Update again later."
-  assert "an unreadable plugin list shows as skipped in the plan box" out_has "Plugins: skipped"
+  assert "an unreadable plugin list shows as unchecked in the plan box" out_has "Plugins: could not check for updates"
   assert "a failed orphan removal is a failed part" result_has "Orphaned packages failed. VGS could not remove them."
   assert "a failed shell restart is a failed part" result_has "Shell restart failed. Next: save your work and restart the computer."
   assert "failed removal and restart end the run with 1" test "$status" == 1
@@ -1997,7 +2026,10 @@ control aur-before-revoke 'if [[ $session == 1 ]]; then vgs_tui_sudo_session end
   'if [[ $session == 1 ]]; then "$_updates_vgshell" pkg run upgrade --manager aur; vgs_tui_sudo_session end; fi' row_full
 control passes-yes '_updates_yes_flag=()' '_updates_yes_flag=(--yes)' row_full
 control aur-unguarded '      vgs_tui_sudo_session guard' '      :' row_aur_failure
-control session-ignores-elevator 'if [[ $elevator == sudo ]]; then session=1; fi' 'if command -v sudo >/dev/null; then session=1; fi' row_doas
+control session-ignores-elevator 'if [[ $replaces == 1 && $elevator == sudo ]]; then session=1; fi' 'if [[ $replaces == 1 ]] && command -v sudo >/dev/null; then session=1; fi' row_doas
+control session-without-package-step 'if [[ $replaces == 1 && $elevator == sudo ]]; then session=1; fi' 'if [[ $elevator == sudo ]]; then session=1; fi' row_snapshot
+control system-step-when-current '          else plan+=("$label: current")' '          else kept+=("$id"); plan+=("$label: current")' row_snapshot
+control aur-without-system-step '    if [[ $id == aur ]] || _updates_file_source "$id"; then more=1; fi' '    if _updates_file_source "$id"; then more=1; fi' row_full
 control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator" || status=$?' '_updates_snapshot "$snapshot_tool" sudo || status=$?' row_doas
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
 control rebuild-by-package '[[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
@@ -2023,7 +2055,9 @@ control question-unread 'if [[ $own =~' 'if false && [[ $own =~' row_cause
 control reboot-mask-missing 'ln -s -- /dev/null' 'ln -s -- /dev/zero' row_reboot_deferred
 control answered-question-kept '[[ $rest =~ $_updates_answer ]] || line="$rest"' ':' row_cause
 control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
-control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
+control builds-after-failed-system '            failed) system_blocked="the system upgrade failed" ;;' '            failed) ;;' row_system_failed
+control builds-after-declined-system '            declined) system_blocked="you declined the system upgrade" ;;' '            declined) ;;' row_system_failed
+control builds-after-unread-system '          system_blocked="VGS could not check the system for updates" system_unread=1' '          system_unread=1' row_system_failed
 control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]' 'if false' row_aur_rebuild_stopped
 control rebuild-after-unrelated-failure '[[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]' 'false' row_aur_rebuild_stopped
 control build-tools-offered 'const candidates = info.packages.filter(row => !row.builds.length);' 'const candidates = info.packages;' row_orphans
@@ -2075,7 +2109,7 @@ control release-file-left-out 'for arg in verified-file deb-file rpm-file flatpa
 control release-file-unknown '      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in' '      verified-file|flatpak|mise) _updates_in' row_release_file
 control release-file-no-snapshot 'if _updates_file_source "$step_source"; then upgrades=1; fi' 'if [[ $step_source == verified-file ]]; then upgrades=1; fi' row_release_file
 control release-file-unused-kept '  [[ $1 == verified-file || $1 == deb-file || $1 == rpm-file ]]' '  [[ $1 == verified-file ]]' row_release_file
-control verified-file-unused-kept '        [[ $status != 2 ]] || continue' '        :' row_verified_file
+control verified-file-unused-kept '        [[ $status != 1 ]] || continue' '        :' row_verified_file
 control verified-file-unknown '      verified-file|deb-file|rpm-file|flatpak|mise) _updates_in' '      deb-file|rpm-file|flatpak|mise) _updates_in' row_verified_file
 control unknown-source-unchecked '_updates_refuse 2 "source=$only reason=unknown"' \
   ': 2 "source=$only reason=unknown"' row_source

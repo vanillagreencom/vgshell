@@ -12,20 +12,27 @@
 #      becomes update.log once it holds the lock, so a second run refused
 #      busy never truncates the log of the run it found
 #   2. a warning when / has less than 10 GiB free
-#   3. the plan box, then one question unless -y
+#   3. the plan box, then one question unless -y. Update all reads what
+#      pacman, the AUR and each file source have pending with `vgshell pkg
+#      check`, the Updates window's own check: one with nothing pending
+#      leaves the run, except the system, which runs whenever another
+#      package step does, since each of those needs its upgrade first.
+#      Another primary's system step always runs, since no other primary's
+#      check reads fresh state
 #   4. effective package configurations before Updates' snapshot and
 #      credential session; the AUR review runs in the helper's later step
-#   5. one sudo session, when the package layer's elevation command is
-#      sudo and a snapshot or the system step needs root. That command is
-#      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's
+#   5. one sudo session, when the run replaces a package and the package
+#      layer's elevation command is sudo. That command is the one `vgshell
+#      pkg plan upgrade <primary>` names, from shell.json's
 #      `packages.elevate`, else the first of sudo, doas and run0 on PATH;
 #      doas and run0 ask as their own rules say, as bin/lib/pkg-run.sh does
 #   6. a snapshot through snapper or timeshift behind that command, before
-#      any step that replaces a package: the system's, the AUR's or the
-#      vgshell-git rebuild. None is taken when the plugin's `snapshot` setting
-#      is off, when neither tool is on PATH or when no elevation command
-#      resolves, and the plan box says which; a failed snapshot warns and
-#      the update goes on
+#      any step that replaces a package: the system's, a file source's, the
+#      AUR's or the vgshell-git rebuild. A run with none takes no snapshot
+#      and asks no password. None is taken when the plugin's `snapshot`
+#      setting is off, when neither tool is on PATH or when no elevation
+#      command resolves, and the plan box says which; a failed snapshot
+#      warns and the update goes on
 #   7. VGS itself: `vgshell self update` when `vgshell self status` names the
 #      step `self`, a checkout or a curl install behind; a step of `none`
 #      names its reason in the plan box and runs nothing
@@ -35,7 +42,7 @@
 #      upgrade --manager verified-file|deb-file|rpm-file|flatpak|mise`; a
 #      file source replaces packages, so it takes the snapshot and the
 #      orphan step as the system step does, and Update all takes it only
-#      while one of its packages is installed
+#      while its check offers one of its installed packages newer
 #  10. each plugin, then each theme, behind its upstream:
 #      `vgshell plugin|theme update <id>`, which shows its diff and asks
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
@@ -52,7 +59,7 @@
 #      phase runs under tui.sh's sudo guard: the credential it caches is
 #      dropped when the phase ends, fails or is interrupted
 #  13. pacman's orphaned packages, removed only on a yes, default no, after
-#      a system or AUR upgrade
+#      a system, file source or AUR upgrade
 #  14. a shell restart when a package step or the rebuild replaced the VGS
 #      package
 #  15. a check request to refresh the widget and window
@@ -80,11 +87,16 @@
 # No part's failure ends the run. A source step (7 to 10 and 12) that fails
 # records its cause, read from its output (_updates_cause_of), and the run
 # goes on with the next; a run with a failed step exits 1 after the reboot
-# question. After a failed or declined system step, or a failed paru
-# install, the AUR step and the vgshell-git rebuild are skipped, since they
-# build against the system that step left or need the helper. A refused
-# password skips every step that needs it: the system, the file rows, the
-# snapshot, the AUR, the rebuild and the orphans. An unreadable VGS status,
+# question. An unread system check is a failed part. After a failed or
+# declined system step, or in Update all a system plan or check that could
+# not be read, the file sources, the AUR
+# step, the vgshell-git rebuild and the orphan removal are each skipped
+# with its result line, since they act on the system that step left; a
+# system step blocked before the run starts also takes no snapshot and
+# asks no password. A failed paru install skips the AUR step and the
+# rebuild, which need the helper. A refused password skips every step
+# that needs it: the system, the file rows, the snapshot, the AUR, the
+# rebuild and the orphans. An unreadable VGS status,
 # plugin, theme or orphan list skips that part, and a failed orphan removal
 # or shell restart is a failed part. A package a declined AUR transaction
 # leaves out is not retried by the VGS rebuild. A failed AUR build permits
@@ -665,6 +677,31 @@ _updates_plan() { # ID
   done <<<"$facts"
 }
 
+# Whether SOURCE has updates, by its table row's own query through
+# `vgshell pkg check`, the check the Updates window counts: 0 when it has, 1
+# when it has none or the system takes no package from it, 2 when the
+# check could not be read, whose cause goes to the developer log. A check
+# a Ctrl-C, a closed window or TERM stopped ends the run with its status,
+# as a source step does.
+_updates_pending() { # SOURCE
+  local out facts key value status=0
+  out="$("$_updates_vgshell" pkg check --json --source "$1")" || status=$?
+  case "$status" in
+    129|130|143) _updates_diagnostic "updates: stopped check=$1 exit=$status"; exit "$status" ;;
+  esac
+  if [[ $status != 0 ]] || ! facts="$(_updates_facts check "$1" <<<"$out")"; then
+    _updates_diagnostic "updates: check=unread source=$1 exit=$status"
+    return 2
+  fi
+  [[ -n $facts ]] || return 1
+  while read -r key value; do
+    case "$key" in
+      error) _updates_diagnostic "updates: check=failed source=$1 error=$value"; return 2 ;;
+      count) [[ $value != 0 ]] || return 1 ;;
+    esac
+  done <<<"$facts"
+}
+
 # The snapshot tool on PATH: snapper, else timeshift; 1 when neither is.
 _updates_snapshot_tool() {
   if command -v snapper >/dev/null; then echo snapper
@@ -687,7 +724,7 @@ _updates_snapshot() { # snapper|timeshift ELEVATOR
         [[ -z $config ]] || configs+=("$config")
       done <<<"$csv"
       if [[ ${#configs[@]} -eq 0 ]]; then
-        vgs_tui_warn "snapper has no configuration, so no snapshot was taken."
+        vgs_tui_warn "snapper has no configuration."
         return 1
       fi
       vgs_tui_step "Taking a snapshot"
@@ -698,7 +735,7 @@ _updates_snapshot() { # snapper|timeshift ELEVATOR
       ;;
     timeshift)
       if [[ ! -f /etc/timeshift/timeshift.json ]]; then
-        vgs_tui_warn "timeshift is not set up, so no snapshot was taken."
+        vgs_tui_warn "timeshift is not set up."
         return 1
       fi
       vgs_tui_step "Taking a snapshot"
@@ -722,7 +759,8 @@ _updates_vgs_package_version() {
 
 # The plugins or themes behind their upstream, into _updates_behind; a
 # checkout whose probe failed warns, and a probe that failed as a whole
-# skips the source and returns 1, so the plan box shows it skipped.
+# skips the source and returns 1, so the plan box says VGS could not check
+# it.
 _updates_outdated() { # plugin|theme SOURCE
   local out facts key value
   _updates_behind=()
@@ -984,28 +1022,36 @@ _updates_main() {
         ;;
     esac
   done <<<"$facts"
-  local aur_here=0
+  local aur_here=0 aur_current=0
   if _updates_in aur "${present[@]}" || [[ ${#aur_command[@]} -gt 0 && $primary == pacman ]]; then aur_here=1; fi
 
   # The sources this run takes, in step order.
   local run=()
   if [[ $mode == all ]]; then
+    vgs_tui_step "Checking for updates"
     run=(vgs)
     if [[ -n $primary ]]; then run+=("$primary"); fi
     for arg in verified-file deb-file rpm-file flatpak mise; do
       _updates_in "$arg" "${present[@]}" || continue
       # A file source is present wherever its primary is; it joins only
-      # while one of its packages is installed, which its check answers
-      # with any status but 2, as the window lists it.
+      # while its check offers one of its installed packages newer, or
+      # could not be read, which leaves the step to find out.
       if _updates_file_source "$arg"; then
         status=0
-        "$_updates_vgshell" pkg file-check "$arg" >/dev/null 2>&1 || status=$?
-        [[ $status != 2 ]] || continue
+        _updates_pending "$arg" || status=$?
+        [[ $status != 1 ]] || continue
       fi
       run+=("$arg")
     done
     run+=(plugins themes)
-    if [[ $aur_here == 1 ]]; then run+=(aur); fi
+    # The AUR joins while its check offers an update, or could not be
+    # read, which leaves the step to find out. VGS has no check for the
+    # owner's aurCommand, so that command always runs.
+    if [[ $aur_here == 1 ]]; then
+      status=0
+      [[ ${#aur_command[@]} -gt 0 ]] || _updates_pending aur || status=$?
+      if [[ $status == 1 ]]; then aur_current=1; else run+=(aur); fi
+    fi
   else
     case "$only" in
       vgs|plugins|themes) ;;
@@ -1042,6 +1088,16 @@ _updates_main() {
       _updates_results+=("VGS skipped. VGS could not check it for updates. Update again later.")
     fi
   fi
+  # The package steps besides the system's: the AUR, a file source and the
+  # VGS package. Each runs only after a successful system upgrade in this
+  # run, so Update all runs the system step for them with nothing of its own
+  # pending, and a system step that cannot run skips them
+  # (system_blocked, the cause).
+  local more=0 system_blocked="" system_unread=0
+  for id in "${run[@]}"; do
+    if [[ $id == aur ]] || _updates_file_source "$id"; then more=1; fi
+  done
+  case "$vgs_step" in rebuild|install-helper|aur-upgrade) more=1 ;; esac
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes) kept+=("$id"); continue ;;
@@ -1054,11 +1110,28 @@ _updates_main() {
     esac
     labels[$id]="$label"
     if _updates_plan "$id"; then
-      kept+=("$id")
-      plan+=("$label: install available updates")
+      # Update all reads whether the system has updates, the window's
+      # own check, only for pacman, whose checkupdates syncs a private copy
+      # of the databases (checkupdates(8)). apt's check reads the lists of
+      # the last `apt update` and never refreshes them (PackageManagers.js),
+      # and no other primary's row says its check reads fresh state, so
+      # their system step always runs. A source of its own runs its step.
+      status=0
+      [[ $mode != all || $id != "$primary" || $id != pacman ]] || _updates_pending "$id" || status=$?
+      case "$status" in
+        0) kept+=("$id"); plan+=("$label: install available updates") ;;
+        1)
+          if [[ $more == 1 ]]; then kept+=("$id"); plan+=("$label: install available updates")
+          else plan+=("$label: current")
+          fi ;;
+        *)
+          system_blocked="VGS could not check the system for updates" system_unread=1
+          plan+=("$label: could not check for updates") ;;
+      esac
     else
       [[ $mode == all ]] || _updates_refuse 1 "source=$only reason=no-plan" "$_updates_plan_text"
       _updates_diagnostic "$label: $_updates_plan_text"; plan+=("$label: VGS cannot update this source")
+      [[ $id != "$primary" ]] || system_blocked="VGS cannot update the system"
     fi
     if [[ $id == "$primary" ]]; then
       primary_planned=1
@@ -1067,6 +1140,7 @@ _updates_main() {
     fi
   done
   run=("${kept[@]}")
+  if [[ $aur_current == 1 ]]; then plan+=("AUR: current"); fi
   if _updates_in vgs "${run[@]}"; then
     # paru's tracked devel vgshell-git (`aur-upgrade`) builds in this run's
     # AUR upgrade when the AUR step runs, so VGS runs no step of its own.
@@ -1100,7 +1174,7 @@ _updates_main() {
       plugins=("${_updates_behind[@]}")
       plan+=("Plugins: ${plugins[*]:-current}")
     else
-      plan+=("Plugins: skipped")
+      plan+=("Plugins: could not check for updates")
     fi
   fi
   if _updates_in themes "${run[@]}"; then
@@ -1108,13 +1182,14 @@ _updates_main() {
       themes=("${_updates_behind[@]}")
       plan+=("Themes: ${themes[*]:-current}")
     else
-      plan+=("Themes: skipped")
+      plan+=("Themes: could not check for updates")
     fi
   fi
 
   # A snapshot and the VGS version check guard every step that replaces
-  # packages: the upgrades, the system's and the AUR's, and the vgshell-git
-  # rebuild. The orphans follow the upgrades alone.
+  # packages: the upgrades, the system's, a file source's and the AUR's,
+  # and the vgshell-git rebuild. The orphans follow the upgrades alone.
+  # With the system step blocked none of them runs.
   local upgrades=0 rebuild=0 replaces=0 step_source
   if _updates_in aur "${run[@]}" || { [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; }; then upgrades=1; fi
   for step_source in "${run[@]}"; do
@@ -1122,6 +1197,7 @@ _updates_main() {
   done
   if _updates_in vgs "${run[@]}" && [[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1; fi
   if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi
+  if [[ -n $system_blocked ]]; then replaces=0; fi
   local snapshot_line="" snapshot_tool=""
   if [[ $replaces == 1 ]]; then
     if [[ $snapshot_setting == off ]]; then
@@ -1146,8 +1222,10 @@ _updates_main() {
       fi
     fi
   fi
+  # The password session serves the snapshot and the package steps, so a
+  # run that replaces no package asks none.
   local session=0
-  if [[ $elevator == sudo ]]; then session=1; fi
+  if [[ $replaces == 1 && $elevator == sudo ]]; then session=1; fi
 
   # The free space and the plan box.
   local avail
@@ -1180,11 +1258,19 @@ _updates_main() {
     esac
   fi
 
+  # An unread system check is a failed part, recorded once the run starts,
+  # so a run cancelled at its question writes no outcome.
+  if [[ $system_unread == 1 ]]; then
+    _updates_part "System packages"
+    _updates_fail "System packages" "System packages failed. VGS could not check them for updates. Next: update again later."
+  fi
+
   # A missing helper reviews its own clone before building it, outside
   # Updates' credential session.
-  # Without it the AUR builds and the VGS package cannot run.
+  # Without it the AUR builds and the VGS package cannot run. Like them,
+  # it builds only when the system step can run.
   local aur_blocked=""
-  if [[ $rebuild == 1 && $vgs_step == install-helper ]]; then
+  if [[ $rebuild == 1 && $vgs_step == install-helper && -z $system_blocked ]]; then
     vgs_tui_step "Installing paru for VGS updates"
     _updates_source paru Paru _updates_run _updates_install_helper
     if [[ $_updates_outcome == installed ]]; then
@@ -1262,23 +1348,28 @@ _updates_main() {
     vgs_tui_step "Updating VGS"
     _updates_source vgs VGS "$_updates_vgshell" self update
   fi
-  # An AUR build links against the system the system step left: after a
-  # failed or declined system upgrade, whose databases are already synced,
-  # the AUR step and the rebuild would be a partial upgrade.
+  # An AUR build, a file source's install and the orphan removal act on
+  # the system the system step left: after a failed or declined system
+  # upgrade, whose databases are already synced, they would be a partial
+  # upgrade.
   for id in "${run[@]}"; do
     case "$id" in
       vgs|plugins|themes|aur) ;;
       *)
         if [[ $denied == 1 ]] && { [[ $id == "$primary" ]] || _updates_file_source "$id"; }; then continue; fi
+        if [[ -n $system_blocked ]] && _updates_file_source "$id"; then
+          _updates_results+=("${labels[$id]} skipped. ${system_blocked^}, and these packages install against it.")
+          continue
+        fi
         if [[ $id == pacman ]]; then
           _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" --config "${_updates_package_configs[pacman]}"
         else
           _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id"
         fi
-        if [[ $id == pacman ]]; then
+        if [[ $id == "$primary" ]]; then
           case "$_updates_outcome" in
-            failed) aur_blocked="the system upgrade failed, and AUR packages build against it" ;;
-            declined) aur_blocked="you declined the system upgrade, and AUR packages build against it" ;;
+            failed) system_blocked="the system upgrade failed" ;;
+            declined) system_blocked="you declined the system upgrade" ;;
           esac
         fi
         ;;
@@ -1288,9 +1379,11 @@ _updates_main() {
   if [[ ${#themes[@]} -gt 0 ]]; then _updates_update_each theme "${themes[@]}"; fi
   if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi
 
+  [[ -z $system_blocked ]] || aur_blocked="$system_blocked, and AUR packages build against it"
   if [[ -n $aur_blocked ]]; then
     if _updates_in aur "${run[@]}"; then _updates_results+=("AUR skipped. ${aur_blocked^}."); fi
-    if [[ $rebuild_run == 1 ]]; then _updates_results+=("VGS package skipped. ${aur_blocked^}."); fi
+    # A tracked devel vgshell-git (aur-upgrade) builds in the AUR step.
+    if [[ $rebuild_run == 1 || $vgs_step == aur-upgrade ]]; then _updates_results+=("VGS package skipped. ${aur_blocked^}."); fi
   elif [[ $denied == 1 ]]; then
     : # The refusal's one result line stands for the AUR and the VGS package.
   elif [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then
@@ -1354,7 +1447,13 @@ _updates_main() {
   fi
   if [[ ${#changes[@]} -gt 0 ]]; then _updates_reboot_packages "${changes[@]}"; fi
 
-  if [[ $primary == pacman && $upgrades == 1 && $denied == 0 ]]; then _updates_orphans; fi
+  if [[ $primary == pacman && $upgrades == 1 && $denied == 0 ]]; then
+    if [[ -n $system_blocked ]]; then
+      _updates_results+=("Orphaned packages skipped. ${system_blocked^}, and clean-up runs only after a system upgrade.")
+    else
+      _updates_orphans
+    fi
+  fi
   if [[ -n $vgs_before ]] && [[ "$(_updates_vgs_package_version)" != "$vgs_before" ]] && "$_updates_vgshell" pid >/dev/null 2>&1; then
     _updates_part "Shell restart"
     vgs_tui_step "Restarting the shell on the updated VGS"

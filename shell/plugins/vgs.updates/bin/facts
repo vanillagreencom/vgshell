@@ -20,6 +20,11 @@
 //       when a package owns the tree, `current <version>`, `step
 //       self|rebuild|install-helper|aur-upgrade|none` and `reason <reason>` when a step of none
 //       names one
+//   facts <loader> check <source>   `vgshell pkg check --json --source <source>`
+//       `count <n>` when the check counted SOURCE's updates, `error <error>`
+//       when it could not, and nothing when the system takes no package
+//       from SOURCE; the rows are UpdatesLogic.normalizePkg's, the
+//       window's own
 //   facts <loader> owner            `vgshell pkg owner <path>`
 //       `version <version>`
 //   facts <loader> outdated plugins|themes
@@ -117,6 +122,17 @@ case "self": {
     line("current", answer.current);
     line("step", answer.step);
     if (answer.reason !== null) line("reason", answer.reason);
+    break;
+}
+case "check": {
+    if (source === undefined) refuse("check=missing", 2);
+    const rows = logic().normalizePkg({ status: 0, stdout: text(), stderr: "" });
+    const found = rows.filter(row => row.source === source);
+    if (found.length !== rows.length || found.length > 1) refuse("check=malformed source=" + source, 1);
+    if (found.length === 0) break;
+    if (typeof found[0].error === "string") line("error", found[0].error);
+    else if (Number.isInteger(found[0].count) && found[0].count >= 0) line("count", found[0].count);
+    else refuse("check=malformed source=" + source, 1);
     break;
 }
 case "owner": {
