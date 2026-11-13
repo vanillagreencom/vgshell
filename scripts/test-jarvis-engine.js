@@ -1969,10 +1969,15 @@ async function cases(kit, server, only = null, mutation = false) {
 
     // A request handed to the Jarvis session's mailbox: a completed one is
     // Jarvis's fixed line, captioned and spoken once whatever the brain
-    // says after it; any other result leaves the words to the brain.
+    // says after it; any other result leaves the words to the brain, and so
+    // does a completed request to a listed project's mailbox, where no
+    // answer is watched for.
     const ASKING = "Let me check my main brain for that.";
     const FLEET_ROW = { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000001." };
-    for (const [name, result, reply, spoken, route = "request"] of [
+    const DOCS = { text: "Update the docs." };
+    const PROJECT_DOCS = { text: "Update the docs.", project: "/home/user/projects/docs" };
+    const PROJECT_ROW = { outcome: "completed", content: "Completed: the request is in the mailbox of /home/user/projects/docs as row 1792200000003." };
+    for (const [name, result, reply, spoken, route = "request", args = DOCS] of [
         ["completed-echo", FLEET_ROW,
             "Let me check my main brain for that. It reads its mail next.", [ASKING, "It reads its mail next."]],
         ["completed-silent", { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000002." },
@@ -1986,17 +1991,18 @@ async function cases(kit, server, only = null, mutation = false) {
         ["remember-delivered", { outcome: "completed", content: "Completed: the request reached Jarvis main.", line: "remember-delivered" },
             "", ["I sent that to Jarvis main to remember."], "forward"],
         ["remember-queued", { outcome: "completed", content: "Completed: the request is queued in this computer's outbox and not delivered yet.",
-            line: "remember-queued" }, "", ["I'm holding that for Jarvis main and will send it."], "forward"]
+            line: "remember-queued" }, "", ["I'm holding that for Jarvis main and will send it."], "forward"],
+        ["completed-project", PROJECT_ROW, "It is in the docs project's mailbox.", ["It is in the docs project's mailbox."], "request", PROJECT_DOCS]
     ]) await run("fleet-" + route + "-" + name, async w => {
         const first = await say(w, utterance("Ask my fleet to update the docs."));
-        server.replies.push(calls({ id: "call_fleet", name: "fleet_" + route, arguments: { text: "Update the docs." } }), text(reply));
+        server.replies.push(calls({ id: "call_fleet", name: "fleet_" + route, arguments: args }), text(reply));
         await w.observed(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(1000);
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
         const body = await requested(w, first + 2, "the result reaches the brain");
-        assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet." + route, { text: "Update the docs." }]]);
+        assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet." + route, args]]);
         assert.equal(body.messages.find(message => message.role === "tool").content, result.content, "the row id stays in the result");
         await until(() => w.s().turn.kind === "none", "the turn completes");
         await playOut(w);
@@ -2032,37 +2038,41 @@ async function cases(kit, server, only = null, mutation = false) {
 
     // The same request from a harness program, answered through the tool
     // bridge while the brain's reply streams: Jarvis's fixed line, said once,
-    // though the brain says nothing after it.
-    await run("fleet-request-bridged", async w => {
+    // though the brain says nothing after it; for a listed project's
+    // mailbox, the brain's words alone.
+    for (const [name, args, result, reply, spoken] of [
+        ["fleet-request-bridged", DOCS, FLEET_ROW, "", [ASKING]],
+        ["fleet-request-bridged-project", PROJECT_DOCS, PROJECT_ROW, "It is in the docs project's mailbox.", ["It is in the docs project's mailbox."]]
+    ]) await run(name, async w => {
         const first = await say(w, utterance("Ask my fleet to update the docs."));
         const streaming = gate();
-        server.replies.push([...pause(streaming), ...text("").slice(1)]);
+        server.replies.push([...pause(streaming), ...text(reply).slice(1)]);
         await requested(w, first + 1, "the brain's reply streams");
         const launch = await w.bridge.open({ gen: w.s().gen, recipients: control.opened.at(-1).recipients });
         const program = await harnessProgram(launch);
         try {
             program.send({ jsonrpc: "2.0", id: 1, method: "tools/call",
-                params: { name: "fleet_request", arguments: { text: "Update the docs." } } });
+                params: { name: "fleet_request", arguments: args } });
             await w.observed(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
             const h = w.s().approval;
             w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
             w.advanceRunner(1000);
             w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
             const answer = await program.next("the program receives the result");
-            assert.deepEqual([answer.id, answer.result.content[0].text], [1, FLEET_ROW.content], "the row id stays in the result");
-            assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet.request", { text: "Update the docs." }]]);
+            assert.deepEqual([answer.id, answer.result.content[0].text], [1, result.content], "the row id stays in the result");
+            assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet.request", args]]);
             streaming.open();
             await until(() => w.s().turn.kind === "none", "the turn completes");
             await playOut(w);
-            assert.deepEqual(withoutAcks(control.spoken), [ASKING]);
+            assert.deepEqual(withoutAcks(control.spoken), spoken);
             const said = withoutAcks(assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u));
-            assert.deepEqual(said, [ASKING], "the transcript shows what was spoken");
+            assert.deepEqual(said, spoken, "the transcript shows what was spoken");
             assert.deepEqual(w.faults, []);
         } finally {
             program.close();
             launch.close();
         }
-    }, { fleet: FLEET_ROW, bridge: true });
+    }, { fleet: result, bridge: true });
 
     // A short command takes the local fast path: one call through the real
     // router and audit, no brain request, a fixed spoken line, and an
@@ -4182,6 +4192,7 @@ async function groupPlants(root, server) {
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Let me check my main brain for that." },', "", "fleet-request-completed-silent"],
         ["remember-line-absent", "value.results[0].line ?? value.outcome", "value.outcome", "fleet-forward-remember-delivered"],
+        ["fleet-project-line", 'tool === "fleet.request" && args?.project !== undefined ? undefined : CALL_LINES', "CALL_LINES", "fleet-request-completed-project"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
         ["fleet-resume-route-kept", "fleetRoute(router.offer()) !== c.fleet", "c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet", "fleet-route-resume"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],
@@ -4294,7 +4305,7 @@ async function groupPlants(root, server) {
     const bridgeKit = Fixture.copy(root);
     const daemonFile = path.join(bridgeKit.folder, "backend/jarvisd.js");
     const daemonSource = fs.readFileSync(daemonFile, "utf8");
-    const answeredNeedle = ",\n                        answered: (value, tool) => engine.brain.bridged(value, tool)";
+    const answeredNeedle = ",\n                        answered: (value, tool, args) => engine.brain.bridged(value, tool, args)";
     assert.equal(daemonSource.split(answeredNeedle).length, 2, "one bridge answer wiring control match");
     fs.writeFileSync(daemonFile, daemonSource.replace(answeredNeedle, ""));
     await assert.rejects(() => cases(bridgeKit, server, "fleet-request-bridged", true), error => {

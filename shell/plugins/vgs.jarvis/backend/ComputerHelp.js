@@ -23,6 +23,9 @@ const FAILED = { "fleet.request": "fleet-request:" };
 // this bound: a recovery bound for a tool that hangs, not a measured
 // latency.
 const MAIL_MS = 3000;
+// The kendex project list run ends by this bound: a recovery bound for a
+// list that hangs, not a measured latency.
+const PROJECTS_MS = 3000;
 // The output one run may print: a receipt and its notices, or the
 // envelopes a read-back lists, the request's own text among them.
 const MAIL_BYTES = 1024 * 1024;
@@ -207,7 +210,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         const env = { LC_ALL: "C.UTF-8" };
         for (const name of PROJECTS_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];
         const listed = await run("setpriv", ["--pdeathsig", "KILL", "--", "kendex", "project", "list", "--json"],
-            { env, cwd: "/", limit: MAIL_BYTES, group: true, deadline: MAIL_MS, signal: lifetime.signal });
+            { env, cwd: "/", limit: MAIL_BYTES, deadline: PROJECTS_MS, group: true, signal: lifetime.signal });
         if (listed.kind !== "exited" || listed.code !== 0) return null;
         let entries;
         try { entries = JSON.parse(listed.stdout); } catch { return null; }
@@ -295,7 +298,9 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
             ? { outcome: "completed", content: "Completed: the request is in " + box + " as row " + id + ". The session acts on it when it next reads its mail." }
             : { outcome: "unknown", content: "Unknown: lane-mail sent the request as row " + id + ", but the row did not read back from " + box + "." };
     }
-    return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 4 * MAIL_MS + 1000), cancellable: false,
+    // A home request runs four lane-mail runs (count, answer checkpoint,
+    // send, read-back); a project request the list and three.
+    return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 3 * MAIL_MS + Math.max(MAIL_MS, PROJECTS_MS) + 1000), cancellable: false,
         sync,
         close() {
             closed = true;

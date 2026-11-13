@@ -1619,12 +1619,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // brain's to state. A wire brain's call arrives at outcome, a harness
     // program's at bridged. Answers false when saying it failed the turn.
     // A row's key is the result's outcome, or the line its executor names.
+    // A fleet.request naming a project (ARGS, the call's arguments) has no
+    // line: ComputerHelp watches for no answer there, so the brain states
+    // its result.
     const CALL_LINES = { "fleet.request": { completed: "Let me check my main brain for that." },
         "fleet.forward": { completed: "Let me check my main brain for that.",
             "remember-delivered": "I sent that to Jarvis main to remember.",
             "remember-queued": "I'm holding that for Jarvis main and will send it." } };
-    function callLine(c, turn, tool, value) {
-        const text = CALL_LINES[tool]?.[value.results[0].line ?? value.outcome];
+    function callLine(c, turn, tool, value, args) {
+        const text = tool === "fleet.request" && args?.project !== undefined ? undefined : CALL_LINES[tool]?.[value.results[0].line ?? value.outcome];
         if (text === undefined) return true;
         try {
             quiet(turn);
@@ -1963,9 +1966,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {
                 // A result's image stays with its text for the tool-results turn.
                 turn.answers.set(id, image === undefined ? { item } : { item, image });
-                const tool = turn.routing?.tool;
+                const { tool, arguments: args } = turn.routing;
                 turn.routing = null;
-                if (callLine(c, turn, tool, value)) next(c, turn);
+                if (callLine(c, turn, tool, value, args)) next(c, turn);
                 return;
             }
             const late = c.late.get(id);
@@ -1976,11 +1979,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         // A harness program's call answered through the tool bridge while
         // its reply streams; the bridge alone answers the program.
-        bridged(value, tool) {
+        bridged(value, tool, args) {
             const c = conversation;
             const turn = c?.turn;
             if (c === null || c.gen !== value.gen || turn === null || turn.op !== value.op || turn.phase !== "streaming") return;
-            callLine(c, turn, tool, value);
+            callLine(c, turn, tool, value, args);
         },
         retained(value, labels) {
             const c = conversation;

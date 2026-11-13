@@ -44,9 +44,11 @@ function sentence(call, scope, grant) {
         break;
     }
     case "fleet.request":
-        // The approval names the exact folder the request is written in.
+        // The approval names the exact folder the request is written in, and
+        // for a project that its own mail tool, a tree no gate keeps a model
+        // out of, runs outside the sandbox.
         text = args.project === undefined ? "Put this request in the mailbox of your Jarvis session:\n" + args.text
-            : "Put this request in the mailbox of the project at " + args.project + "?\n" + args.text;
+            : "Put this request in the mailbox of the project at " + args.project + "? This runs the project's own mail tool outside the sandbox.\n" + args.text;
         break;
     case "fleet.forward":
         // A session grant names both ends and what it leaves to main (D134).

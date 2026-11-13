@@ -8,7 +8,7 @@
 // permission: the gate stays the only source of that. It also finds the
 // two programs of the home VGS starts: the kendex mail tool that writes the
 // Jarvis session's mailbox there, and the Jarvis package's session command;
-// and the same mail tool in a project kendex lists, judged as the home is.
+// and the same mail tool in a project kendex lists, by the same checks.
 // Contract: docs/decisions/D105-jarvis-home-folder.md and
 // docs/decisions/D126-kendex-owns-the-jarvis-package.md.
 "use strict";
@@ -793,7 +793,9 @@ function held(home, entry, flags, act, listed = false) {
  * null, as while the home cannot be read. The caller runs it by this path:
  * the home's writers are the user, VGS and the Jarvis session (D105), and
  * the gate keeps every model out of the folder. LISTED judges a project
- * folder kendex lists the same way, its whole path walked from / (hold).
+ * folder kendex lists by the same checks, its whole path walked from /
+ * (hold). No gate keeps a model out of a project's folder, so for a project
+ * these checks find the tool's place, not who wrote it.
  */
 function mailTool(home, listed = false) {
     const own = held(home, OWN_REPOSITORY, O_RDONLY | O_NONBLOCK, fd => {
