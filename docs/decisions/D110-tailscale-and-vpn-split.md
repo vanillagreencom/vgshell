@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-19
 
-**Status**: Active (Nord peer edits → D130)
+**Status**: Active (Nord peer edits → D130; autoconnect writes → D135)
 
 **Research**: [VGS-1923](https://linear.app/vanillagreen/issue/VGS-1923): owner ask (Slack, 2026-10-19), split delegated; the design attached to the issue.
 

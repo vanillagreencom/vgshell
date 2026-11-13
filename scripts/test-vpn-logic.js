@@ -746,7 +746,7 @@ function suite(logic, service = serviceSource) {
         const checks = [];
         // A feed the run never took, as when it never started, goes with it.
         const owner = Object.assign(helpers(), { profiles, failures: { [TRAVEL]: { kind: "needs-password", service: "" } },
-            profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null,
+            profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null, actionNext: null,
             connectFeed: () => {}, runEnded() { reads++; }, startCheck(checked, active) { checks.push([checked, active]); }, autoEnds: [],
             autoEnded(...args) { owner.autoEnds.push(args); } });
         completeAction(false, { code, status: 0 }, owner, logic, { text: "" }, { text: output }, { stop() {} }, console);
@@ -764,6 +764,28 @@ function suite(logic, service = serviceSource) {
         assert.deepEqual(checks, kind === "profile-up" && code === 0 ? [[uuid, true]] : [], kind + " " + code + " leak check");
         assert.deepEqual(console.messages, code === 0 ? [] : [["warn", "vpn: operation=" + kind + " completion=failed code=" + code]]);
         holdsNothingPrivate([owner.failures, owner.profileProblem], kind);
+    }
+    // A down that finds no active connection, nmcli's exit 10, completed the
+    // off: no problem line and no warning.
+    {
+        const console = logs();
+        let reads = 0;
+        const owner = Object.assign(helpers(), { profiles, failures: {}, actionNext: null, connectFeed: null, profileProblem: null,
+            profileAction: { kind: "profile-down", uuid: HOME, name: byUuid(HOME).name, password: false }, runEnded() { reads++; }, autoEnded() {} });
+        completeAction(false, { code: 10, status: 0 }, owner, logic, { text: "" }, { text: "" }, { stop() {} }, console);
+        assert.deepEqual([owner.profileProblem, console.messages, reads], [null, [], 1], "an inactive profile's down");
+    }
+    // A failed autoconnect write before a connect fails the connect, under
+    // its own operation, and the connect never runs.
+    {
+        const console = logs();
+        const owner = Object.assign(helpers(), { profiles, failures: {}, actionNext: { argv: ["nmcli", "connection", "up", "uuid", LAB] },
+            profileAction: { kind: "profile-up", uuid: LAB, name: byUuid(LAB).name, password: false }, profileProblem: null, connectFeed: null,
+            runEnded() {}, startCheck() { throw new Error("a check started after a failed write"); }, autoEnded() {},
+            launch() { throw new Error("the connect ran after a failed write"); } });
+        completeAction(false, { code: 1, status: 0 }, owner, logic, { text: "" }, { text: "" }, { stop() {} }, console);
+        assert.deepEqual([owner.actionNext, owner.failures[LAB].kind, owner.profileProblem.uuid, owner.profileProblem.kind], [null, "failed", LAB, "profile-up"]);
+        assert.deepEqual(console.messages, [["warn", "vpn: operation=profile-autoconnect completion=failed code=1"]]);
     }
 
     // A password connect: connectWithPassword plans it and startAction runs
@@ -822,6 +844,7 @@ function suite(logic, service = serviceSource) {
         method(owner, "connectWithPassword");
         method(owner, "startAction");
         method(owner, "launch");
+        method(owner, "run");
         return owner;
     };
     const started = actionOwner();
@@ -1116,6 +1139,14 @@ function killSwitchSuite(logic, service, profiles) {
     ]) assert.deepEqual(plain(logic.meantOnPlan(kind, uuid, ready, before, type)), plan, name);
     // A malformed file's off is what `vgs-kill-switch off` writes.
     assert.equal(logic.stateChange({ kind: "malformed" }, logic.meantOnPlan("profile-down", HOME, true, { kind: "malformed" }, "wireguard").patch), textOf("", "block"));
+    // The changes that write no autoconnect; the vpn smoke row records a
+    // WireGuard connect's yes and off's no.
+    for (const [name, kind, row] of [
+        ["a VPN-type connect, which NetworkManager never autoconnects", "profile-up", { uuid: OFFICE, type: "vpn" }],
+        ["a VPN-type off", "profile-down", { uuid: OFFICE, type: "vpn" }],
+        ["a WireGuard connect with the step not set up, which writes no meant-on", "profile-up", { uuid: HOME, type: "wireguard" }],
+        ["a WireGuard remove, which deletes the profile", "profile-remove", { uuid: HOME, type: "wireguard" }]
+    ]) assert.equal(logic.autoconnectArgv(kind, row, false), null, name);
     // The status line, as STATUS_TABLE holds it; the differential below
     // hands each accepted or refused line to the root's status_pattern.
     for (const [code, line, read] of STATUS_TABLE) {
@@ -1256,13 +1287,15 @@ function killSwitchSuite(logic, service, profiles) {
         assert.equal(view.countInfo, "", name);
         assert.ok(!view.hint.includes("214"), name);
     }
-    // Its button is the profile's disconnect: for a profile NetworkManager
-    // already dropped, the state file's write alone; any other profile
-    // that is not connected still refuses it.
+    // Its button is the profile's disconnect: for a WireGuard profile
+    // NetworkManager already dropped, still nmcli down, since it can be back
+    // since the list read; for a VPN-type one, the state file's write
+    // alone; any other profile that is not connected still refuses it.
     const dropped = Object.assign({}, profiles, { rows: profiles.rows.map(entry => entry.uuid === HOME ? Object.assign({}, entry, { state: "" }) : entry) });
     for (const [name, uuid, meantOn, plan] of [
-        ["the dropped profile the file names", HOME, HOME, { argv: null }],
-        ["the file names it in upper case", HOME, HOME.toUpperCase(), { argv: null }],
+        ["the dropped profile the file names", HOME, HOME, { argv: ["nmcli", "connection", "down", "uuid", HOME] }],
+        ["the file names it in upper case", HOME, HOME.toUpperCase(), { argv: ["nmcli", "connection", "down", "uuid", HOME] }],
+        ["a dropped VPN-type profile the file names", OFFICE, OFFICE, { argv: null }],
         ["the file names another profile", HOME, OFFICE, { refusal: "refused: profile=state" }],
         ["the file names none", HOME, "", { refusal: "refused: profile=state" }],
         ["no kill switch", HOME, undefined, { refusal: "refused: profile=state" }],
@@ -1391,7 +1424,7 @@ function killSwitchSuite(logic, service, profiles) {
         const events = [];
         const owner = Object.assign({
             events, disk: textOf("", "block"), lost: false, saveFails: false, stall: "",
-            profiles, profileAction: null, profileProblem: null, connectFeed: null, killReady: true, killWritable: true, killFile: file("", "block"),
+            profiles, profileAction: null, profileProblem: null, connectFeed: null, actionNext: null, killReady: true, killWritable: true, killFile: file("", "block"),
             autoMemory: { seen: "", pending: true, problem: null }, autoAction: "",
             killStep: { state: "ready", reason: "granted" }, probeStep: null,
             // The fresh probe answers at once, with probeStep when set.
@@ -1466,7 +1499,7 @@ function killSwitchSuite(logic, service, profiles) {
         owner.root = owner;
         owner.Object = Object;
         owner.console = { warn(message) { events.push(["warn", message]); }, log() {} };
-        for (const name of ["startAction", "launch", "staged", "armRead", "armExpired", "waitEnd", "probed", "rollBack", "stageEnded", "autoEnded", "setKillSwitch", "writeState", "stateRead",
+        for (const name of ["startAction", "launch", "run", "runStaged", "staged", "armRead", "armExpired", "waitEnd", "probed", "rollBack", "stageEnded", "autoEnded", "setKillSwitch", "writeState", "stateRead",
             "writeEnded", "readKillStatus", "tempSaved", "tempSaveFailed", "moded", "renamed", "makePending", "removeTemp", "pendingMade", "stateExpired", "stateInterrupted"]) bind(owner, name);
         // Each status read ends at once with the next line of `lines`; a
         // `null` line leaves the read running.
@@ -1480,7 +1513,7 @@ function killSwitchSuite(logic, service, profiles) {
             if (owner.stage !== null && owner.stage.phase === "arm") owner.armRead();
         };
         const launch = owner.launch;
-        owner.launch = argv => { events.push(["launch", argv]); launch(argv); };
+        owner.launch = (argv, autoconnect) => { events.push(["launch", argv]); launch(argv, autoconnect); };
         return owner;
     };
     const launched = owner => owner.events.filter(event => Array.isArray(event) && event[0] === "launch").map(event => event[1]);
@@ -1599,7 +1632,8 @@ function killSwitchSuite(logic, service, profiles) {
     assert.deepEqual(order(down), ["write", "launch"]);
     assert.deepEqual(writes(down), [textOf("", "block")]);
     // The notice's Turn VPN off over the service's IPC: the dropped
-    // profile the file names is cleared from it, and nmcli does not run.
+    // profile the file names is cleared from it, and its autoconnect write
+    // runs before the down.
     const release = serviceOwner({ disk: textOf(LAB, "block-lan", "1794203888"), killFile: file(LAB, "block-lan", "1794203888"), lines: [status("off", "disarmed", "")],
         profiles: dropped });
     release.killSwitch = plain(logic.killSwitchState(release.killStep, release.killFile, plain(holding), false, "", false));
@@ -1608,10 +1642,23 @@ function killSwitchSuite(logic, service, profiles) {
     assert.equal(release.actProfile({ kind: "profile-down", id: LAB }), "ok");
     assert.equal(release.autoMemory.pending, false, "a profile turned off here holds Connect automatically until the next network change");
     assert.deepEqual(writes(release), [textOf("", "block-lan", "1794203888")]);
-    assert.deepEqual(launched(release), [null]);
-    assert.deepEqual([release.profileAction, release.stage, release.stateWrite, release.profileActor.running], [null, null, null, false]);
-    assert.ok(release.events.includes("read-profiles"), "the list is read again");
+    assert.deepEqual(plain(launched(release)), [["nmcli", "connection", "down", "uuid", LAB]]);
+    assert.deepEqual(plain([release.stage, release.stateWrite, release.actionNext, release.profileActor.running, release.profileActor.command]),
+        [null, null, { argv: ["nmcli", "connection", "down", "uuid", LAB] }, true, ["nmcli", "connection", "modify", "uuid", LAB, "connection.autoconnect", "no"]]);
     assert.equal(release.profileProblem, null);
+    // A dropped VPN-type profile the file names, with the switch off, takes
+    // no autoconnect write: its off ends with the state write, nmcli does
+    // not run, and the list is read again.
+    const disarmed = status("off", "disarmed", "");
+    const releaseVpn = serviceOwner({ disk: textOf(OFFICE, "off"), killFile: file(OFFICE, "off"), lines: [disarmed] });
+    releaseVpn.killSwitch = plain(logic.killSwitchState(releaseVpn.killStep, releaseVpn.killFile, plain(disarmed), false, "", false));
+    releaseVpn.shell.requirements = { missing: [] };
+    bind(releaseVpn, "actProfile");
+    assert.equal(releaseVpn.actProfile({ kind: "profile-down", id: OFFICE }), "ok");
+    assert.deepEqual(writes(releaseVpn), [textOf("", "off")]);
+    assert.deepEqual(launched(releaseVpn), [null]);
+    assert.deepEqual([releaseVpn.profileAction, releaseVpn.stage, releaseVpn.stateWrite, releaseVpn.profileActor.running], [null, null, null, false]);
+    assert.ok(releaseVpn.events.includes("read-profiles"), "the list is read again");
     // With the step not set up there is no file to name a profile, so a
     // dropped profile's disconnect is refused as before.
     const noStep = serviceOwner({ profiles: dropped, killReady: false, killWritable: false });
@@ -2780,7 +2827,8 @@ try {
         ["the blocked notice needs the file to name a profile", 'state.file !== "valid" || state.meantOn === "") return null;', 'state.file !== "valid") return null;'],
         ["the blocked notice needs the switch on", 'if (!killSwitchOn(state) || state.file', 'if (!isPlain(state) || state.file'],
         ["an unlisted profile offers no disconnect", 'return { uuid: "", text: "The VPN dropped', 'return { uuid: state.meantOn, text: "The VPN dropped'],
-        ["a dropped profile the file names turns off by its write", '        if (typeof meantOn === "string" && meantOn.toLowerCase() === row.uuid) return { argv: null };\n', ''],
+        ["a dropped profile the file names turns off", '        if (typeof meantOn === "string" && meantOn.toLowerCase() === row.uuid) return row.type === "wireguard" ? down : { argv: null };\n', ''],
+        ["a dropped WireGuard profile still asks for the down", 'return row.type === "wireguard" ? down : { argv: null };', 'return { argv: null };'],
         ["the Setup entry waits for the first probe", 'case "checking": return undefined;', 'case "checking": return { tone: "info", text: "Checking", action: false };']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

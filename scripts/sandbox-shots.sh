@@ -9550,9 +9550,11 @@ vpn_kill_shots() { # MODE
 # NetworkManager dropped it: the file names it with the switch on, the
 # stand-in lists it off and the status line says holding. A tree with the
 # blocked-traffic notice draws it at the top of the section and the
-# flyout, and its Turn VPN off clears the file's profile and runs no
-# nmcli; a tree without it takes the same frames, the before side of
-# their pair. The kill switch row in that state follows, at the ends of
+# flyout, and its Turn VPN off clears the file's profile; on a tree whose
+# off writes autoconnect no it then asks for the down, which finds
+# nothing active (D135), and on an earlier tree it runs no nmcli. A tree
+# without the notice takes the same frames, the before side of their
+# pair. The kill switch row in that state follows, at the ends of
 # the section and the flyout, the held row expanded (vpn_kill_heldrow),
 # then the bar with no other alert, at rest
 # and with its tooltip, and the plugin's Details page with its Connection
@@ -9590,10 +9592,15 @@ vpn_kill_holding() { # MODE
   expect "the Settings window closes after the Details shot" ok ipc shell hide window vgs.settings
   if [[ -n $notice ]]; then
     downs="$(vpn_kill_downs)" || { fail "the nmcli stand-in's calls are unreadable"; return; }
+    if tree_has shell/plugins/vgs.vpn/VpnLogic.js "function downOutcome"; then
+      device_reply nmcli 0 "" connection modify uuid "$vpn_shot_home" connection.autoconnect no
+      device_reply nmcli 10 "" connection down uuid "$vpn_shot_home"
+      downs="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]) + [["connection", "down", "uuid", sys.argv[2]]]))' "$downs" "$vpn_shot_home")"
+    fi
     expect "Turn VPN off asks for the dropped profile's disconnect" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-down\",\"id\":\"$vpn_shot_home\"}"
     expect_poll "the disconnect clears the file's profile" "$(vpn_kill_text "" block 0)" vpn_kill_file
     expect_poll "the disconnect ends" null vpn_shot_in_flight
-    expect "the disconnect of a dropped profile runs no nmcli down" "$downs" vpn_kill_downs
+    expect "the disconnect of a dropped profile runs the downs its tree plans" "$downs" vpn_kill_downs
   fi
   vpn_kill_plant "$vpn_shot_unlisted" block 0 "state=holding reason=tunnel-down blocked=3 tunnel= profile=$vpn_shot_unlisted peers=203.0.113.10:51820,[2001:db8::2]:51820" holding
   vpn_kill_top unlisted "$1" "$notice"

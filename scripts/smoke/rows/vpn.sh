@@ -15,6 +15,14 @@
 # absent from status, configuration, the log and every recorded argv.
 # With the kill switch's step set up in the fakes' tree, its switches
 # write the state file and a connect waits for the table armed for it.
+# There a WireGuard connect writes connection.autoconnect yes before its
+# up; an off writes no before its down, with the step set up or not, and
+# still asks for the down when the list reads the profile dropped.
+# NetworkManager's autoconnect rule, played over
+# the recorded nmcli calls, brings Lab tunnel back with no press after a
+# drop and after a wake the shared logind stand-in announces on Power's
+# watch, while the state file keeps it meant on; once the user turns it
+# off, the rule leaves it off.
 # Connect automatically, with a Wi-Fi profile on the trusted list pressed
 # in System Settings, connects the chosen profile when a Wi-Fi profile on
 # no list comes up, as NetworkManager's device signal reaches the shell
@@ -34,8 +42,9 @@
 # Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
 # Import callback, drop Import's availability guard and put the password
-# on nmcli's argv, and corrupt the detached editor argv.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/Ui/controls/Field.qml shell/Ui/layout/ContentRow.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py
+# on nmcli's argv, corrupt the detached editor argv, and drop the
+# autoconnect write, which leaves Lab tunnel down after its drop.
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* config/system/kill-switch/* bin/vgshell-system shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/Select.qml shell/Ui/controls/Field.qml shell/Ui/layout/ContentRow.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml bin/lib/dbus_wire.py scripts/smoke/power-fakes.sh shell/plugins/vgs.power/*
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]vpn')
 devices_ready vpn || return 0
@@ -65,6 +74,30 @@ vpn_call_count() { device_calls nmcli | py_reply 'import json,sys; print(len(jso
 # of up, down or delete.
 vpn_changes() { # FROM
   device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[:1] == ["connection"] and c[1:2] in (["up"], ["down"], ["delete"])]))' "$1"
+}
+# NetworkManager's autoconnect rule for UUID, played over the nmcli calls
+# recorded from index FROM on: `activated` when its last
+# connection.autoconnect write is yes and no `connection down` came after
+# its last up or modify, else "". It starts at no, as px13's Nord profile
+# reads. A profile comes back by itself only while autoconnect is yes
+# (nm-settings-nmcli(5) connection.autoconnect), and one deactivated on
+# request is blocked from autoconnecting until it is modified or
+# activated (nmcli(1) connection down).
+vpn_nm_autoconnect() { # UUID FROM
+  device_calls nmcli | py_reply 'import json,sys
+uuid, on, blocked = sys.argv[1], False, False
+for c in json.load(sys.stdin)[int(sys.argv[2]):]:
+    if c[:4] == ["connection", "modify", "uuid", uuid]:
+        blocked = False
+        if c[4:5] == ["connection.autoconnect"]: on = c[5] == "yes"
+    elif c == ["connection", "up", "uuid", uuid]: blocked = False
+    elif c == ["connection", "down", "uuid", uuid]: blocked = True
+print("activated" if on and not blocked else "")' "$1" "$2"
+}
+# The connection.autoconnect writes and the ups and downs nmcli recorded
+# from index FROM on.
+vpn_reconnect_calls() { # FROM
+  device_calls nmcli | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[1:2] in (["up"], ["down"]) or "connection.autoconnect" in c]))' "$1"
 }
 vpn_marker() { [[ -f $1 ]] && echo 1 || echo 0; }
 # vpn_plant [UUID=STATE|UUID=-]...: list.txt answered for the list read,
@@ -618,9 +651,12 @@ vpn_connect_step "connect"
 expect_poll "two connected profiles draw shield-check" 'shield-check|false|calm' vpn_bar
 expect "the bar tooltip counts the connected profiles" true vpn_tooltip_names 2
 device_reply nmcli 0 "" connection down uuid "$vpn_home"
+device_reply nmcli 0 "" connection modify uuid "$vpn_home" connection.autoconnect no
+device_reply nmcli 0 "" connection modify uuid "$vpn_lab" connection.autoconnect no
 read_count vpn_before "disconnect: nmcli calls are unreadable" vpn_call_count
 vpn_press "Home tunnel" Switch "" || fail "the switch of Home tunnel could not be pressed"
-expect_poll "the on switch hands NetworkManager down with the uuid" "[[\"connection\", \"down\", \"uuid\", \"$vpn_home\"]]" vpn_changes "$vpn_before"
+expect_poll "the on switch writes autoconnect no, with no kill switch, then hands NetworkManager down with the uuid" \
+  "[[\"connection\", \"modify\", \"uuid\", \"$vpn_home\", \"connection.autoconnect\", \"no\"], [\"connection\", \"down\", \"uuid\", \"$vpn_home\"]]" vpn_reconnect_calls "$vpn_before"
 expect_poll "the disconnect ends" null vpn_profiles action
 vpn_plant "$vpn_home=" "$vpn_lab=activated"
 expect "a refresh reads Home tunnel off" ok vpn_refresh
@@ -957,6 +993,40 @@ vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmean
 vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
 vpn_kill_pending() { [[ -e $devices_vpn_kill_root/vpn/pending ]] && echo present || echo absent; }
 vpn_kill_problem() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(json.dumps(v.get("problem") != ""))'; }
+# vpn_reconnect_steps LABEL: with the kill switch step set up, Lab tunnel
+# listed off and the vgs-kill-switch stand-in holding for it, its switch's
+# IPC connects it behind the kill switch with autoconnect yes written
+# before the up. NetworkManager then drops it without a request, and its
+# rule, played by vpn_nm_autoconnect from the connect on, brings it back
+# with no press while the state file keeps it meant on. Sets
+# vpn_reconnect_from, the call index the connect started at.
+vpn_reconnect_steps() { # LABEL
+  vpn_kill_write "" block 0
+  vpn_plant
+  expect "$1: VPN reads Lab tunnel off" ok vpn_refresh
+  expect_poll "$1: Lab tunnel reads off" "" vpn_nord_profile_state
+  read_count vpn_reconnect_from "$1: nmcli calls are unreadable" vpn_call_count
+  expect "$1: Lab tunnel is asked to connect once the table arms" ok vpn_act profile-up "$vpn_lab"
+  expect_poll "$1: a table armed for Lab tunnel runs the connect after autoconnect yes" \
+    "[[\"connection\", \"modify\", \"uuid\", \"$vpn_lab\", \"connection.autoconnect\", \"yes\"], [\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_reconnect_calls "$vpn_reconnect_from"
+  expect_poll "$1: the connect ends" null vpn_profiles action
+  expect "$1: the file names Lab tunnel before the connect" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  vpn_plant "$vpn_lab=activated"
+  expect "$1: VPN reads Lab tunnel connected" ok vpn_refresh
+  expect_poll "$1: Lab tunnel reads connected" activated vpn_nord_profile_state
+  vpn_plant "$vpn_lab="
+  expect "$1: VPN reads Lab tunnel dropped" ok vpn_refresh
+  expect_poll "$1: Lab tunnel reads dropped" "" vpn_nord_profile_state
+  expect "$1: the dropped profile stays meant on, so the block holds" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  vpn_plant "$vpn_lab=$(vpn_nm_autoconnect "$vpn_lab" "$vpn_reconnect_from")"
+  expect "$1: VPN reads NetworkManager's answer to the drop" ok vpn_refresh
+  expect_poll "$1: Lab tunnel is back with no press" activated vpn_nord_profile_state
+}
+vpn_wake_restore() {
+  ipc shell setPluginEnabled vgs.power false >/dev/null || true
+  expect_poll "wake: Power releases its service before the transport is restored" False record_exists vgs.power
+  power_logind_stop
+}
 
 # Nord: explicit designation, then one recorded Phoenix choice, over the
 # same single-peer profile disconnected, connected, and connected behind
@@ -1208,10 +1278,45 @@ if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   expect "the refusal puts the file's profile back" "$(vpn_kill_text "" block 0)" vpn_kill_file
   device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
   device_reply nmcli 0 "Connection successfully activated" connection up uuid "$vpn_lab"
-  expect "Lab tunnel is asked to connect once the table arms" ok vpn_act profile-up "$vpn_lab"
-  expect_poll "a table armed for Lab tunnel runs the connect" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_kill_calls"
-  expect "the file names Lab tunnel before the connect" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
-  expect_poll "the armed connect ends" null vpn_profiles action
+  device_reply nmcli 0 "" connection modify uuid "$vpn_lab" connection.autoconnect yes
+  vpn_reconnect_steps reconnect
+  # A wake: NetworkManager takes Lab tunnel down for sleep, which is no
+  # user request, and the shared logind stand-in announces the wake on
+  # Power's one logind watch. Nothing requests a suspend.
+  source "$repo/scripts/smoke/power-fakes.sh"
+  power_logind_start
+  smoke_row_abandon=(vpn_wake_restore)
+  expect "wake: Power enables over the inert logind transport" ok ipc shell setPluginEnabled vgs.power true
+  read_count vpn_before "wake: nmcli calls are unreadable" vpn_call_count
+  vpn_plant "$vpn_lab="
+  expect "wake: VPN reads Lab tunnel down for sleep" ok vpn_refresh
+  expect_poll "wake: Lab tunnel reads down" "" vpn_nord_profile_state
+  : >"$power_prepare_sleep_signals"
+  : >"$power_prepare_sleep_1"
+  expect_poll "wake: the logind stand-in sends PrepareForSleep(false)" 1 grep -c . "$power_prepare_sleep_signals"
+  expect "wake: the state file keeps Lab tunnel meant on until it is back" "$(vpn_kill_text "$vpn_lab" block 0)" vpn_kill_file
+  vpn_plant "$vpn_lab=$(vpn_nm_autoconnect "$vpn_lab" "$vpn_reconnect_from")"
+  expect "wake: VPN reads NetworkManager's answer to the wake" ok vpn_refresh
+  expect_poll "wake: Lab tunnel is back with no press" activated vpn_nord_profile_state
+  expect "wake: the shell made no change across the wake" '[]' vpn_reconnect_calls "$vpn_before"
+  vpn_wake_restore
+  smoke_row_abandon=()
+  # The user turns the profile off while the list reads it dropped: the
+  # autoconnect write, then the down, since NetworkManager can have brought
+  # it back since that read. Here it has not, so nmcli finds no active
+  # connection, its exit 10, and the off still completes.
+  read_count vpn_before "off: nmcli calls are unreadable" vpn_call_count
+  vpn_plant "$vpn_lab="
+  device_reply nmcli 10 "" connection down uuid "$vpn_lab"
+  expect "off: VPN reads Lab tunnel dropped" ok vpn_refresh
+  expect_poll "off: Lab tunnel reads down" "" vpn_nord_profile_state
+  expect "off: Lab tunnel's switch turns the dropped VPN off" ok vpn_act profile-down "$vpn_lab"
+  expect_poll "off: the off writes autoconnect no, then asks for the down" \
+    "[[\"connection\", \"modify\", \"uuid\", \"$vpn_lab\", \"connection.autoconnect\", \"no\"], [\"connection\", \"down\", \"uuid\", \"$vpn_lab\"]]" vpn_reconnect_calls "$vpn_before"
+  expect_poll "off: the off ends" null vpn_profiles action
+  expect "off: a down that finds nothing active leaves no problem line" false vpn_kill_problem
+  expect "off: the state file no longer names Lab tunnel" "$(vpn_kill_text "" block 0)" vpn_kill_file
+  expect "off: NetworkManager's rule leaves Lab tunnel off" "" vpn_nm_autoconnect "$vpn_lab" "$vpn_reconnect_from"
   devices_vpn_kill_tree remove
   rescan "the kill switch step's world is gone"
 fi
@@ -1336,6 +1441,35 @@ expect "control: a password on nmcli's argv reads as a leak" leaked vpn_planted_
 expect "control: the dropdown closes" ok ipc shell hide panel vgs.vpn
 sentinel_restore "$shim/nmcli"
 rm -rf -- "${sandbox:?}/vpn-connect"
+# Reconnect needs VGS's autoconnect write: a copy whose VpnLogic writes
+# none leaves Lab tunnel down after the drop.
+if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
+  expect "VPN disables before its reconnect control" ok ipc shell setPluginEnabled vgs.vpn false
+  expect_poll "the argv control's service is gone" False record_exists vgs.vpn
+  cp -- "$repo/shell/plugins/vgs.vpn/VpnLogic.js" "$vpn_copy/VpnLogic.js"
+  python3 - "$vpn_copy/VpnLogic.js" <<'PYRECONNECTCONTROL'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = 'if (row.type !== "wireguard") return null;'
+assert text.count(old) == 1, old
+path.write_text(text.replace(old, "return null;"))
+PYRECONNECTCONTROL
+  vpn_plant
+  devices_vpn_kill_tree ready
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+  device_reply nmcli 0 "Connection successfully activated" connection up uuid "$vpn_lab"
+  rescan "the reconnect control is discovered"
+  expect "the reconnect control enables" ok ipc shell setPluginEnabled vgs.vpn true
+  expect_poll "control: the kill switch step reads set up" '"ready"' vpn_kill_read step
+  expect_poll "control: profiles publish for the reconnect control" '"available"' vpn_profiles state
+  vpn_control "$sandbox/vpn-reconnect-control.log" vpn_reconnect_steps control >/dev/null
+  expect "control: no autoconnect write leaves Lab tunnel down after the drop" 1 \
+    grep -c -F "  FAIL  control: Lab tunnel is back with no press: got" "$sandbox/vpn-reconnect-control.log"
+  control_output "$sandbox/vpn-reconnect-control.log"
+  devices_vpn_kill_tree remove
+  rescan "the reconnect control's kill switch world is gone"
+fi
 expect "the VPN control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the VPN control service is gone" False record_exists vgs.vpn
 rm -rf -- "${vpn_copy:?}"

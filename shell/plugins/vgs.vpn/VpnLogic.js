@@ -357,6 +357,12 @@ function problemAfter(problem, rows, failures) {
     return problem;
 }
 
+// A down's outcome: `down`, `inactive` for nmcli's exit 10, "Connection,
+// device, or access point does not exist" (nmcli(1) EXIT STATUS), which
+// leaves no active connection and so completes an off, else `failed`.
+var NMCLI_NOT_FOUND = 10;
+function downOutcome(code) { return code === 0 ? "down" : code === NMCLI_NOT_FOUND ? "inactive" : "failed"; }
+
 // A delete's outcome: `removed`, `gone` when NetworkManager no longer
 // holds the profile, else `failed`.
 function removeOutcome(code, text) {
@@ -481,8 +487,11 @@ function editorArgv(kind, uuid, profiles) {
 // drop the kill switch can hold (leakCheck, checkReads), or { refusal }. MEANT_ON is the
 // profile the kill switch's state file names while its step is set up,
 // else "". A disconnect of that profile after NetworkManager dropped it,
-// while the state file names it, is the state file's write alone, `argv`
-// null: there is no connection left to take down.
+// while the state file names it, still runs nmcli down for a WireGuard
+// profile: NetworkManager can have brought it back by itself since the
+// last list read (D135), and a down of one already inactive is a
+// completed off (downOutcome). A VPN-type profile, which NetworkManager
+// never brings back, takes the state file's write alone, `argv` null.
 function profileCommand(request, profiles, missing, killOn, meantOn) {
     if (!isPlain(request) || KINDS.indexOf(request.kind) === -1) return { refusal: "refused: profile=action" };
     if (profiles.state !== "available") return { refusal: "refused: profile=unavailable" };
@@ -496,8 +505,9 @@ function profileCommand(request, profiles, missing, killOn, meantOn) {
     }
     if (request.kind === "profile-remove") return { argv: ["nmcli", "connection", "delete", "uuid", row.uuid] };
     if (request.kind === "profile-down") {
-        if (row.state === "activated" || row.state === "activating") return { argv: ["nmcli", "connection", "down", "uuid", row.uuid] };
-        if (typeof meantOn === "string" && meantOn.toLowerCase() === row.uuid) return { argv: null };
+        const down = { argv: ["nmcli", "connection", "down", "uuid", row.uuid] };
+        if (row.state === "activated" || row.state === "activating") return down;
+        if (typeof meantOn === "string" && meantOn.toLowerCase() === row.uuid) return row.type === "wireguard" ? down : { argv: null };
         return { refusal: "refused: profile=state" };
     }
     const view = rowView(row, profiles, missing, killOn);
@@ -706,6 +716,21 @@ function meantOnPlan(kind, uuid, ready, file, type) {
         return { patch: { meantOn: uuid }, arm: mode !== "off", previous: named };
     }
     if (named === uuid || file.kind === "malformed") return { patch: { meantOn: "" }, arm: false, previous: named };
+    return null;
+}
+
+// The connection.autoconnect write that runs before a profile change KIND
+// of ROW, as argv, or null (D135): yes before a connect while the kill
+// switch step is set up (READY), which keeps meant-on; no before every
+// off, so an off stays off even when an earlier yes outlived the step.
+// NetworkManager implements autoconnect for no VPN-type profile
+// (nm-settings-nmcli(5), connection.autoconnect), so only a WireGuard
+// profile takes it. A remove deletes the profile, which leaves
+// NetworkManager nothing to bring back.
+function autoconnectArgv(kind, row, ready) {
+    if (row.type !== "wireguard") return null;
+    if (kind === "profile-down") return ["nmcli", "connection", "modify", "uuid", row.uuid, "connection.autoconnect", "no"];
+    if (kind === "profile-up" && ready === true) return ["nmcli", "connection", "modify", "uuid", row.uuid, "connection.autoconnect", "yes"];
     return null;
 }
 

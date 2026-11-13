@@ -62,6 +62,9 @@ Item {
     function nordStatusRead(status, started) { nord.statusRead(Logic.checkKillStatus(killReady, status, started)); }
     // The password connect's stdin closure until its run starts or ends.
     property var connectFeed: null
+    // While a profile's autoconnect write runs before its change (launch),
+    // { argv } of the change that follows it, else null.
+    property var actionNext: null
     readonly property var profiles: Logic.compose(profilesMissing ? Logic.emptyProfiles("missing") : listing,
         detailMap, addresses, failures, profileAction, profileProblem === null ? "" : profileProblem.text)
 
@@ -591,8 +594,10 @@ Item {
     }
     // One change at a time: FEED is null for a run whose stdin stays closed.
     // With the kill switch set up, the state file names the profile first
-    // (VpnLogic.meantOnPlan over a fresh read), and a connect with the
-    // switch on waits for the table; the change shows in flight meanwhile.
+    // (VpnLogic.meantOnPlan over a fresh read) and a connect with the switch
+    // on waits for the table. The profile's autoconnect write runs just
+    // before the change (VpnLogic.autoconnectArgv), an off's whether or not
+    // the step is set up; the change shows in flight meanwhile.
     function startAction(kind, uuid, argv, feed) {
         if (profileAction !== null || stateWrite !== null) return "busy";
         const row = profiles.rows.find(candidate => candidate.uuid === uuid);
@@ -600,31 +605,49 @@ Item {
         profileProblem = null;
         connectFeed = feed;
         if (!killReady) {
-            launch(argv);
+            launch(argv, Logic.autoconnectArgv(kind, row, false));
             return "ok";
         }
-        stage = { kind: kind, uuid: row.uuid, name: row.name, type: row.type, argv: argv, previous: "", phase: "write" };
+        stage = { kind: kind, uuid: row.uuid, name: row.name, type: row.type, argv: argv, autoconnect: Logic.autoconnectArgv(kind, row, true),
+            previous: "", phase: "write" };
         writeState(file => {
             const plan = Logic.meantOnPlan(kind, row.uuid, true, file, row.type);
             return plan === null || plan.patch === undefined ? null : plan.patch;
         }, (ok, before, nudged) => root.staged(ok, before, nudged), kind === "profile-up");
         return "ok";
     }
-    // ARGV null is a disconnect of a profile NetworkManager already
-    // dropped (VpnLogic.profileCommand): the state file's write was the
-    // change, so nmcli does not run.
-    function launch(argv) {
+    // ARGV null is a disconnect of a VPN-type profile NetworkManager
+    // already dropped (VpnLogic.profileCommand): the state file's write is
+    // the change, so nmcli does not run. AUTOCONNECT, an argv or null, runs first; ARGV runs once
+    // it succeeds, and its failure fails the change (profileActor). Only a
+    // VPN-type profile takes a password, and it takes no autoconnect write,
+    // so a password connect's feed waits on no write.
+    function launch(argv, autoconnect) {
+        if (autoconnect !== null) {
+            actionNext = { argv: argv };
+            run(autoconnect);
+            return;
+        }
         if (argv === null) {
             profileAction = null;
             readProfiles();
             readKillStatus();
             return;
         }
+        run(argv);
+    }
+    function run(argv) {
         profileActor.completion = null;
         profileActor.stdinEnabled = connectFeed !== null;
         profileActor.command = argv;
         profileActor.running = true;
         profileActionDeadline.restart();
+    }
+    // The staged change, its state write done and any table armed, runs.
+    function runStaged() {
+        const next = stage;
+        stage = null;
+        launch(next.argv, next.autoconnect);
     }
     // The staged change's state write ended over BEFORE, the file it read:
     // a profile the switch refuses runs nothing, a connect with the switch
@@ -640,9 +663,7 @@ Item {
             return;
         }
         if (plan === null || !plan.arm) {
-            const argv = stage.argv;
-            stage = null;
-            launch(argv);
+            runStaged();
             return;
         }
         stage = Object.assign({}, stage, { phase: "arm", expired: false, previous: plan.previous, answered: false, nudged: nudged === true, refusal: "" });
@@ -660,9 +681,7 @@ Item {
         if (outcome === "armed") {
             armDeadline.stop();
             armRetry.stop();
-            const argv = stage.argv;
-            stage = null;
-            launch(argv);
+            runStaged();
         } else if (outcome === "unavailable" && !stage.nudged) {
             armDeadline.stop();
             rollBack("unavailable", killStatus.reason);
@@ -940,10 +959,22 @@ Item {
             root.connectFeed = null;
             profileActionDeadline.stop();
             const code = root.codeOf(completion);
+            // The autoconnect write before a change succeeded: the change
+            // runs. RunningChanged permits the next launch, as NordLocation's
+            // worker relies on.
+            const queued = root.actionNext;
+            root.actionNext = null;
+            if (queued !== null && code === 0) {
+                root.launch(queued.argv, null);
+                return;
+            }
             const action = root.profileAction;
             const output = actorText.text + "\n" + actorErrors.text;
-            const failed = action.kind === "profile-remove" ? Logic.removeOutcome(code, output) === "failed" : code !== 0;
-            if (code !== 0) console.warn("vpn: operation=" + action.kind + " completion=" + (code === -1 ? "interrupted" : "failed") + " code=" + code);
+            // A down that found no active connection completed the off.
+            const inactive = queued === null && action.kind === "profile-down" && Logic.downOutcome(code) === "inactive";
+            const failed = action.kind === "profile-remove" ? Logic.removeOutcome(code, output) === "failed" : code !== 0 && !inactive;
+            const operation = queued !== null ? "profile-autoconnect" : action.kind;
+            if (code !== 0 && !inactive) console.warn("vpn: operation=" + operation + " completion=" + (code === -1 ? "interrupted" : "failed") + " code=" + code);
             if (action.kind === "profile-up") {
                 const next = Object.assign({}, root.failures);
                 if (code === 0) delete next[action.uuid];

@@ -4,7 +4,7 @@
 
 **Date**: 2026-11-08
 
-**Status**: Active (Nord peer edits → D130)
+**Status**: Active (Nord peer edits → D130; autoconnect writes → D135)
 
 **Research**: [VGS-2397](https://linear.app/vanillagreen/issue/VGS-2397): owner ask relayed by Jarvis, 2026-11-08; the design and owner sheet attached to the issue; owner approval, Slack message 1794203722.881669, 2026-11-08; the owner's decision on strict block mode and the forward reply rule, made by Jarvis under delegated authority, 2026-11-09; the TCP reset, approved by Jarvis under delegated authority (overseer directive 1794210279-2874999-11855), 2026-11-09; [VGS-2418](https://linear.app/vanillagreen/issue/VGS-2418), the flush, damaged-state and tripped-watcher cases, 2026-11-11; [VGS-2412](https://linear.app/vanillagreen/issue/VGS-2412), the layer-2 paths, with the overseer's answers to design asks 1794412229-2917910-14646 and 1794418739-236677-28375, 2026-11-11.
 

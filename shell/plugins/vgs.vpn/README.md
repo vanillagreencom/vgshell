@@ -18,6 +18,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 - NordVPN locations, by country, region or state, then city, for one saved WireGuard profile.
 - Remove profile deletes a profile after you confirm.
 - A kill switch that blocks traffic outside the VPN when the VPN drops.
+- Reconnect: a WireGuard VPN you turned on comes back by itself after a drop and after this computer wakes.
 - Connect automatically: on a network not on your trusted list, the chosen profile connects by itself.
 
 ## What VGS can connect
@@ -112,3 +113,15 @@ sudo vgs-kill-switch off
 ```
 
 </details>
+
+## Reconnect
+
+Once the kill switch is set up, on or off, a WireGuard VPN you turned on in VGS reconnects by itself after it drops and after this computer wakes. NetworkManager does the reconnecting: turning a profile on in VGS sets it to connect automatically in NetworkManager, and turning it off in VGS clears that. NetworkManager tries four times, then again after a pause. While the VPN is down, the kill switch, if on, blocks traffic until it is back.
+
+A VPN you turn off in VGS stays off. One you turn off with nmcli or nm-applet stays off until this computer restarts or you change its NordVPN location in VGS, when NetworkManager connects it again; the kill switch holds the block meanwhile.
+
+Without the kill switch set up, turning a profile on in VGS does not set it to connect automatically, so a VPN that drops stays off until you turn it on again. Turning it off in VGS still clears the setting. VPN profiles other than WireGuard never reconnect by themselves, because NetworkManager does not connect them automatically.
+
+VGS does not restart a WireGuard VPN whose server stops answering. NetworkManager still reads it as connected, and its own connection check only reports what it finds.
+
+The kill switch's off command, run while VGS is not running, leaves the profile set to connect automatically. NetworkManager can then connect it again, for example when this computer wakes, and the kill switch does not block traffic if it drops.
