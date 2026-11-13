@@ -1542,7 +1542,7 @@ smoke_hold_depth=0 smoke_hold_shared="" smoke_hold_pid="" smoke_hold_retake=fals
 # 1 with the cause in smoke_lock_cause, which starts `wait-bound` for a
 # wait that reached the bound.
 smoke_lock_take() { # MODE NAME
-  local ready="$sandbox/smoke-lock.ready" held ready_r ready_w answer status=0 waited=0 bound="${qml_smoke_idle_secs:-}" beat
+  local ready="$sandbox/smoke-lock.ready" held ready_r ready_w answer="" part status=0 waited=0 bound="${qml_smoke_idle_secs:-}" beat
   smoke_lock_pid="" smoke_lock_cause=""
   if [[ -z ${smoke_hold_dir:-} ]]; then smoke_lock_cause=lock-dir-unset; return 1; fi
   if [[ ! $bound =~ ^[1-9][0-9]*$ ]]; then smoke_lock_cause="wait-bound-unread value=[$bound]"; return 1; fi
@@ -1564,10 +1564,13 @@ smoke_lock_take() { # MODE NAME
     smoke-lock "$1" "$bound" </dev/null >&"$ready_w" 2>&1 3<"$smoke_hold_dir/vgs-smoke-$2" {ready_r}<&- {ready_w}>&- &
   smoke_lock_pid=$!
   exec {ready_w}>&-
+  # A read that times out keeps the partial line it read in part, so a
+  # line that arrives across a beat is joined, never dropped.
   while :; do
-    answer=""
-    IFS= read -r -t "$beat" -u "$ready_r" answer && break
+    part=""
+    IFS= read -r -t "$beat" -u "$ready_r" part && { answer+=$part; break; }
     status=$?
+    answer+=$part
     ((status > 128)) || break
     waited=$((waited + beat))
     printf 'qml-smoke: smoke-hold waiting lock=%s mode=%s secs=%s\n' "$2" "$1" "$waited"
