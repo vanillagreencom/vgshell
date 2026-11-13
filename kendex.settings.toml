@@ -104,11 +104,12 @@ ORCH_LANE_SSH_PROMPT_SECS = "60"
 ORCH_MERGE_AUTONOMY = "auto"
 ORCH_LANE_OUTPUT = "quiet"
 
-# Owner clock for oversee-report: the audited runtime defaults, kept explicit
-# (KEN-3470 ORCH-M10). The 23-8 window the owner-message night rule names is
-# a separate instruction; changing these hours needs the owner.
+# Owner clock for oversee-report. Quiet hours are the owner's, 9 pm to 8 am
+# Pacific (owner Slack 1792183764, 2026-10-16; set by Jarvis decision,
+# 2026-11-13). The 23-8 window the owner-message night rule names is a
+# separate instruction; changing these hours needs the owner.
 ORCH_OWNER_TIME_ZONE = "America/Los_Angeles"
-ORCH_REPORT_QUIET_HOURS = "0-7"
+ORCH_REPORT_QUIET_HOURS = "21-8"
 
 # Owner asks bound to an item post on it, assigned to the owner
 # (KENDEX_USER_EMAIL), under this label.
