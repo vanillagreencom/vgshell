@@ -43,14 +43,22 @@ list)
 update)
   if [[ -f $STATE_DIR/fail-update ]]; then read -r code <"$STATE_DIR/fail-update"; exit "$code"; fi
   [[ $state != failed ]] || printf 'disabled' >"$STATE_DIR/manager"
+  if [[ $(<"$STATE_DIR/enabled") == true ]]; then
+    printf 'enabled' >"$STATE_DIR/manager"
+    printf '[{"name":"hyprglass","author":"hyprnux","handle":"opaque","version":"1.1.1","description":"Glass"}]' >"$STATE_DIR/loaded"
+  fi
   ;;
-add) printf 'disabled' >"$STATE_DIR/manager" ;;
+add) printf 'disabled' >"$STATE_DIR/manager"; printf 'false' >"$STATE_DIR/enabled" ;;
 enable)
-  printf 'enabled' >"$STATE_DIR/manager"
-  [[ -f $STATE_DIR/false-success ]] || printf '[{"name":"hyprglass","author":"hyprnux","handle":"opaque","version":"0.11.0","description":"Glass"}]' >"$STATE_DIR/loaded"
+  if [[ ! -f $STATE_DIR/false-success ]]; then
+    printf 'enabled' >"$STATE_DIR/manager"
+    printf 'true' >"$STATE_DIR/enabled"
+    printf '[{"name":"hyprglass","author":"hyprnux","handle":"opaque","version":"1.1.1","description":"Glass"}]' >"$STATE_DIR/loaded"
+  fi
   ;;
 disable)
-  printf 'disabled' >"$STATE_DIR/manager"
+  [[ $state == failed ]] || printf 'disabled' >"$STATE_DIR/manager"
+  printf 'false' >"$STATE_DIR/enabled"
   [[ -f $STATE_DIR/false-success ]] || printf '[]' >"$STATE_DIR/loaded"
   ;;
 *) exit 99 ;;
@@ -67,6 +75,7 @@ reset() {
   rm -f "${tmp:?}/state/"*
   printf '%s' "${1:-absent}" >"$tmp/state/manager"
   printf '%s' "${2:-[]}" >"$tmp/state/loaded"
+  if [[ ${1:-absent} == enabled || ${1:-absent} == failed ]]; then printf 'true' >"$tmp/state/enabled"; else printf 'false' >"$tmp/state/enabled"; fi
   : >"$tmp/state/calls"
 }
 run_tui() {
@@ -77,26 +86,37 @@ run_tui() {
     return 1
   fi
 }
-loaded='[{"name":"hyprglass","author":"hyprnux","handle":"opaque","version":"0.11.0","description":"Glass"}]'
+loaded='[{"name":"hyprglass","author":"hyprnux","handle":"opaque","version":"1.1.1","description":"Glass"}]'
 case_fresh() {
   local lifecycle
   for lifecycle in first-use initialized-empty; do
     reset
     if [[ $lifecycle == first-use ]]; then : >"$tmp/state/first-use"; fi
-    run_tui enable
-    [[ $status == 0 && $calls == $'list\nlist\nupdate\nlist\nlist\nadd https://github.com/hyprnux/hyprglass\nlist\nlist\nenable hyprglass\nlist' ]] || return 1
+    run_tui prepare
+    [[ $status == 0 && $calls == $'list\nlist\nupdate\nlist\nlist\nadd https://github.com/hyprnux/hyprglass\nlist' && $(<"$tmp/state/loaded") == '[]' && $(<"$tmp/state/enabled") == false ]] || return 1
   done
 }
-case_existing() { reset disabled; run_tui enable; [[ $status == 0 && $calls == $'list\nlist\nenable hyprglass\nlist' ]]; }
+case_existing() { reset disabled "$loaded"; run_tui enable; [[ $status == 0 && $calls == $'list\nlist\nenable hyprglass\nlist' ]]; }
+case_prepare_built() { for state in disabled enabled; do reset "$state" "$loaded"; run_tui prepare; [[ $status == 0 && $calls == list && $(<"$tmp/state/loaded") == "$loaded" ]] || return 1; done; }
 case_loaded() { reset enabled "$loaded"; run_tui enable; [[ $status == 0 && $calls == list ]]; }
 case_disable() { reset enabled "$loaded"; run_tui disable; [[ $status == 0 && $calls == $'list\nlist\ndisable hyprglass\nlist' ]]; }
-case_cancel() { reset; answer=1 run_tui enable; [[ $status == 10 && $calls == list ]]; }
-case_interrupt() { reset; answer=130 run_tui enable; [[ $status == 130 && $calls == list ]]; }
-case_rebuild() { reset failed; run_tui rebuild; [[ $status == 0 && $calls == $'list\nlist\nupdate --force\nlist\nlist\nenable hyprglass\nlist' ]]; }
+case_cancel() { reset; answer=1 run_tui prepare; [[ $status == 10 && $calls == list ]]; }
+case_interrupt() { reset; answer=130 run_tui prepare; [[ $status == 130 && $calls == list ]]; }
+case_rebuild() {
+  for verb in prepare rebuild; do
+    reset failed
+    run_tui "$verb"
+    local update=update
+    [[ $verb != rebuild ]] || update='update --force'
+    [[ $status == 0 && $calls == "list"$'\nlist\ndisable hyprglass\nlist\nlist\n'"$update"$'\nlist' && $(<"$tmp/state/loaded") == '[]' && $(<"$tmp/state/enabled") == false ]] || return 1
+  done
+}
 case_rebuild_loaded() {
-  reset enabled "$loaded"
-  run_tui rebuild
-  [[ $status == 0 && $calls == $'list\nlist\ndisable hyprglass\nlist\nlist\nupdate --force\nlist\nlist\nenable hyprglass\nlist' ]]
+  for state in enabled failed; do
+    reset "$state" "$loaded"
+    run_tui rebuild
+    [[ $status == 0 && $calls == $'list\nlist\ndisable hyprglass\nlist\nlist\nupdate --force\nlist' && $(<"$tmp/state/loaded") == '[]' ]] || return 1
+  done
 }
 case_unrelated() {
   for world in unmanaged-loaded managed-not-loaded; do
@@ -106,15 +126,15 @@ case_unrelated() {
     else
       printf '%s\n' '→ Repository other (by someone):' '  │ Plugin foreign' '  └─ enabled: true' >"$tmp/state/unrelated"
     fi
-    run_tui enable
+    run_tui prepare
     [[ $status == 1 && $calls == list ]] || return 1
   done
 }
 case_manual() { reset absent "$loaded"; run_tui disable; [[ $status == 1 && $calls == list ]]; }
 case_residual() { reset enabled "$loaded"; : >"$tmp/state/false-success"; run_tui disable; [[ $status == 1 ]]; }
-case_false_enable() { reset disabled; : >"$tmp/state/false-success"; run_tui enable; [[ $status == 1 ]]; }
-case_update_failure() { reset failed; printf '1\n' >"$tmp/state/fail-update"; run_tui rebuild; [[ $status == 1 && $calls == $'list\nlist\nupdate --force' ]]; }
-case_update_interrupt() { reset failed; printf '130\n' >"$tmp/state/fail-update"; run_tui rebuild; [[ $status == 130 && $calls == $'list\nlist\nupdate --force' ]]; }
+case_false_enable() { reset disabled "$loaded"; : >"$tmp/state/false-success"; run_tui enable; [[ $status == 1 ]]; }
+case_update_failure() { reset failed; printf '1\n' >"$tmp/state/fail-update"; run_tui rebuild; [[ $status == 1 && $calls == $'list\nlist\ndisable hyprglass\nlist\nlist\nupdate --force' ]]; }
+case_update_interrupt() { reset failed; printf '130\n' >"$tmp/state/fail-update"; run_tui rebuild; [[ $status == 130 && $calls == $'list\nlist\ndisable hyprglass\nlist\nlist\nupdate --force' ]]; }
 case_rebuild_isolated() {
   for state in absent failed enabled; do
     reset "$state"
@@ -123,13 +143,21 @@ case_rebuild_isolated() {
     [[ $status == 1 && $calls == list ]] || return 1
   done
 }
-case_enabled_unloaded() { reset enabled; run_tui enable; [[ $status == 0 && $calls == $'list\nlist\nenable hyprglass\nlist' ]]; }
+case_enabled_unloaded() { for state in absent enabled disabled; do reset "$state"; run_tui enable; [[ $status == 1 && $calls == list && $(<"$tmp/state/loaded") == '[]' ]] || return 1; done; }
 case_unread() { for state in unread malformed; do reset "$state"; run_tui enable; [[ $status == 1 && $calls == list ]] || return 1; done; }
-case_bad_json() { for json in null '{}' '[{}]' '[{"name":"hyprglass"}]' "${loaded%]},${loaded#[}"; do reset disabled "$json"; run_tui enable; [[ $status == 1 && $calls == list ]] || return 1; done; }
+case_bad_json() { for json in null '{}' '[{}]' '[{"name":"hyprglass"}]' "${loaded%]},${loaded#[}"; do reset disabled "$json"; run_tui prepare; [[ $status == 1 && $calls == list ]] || return 1; done; }
 case_extra() { reset; run_tui enable extra; [[ $status == 2 && -z $calls ]]; }
-case_missing() { reset; mv "$tmp/tools/cmake" "$tmp/cmake"; run_tui enable; mv "$tmp/cmake" "$tmp/tools/cmake"; [[ $status == 1 && -z $calls ]]; }
+case_missing() {
+  reset; mv "$tmp/tools/cmake" "$tmp/cmake"; run_tui prepare
+  local prepare_status=$status prepare_calls=$calls
+  reset enabled "$loaded"; run_tui disable
+  local disable_status=$status
+  reset disabled "$loaded"; run_tui enable
+  mv "$tmp/cmake" "$tmp/tools/cmake"
+  [[ $prepare_status == 1 && -z $prepare_calls && $disable_status == 0 && $status == 0 ]]
+}
 file="$script"
-for name in fresh existing loaded disable cancel interrupt rebuild rebuild_loaded unrelated manual residual false_enable update_failure update_interrupt rebuild_isolated enabled_unloaded unread bad_json extra missing; do
+for name in fresh existing prepare_built loaded disable cancel interrupt rebuild rebuild_loaded unrelated manual residual false_enable update_failure update_interrupt rebuild_isolated enabled_unloaded unread bad_json extra missing; do
   if "case_$name"; then ok "$name"; else fail "$name exit=$status calls=[$calls] err=[$(<"$tmp/err")]"; fi
 done
 # Controls run just the assertion for the changed rule on a disposable copy.
@@ -138,6 +166,7 @@ for spec in \
   'existing|hyprpm "$@"|hyprpm "$@" extra' \
   'disable|if [[ $managed != absent ]]; then mutate disable hyprglass; fi|if false; then mutate disable hyprglass; fi' \
   'bad_json|const read = state.layerGlassRead("plugins", process.argv[3], "");|const read = { ok: true, value: [] };' \
+  'rebuild|    mutate disable hyprglass|    :' \
   'rebuild_isolated|unrelated = any(n != '\''HyprGlass'\'' for n in repositories) or any(n != '\''hyprglass'\'' for n in entries)|unrelated = False'; do
   IFS='|' read -r name needle replacement <<<"$spec"
   python3 - "$script" "$tmp/control" "$needle" "$replacement" <<'CONTROL'

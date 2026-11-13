@@ -33,8 +33,8 @@ FocusScope {
 
     function chooseLayerGlass(enabled, rebuild) {
         const done = result => { if (!result.ok) console.warn("windows: layer-glass " + result.reason); };
-        const reply = rebuild ? shell.appearance.rebuildLayerGlass("layer-glass", done)
-            : shell.appearance.chooseLayerGlass(enabled, "layer-glass", done);
+        const reply = rebuild ? shell.appearance.rebuildLayerGlass("layer-glass", "layer-glass-control", done)
+            : shell.appearance.chooseLayerGlass(enabled, "layer-glass", "layer-glass-control", done);
         if (reply !== "ok") console.warn("windows: layer-glass " + reply);
     }
 

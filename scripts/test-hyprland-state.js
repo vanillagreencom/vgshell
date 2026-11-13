@@ -366,6 +366,7 @@ function layerGlassSuite(lib, check) {
         ["layer-only ready", null, "eligible"],
         ["foreign window tags remain the user's choice", s => { s.features.windows.active = true; }, "eligible"],
         ["globally enabled windows refuse layer-only success", s => { s.features.windows.enabled = true; }, "layers-disabled"],
+        ["pending shaders do not excuse globally enabled windows", s => { s.shaders = "pending"; s.features.windows.enabled = true; }, "layers-disabled"],
         ["inactive layers", s => { s.features.layers.active = false; }, "layers-disabled"],
         ["missing shaders", s => { s.shaders = "pending"; }, "shaders-pending"],
         ["failed shaders", s => { s.shaders = "failed"; }, "layers-disabled"],
@@ -374,7 +375,7 @@ function layerGlassSuite(lib, check) {
     ]) check("layer glass: " + name, observe(change), want);
     for (const [value, want] of [[[], []], [[""], []], [["", "bad", " "], ["bad", " "]]])
         check("layer glass: config errors " + JSON.stringify(value), read("errors", value).value, want);
-    for (const value of [null, {}, ["", null], [""", 0]])
+    for (const value of [null, {}, ["", null], ["", 0]])
         check("layer glass: refuses unreadable errors " + JSON.stringify(value), read("errors", value).ok, false);
     for (const value of [null, {}, [plugin, plugin], [{ name: "hyprglass" }]])
         check("layer glass: refuses unreadable plugin list " + JSON.stringify(value), read("plugins", value).ok, false);

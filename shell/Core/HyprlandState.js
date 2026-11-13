@@ -577,12 +577,12 @@ function layerGlassObservation(facts) {
         return result("unsupported", "The plugin does not match this Hyprland version. Rebuild it.", true);
     if (!facts.errors || !facts.errors.ok) return result("unread", "Configuration errors could not be read. Check again.", true);
     if (facts.errors.value.length > 0) return result("config-error", "Hyprland reports configuration errors. Check your configuration.", true);
-    if (status.shaders === "pending") return result("shaders-pending", "Open the launcher, then check again.", true);
     // Foreign hyprglass_enabled tags can make windows active even while
     // globally disabled. Those tags belong to the user; VGS never clears them.
-    if (!status.active || status.shaders !== "ready" || status.features.windows.enabled
+    if (!status.active || status.shaders === "failed" || status.features.windows.enabled
             || !status.features.layers.enabled || !status.features.layers.active)
         return result("layers-disabled", "Layer glass is not active. Turn it on again or rebuild the plugin.", true);
+    if (status.shaders === "pending") return result("shaders-pending", "Open the launcher, then check again.", true);
     return result("eligible", "On", true);
 }
 function layerGlassCurrent(operation, generation, revision, intent) {

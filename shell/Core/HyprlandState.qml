@@ -189,7 +189,7 @@ Scope {
         layerGlassObserved = Object.assign({}, observed, { stale: false });
         advanceLayerGlass();
     }
-    function chooseLayerGlass(ctx, enabled, tuiName, done, rebuild) {
+    function chooseLayerGlass(ctx, enabled, tuiName, controlName, done, rebuild) {
         const previous = layerGlassOperation;
         const pendingOff = enabled === false && previous.phase === "verifying" && previous.on
             && layerGlassObserved.kind === "shaders-pending";
@@ -197,12 +197,17 @@ Scope {
         if (!ctx.active || typeof done !== "function" || typeof enabled !== "boolean") return "refused: layer-glass=caller";
         const manifest = Registry.manifests[ctx.id];
         if (manifest === undefined || !Registry.isEnabled(ctx.id) || manifest.__revision !== ctx.manifest.__revision) return "refused: layer-glass=plugin";
-        const declared = Logic.tuiRunFor(manifest, true, Registry.sourceDir, layerGlassRunner.runner(), tuiName, [], ["enable"]);
+        const verb = enabled ? (rebuild ? "rebuild" : "prepare") : "disable";
+        const declared = Logic.tuiRunFor(manifest, true, Registry.sourceDir, layerGlassRunner.runner(), enabled ? tuiName : controlName, [], [verb]);
         if (!declared.ok) return declared.answer || "refused: layer-glass=tui";
+        if (enabled) {
+            const cleanup = Logic.tuiRunFor(manifest, true, Registry.sourceDir, layerGlassRunner.runner(), controlName, [], ["disable"]);
+            if (!cleanup.ok) return cleanup.answer || "refused: layer-glass=tui";
+        }
         const generation = ++layerGlassGeneration;
         layerGlassClaimed = true;
         layerGlassOperation = { phase: "checking", generation: generation, revision: manifest.__revision, intent: layerGlassIntent,
-            id: ctx.id, name: tuiName, on: enabled, done: done, wasLoaded: null, verb: enabled ? (rebuild ? "rebuild" : "enable") : "disable",
+            id: ctx.id, name: tuiName, control: controlName, on: enabled, done: done, wasLoaded: null, verb: verb,
             keepRequest: !enabled && layerGlassRequest.enabled === true ? layerGlassRequest : null };
         // Off supersedes a pending first draw, but retains its safe applied
         // configuration until unload succeeds. Declining unload keeps it too.
@@ -215,7 +220,8 @@ Scope {
         const op = layerGlassOperation;
         if (!layerGlassValid(op.generation)) { finishLayerGlass(false, "The requesting plugin or saved choice changed."); return; }
         layerGlassOperation = Object.assign({}, op, { phase: "manager", verb: verb });
-        const answer = layerGlassRunner.request(op.id, Registry.manifests[op.id], { name: op.name, args: [verb], ctx: null,
+        const name = verb === "enable" || verb === "disable" ? op.control : op.name;
+        const answer = layerGlassRunner.request(op.id, Registry.manifests[op.id], { name: name, args: [verb], ctx: null,
             current: () => root.layerGlassValid(op.generation), done: result => {
             if (root.layerGlassOperation.generation !== op.generation) return;
             root.layerGlassOperation = Object.assign({}, root.layerGlassOperation, { phase: "verifying-manager", managerResult: result });
@@ -226,7 +232,8 @@ Scope {
     function failLayerGlass(reason) {
         const op = layerGlassOperation;
         if (op.on && op.wasLoaded === false && layerGlassObserved.loaded === true) {
-            layerGlassOperation = Object.assign({}, op, { on: false, compensating: true, failure: reason });
+            layerGlassOperation = Object.assign({}, op, { on: false, compensating: true, failure: reason,
+                keepRequest: layerGlassRequest.enabled === true ? layerGlassRequest : op.keepRequest });
             runLayerGlassManager("disable");
         } else finishLayerGlass(false, reason);
     }
@@ -238,7 +245,12 @@ Scope {
         if (op.phase === "checking") {
             if (observed.loaded === null || !layerGlassFacts.username.ok) { finishLayerGlass(false, "The plugin state or managed path could not be read. Check again."); return; }
             layerGlassOperation = Object.assign({}, op, { wasLoaded: observed.loaded });
-            runLayerGlassManager(op.verb);
+            if (op.on) {
+                // A saved-On rebuild must not reload the binary during a
+                // concurrent theme/config render while Hyprpm replaces it.
+                layerGlassOperation = Object.assign({}, layerGlassOperation, { phase: "arming" });
+                layerGlassRequest = { generation: op.generation, cycle: ++layerGlassSerial, enabled: true, load: false };
+            } else runLayerGlassManager(op.verb);
         } else if (op.phase === "verifying-manager") {
             const result = op.managerResult;
             if (result.code !== 0) {
@@ -246,12 +258,25 @@ Scope {
                     ? "The request was canceled. Check the plugin state before retrying." : "Setup failed. Check the plugin state before retrying.");
                 return;
             }
-            if (op.on ? observed.loaded !== true : observed.loaded !== false) {
+            if (op.verb === "enable") {
+                if (observed.loaded !== true) { failLayerGlass("The configured plugin is no longer loaded. Check again."); return; }
+                layerGlassOperation = Object.assign({}, op, { phase: "verifying" });
+                advanceLayerGlass();
+                return;
+            }
+            if (op.verb === "disable" ? observed.loaded !== false : observed.loaded === null) {
                 failLayerGlass("The plugin's loaded state could not be confirmed. Check again.");
                 return;
             }
-            layerGlassOperation = Object.assign({}, op, { phase: "applying" });
-            layerGlassRequest = { generation: op.generation, cycle: ++layerGlassSerial, enabled: op.on };
+            const request = { generation: op.generation, cycle: ++layerGlassSerial, enabled: op.on };
+            layerGlassOperation = Object.assign({}, op, { phase: "applying", keepRequest: op.on ? request : op.keepRequest });
+            layerGlassRequest = request;
+        } else if (op.phase === "verifying-load") {
+            // The preparation TUI never loads an absent plugin. The writer
+            // loads and configures it synchronously before Hyprpm records
+            // its enabled state, so no terminal wait exposes window defaults.
+            if (["eligible", "shaders-pending"].indexOf(observed.kind) === -1) { failLayerGlass(observed.reason); return; }
+            runLayerGlassManager("enable");
         } else if (op.phase === "verifying") {
             const errors = layerGlassFacts.errors;
             if (!errors || !errors.ok || errors.value.length !== 0) {
@@ -263,7 +288,11 @@ Scope {
             // native window, so keep this request for an explicit Check again.
             if (op.on && observed.kind === "shaders-pending") return;
             if (op.on ? observed.kind !== "eligible" : observed.loaded !== false) { failLayerGlass(observed.reason); return; }
-            if (op.compensating) { finishLayerGlass(false, op.failure); return; }
+            if (op.compensating) {
+                layerGlassOperation = Object.assign({}, op, { keepRequest: null });
+                finishLayerGlass(false, op.failure);
+                return;
+            }
             layerGlassOperation = Object.assign({}, op, { phase: "committing" });
             const answer = Config.writeUser(Logic.withAppearance(Config.user, Config.effective, "layerGlass", op.on ? true : undefined));
             if (answer !== "ok") {
@@ -276,14 +305,16 @@ Scope {
     // Acknowledgement binds the exact writer cycle, not just a reload event.
     function layerGlassLayerDone(generation, enabled, failure) {
         const op = layerGlassOperation;
-        if (op.phase !== "applying" || generation !== op.generation) return;
+        if ((op.phase !== "applying" && op.phase !== "arming") || generation !== op.generation) return;
         if (failure !== "") { failLayerGlass("The generated configuration could not be applied. Check your configuration."); return; }
         if (enabled !== op.on) { finishLayerGlass(false, "The generated choice changed during reload."); return; }
-        layerGlassOperation = Object.assign({}, op, { phase: "verifying" });
+        if (op.phase === "arming") { runLayerGlassManager(op.verb); return; }
+        layerGlassOperation = Object.assign({}, op, { phase: op.on ? "verifying-load" : "verifying" });
         refreshLayerGlass();
     }
     function finishLayerGlass(ok, reason) {
         const op = layerGlassOperation;
+        if (!ok && op.compensating && reason !== op.failure) reason = op.failure + " " + reason;
         layerGlassOperation = { phase: "idle", reason: reason };
         layerGlassRequest = !ok && op.keepRequest !== null && op.keepRequest !== undefined
             ? op.keepRequest : { generation: 0, enabled: null };

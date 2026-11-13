@@ -2,7 +2,7 @@
 # hyprpm owns binaries and elevation; the core alone writes configuration.
 set -euo pipefail
 finish() { printf 'layer-glass: category=%s\n' "$1"; [[ $# == 1 ]] || printf '%s\n' "$2" >&2; exit "${3:-1}"; }
-[[ $# == 1 && $1 =~ ^(enable|disable|rebuild)$ ]] || finish invalid-request 'Open Windows and try again.' 2
+[[ $# == 1 && $1 =~ ^(prepare|rebuild|enable|disable)$ ]] || finish invalid-request 'Open Windows and try again.' 2
 [[ -n ${VGS_TUI_LIB:-} ]] || finish presenter-missing 'Open this setup from Windows.' 2
 root=${VGS_TUI_LIB%/bin/lib/tui.sh}
 [[ $root != "$VGS_TUI_LIB" ]] || finish presenter-missing 'Open this setup from Windows.' 2
@@ -12,7 +12,7 @@ verb=$1
 for tool in hyprpm hyprctl python3 node; do
   command -v "$tool" >/dev/null || finish missing-tool 'Install the offered requirements, then try again.'
 done
-if [[ $verb != disable ]]; then
+if [[ $verb == prepare || $verb == rebuild ]]; then
   for tool in cpio cmake pkg-config g++ gcc git; do
     command -v "$tool" >/dev/null || finish missing-tool 'Install the offered build requirements, then try again.'
   done
@@ -72,7 +72,7 @@ try:
     unrelated_enabled = {n for n, state in entries.items() if state == 'enabled'} - {'hyprglass'}
     if unrelated_loaded != unrelated_enabled:
         raise ValueError('unrelated-plugin-conflict')
-    if 'hyprglass' in names and entries.get('hyprglass') not in ('enabled', 'disabled'):
+    if 'hyprglass' in names and entries.get('hyprglass') not in ('enabled', 'disabled', 'failed'):
         raise ValueError('unmanaged-plugin')
     unrelated = any(n != 'HyprGlass' for n in repositories) or any(n != 'hyprglass' for n in entries)
     print(entries.get('hyprglass', 'absent'), 'loaded' if 'hyprglass' in names else 'unloaded', 'other' if unrelated else 'only')
@@ -89,6 +89,7 @@ mutate() {
   # update has no repository argument (hyprpm v0.57.1 main.cpp). Never
   # rebuild, update or load another repository as part of this request.
   [[ $1 != update || $inventory == only ]] || finish unrelated-rebuild 'Hyprpm cannot rebuild only hyprglass while other plugin repositories are installed. No update was started.'
+  [[ $1 != enable || $observed == loaded ]] || finish not-loaded 'The prepared plugin is no longer loaded. Open Windows and try On again.'
   vgs_tui_commands "hyprpm $*"
   hyprpm "$@" || status=$?
   [[ $status != 130 ]] || finish interrupted 'The plugin manager was interrupted. Check its state in Windows.' 130
@@ -99,10 +100,13 @@ snapshot
 vgs_tui_header 'Layer glass'
 if [[ $verb == disable ]]; then
   printf '%s\n' 'This turns off the whole hyprglass plugin, including glass configured outside VGS. Packages and the repository stay installed.'
+elif [[ $verb == enable ]]; then
+  [[ $managed != absent && $observed == loaded ]] || finish not-loaded 'VGS must load and configure the plugin before enabling its managed state. Open Windows and try On again.'
+  printf '%s\n' 'VGS has loaded and configured layer glass. This enables its managed state. Turning it off later unloads the whole plugin, including glass configured outside VGS.'
 else
-  printf '%s\n' 'This installs or enables hyprglass for VGS layers. Window glass stays off. Turning this off later unloads the whole plugin, including glass configured outside VGS.'
+  printf '%s\n' 'This prepares hyprglass. VGS then loads it with window glass off and contour glass on its panels, and asks to enable its managed state. Turning it off later unloads the whole plugin, including glass configured outside VGS.'
 fi
-if [[ $verb != disable && ( $verb == rebuild || $managed == absent || $managed == failed ) ]]; then
+if [[ $verb == rebuild || ( $verb == prepare && ( $managed == absent || $managed == failed ) ) ]]; then
   [[ $inventory == only ]] || finish unrelated-rebuild 'Hyprpm cannot rebuild only hyprglass while other plugin repositories are installed. No update was started.'
   printf '%s\n' 'Hyprpm will prepare its headers and build hyprglass. No other plugin repository is installed.'
 fi
@@ -117,22 +121,22 @@ esac
 if [[ $verb == disable ]]; then
   if [[ $managed != absent ]]; then mutate disable hyprglass; fi
   [[ $observed == unloaded ]] || finish residual-load 'The plugin is still loaded. Off could not be confirmed.'
+elif [[ $verb == enable ]]; then
+  # Enabling reconciles every managed plugin. Only register a target the
+  # core already loaded and configured; reconciliation then skips its load.
+  [[ $managed != absent && $observed == loaded ]] || finish not-loaded 'The prepared plugin is no longer loaded. Open Windows and try On again.'
+  if [[ $managed != enabled ]]; then mutate enable hyprglass; fi
+  [[ $observed == loaded && $managed == enabled ]] || finish not-enabled 'The managed enabled state could not be confirmed. Check again in Windows.'
 elif [[ $verb == rebuild || $managed == absent || $managed == failed ]]; then
-  if [[ $verb == rebuild ]]; then
-    # update replaces binaries but skips an already loaded enabled plugin.
-    # Unload this target first so enable maps the newly built binary.
-    if [[ $managed == enabled || $observed == loaded ]]; then mutate disable hyprglass; fi
-    [[ $observed == unloaded ]] || finish residual-load 'The plugin is still loaded. Rebuild could not start.'
-    mutate update --force
-  else
-    mutate update
+  # update reconciles enabled entries, including a failed build's hidden
+  # enabled flag. Disable every existing target before either update path.
+  if [[ $managed != absent ]]; then
+    mutate disable hyprglass
   fi
+  [[ $observed == unloaded ]] || finish residual-load 'The plugin is still loaded. Preparation could not start.'
+  if [[ $verb == rebuild ]]; then mutate update --force; else mutate update; fi
   if [[ $managed == absent ]]; then mutate add https://github.com/hyprnux/hyprglass; fi
   [[ $managed != failed && $managed != absent ]] || finish build-failed 'The plugin did not build. Check its details above before rebuilding.'
-  if [[ $managed != enabled || $observed != loaded ]]; then mutate enable hyprglass; fi
-  [[ $observed == loaded ]] || finish not-loaded 'The plugin is not loaded in this session. Check its state in Windows.'
-else
-  if [[ $managed != enabled || $observed != loaded ]]; then mutate enable hyprglass; fi
-  [[ $observed == loaded ]] || finish not-loaded 'The plugin is not loaded in this session. Try Rebuild.'
+  [[ $managed == disabled && $observed == unloaded ]] || finish unexpected-load 'Preparation did not leave the plugin disabled and unloaded. Check its state in Windows.'
 fi
-finish manager-complete 'VGS will now verify the layer-glass configuration.' 0
+finish manager-complete 'VGS will continue the layer-glass request.' 0

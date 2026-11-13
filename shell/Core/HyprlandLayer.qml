@@ -140,6 +140,7 @@ Scope {
         glass: Theme.glass.window,
         groups: Theme.appearanceState.hyprland,
         layerGlass: Capabilities.hyprland.layerGlassRequest.enabled === null ? Theme.appearanceState.values.layerGlass === true : Capabilities.hyprland.layerGlassRequest.enabled,
+        layerGlassLoad: Capabilities.hyprland.layerGlassRequest.load !== false,
         layerGlassUser: Capabilities.hyprland.layerGlassUser,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },

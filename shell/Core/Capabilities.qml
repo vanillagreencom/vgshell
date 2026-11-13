@@ -288,8 +288,8 @@ Singleton {
             get theme() { return Theme.appearanceState.theme; },
             get sources() { return Theme.appearanceState.sources; },
             keys: root.appearanceKeys,
-            chooseLayerGlass: (enabled, name, done) => hyprlandState.chooseLayerGlass(ctx, enabled, name, typeof done === "function" ? result => { if (ctx.active) done(result); } : done, false),
-            rebuildLayerGlass: (name, done) => hyprlandState.chooseLayerGlass(ctx, true, name, typeof done === "function" ? result => { if (ctx.active) done(result); } : done, true),
+            chooseLayerGlass: (enabled, name, control, done) => hyprlandState.chooseLayerGlass(ctx, enabled, name, control, typeof done === "function" ? result => { if (ctx.active) done(result); } : done, false),
+            rebuildLayerGlass: (name, control, done) => hyprlandState.chooseLayerGlass(ctx, true, name, control, typeof done === "function" ? result => { if (ctx.active) done(result); } : done, true),
             set: (key, value) => root.appearanceWrite(key, value, ThemeLogic.appearanceRefusal(key, value)),
             unset: key => root.appearanceWrite(key, undefined, Logic.hasOwn(ThemeLogic.APPEARANCE, key) ? "" : ThemeLogic.appearanceRefusal(key, undefined))
         }),

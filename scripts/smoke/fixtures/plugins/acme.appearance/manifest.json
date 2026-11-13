@@ -8,5 +8,8 @@
     "kinds": ["service"],
     "entryPoints": { "service": "Service.qml" },
     "capabilities": ["appearance", "hyprland", "tui"],
-    "tui": { "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass" } }
+    "tui": {
+        "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass" },
+        "layer-glass-control": { "script": "tui/layer-glass.sh", "title": "Layer glass" }
+    }
 }

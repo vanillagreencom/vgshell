@@ -27,6 +27,7 @@
     { "command": "git", "optional": true, "purpose": "Download the layer-glass plugin", "packages": { "pacman": "git" } }
   ],
   "tui": {
-    "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm", "cpio", "cmake", "pkg-config", "g++", "gcc", "git"] }
+    "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm", "cpio", "cmake", "pkg-config", "g++", "gcc", "git"] },
+    "layer-glass-control": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm"] }
   }
 }
