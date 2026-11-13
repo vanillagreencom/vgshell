@@ -11806,7 +11806,9 @@ PY
       # The warden reads a fresh status from its runtime dir, with a vsys
       # whose summary names one warning and a notify-send that sends
       # nothing; the updates service reads the planted snapshot, checked
-      # now, so no check runs while it is younger than the interval.
+      # now, so no check runs while it is younger than the interval. The
+      # requirement notice Updates raises closes before the desktop sample,
+      # which its scrim would cover.
       printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/notify-send"
       cat >"$shim/vsys" <<'SH'
 #!/usr/bin/env bash
@@ -11824,6 +11826,7 @@ SH
       done
       expect_poll "the updates service reads the planted snapshot" 6 updates_pending
       expect "the updates service runs no check" False updates_checking
+      close_notices
       expect "enabling vgs.themes for its panel is allowed" ok ipc shell setPluginEnabled vgs.themes true ;;
     warden-states)
       # The warden reads each status from its runtime dir, with a vsys
