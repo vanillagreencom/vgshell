@@ -177,7 +177,7 @@ def pick(remember, stopped):
     # Cleanup also covers an interrupted begin call: the shell can accept it
     # before the child has delivered its reply.
     try:
-        reply = ipc_call("share-begin", request, stopped, min(IPC_TIMEOUT, PICKER_TIMEOUT))
+        reply = ipc_call("share-begin", request, stopped, IPC_TIMEOUT)
         if reply != "ok":
             raise PickerError("picker=begin-refused")
         while not stopped.is_set():
