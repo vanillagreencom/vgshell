@@ -115,6 +115,8 @@
 
 | 2026-11-10 | D131 | [VGS-2391](https://linear.app/vanillagreen/issue/VGS-2391) | Outside memory notes (Memory notes from outside content) offers Ask first or Save without asking; preserve origins in both | The owner requests control over automatic memory saving, with the safe hold on by default | Memory gains another writer, origins stop preserving taint, or consent needs a narrower scope | Active | [Full](D131-outside-memory-consent.md) |
 
+| 2026-11-13 | D133 | [VGS-2482](https://linear.app/vanillagreen/issue/VGS-2482) | The AUR review runs as paru's file-manager review | Paru builds the clones it supplies for review; a separate gather and later bindings cannot prove the built commit | Paru no longer builds the reviewed clones, or another helper offers an equivalent review step | Active | [Full](D133-paru-file-manager-review.md) |
+
 ---
 
 ## Format Reference

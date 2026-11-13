@@ -6,13 +6,10 @@ set -euo pipefail
 # shellcheck source=SCRIPTDIR/tui.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/tui.sh"
 
-# gum 2.0.2's fixed-grey key help misses the dark-theme readability floor.
-# Like vgs_tui_confirm, put themed key help in the prompt it erases.
 vgs_pkg_review_choose() {
-    local header=$1 help
+    local header=$1
     shift
-    printf -v help '\033[22m%s↑↓ choose • Enter confirm • Esc cancel\033[0m' "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"
-    vgs_tui_choose --no-show-help --header "$header"$'\n\n'"$help" "$@"
+    vgs_tui_choose --no-show-help --header "$header" "$@"
 }
 
 # A command block under its heading, each word shell-quoted only where the
@@ -28,6 +25,15 @@ vgs_pkg_review_command() { # HEADING WORD...
 kind="${1:-}"
 shift
 case "$kind" in
+  agent-run) # OUTPUT COMMAND ARG...
+    vgs_tui_transcript "$kind" "$@"
+    capture=$1
+    shift
+    status=0
+    vgs_tui_interval_open
+    "$@" || status=$?
+    vgs_tui_interval_cut "$capture" || :
+    exit "$status" ;;
   settings-open)
     # A desktop caller opens the page, including from its own terminal.
     # The runner judges transport errors; this caller requires the page's ok.
@@ -56,47 +62,31 @@ case "$kind" in
     # shellcheck source=SCRIPTDIR/pkg-review-settings.sh
     source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/pkg-review-settings.sh"
     vgs_pkg_review_settings "$1" ;;
-  # Every review kind, the editor included, draws blocks under the caller's
-  # screen and clears none of it, so the caller's plan and log path stay
-  # above the review and its next step follows it.
-  customize)
-    # shellcheck source=SCRIPTDIR/pkg-review-settings.sh
-    source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/pkg-review-settings.sh"
-    vgs_pkg_review_settings "$1" inline ;;
+  # Review questions retain the caller's plan and log above their blocks.
   offer) # SELECTED PACKAGES
     vgs_tui_step 'Review AUR packages' >&2
-    vgs_tui_text 'An AI agent reads the AUR build recipes for risks before installation.' >&2
     vgs_tui_text "${2:-Package source information is unavailable.}" >&2
     vgs_pkg_review_choose 'Review before installation?' --selected "$1" -- Review 'Install without review' ;;
-  # A saved "Install without review" answers the offer, so nothing is asked.
-  saved-decline) # PACKAGES
-    vgs_tui_step 'Review AUR packages' >&2
-    vgs_tui_text "${1:-Package source information is unavailable.}" >&2
-    vgs_tui_text 'Your saved choice installs these packages without a review.' >&2 ;;
-  agent) # LABEL
-    vgs_tui_step 'Choose the review agent' >&2
-    vgs_tui_text 'The agent reads build files as your user. Installation follows your review choices.' >&2
-    vgs_pkg_review_choose 'Review agent' --selected "Use $1" -- "Use $1" Customize Back ;;
   result)
     vgs_tui_step 'Review result' >&2
     vgs_tui_text "$1" >&2 ;;
   # The result opens a block of its own: it may follow the agent's output.
   unavailable)
     vgs_tui_step 'Review result' >&2
-    vgs_tui_warn 'The AUR package review could not finish.' >&2
     vgs_tui_text "$1" >&2
-    if [[ ${2:-} == retry ]]; then
-      vgs_tui_text 'No returns to the review choices. Yes continues without a review. Stop ends this update.' >&2
-      vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes Stop
+    vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes ;;
+  agent-failed) # LABEL LAST_LINE OTHER_LABEL
+    vgs_tui_step 'Review result' >&2
+    vgs_tui_warn "The $1 review stopped without a result. Its last line: $2" >&2
+    if [[ -n ${3:-} ]]; then
+      vgs_pkg_review_choose 'Review AUR packages' --selected "Use $3" -- "Use $3" 'Install without review' 'Skip AUR packages'
     else
-      vgs_tui_text 'No stops this command. Yes continues without a review.' >&2
-      vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes
+      vgs_pkg_review_choose 'Review AUR packages' --selected 'Skip AUR packages' -- 'Install without review' 'Skip AUR packages'
     fi ;;
-  limit)
-    vgs_tui_text 'AUR builds may add dependencies that cannot be reviewed before the build.' >&2 ;;
-  concern)
-    vgs_tui_warn "$1" >&2
-    vgs_pkg_review_choose "Install $2 despite the review result?" --selected Skip -- Skip 'Install anyway' ;;
+  flagged) # NAMES CONCERNS
+    vgs_tui_step 'Review result' >&2
+    vgs_tui_warn "$2" >&2
+    vgs_pkg_review_choose 'Install flagged packages?' --selected "Skip $1" -- "Skip $1" 'Install anyway' Stop ;;
   # A build whose own tests alone failed (PackageReview.classifyInstallFailure):
   # the one retry without them, which the helper also applies to every
   # dependency it builds, or Stop.

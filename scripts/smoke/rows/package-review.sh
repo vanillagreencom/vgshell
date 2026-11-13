@@ -1,9 +1,9 @@
 # Desktop package-review tool refusal through the existing fixture consumer.
 # The harness terminal records the core argv and substitutes true. Production
-# interaction and one-use bindings live in test-package-review-runtime.js.
+# interaction lives in fixtures/pkg-review/runtime-test.js.
 # Waits use the harness's bounded expect_poll/expect_run_end; this row adds
 # no latency or resident-size claim.
-# inputs: scripts/smoke/fixtures/plugins/acme.tui/* scripts/smoke/rows/capabilities.sh shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Config.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell bin/vgshell-pkg bin/vgshell-tui bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh shell/Core/PackageReview.js shell/Core/PackageManagers.js config/shell.json
+# inputs: scripts/smoke/fixtures/plugins/acme.tui/* scripts/smoke/rows/capabilities.sh shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Config.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell bin/vgshell-pkg bin/vgshell-tui bin/lib/pkg-review.js bin/lib/pkg-review-copy.py bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh shell/Core/PackageReview.js shell/Core/PackageManagers.js config/shell.json
 set -euo pipefail
 package_review_fixture="$home/.config/vgshell/plugins/acme.tui"
 mkdir -p -- "$package_review_fixture"

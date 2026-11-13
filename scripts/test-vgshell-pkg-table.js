@@ -459,15 +459,17 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) for (const action of t.ACTIONS)
         if (!covered.has(row.id + " " + action)) failures.push("plan: no row for " + row.id + " " + action);
-    for (const binary of ["paru", "yay"]) for (const action of ["upgrade", "reinstall"])
-        for (const [coverage, dependenciesCovered] of [["complete", true], ["declined", true], ["unknown", true], [undefined, true], ["complete", false]]) {
+    for (const binary of ["paru", "yay"]) for (const action of ["upgrade", "reinstall", "remove"])
+        for (const skipReview of [false, true]) for (const config of [undefined, "/run/update/pacman.conf"]) {
             const names = action === "upgrade" ? [] : ["vgshell-git"];
-            const plan = t.plan("aur", action, names, onPathOf([binary])).plan;
-            const words = binary === "paru" && coverage !== undefined && dependenciesCovered ? ["--skipreview", "--batchinstall"] : [];
-            const expected = [binary, action === "upgrade" ? "-Sua" : "-S", ...words, ...(names.length ? ["--", ...names] : [])];
-            const steps = [expected, ...(words.length ? [[binary, "--gendb"]] : [])];
-            if (!same(t.reviewedBuild(plan, coverage, dependenciesCovered).steps, steps))
-                failures.push("reviewed build: " + JSON.stringify({binary, action, coverage, dependenciesCovered}));
+            const plan = t.plan("aur", action, names, onPathOf([binary]), undefined, config).plan;
+            const configured = config === undefined ? [] : ["--config", config];
+            const reviewCommand = action === "remove" ? undefined : "/usr/bin/node /vgs/bin/vgshell-pkg review --run /run/update/review";
+            const words = binary === "paru" && action !== "remove" ? [...(skipReview ? ["--skipreview"] : ["--review", "--nosudoloop", "--fm", reviewCommand]), "--batchinstall"] : [];
+            const expected = [binary, ...configured, ...words, { upgrade: "-Sua", reinstall: "-S", remove: "-Rns" }[action], ...(names.length ? ["--", ...names] : [])];
+            const steps = [expected, ...(words.length ? [[binary, ...configured, "--gendb"]] : [])];
+            if (!same(t.reviewedBuild(plan, reviewCommand, skipReview, config).steps, steps))
+                failures.push("reviewed build: " + JSON.stringify({binary, action, skipReview, config}));
         }
     for (const [name, manager, missing, outdated, commands, want] of OWED_ROWS) {
         const got = t.planOwed(manager, missing, outdated, onPathOf(commands));
@@ -760,6 +762,7 @@ function verifyOutcomes(t) {
 // text one of the copy's failures must hold, for a control that proves one
 // particular assertion can fail.
 const CONTROLS = [
+    ["table", "paru's review inherits a sudo loop", TABLE, '["--review", "--nosudoloop", "--fm", reviewCommand]', '["--review", "--fm", reviewCommand]'],
     ["table", "an up-to-date package is skipped during repair", TABLE, 'reinstall: [["{bin}", "install", "--reinstall", "{names}"]],', 'reinstall: [["{bin}", "install", "{names}"]],'],
     ["rule:partial upgrade", "a pacman upgrade refreshes without upgrading", TABLE, "upgrade: [[\"{bin}\", \"-Syu\"]],", "upgrade: [[\"{bin}\", \"-Sy\"]],"],
     ["rule:elevation command", "a step elevates", TABLE, "[\"{bin}\", \"full-upgrade\"]", "[\"sudo\", \"{bin}\", \"full-upgrade\"]"],

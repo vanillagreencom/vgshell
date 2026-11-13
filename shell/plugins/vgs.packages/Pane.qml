@@ -133,7 +133,7 @@ FocusScope {
                 width: parent.width
                 inline: true
                 label: "Before installing"
-                hint: beforeInstalling.currentIndex === 0 ? "Ask each time, with review selected"
+                hint: beforeInstalling.currentIndex === 0 ? ""
                     : beforeInstalling.currentIndex === 1 ? "Install without asking, except with a custom AUR command"
                     : "Ask each time, with no review selected if no AI agent is found"
                 Select {

@@ -8,8 +8,8 @@ function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
 // Every review agent, shipped or saved, starts in its own review's evidence
 // folder, unless its row sets startsInHome (reviewCommand): then it starts
-// in the stable agent home. The package owner makes every transaction,
-// review and retry folder beside that home, never beneath it, so neither
+// in the stable agent home. The package owner keeps verdict state and
+// every other review outside that home, so neither
 // start folder holds a file a later update step trusts.
 var REVIEW_AGENTS = [
     // Claude asks nothing: --tools leaves no shell, --strict-mcp-config loads no
@@ -43,7 +43,7 @@ var REVIEW_AGENTS = [
     // workspace-write lets Codex's shell write only in its working directory,
     // /tmp and $TMPDIR (`codex debug prompt-input`, codex-cli 0.167.0), and
     // that directory is one review's evidence folder, so no other review,
-    // receipt or pacman hooks folder in the agent home is writable.
+    // verdict state or build folder is writable.
     // Started in the agent home with -C naming that folder, 0.167.0 refused
     // to start a turn: "the selected permission profile cannot be safely
     // represented by the legacy app-server sandbox policy" (VGS-2469).
@@ -157,7 +157,7 @@ function reviewPlan(settings, found) {
 // A shipped agent with access words gains them for that folder; a saved
 // command runs as written. Either starts in the home when the row its first
 // word names sets startsInHome, else in the evidence folder. No
-// transaction, receipt or other review lies beneath either folder, so a
+// verdict state or other review lies beneath either folder, so a
 // command that may write its working directory cannot reach one.
 function reviewCommand(plan, review) {
     var row = reviewAgentRow(plan.agent);
@@ -166,10 +166,9 @@ function reviewCommand(plan, review) {
     return { argv: argv, cwd: row !== null && row.startsInHome === true ? review.home : review.evidence };
 }
 
-// Consent to install without review is a submitted offer or a saved
-// "Install without review", the explicit false: `ask` is false for that
-// alone, and the owner then shows no offer. Otherwise presence selects the
-// initial row; an availability probe cannot change saved policy.
+// A saved enabled choice answers the offer in either direction. Without
+// one, agent configuration and availability select its initial row but
+// grant no consent; an unavailable agent cannot change the saved choice.
 function initialChoice(settings, found) {
     var s = isPlainObject(settings) ? settings : {};
     var configured = (typeof s.agent === "string" && s.agent !== "") || commandWords(s.command || "").length > 0;
@@ -177,7 +176,7 @@ function initialChoice(settings, found) {
     return { action: hasOwn(s, "enabled") ? (s.enabled ? "review" : "decline") : (configured || plan.state === "agent" ? "review" : "decline"),
         preference: hasOwn(s, "enabled") ? (s.enabled ? "on" : "off") : "absent", configured: configured,
         availability: plan.state === "missing" || plan.state === "none" ? "unavailable" : "available",
-        ask: !(hasOwn(s, "enabled") && s.enabled === false) };
+        ask: !hasOwn(s, "enabled") };
 }
 
 // The verdict file an agent wrote, judged against REVIEWED, the names the

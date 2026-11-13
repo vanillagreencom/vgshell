@@ -18,9 +18,8 @@
 // package review workspace; each key keeps its latest only. A new ordinary
 // run of the key retires it, `vgshell pkg retry <run>` claims it by rename
 // before anything runs, and it lapses with the run's ended record or the
-// runtime directory. It holds the failed target, action, manager, resolved
-// helper, config, the target's gathered binding and the recipe the helper
-// fetched for it, never argv.
+// runtime directory. It holds the failed target, action, manager and
+// config, never argv. Each retry takes the current helper's own review.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -38,8 +37,6 @@ const CHANNEL_ENV = ["VGS_TUI_OUTCOME", "VGS_TUI_OUTCOME_PID", "VGS_TUI_RECORD_K
 const REQUIREMENT_KEYS = ["core/requirements-install", "core/requirements-update"];
 // The seconds a `--version` query may take.
 const VERSION_TIMEOUT = 10;
-// The seconds a recipe fetch may take, as a review's own queries.
-const FETCH_TIMEOUT = 120;
 
 const channel = (() => {
     const env = process.env;
@@ -110,46 +107,6 @@ function evidence(dir, builder, targets, status) {
     return { evidence: { builder, versions, env, status, signal: null, interval, targets }, cut };
 }
 
-// The identity a held retry keeps for TARGET: the review owner's gathered
-// identity of the helper, its configuration and the target's origin, and
-// the recipe the helper fetches for an AUR target now. Answers
-// { binding } once every read completed, else { unreadable: key } with the
-// first read that failed: never a partial binding.
-function binding(manager, action, target, config) {
-    const state = review.gather({ version: 1, mode: "named", action, groups: [{ manager, names: [target], installs: [], ignored: [] }],
-        sources: [], rebuild: [], config: config === undefined ? null : config, customAurArgv: null });
-    const unread = review.evidenceFailures(state.unknown);
-    if (unread.length > 0) return { unreadable: unread[0] };
-    const recipes = [];
-    for (const pkg of state.packages.filter(p => p.aur)) {
-        const fetched = recipe(pkg);
-        if (fetched.unreadable !== undefined) return fetched;
-        recipes.push({ name: pkg.name, files: fetched.files });
-    }
-    return { binding: { binary: state.steps[0].binary, binding: state.steps[0].binding, recipes } };
-}
-
-// The recipe the AUR helper fetches for PKG, one of gather's packages, as
-// the review fetches it: each file `-G` saves, by its path in the fetch and
-// its hash. Answers { files } or { unreadable: key }.
-function recipe(pkg) {
-    const dir = evidenceDir("recipe-");
-    try {
-        const r = cp.spawnSync(pkg.binary, ["--config", pkg.config, "-G", "--", pkg.name], { cwd: dir, stdio: "ignore", timeout: FETCH_TIMEOUT * 1000,
-            env: { ...process.env, LC_ALL: "C" } });
-        if (r.error !== undefined || r.status !== 0) return { unreadable: "recipe=fetch-failed" };
-        let files;
-        try {
-            files = review.recipesIdentity(dir).map(entry => ({ path: path.relative(dir, entry.path), hash: entry.hash }));
-        } catch (e) {
-            return { unreadable: e.code === undefined ? e.message : "recipe=" + e.code };
-        }
-        return files.length === 0 ? { unreadable: "recipe=empty" } : { files };
-    } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
-}
-
 function retryDir() {
     const dir = path.join(review.workRoot(), "retry");
     try {
@@ -174,18 +131,11 @@ function retireHeld() {
 
 // Holds the one retry of this run's check-only failure of TARGET for its
 // requirement notice, replacing the key's earlier one. Answers the
-// outcome's retry: available, or null when this run is no requirement's,
-// or when the target's binding cannot be read, which prints
-// `vgshell: retry=unheld reason=<key>`.
+// outcome's retry: available, or null when this run is no requirement's.
 function hold(manager, action, target, config) {
     if (channel === null || !REQUIREMENT_KEYS.includes(channel.key)) return null;
-    const bound = binding(manager, action, target, config);
-    if (bound.unreadable !== undefined) {
-        process.stderr.write("vgshell: retry=unheld reason=" + bound.unreadable + "\n");
-        return null;
-    }
     const dir = retryDir();
-    const record = { version: 1, key: channel.key, run: channel.run, manager, action, target, config: config === undefined ? null : config, ...bound.binding };
+    const record = { version: 1, key: channel.key, run: channel.run, manager, action, target, config: config === undefined ? null : config };
     const name = stem(channel.key) + "@" + channel.run + ".json";
     const hidden = path.join(dir, "." + name + "." + crypto.randomBytes(6).toString("hex"));
     fs.writeFileSync(hidden, JSON.stringify(record), { flag: "wx", mode: 0o600 });
@@ -194,14 +144,9 @@ function hold(manager, action, target, config) {
     return { originRun: channel.run, state: "available" };
 }
 
-// Claims the retry run RUN holds: renamed away first, so a second claim or
-// a retirement finds nothing, then judged. Refuses `retry=unavailable` when
-// none is held, `retry=stale` when the run's ended record is gone,
-// `retry=unreadable reason=<key>` when the current helper, configuration,
-// origin or recipe cannot be read, and `retry=changed` when they no longer
-// match what the retry holds. None of them runs anything, and none
-// restores the claim: the claim is the retry's one consumption, and a plain
-// Install reaches the same question again.
+// Claims the retry run RUN holds by rename before running anything. A
+// missing retry or ended record refuses. Claiming consumes it even when
+// the owner stops at the current recipe's review.
 function claim(run) {
     const dir = retryDir();
     let claimed = null;
@@ -226,17 +171,14 @@ function claim(run) {
     if (record.version !== 1 || record.run !== run || !REQUIREMENT_KEYS.includes(record.key)) refuse("retry=unavailable run=" + run);
     const records = path.join(process.env.XDG_RUNTIME_DIR, "vgshell", "tui");
     if (!fs.existsSync(path.join(records, stem(record.key) + "@" + run + ".ended.json"))) refuse("retry=stale run=" + run);
-    const now = binding(record.manager, record.action, record.target, record.config === null ? undefined : record.config);
-    if (now.unreadable !== undefined) refuse("retry=unreadable run=" + run + " reason=" + now.unreadable);
-    if (JSON.stringify(now.binding) !== JSON.stringify({ binary: record.binary, binding: record.binding, recipes: record.recipes })) refuse("retry=changed run=" + run);
     return record;
 }
 
-// The retry's steps for a claimed or immediate failure of TARGET.
-function retrySteps(manager, action, target, config) {
+// The retry plan for a claimed or immediate failure of TARGET.
+function retryPlan(manager, action, target, config, reviewCommand, skipReview) {
     const r = managers.retryPlan(manager, action, target, onPath, config);
     if (!r.ok) refuse(r.error);
-    return r.plan.steps;
+    return managers.reviewedBuild(r.plan, reviewCommand, skipReview, config);
 }
 
 // After BUILDER's run over TARGETS failed with STATUS and left its evidence
@@ -296,4 +238,4 @@ function report(outcome, status) {
     if (failure !== null) process.stderr.write("vgshell: package-outcome=unwritten reason=" + failure + "\n");
 }
 
-module.exports = { afterFailure, claim, consumed, evidenceDir, failed, hold, report, reporting, retireHeld, retrySteps, stepInterval };
+module.exports = { afterFailure, claim, consumed, evidenceDir, failed, hold, report, reporting, retireHeld, retryPlan, stepInterval };

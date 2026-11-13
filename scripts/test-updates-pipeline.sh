@@ -123,11 +123,10 @@ stub() { # DIR NAME BODY
 # declines, as its [y/N] question answered no does, for $FIX/decline-<id>,
 # and refuses an offline fetch with git's message for $FIX/offline-<id>.
 # `self status` fails while $FIX/fail-self-status exists, `pkg orphan-info`
-# while $FIX/fail-orphan-info does, `pkg review-custom-consume` while
+# while $FIX/fail-orphan-info does, `pkg review-custom-consent` while
 # $FIX/fail-consume does, `pkg run remove` while $FIX/fail-remove does,
 # `restart` while $FIX/fail-restart does and `power reboot` while
-# $FIX/fail-reboot does. `pkg review` answers Stop while $FIX/review-stop
-# exists, and excludes the package $FIX/review-skip names while it exists. `ipc call ... check` leaves $FIX/ended-at-check when the run had
+# $FIX/fail-reboot does. `ipc call ... check` leaves $FIX/ended-at-check when the run had
 # recorded its end, and $FIX/outcome-at-check when the outcome file was
 # written, before it was asked.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
@@ -161,17 +160,16 @@ order() {
   exit 1
 }
 case "$1 $2" in
-  "pkg review-transaction") exec node "$(cat "${0%/*}/review-owner")" review-transaction ;;
-  "pkg review")
-    d=proceed; [ ! -e "$FIX/review-stop" ] || d=stop
-    s=""; [ ! -e "$FIX/review-skip" ] || s="\"$(cat "$FIX/review-skip")\""
-    printf "{\"version\":1,\"decision\":\"$d\",\"reviewed\":[],\"skipped\":[$s],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
+  "pkg review-run")
+    d="$(mktemp -d "$FIX/update-XXXXXXXX")" || exit 1
+    printf "%s\n" "$d" >"$FIX/current-run"
+    printf "%s\n" "$d" ;;
   "pkg review-custom-mode")
     if [ -e "$FIX/devel-status" ]; then
       exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3"
     fi
     echo unknown ;;
-  "pkg review-custom-consume") [ ! -e "$FIX/fail-consume" ] || exit 3 ;;
+  "pkg review-custom-consent") [ ! -e "$FIX/fail-consume" ] || exit 3 ;;
   "pkg orphan-info"|"pkg rebuild-allowed") [ "$2" != orphan-info ] || [ ! -e "$FIX/fail-orphan-info" ] || exit 1; shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
   # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
   # its tree and its retry.
@@ -221,7 +219,8 @@ case "$1 $2" in
   "ipc call")
     case "$5" in
       check)
-        [ ! -e "$VGS_PACKAGE_TRANSACTION/ended" ] || : >"$FIX/ended-at-check"
+        d="$(cat "$FIX/current-run")"
+        [ ! -e "$d/ended" ] || : >"$FIX/ended-at-check"
         [ ! -e "$XDG_STATE_HOME/vgshell/updates/outcome.json" ] || : >"$FIX/outcome-at-check"
         if [ -e "$FIX/real-ipc" ]; then exec "$FIX/real-ipc" "$@"; fi
         if [ -e "$FIX/ipc-check-refuses" ]; then echo "refused: ipc=check reason=test"; exit 8; fi
@@ -481,7 +480,7 @@ pipeline() {
     "${bound[@]}" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
   grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed -E "s/ --review-receipt [^ ]+//g; s/ --config [^ ]+\/transaction-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+    sed -E "s/ --config [^ ]+\/update-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
@@ -885,13 +884,11 @@ row_stopped() {
   settings "paru -Sua --devel" false
   touch "$fix/fail-consume"
   pipeline update.sh
-  assert "a failure after the sources ends the run with its status" test "$status" == 3
-  # The recovery message after the list is the trap's own colour, so the
-  # list is read as the output's text.
-  assert "the error trap prints the result list so far" out_has "Theme night installed."
-  assert "the error trap's run asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
-  assert "the error trap's outcome names the part it stopped in" json_is "$outcome" \
-    'd == {"ended": "failed", "text": "AUR packages failed, and VGS could not find the cause. Next: update again."}'
+  assert "a failed custom-command consent fails the package part" test "$status" == 1
+  assert "the custom-command failure keeps the other results" out_has "Theme night installed."
+  assert "the custom-command failure asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
+  assert "the custom-command outcome names the failed part" json_is "$outcome" \
+    'd == {"ended": "failed", "text": "AUR packages failed. exit 3. Next: update again."}'
 }
 # A Ctrl-C in a source step ends the run with 130 and drops the credential.
 row_interrupted() {
@@ -1409,14 +1406,6 @@ row_doas() {
   assert "a refused password is the result's one line for the system" result_has "VGS could not get permission to change the system, so it skipped system packages and AUR packages. Next: update again and enter your password. VGS installed. Flatpak installed."
   assert "a refused password runs no system, AUR or snapshot step" test "$(grep -c -e 'pkg run upgrade --manager pacman' -e 'pkg run upgrade --manager aur' -e 'snapper -c' "$tmp/seq")" == 0
   assert "a refused password still runs Flatpak" has_call "vgshell pkg run upgrade --manager flatpak"
-  # A rebuild the review excluded keeps the review's cause alone.
-  reset_fix
-  self_json package '"vgshell-git"' rebuild
-  touch "$fix/sudo-refuses"
-  echo vgshell-git >"$fix/review-skip"
-  PIPE_PATH="$snapper_dir" pipeline update.sh
-  assert "an excluded rebuild reads as the review's skip" result_has "vgshell-git skipped. Review excluded this package."
-  assert "a refused password leaves out the rebuild the review excluded" result_has "so it skipped system packages and AUR packages. Next: update again and enter your password."
 }
 # update-source.sh vgs on a vgshell-git behind: the rebuild replaces the
 # package, so a snapshot comes first and the running shell restarts on the
@@ -1447,11 +1436,6 @@ row_vgs_helper() {
   assert "a failed helper install prevents the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
   assert "a failed helper install skips the VGS package with its cause" result_has "VGS package skipped. Paru could not be installed."
   assert "the system step runs after a failed helper install" has_call "vgshell pkg run upgrade --manager pacman"
-  rm -f -- "${outcome:?}"
-  touch "$fix/review-stop"
-  pipeline update.sh
-  assert "a review Stop after a failed helper install keeps the failure" json_is "$outcome" \
-    'd["ended"] == "failed" and d["text"].startswith("Paru failed. ")'
   reset_fix
   self_json package '"vgshell-git"' install-helper
   pipeline update-source.sh vgs
@@ -1672,7 +1656,7 @@ log_tui() {
   status=${PIPESTATUS[1]}
   set -e
   grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed -E "s/ --review-receipt [^ ]+//g; s/ --config [^ ]+\/transaction-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+    sed -E "s/ --config [^ ]+\/update-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 # The first line of the output, without the typed keys the terminal echoed

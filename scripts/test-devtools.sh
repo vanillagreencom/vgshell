@@ -259,7 +259,9 @@ for(const [kind,transcript,retryCount] of [["check-only","paru-check-only",1],["
   assert.equal(offers[0].choice,"Install without review",kind);
   assert.equal(built.length,1,kind+": no automatic retry");
   assert.equal(built[0].name,"paru",kind);
-  assert.deepEqual(built[0].args,["-S","--needed","--","visual-studio-code-bin"],kind);
+  assert.deepEqual(built[0].args.slice(0,3),["--review","--nosudoloop","--fm"],kind);
+  assert.ok(path.isAbsolute(built[0].args[3]),kind+": file-manager executable");
+  assert.deepEqual(built[0].args.slice(4),["--batchinstall","-S","--needed","--","visual-studio-code-bin"],kind);
   assert.ok(calls.indexOf(offers[0])<calls.indexOf(built[0]),kind+": admission precedes the build");
   const retry=offers.filter(c=>c.offered.includes("Retry without tests"));
   assert.equal(retry.length,retryCount,kind);

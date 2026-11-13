@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A test endpoint delegates package admission to the production owner on a
-// safe PTY. The success surface runs one transaction; the failures surface
+// safe PTY. The success surface runs one package operation; the failures surface
 // checks the owner's negative cases outside a route's completion timing.
 // Route suites keep their own downstream success/failure/postcheck fixtures.
 "use strict";
@@ -29,7 +29,6 @@ try{
    assert.ok(offer,"route must enter common offer");assert.equal(offer.choiceIndex,1);
    const firstMutation=calls.findIndex(c=>c.kind==="mutation"),offerAt=calls.indexOf(offer);
    assert.ok(firstMutation>offerAt);
-   assert.ok(calls.every((c,i)=>c.kind!=="credential"||i>offerAt));
   }
  }
  // The same route through a failing build: a check-only failure of the

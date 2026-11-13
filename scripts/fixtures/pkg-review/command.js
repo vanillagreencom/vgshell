@@ -7,9 +7,11 @@ const name=path.basename(process.argv[1]),args=process.argv.slice(2),originalArg
 const log=(kind,extra={})=>fs.appendFileSync(path.join(root,"calls.jsonl"),JSON.stringify({kind,name,args:originalArgs,...extra})+"\n");
 if(name==="gum"){
  if(args[0]==="choose"){
-  const choices=JSON.parse(fs.readFileSync(path.join(root,"choices.json"))),choice=choices.shift();
+  const choices=JSON.parse(fs.readFileSync(path.join(root,"choices.json")));let choice=choices.shift();
   fs.writeFileSync(path.join(root,"choices.json"),JSON.stringify(choices));
   const offered=args.slice(args.indexOf("--")+1),at=args.indexOf("--selected"),selected=at<0?offered[0]:args[at+1];
+  if(choice==="@selected")choice=selected;
+  if(choice==="@skip")choice=offered.find(value=>value.startsWith("Skip "));
   log("offer",{offered,selected,choice,selectedIndex:offered.indexOf(selected),choiceIndex:offered.indexOf(choice)});
   // gum 2.0.2's choose: Ctrl-C exits 130 and Esc 1.
   if(choice==="cancel")process.exit(130);
@@ -25,7 +27,7 @@ if(["sudo","doas","run0"].includes(name)){
  const cp=require("node:child_process"),r=cp.spawnSync(args[0],args.slice(1),{stdio:"inherit",env:process.env});process.exit(r.status||0);
 }
 log("query");
-if(args[0]==="--version"){console.log(name==="makepkg"?"makepkg (pacman) 7.1.0":name+" v"+(name==="paru"?"2.1.0 +git":"12.5.0")+" - libalpm v16.0.1");process.exit(0);}
+if(args[0]==="--version"){console.log(name==="makepkg"?"makepkg (pacman) 7.1.0":name+" v"+(name==="paru"?"2.2.0 +git":"12.5.0")+" - libalpm v16.0.1");process.exit(0);}
 // A build scenario, build.json: the recorded transcript a build prints and
 // its status, and the retry's (a build given --nocheck), each once in order.
 function build(){
@@ -74,7 +76,7 @@ if(name==="pacman-conf"){
  if(args.includes("--repo-list"))console.log([...fs.readFileSync(path.join(root,"included.conf"),"utf8").matchAll(/^\[([^\]]+)\]/gm)].map(row=>row[1]).concat(fs.existsSync(path.join(root,"repo-aur"))?["aur"]:[]).join("\n"));
  else if(args.includes("Server")&&!fs.existsSync(path.join(root,"server-empty")))console.log("https://user:secret@packages.example.org/$repo/$arch");
  else if(args.includes("SigLevel"))console.log("Required DatabaseOptional");
- else if(args.includes("DBPath"))console.log(effectiveConfig==="/etc/pacman.conf"&&!fs.existsSync(path.join(root,"config-corresponds"))?"/var/lib/pacman/":path.join(root,"db"));
+ else if(args.includes("DBPath"))console.log(path.join(root,"db"));
  else if(args.includes("HookDir"))console.log(path.join(root,"hooks"));
  process.exit(0);
 }
@@ -86,16 +88,6 @@ if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){
  for(const pkg of Array.isArray(target)?target:[target])console.log((fs.existsSync(path.join(root,"pending-name-changed"))?"another":pkg)+" "+(fs.existsSync(path.join(root,"pending-old-changed"))?"0":"1")+" -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);
 }
 if(name==="pacman"||name==="paru"||name==="yay"){
- if(args.includes("-T")){
-  const missing=args.slice(args.indexOf("--")+1).filter(entry=>(dependencies.missing||[]).includes(entry));
-  if(missing.length)console.log(missing.join("\n"));process.exit(missing.length?127:0);
- }
- if(args.includes("-Sddp")){
-  const entry=args.at(-1),row=named(dependencies.satisfiers,entry);
-  if(row?.error){process.stderr.write(row.error);process.exit(1);}
-  if(row!==undefined){process.stdout.write(row+"\n");process.exit(0);}
-  process.stderr.write("error: target not found: "+entry+"\n");process.exit(1);
- }
  if(args.includes("-Po")){
   if(dependencies.buildOrder){
    const order=named(dependencies.buildOrder,args.at(-1))||named(dependencies.buildOrder,"upgrade");
@@ -109,10 +101,9 @@ if(name==="pacman"||name==="paru"||name==="yay"){
    process.exit(0);
   }
   const row=named(dependencies.order,args.at(-1));
-  if(row===undefined){console.log("MISSING "+args.at(-1));process.exit(1);}
+  if(row===undefined){for(const target of args.slice(args.indexOf("--")+1))console.log("AUR TARGET "+target+" "+target);process.exit(0);}
   console.log(row);process.exit(0);
  }
- if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget "+(fs.existsSync(path.join(root,"candidate-changed"))?"3":"2")+"\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
  if(args.includes("-Si")){
   const pkg=args.at(-1);if(fs.existsSync(path.join(root,"info-failed"))||/[<>=]/.test(pkg))process.exit(1);
   console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":pkg));
@@ -125,21 +116,37 @@ if(name==="pacman"||name==="paru"||name==="yay"){
  if(args.includes("-Qtdq"))process.exit(1);
  if(args.includes("-Q")){console.log(args.includes("--")?args.at(-1)+" 1-1":"widget 1-1\nvgshell-git 1-1");process.exit(0);}
  if(args.includes("-Slq")||args.includes("-Slqa")){console.log("widget");process.exit(0);}
- if(args.includes("-G")){
-  if(fs.existsSync(path.join(root,"fetch-failed")))process.exit(8);
-  const names=args.slice(args.indexOf("--")+1);
-  for(const pkg of names){
-   const dir=path.join(process.cwd(),pkg);fs.mkdirSync(dir,{recursive:true});
-   const script=fs.existsSync(path.join(root,"install-risk"))||fs.existsSync(path.join(root,"install-link"));
-   fs.writeFileSync(path.join(dir,".SRCINFO"),`pkgbase = ${pkg}\n${script?"install = package.install\n":""}pkgname = other-split\npkgname = ${pkg}\n`);
-   if(script){
-    if(fs.existsSync(path.join(root,"install-link"))){fs.writeFileSync(path.join(root,"private-user-file"),"UNREAD_USER_BYTES");fs.symlinkSync(path.join(root,"private-user-file"),path.join(dir,"package.install"));}
-    else fs.writeFileSync(path.join(dir,"package.install"),"chmod u+s /opt/package\n");
+ if(name==="paru"&&!args.includes("--skipreview")){
+  const fmAt=args.indexOf("--fm");
+  if(fmAt>=0){
+   log("helper-start");
+   const {cloneRecipe,git}=require("./world.js"),protectedRoot=fs.realpathSync(path.join(root,"protected"));
+   const file=path.join(root,"hook-world.json"),scenario=fs.existsSync(file)?JSON.parse(fs.readFileSync(file)):{};
+   const targets=args.includes("-Sua")?(dependencies.pending||["foreign"]):args.slice(args.indexOf("--")+1);
+   const rows=scenario.packages||targets.map(base=>({base,names:[base],script:fs.existsSync(path.join(root,"install-risk"))?"chmod u+s /opt/package\n":null}));
+   const ignored=args.flatMap((word,index)=>word==="--ignore"?args[index+1].split(","):[]);
+   const view=fs.mkdtempSync(path.join(protectedRoot,"view-")),diffs=path.join(protectedRoot,"diffs");fs.mkdirSync(diffs,{recursive:true});
+   for(const row of rows){
+    if((row.names||[row.base]).every(pkg=>ignored.includes(pkg)))continue;
+    let clone=path.join(protectedRoot,"clones",row.base);
+    if(!fs.existsSync(clone))clone=cloneRecipe({protectedRoot},row.base,row);
+    const changed=path.join(root,"change-tree-on-repeat");
+    if(fs.existsSync(changed)&&fs.existsSync(path.join(root,"hook-called"))){
+     fs.appendFileSync(path.join(clone,"PKGBUILD"),"# new tree\n");git(clone,"add","--","PKGBUILD");git(clone,"commit","--quiet","-m","new tree");
+    }
+    fs.symlinkSync(clone,path.join(view,row.base));
+    for(const name of ["PKGBUILD","SRCINFO"])fs.symlinkSync(path.join(clone,name==="SRCINFO"?".SRCINFO":name),path.join(view,row.base+"."+name));
+    const diff=path.join(diffs,row.base+".diff");fs.writeFileSync(diff,row.diff||"SUPPLIED_PARU_DIFF "+row.base+"\n");
+    fs.symlinkSync(diff,path.join(view,row.base+".diff"));
    }
-   if(fs.existsSync(path.join(root,"srcinfo-link"))){fs.renameSync(path.join(dir,".SRCINFO"),path.join(dir,".SRCINFO.saved"));fs.symlinkSync(path.join(dir,".SRCINFO.saved"),path.join(dir,".SRCINFO"));}
-   fs.writeFileSync(path.join(dir,"PKGBUILD"),"pkgname="+pkg+"\n"+(fs.existsSync(path.join(root,"recipe-changed"))?"pkgrel=2\n":""));
+   fs.writeFileSync(path.join(root,"hook-called"),"");
+   const countFile=path.join(root,"hook-count");fs.writeFileSync(countFile,String(fs.existsSync(countFile)?Number(fs.readFileSync(countFile,"utf8"))+1:1));
+   const fm=cp.spawnSync(args[fmAt+1],[...(scenario.foreignLeading?["--foreign"]:[]),view],{stdio:"inherit",env:process.env});
+   log("file-manager",{view,status:fm.status});
+   fs.rmSync(view,{recursive:true,force:true});
+   if(fm.error)throw fm.error;
+   if(fm.status!==0){process.stderr.write("error: file manager did not execute successfully\n");process.exit(1);}
   }
-  process.exit(0);
  }
  log("mutation");
  if(dependencies.prompts&&name==="paru"){
@@ -158,12 +165,15 @@ if(name==="snapper"){
  if(args.includes("list-configs"))console.log("config,subvolume\nroot,/");else log("snapshot");process.exit(0);
 }
 if(name==="git"){
- if(JSON.stringify(args.slice(-4))===JSON.stringify(["ls-files","--cached","-z","--"])){
-  const r=cp.spawnSync("/usr/bin/git",args,{env:process.env,stdio:"inherit",timeout:30000});
-  if(r.error)throw r.error;process.exit(r.status===null?1:r.status);
+ if(args.includes("clone")){
+  const dest=path.resolve(process.cwd(),args.at(-1));
+  const {cloneRecipe}=require("./world.js");
+  const world={protectedRoot:fs.realpathSync(path.join(root,"protected"))};
+  const cloned=cloneRecipe(world,"paru");
+  fs.renameSync(cloned,dest);process.exit(0);
  }
- const dest=path.resolve(process.cwd(),args.at(-1));fs.mkdirSync(dest,{recursive:true});
- fs.writeFileSync(path.join(dest,".SRCINFO"),"pkgbase = paru\npkgname = paru\n");fs.writeFileSync(path.join(dest,"PKGBUILD"),"pkgname=paru\n");process.exit(0);
+ const r=cp.spawnSync("/usr/bin/git",args,{env:process.env,stdio:"inherit",timeout:30000});
+ if(r.error)throw r.error;process.exit(r.status===null?1:r.status);
 }
 if(name==="makepkg"){
  log("mutation",{cwd:process.cwd()});const status=build();if(status===0)fs.symlinkSync(fs.realpathSync(__filename),path.join(root,"tools/paru"));process.exit(status);
@@ -171,16 +181,29 @@ if(name==="makepkg"){
 if(name==="claude"||name==="codex"){
  const reviewDir=/The review directory is `([^`]+)`/.exec(args.at(-1))?.[1],listed=reviewDir&&path.join(reviewDir,"packages.txt");
  log("agent",{cwd:process.cwd(),reviewDir,packages:listed&&fs.existsSync(listed)?fs.readFileSync(listed,"utf8").split("\n").filter(Boolean):null});
+ if(reviewDir){
+  const snapshots=path.join(root,"agent-evidence");fs.mkdirSync(snapshots,{recursive:true});
+  fs.cpSync(reviewDir,path.join(snapshots,String(fs.readdirSync(snapshots).length)),{recursive:true,verbatimSymlinks:true});
+ }
+
  const refusal=require("./agent-argv.js").agentArgvRefusal(name,args,process.cwd());
  if(refusal!==null){process.stderr.write(refusal+"\n");process.exit(5);}
- if(fs.existsSync(path.join(root,"agent-failed-once"))&&name==="claude")process.exit(4);
+ if(fs.existsSync(path.join(root,"agent-failed-once"))&&name==="claude"){
+  if(fs.existsSync(path.join(root,"agent-mutates"))){
+   const base=fs.readdirSync(path.join(reviewDir,"build"))[0];
+   fs.appendFileSync(path.join(reviewDir,"build",base,"PKGBUILD"),"\nAGENT_MUTATION\n");
+   log("agent-edit",{base});
+  }
+  console.log("agent limit https://user:secret@example.org/ ghp_12345678901234567890");process.exit(4);
+ }
  if(fs.existsSync(path.join(root,"agent-failed")))process.exit(4);const prompt=args.at(-1),match=/The review directory is `([^`]+)`/.exec(prompt);
  if(!match)throw new Error("fixture missing review directory");
  console.log("Reading AUR build recipes as your user.");
  if(!fs.existsSync(path.join(root,"agent-no-verdict"))){
   const flagged=fs.existsSync(path.join(root,"agent-concern"));
   const first=fs.readFileSync(path.join(match[1],"packages.txt"),"utf8").split("\n").find(line=>line.startsWith("aur "))?.split(" ")[1];
-  fs.writeFileSync(path.join(match[1],"verdict"),dependencies.flag?"verdict flagged\nflag "+dependencies.flag+" Further verification required.\n":fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag "+first+" A source requires further verification.\n":"verdict clean\n",{mode:0o600});
+  const flaggedName=dependencies.flagOnRepeat&&Number(fs.readFileSync(path.join(root,"hook-count"),"utf8"))>1?first:dependencies.flag;
+  fs.writeFileSync(path.join(match[1],"verdict"),flaggedName?"verdict flagged\nflag "+flaggedName+" Further verification required.\n":fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag "+first+" A source requires further verification.\n":"verdict clean\n",{mode:0o600});
   if(fs.existsSync(path.join(root,"agent-unsafe")))fs.chmodSync(path.join(match[1],"verdict"),0o644);
   if(fs.existsSync(path.join(root,"agent-unreadable")))fs.chmodSync(path.join(match[1],"verdict"),0o000);
   console.log("The review is done. Exit the agent to see the summary and installation choices.");

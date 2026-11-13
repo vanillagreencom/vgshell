@@ -6,7 +6,6 @@
 //   paru|pacman -Qua         the fixture's pending update, old -> new
 //   pacman -Q -- NAME        not installed (exit 1) for a fixture with no old
 //                            version, else NAME OLD
-//   paru|pacman -G -- NAME   the fixture's build/ files, as <pkgbase>/
 //   claude|codex PROMPT      refuses a launch without its review's write
 //                            limit (agent-argv.js), else copies the review
 //                            directory the prompt names to RECIPE_OUT/evidence,
@@ -35,10 +34,6 @@ if ((name === "paru" || name === "pacman") && args.includes("-Qua")) {
 if (name === "pacman" && args.includes("-Q") && args.includes("--")) {
     if (meta.old === null) process.exit(1);
     process.stdout.write(`${meta.package} ${meta.old}\n`);
-    process.exit(0);
-}
-if ((name === "paru" || name === "pacman") && args.includes("-G")) {
-    fs.cpSync(path.join(fixture, "build"), path.join(process.cwd(), meta.pkgbase), { recursive: true });
     process.exit(0);
 }
 require("./command.js");
