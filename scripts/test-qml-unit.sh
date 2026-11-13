@@ -2102,7 +2102,7 @@ mutations=(
   "a level display ignores its padding token|feedback/LevelOsd.qml|x: Theme.osd.padding|x: 0|tst_levelosd.qml"
   "a level display ignores its card colour|feedback/LevelOsd.qml|standard: Theme.osd|standard: ({ background: Theme.color.surface, border: Theme.osd.border, radius: Theme.osd.radius })|tst_levelosd.qml"
   "the save bar draws with no edit|feedback/SaveBar.qml|opacity: shown ? 1 : 0|opacity: 1|tst_savebar.qml"
-  "a hidden save bar keeps its height|feedback/SaveBar.qml|implicitHeight: drawn ? Math.max(line.implicitHeight, actions.implicitHeight) : 0|implicitHeight: Math.max(line.implicitHeight, actions.implicitHeight)|tst_savebar.qml"
+  "an unused save bar keeps its height|feedback/SaveBar.qml|held.room ? Math.max(line.implicitHeight, actions.implicitHeight) : 0|true ? Math.max(line.implicitHeight, actions.implicitHeight) : 0|tst_savebar.qml"
   "the save bar's Save emits nothing|feedback/SaveBar.qml|onClicked: root.save()|onClicked: {}|tst_savebar.qml"
   "the save bar's Discard emits nothing|feedback/SaveBar.qml|onClicked: root.discard()|onClicked: {}|tst_savebar.qml"
   "a press on a save bar action takes the keyboard|feedback/SaveBar.qml|readonly property int actionFocus: Qt.TabFocus|readonly property int actionFocus: Qt.StrongFocus|tst_savebar.qml"

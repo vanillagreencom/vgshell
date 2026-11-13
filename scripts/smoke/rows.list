@@ -138,6 +138,7 @@ overlay-capture
 # After overlay-capture, which restores the harness hyprland.lua: the key
 # capture rows append their own binds and restore it again.
 key-capture
+key-capture-savebar
 key-passthrough
 # After overlay-capture, which restores the harness hyprland.lua this row
 # appends to; it restarts the shell for its control, so it runs with the

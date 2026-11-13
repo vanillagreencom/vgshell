@@ -9,9 +9,10 @@ import qs.Ui
 // accepted it calls `confirm()`, and the line then reads "Saved" in
 // `saveBar.saved` for `saveBar.duration` milliseconds, with no action
 // beside it; an edit that begins in that time shows the line and the
-// actions again at once. The bar shows while `dirty` or the Saved line
-// holds, fades on `motion.duration.normal`, and is no taller than zero
-// while hidden, so a `Pane` footer that holds it takes no room then. The
+// actions again at once. The confirmation fades on `motion.duration.normal`,
+// but keeps its footer space until the page leaves, so expiry cannot move
+// a control away from a pointer. `contextKey` identifies a section when the
+// same page instance is reused. A page never edited takes no footer room. The
 // caller sets the width. The actions take the keyboard by Tab and not by a
 // press, so a click on Save leaves the cursor in the field it saves; the
 // bar is one focus scope, so a caller reads `activeFocus` to move the
@@ -20,6 +21,7 @@ FocusScope {
     id: root
 
     property bool dirty: false
+    property string contextKey: ""
     // Whether the line reads Saved: from `confirm()` until an edit begins,
     // so it still reads Saved while the bar fades.
     readonly property alias saved: held.saved
@@ -31,25 +33,44 @@ FocusScope {
 
     function confirm() {
         if (dirty) return;
+        held.room = true;
         held.saved = true;
         dwell.restart();
     }
 
+    function release() {
+        dwell.running = false;
+        held.room = false;
+    }
+
+    onContextKeyChanged: release()
+    // Item visibility follows hidden ancestors, so leaving a page releases its room.
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop
+    onVisibleChanged: {
+        if (!visible) release();
+        else if (dirty) held.room = true;
+    }
+
     onDirtyChanged: {
         if (!dirty) return;
+        held.room = true;
         held.saved = false;
         dwell.stop();
     }
 
     implicitWidth: line.implicitWidth + Theme.saveBar.gap + actions.implicitWidth
-    implicitHeight: drawn ? Math.max(line.implicitHeight, actions.implicitHeight) : 0
-    visible: drawn
+    implicitHeight: dirty || held.room ? Math.max(line.implicitHeight, actions.implicitHeight) : 0
+    visible: dirty || held.room
+    // Opacity alone does not stop input or release active focus.
+    // https://doc.qt.io/qt-6/qml-qtquick-item.html#opacity-prop
+    enabled: drawn
     opacity: shown ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: Theme.motion.duration.normal; easing.type: Theme.motion.easing.standard } }
 
     QtObject {
         id: held
         property bool saved: false
+        property bool room: false
         // How each action takes the keyboard.
         readonly property int actionFocus: Qt.TabFocus
     }

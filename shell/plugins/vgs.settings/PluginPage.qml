@@ -1239,6 +1239,7 @@ FocusScope {
             SaveBar {
                 id: saveBar
                 width: parent.width
+                contextKey: page.row === null ? "" : page.row.id + "/" + page.tab
                 dirty: page.dirty
                 onSave: page.save()
                 onDiscard: page.discard()

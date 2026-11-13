@@ -4,12 +4,12 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// SaveBar: no taller than zero and not drawn while the page holds no edit;
+// SaveBar: no taller than zero and not drawn before the page's first edit;
 // with one, the line "Unsaved changes" at the left and Discard and Save at
 // the right, `saveBar.gap`, 8, apart, a md control, 32, tall; a press on
 // each emits its signal and takes the keyboard from no field, while Tab
 // reaches both; `confirm()` reads "Saved" in `saveBar.saved` with no action
-// for `saveBar.duration`, then the bar leaves; an edit in that time shows
+// for `saveBar.duration`, then the confirmation fades; an edit in that time shows
 // the actions again; and `confirm()` under an edit changes nothing.
 // Expected values are worked by hand from the defaults in Tokens.js, never
 // read from Theme. The tests still the motion and shorten the wait through
@@ -35,6 +35,7 @@ Item {
             compare(UnitTheme.override({ motion: { scale: 0 }, saveBar: { duration: dwell } }), "ok");
             bar.dirty = true;
             bar.dirty = false;
+            bar.release();
             tryCompare(bar, "drawn", false);
             saves.clear();
             discards.clear();
@@ -102,7 +103,7 @@ Item {
         }
 
         // palette.success, #b4c96f.
-        function test_confirm_reads_saved_then_the_bar_leaves() {
+        function test_confirm_reads_saved_then_the_confirmation_fades() {
             bar.dirty = true;
             tryCompare(bar, "drawn", true);
             bar.dirty = false;
@@ -115,7 +116,6 @@ Item {
             wait(dwell / 2);
             verify(bar.drawn, "the line holds for the token's wait");
             tryCompare(bar, "drawn", false, 4 * dwell);
-            compare(bar.height, 0);
             compare(line().text, "Saved");
         }
 

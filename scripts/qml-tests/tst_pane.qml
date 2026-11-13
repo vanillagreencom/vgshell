@@ -475,12 +475,13 @@ Item {
             scroll(holder).contentY = 100;
             compare(bar.mapToItem(holder, 0, bar.height).y, bottom);
             section.dirty = false;
-            tryCompare(holder, "footerHeight", 0);
-            compare(holder.footerGap, 0);
+            tryCompare(bar, "drawn", false);
             section.destroy();
             tryCompare(holder, "section", null);
             tryCompare(holder, "rememberedFooter", null);
             compare(footerColumn(holder).children.length, 0);
+            tryCompare(holder, "footerHeight", 0);
+            compare(holder.footerGap, 0);
         }
 
         function test_displays_returns_the_keyboard_when_its_footer_hides() {
@@ -499,7 +500,7 @@ Item {
             section.outputDraft = ({});
             tryCompare(section.initialFocus, "activeFocus", true);
             verify(!bar.activeFocus);
-            tryCompare(holder, "footerHeight", 0);
+            tryCompare(bar, "drawn", false);
         }
 
         function test_header_body_and_footer_share_the_content_edge() {

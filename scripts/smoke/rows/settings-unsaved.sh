@@ -69,7 +69,7 @@ us_value() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.ar
 us_writes() { ipc smoke configChanges; }
 # us_bar: the save bar's state: `unsaved` while the page holds an edit,
 # `saved` while it draws its Saved line, `hidden` once it draws nothing.
-us_bar() { ipc smoke itemValues window vgs.settings SaveBar dirty,saved,drawn,height | py_reply 'import json,sys; b=json.load(sys.stdin)[0]; print("hidden" if not b["drawn"] and b["height"] == 0 else "undrawn" if not b["drawn"] or b["height"] == 0 else "unsaved" if b["dirty"] else "saved" if b["saved"] else "fading")'; }
+us_bar() { ipc smoke itemValues window vgs.settings SaveBar dirty,saved,drawn,height | py_reply 'import json,sys; b=json.load(sys.stdin)[0]; print("hidden" if not b["drawn"] else "undrawn" if b["height"] == 0 else "unsaved" if b["dirty"] else "saved" if b["saved"] else "fading")'; }
 # us_bar_read: whether the bar's line last read Saved, which holds from the
 # accepted save until the next edit, so no reading races the line's wait.
 us_bar_read() { ipc smoke readDescendant window vgs.settings SaveBar saved; }

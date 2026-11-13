@@ -16,6 +16,76 @@ import "Commons/ThemeLogic.js" as ThemeLogic
 // owns test setup, so tests add no callable methods to the shipped shell.
 Scope {
     id: root
+    property Item savedFooterBar: null
+    property QtObject savedFooterTimer: null
+    property bool savedFooterRepeat: false
+
+    function endSavedFooter() {
+        if (savedFooterTimer !== null) {
+            savedFooterTimer.stop();
+            savedFooterTimer.repeat = savedFooterRepeat;
+        }
+        savedFooterTimer = null;
+        savedFooterBar = null;
+    }
+
+    function savedFooterFrame(bar) {
+        for (let at = bar.parent; at !== null; at = at.parent)
+            if (at.footerHeight !== undefined && at.scrollArea !== undefined) return at;
+        return null;
+    }
+
+    // Hold the real confirmation clock until the row samples its pointer target.
+    // A non-repeating Timer expires by setting running false; repeat keeps it
+    // running until the explicit stop forces that same transition and fade.
+    // https://doc.qt.io/qt-6/qml-qtqml-timer.html#running-prop
+    function savedFooter(hostKey, id, operation) {
+        if (operation === "release") {
+            endSavedFooter();
+            return "ok";
+        }
+        const item = root.instance(hostKey, id);
+        if (item === null) return "absent";
+        if (operation === "hold") {
+            endSavedFooter();
+            const bars = root.descendants(item).filter(child => root.typeName(child) === "SaveBar");
+            if (bars.length !== 1) return "bars=" + bars.length;
+            const bar = bars[0];
+            if (bar.dirty) return "dirty";
+            const timers = Array.from(bar.data).filter(child => child instanceof Timer);
+            if (timers.length !== 1) return "timers=" + timers.length;
+            savedFooterBar = bar;
+            savedFooterTimer = timers[0];
+            savedFooterRepeat = savedFooterTimer.repeat;
+            savedFooterTimer.repeat = true;
+            bar.confirm();
+            return "holding";
+        }
+        const bar = savedFooterBar;
+        const timer = savedFooterTimer;
+        if (bar === null || timer === null || root.descendants(item).indexOf(bar) === -1) return "absent";
+        if (operation === "expire") {
+            timer.stop();
+            timer.repeat = savedFooterRepeat;
+            return "ok";
+        }
+        const frame = savedFooterFrame(bar);
+        if (frame === null) return "no-frame";
+        const phase = !timer.running && !bar.drawn ? "expired"
+            : timer.running && bar.shown && bar.drawn && bar.opacity === 1 && bar.height > 0 && frame.footerHeight >= bar.height ? "held"
+            : "transition";
+        if (operation === "phase") return phase;
+        if (operation === "read") {
+            const slot = root.descendants(item).find(child => child.label === "Unbind" && child.button !== undefined);
+            return root.json({ phase: phase, drawn: bar.drawn, shown: bar.shown, barHeight: bar.height,
+                footerHeight: frame.footerHeight, footerGap: frame.footerGap,
+                viewport: root.windowBox(frame.scrollArea), contentY: frame.scrollArea.contentY,
+                contentHeight: frame.scrollArea.contentHeight,
+                button: slot === undefined || slot.button === null ? null : root.windowBox(slot.button) });
+        }
+        return "unknown-operation";
+    }
+
     property var rememberedBarWidgets: []
     property Item barEmptyBar: null
     property QtObject barEmptyHandler: null
@@ -1599,6 +1669,7 @@ Scope {
 
     IpcHandler {
         target: "smoke"
+        function savedFooter(hostKey: string, id: string, operation: string): string { return root.savedFooter(hostKey, id, operation); }
         function captureStageProbe(enabled: bool): string { return root.captureStageProbe(enabled); }
         function captureStageReady(): string { return root.captureStageRefresh(); }
         function displayEventArm(label: string): string { return root.armDisplayEvents(label); }

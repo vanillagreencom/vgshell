@@ -25,8 +25,9 @@
 # and the plate returns to the shown section once the pointer leaves the
 # list.
 # A mounted section's SaveBar belongs to the holder's footer, stays at the
-# bottom while the body scrolls, takes no room when hidden, and receives
-# Discard and Save through Tab. A copy that exports no footer draws no bar.
+# bottom while the body scrolls, and receives Discard and Save through Tab.
+# An unused section takes no footer room; the bar retains its room after
+# an action's fade. A copy that exports no footer draws no bar.
 #
 # Controls: a copy of the window that keeps the list it read when it opened
 # lists a section disabled while it is open and is titled with its own name,
@@ -259,12 +260,12 @@ type_keys -k Tab || fail "typing Tab to the footer's Save failed"
 expect_poll "the next Tab reaches Save in the footer" Save sys_focus
 type_keys -k Return || fail "typing Return on Save failed"
 expect_poll "Save in the footer reaches the mounted section's handler" 1 ipc smoke readInstance window acme.pane saves
-expect_poll "saving hides the footer and releases its room" True sys_footer_hidden
+expect_poll "saving hides the footer" false ipc smoke readDescendant window vgs.system SaveBar drawn
 expect "the fixture stages a second pending change" ok ipc smoke invokeInstance window acme.pane stageChange ''
 expect_poll "the second pending footer is visible before keyboard input" True sys_footer_shown
 type_keys -k Tab -k Return || fail "typing Tab and Return on Discard failed"
 expect_poll "Discard in the footer reaches the mounted section's handler" 1 ipc smoke readInstance window acme.pane discards
-expect_poll "discarding hides the footer and releases its room" True sys_footer_hidden
+expect_poll "discarding hides the footer" false ipc smoke readDescendant window vgs.system SaveBar drawn
 # Pane Net's body overflows. Its footer must keep the same bottom before
 # and after the shared ScrollArea moves that body.
 expect "the window opens the tall section for its footer" ok ipc smoke invokeInstance window vgs.system enterPane acme.pane-net
