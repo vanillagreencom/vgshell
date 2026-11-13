@@ -127,7 +127,9 @@
 #                        step's terminal, which asks for them even while servers
 #                        it set are in effect, and no DNSOverTLS line. Undo of any
 #                        DNS step is the network default: it puts back each
-#                        profile's recorded fields and removes the drop-in
+#                        profile's recorded fields, removes the drop-in and runs
+#                        the same reloads with `systemctl restart
+#                        systemd-resolved.service` in place of resolved's reload
 #
 # Each step's state is one of:
 #
@@ -1993,7 +1995,19 @@ undo_service() { # STEP
 # nm-device.c, check_and_reapply_connection); the profiles already
 # hold the choice, and the device takes it when it next connects, so a
 # refused reapply warns and the step goes on.
-dns_reload() {
+#
+# RESOLVED is reload for apply and restart for undo. resolved falls back
+# to its built-in servers only while no file it read set FallbackDNS=:
+# the first such line clears need_builtin_fallbacks, which only
+# manager_new sets, and the SIGHUP reload handler's manager_set_defaults
+# leaves it cleared (systemd 262.1 src/resolve/resolved-conf.c
+# config_parse_dns_servers and resolved-manager.c
+# manager_dispatch_reload_signal; unchanged on systemd main on
+# 2026-11-13, and no upstream fix or report found). A reload after undo
+# removed the drop-in therefore leaves the fallback list empty, and only a
+# restart starts resolved from its own configuration again. Undo can
+# reload once that handler resets need_builtin_fallbacks.
+dns_reload() { # RESOLVED
   local nmcli systemctl device line
   program nmcli nmcli
   program systemctl systemctl
@@ -2005,15 +2019,16 @@ dns_reload() {
       *) refuse 1 "internal=mode value=$mode" ;;
     esac
   done
-  case "$mode" in
-    show)
+  case "$1:$mode" in
+    restart:*) cmd "$systemctl" restart systemd-resolved.service ;;
+    reload:show)
       cmd "$systemctl" reload systemd-resolved.service
       line="On failure: sudo$(printf ' %q' "$systemctl" restart systemd-resolved.service)"
       shown+="$line"$'\n'
       shown_commands+=("$line")
       ;;
-    run) sudo -- "$systemctl" reload systemd-resolved.service </dev/null || cmd "$systemctl" restart systemd-resolved.service ;;
-    *) refuse 1 "internal=mode value=$mode" ;;
+    reload:run) sudo -- "$systemctl" reload systemd-resolved.service </dev/null || cmd "$systemctl" restart systemd-resolved.service ;;
+    *) refuse 1 "internal=dns-reload value=$1:$mode" ;;
   esac
   cmd "$nmcli" general reload dns-full
 }
@@ -2140,7 +2155,7 @@ apply_dns() { # STEP
     cmd "$nmcli" connection modify uuid "$uuid" "${args[@]}"
   done
   [[ -z $pending ]] || record_put dns "$text"
-  dns_reload
+  dns_reload reload
   dns_read_done=""
 }
 
@@ -2165,7 +2180,7 @@ undo_dns() {
     dns_fields "$uuid" "$ignore4" "$(dns_unlisted "$ipv4")" "$ignore6" "$(dns_unlisted "$ipv6")"
     ((${#args[@]} == 0)) || cmd "$nmcli" connection modify uuid "$uuid" "${args[@]}"
   done
-  dns_reload
+  dns_reload restart
   record_drop dns
   dns_read_done=""
 }

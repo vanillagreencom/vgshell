@@ -2084,6 +2084,14 @@ dns_set() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [p.upda
 dns_join() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p=dict(d["profiles"][1]); p.update({"connection.uuid": sys.argv[2], "connection.id": "Joined later", "ipv4.ignore-auto-dns": "no", "ipv4.dns": "", "ipv6.ignore-auto-dns": "no", "ipv6.dns": ""}); d["profiles"].append(p); json.dump(d, open(sys.argv[1], "w"))' "$tmp/nm.json" "$1"; } # UUID
 dns_reloads() { grep -E -- "^-- ($(p nmcli) (general|device) |$(p systemctl) (reload|restart) systemd-resolved)" "$tmp/sudo.log"; }
 dns_reload_order="$(printf '%s\n' "-- $(p nmcli) general reload conf" "-- $(p nmcli) device reapply enp10s0" "-- $(p nmcli) device reapply wlan0" "-- $(p systemctl) reload systemd-resolved.service" "-- $(p nmcli) general reload dns-full")"
+# Undo restarts resolved, which alone brings back its built-in fallback
+# servers once the drop-in is gone (dns_reload in bin/vgshell-system), and
+# the plan it shows names that restart and nothing else for resolved.
+dns_undo_order="${dns_reload_order/ reload systemd-resolved/ restart systemd-resolved}"
+dns_undo_restarts() {
+  test "$(dns_reloads)" == "$dns_undo_order" &&
+    test "$(shown_commands | grep -F -- systemd-resolved)" == "sudo $(p systemctl) restart systemd-resolved.service"
+}
 dns_states() { printf '%s|%s|%s' "$(step_state dns-cloudflare)" "$(step_state dns-google)" "$(step_state dns-custom)"; }
 # A full-tunnel VPN keeps the default DNS route, the half of it the steps
 # hold: resolved has no global server, which systemd-resolved.service(8)
@@ -2170,7 +2178,7 @@ check "the IPv6-disabled profile gets back its IPv4 fields" test "$(dns_profile 
 check "the VRF port profile gets back no servers" test "$(dns_profile "$dns_vrf")" == "no - no -"
 check "undo removes the drop-in, the directory it made and the record" test ! -e "$dns_dropin" -a ! -e "${dns_dropin%/*}" -a ! -e "$records/dns"
 check "undo leaves every other profile and setting" cmp -s -- "$tmp/dns-others-before" <(dns_others)
-check "undo reloads in Omarchy's order" test "$(dns_reloads)" == "$dns_reload_order"
+check "undo shows and runs Omarchy's order with resolved restarted" dns_undo_restarts
 check "the owner's servers read foreign again" test "$(dns_states)" == "needed foreign|needed foreign|needed foreign"
 run "undo with no DNS record changes nothing" 0 "" undo dns-google
 check "an untouched DNS undo says so" out_is "ok system=dns-google state=untouched"
@@ -2227,7 +2235,7 @@ rm -f -- "${tmp:?}/sudo.log"
 run_tty "undo goes on past a refused reapply" 0 undo dns-cloudflare
 check "undo past a refused reapply gives the Wi-Fi profile back no servers" test "$(dns_profile "$dns_wifi")" == "no - no -"
 check "undo past a refused reapply removes the record" test ! -e "$records/dns"
-check "undo past a refused reapply runs every reload in Omarchy's order" test "$(dns_reloads)" == "$dns_reload_order"
+check "undo past a refused reapply runs every reload in Omarchy's order" test "$(dns_reloads)" == "$dns_undo_order"
 
 # dns-custom reads its servers on its own terminal and admits IPv4 and IPv6
 # literals alone, split and printed as Omarchy and NetworkManager do.
@@ -2617,6 +2625,12 @@ run_tty "the dns-reapply-fatal mutant applies" 0 apply dns-cloudflare
 printf 'wlan0\n' >"$tmp/nm-reapply-refused"
 run_tty "the dns-reapply-fatal mutant's undo stops at the reapply" 1 undo dns-cloudflare
 check "the dns-reapply-fatal mutant fails the record-dropped check" test "$(green_red test ! -e "$records/dns")" == red
+control dns-undo-reload '  dns_reload restart' '  dns_reload reload'
+dns_fixture
+run_tty "the dns-undo-reload mutant applies" 0 apply dns-cloudflare
+rm -f -- "${tmp:?}/sudo.log"
+run_tty "the dns-undo-reload mutant undoes" 0 undo dns-cloudflare
+check "the dns-undo-reload mutant fails the resolved restart check" test "$(green_red dns_undo_restarts)" == red
 control dns-port-open '    [[ -z ${BASH_REMATCH[4]} || ${BASH_REMATCH[4]} == vrf ]] || continue' '    :'
 dns_fixture
 check "the dns-port-open mutant fails the foreign reading" test "$(green_red test "$(dns_states)" == "needed foreign|needed foreign|needed foreign")" == red
