@@ -148,9 +148,10 @@ read -ra argv <<<"$exits"
 run old control-old "$tmp/functions.sh" - "${argv[@]}"
 check "control: the pre-fix wait hangs on a recorder that exits before ready" control-old 124 ""
 
-# A harness that keeps its own write end never reads end of file.
-mutate "$harness" 'exec {ready_w}>&-' ':' "$tmp/harness-holds-writer.sh"
-extract "$tmp/harness-holds-writer.sh" "$tmp/functions-holds-writer.sh"
+# A harness that keeps its own write end never reads end of file. The
+# extracted functions hold the arm's one close; the whole harness can hold
+# the same line elsewhere.
+mutate "$tmp/functions.sh" 'exec {ready_w}>&-' ':' "$tmp/functions-holds-writer.sh"
 run arm control-writer "$tmp/functions-holds-writer.sh" - "${argv[@]}"
 check "control: a harness that keeps the write end hangs" control-writer 124 ""
 
