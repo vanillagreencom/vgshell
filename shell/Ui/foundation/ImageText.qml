@@ -11,14 +11,20 @@ import "ImageTextLogic.js" as Logic
 // `font`, the font's own line height rounded down, aligned to the line's
 // middle, so a line with an image keeps the pitch of one without.
 //
-// Text with no image draws as a plain Text with Qt's own right elision.
-// Text with images elides itself: Qt's multi-line elision draws an image
-// from an earlier line over the elided line's text. The cut keeps the longest run of
-// whole words and whole images that fits `maximumLineCount` lines with one
-// ellipsis after it, measured on a hidden copy of the text, so an image is
-// never split. That text wraps at word boundaries, and breaks a word only
-// when the word alone is wider than a line, so it stays inside its width,
-// as the plain text's does; an image, narrower than a line, never breaks.
+// The text elides itself, with or without images. Qt's multi-line elision
+// draws an image from an earlier line over the elided line's text, and
+// Qt 6.12.0's Text.ElideRight (qtextengine.cpp: QTextEngine::elidedText)
+// keeps the last line through its final character, then appends the
+// ellipsis, so a line kept to its full stop, or to the space after it,
+// ends in four dots or a spaced ellipsis. Text with no image goes back to
+// Text.ElideRight once Qt drops trailing white space and full stops
+// before its ellipsis, or offers an elide mode that does. The cut
+// keeps the longest run of whole words and whole images that fits
+// `maximumLineCount` lines with one ellipsis after it, measured on a
+// hidden copy of the text, so an image is never split. That text wraps at
+// word boundaries, and breaks a word only when the word alone is wider
+// than a line, so it stays inside its width, and the cut may keep the
+// start of such a word; an image, narrower than a line, never breaks.
 //
 // Every image loads through ImagePool, which puts an asynchronous load in
 // Qt's pixmap cache before the text names the image, so no image decodes
@@ -46,7 +52,7 @@ Item {
     property color underlineColor: color
     property bool hovered: false
     // Whether the text drawn is cut short, and the lines it draws.
-    readonly property bool truncated: imageMode ? cutShort : drawn.truncated
+    readonly property bool truncated: cutShort
     readonly property int lineCount: drawn.lineCount
     // The side of an image in pixels, and in device pixels.
     readonly property int imageSize: Math.floor(metrics.height)
@@ -59,7 +65,7 @@ Item {
 
     // url -> the pool's image, for every image the text names; the URLs
     // among them that failed, drawn as their alt text; whether the text
-    // holds an image and elides itself, and whether it was cut.
+    // holds an image, and whether it was cut.
     property var held: ({})
     property var failed: []
     property bool imageMode: false
@@ -76,7 +82,7 @@ Item {
 
     onSegmentsChanged: rebuild()
     onFontChanged: rebuild()
-    onWidthChanged: if (imageMode) rebuild()
+    onWidthChanged: rebuild()
     onMaximumLineCountChanged: rebuild()
     onDeviceSizeChanged: rebuild()
     Component.onCompleted: {
@@ -119,19 +125,16 @@ Item {
         }
         const failing = Object.keys(next).filter(url => next[url].status === Image.Error);
         const tokens = Logic.tokens(segments, imageSize, failing.concat(Logic.imageUrls(segments).filter(url => next[url] === undefined)));
+        // QML sets no order between this item's change handlers and the
+        // measurer's bindings to the same property, and a run read the
+        // cut against a line limit the binding had not yet raised, so the
+        // measurer takes its inputs here.
+        measurer.width = width;
+        measurer.maximumLineCount = maximumLineCount;
+        measurer.font = font;
         const drewImages = imageMode;
         imageMode = Logic.hasImage(tokens);
-        if (imageMode) {
-            drawn.wrapMode = Text.Wrap;
-            drawn.elide = Text.ElideNone;
-            const result = width > 0 ? Logic.elide(tokens, markup => {
-                measurer.text = markup;
-                return !measurer.truncated;
-            }) : { markup: Logic.join(tokens, tokens.length), cut: false };
-            measurer.text = result.markup;
-            drawn.text = result.markup;
-            cutShort = result.cut;
-        } else {
+        if (drewImages && !imageMode) {
             // Qt 6.12.0 (qquicktext.cpp: QQuickText::setText and
             // QQuickTextPrivate::setupTextLayout) frees a Text's inline
             // images when its text changes, but drops them from its list
@@ -140,15 +143,20 @@ Item {
             // still loading, such as the failure that runs this rebuild,
             // or a device-pixel-ratio change then reads the freed images.
             // So a Text that held images first takes a space, which draws
-            // nothing; the measurer is hidden and unread here, and the
-            // drawn text's elision is still image mode's none.
+            // nothing.
             measurer.text = " ";
-            if (drewImages) drawn.text = " ";
-            drawn.wrapMode = Text.WordWrap;
-            drawn.elide = Text.ElideRight;
-            drawn.text = Logic.join(tokens, tokens.length);
-            cutShort = false;
+            drawn.text = " ";
         }
+        // A word wider than a line breaks inside itself, so its cut may end
+        // there too; its width is read in the text's font, an entity as one
+        // character.
+        const result = width > 0 ? Logic.elide(tokens, markup => {
+            measurer.text = markup;
+            return !measurer.truncated;
+        }, word => metrics.advanceWidth(word.replace(/&[#a-zA-Z0-9]+;/g, "&")) > width) : { markup: Logic.join(tokens, tokens.length), cut: false };
+        measurer.text = result.markup;
+        drawn.text = result.markup;
+        cutShort = result.cut;
         for (const url of Object.keys(held)) {
             if (next[url] === held[url]) continue;
             held[url].statusChanged.disconnect(root.imageStatusChanged);
@@ -192,11 +200,8 @@ Item {
     Text {
         id: measurer
         visible: false
-        width: root.width
         textFormat: Text.StyledText
-        font: root.font
         wrapMode: Text.Wrap
-        maximumLineCount: root.maximumLineCount
         elide: Text.ElideNone
     }
 
@@ -205,6 +210,7 @@ Item {
         width: root.width
         textFormat: Text.StyledText
         font: root.font
+        wrapMode: Text.Wrap
         // Match the native Text used to decide elision, including its
         // natural line height, rather than Label's role-based leading.
         lineHeight: measurer.lineHeight

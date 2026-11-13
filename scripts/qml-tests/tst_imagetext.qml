@@ -5,9 +5,9 @@ import qs.Ui
 
 // ImageText: an image segment draws as an image at full strength whatever
 // the text's colour, and a line holding one keeps the pitch of a line
-// without; text with no image draws through Qt's own right elision; text
-// with images cut short ends at a whole word or image with one ellipsis,
-// draws no image past the cut and none on a line it does not sit on; an
+// without; text cut short ends at a whole word or image with one
+// ellipsis and no full stop before it, draws no image past the cut and
+// none on a line it does not sit on, and text that fits is whole; an
 // image that fails draws its alt text; and ImagePool shares one image per
 // URL and size between holders, keeps it for the next holder after the
 // last lets it go, up to its ceiling of idle images, and keeps no image
@@ -232,11 +232,35 @@ Item {
             compare(imaged.implicitHeight, plain.implicitHeight);
         }
 
-        function test_text_without_images_uses_qt_elision() {
-            const item = make([{ markup: words(80) }], 2);
-            compare(drawn(item).elide, Text.ElideRight);
-            compare(drawn(item).text, words(80));
+        // The drawn text is the result: a cut line ends in one ellipsis
+        // whatever its kept text ends in, and text that fits keeps every
+        // character. The owner's samples: a line kept to its full stop
+        // and one kept to a file name.
+        function test_a_cut_line_ends_in_one_ellipsis_data() {
+            return [
+                { tag: "full stop", markup: "First line.<br/>needs 4.5:1.<br/>" + words(40), lines: 2, drawn: "First line.<br/>needs 4.5:1\u2026", cut: true },
+                { tag: "file name", markup: "Recording 2026-11-12 14-03-22.mp4<br/>" + words(40), lines: 1, drawn: "Recording 2026-11-12 14-03-22.mp4\u2026", cut: true },
+                { tag: "fits", markup: "First line.<br/>needs 4.5:1.", lines: 2, drawn: "First line.<br/>needs 4.5:1.", cut: false }
+            ];
+        }
+
+        function test_a_cut_line_ends_in_one_ellipsis(data) {
+            const item = make([{ markup: data.markup }], data.lines);
+            compare(drawn(item).text, data.drawn);
+            compare(item.truncated, data.cut);
+            verify(!drawn(item).truncated, "no drawn line falls past the limit");
+            compare(item.lineCount, data.lines);
+        }
+
+        // A word wider than the body, such as a long link, is cut inside
+        // itself rather than dropped: its start fills the lines left.
+        function test_a_cut_keeps_the_start_of_a_word_wider_than_the_body() {
+            const long = "x".repeat(200);
+            const item = make([{ markup: "Link: " + long }], 2);
+            const text = drawn(item).text;
+            verify(text.startsWith("Link: x") && text.endsWith("x\u2026"), "the cut keeps the word's start: " + text);
             verify(item.truncated);
+            verify(!drawn(item).truncated, "no drawn line falls past the limit");
             compare(item.lineCount, 2);
         }
 

@@ -88,28 +88,48 @@ function join(list, count) {
     return out;
 }
 
-// The prefix lengths a cut may keep: each ends on a word or an image, so
-// no cut ends on white space, a line break or an opening tag.
-function cuts(list) {
+// Full stops and ellipses that end a cut's kept text: beside the cut's
+// ellipsis they read as more dots, so the cut drops them.
+var TRAILING_DOTS = /[.\u2026]+$/;
+
+// The prefixes a cut may keep, shortest first: { count, chars }, the
+// first `count` tokens, the last of them kept to its first `chars`
+// characters or whole when `chars` is -1. Each ends on a word or an
+// image, so no cut ends on white space, a line break or an opening tag,
+// nor on a word of dots alone, which the cut would drop to a space. A word
+// `wide(markup)` finds wider than a line may also end inside itself, as
+// the text breaks it, between characters and never inside an entity.
+var CHARACTER = /&[#a-zA-Z0-9]+;|[\ud800-\udbff][\udc00-\udfff]|[\s\S]/g;
+
+function cuts(list, wide) {
     var out = [];
-    for (var i = 0; i < list.length; i++)
-        if (list[i].kind === "word" || list[i].kind === "image") out.push(i + 1);
+    for (var i = 0; i < list.length; i++) {
+        var token = list[i];
+        if (token.kind === "word" && wide(token.markup)) {
+            CHARACTER.lastIndex = 0;
+            while (CHARACTER.exec(token.markup) !== null && CHARACTER.lastIndex < token.markup.length)
+                out.push({ count: i + 1, chars: CHARACTER.lastIndex });
+        }
+        if (token.kind === "word" ? token.markup.replace(TRAILING_DOTS, "") !== "" : token.kind === "image") out.push({ count: i + 1, chars: -1 });
+    }
     return out;
 }
 
-function cut(list, count) {
-    return join(list, count) + ELLIPSIS;
+function cut(list, at) {
+    var kept = join(list, at.count);
+    if (at.chars !== -1) kept = kept.slice(0, kept.length - list[at.count - 1].markup.length + at.chars);
+    return kept.replace(TRAILING_DOTS, "") + ELLIPSIS;
 }
 
-// The longest cut `fits` accepts, found by bisection over cuts(list), or
-// the whole text when it fits as it is: { markup, cut } with `cut` false
-// for the whole text. `fits(markup)` answers whether the markup draws
-// within the lines allowed; a longer prefix never fits where a shorter one
-// did not.
-function elide(list, fits) {
+// The longest cut `fits` accepts, found by bisection over cuts(list,
+// wide), or the whole text when it fits as it is: { markup, cut } with
+// `cut` false for the whole text. `fits(markup)` answers whether the
+// markup draws within the lines allowed; a longer prefix never fits where
+// a shorter one did not.
+function elide(list, fits, wide) {
     var whole = join(list, list.length);
     if (fits(whole)) return { markup: whole, cut: false };
-    var at = cuts(list);
+    var at = cuts(list, wide);
     var low = 0;
     var high = at.length - 1;
     var best = -1;
