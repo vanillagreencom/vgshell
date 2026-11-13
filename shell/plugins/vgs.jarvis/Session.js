@@ -39,7 +39,7 @@ var EVENTS = [
 
 function initial() {
     return {
-        gen: 0, nextOp: 1, stale: 0, settings: {},
+        gen: 0, nextOp: 1, stale: 0, settings: {}, forwarding: 0,
         gate: { kind: "down", reason: "starting" },
         voiceMute: { kind: "off" }, capture: { kind: "closed" },
         turn: { kind: "none" }, brain: { kind: "closed" }, playback: { kind: "idle" },
@@ -726,6 +726,8 @@ function reduce(state, e) {
         s.voiceMute = { kind: "on" };
         break;
     case "stop":
+        // Stop keeps Talk live, but ends its forwarding grant (D134).
+        s.forwarding++;
         if (previewConversation(s)) {
             end(s, effects, e.at, "preview", true);
             break;
@@ -1125,9 +1127,9 @@ function exact(value, names) {
 }
 
 function validate(s) {
-    if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt", "checkSource"]))) return false;
+    if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "forwarding", "settings", "toggleAt", "checkSource"]))) return false;
     if (s.checkSource !== null && typeof s.checkSource !== "string") return false;
-    for (var name of ["gen", "nextOp", "stale"])
+    for (var name of ["gen", "nextOp", "stale", "forwarding"])
         if (!Number.isSafeInteger(s[name]) || s[name] < (name === "nextOp" ? 1 : 0)) return false;
     if (s.settings === null || typeof s.settings !== "object" || Array.isArray(s.settings)) return false;
     if (s.toggleAt !== null && (!Number.isFinite(s.toggleAt) || s.toggleAt < 0)) return false;

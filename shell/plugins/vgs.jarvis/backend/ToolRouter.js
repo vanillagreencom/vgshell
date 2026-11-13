@@ -55,11 +55,12 @@ function sentence(call, scope) {
  * final is false only for a timeout whose actual completion is still to come.
  * A generation change clears grants. Each new turn starts with clean taint.
  */
-function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null }) {
+function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null, forwarding = () => null }) {
     const registry = new Map();
     let pending = null;
     let grants = new Set();
     let generation = null;
+    let forwardGrant = null;
     let turnOp = null;
     let taint = { kind: "clean" };
     let originLabels = new Set(["home"]);
@@ -71,9 +72,11 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
     function sync(s) {
         if (generation !== s.gen || s.conversation.kind === "ended") {
             grants = new Set();
+            forwardGrant = null;
             generation = s.gen;
             conversationLabels = new Set(["home"]);
         }
+        if (forwardGrant !== null && forwardGrant.binding !== forwarding()) forwardGrant = null;
         if (s.turn.kind === "thinking" && turnOp !== s.turn.op) {
             turnOp = s.turn.op;
             spent.clear();
@@ -154,9 +157,15 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
 
     function decide(value, input) {
         const facts = context();
+        if (value.call.id === "fleet.forward") {
+            if (value.forwarding === undefined) value.forwarding = forwarding();
+            if (value.forwarding === null) return { kind: "refuse", reason: "forward-session-unavailable" };
+        }
         return Policy.decide(value.call, { profile: facts.profile, locked: facts.locked,
             // A getter, so the snapshot is built only when Policy reads it.
-            get denied() { return facts.denied; }, taint, grants: [...grants], input });
+            get denied() { return facts.denied; }, taint, grants: [...grants], input,
+            forwardGranted: forwardGrant !== null && forwardGrant.binding === value.forwarding
+                && value.forwarding === forwarding() });
     }
 
     function judge(value) {
@@ -175,9 +184,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
      * fleet() must return literal true at offer for the fleet.request row.
-     * A row marked confirmation receives a fifth argument, {ref, at,
-     * method}: its start's audit reference and time, and how the user
-     * confirmed it ("none", "voice" or "physical").
+     * A row marked confirmation receives a fifth argument with its own
+     * request row, accepted confirmation evidence and trusted session binding.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -304,8 +312,14 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             dispatch({ type: "tool", ...proposal });
             return { kind: "proposed", id };
         case "confirm": {
-            const digest = crypto.createHash("sha256").update(value.call.id + "\n" + canonical(value.call.args)).digest("hex");
-            const text = sentence(value.call, decision.scope);
+            const digest = crypto.createHash("sha256").update(value.call.id + "\n" + canonical(value.call.args)
+                + (value.forwarding === undefined ? "" : "\n" + canonical(value.forwarding))).digest("hex");
+            let text = sentence(value.call, decision.scope);
+            if (value.call.id === "fleet.forward" && value.call.args.scope === "session")
+                text = "Forward requests from " + value.forwarding.name + " (" + value.forwarding.id + ") to " + value.forwarding.main
+                    + " for this live session? This approves sending only. Destructive actions, money and outside commitments need approval at main."
+                    + " Requests and answers appear in your Slack channel. Answer text stays on this computer for 30 days after each request closes."
+                    + " Stop forwarding or close the conversation to end this permission.\nFirst request:\n" + value.call.args.text;
             if (Buffer.byteLength(text) > RESULT_BYTES) { pending = null; return refuse(value, "approval-size"); }
             const written = record(value, "confirm", "pending");
             if (written.kind === "refuse") { pending = null; return refuse(value, written.reason); }
@@ -342,6 +356,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 || freshState.turn.kind !== "thinking" || freshState.turn.op !== value.turn.op
                 || freshState.action.kind !== "running" || freshState.action.gen !== e.gen || freshState.action.op !== e.op
                 || freshState.action.limit.kind !== "pending") return { kind: "refuse", reason: "stale-action" };
+        if (value.call.id === "fleet.forward" && value.forwarding !== forwarding())
+            return { kind: "refuse", reason: "forward-session-changed" };
         const prior = value.decision;
         const accepted = e.confirmed !== undefined;
         const authorized = fresh.kind === "allow" && fresh.effect === prior.effect
@@ -369,12 +385,20 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     ? Object.freeze({ labels: Policy.labels([...conversationLabels]),
                         tainted: Policy.TAINT_SOURCES.some(label => conversationLabels.has(label)) })
                     : undefined;
-                // A confirmation row cites this start's own audit row, as
-                // vgs-audit:<time>#<gen>:<op>, and how the user confirmed it.
-                const confirmation = Tools.TABLE[value.call.id].confirmation === true
-                    ? Object.freeze({ ref: "vgs-audit:" + recorded.time + "#" + value.turn.gen + ":" + value.turn.op,
-                        at: recorded.time, method: value.confirmed })
-                    : undefined;
+                let confirmation;
+                if (Tools.TABLE[value.call.id].confirmation === true) {
+                    const request = Object.freeze({ ref: "vgs-audit:" + recorded.time + "#" + value.turn.gen + ":" + value.turn.op,
+                        at: recorded.time });
+                    const own = Object.freeze({ ...request, method: value.confirmed });
+                    // REVISIT(D134): a grant cites the original accepted
+                    // confirmation, while each request keeps its own row.
+                    if (accepted && value.call.args.scope === "session")
+                        forwardGrant = { binding: value.forwarding, confirmation: own };
+                    const granted = !accepted || value.call.args.scope === "session";
+                    const consent = granted && forwardGrant !== null && forwardGrant.binding === value.forwarding
+                        ? { scope: "session", ...forwardGrant.confirmation } : { scope: "request", ...own };
+                    confirmation = Object.freeze({ request, confirmation: Object.freeze(consent), session: value.forwarding });
+                }
                 value.executor.start(value.call, answer => {
                     if (closed) return;
                     if (!answer || !["completed", "failed", "unknown"].includes(answer.outcome) || typeof answer.content !== "string"
@@ -445,6 +469,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     }
                     closed = true;
                     grants.clear();
+                    forwardGrant = null;
                     registry.clear();
                 });
             } },

@@ -753,7 +753,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         context: () => ({ profile: profile(), locked: context.locked, get denied() { return deniedOrNull(); } }),
                         result: value => gate.deliver(value) || bridge.deliver(value) || runner.ports.brain.outcome(value),
                         routed: turn => engine?.brain.routed(turn),
-                        release: (item, turn) => engine.release.query(item, turn) });
+                        release: (item, turn) => engine.release.query(item, turn),
+                        forwarding: () => satellite?.session() ?? null });
                     // A harness brain opens the bridge's session for its conversation;
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,
@@ -796,6 +797,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         shared: { "vgs-diagnose": require("./Core.js").diagnoseSkill() },
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     satellite = Satellite.create({ environment: process.env, acceptReach: Protocol.mainReach,
+                        runtime: context.directories.runtime, fatal,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null, homeBlock,
                         mainHost: () => context.settings.mainHost, log: line => process.stderr.write(line + "\n"),
                         publish: reach => {
@@ -815,6 +817,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     }
                     const routerSync = runner.ports.tools.sync;
                     runner.ports.tools.sync = state => {
+                        if (satellite !== null) satellite.sync(state);
                         routerSync(state);
                         if (browser !== null) browser.sync(state);
                     };

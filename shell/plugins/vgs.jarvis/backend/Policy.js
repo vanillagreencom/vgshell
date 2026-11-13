@@ -141,7 +141,8 @@ function textChord(bound, symbols) {
 /**
  * Decide one model call using executor-owned facts.
  *
- * context: {profile, locked, taint, denied, input?, grants?}. Missing or
+ * context: {profile, locked, taint, denied, input?, grants?, forwardGranted?}.
+ * forwardGranted is the router's exact live-session sending grant. Missing or
  * unknown lock refuses. denied is Denied.create's current snapshot; it is
  * read only when the call carries a path, so a producer may build it lazily.
  * J47/J51 supply input {target:{kind,id,password?}, key?} at send time.
@@ -246,6 +247,9 @@ function decide(call, context) {
         return { kind: "allow", effect };
     if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))
         return { kind: "confirm", effect, physical: false };
+    // REVISIT(D134): only the router's exact live-session sending grant
+    // can cover another forward; taint above still asks for this request.
+    if (refined.call.id === "fleet.forward" && context.forwardGranted === true) return { kind: "allow", effect };
     if (rule === "confirm") return { kind: "confirm", effect, physical: false };
     if (rule === "application") {
         if (!Array.isArray(context.grants) || !context.grants.every(grant => typeof grant === "string"))

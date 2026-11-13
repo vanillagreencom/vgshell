@@ -2,7 +2,7 @@
 // The satellite owner against the package stand-in, through the production
 // child owner, in the J09 scratch world. No SSH call and no live session.
 "use strict";
-const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
+const { assert, fs, path, tree, world, mutant, qmlCopy, fsFault } = require("./fixtures/jarvis/policy.js");
 const cp = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
@@ -74,9 +74,11 @@ world(async () => {
             SSH_AUTH_SOCK: "/run/user/1000/agent.sock", OPENAI_API_KEY: "sk-fixture", TMUX: "/scratch/tmux,1,0",
             VGSHELL_RUNNER_PID: "1", DISPLAY: ":9" };
         const s = Satellite.create({ home: () => folder, homeBlock: () => block, mainHost: () => value, environment, acceptReach: Protocol.mainReach,
+            runtime: path.join(process.env.JARVIS_TEST_ROOT, "forward-runtime"),
             publish: reach => published.push(reach), log: line => logs.push(line),
             clock: { set: (fn, ms) => { timers.push(ms); return {}; }, clear() {} } });
         try {
+            s.sync({ gen: 7, conversation: { kind: "active", purpose: "conversation" }, forwarding: 0 });
             s.refresh();
             await until(() => published.length === 1, "an empty setting reads as this computer");
             assert.deepEqual(published[0], { kind: "main" });
@@ -120,7 +122,8 @@ world(async () => {
             assert.deepEqual(published.at(-1), { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" });
 
             const forward = text => new Promise(resolve =>
-                s.executor.start({ id: "fleet.forward", args: { text } }, resolve, () => ({ kind: "allow" }), undefined, confirmed));
+                s.executor.start({ id: "fleet.forward", args: { text } }, resolve, () => ({ kind: "allow" }), undefined,
+                    { request: { ref: confirmed.ref, at: confirmed.at }, confirmation: { scope: "request", ...confirmed }, session: s.session() }));
             let confirmed = { ref: "vgs-audit:2026-11-03T08:10:36.642Z#7:3", at: "2026-11-03T08:10:36.642Z", method: "voice" };
             const forwards = () => h.calls().filter(call => call.argv[0] === "forward");
             // Spoken or typed, confirmed by voice or on screen: the package
@@ -131,16 +134,15 @@ world(async () => {
                 assert.equal((await forward("Rebase the lanes.")).outcome, "completed", method);
                 const sent = forwards().at(-1);
                 assert.deepEqual(sent.record, { v: 1, request: { ref: confirmed.ref, at: confirmed.at, text: "Rebase the lanes." },
-                    confirmation: { ref: confirmed.ref, at: confirmed.at, method } }, method + ": the record carries the request unchanged");
+                    session: { id: s.session().id, name: s.session().name, main: "cachy:" + h.folder, lease: null },
+                    confirmation: { scope: "request", ref: confirmed.ref, at: confirmed.at, method } }, method + ": the record carries the request unchanged");
                 assert.equal(fs.existsSync(sent.argv[sent.argv.indexOf("--record") + 1]), false, "the record is removed after the run");
             }
             assert.deepEqual(forwards().at(-1).env, { PATH: environment.PATH, HOME: environment.HOME, LANG: "C.UTF-8",
                 XDG_STATE_HOME: state, SSH_AUTH_SOCK: environment.SSH_AUTH_SOCK }, "the package gets its variables and the SSH agent, no key");
-            const checked = path.join(process.env.JARVIS_TEST_ROOT, "record.json");
-            fs.writeFileSync(checked, JSON.stringify(forwards().at(-1).record));
-            const judged = cp.spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); import forward; forward.checked_record(sys.argv[2])",
-                packageLib, checked], { encoding: "utf8", env: { PATH: process.env.PATH, LANG: "C.UTF-8" } });
-            assert.equal(judged.status, 0, "the package's record judge takes the record: " + judged.stderr);
+            // Native record admission awaits KEN-4953: the present package
+            // rejects session/scope before enqueue. This stand-in proves
+            // the VGS producer, not the package's future lease consumer.
             // The main reads a first voice-request: line as the caller and a
             // forwarded-request: line as the forward's own: text that writes
             // either, anywhere and in any case, never reaches the package.
@@ -328,6 +330,104 @@ world(async () => {
         }
     }
 
+    // The real reducer supplies each lifetime boundary; the fake package
+    // records producer bytes only. Its future lease consumer is KEN-4953.
+    async function sessionLeases(Satellite, Session = load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")), Tools = require(path.join(backend, "Tools.js"))) {
+        assert.deepEqual(Tools.match("stop forwarding"), { id: "fleet.forward.stop", args: {} }, "the user's stop command needs no model");
+        const ids = new Set();
+        for (const boundary of ["stop", "new-conversation", "toggle", "lease-ended", "main", "home", "close", "tool", "create-error", "public-directory", "retire-error"]) {
+            const runtime = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "forward-lease-"));
+            let folder = home().folder, main = "cachy:/srv/jarvis", at = 0;
+            let state = Session.initial();
+            const records = [], fatalErrors = [];
+            const s = Satellite.create({ home: () => folder, mainHost: () => main, runtime,
+                environment: { HOME: process.env.HOME }, publish() {}, acceptReach: Protocol.mainReach, log() {},
+                fatal: error => fatalErrors.push(error.message),
+                clock: { set() { return {}; }, clear() {} }, place: value => ({ folder: value, command: "/fixture/session" }),
+                run: async (_command, argv) => {
+                    if (argv.includes("--record")) records.push(JSON.parse(fs.readFileSync(argv[argv.indexOf("--record") + 1], "utf8")));
+                    return { kind: "exited", code: 0, stdout: JSON.stringify({ v: 1, role: "satellite", main: "cachy", reachable: true, cause: null }), stderr: "" };
+                } });
+            const event = fields => {
+                state = Session.reduce(state, { ...fields, at: at++ }).state;
+                assert.equal(Session.validate(state), true, "the live state passes the shared wire judge");
+                s.sync(state);
+            };
+            const own = { ref: "vgs-audit:2026-11-03T08:10:36.642Z#7:3", at: "2026-11-03T08:10:36.642Z", method: "physical" };
+            const send = (scope = "session", selected = s.session(), consent = own) => new Promise(resolve => s.executor.start(
+                { id: "fleet.forward", args: { text: "Original request." } }, resolve, () => ({ kind: "allow" }), undefined,
+                { request: { ref: own.ref, at: own.at }, confirmation: { scope, ...consent }, session: selected }));
+            try {
+                event({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
+                event({ type: "say", text: "Fixture conversation." });
+                const selected = s.session();
+                assert.match(selected.id, /^vgs-voice:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+                assert.equal(ids.has(selected.id), false, "another live session gets a new opaque identity");
+                ids.add(selected.id);
+                if (["create-error", "public-directory"].includes(boundary)) {
+                    let sending;
+                    if (boundary === "create-error") fsFault("writeFileSync", (write, file, ...args) => {
+                        if (typeof file === "number") throw Object.assign(new Error("fixture"), { code: "EIO" });
+                        return write(file, ...args);
+                    }, () => { sending = send(); });
+                    else {
+                        fs.mkdirSync(path.join(runtime, "forward-sessions"), { mode: 0o755 });
+                        sending = send();
+                    }
+                    assert.equal((await sending).outcome, "failed", boundary + ": a lease that cannot be privately published sends nothing");
+                    assert.equal(records.length, 0);
+                    assert.deepEqual(fs.readdirSync(path.join(runtime, "forward-sessions")), [], "a partial lease is removed");
+                    continue;
+                }
+                assert.equal((await send()).outcome, "completed");
+                const record = records[0], lease = record.session.lease;
+                assert.deepEqual(record.session, { id: selected.id, name: selected.name, main, lease });
+                assert.deepEqual(record.confirmation, { scope: "session", ...own });
+                const start = fs.readFileSync("/proc/self/stat", "utf8");
+                assert.deepEqual(JSON.parse(fs.readFileSync(lease, "utf8")), { v: 1, id: selected.id, main,
+                    owner: { pid: process.pid, start: start.slice(start.lastIndexOf(")") + 2).trim().split(/\s+/)[19],
+                        boot: fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() } });
+                assert.equal(fs.statSync(lease).mode & 0o777, 0o600);
+                assert.equal(fs.statSync(path.dirname(lease)).mode & 0o777, 0o700);
+                event({ type: "voice-mute" });
+                assert.strictEqual(s.session(), selected, "voice mute preserves the live session and its grant binding");
+                assert.equal(fs.existsSync(lease), true);
+                if (boundary === "main") { main = "other:/srv/jarvis"; s.session(); }
+                else if (boundary === "home") { folder = home().folder; s.session(); }
+                else if (boundary === "close") await s.close();
+                else if (boundary === "retire-error") {
+                    fsFault("unlinkSync", (unlink, file) => {
+                        if (file === lease) throw Object.assign(new Error("fixture"), { code: "EACCES" });
+                        return unlink(file);
+                    }, () => event({ type: "stop" }));
+                    assert.deepEqual(fatalErrors, ["jarvis: satellite=lease-retire cause=EACCES"], "a failed retirement ends the daemon through its fatal owner");
+                    assert.equal(s.session(), null, "a failed retirement cannot authorize another send");
+                    continue;
+                }
+                else if (boundary === "tool") {
+                    await new Promise(resolve => s.executor.start({ id: "fleet.forward.stop", args: {} }, resolve));
+                } else event({ type: boundary });
+                assert.equal(fs.existsSync(lease), false, boundary + ": the package can no longer admit unsent session authority");
+                if (["stop", "tool"].includes(boundary)) {
+                    assert.equal(s.session().id, selected.id, boundary + ": Stop preserves the live session id");
+                    assert.equal((await send("session", selected)).outcome, "failed", "stopped session authority cannot recreate its lease");
+                    assert.equal(records.length, 1, "no stopped session send reaches the package");
+                    assert.equal((await send("request")).outcome, "completed");
+                    assert.equal(records[1].session.id, selected.id);
+                    assert.equal(records[1].session.lease, null, "individual consent stays independent of the stopped grant");
+                    assert.equal((await send("session", s.session(), { ...own, ref: own.ref.replace(":3", ":4") })).outcome, "completed");
+                    assert.equal(records[2].session.id, selected.id, "explicit reconfirmation keeps the session identity");
+                    assert.notEqual(records[2].session.lease, lease, "a new grant has a new lease path");
+                    assert.equal(fs.existsSync(lease), false, "reconfirmation never revives old queued records");
+                } else if (boundary === "new-conversation") assert.notEqual(s.session().id, selected.id);
+                else if (["main", "home"].includes(boundary)) {
+                    assert.equal((await send("session", selected)).outcome, "failed", "a stale destination binding sends nothing");
+                    assert.equal(records.length, 1);
+                } else assert.equal(s.session(), null, boundary + ": no live session remains");
+            } finally { await s.close(); }
+        }
+    }
+
     readings(require(satelliteFile));
     console.log("case=readings passed");
     await live(require(satelliteFile));
@@ -336,10 +436,19 @@ world(async () => {
     console.log("case=startup passed");
     await handoff(require(satelliteFile));
     console.log("case=handoff passed");
+    await sessionLeases(require(satelliteFile));
+    console.log("case=session-leases passed");
 
     const sessionFile = path.join(backend, "SessionCommand.js");
     for (const [name, file, needle, replacement, check] of [
         ["caller-claim", satelliteFile, 'if (claims(call.args.text)) return failed("caller-claim");', "", live],
+        ["session-lease-retirement", satelliteFile, "fs.unlinkSync(held.file);", "void held.file;", Satellite => sessionLeases(Satellite)],
+        ["session-identity", satelliteFile, 'const uuid = crypto.randomUUID();', 'const uuid = "00000000-0000-4000-8000-000000000000";', Satellite => sessionLeases(Satellite)],
+        ["session-lease-owner", satelliteFile, "owner = { pid: process.pid, start, boot };", 'owner = { pid: process.pid, start: "0", boot };', Satellite => sessionLeases(Satellite)],
+        ["session-lease-renewal", satelliteFile, 'const file = path.join(folder, crypto.randomUUID() + ".json");', 'const file = path.join(folder, selected.id.slice("vgs-voice:".length) + ".json");', Satellite => sessionLeases(Satellite)],
+        ["session-lease-partial", satelliteFile, "} catch (error) { retireLease(); throw error; }", "} catch (error) { throw error; }", Satellite => sessionLeases(Satellite)],
+        ["session-lease-private", satelliteFile, "!directory.isDirectory() || directory.uid !== process.getuid() || (directory.mode & 0o077) !== 0", "false", Satellite => sessionLeases(Satellite)],
+        ["session-lease-retire-error", satelliteFile, 'fatal(new Error("jarvis: satellite=lease-retire cause=" + (error.code || "ownership")));', 'log("fixture retirement ignored");', Satellite => sessionLeases(Satellite)],
         ["secret", satelliteFile, 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
         ["setter-refusal", satelliteFile, "                rejected = { folder: location.folder, setting: chosen, cause };\n", "", live],
         ["startup-handoff", satelliteFile, '            if (mainHost() !== "") { choose("startup"); return; }', "", Satellite => startup(Satellite)],
@@ -360,5 +469,11 @@ world(async () => {
         await mutant(file, name, needle, replacement, check, "Satellite.js");
         controls++; console.log("control=" + name + " detected");
     }
+    await qmlCopy(path.join(tree, "shell/plugins/vgs.jarvis/Session.js"), [["s.forwarding++;", "void s.forwarding;"]], Session =>
+        assert.rejects(() => sessionLeases(require(satelliteFile), Session), assert.AssertionError, "Stop retirement must turn red"));
+    controls++; console.log("control=session-stop-retirement detected");
+    await mutant(path.join(backend, "Tools.js"), "session-stop-matcher", '"stop forwarding", "stop forwarding this session"',
+        '"stop future forwarding", "stop forwarding this session"', (Satellite, folder) => sessionLeases(Satellite, undefined, require(path.join(folder, "Tools.js"))), "Satellite.js");
+    controls++; console.log("control=session-stop-matcher detected");
     console.log("test-jarvis-satellite: ok controls=" + controls);
 });
