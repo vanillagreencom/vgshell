@@ -1173,11 +1173,13 @@ for vpn_nord_case in recommendation-cancel modify-failed allowance-failed protec
         vpn_nord_want_step=unknown
         ;;
     esac
+    rescan "Nord's failure case probes the installed kill switch"
+    expect_poll "Nord's $vpn_nord_case reads its setup state" "\"$vpn_nord_want_step\"" vpn_kill_read step
+    # Planted only once the step reads setup: a status read the shell makes
+    # while it still reads ready logs the refusal as its own failure.
     if [[ $vpn_nord_case == protection-unreadable ]]; then
       device_reply --stderr "vgs-kill-switch: refused: status=unreadable" vgs-kill-switch 1 "" status
     fi
-    rescan "Nord's failure case probes the installed kill switch"
-    expect_poll "Nord's $vpn_nord_case reads its setup state" "\"$vpn_nord_want_step\"" vpn_kill_read step
     if [[ $vpn_nord_case == protection-* ]]; then vpn_nord_want_effects='[]'; fi
   else
     device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
@@ -1469,6 +1471,38 @@ PYRECONNECTCONTROL
   control_output "$sandbox/vpn-reconnect-control.log"
   devices_vpn_kill_tree remove
   rescan "the reconnect control's kill switch world is gone"
+  # Nord's protection-unreadable case plants its refused status once the
+  # step reads setup. Planted while the step reads ready, a status read
+  # logs the refusal, and the row's own shell-log judge holds that line as
+  # an error. The copy marks the line, so the excuse below covers only it.
+  expect "VPN disables before its status-order control" ok ipc shell setPluginEnabled vgs.vpn false
+  expect_poll "the reconnect control's service is gone" False record_exists vgs.vpn
+  for vpn_file in Service.qml VpnLogic.js; do cp -- "$repo/shell/plugins/vgs.vpn/$vpn_file" "$vpn_copy/$vpn_file"; done
+  python3 - "$vpn_copy/Service.qml" <<'PYORDERCONTROL'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = 'console.warn("vpn: operation=kill-switch-status completion="'
+assert text.count(old) == 1, old
+path.write_text(text.replace(old, 'console.warn("vpn-control: operation=kill-switch-status completion="'))
+PYORDERCONTROL
+  vpn_order_line='vpn-control: operation=kill-switch-status completion=unreadable code=1'
+  # vpn_judged LINE: the lines of the row's shell-log window that its judge
+  # reads as errors and that hold LINE, counted.
+  vpn_judged() { local errors; errors="$(unexpected_log_errors "$instance_log")" || return 1; grep -c -F -e "$1" <<<"$errors" || true; }
+  vpn_plant
+  devices_vpn_kill_tree ready
+  device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
+  rescan "the status-order control is discovered"
+  expect "the status-order control enables" ok ipc shell setPluginEnabled vgs.vpn true
+  expect_poll "control: the kill switch step reads set up for the status-order control" '"ready"' vpn_kill_read step
+  device_reply --stderr "vgs-kill-switch: refused: status=unreadable" vgs-kill-switch 1 "" status
+  expect "control: a refresh reads the status while the step reads ready" ok vpn_refresh
+  expect_log "control: the refusal planted while the step reads ready is logged" 1 "$vpn_order_line\$"
+  expect "control: the row's shell-log judge holds the refusal as an error" 1 vpn_judged "$vpn_order_line"
+  expected_errors+=('vpn-control: operation=kill-switch-status completion=(unreadable|unreachable) code=1$')
+  devices_vpn_kill_tree remove
+  rescan "the status-order control's kill switch world is gone"
 fi
 expect "the VPN control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the VPN control service is gone" False record_exists vgs.vpn
