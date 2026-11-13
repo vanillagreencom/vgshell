@@ -159,7 +159,7 @@ async function inside() {
             lines.push(reply(locked, seq === 0 ? 0 : 1));
             lines.push({ v: 1, type: "state", gen: 1, revision: hello.revision,
                 seq: ++seq, state: {
-                    gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
+                    gen: 1, nextOp: 1, stale: 0, forwarding: 0, settings: hello.settings,
                     gate: { kind: "down", reason: locked ? "locked" : "unconfigured" },
                     voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },

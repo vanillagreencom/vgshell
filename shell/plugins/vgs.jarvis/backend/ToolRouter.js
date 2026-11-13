@@ -158,8 +158,13 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
     function decide(value, input) {
         const facts = context();
         if (value.call.id === "fleet.forward") {
-            if (value.forwarding === undefined) value.forwarding = forwarding();
-            if (value.forwarding === null) return { kind: "refuse", reason: "forward-session-unavailable" };
+            if (value.forwarding === undefined) {
+                value.forwarding = forwarding();
+                value.sessionGrantRequested = value.call.args.scope === "session"
+                    && (forwardGrant === null || forwardGrant.binding !== value.forwarding);
+            }
+            if (value.call.args.scope === "session" && value.forwarding === null)
+                return { kind: "refuse", reason: "forward-session-unavailable" };
         }
         return Policy.decide(value.call, { profile: facts.profile, locked: facts.locked,
             // A getter, so the snapshot is built only when Policy reads it.
@@ -315,8 +320,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             const digest = crypto.createHash("sha256").update(value.call.id + "\n" + canonical(value.call.args)
                 + (value.forwarding === undefined ? "" : "\n" + canonical(value.forwarding))).digest("hex");
             let text = sentence(value.call, decision.scope);
-            if (value.call.id === "fleet.forward" && value.call.args.scope === "session")
-                text = "Forward requests from " + value.forwarding.name + " (" + value.forwarding.id + ") to " + value.forwarding.main
+            if (value.sessionGrantRequested)
+                text = "Forward requests from Jarvis Voice session " + value.forwarding.id + " to " + value.forwarding.main
                     + " for this live session? This approves sending only. Destructive actions, money and outside commitments need approval at main."
                     + " Requests and answers appear in your Slack channel. Answer text stays on this computer for 30 days after each request closes."
                     + " Stop forwarding or close the conversation to end this permission.\nFirst request:\n" + value.call.args.text;
@@ -376,9 +381,10 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         const accepted = e.confirmed !== undefined;
         value.confirmed = !accepted ? "none" : e.confirmed === "voice" ? "voice" : "physical";
         value.action = { gen: e.gen, op: e.op };
-        const admitted = audit.before({ kind: "action", gen: value.turn.gen, op: value.turn.op,
+        const action = { kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: fresh.effect, decision: prior.kind,
-            confirmed: value.confirmed, outcome: "pending", ...proposer(value) }, recorded => {
+            confirmed: value.confirmed, outcome: "pending", ...proposer(value) };
+        const launch = recorded => {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
             try {
                 const origin = Tools.TABLE[value.call.id].origin === true
@@ -392,11 +398,11 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     const own = Object.freeze({ ...request, method: value.confirmed });
                     // REVISIT(D134): a grant cites the original accepted
                     // confirmation, while each request keeps its own row.
-                    if (accepted && value.call.args.scope === "session")
+                    if (accepted && value.sessionGrantRequested)
                         forwardGrant = { binding: value.forwarding, confirmation: own };
-                    const granted = !accepted || value.call.args.scope === "session";
+                    const granted = !accepted || value.sessionGrantRequested;
                     const consent = granted && forwardGrant !== null && forwardGrant.binding === value.forwarding
-                        ? { scope: "session", ...forwardGrant.confirmation } : { scope: "request", ...own };
+                        ? { scope: "session", ...forwardGrant.confirmation } : own;
                     confirmation = Object.freeze({ request, confirmation: Object.freeze(consent), session: value.forwarding });
                 }
                 value.executor.start(value.call, answer => {
@@ -421,7 +427,11 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 value.answer = { outcome: "failed", content: "executor-failed" };
                 done("failed");
             }
-        });
+        };
+        // Stop revokes sending authority even when its audit store is full.
+        // Every sending action still needs a successful before-write.
+        value.cleanup = value.call.id === "fleet.forward.stop";
+        const admitted = value.cleanup ? audit.cleanup("stop", launch) : audit.before(action, launch);
         if (admitted.kind === "refuse") {
             value.refusal = admitted.reason;
             done("failed");
@@ -440,6 +450,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             if (Tools.TABLE[value.call.id].once === true && e.outcome !== "failed")
                 spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);
             const written = record(value, value.decision.kind, e.outcome);
+            const withheld = written.kind === "refuse" && !value.cleanup;
             let labels = value.refined.source === null ? [] : [value.refined.source];
             // Search failures contain only local cap/transport facts: its
             // executor never reads a provider's failed-response body.
@@ -450,9 +461,9 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 labels = Policy.labels(value.answer.labels);
                 if (!labels.includes(value.refined.source)) throw new Error("jarvis: router=labels");
             }
-            deliver(value, e.outcome, written.kind === "refuse" ? JSON.stringify(written)
+            deliver(value, e.outcome, withheld ? JSON.stringify(written)
                 : value.answer?.content ?? "tool-outcome:" + e.outcome, labels, final,
-                written.kind === "refuse" ? undefined : value.answer?.image);
+                withheld ? undefined : value.answer?.image);
         }
         if (final) pending = null;
     }

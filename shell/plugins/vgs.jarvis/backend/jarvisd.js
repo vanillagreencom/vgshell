@@ -804,6 +804,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                             if (!ending) write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
                         } });
                     router.register("satellite", satellite.executor);
+                    router.register("satellite-stop", satellite.stopExecutor);
                     files = Files.install({ router, denied, clock });
                     memory = Memory.install({ router, directory: path.join(context.directories.state, "memory"),
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
