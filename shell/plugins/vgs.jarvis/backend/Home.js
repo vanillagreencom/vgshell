@@ -83,6 +83,9 @@ const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;
 const DECLARED_NAME = /^[a-z0-9][a-z0-9-]*$/;
 // The front matter lists of the package's dependencies read.
 const DEPENDENCY_LISTS = Object.freeze(["required", "agents"]);
+// The top-level front matter line by which an own skill's own file opts it
+// in to Jarvis Voice: the value true, nothing else.
+const VOICE_KEY = /^jarvis-voice:\s*true\s*$/;
 
 function fail(code) { throw new Error("jarvis: home=" + code); }
 
@@ -432,18 +435,35 @@ function read(home, entry, limit) {
     });
 }
 
+// The leading front matter block of TEXT, a skill file: {front, body}, the
+// lines between its two `---` marks and the lines after it, with body null
+// for a block that never closes; null for a file that opens with none.
+function frontMatter(text) {
+    const lines = text.split("\n");
+    if (lines[0].trim() !== "---") return null;
+    const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+    return end === -1 ? { front: lines.slice(1), body: null } : { front: lines.slice(1, end), body: lines.slice(end + 1) };
+}
+
+// Whether TEXT, the head of an own skill's own file, opts the skill in to
+// Jarvis Voice: a closed front matter block holding VOICE_KEY at its top
+// level.
+function voiced(text) {
+    const block = frontMatter(text);
+    return block !== null && block.body !== null && block.front.some(line => VOICE_KEY.test(line));
+}
+
 // A skill's index line: the one-line `description` of a leading front
 // matter block, as a harness skill file carries, else the first line of
 // text, its heading marks dropped. A block scalar description is not read.
 function indexLine(text) {
     let lines = text.split("\n");
-    if (lines[0].trim() === "---") {
-        const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
-        const front = lines.slice(1, end === -1 ? lines.length : end);
-        const described = front.map(line => /^description:\s*(.*)$/.exec(line)).find(match => match !== null);
+    const block = frontMatter(text);
+    if (block !== null) {
+        const described = block.front.map(line => /^description:\s*(.*)$/.exec(line)).find(match => match !== null);
         const value = described ? described[1].trim().replace(/^(["'])(.*)\1$/, "$2") : "";
         if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);
-        lines = end === -1 ? [] : lines.slice(end + 1);
+        lines = block.body ?? [];
     }
     const first = lines.find(line => line.trim() !== "") ?? "";
     return first.trim().replace(/^#+\s*/, "").replace(/[\x00-\x1f\x7f]/g, " ").slice(0, LINE_CHARS);
@@ -465,15 +485,14 @@ function declaredNames(items) {
 // value of those keys, or front matter that never closes, throws
 // home=declaration.
 function dependencies(text) {
-    const lines = text.split("\n");
     const found = Object.fromEntries(DEPENDENCY_LISTS.map(key => [key, []]));
-    if (lines[0].trim() !== "---") return found;
-    const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
-    if (end === -1) fail("declaration");
+    const block = frontMatter(text);
+    if (block === null) return found;
+    if (block.body === null) fail("declaration");
     let inside = false;
     let keyIndent = null;
     let open = null;
-    for (const line of lines.slice(1, end)) {
+    for (const line of block.front) {
         if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
         const indent = line.length - line.trimStart().length;
         if (indent === 0 && !line.startsWith("-")) {
@@ -541,16 +560,19 @@ function listing(home, folder) {
     });
 }
 
-// The index entry of FILE under TOPIC, or, where OPTIONAL, null for a file
-// that is absent, a link or no regular file.
-function indexed(home, topic, file, optional) {
+// The index entry of FILE under TOPIC, or null where OPTIONAL lets the file
+// be absent, a link or no regular file, and where VOICE requires its head to
+// opt the skill in to Jarvis Voice (voiced) and it does not.
+function indexed(home, topic, file, optional, voice) {
     let head;
     try { head = within(home, file, O_RDONLY | O_NONBLOCK, fd => bytes(fd, HEAD_BYTES - 1)); }
     catch (error) {
         if (optional && /^jarvis: home=(?:absent|link|kind)$/.test(error.message)) return null;
         throw error;
     }
-    return { topic, file, line: indexLine(new TextDecoder("utf-8").decode(head)) };
+    const text = new TextDecoder("utf-8").decode(head);
+    if (voice && !voiced(text)) return null;
+    return { topic, file, line: indexLine(text) };
 }
 
 /**
@@ -562,21 +584,27 @@ function indexed(home, topic, file, optional) {
  * `references/<reference>.md` is a skill of its own under
  * "<set>/<name>/<reference>", and its `workflows/<workflow>.md` one under
  * "<set>/<name>/workflows/<workflow>", listed for the package and skills;
- * a required skill's are read by topic alone. Any other entry, a link among
- * them, is no skill. topic is "<set>/<name>", file its path in the home and line its
- * index line. complete is false once a folder holds more than SET_ENTRIES
- * entries.
+ * a required skill's are read by topic alone. A skill of skills is listed,
+ * with its references and workflows, only while its own file opts it in to
+ * Jarvis Voice (voiced); the folders of one that does not stay unread. Any
+ * other entry, a link among them, is no skill. topic is "<set>/<name>", file
+ * its path in the home and line its index line. complete is false once a
+ * folder holds more than SET_ENTRIES entries, counted before any skill is
+ * read.
  */
 function skills(home) {
     const found = [];
     let complete = true;
-    // Each regular `<name>.md` file of FOLDER, under PREFIX + name.
-    function flat(folder, prefix, listed) {
+    // Each regular `<name>.md` file of FOLDER, under PREFIX + name, where
+    // VOICE holds only one that opts in to Jarvis Voice.
+    function flat(folder, prefix, listed, voice) {
         complete &&= listed.complete;
         for (const entry of listed.entries) {
             const topic = prefix + entry.name.slice(0, -3);
-            if (entry.isFile() && entry.name.endsWith(".md") && Tools.homeTopic(topic) !== null)
-                found.push(indexed(home, topic, folder + "/" + entry.name, false));
+            if (entry.isFile() && entry.name.endsWith(".md") && Tools.homeTopic(topic) !== null) {
+                const skill = indexed(home, topic, folder + "/" + entry.name, false, voice);
+                if (skill !== null) found.push(skill);
+            }
         }
     }
     const base = baseSet(home);
@@ -591,13 +619,13 @@ function skills(home) {
             throw error;
         }
         if (folder === RENDER) listed = { entries: listed.entries.filter(entry => names.includes(entry.name)), complete: listed.complete };
-        flat(folder, set + "/", listed);
+        flat(folder, set + "/", listed, set === "own");
         for (const entry of listed.entries) {
             const topic = set + "/" + entry.name;
             if (Tools.homeTopic(topic) === null) continue;
             // An entry that is no folder, a folder without SKILL.md, or one with a
             // link in its place, is no skill.
-            const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true);
+            const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true, set === "own");
             if (skill === null) continue;
             found.push(skill);
             // A required skill's references and workflows stay readable by
@@ -613,7 +641,7 @@ function skills(home) {
                     if (/^jarvis: home=(?:absent|link|kind)$/.test(error.message)) continue;
                     throw error;
                 }
-                flat(inner, prefix, inside);
+                flat(inner, prefix, inside, false);
             }
         }
     }
@@ -625,7 +653,8 @@ function skills(home) {
  * The whole text of the skill TOPIC names. A skill is read on demand, so no
  * size bound applies; the bounds are on what every brain gets at its start.
  * Throws as read() does, and jarvis: home=absent for a topic the home does
- * not hold.
+ * not hold, an own skill, reference or workflow whose skill's own file does
+ * not opt in to Jarvis Voice among them, as skills leaves it unlisted.
  */
 function skill(home, topic) {
     const named = Tools.homeTopic(topic);
@@ -634,13 +663,19 @@ function skill(home, topic) {
     if (set === RENDER && !baseNames(home, set).includes(named.name)) fail("absent");
     const base = set + "/" + named.name;
     const whole = file => read(home, file, null).text;
-    if (named.file !== null) return whole(base + "/" + named.folder + "/" + named.file + ".md");
+    // The whole text of FILE, part of the skill whose own file is SKILL_FILE,
+    // which for an own skill must opt in to Jarvis Voice.
+    const offered = (skillFile, file = skillFile) => {
+        if (set !== RENDER && indexed(home, topic, skillFile, false, true) === null) fail("absent");
+        return whole(file);
+    };
+    if (named.file !== null) return offered(base + "/SKILL.md", base + "/" + named.folder + "/" + named.file + ".md");
     // The render's set holds skill folders alone, never a flat file.
     if (set !== RENDER) {
-        try { return whole(base + ".md"); }
+        try { return offered(base + ".md"); }
         catch (error) { if (error.message !== "jarvis: home=absent") throw error; }
     }
-    return whole(base + "/SKILL.md");
+    return offered(base + "/SKILL.md");
 }
 
 /**

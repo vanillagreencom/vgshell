@@ -914,7 +914,7 @@ world(async () => {
     // up, to read what the producer hands the judge for that folder.
     const daemonHome = path.join(home, "daemon-home"), daemonLinked = path.join(home, "daemon-linked");
     for (const [folder, name, text] of [[daemonHome, "AGENTS.md", "home knowledge\n"], [daemonHome, "state/handoff.md", "handoff\n"],
-        [daemonHome, "skills/alpha/SKILL.md", "# Alpha\nDAEMON-SKILL-BODY\n"], [daemonLinked, "AGENTS.md", "home knowledge\n"],
+        [daemonHome, "skills/alpha/SKILL.md", "---\njarvis-voice: true\n---\n# Alpha\nDAEMON-SKILL-BODY\n"], [daemonLinked, "AGENTS.md", "home knowledge\n"],
         [daemonLinked, "state/handoff.md", "handoff\n"]]) {
         fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
         fs.writeFileSync(path.join(folder, name), text);
@@ -1025,7 +1025,7 @@ world(async () => {
     assert.deepEqual([production.ordinary.outcome, production.ordinary.content], ["completed", "alpha\nBeta line\n"]);
     for (const id of ["account", "explicit", "hand", "config", "install", "home-agents"]) refusal(production[id], "protected-path");
     assert.deepEqual([production["home-state"].outcome, production["home-state"].content], ["completed", "handoff\n"], "state/ stays in the model's reach");
-    const skillRead = outcome => assert.deepEqual([outcome.outcome, outcome.content], ["completed", "# Alpha\nDAEMON-SKILL-BODY"], "help reads the home's skill");
+    const skillRead = outcome => assert.deepEqual([outcome.outcome, outcome.content], ["completed", "---\njarvis-voice: true\n---\n# Alpha\nDAEMON-SKILL-BODY"], "help reads the home's skill");
     skillRead(production["home-skill"]);
     cases++;
     // A folder the daemon refuses stays guarded while the setting names it.

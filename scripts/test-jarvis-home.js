@@ -265,19 +265,22 @@ world(() => {
             assert.doesNotThrow(() => { bare = Home.skills(folder); }, "a home without skills");
             assert.deepEqual(bare.skills.map(entry => entry.topic),
                 ["base/communication", "base/jarvis", "base/jarvis/base-one", "base/jarvis/workflows/run"], "lists the base set alone");
-            write("skills/alpha/SKILL.md", "\n# Alpha skill\nbody\n");
-            write("skills/beta/SKILL.md", "---\nname: beta\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
-            write("skills/gamma/SKILL.md", "---\nname: gamma\ndescription: >\n  folded\n---\n\nGamma first line\n");
-            write("skills/delta/SKILL.md", "");
-            write("skills/epsilon/SKILL.md", "---\ndescription: >-\n  folded and stripped\n---\nEpsilon first line\n");
-            write("skills/eta/SKILL.md", "---\ndescription: |+2\n    kept\n---\nEta first line\n");
+            write("skills/beta/SKILL.md", "---\nname: beta\njarvis-voice: true\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
+            write("skills/gamma/SKILL.md", "---\nname: gamma\njarvis-voice: true\ndescription: >\n  folded\n---\n\nGamma first line\n");
+            write("skills/epsilon/SKILL.md", "---\njarvis-voice: true\ndescription: >-\n  folded and stripped\n---\nEpsilon first line\n");
+            write("skills/eta/SKILL.md", "---\njarvis-voice: true\ndescription: |+2\n    kept\n---\nEta first line\n");
             write("skills/notes.txt", "no skill\n");
             write("skills/plain", "no skill\n");
-            write("skills/.hidden.md", "no skill\n");
-            write("skills/bad name.md", "no skill\n");
+            // Each opts in, so the name rule alone leaves it unlisted.
+            write("skills/.hidden.md", "---\njarvis-voice: true\n---\nno skill\n");
+            write("skills/bad name.md", "---\njarvis-voice: true\n---\nno skill\n");
+            write("skills/bad dir/SKILL.md", "---\njarvis-voice: true\n---\nno skill\n");
             write("skills/empty-folder/readme.md", "no skill\n");
-            write("skills/bad dir/SKILL.md", "no skill\n");
             write("skills/beta/references/one.md", "# One reference\nONE-BODY\n");
+            // A file without front matter and an empty file are references of
+            // an opted-in skill: an own skill without the key is unlisted.
+            write("skills/beta/references/alpha.md", "\n# Alpha skill\nbody\n");
+            write("skills/beta/references/delta.md", "");
             // A reference is read on demand: no size bound holds it back.
             const long = "# Long reference\n" + "long line\n".repeat(4096);
             assert.ok(Buffer.byteLength(long) > 40 * 1024);
@@ -285,7 +288,7 @@ world(() => {
             write("skills/beta/references/bad name.md", "no skill\n");
             write("skills/beta/references/notes.txt", "no skill\n");
             write("skills/empty-folder/references/orphan.md", "no skill\n");
-            write("skills/zeta/SKILL.md", "# Zeta\n");
+            write("skills/zeta/SKILL.md", "---\njarvis-voice: true\n---\n# Zeta\n");
             write("skills/zeta/references", "a file, not a folder\n");
             // A workflow passes every rule a reference does, and one of a
             // reference's file name is its own topic, never a silent pick.
@@ -295,8 +298,15 @@ world(() => {
             write("skills/beta/workflows/notes.txt", "no skill\n");
             write("skills/empty-folder/workflows/orphan.md", "no skill\n");
             write("skills/zeta/workflows", "a file, not a folder\n");
-            write("skills/kappa/SKILL.md", "# Kappa\n");
+            write("skills/kappa/SKILL.md", "---\njarvis-voice: true\n---\n# Kappa\n");
             write("skills/kappa/workflows/run.md", "---\ndescription: Load to run kappa.\n---\nRUN-BODY\n");
+            // An own skill without the key, or a flat one with another value,
+            // stays with Jarvis main: neither it nor its reference or workflow
+            // is listed.
+            write("skills/ledger/SKILL.md", "---\nname: ledger\ndescription: Load for the accounts.\n---\n# Ledger\n");
+            write("skills/ledger/references/accounts.md", "# Accounts\n");
+            write("skills/ledger/workflows/close.md", "# Close the books\n");
+            write("skills/ledger-notes.md", "---\njarvis-voice: false\n---\n# Ledger notes\n");
             const outside = path.join(path.dirname(folder), "outside-skill.md");
             fs.writeFileSync(outside, "OUTSIDE-SECRET\n");
             fs.symlinkSync(outside, path.join(folder, "skills/linked.md"));
@@ -304,7 +314,7 @@ world(() => {
             fs.symlinkSync(outside, path.join(folder, "skills/linked-folder/SKILL.md"));
             fs.symlinkSync(outside, path.join(folder, "skills/beta/workflows/linked.md"));
             fs.mkdirSync(path.join(folder, "skills/linked-workflows"));
-            fs.writeFileSync(path.join(folder, "skills/linked-workflows/SKILL.md"), "# Linked workflows\n");
+            fs.writeFileSync(path.join(folder, "skills/linked-workflows/SKILL.md"), "---\njarvis-voice: true\n---\n# Linked workflows\n");
             fs.symlinkSync(path.join(folder, "skills/beta/workflows"), path.join(folder, "skills/linked-workflows/workflows"));
             assert.equal(cp.spawnSync("python3", ["-c", "import os, sys; os.mkfifo(sys.argv[1])",
                 path.join(folder, "skills/beta/workflows/fifo.md")]).status, 0, "the test makes a FIFO");
@@ -315,13 +325,13 @@ world(() => {
                 { topic: "base/jarvis", file: RENDER + "/SKILL.md", line: "Load for the package." },
                 { topic: "base/jarvis/base-one", file: RENDER + "/references/base-one.md", line: "Base reference" },
                 { topic: "base/jarvis/workflows/run", file: RENDER + "/workflows/run.md", line: "Load to run the package." },
-                { topic: "own/alpha", file: "skills/alpha/SKILL.md", line: "Alpha skill" },
                 { topic: "own/beta", file: "skills/beta/SKILL.md", line: "Load for beta work." },
+                { topic: "own/beta/alpha", file: "skills/beta/references/alpha.md", line: "Alpha skill" },
+                { topic: "own/beta/delta", file: "skills/beta/references/delta.md", line: "" },
                 { topic: "own/beta/long", file: "skills/beta/references/long.md", line: "Long reference" },
                 { topic: "own/beta/one", file: "skills/beta/references/one.md", line: "One reference" },
                 { topic: "own/beta/workflows/long", file: "skills/beta/workflows/long.md", line: "Long workflow" },
                 { topic: "own/beta/workflows/one", file: "skills/beta/workflows/one.md", line: "One workflow" },
-                { topic: "own/delta", file: "skills/delta/SKILL.md", line: "" },
                 { topic: "own/epsilon", file: "skills/epsilon/SKILL.md", line: "Epsilon first line" },
                 { topic: "own/eta", file: "skills/eta/SKILL.md", line: "Eta first line" },
                 { topic: "own/gamma", file: "skills/gamma/SKILL.md", line: "Gamma first line" },
@@ -330,7 +340,7 @@ world(() => {
                 { topic: "own/linked-workflows", file: "skills/linked-workflows/SKILL.md", line: "Linked workflows" },
                 { topic: "own/zeta", file: "skills/zeta/SKILL.md", line: "Zeta" }] });
             for (const entry of listed.skills) assert.doesNotThrow(() => Home.skill(folder, entry.topic), "every listed topic reads back: " + entry.topic);
-            assert.equal(Home.skill(folder, "own/alpha"), "\n# Alpha skill\nbody\n");
+            assert.equal(Home.skill(folder, "own/beta/alpha"), "\n# Alpha skill\nbody\n");
             assert.equal(Home.skill(folder, "own/beta").includes("# Beta"), true, "a folder's SKILL.md is its body");
             assert.equal(Home.skill(folder, "own/beta/one"), "# One reference\nONE-BODY\n");
             assert.equal(Home.skill(folder, "own/beta/long"), long, "a 40 KB reference reads whole");
@@ -636,8 +646,8 @@ world(() => {
         ["folder-name", "if (Tools.homeTopic(topic) === null) continue;\n            // An entry", "// An entry", "skills"],
         ["workflow-topics", ', ["workflows", topic + "/workflows/"]]', "]", "skills"],
         ["workflow-own-topic", '["workflows", topic + "/workflows/"]', '["workflows", topic + "/"]', "skills"],
-        ["reference-read", 'if (named.file !== null) return whole(base + "/" + named.folder + "/" + named.file + ".md");', "", "skills"],
-        ["workflow-read", 'whole(base + "/" + named.folder + "/"', 'whole(base + "/references/"', "skills"],
+        ["reference-read", 'if (named.file !== null) return offered(base + "/SKILL.md", base + "/" + named.folder + "/" + named.file + ".md");', "", "skills"],
+        ["workflow-read", 'base + "/" + named.folder + "/"', 'base + "/references/"', "skills"],
         ["skill-whole", "const whole = file => read(home, file, null).text;", "const whole = file => read(home, file, 16384).text;", "skills"],
         ["skill-description", 'if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);', "", "skills"],
         ["skill-folded", " && !BLOCK_SCALAR.test(value)", "", "skills"],
@@ -681,8 +691,9 @@ world(() => {
         ["base-listed", "if (folder === RENDER) listed =", "if (false) listed =", "skills"],
         ["required-index-only", "            if (folder === RENDER && entry.name !== PACKAGE) continue;\n", "", "skills"],
         ["own-optional", '            if (set === "own" && error.message === "jarvis: home=absent") continue;\n', "", "skills"],
-        ["declaration-no-front", '    if (lines[0].trim() !== "---") return found;\n', '    if (lines[0].trim() !== "---") fail("declaration");\n', "declaration"],
-        ["declaration-unclosed", '    if (end === -1) fail("declaration");\n', "", "declaration"],
+        ["declaration-no-front", '    if (block === null) return found;\n', '    if (block === null) fail("declaration");\n', "declaration"],
+        ["declaration-unclosed", '    if (block.body === null) fail("declaration");\n', "", "declaration"],
+        ["own-voice", "    if (voice && !voiced(text)) return null;\n", "", "skills"],
     ]) {
         const result = mutant(source, name, needle, replacement, (logic, folder) => CASES[row](logic, folder), "Home.js");
         assert.equal(result, undefined);

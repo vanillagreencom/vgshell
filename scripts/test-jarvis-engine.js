@@ -1746,7 +1746,7 @@ async function cases(kit, server, only = null, mutation = false) {
     fs.writeFileSync(path.join(homeFolder, "memory/MEMORY.md"), "");
     fs.writeFileSync(path.join(homeFolder, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
     fs.writeFileSync(path.join(homeFolder, ".agents/skills/jarvis/persona.md"), "# Persona\n");
-    fs.writeFileSync(path.join(homeFolder, "skills/alpha/SKILL.md"), "# Alpha skill\n");
+    fs.writeFileSync(path.join(homeFolder, "skills/alpha/SKILL.md"), "---\njarvis-voice: true\n---\n# Alpha skill\n");
     fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "HOME-MARKER-ONE\n");
     await run("home-text", async w => {
         // One whole exchange, then the conversation's end: the system text its first request carried.
