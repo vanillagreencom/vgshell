@@ -63,7 +63,7 @@ Column {
                 textRole: "label"
                 currentIndex: root.chosenIndex
                 // A saved profile no longer listed; the error line says so.
-                placeholderText: "Choose a profile"
+                placeholderText: "Profile unavailable"
                 onActivated: index => {
                     currentIndex = Qt.binding(() => root.chosenIndex);
                     root.save("autoConnect", index === 0 ? "" : root.choices[index].value);

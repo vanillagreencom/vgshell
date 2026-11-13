@@ -15,6 +15,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 - For a connected WireGuard profile, the public address, country and city that sites see, and a leak check for IPv4, IPv6 and name lookups.
 - Import a VPN file imports WireGuard (.conf) and OpenVPN (.ovpn) files.
 - NetworkManager's connection editor to add or edit a profile.
+- NordVPN locations, by country, region or state, then city, for one saved WireGuard profile.
 - Remove profile deletes a profile after you confirm.
 - A kill switch that blocks traffic outside the VPN when the VPN drops.
 - Connect automatically: on a network not on your trusted list, the chosen profile connects by itself.
@@ -48,6 +49,12 @@ The leak check asks no outside service. It reads this computer's own settings fi
 Then, for the public address, VGS asks one outside service, `api.nordvpn.com`, NordVPN's own. It asks through the VPN only, and only when the lookup of the service's own name stays in the VPN or the kill switch blocks it everywhere else. It never asks while no profile is connected. The service learns the address the question comes from, which is the address every site you open sees. When VGS does not ask, the row reads Not checked and says why. When the service does not answer or sends an answer VGS cannot read, the row reads Could not check and says why.
 
 A reading VGS cannot take reads Could not check, never a pass. A connection that ends during a check stops its question to the service. A connection that ends after a check clears its result.
+
+## NordVPN locations
+
+In System Settings › VPN, set Profile under NordVPN to your saved Nord WireGuard profile. Change location lists Nord's countries, regions or states where available, then cities. Change saves the recommended server and reconnects the profile if it was connected. Other profiles stay as they were.
+
+The profile's account key stays in NetworkManager. VGS reads no private key or Nord access token and creates no profile. The list is fetched once each time the location window opens. With the kill switch armed for this profile, VGS confirms the new server is allowed before it reconnects; the block stays in place if that confirmation fails.
 
 ## Connect automatically
 

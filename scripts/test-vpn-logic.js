@@ -78,23 +78,26 @@ const STATE_TABLE = [
 // each code-0 line to the root's status_pattern, which must accept the
 // same lines.
 const STATUS_TABLE = [
-    [0, "state=off reason=disarmed blocked=0 tunnel= profile=\n", { state: "off", reason: "disarmed", blocked: "0", tunnel: "", profile: "" }],
-    [1, "state=off reason=disarmed blocked=0 tunnel= profile=\n", "unreachable"],
-    [0, "state=holding reason=tunnel-down blocked=0042 tunnel=wgnord profile=" + HOME + "\n",
-        { state: "holding", reason: "tunnel-down", blocked: "42", tunnel: "wgnord", profile: HOME }],
-    [0, "state=passing reason=tunnel-up blocked=18446744073709551615 tunnel=wg.home-0 profile=" + HOME.toUpperCase() + "\n",
-        { state: "passing", reason: "tunnel-up", blocked: "18446744073709551615", tunnel: "wg.home-0", profile: HOME }],
-    [0, "state=unavailable reason=profile-not-wireguard blocked=3 tunnel= profile=" + OFFICE + "\n",
-        { state: "unavailable", reason: "profile-not-wireguard", blocked: "3", tunnel: "", profile: OFFICE }],
-    [0, "state=unavailable reason=cache-unreadable blocked=3 tunnel= profile=\n",
-        { state: "unavailable", reason: "cache-unreadable", blocked: "3", tunnel: "", profile: "" }],
-    [1, "", "unreachable"], [-1, "state=off reason=disarmed blocked=0 tunnel= profile=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile= peers=\n", { state: "off", reason: "disarmed", blocked: "0", tunnel: "", profile: "", peers: [] }],
+    [1, "state=off reason=disarmed blocked=0 tunnel= profile= peers=\n", "unreachable"],
+    [0, "state=holding reason=tunnel-down blocked=0 tunnel=wgnord profile=" + HOME + " peers=45.86.210.42:443,[2001:db8::8]:51820\n",
+        { state: "holding", reason: "tunnel-down", blocked: "0", tunnel: "wgnord", profile: HOME, peers: ["45.86.210.42:443", "[2001:db8::8]:51820"] }],
+    [0, "state=holding reason=tunnel-down blocked=0 tunnel=wgnord profile=" + HOME + "\n", "unreachable"],
+    [0, "state=holding reason=tunnel-down blocked=0042 tunnel=wgnord profile=" + HOME + " peers=\n",
+        { state: "holding", reason: "tunnel-down", blocked: "42", tunnel: "wgnord", profile: HOME, peers: [] }],
+    [0, "state=passing reason=tunnel-up blocked=18446744073709551615 tunnel=wg.home-0 profile=" + HOME.toUpperCase() + " peers=\n",
+        { state: "passing", reason: "tunnel-up", blocked: "18446744073709551615", tunnel: "wg.home-0", profile: HOME, peers: [] }],
+    [0, "state=unavailable reason=profile-not-wireguard blocked=3 tunnel= profile=" + OFFICE + " peers=\n",
+        { state: "unavailable", reason: "profile-not-wireguard", blocked: "3", tunnel: "", profile: OFFICE, peers: [] }],
+    [0, "state=unavailable reason=cache-unreadable blocked=3 tunnel= profile= peers=\n",
+        { state: "unavailable", reason: "cache-unreadable", blocked: "3", tunnel: "", profile: "", peers: [] }],
+    [1, "", "unreachable"], [-1, "state=off reason=disarmed blocked=0 tunnel= profile= peers=\n", "unreachable"],
     [0, "state=off reason=disarmed blocked=0 tunnel=\n", "unreachable"],
-    [0, "state=armed reason=x blocked=0 tunnel= profile=\n", "unreachable"], [0, "state=off reason=Off blocked=0 tunnel= profile=\n", "unreachable"],
-    [0, "state=off reason=disarmed blocked=-1 tunnel= profile=\n", "unreachable"], [0, "state=off reason=disarmed blocked=0 tunnel=a/b profile=\n", "unreachable"],
-    [0, "state=off reason=disarmed blocked=0 tunnel= profile=Home\n", "unreachable"],
-    [0, "state=off reason=disarmed blocked=0 tunnel= profile=" + HOME + "0\n", "unreachable"],
-    [0, "state=off reason=disarmed blocked=0 tunnel= profile=\nstate=off reason=disarmed blocked=0 tunnel= profile=\n", "unreachable"], [0, "", "unreachable"]
+    [0, "state=armed reason=x blocked=0 tunnel= profile= peers=\n", "unreachable"], [0, "state=off reason=Off blocked=0 tunnel= profile= peers=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=-1 tunnel= profile= peers=\n", "unreachable"], [0, "state=off reason=disarmed blocked=0 tunnel=a/b profile= peers=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile=Home peers=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile=" + HOME + "0 peers=\n", "unreachable"],
+    [0, "state=off reason=disarmed blocked=0 tunnel= profile= peers=\nstate=off reason=disarmed blocked=0 tunnel= profile= peers=\n", "unreachable"], [0, "", "unreachable"]
 ];
 
 function vpnRequirementSuite(logic) {
@@ -160,6 +163,186 @@ function vpnReadinessSuite(logic) {
         if (key === "reading" || key === "no-answer")
             assert.deepEqual(plain(logic.passwordCommand(uuid, payload, missing)), { refusal: "refused: profile=state" }, key);
     }
+}
+
+// Nord's complete recorded public answers drive the shipped decisions.
+// Fixture provenance is retained on VGS-2402.
+function nordLocationSuite(logic) {
+    const countries = JSON.parse(text("nord-countries.json"));
+    const catalog = logic.nordCatalog(0, text("nord-countries.json"));
+    const catalogStatus = core.statusWrite(core.validateManifest(manifest, "/p").manifest, {}, "nordState",
+        plain({ phase: "ready", problem: "", countries: catalog.rows }));
+    assert.equal(catalogStatus.ok, true, catalogStatus.error);
+    assert.equal(catalog.kind, "ready");
+    const identities = rows => rows.map(row => [row.id, row.name]).sort((a, b) => a[0] - b[0]);
+    const choices = (route, level, source) => {
+        const got = plain(logic.nordChoices(catalog, route));
+        assert.equal(got.kind, "ready", JSON.stringify(route));
+        assert.equal(got.level, level, JSON.stringify(route));
+        assert.deepEqual(identities(got.rows), identities(source), JSON.stringify(route));
+        return got.rows;
+    };
+    // Discovery comes from the entire recording, not a second catalog.
+    // Required members make an extractor that silently returns [] fail.
+    assert.ok(countries.some(country => country.code === "AF" && country.cities.some(city => city.name === "Kabul")));
+    const us = countries.find(country => country.code === "US");
+    assert.equal(us.id, 228);
+    assert.ok(us.subdivisions.some(subdivision => subdivision.id === 44 && subdivision.name === "Arizona"));
+    assert.ok(us.cities.some(city => city.id === 8741960 && city.subdivision_id === 44 && city.name === "Phoenix"));
+    choices([], "country", countries);
+    const reached = [];
+    for (const country of countries) {
+        if (country.subdivisions.length === 0) {
+            for (const city of choices([country.id], "city", country.cities)) reached.push([country.id, city.id]);
+        } else {
+            choices([country.id], "subdivision", country.subdivisions);
+            for (const subdivision of country.subdivisions) {
+                const source = country.cities.filter(city => city.subdivision_id === subdivision.id);
+                for (const city of choices([country.id, subdivision.id], "city", source)) reached.push([country.id, city.id]);
+            }
+        }
+    }
+    const cityIds = rows => rows.map(row => row.join(":")).sort();
+    assert.deepEqual(cityIds(reached), cityIds(countries.flatMap(country => country.cities.map(city => [country.id, city.id]))),
+        "every recorded city is reachable exactly once, including countries with no subdivisions");
+    for (const [name, code, body] of [
+        ["failed countries read", 22, text("nord-countries.json")],
+        ["countries deadline", -1, ""], ["empty answer", 0, ""],
+        ["broken JSON", 0, "["], ["wrong top level", 0, "{}"], ["missing country data", 0, "[{}]"]
+    ]) assert.equal(logic.nordCatalog(code, body).kind, "refused", name);
+
+    assert.equal(logic.nordUrl(), "https://api.nordvpn.com/v1/servers/countries");
+    for (const city of countries.flatMap(country => country.cities)) {
+        const url = new URL(logic.nordUrl(city.id));
+        assert.equal(url.origin + url.pathname, "https://api.nordvpn.com/v1/servers/recommendations");
+        assert.equal(url.username + url.password + url.hash, "");
+        assert.deepEqual([...url.searchParams].sort(), [
+            ["filters[country_city_id]", String(city.id)],
+            ["filters[servers_technologies][identifier]", "wireguard_udp"], ["limit", "1"]
+        ].sort(), city.name);
+    }
+    for (const id of ["8741960&limit=100", "8741960;echo bad", -1, 0, 1.5, null])
+        assert.equal(logic.nordUrl(id), null, "an API city id stays numeric data");
+
+    const recommendation = JSON.parse(text("nord-recommendation-phoenix.json"));
+    const publicKey = "jiKqgiOst4UvgejfB1U4BlS0dlXoPohz+VM69G9TSDg=";
+    const server = { kind: "ready", publicKey, address: "45.86.210.42" };
+    assert.deepEqual(plain(logic.nordServer(0, text("nord-recommendation-phoenix.json"))), server);
+    const changed = edit => {
+        const rows = structuredClone(recommendation);
+        edit(rows[0]);
+        return JSON.stringify(rows);
+    };
+    const keyOf = row => row.technologies.find(technology => technology.identifier === "wireguard_udp")
+        .metadata.find(entry => entry.name === "public_key");
+    // The returned WireGuard technology and station supply the peer,
+    // independent of technology order and unused hostname/load metadata.
+    assert.deepEqual(plain(logic.nordServer(0, changed(row => {
+        row.technologies.reverse();
+        row.hostname = "not-used.example";
+        row.load = 99;
+    }))), server);
+    for (const address of ["192.0.2.8", "2001:db8::8"])
+        assert.deepEqual(plain(logic.nordServer(0, changed(row => { row.station = address; }))),
+            { ...server, address });
+    // API metadata and station text cross into nmcli peer syntax. All
+    // malformed variants must stop before any argv exists.
+    const refusedServers = [
+        ["failed recommendation", 22, text("nord-recommendation-phoenix.json"), "transport"],
+        ["recommendation deadline", -1, "", "transport"],
+        ["empty recommendation", 0, "[]", "recommendation"],
+        ["broken recommendation JSON", 0, "[", "recommendation"],
+        ["missing WireGuard technology", 0, changed(row => { row.technologies = []; }), "public-key"],
+        ["malformed technology member", 0, changed(row => { row.technologies = [null]; }), "public-key"],
+        ["missing key metadata", 0, changed(row => { keyOf(row).name = "unrelated"; }), "public-key"]
+    ];
+    for (const key of ["", null, 42, "not-base64", "A".repeat(44) + "=", "A".repeat(42) + "==",
+        publicKey.slice(0, -1), publicKey + "\n", publicKey + " endpoint=192.0.2.9:1", "$(echo bad)"])
+        refusedServers.push(["malformed public key " + JSON.stringify(key), 0,
+            changed(row => { keyOf(row).value = key; }), "public-key"]);
+    for (const address of ["", null, 42, "us9561.nordvpn.com", "256.1.1.1", "1.2.3", "1.2.3.4:51820",
+        "[2001:db8::8]", "2001:::8", "2001:db8::8%eth0", "45.86.210.42\n", "45.86.210.42;echo bad",
+        "45.86.210.42 allowed-ips=0.0.0.0/0"])
+        refusedServers.push(["malformed station " + JSON.stringify(address), 0,
+            changed(row => { row.station = address; }), "address"]);
+    const refused = [];
+    for (const [name, code, body, reason] of refusedServers) {
+        const got = plain(logic.nordServer(code, body));
+        assert.deepEqual(got, { kind: "refused", reason }, name);
+        refused.push([name, got]);
+    }
+
+    // NetworkManager's documented peer syntax, including non-default port
+    // and attributes, is preserved except for public key and address:
+    // https://networkmanager.dev/docs/api/latest/nm-settings-nmcli.html
+    // -g is terse tabular output, whose default escapes ':' and '\':
+    // https://networkmanager.dev/docs/api/latest/nmcli.html
+    assert.deepEqual(plain(logic.nordPeerArgv(HOME)),
+        ["nmcli", "--escape", "no", "-g", "wireguard.peers", "connection", "show", "uuid", HOME],
+        "read only the chosen profile's peer; no private-key field, whole profile or --show-secrets");
+    for (const uuid of ["", "NordVPN (saved)", HOME + ";echo bad"])
+        assert.equal(logic.nordPeerArgv(uuid), null, "peer reads require a UUID");
+    const oldKey = "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=";
+    const peer = oldKey + " allowed-ips=0.0.0.0/0;::/0 endpoint=203.0.113.10:443 persistent-keepalive=37 preshared-key-flags=4";
+    const profile = Object.freeze({
+        uuid: HOME, name: "NordVPN (saved)", type: "wireguard", state: "activated", peers: peer,
+        interfaceName: "wgnord", mtu: 1380, dns: "192.0.2.53", autoconnect: false,
+        get privateKey() { throw new Error("location change read the account private key"); },
+        get ["wireguard.private-key"]() { throw new Error("location change read the NM private-key field"); },
+        get secrets() { throw new Error("location change requested profile secrets"); }
+    });
+    const expectedPeer = publicKey + " allowed-ips=0.0.0.0/0;::/0 endpoint=45.86.210.42:443 persistent-keepalive=37 preshared-key-flags=4";
+    for (const [state, killSwitchOn, reconnect, refreshAllowance] of [
+        ["activated", false, true, false], ["", false, false, false],
+        ["activated", true, true, true], ["", true, false, true]
+    ]) {
+        const descriptors = Object.getOwnPropertyDescriptors(profile);
+        descriptors.state = { value: state, enumerable: true };
+        // Avoid evaluating secret getters while constructing the input.
+        const selected = Object.freeze(Object.create(Object.prototype, descriptors));
+        const got = plain(logic.nordPlan(HOME, selected, server, killSwitchOn));
+        assert.deepEqual(got, {
+            kind: "ready", argv: ["nmcli", "connection", "modify", "uuid", HOME, "wireguard.peers", expectedPeer],
+            reconnect, refreshAllowance
+        }, "one UUID-targeted peer write; reconnect only when previously active");
+        assert.equal(selected.peers, peer);
+        assert.deepEqual([selected.interfaceName, selected.mtu, selected.dns, selected.autoconnect], ["wgnord", 1380, "192.0.2.53", false]);
+    }
+    const ipv6 = { ...server, address: "2001:db8::8" };
+    assert.equal(logic.nordPlan(HOME, profile, ipv6, false).argv[6],
+        expectedPeer.replace("45.86.210.42:443", "[2001:db8::8]:443"), "IPv6 endpoint brackets keep the original port");
+    for (const [name, input] of [
+        ["no designated UUID", ""], ["another designated UUID", LAB], ["profile name instead of UUID", "NordVPN (saved)"]
+    ]) assert.deepEqual(plain(logic.nordPlan(input, profile, server, false)), { kind: "refused", reason: "profile" }, name);
+    const publicProfile = { uuid: HOME, name: profile.name, type: profile.type, state: profile.state, peers: peer };
+    for (const [name, patch] of [
+        ["another profile", { uuid: LAB }], ["non-WireGuard profile", { type: "vpn" }],
+        ["connecting", { state: "activating" }], ["disconnecting", { state: "deactivating" }],
+        ["missing peer", { peers: "" }], ["multiple peers", { peers: peer + ", " + peer }],
+        ["missing endpoint", { peers: oldKey + " allowed-ips=0.0.0.0/0" }],
+        ["a peer secret cannot be preserved unread", { peers: peer + " preshared-key=(hidden)" }]
+    ]) assert.deepEqual(plain(logic.nordPlan(HOME, { ...publicProfile, ...patch }, server, false)),
+        { kind: "refused", reason: "profile" }, name);
+    for (const [name, failed] of refused)
+        assert.deepEqual(plain(logic.nordPlan(HOME, profile, failed, true)), failed, name + " causes no profile write");
+    for (const [patch, reason] of [[{ publicKey: "bad" }, "public-key"], [{ address: "bad" }, "address"]])
+        assert.deepEqual(plain(logic.nordPlan(HOME, profile, { ...server, ...patch }, false)), { kind: "refused", reason });
+    nordAllowanceSuite(logic);
+}
+function nordAllowanceSuite(logic) {
+    // The installed allowance, rather than the UUID alone, authorizes
+    // reconnect. An old same-UUID endpoint remains a waiting observation.
+    const endpoint = "45.86.210.42:443";
+    const target = { uuid: HOME, endpoint };
+    for (const [name, observation, outcome] of [
+        ["no completion", null, "waiting"],
+        ["old same-UUID armed allowance", { state: "passing", profile: HOME, peers: ["203.0.113.10:443"] }, "waiting"],
+        ["another profile's allowance", { state: "passing", profile: LAB, peers: [endpoint] }, "waiting"],
+        ["a sync between cache removal and publication", { state: "unavailable", reason: "cache-unreadable", profile: "", peers: [] }, "waiting"],
+        ["this endpoint's allowance", { state: "holding", profile: HOME, peers: [endpoint] }, "armed"],
+        ["an uncovered device cannot acknowledge the endpoint", { state: "unavailable", reason: "device-uncovered", profile: HOME, peers: [endpoint] }, "failed"],
+        ["allowance refresh failed", { state: "unavailable", profile: HOME, peers: [] }, "failed"]
+    ]) assert.equal(logic.nordRefreshOutcome(observation, target), outcome, name);
 }
 
 function suite(logic, service = serviceSource) {
@@ -607,7 +790,7 @@ function suite(logic, service = serviceSource) {
     const beforeRun = Object.assign({}, listing, { rows: listing.rows.map(row => row.uuid === HOME ? Object.assign({}, row, { state: "" }) : row), activeCount: 0 });
     const afterRun = listing;
     const holdingHome = plain(logic.killSwitchState({ state: "ready", reason: "granted" }, { kind: "valid", meantOn: HOME, mode: "block", portalUntil: "0" },
-        logic.killStatus(0, "state=holding reason=tunnel-down blocked=0 tunnel= profile=" + HOME + "\n"), false, "", false));
+        logic.killStatus(0, "state=holding reason=tunnel-down blocked=0 tunnel= profile=" + HOME + " peers=\n"), false, "", false));
     for (const [name, running, listsToClear] of [["no read running", false, 1], ["a read already running", true, 2]]) {
         const ending = { registered: true, profilesMissing: false, profilesReader: { running }, reads: 0, readProfiles() { ending.reads++; },
             profileAction: { kind: "profile-up", uuid: HOME, name: "Home tunnel", password: false },
@@ -874,7 +1057,7 @@ function suite(logic, service = serviceSource) {
         [{ state: "unknown", reason: "system-undetected" }, ["warning", false, false]]]) {
         values = {};
         const state = logic.killSwitchState(step, { kind: "valid", meantOn: HOME, mode: "block-lan", portalUntil: "0" },
-            logic.killStatus(0, "state=passing reason=tunnel-up blocked=7 tunnel=wg0 profile=" + HOME + "\n"), false, "");
+            logic.killStatus(0, "state=passing reason=tunnel-up blocked=7 tunnel=wg0 profile=" + HOME + " peers=\n"), false, "");
         publish(shell, logic.connection(profiles), profiles, logic, state, logic.killSwitchSetup(step));
         assert.deepEqual(values.killSwitchState, plain(state));
         const entry = values.killSwitch;
@@ -947,7 +1130,7 @@ function killSwitchSuite(logic, service, profiles) {
         [0, "vgs-kill-switch: refused: status=unreadable path=x\n", "unreachable"]
     ]) assert.equal(logic.killStatus(code, "", errors).state, state, errors);
     // Only a line naming the profile just written answers the wait.
-    const line = (state, reason, profile, tunnel = "") => logic.killStatus(0, "state=" + state + " reason=" + reason + " blocked=3 tunnel=" + tunnel + " profile=" + profile + "\n");
+    const line = (state, reason, profile, tunnel = "") => logic.killStatus(0, "state=" + state + " reason=" + reason + " blocked=3 tunnel=" + tunnel + " profile=" + profile + " peers=\n");
     for (const [name, status, outcome] of [
         ["its own passing", line("passing", "tunnel-up", HOME, "wg0"), "armed"],
         ["its own holding", line("holding", "tunnel-down", HOME, "wg0"), "armed"],
@@ -1057,7 +1240,7 @@ function killSwitchSuite(logic, service, profiles) {
     // singular for one, with the switch's info saying what it counts; in
     // any other reading the line carries no count and no info.
     const countView = (blocked, rows = droppedRows) => plain(logic.killSwitchView(plain(logic.killSwitchState(ready, file(HOME, "block"),
-        logic.killStatus(0, "state=holding reason=tunnel-down blocked=" + blocked + " tunnel= profile=" + HOME + "\n"), false, "", false)), rows));
+        logic.killStatus(0, "state=holding reason=tunnel-down blocked=" + blocked + " tunnel= profile=" + HOME + " peers=\n"), false, "", false)), rows));
     const once = countView("1");
     const many = countView("214");
     assert.ok(once.hint.includes(" 1 ") && many.hint.includes(" 214 "), "the line carries the count");
@@ -1666,7 +1849,7 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     const servers = [{ addressString: "192.0.2.53", address: [192, 0, 2, 53], family: 2, port: 53 }];
     const status = (state, blocked, tunnel = "wg-home", profile = HOME) =>
         logic.killStatus(0, "state=" + state + " reason=" + (state === "holding" ? "tunnel-down" : state === "passing" ? "tunnel-up" : "disarmed")
-            + " blocked=" + blocked + " tunnel=" + tunnel + " profile=" + profile + "\n");
+            + " blocked=" + blocked + " tunnel=" + tunnel + " profile=" + profile + " peers=\n");
 
     // The parsers, on recorded and malformed readings.
     const TAILNET = { link: "tailscale0", defaultRoute: false, domains: ["tail0000.ts.net", "ts.net"] };
@@ -1905,6 +2088,7 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         const owner = { registered: true, killStep: step, killReady: step.state === "ready", killSettlePoll: false, checkWantsStatus: false, handed: [],
             killReader: { running: false, again: false, settles: false, forCheck: false, completion: "old" }, killDeadline: { restart() {} },
             leakCheck: { statusRead(read) { owner.handed.push(read); } } };
+        owner.root = owner;
         serviceFn(owner, "checkStatus");
         serviceFn(owner, "readKillStatus");
         return owner;
@@ -1923,7 +2107,7 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     const ended = /id: killReader[\s\S]*?onRunningChanged: \{([\s\S]*?)\n        \}/.exec(service);
     assert.ok(ended, "the status reader's end");
     const finishStatus = new Function("root", "Logic", "killText", "killErrors", "killDeadline", "console", "leakCheck", "reader", "with (reader) {" + ended[1] + "}");
-    const line = "state=holding reason=tunnel-down blocked=42 tunnel=wg-home profile=" + HOME + "\n";
+    const line = "state=holding reason=tunnel-down blocked=42 tunnel=wg-home profile=" + HOME + " peers=\n";
     for (const [name, ready, completion, killStatus, handed] of [
         ["set up", true, { code: 0, status: 0 }, holdingHome, holdingHome],
         ["not set up, read", false, { code: 0, status: 0 }, null, holdingHome],
@@ -2457,9 +2641,16 @@ function autoConnectSuite(logic, service = serviceSource, wired = wiredSource) {
 suite(load(file, commons));
 editorSuite(load(file, commons));
 leakCheckSuite(load(file, commons));
+nordLocationSuite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vpn-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
+    const endpointGuard = "status.peers.indexOf(target.endpoint) !== -1";
+    assert.equal(source.split(endpointGuard).length - 1, 1);
+    const nordControl = path.join(scratch, "nord-control.js");
+    fs.writeFileSync(nordControl, source.replace(endpointGuard, "true"));
+    assert.throws(() => nordAllowanceSuite(load(nordControl, commons)), undefined, "control: old endpoint cannot authorize reconnect");
+    console.log("vpn-logic: control=old endpoint cannot authorize reconnect red");
     for (const [name, needle, replacement] of [
         ["pending details block connect", 'row.details === "reading"', 'false'],
         ["failed details block connect", 'row.details === "no-answer"', 'false']
@@ -2552,7 +2743,7 @@ try {
         ["a malformed file's disconnect writes the off", ' || file.kind === "malformed") return { patch: { meantOn: "" }', ') return { patch: { meantOn: "" }'],
         ["only the written profile answers the wait", '    if (status.profile !== uuid) return "waiting";\n', ''],
         ["a read with no line is no answer", '    if (status.state === "unreachable" || status.state === "unreadable") return "failed";\n', ''],
-        ["the status line names its profile", 'profile: found[5].toLowerCase() }', 'profile: "" }'],
+        ["the status line names its profile", 'profile: found[5].toLowerCase(), peers:', 'profile: "", peers:'],
         ["on, naming a connected profile, with no rule is danger", 'then turn it on again.", tone: "danger" });', 'then turn it on again.", tone: "" });'],
         ["a write's grace holds the danger line back", 'if (state.busy || state.settling || ', 'if (state.busy || '],
         ["a profile not connected gets no danger line", ' || meant === undefined || meant.state !== "activated") return view;', ') return view;'],
@@ -2709,7 +2900,7 @@ try {
     };
     const parseState = /^parse_state\(\) \{\n[\s\S]*?\n\}$/m.exec(root);
     assert.ok(parseState, "the root script has parse_state");
-    const definitions = ["digit", "hex", "word_char", "uuid_body", "uuid_pattern"].map(definition);
+    const definitions = ["digit", "hex", "word_char", "uuid_body", "uuid_pattern", "octet", "status_endpoint"].map(definition);
     const run = (script, args) => require("child_process").execFileSync("bash", ["--norc", "--noprofile", script, ...args],
         { env: { PATH: process.env.PATH, LC_ALL: "C" }, encoding: "utf8" });
     const asRoot = read => read.kind === "malformed" ? "malformed" : ["valid", read.meantOn === "" ? "-" : read.meantOn, read.mode, read.portalUntil].join(" ");
@@ -2814,7 +3005,7 @@ try {
     }
     for (const [name, needle, replacement] of [
         ["a connect's check starts for WireGuard alone", "if (!Logic.checkReads(profiles.rows.find", "if (false && !Logic.checkReads(profiles.rows.find"],
-        ["the check's status read runs while the step is not set up", "if (!registered || !(killReady || checkWantsStatus)) return;", "if (!registered || !killReady) return;"],
+        ["the check's status read runs while the step is not set up", "if (!registered || !(killReady || checkWantsStatus || root.nordWantsStatus === true)) return;", "if (!registered || !(killReady || root.nordWantsStatus === true)) return;"],
         ["a step that rules out a table hands none", 'if (Logic.checkKillPlan(killStep) === "none") {', "if (!killReady) {"],
         ["the check's own read leaves the switch's reading", "            if (root.killReady) {\n                const failed", "            if (true) {\n                const failed"],
         ["the status read hands the check its reading", "leakCheck.statusRead(Logic.checkKillStatus(root.killReady, next, completion !== null));", "leakCheck.statusRead(next);"]

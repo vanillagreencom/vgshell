@@ -52,6 +52,14 @@ Item {
     property var addressQueue: []
     property var profileAction: null
     property var profileProblem: null
+    readonly property var nordState: nord.value
+    readonly property bool nordWantsStatus: nord.wantsStatus
+    NordLocation {
+        id: nord
+        controller: root
+    }
+    function nordRequest(request) { return nord.request(request); }
+    function nordStatusRead(status, started) { nord.statusRead(Logic.checkKillStatus(killReady, status, started)); }
     // The password connect's stdin closure until its run starts or ends.
     property var connectFeed: null
     readonly property var profiles: Logic.compose(profilesMissing ? Logic.emptyProfiles("missing") : listing,
@@ -143,7 +151,7 @@ Item {
         onSettled: root.wiredSettled()
     }
 
-    readonly property var killSwitch: Logic.killSwitchState(killStep, killFile, killStatus, killChanging || stage !== null, killProblem, killSettling)
+    readonly property var killSwitch: Logic.killSwitchState(killStep, killFile, killStatus, killChanging || stage !== null || nord.changing, killProblem, killSettling)
     readonly property var killSetup: Logic.killSwitchSetup(killStep)
     onKillSwitchChanged: publish()
     onKillSetupChanged: publish()
@@ -170,20 +178,24 @@ Item {
         }
     }
     onConnectionChanged: publish()
-    onProfilesChanged: publish()
+    onProfilesChanged: { publish(); publishNordProfiles(); }
+    function publishNordProfiles() {
+        report("nordProfiles", [{ label: "None", value: "off" }].concat(profiles.rows.filter(row => row.type === "wireguard").map(row => ({ label: Logic.choiceLabel(row.name, "WireGuard"), value: row.uuid }))));
+    }
     // Connect automatically's entries, each written only when its value
     // changed, since the list read builds new ones at every poll.
     property var reported: ({})
     function report(key, value) {
-        if (shell === null) return;
+        if (shell === null) return false;
         const text = JSON.stringify(value);
-        if (reported[key] === text) return;
+        if (reported[key] === text) return true;
         const reply = shell.status.set(key, value);
         if (!shell.status.isOk(reply)) {
             console.warn("vpn: status " + key + " " + reply);
-            return;
+            return false;
         }
         reported = Object.assign({}, reported, { [key]: text });
+        return true;
     }
     function publishAuto() {
         report("autoConnectProblem", autoProblem === "" ? null : autoProblem);
@@ -208,10 +220,13 @@ Item {
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             shell.ipc.handle("kill-switch", arg => root.setKillSwitch(arg));
             shell.ipc.handle("trust-wired", () => root.trustWired());
+            shell.ipc.handle("nord", arg => root.nordRequest(JSON.parse(arg)));
             refresh();
         }
         publish();
         publishAuto();
+        report("nordState", nordState);
+        publishNordProfiles();
     }
     onScansChanged: refresh()
     onProfilesMissingChanged: {
@@ -716,6 +731,7 @@ Item {
     // The switches' IPC: MODE, one of block, block-lan or off, written as
     // kill-switch=.
     function setKillSwitch(mode) {
+        if (profileAction !== null && profileAction.kind === "nord") return "busy";
         if (Logic.KILL_MODES.indexOf(mode) === -1) return "refused: kill-switch=mode";
         if (!killReady) return "refused: kill-switch=not-set-up";
         if (stateWrite !== null || stage !== null) return "busy";
@@ -739,7 +755,7 @@ Item {
     // A status read the leak check asked for runs while the step is not
     // set up too (VpnLogic.checkKillPlan).
     function readKillStatus() {
-        if (!registered || !(killReady || checkWantsStatus)) return;
+        if (!registered || !(killReady || checkWantsStatus || root.nordWantsStatus === true)) return;
         if (killReader.running) { killReader.again = true; return; }
         killReader.forCheck = checkWantsStatus;
         checkWantsStatus = false;
@@ -1071,6 +1087,7 @@ Item {
             killDeadline.stop();
             const code = root.codeOf(completion);
             const next = Logic.killStatus(code, killText.text, killErrors.text);
+            if (root.nordWantsStatus === true) root.nordStatusRead(next, completion !== null);
             // A read the leak check asked for while the step is not set up
             // is the check's alone; the kill switch row keeps its own.
             if (root.killReady) {

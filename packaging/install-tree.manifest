@@ -846,6 +846,8 @@ f share/vgshell/shell/plugins/vgs.vpn/AutoConnect.qml
 f share/vgshell/shell/plugins/vgs.vpn/ConnectPrompt.qml
 f share/vgshell/shell/plugins/vgs.vpn/KillSwitch.qml
 f share/vgshell/shell/plugins/vgs.vpn/LeakCheck.qml
+f share/vgshell/shell/plugins/vgs.vpn/NordLocation.qml
+f share/vgshell/shell/plugins/vgs.vpn/NordSection.qml
 f share/vgshell/shell/plugins/vgs.vpn/Pane.qml
 f share/vgshell/shell/plugins/vgs.vpn/Panel.qml
 f share/vgshell/shell/plugins/vgs.vpn/ProfileRow.qml

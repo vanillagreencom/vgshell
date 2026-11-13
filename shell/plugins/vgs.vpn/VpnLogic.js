@@ -14,6 +14,111 @@ var PROFILE_MAX = 32;
 var SERVICE_PREFIX = "org.freedesktop.NetworkManager.";
 var UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+// Nord's unauthenticated public responses are recorded under fixtures/vpn.
+// The catalog belongs to one open picker; no global catalog is retained.
+var NORD_MAX = 2097152;
+function nordId(value) { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
+function nordCatalog(code, text) {
+    let rows;
+    try { if (code === 0 && text.length <= NORD_MAX) rows = JSON.parse(text); } catch (error) { rows = null; }
+    const named = row => isPlain(row) && nordId(row.id) && placeName(row.name) !== null && placeName(row.name) !== "";
+    if (!Array.isArray(rows) || rows.length === 0 || !rows.every(country => named(country)
+        && Array.isArray(country.subdivisions) && country.subdivisions.every(named)
+        && Array.isArray(country.cities) && country.cities.length > 0 && country.cities.every(city => named(city)
+            && (country.subdivisions.length === 0 || country.subdivisions.some(region => region.id === city.subdivision_id)))))
+        return { kind: "refused", reason: "catalog" };
+    return { kind: "ready", rows: rows.map(country => ({ id: country.id, name: country.name,
+        subdivisions: country.subdivisions.map(region => ({ id: region.id, name: region.name })),
+        cities: country.cities.map(city => ({ id: city.id, name: city.name, subdivision_id: city.subdivision_id === undefined ? null : city.subdivision_id })) })) };
+}
+function nordChoices(catalog, route) {
+    if (catalog.kind !== "ready") return { kind: "refused" };
+    let rows = catalog.rows;
+    let level = "country";
+    if (route.length > 0) {
+        const country = rows.find(row => row.id === route[0]);
+        if (country === undefined) return { kind: "refused" };
+        if (country.subdivisions.length > 0 && route.length === 1) { rows = country.subdivisions; level = "subdivision"; }
+        else { rows = country.cities.filter(city => country.subdivisions.length === 0 || city.subdivision_id === route[1]); level = "city"; }
+    }
+    return { kind: "ready", level: level, rows: rows.map(row => ({ id: row.id, name: row.name })).sort((a, b) => a.name.localeCompare(b.name)) };
+}
+function nordUrl(city) {
+    if (city === undefined) return "https://api.nordvpn.com/v1/servers/countries";
+    return nordId(city) ? "https://api.nordvpn.com/v1/servers/recommendations?filters%5Bservers_technologies%5D%5Bidentifier%5D=wireguard_udp&filters%5Bcountry_city_id%5D=" + city + "&limit=1" : null;
+}
+function nordFetchArgv(city) {
+    return ["curl", "-q", "--fail", "--silent", "--show-error", "--globoff", "--proto", "=https", "--connect-timeout", "5", "--max-time", "10", "--max-filesize", String(NORD_MAX), nordUrl(city)];
+}
+// A WireGuard public key is exactly 32 bytes in canonical base64. Its last
+// sextet has two zero bits; rejecting noncanonical padding avoids accepting
+// input nmcli would interpret differently.
+function nordPublicKey(value) { return typeof value === "string" && value.length === 44 && /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(value); }
+function nordAddress(value) {
+    if (typeof value !== "string" || /\s/.test(value)) return false;
+    if (IPV4.test(value)) return true;
+    if (!/^[0-9a-fA-F:]+$/.test(value) || value.indexOf(":") === -1) return false;
+    const halves = value.split("::");
+    if (halves.length > 2) return false;
+    const groups = half => half === "" ? [] : half.split(":");
+    const words = groups(halves[0]).concat(halves.length === 2 ? groups(halves[1]) : []);
+    return words.every(word => /^[0-9a-fA-F]{1,4}$/.test(word)) && (halves.length === 2 ? words.length < 8 : words.length === 8);
+}
+function nordServer(code, text) {
+    if (code !== 0) return { kind: "refused", reason: "transport" };
+    let rows;
+    try { if (text.length <= NORD_MAX) rows = JSON.parse(text); } catch (error) { rows = null; }
+    if (!Array.isArray(rows) || rows.length !== 1 || !isPlain(rows[0])) return { kind: "refused", reason: "recommendation" };
+    const server = rows[0];
+    const technology = Array.isArray(server.technologies) ? server.technologies.find(row => isPlain(row) && row.identifier === "wireguard_udp") : null;
+    const key = technology && Array.isArray(technology.metadata) ? technology.metadata.find(row => isPlain(row) && row.name === "public_key") : null;
+    if (!key || !nordPublicKey(key.value)) return { kind: "refused", reason: "public-key" };
+    if (!nordAddress(server.station)) return { kind: "refused", reason: "address" };
+    return { kind: "ready", publicKey: key.value, address: server.station };
+}
+function nordPeerArgv(uuid) {
+    return typeof uuid === "string" && UUID.test(uuid) ? ["nmcli", "--escape", "no", "-g", "wireguard.peers", "connection", "show", "uuid", uuid] : null;
+}
+// REVISIT(D130): the saved profile owns the account key. This exception
+// replaces only its one peer's public identity, never profile credentials.
+// nmcli peer grammar: https://networkmanager.dev/docs/api/latest/nm-settings-nmcli.html
+function nordPlan(uuid, profile, server, killOn) {
+    if (server.kind !== "ready") return server;
+    if (!nordPublicKey(server.publicKey)) return { kind: "refused", reason: "public-key" };
+    if (!nordAddress(server.address)) return { kind: "refused", reason: "address" };
+    if (typeof uuid !== "string" || !UUID.test(uuid) || !profile || profile.uuid !== uuid || profile.type !== "wireguard"
+        || ["", "activated"].indexOf(profile.state) === -1 || typeof profile.peers !== "string") return { kind: "refused", reason: "profile" };
+    const peers = profile.peers.replace(/\n$/, "");
+    const key = /^[A-Za-z0-9+/]{43}=/.exec(peers);
+    const endpoint = /(?:^| )endpoint=(\[[0-9a-fA-F:]+\]|[^ ,]+):([0-9]{1,5})(?= |$)/.exec(peers);
+    if (key === null || !nordPublicKey(key[0]) || peers.indexOf(",") !== -1 || endpoint === null
+        || Number(endpoint[2]) < 1 || Number(endpoint[2]) > 65535 || /[\r\n]/.test(peers)
+        || /(?:^| )preshared-key=/.test(peers)) return { kind: "refused", reason: "profile" };
+    const address = server.address.indexOf(":") === -1 ? server.address : "[" + server.address + "]";
+    const replaced = server.publicKey + peers.slice(key[0].length).replace(/endpoint=(\[[0-9a-fA-F:]+\]|[^ ,]+):([0-9]{1,5})(?= |$)/, "endpoint=" + address + ":" + endpoint[2]);
+    return { kind: "ready", argv: ["nmcli", "connection", "modify", "uuid", uuid, "wireguard.peers", replaced], reconnect: profile.state === "activated", refreshAllowance: killOn === true };
+}
+function nordRefreshOutcome(status, target) {
+    const outcome = armOutcome(status, target.uuid);
+    if (outcome !== "armed") return outcome === "unavailable" ? "failed" : outcome;
+    // An uncovered-device table can hold an ordinary connect, but cannot
+    // acknowledge the replacement endpoint.
+    if (status.state === "unavailable") return "failed";
+    return Array.isArray(status.peers) && status.peers.indexOf(target.endpoint) !== -1 ? "armed" : "waiting";
+}
+function nordProblem(phase) {
+    switch (phase) {
+    case "catalog": return "NordVPN did not send its locations. Close this window and try again.";
+    case "recommendation": return "NordVPN did not send a usable server. Try another city.";
+    case "peer": return "VGS cannot change this profile's server. Check it in the connection editor.";
+    case "modify": return "NetworkManager could not save the new server. Try again.";
+    case "protection": return "VGS could not check the kill switch. The server was not changed.";
+    case "allowance": return "The kill switch did not confirm the new server. The VPN was not reconnected.";
+    case "down": case "up": return "The server was saved, but NetworkManager could not reconnect the VPN.";
+    default: return "VGS could not change the VPN location.";
+    }
+}
+
 // Qt shares .pragma library state across this plugin's QML instances:
 // https://doc.qt.io/qt-6/qtqml-javascript-resources.html
 // The service attaches itself as the password connect's owner and
@@ -294,7 +399,7 @@ var UNSUPPORTED_REASON = "VGS cannot show this VPN's sign-in. Connect it from yo
 // or "".
 function motion(row, action) {
     if (isPlain(action) && action.uuid === row.uuid)
-        return action.kind === "profile-up" ? "connecting" : action.kind === "profile-down" ? "disconnecting" : "removing";
+        return action.kind === "nord" ? "changing" : action.kind === "profile-up" ? "connecting" : action.kind === "profile-down" ? "disconnecting" : "removing";
     return row.state === "activating" ? "connecting" : row.state === "deactivating" ? "disconnecting" : "";
 }
 
@@ -330,6 +435,7 @@ function rowView(row, profiles, missing, killOn, held) {
             connected: false, switchOn: false, reason: "", install: "", reconnect: false }, extra || {});
     }
     const moving = motion(row, profiles.action);
+    if (moving === "changing") return view(moving, "Changing server…", { busy: true, connected: row.state === "activated", switchOn: row.state === "activated", reason: BUSY_REASON });
     // The switch shows where the change goes and waits for it.
     if (moving === "connecting") return view(moving, "Connecting…", { busy: true, switchOn: true, reason: BUSY_REASON });
     if (moving === "disconnecting") return view(moving, "Disconnecting…", { busy: true, connected: true, reason: BUSY_REASON });
@@ -357,7 +463,8 @@ function rowView(row, profiles, missing, killOn, held) {
 }
 
 var KINDS = ["profile-up", "profile-down", "profile-remove", "profile-details", "profile-check"];
-// The editor owns every profile change. Its edit target must still be a
+// The editor owns profile changes outside D130's Nord peer exception.
+// Its edit target must still be a
 // published row; no typed text becomes an editor argument.
 function editorArgv(kind, uuid, profiles) {
     if (kind === "create") return { argv: ["nm-connection-editor", "--create", "--type=vpn"] };
@@ -432,6 +539,7 @@ function summary(profiles, notice) {
     if (profiles.state === "reading") return "Reading your VPN profiles";
     for (const row of profiles.rows) {
         const moving = motion(row, profiles.action);
+        if (moving === "changing") return "Changing server for " + row.name;
         if (moving === "connecting") return "Connecting to " + row.name;
         if (moving === "disconnecting") return "Disconnecting from " + row.name;
     }
@@ -468,7 +576,7 @@ function barView(profiles, notice) {
     const stateDot = isPlain(notice) ? "danger" : "";
     for (const row of rows) {
         const moving = motion(row, profiles.action);
-        if (moving === "connecting" || moving === "disconnecting")
+        if (moving === "connecting" || moving === "disconnecting" || moving === "changing")
             return { shown: true, icon: "shield", spinning: true, warning: false, stateDot: stateDot, tooltip: "VPN: " + summary(profiles, notice) };
     }
     const alert = rows.find(row => row.state !== "activated"
@@ -606,15 +714,15 @@ function meantOnPlan(kind, uuid, ready, file, type) {
 // refusal, the first line of ERRORS, says the socket answered with no
 // status line, else `unreachable`, as for its own status=unreachable, a
 // run that never started and any other output.
-var STATUS_LINE = /^state=(off|holding|passing|unavailable) reason=([a-z-]{1,40}) blocked=([0-9]{1,20}) tunnel=([A-Za-z0-9_.-]{0,15}) profile=((?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?)$/;
+var STATUS_LINE = /^state=(off|holding|passing|unavailable) reason=([a-z-]{1,40}) blocked=([0-9]{1,20}) tunnel=([A-Za-z0-9_.-]{0,15}) profile=((?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?) peers=([0-9a-fA-F.:\[\],]*)$/;
 var STATUS_UNREADABLE = /^vgs-kill-switch: refused: status=unreadable(?: |$)/;
 function killStatus(code, text, errors) {
     const found = code === 0 ? STATUS_LINE.exec(String(text).replace(/\n$/, "")) : null;
     if (found === null) {
         const unreadable = code === 1 && STATUS_UNREADABLE.test(String(errors === undefined ? "" : errors).split("\n")[0]);
-        return { state: unreadable ? "unreadable" : "unreachable", reason: "", blocked: "0", tunnel: "", profile: "" };
+        return { state: unreadable ? "unreadable" : "unreachable", reason: "", blocked: "0", tunnel: "", profile: "", peers: [] };
     }
-    return { state: found[1], reason: found[2], blocked: found[3].replace(/^0+(?=[0-9])/, ""), tunnel: found[4], profile: found[5].toLowerCase() };
+    return { state: found[1], reason: found[2], blocked: found[3].replace(/^0+(?=[0-9])/, ""), tunnel: found[4], profile: found[5].toLowerCase(), peers: found[6] === "" ? [] : found[6].split(",") };
 }
 
 // What a status read means to a connect of UUID waiting for the table:

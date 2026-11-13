@@ -23,6 +23,14 @@
 # Trusted networks row; its switch saves the network by its router, read
 # through the nmcli and ip stand-ins, and the cable connecting again
 # connects nothing with the same router and Lab tunnel with another.
+# A Nord city choice uses the complete recorded public catalog and
+# recommendation, with curl and NetworkManager stood in. Its designated
+# single-peer UUID receives one peer replacement, retaining allowed IPs
+# and port; only an initially connected profile receives down/up.
+# An armed rewrite waits for its new endpoint acknowledgement while keeping
+# intent. Closing after the write lets it finish; closing before it writes
+# cancels it. Failed writes and unavailable allowances release the change
+# without reconnecting.
 # Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
 # Import callback, drop Import's availability guard and put the password
@@ -95,11 +103,13 @@ PY
   device_reply nmcli 0 "$(cat -- "$sandbox/vpn-list.txt")" "${vpn_list_argv[@]}"
   device_reply nmcli 0 "$(cat -- "$sandbox/vpn-details.txt")" "${argv[@]}"
 }
-# vpn_hold MARKER ARGV...: the planted nmcli reply for ARGV waits for
+# vpn_hold [--tool NAME] MARKER ARGV...: the planted nmcli reply for ARGV waits for
 # $devices_dir/MARKER, recording MARKER.waiting once the call arrives.
-vpn_hold() { # MARKER ARGV...
+vpn_hold() { # [--tool NAME] MARKER ARGV...
+  local tool=nmcli
+  if [[ $1 == --tool ]]; then tool="$2"; shift 2; fi
   rm -f -- "${devices_dir:?}/$1" "${devices_dir:?}/$1.waiting"
-  python3 - "$devices_dir/replies/nmcli.json" "$@" <<'PY'
+  python3 - "$devices_dir/replies/$tool.json" "$@" <<'PY'
 import json, os, sys
 path, marker, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
 rows = json.load(open(path))
@@ -110,6 +120,44 @@ PY
 }
 vpn_release() { : >"$devices_dir/$1"; }
 vpn_unhold() { rm -f -- "${devices_dir:?}/$1" "${devices_dir:?}/$1.waiting"; }
+
+# The service's location operation and its published phase.
+vpn_nord() { ipc vgs.vpn invoke nord "$1"; }
+vpn_nord_phase() {
+  ipc smoke readInstance service vgs.vpn nordState | py_reply 'import json,sys; v=json.load(sys.stdin); print(v.get("phase", "unpublished") if isinstance(v,dict) else "unpublished")'
+}
+vpn_nord_problem() {
+  ipc smoke readInstance service vgs.vpn nordState | py_reply 'import json,sys; v=json.load(sys.stdin); print(bool(v.get("problem")) if isinstance(v,dict) else "unpublished")'
+}
+vpn_nord_profile_state() {
+  ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(next((r["state"] for r in v.get("rows",[]) if r["uuid"]==sys.argv[1]), "absent"))' "$vpn_lab"
+}
+# Every nmcli call except a narrowly scoped public read is an effect.
+# An extra property write or a broad/secret read therefore remains in the
+# transcript compared below instead of disappearing behind a verb filter.
+vpn_nord_effects() { # FROM
+  device_calls nmcli | py_reply 'import json,sys
+rows=json.load(sys.stdin)[int(sys.argv[1]):]; uuid=sys.argv[2]
+def public_read(c):
+    if c == ["--escape","no","-g","wireguard.peers","connection","show","uuid",uuid]:
+        return True
+    if c == ["-t","-f","NAME,UUID,TYPE,STATE","connection","show"]:
+        return True
+    fields=("connection.uuid,vpn.service-type,vpn.data,wireguard.peers","GENERAL.STATE,IP4.ADDRESS")
+    return (len(c)>5 and c[:2]==["-t","-f"] and c[2] in fields and c[3:5]==["connection","show"]
+            and len(c[5:])%2==0 and all(part=="uuid" for part in c[5::2])
+            and all(not part.startswith("-") for part in c[6::2]))
+print(json.dumps([c for c in rows if not public_read(c)]))' "$1" "$vpn_lab"
+}
+vpn_nord_expected_effects() { # PEER STATE
+  python3 -c 'import json,sys; uuid,peer,state=sys.argv[1:]; calls=[["connection","modify","uuid",uuid,"wireguard.peers",peer]]; calls += [["connection","down","uuid",uuid],["connection","up","uuid",uuid],["-t","-f","GENERAL.STATE,GENERAL.IP-IFACE","connection","show","uuid",uuid]] if state=="activated" else []; print(json.dumps(calls))' "$vpn_lab" "$1" "$2"
+}
+vpn_nord_http_count() { device_calls curl | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+vpn_nord_http() { device_calls curl | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; } # FROM
+vpn_nord_root_count() { device_calls vgs-kill-switch | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+vpn_nord_retried() { # FROM: a second read follows the stale endpoint answer
+  device_calls vgs-kill-switch | py_reply 'import json,sys; print(len(json.load(sys.stdin))-int(sys.argv[1]) >= 2)' "$1"
+}
 
 # A profile row as drawn, `KEY|CHECKED|LOCKED|SPINNER|TONE`: the state key
 # VpnLogic.rowView gave it, whether its switch is on and holds a disabled
@@ -901,6 +949,227 @@ expect_poll "wired hotel: the automatic connect ends" null vpn_profiles action
 expect "wired: the mock's wired devices go" ok vpn_net_event unwired
 device_reply_clear ip
 expect "auto: Connect automatically turns off" ok vpn_auto_settings '{"autoConnect": null, "trustedNetworks": null, "pollSeconds": null}'
+vpn_kill_state="$devices_vpn_kill_root/vpn/state"
+vpn_kill_file() { if [[ -f $vpn_kill_state ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$vpn_kill_state"; else echo absent; fi; }
+# vpn_kill_write MEANT MODE PORTAL: the state file holding those keys.
+vpn_kill_write() { printf 'version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n' "$1" "$2" "$3" >"$vpn_kill_state"; } # MEANT MODE PORTAL
+vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n" % tuple(sys.argv[1:])))' "$@"; } # MEANT MODE PORTAL
+vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
+vpn_kill_pending() { [[ -e $devices_vpn_kill_root/vpn/pending ]] && echo present || echo absent; }
+vpn_kill_problem() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(json.dumps(v.get("problem") != ""))'; }
+
+# Nord: explicit designation, then one recorded Phoenix choice, over the
+# same single-peer profile disconnected, connected, and connected behind
+# the kill switch. Home stays connected and is never the target.
+vpn_nord_data="$(python3 - "$vpn_fixtures" "$vpn_lab" <<'PYVPNNORD'
+import json, pathlib, sys
+root, uuid = pathlib.Path(sys.argv[1]), sys.argv[2]
+country = next(c for c in json.loads((root / "nord-countries.json").read_text()) if c["code"] == "US")
+city = next(c for c in country["cities"] if c["name"] == "Phoenix")
+subdivision = next(s for s in country["subdivisions"] if s["id"] == city["subdivision_id"])
+server, = json.loads((root / "nord-recommendation-phoenix.json").read_text())
+technology = next(t for t in server["technologies"] if t["identifier"] == "wireguard_udp")
+key = next(m["value"] for m in technology["metadata"] if m["name"] == "public_key")
+block = next(b for b in (root / "details.txt").read_text().split("\n\n") if b.startswith("connection.uuid:" + uuid + "\n"))
+peer = next(line.removeprefix("wireguard.peers:") for line in block.splitlines() if line.startswith("wireguard.peers:"))
+# This fixture has one peer and one endpoint; do not model a peer parser.
+assert ", " not in peer
+attrs = peer.split(" ", 1)[1]
+assert attrs.count("endpoint=[2001:db8::1]:51820") == 1
+replacement = key + " " + attrs.replace("endpoint=[2001:db8::1]:51820", "endpoint=" + server["station"] + ":51820")
+print(json.dumps({"kind":"city","countryId":country["id"],"subdivisionId":subdivision["id"],"cityId":city["id"]}, separators=(",",":")))
+print(peer)
+print(replacement)
+print("https://api.nordvpn.com/v1/servers/recommendations?filters%5Bservers_technologies%5D%5Bidentifier%5D=wireguard_udp&filters%5Bcountry_city_id%5D=" + str(city["id"]) + "&limit=1")
+print(server["station"] + ":51820")
+PYVPNNORD
+)" || return 1
+mapfile -t vpn_nord_fields <<<"$vpn_nord_data"
+vpn_nord_choice="${vpn_nord_fields[0]}"
+vpn_nord_old_peer="${vpn_nord_fields[1]}"
+vpn_nord_peer="${vpn_nord_fields[2]}"
+vpn_nord_recommendation="${vpn_nord_fields[3]}"
+vpn_nord_endpoint="${vpn_nord_fields[4]}"
+vpn_nord_countries=https://api.nordvpn.com/v1/servers/countries
+vpn_nord_fetch=(-q --fail --silent --show-error --globoff --proto =https --connect-timeout 5 --max-time 10 --max-filesize 2097152)
+vpn_nord_modify=(connection modify uuid "$vpn_lab" wireguard.peers "$vpn_nord_peer")
+vpn_nord_modify_only="$(vpn_nord_expected_effects "$vpn_nord_peer" "")" || return 1
+vpn_nord_expected_http="$(python3 -c 'import json,sys; prefix=sys.argv[3:]; print(json.dumps([prefix+[sys.argv[1]],prefix+[sys.argv[2]]]))' \
+  "$vpn_nord_countries" "$vpn_nord_recommendation" "${vpn_nord_fetch[@]}")" || return 1
+vpn_nord_python="$(command -v python3)" || return 1
+vpn_nord_countries_body="$(cat -- "$vpn_fixtures/nord-countries.json")" || return 1
+vpn_nord_recommendation_body="$(cat -- "$vpn_fixtures/nord-recommendation-phoenix.json")" || return 1
+vpn_nord_curl_kept="$sandbox/vpn-nord-curl-kept"
+vpn_nord_had_curl=false
+if [[ -e $shim/curl || -L $shim/curl ]]; then
+  mv -T -- "$shim/curl" "$vpn_nord_curl_kept"
+  vpn_nord_had_curl=true
+fi
+# curl is not a device fake. Reuse the generic exact-argv recorder; it
+# answers no unplanted command and never delegates to the host downloader.
+printf '#!/usr/bin/env bash\nexec %q %q curl %q "$@"\n' \
+  "$vpn_nord_python" "$devices_fixtures/stand-in.py" "$devices_dir" >"$shim/curl"
+chmod 755 "$shim/curl"
+device_reply curl 0 "curl fixture" --version
+device_reply curl 0 "$vpn_nord_countries_body" "${vpn_nord_fetch[@]}" "$vpn_nord_countries"
+device_reply curl 0 "$vpn_nord_recommendation_body" "${vpn_nord_fetch[@]}" "$vpn_nord_recommendation"
+# nmcli --get-values is terse/tabular; --escape no keeps this one field
+# raw, rather than backslash-escaping the endpoint's colons (nmcli(1)).
+# https://networkmanager.dev/docs/api/latest/nmcli.html
+device_reply nmcli 0 "$vpn_nord_old_peer" --escape no -g wireguard.peers connection show uuid "$vpn_lab"
+device_reply nmcli 0 "" "${vpn_nord_modify[@]}"
+device_reply nmcli 0 "" connection down uuid "$vpn_lab"
+device_reply nmcli 0 "" connection up uuid "$vpn_lab"
+rescan "Nord's recording downloader is discovered"
+expect "Nord resolves only the row's downloader" "$shim/curl" shell_resolves curl
+expect_poll "Nord's case starts without an installed kill switch" false ipc smoke readInstance service vgs.vpn killReady
+vpn_plant
+expect "Nord profiles refresh before designation" ok vpn_refresh
+expect_poll "Nord profiles are available for designation" '"available"' vpn_profiles state
+expect "the user explicitly designates the single-peer Lab UUID" ok vpn_nord "{\"kind\":\"profile\",\"uuid\":\"$vpn_lab\"}"
+for vpn_nord_case in disconnected connected armed-close; do
+  vpn_nord_initial=activated
+  vpn_nord_end=done
+  if [[ $vpn_nord_case == disconnected ]]; then vpn_nord_initial=""; fi
+  if [[ $vpn_nord_case == armed-close ]]; then
+    devices_vpn_kill_tree ready
+    vpn_kill_write "$vpn_lab" block-lan 1794203888
+    device_reply vgs-kill-switch 0 "state=passing reason=tunnel-up blocked=7 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+    rescan "Nord's armed case probes the installed kill switch"
+    expect_poll "Nord's armed case reads the kill switch ready" true ipc smoke readInstance service vgs.vpn killReady
+    vpn_nord_end=closed
+  else
+    device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
+  fi
+  vpn_nord_completed_effects="$(vpn_nord_expected_effects "$vpn_nord_peer" "$vpn_nord_initial")" || return 1
+  vpn_plant "$vpn_lab=$vpn_nord_initial"
+  expect "Nord reads the profile's initial connection state" ok vpn_refresh
+  expect_poll "Nord sees the designated UUID's initial state" "$vpn_nord_initial" vpn_nord_profile_state
+  read_count vpn_nord_before "Nord: nmcli calls are unreadable" vpn_call_count
+  read_count vpn_nord_http_before "Nord: downloader calls are unreadable" vpn_nord_http_count
+  expect "the location picker opens" ok vpn_nord '{"kind":"open","id":"vpn-smoke-nord"}'
+  expect_poll "the recorded catalog is ready for a city choice" ready vpn_nord_phase
+  vpn_hold vpn-nord-modify-hold "${vpn_nord_modify[@]}"
+  expect "the picker chooses the recorded country, subdivision and city" ok vpn_nord "$vpn_nord_choice"
+  expect_poll "the city choice reaches NetworkManager's held peer replacement" 1 vpn_marker "$devices_dir/vpn-nord-modify-hold.waiting"
+  expect "one UUID-targeted peer argv is the only effect before modify completes" \
+    "$vpn_nord_modify_only" vpn_nord_effects "$vpn_nord_before"
+  vpn_release vpn-nord-modify-hold
+  if [[ $vpn_nord_case == armed-close ]]; then
+    expect_poll "the peer rewrite nudges the existing root sync" present vpn_kill_pending
+    read_count vpn_nord_root_before "Nord: root status calls are unreadable" vpn_nord_root_count
+    expect_poll "the old same-UUID allowance triggers another status read" True vpn_nord_retried "$vpn_nord_root_before"
+    expect "the old endpoint acknowledgement runs no reconnect" "$vpn_nord_modify_only" vpn_nord_effects "$vpn_nord_before"
+    expect "the allowance wait preserves meant-on, local allowance and sign-in time" "$(vpn_kill_text "$vpn_lab" block-lan 1794203888)" vpn_kill_file
+    expect "closing the picker after modify lets the committed operation settle" ok vpn_nord '{"kind":"close","id":"vpn-smoke-nord"}'
+    expect "the closed picker still waits on the new allowance" changing vpn_nord_phase
+    device_reply vgs-kill-switch 0 "state=passing reason=tunnel-up blocked=7 tunnel=wg-lab profile=$vpn_lab peers=$vpn_nord_endpoint" status
+  fi
+  expect_poll "the whole location change completes" "$vpn_nord_end" vpn_nord_phase
+  expect "only an initially connected profile reconnects, and no other setting or secret is accessed" \
+    "$vpn_nord_completed_effects" vpn_nord_effects "$vpn_nord_before"
+  expect "the open uses only the public catalog and city recommendation, with no credential argv" \
+    "$vpn_nord_expected_http" vpn_nord_http "$vpn_nord_http_before"
+  expect "the location picker closes" ok vpn_nord '{"kind":"close","id":"vpn-smoke-nord"}'
+  expect_poll "the closed picker releases its operation" closed vpn_nord_phase
+  vpn_unhold vpn-nord-modify-hold
+  if [[ $vpn_nord_case == armed-close ]]; then
+    expect "the completed reconnect preserves kill-switch intent" "$(vpn_kill_text "$vpn_lab" block-lan 1794203888)" vpn_kill_file
+    devices_vpn_kill_tree remove
+    rescan "Nord's armed case releases its kill-switch world"
+    expect_poll "the kill switch is no longer set up after Nord's armed case" false ipc smoke readInstance service vgs.vpn killReady
+  fi
+done
+# Each failure reaches the real serialized operation at a distinct side
+# effect boundary. Protection and cancel refuse before the write; an
+# allowance failure after it must keep intent and never reconnect.
+for vpn_nord_case in recommendation-cancel modify-failed allowance-failed protection-needed-armed protection-unknown-armed protection-unreadable; do
+  vpn_nord_want_phase=failed
+  vpn_nord_want_effects="$vpn_nord_modify_only"
+  if [[ $vpn_nord_case == allowance-failed || $vpn_nord_case == protection-* ]]; then
+    devices_vpn_kill_tree ready
+    vpn_kill_write "$vpn_lab" block-lan 1794203888
+    device_reply vgs-kill-switch 0 "state=passing reason=tunnel-up blocked=7 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
+    vpn_nord_want_step=ready
+    case $vpn_nord_case in
+      protection-needed-armed|protection-unreadable)
+        device_reply systemctl 1 "" is-enabled --quiet vgs-kill-switch.path
+        vpn_nord_want_step=setup
+        ;;
+      protection-unknown-armed)
+        # Missing shipped source makes the setup probe unknown while the
+        # installed helper and its kernel table can remain in place.
+        mv -T -- "$repo/config/system/kill-switch/vgs-kill-switch-recover.timer" "$sandbox/vpn-nord-recover.timer"
+        vpn_nord_want_step=unknown
+        ;;
+    esac
+    if [[ $vpn_nord_case == protection-unreadable ]]; then
+      device_reply --stderr "vgs-kill-switch: refused: status=unreadable" vgs-kill-switch 1 "" status
+    fi
+    rescan "Nord's failure case probes the installed kill switch"
+    expect_poll "Nord's $vpn_nord_case reads its setup state" "\"$vpn_nord_want_step\"" vpn_kill_read step
+    if [[ $vpn_nord_case == protection-* ]]; then vpn_nord_want_effects='[]'; fi
+  else
+    device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
+  fi
+  vpn_plant "$vpn_lab=activated"
+  expect "Nord's $vpn_nord_case reads its connected profile" ok vpn_refresh
+  expect_poll "Nord's $vpn_nord_case publishes its connected profile" activated vpn_nord_profile_state
+  expect "Nord's $vpn_nord_case opens its picker" ok vpn_nord '{"kind":"open","id":"vpn-smoke-nord"}'
+  expect_poll "Nord's $vpn_nord_case reads the catalog" ready vpn_nord_phase
+  read_count vpn_nord_before "Nord: failure-case nmcli calls are unreadable" vpn_call_count
+  if [[ $vpn_nord_case == recommendation-cancel ]]; then
+    vpn_nord_want_phase=closed
+    vpn_nord_want_effects='[]'
+    vpn_hold --tool curl vpn-nord-cancel-hold "${vpn_nord_fetch[@]}" "$vpn_nord_recommendation"
+  elif [[ $vpn_nord_case == modify-failed ]]; then
+    device_reply nmcli 1 "" "${vpn_nord_modify[@]}"
+  elif [[ $vpn_nord_case == allowance-failed ]]; then
+    vpn_hold vpn-nord-modify-hold "${vpn_nord_modify[@]}"
+  fi
+  expect "Nord's $vpn_nord_case starts the city choice" ok vpn_nord "$vpn_nord_choice"
+  if [[ $vpn_nord_case == recommendation-cancel ]]; then
+    expect_poll "the recommendation is in flight before Cancel" 1 vpn_marker "$devices_dir/vpn-nord-cancel-hold.waiting"
+    expect "Cancel closes the picker before any profile write" ok vpn_nord '{"kind":"close","id":"vpn-smoke-nord"}'
+  elif [[ $vpn_nord_case == allowance-failed ]]; then
+    expect_poll "the old allowance admits the held peer replacement" 1 vpn_marker "$devices_dir/vpn-nord-modify-hold.waiting"
+    vpn_release vpn-nord-modify-hold
+    device_reply vgs-kill-switch 0 "state=unavailable reason=profile-unread blocked=7 tunnel= profile=$vpn_lab peers=" status
+  fi
+  expect_poll "Nord's $vpn_nord_case finishes its operation" "$vpn_nord_want_phase" vpn_nord_phase
+  expect "Nord's $vpn_nord_case releases the shared profile action" null vpn_profiles action
+  expect "Nord's $vpn_nord_case reconnects nothing and accesses no extra setting" "$vpn_nord_want_effects" vpn_nord_effects "$vpn_nord_before"
+  if [[ $vpn_nord_case != recommendation-cancel ]]; then
+    expect "Nord's $vpn_nord_case publishes its failure" True vpn_nord_problem
+    expect "Nord's failed picker closes" ok vpn_nord '{"kind":"close","id":"vpn-smoke-nord"}'
+    expect_poll "Nord's failed picker releases its open" closed vpn_nord_phase
+  fi
+  if [[ $vpn_nord_case == recommendation-cancel ]]; then
+    vpn_release vpn-nord-cancel-hold
+    device_reply curl 0 "$vpn_nord_recommendation_body" "${vpn_nord_fetch[@]}" "$vpn_nord_recommendation"
+    vpn_unhold vpn-nord-cancel-hold
+  elif [[ $vpn_nord_case == modify-failed ]]; then
+    device_reply nmcli 0 "" "${vpn_nord_modify[@]}"
+  else
+    expect "Nord's $vpn_nord_case preserves all kill-switch intent" "$(vpn_kill_text "$vpn_lab" block-lan 1794203888)" vpn_kill_file
+    if [[ $vpn_nord_case == allowance-failed ]]; then
+      device_reply nmcli 0 "" "${vpn_nord_modify[@]}"
+      vpn_unhold vpn-nord-modify-hold
+    elif [[ $vpn_nord_case == protection-unknown-armed ]]; then
+      mv -T -- "$sandbox/vpn-nord-recover.timer" "$repo/config/system/kill-switch/vgs-kill-switch-recover.timer"
+    fi
+    devices_vpn_kill_tree remove
+    rescan "Nord's failure case releases its kill-switch world"
+    expect_poll "the kill switch is not set up after Nord's failure case" false ipc smoke readInstance service vgs.vpn killReady
+  fi
+done
+expect "the row clears its Nord designation" ok vpn_nord '{"kind":"profile","uuid":""}'
+if [[ $vpn_nord_had_curl == true ]]; then
+  mv -T -- "$vpn_nord_curl_kept" "$shim/curl"
+else
+  rm -f -- "$shim/curl"
+fi
+device_reply_clear curl
 
 # The kill switch (D129), with the vpn-kill-switch step's world set up in
 # the fakes' tree (devices_vpn_kill_tree) and the state file under it
@@ -910,21 +1179,13 @@ expect "auto: Connect automatically turns off" ok vpn_auto_settings '{"autoConne
 # the vgs-kill-switch stand-in reads the table armed for that profile; a
 # reading of the root half's refusal for it runs no connect and puts the
 # file's profile back. A tree whose VPN plugin ships no kill switch skips.
-vpn_kill_state="$devices_vpn_kill_root/vpn/state"
-vpn_kill_file() { if [[ -f $vpn_kill_state ]]; then python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$vpn_kill_state"; else echo absent; fi; }
-# vpn_kill_write MEANT MODE PORTAL: the state file holding those keys.
-vpn_kill_write() { printf 'version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n' "$1" "$2" "$3" >"$vpn_kill_state"; } # MEANT MODE PORTAL
-vpn_kill_text() { python3 -c 'import json,sys; print(json.dumps("version=1\nmeant-on=%s\nkill-switch=%s\nportal-until=%s\n" % tuple(sys.argv[1:])))' "$@"; } # MEANT MODE PORTAL
-vpn_kill_read() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("killSwitchState"); print("unpublished" if v is None else json.dumps(v.get(sys.argv[1])))' "$1"; }
-vpn_kill_pending() { [[ -e $devices_vpn_kill_root/vpn/pending ]] && echo present || echo absent; }
-vpn_kill_problem() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(json.dumps(v.get("problem") != ""))'; }
 if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   # The refusal's arm-wait line, and the status read the stand-in no
   # longer answers once the step's world is gone.
   expected_errors+=('vpn: operation=kill-switch-arm completion=unavailable reason=endpoint-hostname$' 'vpn: operation=kill-switch-status completion=unreachable code=1$')
   vpn_plant
   devices_vpn_kill_tree ready
-  device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile=" status
+  device_reply vgs-kill-switch 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" status
   rescan "the core probes the kill switch step set up"
   expect_poll "the kill switch step reads set up" '"ready"' vpn_kill_read step
   expect_poll "no state file reads off" '"off"' vpn_kill_read mode
@@ -939,13 +1200,13 @@ if grep -q 'var STATE_FILE = ' "$repo/shell/plugins/vgs.vpn/VpnLogic.js"; then
   vpn_kill_write "" block 0
   expect "VPN reads the cleared profile" ok vpn_refresh
   vpn_kill_calls="$(vpn_call_count)"
-  device_reply vgs-kill-switch 0 "state=unavailable reason=endpoint-hostname blocked=3 tunnel= profile=$vpn_lab" status
+  device_reply vgs-kill-switch 0 "state=unavailable reason=endpoint-hostname blocked=3 tunnel= profile=$vpn_lab peers=" status
   expect "Lab tunnel is asked to connect behind the kill switch" ok vpn_act profile-up "$vpn_lab"
   expect_poll "the root half's refusal of Lab tunnel leaves a problem line" true vpn_kill_problem
   expect_poll "the refusal ends the change" null vpn_profiles action
   expect "the refusal runs no connect" '[]' vpn_changes "$vpn_kill_calls"
   expect "the refusal puts the file's profile back" "$(vpn_kill_text "" block 0)" vpn_kill_file
-  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab" status
+  device_reply vgs-kill-switch 0 "state=holding reason=tunnel-down blocked=0 tunnel=wg-lab profile=$vpn_lab peers=[2001:db8::1]:51820" status
   device_reply nmcli 0 "Connection successfully activated" connection up uuid "$vpn_lab"
   expect "Lab tunnel is asked to connect once the table arms" ok vpn_act profile-up "$vpn_lab"
   expect_poll "a table armed for Lab tunnel runs the connect" "[[\"connection\", \"up\", \"uuid\", \"$vpn_lab\"]]" vpn_changes "$vpn_kill_calls"

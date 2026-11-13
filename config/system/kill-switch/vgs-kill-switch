@@ -85,14 +85,18 @@
 #
 # status prints one line:
 #
-#   state=off|holding|passing|unavailable reason=<word> blocked=<packets> tunnel=<ifname> profile=<uuid>
+#   state=off|holding|passing|unavailable reason=<word> blocked=<packets> tunnel=<ifname> profile=<uuid> peers=<endpoints>
 #
-# Its keys come in that order, always all five, each once. blocked is the
+# Its keys come in that order, always all six, each once. blocked is the
 # sum of the two tables' counters. profile is the
 # NetworkManager uuid the table was armed for, from the profile cache, and
 # is empty when there is no cache: a reader that wrote meant-on=<uuid> waits
 # for its own uuid, so a line left from the previous profile never answers
-# it.
+# it. peers is the comma-separated numeric IP:UDP-port endpoints from that
+# cache, IPv6 addresses bracketed, and is empty while off or unavailable.
+# The cache is published after nft commits, so a profile rewrite waits for
+# its new endpoint too: the same uuid with an old endpoint acknowledges
+# only the earlier allowance.
 #
 #   off          no inet table, whatever is left of the netdev one: reason
 #                rule-missing while the profile cache
@@ -204,7 +208,8 @@ hostname_pattern="^($word_char|[.-])+$"
 # A WireGuard public key: 32 bytes in base64.
 key_pattern="^($word_char|[+/]){43}=$"
 reason_pattern='^[abcdefghijklmnopqrstuvwxyz-]{1,40}$'
-status_pattern="^state=(off|holding|passing|unavailable) reason=[abcdefghijklmnopqrstuvwxyz-]{1,40} blocked=$digit{1,20} tunnel=($word_char|[_.-]){0,15} profile=($uuid_body)?$"
+status_endpoint="($octet(\\.$octet){3}|\\[($hex|:){2,39}\\]):[123456789]$digit{0,4}"
+status_pattern="^state=(off|holding|passing|unavailable) reason=[abcdefghijklmnopqrstuvwxyz-]{1,40} blocked=$digit{1,20} tunnel=($word_char|[_.-]){0,15} profile=($uuid_body)? peers=($status_endpoint(,$status_endpoint)*)?$"
 
 refuse() { # FIRST_LINE [ENGLISH...]
   printf 'vgs-kill-switch: refused: %s\n' "$1" >&2
@@ -778,14 +783,14 @@ absent_status() {
     watcher_reason
     why="${watcher_why:-disarmed}"
   fi
-  printf 'state=off reason=%s blocked=0 tunnel= profile=\n' "$why"
+  printf 'state=off reason=%s blocked=0 tunnel= profile= peers=\n' "$why"
 }
 
 # Prints the status line from the kernel, the cache, the links and the
 # watcher. The inet table alone decides whether the rule is armed; a netdev
 # table left without it only drops more.
 kernel_status() {
-  local packets=0 links line name state why found="" uncovered=""
+  local packets=0 links line name state why found="" uncovered="" peer host port endpoints=()
   tables_listed
   if [[ -z $inet_listed ]] || ! add_counter inet; then
     absent_status
@@ -811,7 +816,11 @@ kernel_status() {
     why="${watcher_why:-$why}"
     [[ -z $uncovered ]] || state=unavailable why=device-uncovered
   fi
-  printf 'state=%s reason=%s blocked=%s tunnel=%s profile=%s\n' "$state" "$why" "$packets" "$tunnel" "$cache_uuid"
+  if [[ $state != unavailable ]]; then
+    for peer in "${peers4[@]}"; do split_peer "$peer" && endpoints+=("$host:$port"); done
+    for peer in "${peers6[@]}"; do split_peer "$peer" && endpoints+=("[$host]:$port"); done
+  fi
+  printf 'state=%s reason=%s blocked=%s tunnel=%s profile=%s peers=%s\n' "$state" "$why" "$packets" "$tunnel" "$cache_uuid" "$(join_elements "${endpoints[@]}")"
 }
 
 # Sets status to the line the status socket serves within SECONDS, 10 by
@@ -825,20 +834,20 @@ socket_status() { # [SECONDS]
 import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.settimeout(5)
-data = b""
+chunks = []
 try:
     s.connect(sys.argv[1])
 except OSError:
     sys.exit(3)
 try:
-    while len(data) < 512:
-        chunk = s.recv(512 - len(data))
+    while True:
+        chunk = s.recv(4096)
         if not chunk:
             break
-        data += chunk
+        chunks.append(chunk)
 except OSError:
     sys.exit(4)
-sys.stdout.write(data.decode("ascii", "replace"))
+sys.stdout.write(b"".join(chunks).decode("ascii", "replace"))
 ' "$status_socket" 2>/dev/null)" || code=$?
   if ((code == 3)); then socket_error="status=unreachable path=$status_socket"; return 1; fi
   ((code == 0)) && [[ $status =~ $status_pattern ]] && return

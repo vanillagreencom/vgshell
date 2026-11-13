@@ -369,12 +369,14 @@ read_status() {
   [[ $line =~ \ blocked=([0123456789]+)\  ]] && blocked="${BASH_REMATCH[1]}"
   return 0
 }
-# Whether the line holds all five keys in order, with its state and reason,
-# tunnel and, when PROFILE is given, profile as named.
-status_is() { # "state=… reason=…" tunnel=… [profile=…]
+# Whether the line holds all six keys in order, with its state and reason,
+# tunnel and, when given, profile and installed peers as named. Off and
+# unavailable acknowledge no endpoint.
+status_is() { # "state=… reason=…" tunnel=… [profile=… [peers=…]]
   read_status
-  [[ $line =~ ^(state=[^\ ]+\ reason=[^\ ]+)\ blocked=[0123456789]+\ (tunnel=[^\ ]*)\ (profile=[^\ ]*)$ ]] || return 1
-  [[ ${BASH_REMATCH[1]} == "$1" && ${BASH_REMATCH[2]} == "$2" && (-z ${3-} || ${BASH_REMATCH[3]} == "$3") ]]
+  [[ $line =~ ^(state=[^\ ]+\ reason=[^\ ]+)\ blocked=[0123456789]+\ (tunnel=[^\ ]*)\ (profile=[^\ ]*)\ (peers=[^\ ]*)$ ]] || return 1
+  [[ ${BASH_REMATCH[1]} == "$1" && ${BASH_REMATCH[2]} == "$2" && (-z ${3-} || ${BASH_REMATCH[3]} == "$3") && (-z ${4-} || ${BASH_REMATCH[4]} == "$4") ]] || return 1
+  [[ $1 != state=off\ * && $1 != state=unavailable\ * || ${BASH_REMATCH[4]} == peers= ]]
 }
 table_listed() { local out; out="$(nft list tables)" && [[ $'\n'$out$'\n' == *$'\n'"table $1 vgshell_kill_switch"$'\n'* ]]; } # FAMILY
 table_armed() { table_listed inet && table_listed netdev; }
@@ -520,7 +522,7 @@ check "sync reads the state file only as its owner, with no groups" test "$(setp
 check "the sync lock is root's alone, mode 0600" test "$(stat -c '%u %a' -- "$lock")" == "0 600"
 check "the tunnels set holds the profile's interface and tailscale0" set_holds tunnel_links '"tailscale0", "wgnord"'
 check "the profile reading is cached root's, mode 0600" test "$(stat -c '%u %a' -- "$cache")" == "0 600"
-check "with the tunnel up the status reads passing for the profile it armed" status_is "state=passing reason=tunnel-up" "tunnel=wgnord" "profile=$uuid"
+check "with the tunnel up the status reads passing for the profile and endpoints it armed" status_is "state=passing reason=tunnel-up" "tunnel=wgnord" "profile=$uuid" "peers=203.0.113.51:51820,[2001:db8:ff::51]:51820"
 
 ip link del wgnord
 check "with the tunnel gone the status reads holding" status_is "state=holding reason=tunnel-down" "tunnel=wgnord"
@@ -955,6 +957,12 @@ check "a deleted profile arms closed" status_is "state=unavailable reason=profil
 write_state "$uuid" block
 run_sync
 check "the profile passes before nft fails" status_is "state=passing reason=tunnel-up" "tunnel=wgnord"
+profile "$uuid" wireguard wgnord "$key_a endpoint=203.0.113.20:51820 allowed-ips=0.0.0.0/0"
+check "a same-UUID profile rewrite still acknowledges only the old committed peers before sync" status_is "state=passing reason=tunnel-up" "tunnel=wgnord" "profile=$uuid" "peers=203.0.113.51:51820,[2001:db8:ff::51]:51820"
+run_sync
+check "the same UUID acknowledges its new endpoint after sync commits" status_is "state=passing reason=tunnel-up" "tunnel=wgnord" "profile=$uuid" "peers=203.0.113.20:51820"
+check "the acknowledged endpoint is installed in the kernel" set_holds peers4 "203.0.113.20 . 51820"
+profile "$uuid" wireguard wgnord "$peers"
 touch "$tmp/nft-fail"
 write_state "$uuid" block-lan
 run_sync
@@ -1059,7 +1067,7 @@ echo failed >"$tmp/watcher"
 check "a missing rule outranks a failed watcher" status_is "state=off reason=rule-missing" "tunnel=" "profile="
 mutant flush-blind '  if [[ ! -e $cache_file && ! -L $cache_file ]]; then' '  if true; then'
 echo active >"$tmp/watcher"
-check "the flush-blind control reads a flushed rule as disarmed" test "$("$mutant" status 2>&1)" == "state=off reason=disarmed blocked=0 tunnel= profile="
+check "the flush-blind control reads a flushed rule as disarmed" test "$("$mutant" status 2>&1)" == "state=off reason=disarmed blocked=0 tunnel= profile= peers="
 run_sync
 check "the next sync arms the flushed rule again" synced armed
 

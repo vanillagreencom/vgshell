@@ -79,7 +79,7 @@ FocusScope {
     // or none over the body, a square part of its page.
     readonly property real promptCorner: promptPane === null ? 0 : promptPane.cornerRadius
 
-    implicitHeight: Math.max(content.implicitHeight, confirming ? confirm.implicitHeight + 2 * Theme.dialog.margin : 0,
+    implicitHeight: Math.max(content.implicitHeight, nordSection.opened ? nordSection.dialogHeight + 2 * Theme.dialog.margin : 0, confirming ? confirm.implicitHeight + 2 * Theme.dialog.margin : 0,
         prompting ? prompt.implicitHeight + 2 * Theme.dialog.margin : 0)
 
     // Qt starts Tab traversal at the window's first stop from a body
@@ -97,6 +97,7 @@ FocusScope {
             answered(shell.ipc.call("refresh", ""), "VGS could not refresh VPN profiles.");
     }
     function close() {
+        nordSection.close(false);
         prompt.clear();
         dialogTarget = null;
         watchUuid = "";
@@ -323,7 +324,7 @@ FocusScope {
     Column {
         id: content
         width: root.width
-        enabled: !root.confirming && !root.prompting
+        enabled: !root.confirming && !root.prompting && !nordSection.opened
         spacing: Theme.stack.group
         // While the kill switch holds the block for a dropped profile, the
         // danger notice says so first (VpnLogic.blockedNotice), above the
@@ -346,7 +347,7 @@ FocusScope {
         Label {
             objectName: "vpn-problem"
             width: parent.width
-            visible: text !== "" && !root.prompting
+            visible: text !== "" && !root.prompting && !nordSection.opened
             role: "hint"
             color: Theme.color.danger
             textFormat: Text.PlainText
@@ -428,6 +429,16 @@ FocusScope {
                 text: "Imports WireGuard (.conf) and OpenVPN (.ovpn) files"
                 wrapMode: Text.Wrap
             }
+        }
+        NordSection {
+            id: nordSection
+            width: parent.width
+            visible: root.expanded && root.listed
+            shell: root.shell
+            requestProblem: root.localProblem
+            overlayHost: root.promptHost
+            overlayCorner: root.promptCorner
+            onReplied: (reply, refusal) => root.answered(reply, refusal)
         }
         KillSwitch {
             id: killSwitch

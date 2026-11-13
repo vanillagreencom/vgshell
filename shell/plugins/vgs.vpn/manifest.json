@@ -40,11 +40,19 @@
     "order": 40
   },
   "settings": {
+    "nordProfile": "",
     "autoConnect": "",
     "trustedNetworks": [],
     "pollSeconds": 30
   },
   "schema": {
+    "nordProfile": {
+      "type": "string",
+      "label": "Profile",
+      "description": "The account key stays in NetworkManager",
+      "optionsFrom": "nordProfiles",
+      "group": "NordVPN"
+    },
     "autoConnect": {
       "type": "string",
       "label": "Profile",
@@ -65,7 +73,7 @@
           "type": "string",
           "label": "Network",
           "optionsFrom": "networkChoices",
-          "placeholder": "Choose a network"
+          "placeholder": "Not set"
         }
       },
       "defaults": {
@@ -126,7 +134,7 @@
         "nix": "networkmanager"
       },
       "optional": true,
-      "purpose": "Reads, connects, imports and removes your VPN profiles"
+      "purpose": "Reads, connects and changes your saved VPN profiles"
     },
     {
       "command": "gum",
@@ -170,10 +178,12 @@
         "nix": "curl"
       },
       "optional": true,
-      "purpose": "Asks api.nordvpn.com, through the VPN, for the public address it sees"
+      "purpose": "Reads NordVPN locations and recommendations, and checks the VPN's public address"
     }
   ],
   "status": {
+    "nordState": { "type": "data", "label": "NordVPN locations" },
+    "nordProfiles": { "type": "choices", "label": "NordVPN profiles", "hidden": true },
     "connection": {
       "type": "state",
       "label": "Connection"

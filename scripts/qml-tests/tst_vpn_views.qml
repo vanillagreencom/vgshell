@@ -321,7 +321,7 @@ Item {
         // it is on, each press sending its mode, and the reason a profile
         // cannot be used in the error line.
         function killState(step, file, line, busy) {
-            return Logic.killSwitchState(step, file, line === null ? null : Logic.killStatus(0, line + "\n"), busy === true, "");
+            return Logic.killSwitchState(step, file, line === null ? null : Logic.killStatus(0, line + " peers=\n"), busy === true, "");
         }
         function killCalls() {
             return root.calls.filter(call => (call[0] === "ipc" && call[1] === "kill-switch") || call[0] === "act")

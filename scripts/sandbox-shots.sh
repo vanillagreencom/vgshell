@@ -76,7 +76,11 @@
 # connect that found no OpenVPN plugin and no profile, and the password
 # prompt in the flyout with its field empty, with masked typed text and
 # with its retry line, and in the section, over the nmcli
-# stand-in and the fixtures of scripts/fixtures/vpn/; remote-desktop, taken only
+# stand-in and the fixtures of scripts/fixtures/vpn/;
+# vpn-nord, taken only when named, is the NordVPN country list, region list
+# and a city ready to change, over the recorded public catalog and Lab
+# tunnel's saved single-peer profile, with no profile write or network call;
+# remote-desktop, taken only
 # when named, is the Remote desktop indicator idle, connected and hovered,
 # its System Settings section and its Settings page with hosting on and
 # off, over the remote-desktop row's stand-ins; vpn-locked, taken only when named, is the
@@ -660,6 +664,7 @@ while [[ $# -gt 0 ]]; do
     jarvis-restart) scenes+=("$1"); shift ;;
     local-sync) scenes+=("$1"); shift ;;
     warden-states) scenes+=("$1"); shift ;;
+    vpn-nord) scenes+=("$1"); shift ;;
 
     link-icons|sysmon|tui-edges|gallery|gallery-callouts|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-keys|jarvis-states|jarvis-console|jarvis-reach|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|jarvis-home|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|ai-usage-hide|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-primary|displays-override|agent-debug|add-widget) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
@@ -863,6 +868,7 @@ scene_ships() {
     tailscale-starting|tailscale-locked|tailscale-section) ships_plugin vgs.tailscale ;;
     tailscale-flyout) ships_plugin vgs.tailscale && [[ -f $tree/shell/plugins/vgs.tailscale/ExitNodes.qml ]] ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
+    vpn-nord) ships_plugin vgs.system vgs.vpn && [[ -f $tree/shell/plugins/vgs.vpn/NordSection.qml ]] ;;
     vpn-locked) ships_plugin vgs.vpn && ! ships_plugin vgs.tailscale ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     printers) ships_plugin vgs.system vgs.printers ;;
@@ -9319,6 +9325,79 @@ PYVPNDIRS
   printf '[VPN Connection]\nname=openvpn\nservice=org.freedesktop.NetworkManager.openvpn\nprogram=/usr/lib/nm-openvpn-service\n' \
     >"$vpn_shot_plugins/lib/nm-openvpn-service.name"
 }
+# Nord's after-only picker shots use the real dialog and its shared Select
+# keyboard paths. The public catalog is a recorded reply; no city is applied.
+scene_vpn-nord() { # MODE
+  local mode="$1" fixtures="$repo/scripts/fixtures/vpn" kept="$sandbox/vpn-nord-shot-curl" had=false python
+  devices_ready vpn-nord-shot || return 0
+  vpn_shot_plant nord || { fail "the Nord shot's profiles are unreadable"; return; }
+  vpn_shot_scanner || { fail "the Nord shot's plugin directories could not be planted"; return; }
+  devices_vpn_kill_tree needed
+  python="$(command -v python3)" || return 1
+  if [[ -e $shim/curl || -L $shim/curl ]]; then mv -T -- "$shim/curl" "$kept"; had=true; fi
+  printf '#!/usr/bin/env bash\nexec %q %q curl %q "$@"\n' "$python" "$devices_fixtures/stand-in.py" "$devices_dir" >"$shim/curl"
+  chmod 755 "$shim/curl"
+  device_reply curl 0 "curl fixture" --version
+  device_reply curl 0 "$(<"$fixtures/nord-countries.json")" -q --fail --silent --show-error --globoff --proto =https --connect-timeout 5 --max-time 10 --max-filesize 2097152 https://api.nordvpn.com/v1/servers/countries
+  expect "VPN enables for the Nord picker shots" ok ipc shell setPluginEnabled vgs.vpn true
+  expect "System enables for the Nord picker shots" ok ipc shell setPluginEnabled vgs.system true
+  tree_rescan "the Nord picker shots read their command stand-ins"
+  expect_poll "Nord's five saved profiles are available" 5 vpn_shot_status count
+  expect "Lab tunnel is designated for Nord's picker shots" ok ipc vgs.vpn invoke nord "{\"kind\":\"profile\",\"uuid\":\"$vpn_shot_unlisted\"}"
+  expect "System opens the real VPN section for Nord's picker" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  expect_poll "the Nord profile field shows Lab tunnel" '"Lab tunnel"' vpn_shot_read window Select vpn-nord-profile currentText
+  ipc smoke revealText window vgs.system RowAction "Change location" >/dev/null || { fail "the Nord location action is unreadable"; return; }
+  park_pointer
+  vpn_shot_record "vpn-$mode-nord-profile" "$mode"
+  take "vpn-$mode-nord-profile"
+  click_item "window:System Settings" window vgs.vpn RowAction "Change location" || { fail "the Nord location action could not be pressed"; return; }
+  expect_poll "Nord's real picker is open" true vpn_shot_read window Dialog vpn-nord-picker visible
+  expect_poll "Nord's recorded catalog is ready" ready vpn_nord_shot_phase
+  vpn_nord_shot_choose "$mode" country 228 country-list || return
+  vpn_nord_shot_choose "$mode" region 44 region-list || return
+  vpn_nord_shot_choose "$mode" city 8741960 "" || return
+  expect_poll "the city choice is ready" true vpn_shot_read window NordSection vpn-nord-section ready
+  park_pointer
+  vpn_shot_record "vpn-$mode-nord-city" "$mode"
+  take "vpn-$mode-nord-city"
+  type_keys -k Escape || fail "closing the Nord picker by Escape failed"
+  expect_poll "the Nord picker closes without applying a city" false vpn_shot_read window Dialog vpn-nord-picker visible
+  expect "the Nord shot releases its profile designation" ok ipc vgs.vpn invoke nord '{"kind":"profile","uuid":""}'
+  expect "System closes after the Nord shots" ok ipc shell hide window vgs.system
+  expect "VPN disables after the Nord shots" ok ipc shell setPluginEnabled vgs.vpn false
+  if [[ $had == true ]]; then mv -T -- "$kept" "$shim/curl"; else rm -f -- "$shim/curl"; fi
+  device_reply_clear curl
+  device_reply_clear nmcli
+  cp -p -- "$vpn_shot_scan_kept" "$repo/bin/vgshell-scan"
+  rm -rf -- "${vpn_shot_plugins:?}"
+  tree_rescan "the scanner releases the Nord shot's plugin directories"
+}
+vpn_nord_shot_phase() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("nordState"); print(v.get("phase", "unpublished") if isinstance(v,dict) else "unpublished")'; }
+# The shared field-scoped lookup adds the compositor's window origin and
+# waits for the actual Select to report the pointer before one press.
+vpn_nord_shot_press() { # NAME
+  local field
+  case "$1" in
+    vpn-nord-country) field="Country" ;;
+    vpn-nord-region) field="Region or state" ;;
+    vpn-nord-city) field="City" ;;
+    *) return 1 ;;
+  esac
+  click_item "scoped:System Settings" window vgs.vpn Field "$field" Select ""
+}
+vpn_nord_shot_choose() { # MODE FIELD ID LIST_SHOT
+  local name="vpn-nord-$2" choice index label key keys=(-k Home)
+  choice="$(vpn_shot_read window Select "$name" model | py_reply 'import json,sys; rows=json.load(sys.stdin); found=[(i,r["name"]) for i,r in enumerate(rows) if r["id"]==int(sys.argv[1])]; print(str(found[0][0])+"\n"+json.dumps(found[0][1]) if len(found)==1 else "absent")' "$3")" || return 1
+  [[ $choice != absent ]] || { fail "Nord's $2 fixture choice is absent"; return 1; }
+  index="${choice%%$'\n'*}" label="${choice#*$'\n'}"
+  vpn_nord_shot_press "$name" || { fail "Nord's $2 field could not be pressed"; return 1; }
+  expect_poll "Nord's $2 list opens" true vpn_shot_read window Select "$name" listOpen
+  if [[ -n $4 ]]; then park_pointer; take "vpn-$1-nord-$4"; fi
+  for ((key=0; key<index; key++)); do keys+=(-k Down); done
+  keys+=(-k Return)
+  type_keys "${keys[@]}" || { fail "Nord's $2 choice could not be typed"; return 1; }
+  expect_poll "Nord's $2 field shows its chosen location" "$label" vpn_shot_read window Select "$name" currentText
+}
 # vpn_shot_openvpn: the OpenVPN plugin requirement's state as the scan
 # read it.
 vpn_shot_openvpn() { ipc shell listPlugins | py_reply 'import json,sys; print(next((r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.vpn" for r in p["requirements"] if r["name"] == "org.freedesktop.NetworkManager.openvpn"), "absent"))'; }
@@ -9427,13 +9506,13 @@ vpn_kill_shots() { # MODE
   vpn_kill_take setup "$1" row
 
   devices_vpn_kill_tree ready
-  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile= peers="
   tree_rescan "a scan probes the kill switch step set up"
   expect_poll "the kill switch step reads set up" '"ready"' vpn_kill_read step
   expect_poll "no state file reads off" '"off"' vpn_kill_read mode
   vpn_kill_take off "$1" row
 
-  vpn_kill_plant "$vpn_shot_home" block 1794203888 "state=passing reason=tunnel-up blocked=0 tunnel=wg-home profile=$vpn_shot_home" passing
+  vpn_kill_plant "$vpn_shot_home" block 1794203888 "state=passing reason=tunnel-up blocked=0 tunnel=wg-home profile=$vpn_shot_home peers=203.0.113.10:51820,[2001:db8::2]:51820" passing
   vpn_kill_take on "$1" row
 
   device_reply vgs-kill-switch 1 "" status
@@ -9441,13 +9520,13 @@ vpn_kill_shots() { # MODE
   expect_poll "the row reads the status unreachable" '"unreachable"' vpn_kill_read status
   vpn_kill_take unknown "$1" row
 
-  vpn_kill_plant "$vpn_shot_home" block-lan 1794203888 "state=passing reason=tunnel-up blocked=0 tunnel=wg-home profile=$vpn_shot_home" passing
+  vpn_kill_plant "$vpn_shot_home" block-lan 1794203888 "state=passing reason=tunnel-up blocked=0 tunnel=wg-home profile=$vpn_shot_home peers=203.0.113.10:51820,[2001:db8::2]:51820" passing
   vpn_kill_take lan "$1" row
 
-  vpn_kill_plant "$vpn_shot_office" block 0 "state=unavailable reason=profile-not-wireguard blocked=12 tunnel= profile=$vpn_shot_office" unavailable
+  vpn_kill_plant "$vpn_shot_office" block 0 "state=unavailable reason=profile-not-wireguard blocked=12 tunnel= profile=$vpn_shot_office peers=" unavailable
   vpn_kill_take unsupported "$1" row
 
-  vpn_kill_plant "$vpn_shot_home" block 0 "state=off reason=disarmed blocked=0 tunnel= profile=" off
+  vpn_kill_plant "$vpn_shot_home" block 0 "state=off reason=disarmed blocked=0 tunnel= profile= peers=" off
   vpn_kill_take disarmed "$1" row
   vpn_kill_holding "$1"
   devices_vpn_kill_tree needed
@@ -9475,7 +9554,7 @@ vpn_kill_holding() { # MODE
   expect_poll "Travel L2TP reads no failure" "" vpn_shot_failure "$vpn_shot_travel"
   list="$(grep -E '^(Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect):' "$repo/scripts/fixtures/vpn/list.txt" | sed "s/:$vpn_shot_home:wireguard:activated\$/:$vpn_shot_home:wireguard:/")" || { fail "the VPN stand-in list is unreadable"; return; }
   device_reply nmcli 0 "$list" -t -f NAME,UUID,TYPE,STATE connection show
-  vpn_kill_plant "$vpn_shot_home" block 0 "state=holding reason=tunnel-down blocked=214 tunnel= profile=$vpn_shot_home" holding
+  vpn_kill_plant "$vpn_shot_home" block 0 "state=holding reason=tunnel-down blocked=214 tunnel= profile=$vpn_shot_home peers=203.0.113.10:51820,[2001:db8::2]:51820" holding
   expect_poll "Home tunnel reads dropped" '"off"' vpn_shot_state "$vpn_shot_home"
   vpn_kill_top holding "$1" "$notice"
   vpn_kill_take holding-row "$1" row
@@ -9503,7 +9582,7 @@ vpn_kill_holding() { # MODE
     expect_poll "the disconnect ends" null vpn_shot_in_flight
     expect "the disconnect of a dropped profile runs no nmcli down" "$downs" vpn_kill_downs
   fi
-  vpn_kill_plant "$vpn_shot_unlisted" block 0 "state=holding reason=tunnel-down blocked=3 tunnel= profile=$vpn_shot_unlisted" holding
+  vpn_kill_plant "$vpn_shot_unlisted" block 0 "state=holding reason=tunnel-down blocked=3 tunnel= profile=$vpn_shot_unlisted peers=203.0.113.10:51820,[2001:db8::2]:51820" holding
   vpn_kill_top unlisted "$1" "$notice"
   vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
   expect "VPN reads Home tunnel connected after the holding shot" ok ipc vgs.vpn invoke refresh ""
@@ -9564,7 +9643,7 @@ vpn_kill_problem_shots() { # MODE
   devices_vpn_kill_tree ready
   tree_rescan "a scan probes the kill switch step for the problem shots"
   [[ $kill == false ]] || expect_poll "the kill switch step reads set up for the problem shots" '"ready"' vpn_kill_read step
-  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile= peers="
   vpn_kill_home_off "the WireGuard-only shot" "$list"
   [[ $kill == false ]] || expect_poll "the row reads the switch on" '"block"' vpn_kill_read mode
   vpn_kill_top wireguard-only "$1"
@@ -9577,7 +9656,7 @@ vpn_kill_problem_shots() { # MODE
   vpn_kill_top unchecked "$1"
 
   vpn_kill_home_off "the no-rule connect" "$list"
-  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile= peers="
   expect "Home tunnel is asked to connect with no rule arming" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_home\"}"
   if [[ $kill == true ]]; then
     expect_poll "the connect's write names Home tunnel" "$(vpn_kill_text "$vpn_shot_home" block 0)" vpn_kill_file
@@ -9716,11 +9795,14 @@ vpn_shot_switch() { # UUID
 # vpn_shot_plant: the list, the one detail read of the four profiles in the
 # sorted uuid order the service asks for, and Home tunnel's address, from
 # the fixtures.
-vpn_shot_plant() {
-  local fixtures="$repo/scripts/fixtures/vpn" list details uuid argv=()
-  list="$(grep -E '^(Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect):' "$fixtures/list.txt")" || return 1
+vpn_shot_plant() { # [nord]: also include Lab tunnel's single-peer profile
+  local fixtures="$repo/scripts/fixtures/vpn" list details uuid argv=() names='Home tunnel|Office VPN|Travel L2TP|Campus AnyConnect'
+  [[ ${1:-} != nord ]] || names+='|Lab tunnel'
+  list="$(grep -E "^($names):" "$fixtures/list.txt")" || return 1
   device_reply nmcli 0 "$list" -t -f NAME,UUID,TYPE,STATE connection show
-  for uuid in $(printf '%s\n' "$vpn_shot_home" "$vpn_shot_office" "$vpn_shot_travel" "$vpn_shot_campus" | sort); do argv+=(uuid "$uuid"); done
+  local uuids=("$vpn_shot_home" "$vpn_shot_office" "$vpn_shot_travel" "$vpn_shot_campus")
+  [[ ${1:-} != nord ]] || uuids+=("$vpn_shot_unlisted")
+  for uuid in $(printf '%s\n' "${uuids[@]}" | sort); do argv+=(uuid "$uuid"); done
   details="$(python3 - "$fixtures/details.txt" "${argv[@]}" <<'PY'
 import sys
 blocks = {}
@@ -9750,7 +9832,7 @@ vpn_shot_check() {
     [[ ! -e $shim/$name ]] || { fail "the VPN check's $name stand-in would replace one already in the shim directory"; return 1; }
   done
   device_reply nmcli 0 "$(<"$repo/scripts/fixtures/vpn/link.txt")" -t -f GENERAL.STATE,GENERAL.IP-IFACE connection show uuid "$vpn_shot_home"
-  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile="
+  vpn_kill_status "state=off reason=disarmed blocked=0 tunnel= profile= peers="
   vpn_shot_readers route-none.txt dns-tunnel.json
   expect "Home tunnel's Check starts" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-check\",\"id\":\"$vpn_shot_home\"}"
   expect_poll "Home tunnel's check shows its public address" '"198.51.100.7"' vpn_shot_read panel Label "vpn-public:$vpn_shot_home" text
