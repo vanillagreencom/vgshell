@@ -111,7 +111,8 @@
 # bound is over four times the longest gap between two check lines inside
 # one row in the retained runs of 2026-11-09 to 11-12 on cachy (Ryzen 9
 # 9950X): 137 s, bar-controls (VGS-2465). Every check line, row-secs line
-# and harness step line counts as progress.
+# and harness step line counts as progress. The same bound ends each wait
+# for a quiet-host lock in the attempt (smoke_hold in scripts/smoke/harness.sh).
 #
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
@@ -665,7 +666,7 @@ PY
     if ((qml_smoke_cancel_status == 0)); then
       printf '%s\n' "${EPOCHREALTIME/./}" >"$qml_smoke_attempt/started-us"
       env --default-signal=INT,QUIT "$repo/scripts/smoke/gpu-fence.sh" --fresh "${world_args[@]}" --out "$qml_smoke_attempt" \
-        "$BASH" -c 'qml_smoke_attempt=$1; qml_smoke_completion=$2; smoke_hold_dir=$3; shift 3; source "$@"' "$self" "$qml_smoke_attempt" "$qml_smoke_completion" "$smoke_hold_dir" "$self" \
+        "$BASH" -c 'qml_smoke_attempt=$1; qml_smoke_completion=$2; smoke_hold_dir=$3; qml_smoke_idle_secs=$4; shift 4; source "$@"' "$self" "$qml_smoke_attempt" "$qml_smoke_completion" "$smoke_hold_dir" "$qml_smoke_idle_secs" "$self" \
         "${argv[@]}" --rows "$qml_smoke_next" --log-dir "$smoke_log_dir" >&"$qml_smoke_log_fd" 2>&1 {qml_smoke_log_fd}>&- &
       qml_smoke_fence_pid=$!
       # The watcher holds no writer of the run log, whose reader ends at EOF.

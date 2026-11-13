@@ -1520,7 +1520,11 @@ load_average() {
 # behind rows that keep starting. vgs-smoke-gate stops that: a row start
 # takes the gate, then its shared lock; a hold drops its own world's
 # shared lock, then takes the gate, then the exclusive lock. In that one
-# order two worlds that both want the hold cannot deadlock.
+# order two worlds that both want the hold cannot deadlock. Each lock wait
+# ends at the driver's no-progress bound, qml_smoke_idle_secs, and the gate
+# is dropped then, so one paused or stuck world stalls no other world past
+# it: a row start goes on without its shared lock, and a timed window runs
+# without the hold and is judged as one without it.
 # Each lock lives in a holder process of its own, never in a descriptor
 # of this shell, so no process a row or a hold starts inherits it (D053
 # records that leak through an inherited lock), the shell start-order
@@ -1530,37 +1534,51 @@ smoke_hold_depth=0 smoke_hold_shared="" smoke_hold_pid="" smoke_hold_retake=fals
 # smoke_lock_take MODE NAME: flock MODE, -s or -x, on smoke_hold_dir's
 # vgs-smoke-NAME, opened read-only and held by a background process that
 # starts nothing more, its pid in smoke_lock_pid. Waits until the lock is
-# held and prints a line each minute of the wait, which the driver's
-# no-progress bound reads as progress (qml-smoke.sh). Returns 1 with the
-# cause in smoke_lock_cause.
+# held or qml_smoke_idle_secs have passed, printing a line every half
+# bound, at most each minute, so the driver's no-progress stop, which
+# fires at that bound, reads the wait as progress (qml-smoke.sh). Returns
+# 1 with the cause in smoke_lock_cause, which starts `wait-bound` for a
+# wait that reached the bound.
 smoke_lock_take() { # MODE NAME
-  local ready="$sandbox/smoke-lock.ready" held ready_r ready_w answer status=0 waited=0
+  local ready="$sandbox/smoke-lock.ready" held ready_r ready_w answer status=0 waited=0 bound="${qml_smoke_idle_secs:-}" beat
   smoke_lock_pid="" smoke_lock_cause=""
   if [[ -z ${smoke_hold_dir:-} ]]; then smoke_lock_cause=lock-dir-unset; return 1; fi
+  if [[ ! $bound =~ ^[1-9][0-9]*$ ]]; then smoke_lock_cause="wait-bound-unread value=[$bound]"; return 1; fi
+  beat=$((bound / 2))
+  ((beat >= 1)) || beat=1
+  ((beat <= 60)) || beat=60
   if [[ ! -p $ready ]] && ! mkfifo -m 600 -- "$ready"; then smoke_lock_cause=ready-fifo-failed; return 1; fi
   # As in display_record_arm: an O_RDWR open of a FIFO waits for no peer.
   exec {held}<>"$ready"
   exec {ready_r}<"$ready" {ready_w}>"$ready"
   exec {held}<&-
-  # flock(1) locks the descriptor bash opened, and the exec'd sleep keeps it.
-  "$BASH" -c 'flock "$1" 3 && echo held && exec sleep infinity' smoke-lock "$1" \
-    </dev/null >&"$ready_w" 2>&1 3<"$smoke_hold_dir/vgs-smoke-$2" {ready_r}<&- {ready_w}>&- &
+  # flock(1) locks the descriptor bash opened, and the exec'd sleep keeps
+  # it. flock -w gives up at the bound with the -E status, 75. The read
+  # ends when the holder writes its one line, held or flock's status. The
+  # waiting flock holds the write end too, so a wait ends only when flock
+  # exits, at the latest at the bound. The sleep keeps no write end, so a
+  # holder that holds joins no later take's pipe.
+  "$BASH" -c 'flock -E 75 -w "$2" "$1" 3 && { echo held; exec sleep infinity >/dev/null 2>&1; }; echo "flock-status=$?"' \
+    smoke-lock "$1" "$bound" </dev/null >&"$ready_w" 2>&1 3<"$smoke_hold_dir/vgs-smoke-$2" {ready_r}<&- {ready_w}>&- &
   smoke_lock_pid=$!
-  # Only the holder holds the write end, so a holder that exits ends the read.
   exec {ready_w}>&-
   while :; do
     answer=""
-    IFS= read -r -t 60 -u "$ready_r" answer && break
+    IFS= read -r -t "$beat" -u "$ready_r" answer && break
     status=$?
     ((status > 128)) || break
-    waited=$((waited + 60))
+    waited=$((waited + beat))
     printf 'qml-smoke: smoke-hold waiting lock=%s mode=%s secs=%s\n' "$2" "$1" "$waited"
   done
   exec {ready_r}<&-
   [[ $answer != held ]] || return 0
   status=0
   wait "$smoke_lock_pid" || status=$?
-  printf -v smoke_lock_cause 'holder-exited status=%s said=%q' "$status" "$answer"
+  if [[ $answer == flock-status=75 ]]; then
+    smoke_lock_cause="wait-bound secs=$bound lock=$2 mode=$1"
+  else
+    printf -v smoke_lock_cause 'holder-exited status=%s said=%q' "$status" "$answer"
+  fi
   smoke_lock_pid=""
   return 1
 }
@@ -1594,6 +1612,8 @@ smoke_hold_row() { # begin|unwind|end NAME
       started="$(now_ms)"
       if smoke_hold_share; then
         printf 'qml-smoke: smoke-hold row=%s lock=shared wait_ms=%s\n' "$2" "$(( $(now_ms) - started ))"
+      elif [[ $smoke_lock_cause == wait-bound* ]]; then
+        printf 'qml-smoke: smoke-hold row=%s lock=shared hold=none cause=[%s]\n' "$2" "$smoke_lock_cause"
       else
         row_class=operation fail "$2: smoke-hold lock=shared unavailable cause=[$smoke_lock_cause]"
       fi ;;
@@ -1621,8 +1641,9 @@ smoke_hold() { # ROW WINDOW CMD...
   return "$status"
 }
 # smoke_hold_begin ROW WINDOW: drop this world's shared lock, take the
-# gate, then the exclusive lock, and drop the gate. A hold that cannot be
-# taken fails ROW as an operation failure, and the window runs without it.
+# gate, then the exclusive lock, and drop the gate. A hold whose wait
+# reached the bound leaves the window to run without it; one that cannot
+# be taken for another cause also fails ROW as an operation failure.
 smoke_hold_begin() { # ROW WINDOW
   local gate
   smoke_hold_row_name="$1" smoke_hold_window="$2" smoke_hold_began="$(now_ms)" smoke_hold_taken="" smoke_hold_retake=false
@@ -1639,7 +1660,7 @@ smoke_hold_begin() { # ROW WINDOW
     smoke_lock_drop "$gate"
   fi
   smoke_hold_cause=$smoke_lock_cause
-  if [[ -z $smoke_hold_pid ]]; then row_class=operation fail "$1: smoke-hold window=$2 unavailable cause=[$smoke_hold_cause]"; fi
+  if [[ -z $smoke_hold_pid && $smoke_hold_cause != wait-bound* ]]; then row_class=operation fail "$1: smoke-hold window=$2 unavailable cause=[$smoke_hold_cause]"; fi
 }
 # smoke_hold_end: drop the exclusive lock; print, beside the window's
 # readings, whether they were taken under the hold, how long it was waited
@@ -1657,7 +1678,11 @@ smoke_hold_end() {
     printf '  smoke_hold row=%s window=%s hold=none cause=[%s]\n' "$smoke_hold_row_name" "$smoke_hold_window" "$smoke_hold_cause"
   fi
   if [[ $smoke_hold_retake == true ]] && ! smoke_hold_share; then
-    row_class=operation fail "$smoke_hold_row_name: smoke-hold lock=shared unavailable after the hold cause=[$smoke_lock_cause]"
+    if [[ $smoke_lock_cause == wait-bound* ]]; then
+      printf 'qml-smoke: smoke-hold row=%s lock=shared hold=none cause=[%s]\n' "$smoke_hold_row_name" "$smoke_lock_cause"
+    else
+      row_class=operation fail "$smoke_hold_row_name: smoke-hold lock=shared unavailable after the hold cause=[$smoke_lock_cause]"
+    fi
   fi
   smoke_hold_retake=false
 }

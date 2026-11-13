@@ -14,12 +14,13 @@
 # and that a unit's stop mid-row leaves the attempt's closing reading.
 # --case unmeasured checks unreached rows before and after world setup.
 # --case late-exit stops real initial and resumed worlds during EXIT.
-# --case hold runs two real worlds against harness.sh's quiet-host hold:
-# after a run killed while it holds the hold, one world's timed window
-# waits for the other world's current row to end, and that world reaches
-# its next row boundary while the hold is waited for but starts the row
-# only after the hold ends. Its control takes the hold shared, not
-# exclusively, and its window must overlap the other world's row.
+# --case hold runs real worlds against harness.sh's quiet-host hold. While
+# one run holds the hold, a world with a 6 s no-progress bound gives up
+# each lock wait at that bound and finishes, its window logging hold=none.
+# Once the holding run is killed, one world's timed window waits for the
+# other world's current row to end, and that world starts no row until the
+# hold ends. Its control takes the hold shared, not exclusively, and its
+# window must overlap the other world's row.
 # The full run also plants a row that goes silent, with TERM ignored, after
 # a row that prints slowly past the bound: the driver's no-progress stop
 # goes unanswered, so the driver ends the world through its namespace init
@@ -604,9 +605,10 @@ if [[ $selected_case == all || $selected_case == hold ]]; then
 hold_seen() { [[ -f $hold_events ]] && grep -qxF -- "$1" "$hold_events"; }'
   cat >"$tree/scripts/smoke/rows/hold-forever.sh" <<'ROW'
 # inputs: scripts/smoke/harness.sh
-hold_forever() { printf 'K held\n' >>"$smoke_log_dir/hold-events"; sleep 300; }
+hold_forever() { printf 'K held\n' >>"$smoke_log_dir/hold-events"; sleep 540; }
 smoke_hold hold-forever window hold_forever
 ROW
+  printf '# inputs: scripts/smoke/harness.sh\nsmoke_hold hold-bounded window true\n' >"$tree/scripts/smoke/rows/hold-bounded.sh"
   # The window starts while the other world is in tick-1, and looks for
   # tick-2 starting while it holds.
   cat >"$tree/scripts/smoke/rows/hold-window.sh" <<ROW
@@ -634,16 +636,19 @@ ROW
   for tick in 2 3 4; do
     printf '# inputs: scripts/smoke/harness.sh\nprintf '\''B start %s\\nB end %s\\n'\'' >>"$smoke_log_dir/hold-events"\n' "$tick" "$tick" >"$tree/scripts/smoke/rows/tick-$tick.sh"
   done
-  printf '%s\n' "${core[@]}" hold-forever hold-window tick-1 tick-2 tick-3 tick-4 >"$tree/scripts/smoke/rows.list"
+  printf '%s\n' "${core[@]}" hold-forever hold-bounded hold-window tick-1 tick-2 tick-3 tick-4 >"$tree/scripts/smoke/rows.list"
   cat >"$TMP_ROOT/hold-case.py" <<'PY'
-import json, pathlib, re, signal, subprocess, sys, time
+import json, os, pathlib, re, signal, subprocess, sys, time
 tree, output, mode = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 output.mkdir()
-def start(name, rows, logs):
+def start(name, rows, logs, idle=None):
     log = output / (name + '.log')
+    environment = dict(os.environ)
+    if idle:
+        environment['VGS_SMOKE_IDLE_SECS'] = idle
     with log.open('wb') as stream:
         child = subprocess.Popen(['env', '--default-signal=INT,QUIT', str(tree / 'scripts/qml-smoke.sh'), '--rows', rows, '--log-dir', str(logs)],
-                                 stdout=stream, stderr=subprocess.STDOUT)
+                                 stdout=stream, stderr=subprocess.STDOUT, env=environment)
     return child, log
 def finish(child, log, bound):
     try:
@@ -663,6 +668,16 @@ if mode == 'shipped':
     while events(logs) != ['K held'] and child.poll() is None and time.monotonic() < deadline:
         time.sleep(0.1)
     assert events(logs) == ['K held'], ('killed-run-not-holding', events(logs), log.read_text(errors='replace'))
+    # While K holds, a world whose no-progress bound is 15 s gives up each
+    # lock wait at that bound: its rows start without the shared lock and
+    # its window runs with hold=none, and it finishes while K still holds.
+    bounded, bounded_log = start('bounded', 'hold-bounded', output / 'bounded', idle='15')
+    finish(bounded, bounded_log, 600)
+    text = bounded_log.read_text(errors='replace')
+    assert bounded.returncode == 0, ('bounded-exit', bounded.returncode, text)
+    assert child.poll() is None and events(logs) == ['K held'], ('holder-ended-before-bound', text)
+    assert re.search(r'^qml-smoke: smoke-hold row=bar lock=shared hold=none cause=\[wait-bound secs=15 lock=hold mode=-s\]$', text, re.M), text
+    assert re.search(r'^  smoke_hold row=hold-bounded window=window hold=none cause=\[wait-bound secs=15 lock=hold mode=-x\]$', text, re.M), text
     child.send_signal(signal.SIGUSR2)
     finish(child, log, 60)
     assert re.search(r'^qml-smoke: no-progress stop=unanswered world=ended ', log.read_text(errors='replace'), re.M), log.read_text(errors='replace')
@@ -675,8 +690,8 @@ for child, log in (window, ticks):
     assert child.returncode == 0, (log.name, child.returncode, log.read_text(errors='replace'))
 text = window[1].read_text(errors='replace')
 assert re.search(r'^  smoke_hold row=hold-window window=window hold=held wait_ms=[0-9]+ held_ms=[0-9]+$', text, re.M), text
-# The window waits for tick-1 to end; tick-2 reaches its start while the
-# hold is waited for and starts only after the window ends.
+# The window waits for tick-1 to end, and tick-2 starts only after the
+# window ends.
 want = ['B start 1', 'A requested', 'B end 1', 'A held', 'A release'] + [f'B {edge} {n}' for n in (2, 3, 4) for edge in ('start', 'end')]
 got = events(logs)
 if mode == 'shipped':
