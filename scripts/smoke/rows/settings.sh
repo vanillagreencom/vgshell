@@ -512,7 +512,8 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # up to the cap, the window's implicitHeight, and returns on Settings. Then every plugin the manager lists is judged on
 # Details by one judge: its last row ends inside the window, or the scroll
 # area's bottom edge cue shows. The shared scroll fixture's description
-# deliberately exceeds the room. Windows fits without a cue, so the cue reads both
+# deliberately exceeds the room. The bare fixture's short description,
+# metadata and single optional tool fit without a cue, so the cue reads both
 # ways. The control gives the judge a client one pixel shorter than its
 # measured last row, without a cue: the judge reads it cut.
 # fit_state: the Plugins client as [x, y, w, h], its height target, the
@@ -568,16 +569,16 @@ vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; p
 expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
 done
 fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
-[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" acme.settings-scroll "* ]] || fail "the manager lists Windows and the deliberate scroll fixture for the Details judge: got $fit_ids"
+[[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" acme.bare "* && " $fit_ids " == *" acme.settings-scroll "* ]] || fail "the manager lists Windows, the bare fixture and the deliberate scroll fixture for the Details judge: got $fit_ids"
 overflow_details=unread
-windows_details=unread
+bare_details=unread
 for fit_id in $fit_ids; do
   expect "the window opens $fit_id's page for the Details judge" ok ipc smoke invokeInstance window vgs.settings openPlugin "$fit_id"
   settings_details
   expect_poll "the window takes $fit_id's Details height" settled fit_settled
   fit_reading="$(fit_state)" || fit_reading=unread
   [[ $fit_id == acme.settings-scroll ]] && overflow_details="$fit_reading"
-  [[ $fit_id == vgs.windows ]] && windows_details="$fit_reading"
+  [[ $fit_id == acme.bare ]] && bare_details="$fit_reading"
   fit_verdict="$(fit_judge "$fit_reading")" || fit_verdict=unread
   case $fit_verdict in
     fits|cued) ok "$fit_id Details ends inside the window or shows the bottom cue: $fit_verdict" ;;
@@ -592,8 +593,8 @@ expect "the window holds the deliberate fixture's Details at the cap" "$(printf 
 expect "the deliberate scroll fixture's Details show the bottom cue" true fit_field "$overflow_details" end cueBelow
 overflow_cut_height="$(fit_field "$overflow_details" client 3)" || overflow_cut_height=unread
 expect "control: the same overflowing fixture without its bottom cue is cut" cut fit_judge "$overflow_details" "$overflow_cut_height" false
-expect "Windows' Details ends inside the window" fits fit_judge "$windows_details"
-expect "Windows' Details that fits shows no bottom cue" false fit_field "$windows_details" end cueBelow
+expect "the bare fixture's Details ends inside the window" fits fit_judge "$bare_details"
+expect "the bare fixture's Details that fits shows no bottom cue" false fit_field "$bare_details" end cueBelow
 
 open_rows() { settings_rows | py_reply 'import json,sys; ids=("acme.probe","vgs.gallery","vgs.devtools","vgs.themes"); print(json.dumps({r["id"]: r["opens"] for r in json.load(sys.stdin) if r["id"] in ids}, sort_keys=True))'; }
 open_button() { ipc smoke windowGeometry window vgs.settings Button Open | py_reply 'import sys; print("absent" if sys.stdin.read().strip() == "absent" else "drawn")'; }

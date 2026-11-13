@@ -108,7 +108,7 @@ function nmVpnRequirements(ctx, check) {
     check("nmVpn: normalized manifest", result.ok, true);
     if (!result.ok) return;
     check("nmVpn: shared identity", result.manifest.requirements, [{ name: service, title: vpn.label, bus: null,
-        packages: { pacman: "networkmanager-openvpn" }, optional: true, purpose: "Connects VPN profiles", floor: null, onRequest: false, drmDriver: null }]);
+        packages: { pacman: "networkmanager-openvpn" }, optional: true, purpose: "Connects VPN profiles", floor: null, onRequest: false, drmDriver: null, requestOnly: false }]);
     for (const [missing, state] of [[[], "present"], [[service], "missing"]]) {
         check("nmVpn: scan reads " + state, ctx.requirementRows(result.manifest, missing, {}).map(row => [row.name, row.state]), [[service, state]]);
     }
@@ -775,6 +775,11 @@ function suite(ctx, configLogic, check) {
         ["a requirement package starting with a dash", { requirements: [{ command: "gum", packages: { pacman: "-Sy" }, purpose: "p" }] }, "requirements.0.packages.pacman must be a package name"],
         ["a requirement package with a space", { requirements: [{ command: "gum", packages: { apt: "gum fzf" }, purpose: "p" }] }, "requirements.0.packages.apt must be a package name"],
         ["requirement optional not a boolean", { requirements: [{ command: "gum", optional: "yes", purpose: "p" }] }, "requirements.0.optional must be a boolean when present"],
+        ["a request-only optional requirement", { requirements: [{ command: "gum", optional: true, requestOnly: true, purpose: "p" }] }, null],
+        ["a required entry with ordinary placement", { requirements: [{ command: "gum", requestOnly: false, purpose: "p" }] }, null],
+        ["request-only placement is not a string", { requirements: [{ command: "gum", optional: true, requestOnly: "true", purpose: "p" }] }, "requirements.0.requestOnly must be a boolean when present"],
+        ["request-only placement is not null", { requirements: [{ command: "gum", optional: true, requestOnly: null, purpose: "p" }] }, "requirements.0.requestOnly must be a boolean when present"],
+        ["request-only placement cannot hide a required entry", { requirements: [{ command: "gum", requestOnly: true, purpose: "p" }] }, "requirements.0.requestOnly needs an optional entry"],
         ["an optional command conditioned on the NVIDIA driver", { requirements: [{ command: "nvidia-smi", optional: true, drmDriver: "nvidia", purpose: "Reads graphics metrics" }] }, null],
         ["a DRM driver outside the supported condition", { requirements: [{ command: "nvidia-smi", optional: true, drmDriver: "nouveau", purpose: "p" }] }, "requirements.0.drmDriver must be \"nvidia\""],
         ["a malformed DRM driver condition", { requirements: [{ command: "nvidia-smi", optional: true, drmDriver: null, purpose: "p" }] }, "requirements.0.drmDriver must be \"nvidia\""],
@@ -1511,12 +1516,23 @@ function suite(ctx, configLogic, check) {
     }
     const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles service" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false, drmDriver: null }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false, drmDriver: null }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false, drmDriver: null }]);
+        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false, drmDriver: null, requestOnly: false }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false, drmDriver: null, requestOnly: false }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false, drmDriver: null, requestOnly: false }]);
     check("validateManifest carries an on-request install as a required entry", ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "on-request", purpose: "Dialogs" }] }), "/p").manifest.requirements.map(r => [r.name, r.optional, r.onRequest]), [["gum", false, true]]);
     check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"], {}).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
     check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
     check("requirementRows: every requirement is present when the scan missed none", ctx.requirementRows(required, [], {}).map(r => r.state), ["present", "present", "present"]);
     check("requirementRows does not alias the manifest", (() => { ctx.requirementRows(required, [], {})[1].packages.apt = "x"; return required.requirements[1].packages; })(), { pacman: "pacman-contrib" });
+    const requestOnlyOwner = ctx.validateManifest(Object.assign({}, bar, { capabilities: ["tui"],
+        requirements: [{ command: "build-tool", packages: { pacman: "builder" }, optional: true, requestOnly: true, purpose: "Builds the optional feature" }],
+        tui: { prepare: { script: "tui/prepare.sh", title: "Prepare", requires: ["build-tool"] } } }), "/p").manifest;
+    for (const missing of [[], ["build-tool"]]) {
+        const reading = ctx.requirementRows(requestOnlyOwner, missing, {})[0];
+        const consent = ctx.noticeRequest(requestOnlyOwner, missing, {}, "offered", ["build-tool"]);
+        check("request-only placement retains discovery and request prerequisites: " + missing.length,
+            [reading.name, reading.optional, reading.requestOnly, reading.state, reading.packages,
+                ctx.tuiMissingRequirements(requestOnlyOwner, "prepare", missing), consent.commands, consent.required],
+            ["build-tool", true, true, missing.length === 0 ? "present" : "missing", { pacman: "builder" }, missing, missing, missing]);
+    }
     const architectureRecipe = fs.readFileSync(path.join(__dirname, "fixtures/pkg/aur-x86.SRCINFO"), "utf8");
     const architectureArches = load(path.join(__dirname, "../shell/Core/PackageReview.js")).srcinfoArchitectures(architectureRecipe, "need-two", "need-two-base");
     const architectureOwner = { requirements: ctx.normalRequirements([{ command: "need-two", packages: { aur: "need-two" }, purpose: "Animates the screensaver text art" }]) };
@@ -3716,6 +3732,8 @@ const CONTROLS = [
     ["an on-request requirement needs no packages", "if (requirement.packages === undefined)\n                return at + \".install needs packages", "if (false)\n                return at + \".install needs packages"],
     ["an on-request requirement may carry a floor", "if (requirement.floor !== undefined)\n                return at + \".install cannot stand", "if (false)\n                return at + \".install cannot stand"],
     ["an on-request install is not normalized", "onRequest: entry.install === REQUIREMENT_ON_REQUEST", "onRequest: false"],
+    ["request-only placement cannot hide required work", "if (requirement.requestOnly === true && requirement.optional !== true)", "if (false)"],
+    ["request-only placement survives normalization", "requestOnly: entry.requestOnly === true", "requestOnly: false"],
     ["an absent floor is normalized", "floor: entry.floor === undefined ? null : entry.floor", "floor: entry.floor"],
     ["a disabled plugin's version is not read", "if (id !== CORE_OWNER && enabled.indexOf(id) === -1) return;", ""],
     ["a missing command's version is not read", "entry.floor !== null && lacking.indexOf(entry.name) === -1 && out.indexOf", "entry.floor !== null && out.indexOf"],

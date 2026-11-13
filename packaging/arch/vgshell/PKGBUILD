@@ -69,6 +69,11 @@ depends=(
   'xdg-utils'
 )
 optdepends=(
+  'hyprpm: turn layer glass on or off in the Windows plugin'
+  'cpio: install layer glass in the Windows plugin'
+  'cmake: install layer glass in the Windows plugin'
+  'pkgconf: install layer glass in the Windows plugin'
+  'gcc: install layer glass in the Windows plugin'
   'chromium: browser features in the bar and Jarvis'
   'uv: Jarvis local voice model setup'
   'agent-browser-bin: Jarvis browser actions'

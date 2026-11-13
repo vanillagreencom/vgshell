@@ -147,7 +147,7 @@ var IDLE_STAGE_KEYS = ["seconds", "enabled"];
 // saying what it is for, for a command the `floor`, the lowest version
 // the plugin works with, and `install`, how the package recipes carry its
 // package. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "nmVpn", "packages", "optional", "purpose", "floor", "install", "drmDriver"];
+var REQUIREMENT_KEYS = ["command", "dbus", "nmVpn", "packages", "optional", "purpose", "floor", "install", "drmDriver", "requestOnly"];
 // The one `install` value: the requirement stays required, and its package
 // is an optional dependency of every recipe, which its plugin's
 // Requirements section installs (scripts/check-packaging.js).
@@ -2571,7 +2571,9 @@ function requirementIdentity(requirement, at) {
 // declared once, and never names a plugin (D005). `packages`, when present,
 // is an object whose keys are manager ids of PackageManagers.MANAGERS and
 // whose values are package names PackageManagers.validName accepts;
-// `optional`, when present, is a boolean; `purpose` is one printable line
+// `requestOnly`, when true, keeps an optional requirement in request-time
+// consent and out of passive Setup and Details tool rows. `optional`,
+// when present, is a boolean; `purpose` is one printable line
 // of 1 to REQUIREMENT_PURPOSE_MAX characters that hintFits accepts;
 // `floor`, when present, is a version REQUIREMENT_FLOOR accepts, on a
 // `command` alone, since a service name prints none. `drmDriver` may name
@@ -2614,6 +2616,10 @@ function requirementsError(requirements) {
         }
         if (requirement.optional !== undefined && typeof requirement.optional !== "boolean")
             return at + ".optional must be a boolean when present";
+        if (requirement.requestOnly !== undefined && typeof requirement.requestOnly !== "boolean")
+            return at + ".requestOnly must be a boolean when present";
+        if (requirement.requestOnly === true && requirement.optional !== true)
+            return at + ".requestOnly needs an optional entry";
         if (requirement.drmDriver !== undefined) {
             if (requirement.drmDriver !== "nvidia")
                 return at + ".drmDriver must be \"nvidia\" when present";
@@ -2645,11 +2651,11 @@ function requirementsError(requirements) {
 // A `requirements` list requirementsError accepted, each entry with every
 // key: `name`, `title`, the command or the service `label` a page lists it
 // by, `bus`, `packages` {}, `optional` false, `floor` null and `onRequest`
-// false and `drmDriver` null when absent.
+// false, `drmDriver` null and `requestOnly` false when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
         var title = entry.command !== undefined ? entry.command : entry.dbus !== undefined ? entry.dbus.label : entry.nmVpn.label;
-        return { name: requirementName(entry), title: title, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, drmDriver: entry.drmDriver === undefined ? null : entry.drmDriver };
+        return { name: requirementName(entry), title: title, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, drmDriver: entry.drmDriver === undefined ? null : entry.drmDriver, requestOnly: entry.requestOnly === true };
     });
 }
 

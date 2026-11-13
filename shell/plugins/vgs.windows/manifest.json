@@ -18,13 +18,13 @@
     ]
   },
   "requirements": [
-    { "command": "hyprpm", "optional": true, "purpose": "Turn layer glass on or off", "packages": { "pacman": "hyprpm" } },
-    { "command": "cpio", "optional": true, "purpose": "Install layer glass", "packages": { "pacman": "cpio" } },
-    { "command": "cmake", "optional": true, "purpose": "Install layer glass", "packages": { "pacman": "cmake" } },
-    { "command": "pkg-config", "optional": true, "purpose": "Install layer glass", "packages": { "pacman": "pkgconf" } },
-    { "command": "g++", "optional": true, "purpose": "Install layer glass", "packages": { "pacman": "gcc" } },
-    { "command": "gcc", "optional": true, "purpose": "Install layer glass", "packages": { "pacman": "gcc" } },
-    { "command": "git", "optional": true, "purpose": "Download the layer-glass plugin", "packages": { "pacman": "git" } }
+    { "command": "hyprpm", "optional": true, "requestOnly": true, "purpose": "Turn layer glass on or off", "packages": { "pacman": "hyprpm" } },
+    { "command": "cpio", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "cpio" } },
+    { "command": "cmake", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "cmake" } },
+    { "command": "pkg-config", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "pkgconf" } },
+    { "command": "g++", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "gcc" } },
+    { "command": "gcc", "optional": true, "requestOnly": true, "purpose": "Install layer glass", "packages": { "pacman": "gcc" } },
+    { "command": "git", "optional": true, "requestOnly": true, "purpose": "Download the layer-glass plugin", "packages": { "pacman": "git" } }
   ],
   "tui": {
     "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm", "cpio", "cmake", "pkg-config", "g++", "gcc", "git"] },

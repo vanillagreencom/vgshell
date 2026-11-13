@@ -395,7 +395,7 @@ mutations=(
   "a superseded retry keeps the failure it retried|../Core/HyprlandLayer.qml|                if (root.bindSnapshot !== null && root.bindSnapshot.read.kind === \"failed\") root.bindSnapshot = null;|                {}|tst_hyprland_layer.qml|test_a_layout_change_during_a_key_read_reads_the_keys_again"
   "any bind key change holds the layer write|../Core/HyprlandLayer.qml|bindSnapshot.admission !== bindAdmission|bindSnapshot.request !== bindRequest|tst_hyprland_layer.qml"
   "a theme change renders the layer per changed input|../Core/HyprlandLayer.qml|onRenderInputsChanged: Qt.callLater(root.renderLayer)|onRenderInputsChanged: root.renderLayer()|tst_hyprland_layer.qml"
-  "core publication waits for key admission|../Core/HyprlandLayer.qml|renderInputs: coreInputsReady && permissionsReady ?|renderInputs: coreInputsReady && permissionsReady && bindPlan !== null ?|tst_hyprland_consent.qml"
+  "core publication waits for key admission|../Core/HyprlandLayer.qml|renderInputs: coreInputsReady && permissionsReady && (|renderInputs: coreInputsReady && permissionsReady && bindPlan !== null && (|tst_hyprland_consent.qml"
   "a start over a layer on disk writes the core text first|../Core/HyprlandLayer.qml|&& typeof machine.onDisk === \"string\"|&& false && typeof machine.onDisk === \"string\"|tst_hyprland_consent.qml"
   "a failed start read writes the core text over the layer on disk|../Core/HyprlandLayer.qml|            && !machine.reloaded && bindPlan === null;|            && !machine.reloaded && bindPlan === null && !(bindSnapshot !== null && bindSnapshot.read.kind === \"failed\");|tst_hyprland_consent.qml"
   "readiness admits a pending keymap|../smoke/Probe.qml|admitted: layer.admissionReady|admitted: true|tst_hyprland_consent.qml"

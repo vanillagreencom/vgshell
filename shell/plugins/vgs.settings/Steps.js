@@ -92,7 +92,7 @@ function detailEntries(status) {
 function rowsEntries(status, settings) {
     return status.filter(function (entry) { return entry.placement === "rows" && entry.settings === settings; });
 }
-function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional; }); }
+function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional && !entry.requestOnly; }); }
 // The action that opens the plugin's notice for every missing or outdated
 // tool, the one install action of Setup's Tools and Optional tools steps.
 var REVIEW_LABEL = "Review all missing or outdated tools";
@@ -144,9 +144,9 @@ function requiredLacking(requirements) {
 // current, else To do, or Optional for the optional tools, naming the
 // lacking ones. Excluded recipes stay unfinished and read Not available;
 // Review is offered only for tools the user can install or update. Null
-// while the plugin declares no such tool.
+// while the plugin declares no such tool outside request-time consent.
 function toolsStep(requirements, optional) {
-    var rows = requirements.filter(function (row) { return row.optional === optional; });
+    var rows = requirements.filter(function (row) { return row.optional === optional && !row.requestOnly; });
     if (rows.length === 0) return null;
     var lacking = rows.filter(requirementApplies);
     var actionable = lacking.some(function (row) { return row.state !== "unavailable-architecture"; });
@@ -213,7 +213,7 @@ function setupSections(tuis, status, requirements, plugin, failure) {
         var first = true;
         items.forEach(function (item) {
             if (item.button === null || item.button.kind !== "tools") return;
-            var rows = item.tools ? required.filter(function (row) { return row.optional === (item.entry.setup === "optional"); }) : required;
+            var rows = item.tools ? required.filter(function (row) { return row.optional === (item.entry.setup === "optional") && !row.requestOnly; }) : required;
             if (!failedBy(rows, failure)) return;
             item.button = retryButton();
             item.failure = { lines: first };

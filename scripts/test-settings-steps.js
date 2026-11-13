@@ -11,6 +11,7 @@
 // done, then Done steps. An optional step raises no Setup needed. The
 // required tools form the Tools step and the optional tools the Optional
 // tools step on Setup; Details lists the optional tools as readings.
+// Request-only tools stay in request-time consent, without either passive row.
 // Settings draws only values and their stored key lists. Every To do step
 // draws an action that takes a press while the plugin is on and none while
 // it is off, save the Tools step's Review; every Details fact that holds
@@ -575,6 +576,25 @@ function verify(logic, producer) {
     const excludedHome = items(logic.setupSections({}, excludedBlockedStatus, excluded, on)).find(item => item.key === "home");
     same([logic.stepReading(excludedHome.entry, on), excludedHome.button, logic.setupNeeds(excludedBlockedStatus, excluded, true).open],
         ["unavailable", null, false], "architecture exclusion: tool-blocked work never reads To do without an action");
+    const requestOnlyOwner = { requirements: producer.normalRequirements([
+        { command: "request-tool", optional: true, requestOnly: true, floor: "2.0.0", packages: { pacman: "builder" }, purpose: "Builds the optional feature" }
+    ]) };
+    for (const [state, missing, versions] of [
+        ["present", [], {}], ["missing", ["request-tool"], {}], ["outdated", [], { "request-tool": "1.0.0" }]
+    ]) {
+        const held = producer.requirementRows(requestOnlyOwner, missing, versions);
+        const passive = logic.setupSections(screens, [], held);
+        same([held[0].state, logic.detailRequirements(held), passive, logic.setupTab(passive, held), logic.setupNeeds([], held, true).open],
+            [state, [], [], false, false], "request-only tools have no passive placement: " + state);
+        const mixed = requirements([]).concat(held);
+        same([logic.detailRequirements(mixed).map(row => row.name), items(logic.setupSections(screens, [], mixed)).map(item => item.key)],
+            [["optional-tool", "org.example.Tool", "automatic-tool"], ["required-tools", "optional-tools"]],
+            "request-only tools preserve ordinary tools and completed required work: " + state);
+    }
+    const requestFailure = { action: "install", manager: "pacman", packages: ["builder"], lines: [] };
+    const mixedFailureRows = requirements(["optional-tool"]).concat(producer.requirementRows(requestOnlyOwner, ["request-tool"], {}));
+    const ordinaryStep = items(logic.setupSections(screens, [], mixedFailureRows, on, requestFailure)).find(item => item.key === "optional-tools");
+    same([Object.hasOwn(ordinaryStep, "failure"), ordinaryStep.button.kind], [false, "tools"], "request-only failure does not mark an unrelated passive tools step failed");
 }
 
 // Mask comments and strings before counting braces, so explanatory text
@@ -600,7 +620,7 @@ const controls = [
     ["a failed install keeps Review", "item.button = retryButton();", "", "a failed install: a required tool's install fails its steps alone"],
     ["every failed step draws the lines", "first = false;", "", "a failed install: a required tool's install fails its steps alone"],
     ["every step that offers Review reads failed", "            if (!failedBy(rows, failure)) return;\n", "", "a failed install: a required tool's install fails its steps alone"],
-    ["a failed tool is one of the step's own", 'return row.optional === (item.entry.setup === "optional"); }) : required;', "return true; }) : required;", "a failed install: a required tool's install fails its steps alone"],
+    ["a failed tool is one of the step's own", 'return row.optional === (item.entry.setup === "optional") && !row.requestOnly; }) : required;', "return true; }) : required;", "a failed install: a required tool's install fails its steps alone"],
     ["a failed package is the failed manager's", "failure.packages.indexOf(row.packages[failure.manager]) !== -1;", "Object.keys(row.packages).some(function (m) { return failure.packages.indexOf(row.packages[m]) !== -1; });", "a failed install: a required tool's install fails its steps alone"],
     ["the last lines draw among the plain lines", 'lines: [failureText(failure) + (unread ? FAILURE_UNREAD : "")],', 'lines: [failureText(failure) + (unread ? FAILURE_UNREAD : "")].concat(lines ? failure.lines : []),', "a failed step reads Failed in the danger tone"],
     ["optional-on-Setup", 'return entry.placement === "setup"; }', 'return entry.placement === "setup" || entry.placement === "settings"; }', "optional entries never draw on Setup"],
@@ -629,7 +649,9 @@ const controls = [
     ["an excluded tool offers Review", 'button: actionable ? reviewButton() : null', 'button: lacking.length > 0 ? reviewButton() : null', "architecture exclusion: a required tool is unfinished but has no install action"],
     ["a Settings list draws on Details", 'return entry.placement === "rows" && entry.settings === settings;', 'return entry.placement === "rows";', "rows: each list on its own tab"],
     ["optional tools create no step", '[toolsStep(required, false), toolsStep(required, true)]', '[toolsStep(required, false)]', "optional tools alone create Setup"],
-    ["optional tool becomes required Tools", 'var rows = requirements.filter(function (row) { return row.optional === optional; });', 'var rows = optional ? requirements.filter(function (row) { return row.optional; }) : requirements.slice();', "optional tools alone create Setup"],
+    ["request-only tools appear on Details", 'return entry.optional && !entry.requestOnly;', 'return entry.optional;', "request-only tools have no passive placement"],
+    ["request-only tools create Setup", 'return row.optional === optional && !row.requestOnly;', 'return row.optional === optional;', "request-only tools have no passive placement"],
+    ["optional tool becomes required Tools", 'var rows = requirements.filter(function (row) { return row.optional === optional && !row.requestOnly; });', 'var rows = optional ? requirements.filter(function (row) { return row.optional && !row.requestOnly; }) : requirements.filter(function (row) { return !row.requestOnly; });', "optional tools alone create Setup"],
     ["the optional tools step names the required tools", 'var lacking = rows.filter(requirementApplies);', 'var lacking = requirements.filter(requirementApplies);', "tools steps a required tool missing"],
     ["ready tools drop their step", 'if (rows.length === 0) return null;', 'if (rows.length === 0 || rows.every(function (row) { return row.state === "present"; })) return null;', "tools steps every tool present"],
     ["optional tool warns", 'return !row.optional && requirementApplies(row) && row.state !== "unavailable-architecture";', 'return requirementApplies(row) && row.state !== "unavailable-architecture";', "only optional tool missing"],

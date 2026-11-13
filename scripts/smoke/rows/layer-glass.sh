@@ -76,6 +76,10 @@ for tool in hyprpm cpio cmake pkg-config g++ gcc; do
   [[ ! -e $shim/$tool ]] || mv -- "$shim/$tool" "$lg_dir/saved-tools/$tool"
   printf '#!/bin/sh\nexit 0\n' >"$shim/$tool"; chmod 755 "$shim/$tool"
 done
+# The private Windows copy replaces its manager script below and deliberately
+# shadows the shipped plugin. Declare only that shipped path's collision.
+lg_shadow_warning="$(python3 -c 'import re,sys; print(r"WARN qml: plugins: hidden by a higher-precedence plugin with the same id: vgs\.windows at " + re.escape(sys.argv[1]) + "$")' "$repo/shell/plugins/vgs.windows")"
+expected_errors+=("$lg_shadow_warning")
 cp -R -- "$repo/shell/plugins/vgs.windows/." "$lg_copy/"
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.windows/tui/layer-glass.sh" "$lg_copy/tui/layer-glass.sh"
 cp -- "$lg_copy/tui/layer-glass.sh" "$lg_dir/manager.sh"
@@ -112,9 +116,9 @@ expect 'unset layer glass contributes no plugin declaration' absent lg_block
 expect 'the actual Windows pane opens for layer glass' ok ipc shell summon window vgs.system '{"pane":"vgs.windows"}'
 expect_poll 'the Windows pane mounts for layer glass' '["vgs.windows"]' window_panes
 : >"$lg_dir/hold"
-lg_shown="$(ipc smoke revealScopedText window vgs.system FormRow 'Enabled' Switch '')"
+lg_shown="$(ipc smoke revealScopedText window vgs.system FormRow 'Layer glass' Switch '')"
 if [[ $lg_shown =~ ^[0-9.]+$ ]]; then
-  click_item 'scoped:System Settings' window vgs.windows FormRow 'Enabled' Switch ''
+  click_item 'scoped:System Settings' window vgs.windows FormRow 'Layer glass' Switch ''
 else
   fail "the layer glass row could not be revealed: $lg_shown"
 fi

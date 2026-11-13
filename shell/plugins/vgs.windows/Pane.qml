@@ -25,6 +25,9 @@ FocusScope {
     readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""
         ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1
             ? layerGlass.observed.reason : ""
+    readonly property bool layerGlassRecovery: layerGlass !== null && (layerGlassBusy || layerGlassProblem !== ""
+        || (layerGlass.requested && (layerGlass.observed.stale || layerGlass.observed.kind !== "eligible"))
+        || (layerGlass.observed.loaded === true && !layerGlass.requested))
     readonly property Item initialFocus: radius.slider
 
     function open(payloadJson) {}
@@ -199,21 +202,11 @@ FocusScope {
                     }
                 }
             }
-        }
-
-        SectionHeader {
-            width: parent.width
-            text: "Layer glass"
-        }
-
-        Column {
-            width: parent.width
-            spacing: Theme.stack.row
 
             FormRow {
                 width: parent.width
-                label: "Enabled"
-                info: "Adds glass to VGS panels independently of VGlass. On offers to install hyprglass; Off turns off all its effects, including those configured outside VGS, but keeps it installed."
+                label: "Layer glass"
+                info: "Adds glass to VGS panels independently of VGlass. On offers to install hyprglass."
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"
@@ -228,8 +221,9 @@ FocusScope {
             }
 
             FormRow {
+                visible: root.layerGlassRecovery
                 width: parent.width
-                label: "Plugin"
+                label: "Status"
                 Label {
                     width: parent.width
                     text: root.layerGlassWaiting ? "Waiting for a panel" : root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
@@ -239,6 +233,7 @@ FocusScope {
             }
 
             FormRow {
+                visible: root.layerGlassRecovery
                 width: parent.width
                 label: ""
                 RowActions {
