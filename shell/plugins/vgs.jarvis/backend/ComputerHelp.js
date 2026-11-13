@@ -207,7 +207,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         const env = { LC_ALL: "C.UTF-8" };
         for (const name of PROJECTS_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];
         const listed = await run("setpriv", ["--pdeathsig", "KILL", "--", "kendex", "project", "list", "--json"],
-            { env, cwd: "/", limit: MAIL_BYTES, deadline: MAIL_MS, group: true, signal: lifetime.signal });
+            { env, cwd: "/", limit: MAIL_BYTES, group: true, deadline: MAIL_MS, signal: lifetime.signal });
         if (listed.kind !== "exited" || listed.code !== 0) return null;
         let entries;
         try { entries = JSON.parse(listed.stdout); } catch { return null; }
