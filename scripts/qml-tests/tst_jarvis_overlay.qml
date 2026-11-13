@@ -138,14 +138,22 @@ Item {
         }
 
         // The orb draws at the look's canvas, 15% under the first build's
-        // 300 px, and the icon row stands at its ring.
+        // 300 px, and the icon row's capsule stands the plates' gap right
+        // of what the orb draws, at the orb's height.
         function test_the_orb_draws_at_255_px() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             put(root.listening);
             compare(orb().width, 255);
             compare(orb().height, 255);
             const centre = orbCentre();
-            const row = iconRow().mapToItem(root, 0, 0);
-            compare(row.x, centre.x + root.look.state.idle.radius * 255 / 2);
+            mouseMove(root, centre.x, centre.y);
+            tryCompare(bubble, "iconOpacity", 1, 100);
+            const capsule = named("iconPill");
+            // The orb draws nothing in the outer share of its canvas past
+            // the look's reach, a whole number of pixels.
+            const inset = Math.round((1 - root.look.orb.reach) * orb().width / 2);
+            compare(capsule.x, orb().x + orb().width - inset + root.look.plate.gap);
+            fuzzyCompare(capsule.mapToItem(root, 0, capsule.height / 2).y, centre.y, 0.5);
         }
 
         // The icon row shows while the pointer rests on the orb in an
@@ -202,8 +210,9 @@ Item {
             mouseMove(root, over.x, over.y);
             wait(root.look.icon.hold + 100);
             compare(bubble.iconOpacity, 1, "the bridge holds the row");
-            // Right of the hit square and under the bridge: neither holds it.
-            mouseMove(root, centre.x + root.look.layout.hit / 2 + 10, centre.y - root.look.layout.bridge + 10);
+            // Right of the hit square and above the bridge: neither holds it.
+            mouseMove(root, centre.x + root.look.layout.hit / 2 + 10, bridge.mapToItem(root, 0, 0).y - 10);
+            verify(!bubble.pointerOver, "the corner is past the square and the bridge");
             compare(bubble.iconOpacity, 1, "the corner keeps the row for the hold");
             const voice = icon("voice-mute");
             mouseMove(voice, voice.width / 2, voice.height / 2);
@@ -237,6 +246,8 @@ Item {
             if (data.microphone !== undefined) service.microphoneMute = { kind: "ready", muted: data.microphone };
             compare(button.label, data.label);
             compare(button.checked, data.intent === "microphone-mute" ? data.microphone : data.state.voiceMute !== undefined && data.state.voiceMute.kind === "on");
+            // A toggle that is on draws the look's readable form of the accent.
+            if (button.checked) tryVerify(() => String(button.contentItem.color) === String(Qt.color(root.look.icon.on)), 1000, "the glyph of a toggle that is on: " + button.contentItem.color);
             const centre = orbCentre();
             mouseMove(root, centre.x, centre.y);
             tryCompare(bubble, "iconOpacity", 1, 100);
@@ -353,7 +364,6 @@ Item {
                 [look.words.newest, look.words.middle, look.words.oldest], "the look's line opacities");
             compare([String(words[0].newestInk), String(words[0].olderInk)],
                 [String(Qt.color(look.ink.words)), String(Qt.color(look.ink.words))], "the look's words ink");
-            compare(words[0].shadow, look.shadow, "the look's text shadow");
             compare(words[0].horizontalAlignment, Text.AlignHCenter, "centred lines");
             tryCompare(words[0], "shown", caption.text);
             verify(words[0].visible, "the shown muted reply draws before Hide");
@@ -366,8 +376,8 @@ Item {
             compare(words[0].visible, false);
             compare(bubble.iconsShown, false);
             compare(bubble.capturePresented, false, "required text never claims to be the orb indicator");
-            compare(bubble.fieldBoxes.length, data.required ? 1 : 0, "no orb field or halo remains");
-            compare(named("field").visible, data.required);
+            compare(JSON.stringify(all(bubble, []).filter(item => item.glassSurface === true && item.visible).map(item => item.objectName)),
+                data.required ? '["textCard"]' : "[]", "no capsule or words card remains");
             compare(holdsOrb(), false);
             if (!data.required) {
                 compare(bubble.inputItems.length, 0, "hidden content has no pointer region");

@@ -16,6 +16,16 @@
 // rim shells' back faces: 2 rim hits a pixel instead of 6. Every loop
 // bound stays a constant either way.
 //
+// Each dot of a front face carries a thin dark edge: coverage with no
+// colour out to EDGE dot radii past its own, which shows the dot on a
+// light ground and is lost on a dark one. A back-face dot and a dot the
+// state's presence leaves out carry none, and the state's brightness, its
+// throb included, scales every edge, so the sphere keeps its depth and a
+// dim state stays dim on a light ground. The edge's radius is held to the
+// reach of the 2x2 cell test where a cell shows at its full width; toward
+// the limb a cell foreshortens under any dot's radius, the dot's own
+// included, and neighbouring dots cover the cut.
+//
 // The default Qt Quick vertex shader shares this uniform buffer, so
 // qt_Matrix and qt_Opacity stay first. Output is premultiplied.
 layout(location = 0) in vec2 qt_TexCoord0;
@@ -37,9 +47,12 @@ layout(std140, binding = 0) uniform buf {
     vec4 uTone;    // interior gain, rim gain, saturation, presence
     vec4 uExtra;   // brightness, tilt, fold depth, lattice period in cells
     float uReduce; // above 0.5: the reduced look
+    float uEdge;   // the dark edge of a front dot at full brightness, 0 to 1
 };
 
 const float PI = 3.14159265;
+// How far a dot's dark edge reaches past the dot, in the look's dot radii.
+const float EDGE = 1.25;
 
 float hash13(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
@@ -100,6 +113,8 @@ void main() {
     vec3 top = uTop.rgb, upper = uUpper.rgb, lower = uLower.rgb, bottom = uBottom.rgb;
     vec3 col = vec3(0.0);
     float alpha = 0.0;
+    // The front dots' dark edges: coverage alone, with no colour.
+    float edge = 0.0;
     float rr = max(r, 1e-6);
 
     for (int k = 0; k < 4; k++) {
@@ -193,6 +208,15 @@ void main() {
                 vec2 pc = dc.xy * Rp * (1.0 + out_ * uField.z * h5 * h5);
                 float dist = length(uv - pc);
                 float size = uShape.z * dsc * (0.7 + 0.6 * h4);
+                // A dot this far from the pixel's cell is still one of
+                // the four tested: half a cell and the dot's own jitter
+                // short of a whole cell.
+                float reach = (1.0 - 0.5 * jit) * (PI * 0.5 / N) * Rp;
+                float rim = clamp((max(size, min(size + EDGE * uShape.z, reach)) - dist) / px + 0.5, 0.0, 1.0);
+                if (rim <= 0.0) continue;
+                // An edge shows whole from a quarter of its dot's weight,
+                // so the band's faint inner dots keep theirs.
+                if (fi == 0) edge = max(edge, rim * clamp(wface * 4.0, 0.0, 1.0));
                 float cov = clamp((size - dist) / px + 0.5, 0.0, 1.0);
                 if (cov <= 0.0) continue;
 
@@ -223,6 +247,8 @@ void main() {
     float luma = dot(col, vec3(0.299, 0.587, 0.114));
     col = clamp(mix(vec3(luma), col, uTone.z), 0.0, 1.0);
     float a = clamp(alpha * uExtra.x, 0.0, 1.0);
-    // Premultiplied: colour never exceeds its coverage.
-    fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity;
+    // Premultiplied: colour never exceeds its coverage. The edge lies
+    // under the dots and adds coverage alone.
+    float dark = edge * uEdge * clamp(uExtra.x, 0.0, 1.0);
+    fragColor = vec4(min(col, vec3(a)), a + (1.0 - a) * dark) * qt_Opacity;
 }

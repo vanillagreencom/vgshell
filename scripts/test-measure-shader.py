@@ -518,6 +518,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         (scripts / "shader").mkdir()
         (root / "home").mkdir()
         (root / "shell/Ui/feedback/shaders").mkdir(parents=True)
+        (root / "shell/Ui/foundation/shaders").mkdir(parents=True)
         (root / "shell/plugins/vgs.voice/shaders").mkdir(parents=True)
         (root / "shell/plugins/vgs.jarvis/shaders").mkdir(parents=True)
         script = scripts / "measure-shader.sh"
@@ -535,7 +536,7 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             (scripts / "shader/measure-scene.sh").write_text(scene)
         if readings is not None:
             (scripts / "shader/readings.py").write_text(readings)
-        for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/Ui/feedback/shaders/radialbackdrop.frag", "shell/plugins/vgs.voice/shaders/plasma.frag", "shell/plugins/vgs.jarvis/shaders/particleorb.frag"):
+        for shader in ("shell/Ui/feedback/shaders/voiceorb.frag", "shell/Ui/feedback/shaders/radialbackdrop.frag", "shell/Ui/foundation/shaders/glasslens.frag", "shell/plugins/vgs.voice/shaders/plasma.frag", "shell/plugins/vgs.jarvis/shaders/particleorb.frag"):
             shutil.copyfile(ROOT.parent / shader, root / shader)
         (scripts / "smoke/harness.sh").write_text(harness)
         # The runner asks the fence before it makes anything; this stand-in
@@ -645,7 +646,7 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
             self.assertNotEqual(sources[-1], text)
         with tempfile.TemporaryDirectory() as scratch:
             for chosen in ((), ("plasma",)):
-                shaders = chosen or ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop")
+                shaders = chosen or ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop", "glass-lens")
                 want = [f"held {scale} {mode} run-{run}/{shader}/scale-{scale}-{mode}"
                         for run in range(1, passes + 1) for scale in (1, 2) for shader in shaders
                         for mode in ("off", "on", "costly")]
@@ -702,7 +703,7 @@ sys.exit(0 if shader.startswith("jarvis-orb") else int(pathlib.Path(os.environ["
                     root = Path(scratch) / f"run-{orb}-{plasma}"
                     result = self.runner_copy(root, harness, text, [], scene, readings)
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), ["voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop"])
+                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), ["voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop", "glass-lens"])
             root = Path(scratch) / "mutant-1-77"
             self.assertEqual(self.runner_copy(root, harness, last, [], scene, readings).returncode, 77)
 
@@ -732,7 +733,7 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
                         self.assertEqual(args[:2], ["--test-owner-option", "--test option with spaces"])
                     calls = [json.loads(line) for line in (root / "home/compiler-calls").read_text().splitlines()]
                     self.assertEqual([call[-3:-1] for call in calls], [
-                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop")])
+                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "radial-backdrop", "glass-lens")])
 
     def test_costly_copy_of_each_shader(self):
         # Each costly source is its own shader with the 256-step loop added
@@ -747,7 +748,8 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
                 ("plasma", "shell/plugins/vgs.voice/shaders/plasma.frag", "cost = ang + uTime;"),
                 ("jarvis-orb", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"),
                 ("jarvis-orb-reduced", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"),
-                ("radial-backdrop", "shell/Ui/feedback/shaders/radialbackdrop.frag", "cost = p.x * 0.01 + uJoin.x;"))
+                ("radial-backdrop", "shell/Ui/feedback/shaders/radialbackdrop.frag", "cost = p.x * 0.01 + uJoin.x;"),
+                ("glass-lens", "shell/Ui/foundation/shaders/glasslens.frag", "cost = p.x * 0.01 + uRadius;"))
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             result = self.runner_copy(root, harness, RUNNER.read_text())

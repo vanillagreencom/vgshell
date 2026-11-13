@@ -89,7 +89,8 @@ const TERMINAL_SLOT_ROWS = [
 // plants its defect.
 function copyCheck(copy) {
     for (const file of ["scripts/check-theme-contrast.js", "bin/lib/qml-library.js", "shell/Commons/ThemeLogic.js",
-        "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js"]) {
+        "shell/Commons/Tokens.js", "shell/Commons/Glass.js", "shell/plugins/vgs.notifications/Appearance.js",
+        "shell/plugins/vgs.jarvis/Appearance.js"]) {
         fs.mkdirSync(path.dirname(path.join(copy, file)), { recursive: true });
         fs.copyFileSync(path.join(repo, file), path.join(copy, file));
     }
@@ -220,6 +221,43 @@ try {
         assertStatus(opaque, 0);
         assert.doesNotMatch(opaque.stdout, /listItem\./);
     });
+
+    // Defects of Jarvis's overlay inks, each planted alone in a disposable
+    // copy judged on the shipped tree. A toggle that is on in the accent
+    // alone falls short as the notice link did, on the card's fill over
+    // the wallpaper nearest it in each mode. The caption's top line at a
+    // lower opacity falls short, which holds the line's opacity in the
+    // reading. The confirming answer's label in the accent's own colour
+    // reads 1.00 on the accent, not the accent's ratio on the bare card,
+    // which holds the answer's own fill in the ground. A pressed fill in
+    // the label's colour, black on the default accent, reads 1.00, which
+    // holds the pressed state in the reading.
+    for (const [name, needle, replacement, lines] of [
+        ["a Jarvis toggle that is on in the accent alone", /on: color\("readable\(.*\)"\),/, 'on: color("{palette.accent}"),',
+            [/^short    vgs: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m,
+                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #000000 ratio=[0-9.]+ floor=4\.5$/m]],
+        ["Jarvis's top caption line at a lower opacity", /oldest: share\(0\.82\)/, "oldest: share(0.22)",
+            [/^short    vgs: jarvis\.ink\.words at jarvis\.words\.oldest on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
+        ["the confirming answer's label in the accent's own colour", /ink: color\("contrast\(\{palette\.accent\}\)"\)/, 'ink: color("{palette.accent}")',
+            [/^short    vgs: jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.fill over jarvis\.plate\.card\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]],
+        ["the confirming answer's pressed fill in its label's colour", /pressedFill: color\("mix\(\{palette\.accent\}, contrast\(\{answer\.tinted\.ink\}\), 0\.05\)"\)/, 'pressedFill: color("#000000")',
+            [/^short    vgs: jarvis\.answer\.tinted\.ink on jarvis\.answer\.tinted\.pressedFill over jarvis\.plate\.card\.fill over #ffffff ratio=1\.00 floor=4\.5$/m]]
+    ]) {
+        row(`control: ${name} is a shortfall`, dir => {
+            const copy = path.join(dir, "copy");
+            copyCheck(copy);
+            const look = path.join(copy, "shell", "plugins", "vgs.jarvis", "Appearance.js");
+            const source = fs.readFileSync(look, "utf8");
+            assert.equal(source.split(needle).length, 2, "the planted text matches once");
+            fs.writeFileSync(look, source.replace(needle, () => replacement));
+            const proc = spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+                { encoding: "utf8", env: env(path.join(dir, "env")) });
+            assertStatus(proc, 1);
+            for (const line of lines) assert.match(proc.stdout, line);
+            const others = proc.stdout.split("\n").filter(line => line.startsWith("short ") && !/ jarvis\./.test(line));
+            assert.deepEqual(others, [], "the planted ink alone falls short");
+        });
+    }
 
     row("direct package shortfall exits one", dir => {
         fs.mkdirSync(dir, { recursive: true });

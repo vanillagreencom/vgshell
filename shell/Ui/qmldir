@@ -14,7 +14,6 @@ singleton ShortcutLabels 1.0 foundation/ShortcutLabels.qml
 LineBreak 1.0 foundation/LineBreak.js
 ImageText 1.0 foundation/ImageText.qml
 TextUnderline 1.0 foundation/TextUnderline.qml
-TextShadow 1.0 foundation/TextShadow.qml
 QrMatrix 1.0 foundation/QrMatrix.qml
 Button 1.0 controls/Button.qml
 IconButton 1.0 controls/IconButton.qml

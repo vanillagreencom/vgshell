@@ -42,9 +42,6 @@ Item {
                                    && root.host !== null && root.host.visible
     // The eased level while the clocks move, the target while they stand.
     readonly property real driven: moving ? clock.level : target
-    // The palette as drawn now, top to bottom, eased with the look: the
-    // bubble's field rings the orb with it.
-    readonly property var stops: [eased.topStop, eased.upperStop, eased.lowerStop, eased.bottomStop]
     // The clocks wrap where the drawn motion repeats, so a look shown for
     // days keeps float32 precision in the shader's uniforms with no visible
     // jump. The noise lattice repeats every `latticePeriod` cells on each
@@ -179,10 +176,11 @@ Item {
             root.look.orb.dot, eased.amp + eased.driveAmp * root.driven)
         property vector4d uField: Qt.vector4d(root.look.orb.frequency, root.look.orb.warp,
             eased.scatter + eased.driveScatter * root.driven, eased.sparks)
-        property vector4d uTone: Qt.vector4d(eased.interior * root.look.orb.interiorGain, eased.rim, eased.saturation, eased.presence)
+        property vector4d uTone: Qt.vector4d(eased.interior, eased.rim, eased.saturation, eased.presence)
         property vector4d uExtra: Qt.vector4d(eased.brightness + eased.driveBright * root.driven
             + eased.throbDepth * Math.sin(clock.throb), root.look.orb.tilt, eased.fold, root.latticePeriod)
         property real uReduce: root.reduced ? 1 : 0
+        property real uEdge: root.look.orb.edge
         fragmentShader: Qt.resolvedUrl("shaders/particleorb.frag.qsb")
     }
 

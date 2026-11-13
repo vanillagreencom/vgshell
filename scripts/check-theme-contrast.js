@@ -13,6 +13,9 @@
 //   short    catalog/<name>: <text> on <surface> ratio=<r> floor=4.5
 //   short    <name>: notifications.text.link on notifications.card.fill over <wallpaper> ratio=<r> floor=4.5
 //   short    <name>: tooltip.detail on glass.fill solid ratio=<r> floor=4.5
+//   short    <name>: jarvis.icon.on on jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: jarvis.answer.tinted.ink on jarvis.answer.tinted.hoverFill over jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
+//   short    <name>: jarvis.ink.words at jarvis.words.oldest on jarvis.plate.card.fill over <wallpaper> ratio=<r> floor=4.5
 //   order    catalog/<name>: <stronger> ratio=<r> below <weaker> ratio=<r>
 //   refused  catalog/<name>: <refusal>
 // The text hierarchy, each against color.background: color.textHeading is
@@ -27,6 +30,15 @@
 // darkest and lightest wallpaper pixels the card can lie over.
 // A tooltip's text is judged on the fill its glass draws solid, VGlass's
 // fill made opaque and lifted, which the theme's raised surface reaches.
+// Jarvis's overlay draws every line and icon on a glass plate of its own
+// look, which the theme's accent and mode reach: each ink is judged on the
+// card's fill over black and white, a caption line at its line's opacity
+// and an answer's label on each of the answer's own fills, at rest, under
+// the pointer and pressed, over the card. The confirming answer stands on
+// the theme's accent. An icon button draws no fill of its own, so its
+// glyph stands on the capsule, which is the card's fill. The lens draws
+// the fill alone inside a plate's band, where every line stands
+// (scripts/qml-tests/tst_jarvis_plates.qml).
 // Exit 0: every theme is readable. Exit 1: a shortfall, a hierarchy break
 // or a refusal was reported. Exit 2: bad invocation or a file cannot be read.
 "use strict";
@@ -40,6 +52,7 @@ const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const notifications = load(path.join(repo, "shell", "plugins", "vgs.notifications", "Appearance.js"));
 const glass = load(path.join(repo, "shell", "Commons", "Glass.js"));
+const jarvis = load(path.join(repo, "shell", "plugins", "vgs.jarvis", "Appearance.js"));
 
 function unreadable(file, cause) {
     console.error(`check-theme-contrast: unreadable: path=${file} error=${cause}`);
@@ -121,6 +134,37 @@ function noticeLinkShortfalls(look) {
     return out;
 }
 
+// Each ink Jarvis's overlay draws on a plate, as its path in the look,
+// with the path of the opacity its line draws at and of the fill that
+// lies between it and the card, where it has one. The line leaving the
+// caption fades out from `words.oldest` and is not a line to read.
+const JARVIS_INKS = [
+    ["ink.state"], ["ink.title"], ["ink.action"], ["ink.link"], ["ink.question"], ["ink.path"], ["ink.payload"],
+    ["ink.words", "words.newest"], ["ink.words", "words.middle"], ["ink.words", "words.oldest"],
+    ["icon.rest"], ["icon.active"], ["icon.on"],
+    ["answer.quiet.ink", null, "answer.quiet.fill"], ["answer.quiet.ink", null, "answer.quiet.hoverFill"], ["answer.quiet.ink", null, "answer.quiet.pressedFill"],
+    ["answer.tinted.ink", null, "answer.tinted.fill"], ["answer.tinted.ink", null, "answer.tinted.hoverFill"], ["answer.tinted.ink", null, "answer.tinted.pressedFill"]
+];
+
+// The shortfalls of Jarvis's inks on their plates in the look LOOK
+// resolves to.
+function jarvisShortfalls(look) {
+    const out = [];
+    for (const wallpaper of NOTICE_WALLPAPERS) {
+        const card = logic.overlay(logic.parseColor(look.plate.card.fill), logic.parseColor(wallpaper));
+        for (const [ink, opacity, fill] of JARVIS_INKS) {
+            const ground = fill ? logic.overlay(logic.parseColor(logic.valueAt(look, fill)), card) : card;
+            const drawn = logic.parseColor(logic.valueAt(look, ink));
+            if (opacity) drawn.a *= logic.valueAt(look, opacity);
+            const ratio = logic.contrastRatio(logic.overlay(drawn, ground), ground);
+            if (ratio < logic.READABILITY_FLOOR)
+                out.push({ text: `jarvis.${ink}` + (opacity ? ` at jarvis.${opacity}` : ""),
+                    surface: (fill ? `jarvis.${fill} over ` : "") + `jarvis.plate.card.fill over ${wallpaper}`, ratio, floor: logic.READABILITY_FLOOR });
+        }
+    }
+    return out;
+}
+
 function hierarchyBreaks(values) {
     const out = [];
     for (const [stronger, weaker] of HIERARCHY) {
@@ -150,6 +194,11 @@ function checkPackage(label, dir) {
         console.log(`refused  ${label}: notifications ${logic.refusalLine(look)}`);
         return 1;
     }
+    const overlay = logic.acceptAppearance(jarvis.TOKENS, jarvis.LIGHT, accepted.values);
+    if (!overlay.ok) {
+        console.log(`refused  ${label}: jarvis ${logic.refusalLine(overlay)}`);
+        return 1;
+    }
     const vglass = logic.acceptAppearance(glass.TOKENS, glass.LIGHT, accepted.values);
     if (!vglass.ok) {
         console.log(`refused  ${label}: glass ${logic.refusalLine(vglass)}`);
@@ -159,6 +208,7 @@ function checkPackage(label, dir) {
     if (terminal.slots !== null)
         shortfalls.push(...terminalShortfalls(accepted.values, terminal.slots));
     shortfalls.push(...noticeLinkShortfalls(look.values));
+    shortfalls.push(...jarvisShortfalls(overlay.values));
     const breaks = hierarchyBreaks(accepted.values);
     if (shortfalls.length === 0 && breaks.length === 0) {
         console.log(`ok       ${label}`);
@@ -192,7 +242,7 @@ function checkCatalog(themesDir) {
 function main() {
     const args = process.argv.slice(2);
     if (args.includes("--help")) {
-        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 31).join("\n") + "\n");
+        process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n").slice(0, 40).join("\n") + "\n");
         return 0;
     }
     if (args.length > 1) usage("arguments=too-many");

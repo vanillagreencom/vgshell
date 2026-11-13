@@ -9,10 +9,7 @@ import qs.Ui
 // animation that ends once the words catch up, never a ticking driver, and
 // at motion scale 0 every duration is 0, so the text appears whole. It
 // draws only, in the values its owner hands it: the bubble hands its
-// look's, the reply card under the bar J the theme's. Each line draws over
-// the handed text shadow, when there is one: a 0-offset blur of the line's
-// layer, which Qt draws again only while that line changes, so a lift or a
-// still line redraws no blur.
+// look's, the reply card under the bar J the theme's.
 //
 // A caption that grows, as a duplex voice's does chunk by chunk, keeps the
 // words drawn: it extends them when every drawn word but the last is the
@@ -39,9 +36,6 @@ Item {
     required property real newestOpacity
     required property real middleOpacity
     required property real oldestOpacity
-    // The text shadow under each line, { color, opacity, blur }, or null
-    // for none.
-    property var shadow: null
     property int horizontalAlignment: Text.AlignHCenter
     property string text: ""
     readonly property var list: text.trim() === "" ? [] : text.trim().split(/\s+/)
@@ -62,6 +56,10 @@ Item {
     property int dropped: 0
     property int start: 0
     readonly property int lineCount: count === 0 ? 0 : dropped + lines.length
+    // The lines the window shows and their height, at the bottom of this
+    // item: the box an owner's ground hugs.
+    readonly property int shownLines: Math.min(lineCount, window)
+    readonly property real shownHeight: shownLines * lineBox
     readonly property bool settled: count === list.length && !reveal.running && !fade.running && !rise.running
     // The previous caption's words, which the next must extend.
     property var held: []
@@ -163,8 +161,6 @@ Item {
             y: (root.window - 1 - index) * root.lineBox + root.lift
             visible: line !== null && (index < root.window || root.lift > 0)
             readonly property color ink: index === 0 ? root.newestInk : root.olderInk
-            layer.enabled: root.shadow !== null
-            layer.effect: TextShadow { shadow: root.shadow }
             opacity: index === 0 ? root.newestOpacity
                 : index === root.window ? root.oldestOpacity * root.lift / Math.max(1, root.lineBox)
                 : index === root.window - 1 ? root.oldestOpacity : root.middleOpacity

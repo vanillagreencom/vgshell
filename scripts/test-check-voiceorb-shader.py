@@ -31,15 +31,18 @@ def once(text, old, new):
 
 
 # Per shader: an edit that changes its compiled shader, and a loop its
-# rules refuse: any loop in VoiceOrb, a uniform-bound loop elsewhere.
+# rules refuse: any loop in an analytic shader, a uniform-bound loop
+# elsewhere.
 EDITS = {
     "voiceorb": (("max(ring, arcs)", "min(ring, arcs)"),
                  ("float ring =", "for (int i = 0; i < 5; ++i) { radius += pixel; }\n    float ring ="), "loop"),
     "radial-backdrop": (("vec3 rgb = ink * a;", "vec3 rgb = ink;"),
                         ("float m = min(", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float m = min("), "loop"),
+    "glass-lens": (("vec3(light);", "vec3(light) * 0.9;"),
+                   ("float depth =", "for (int i = 0; i < 4; ++i) { p += 0.0; }\n    float depth ="), "loop"),
     "plasma": (("clamp(a, 0.0, 1.0)) * qt_Opacity;", "clamp(a, 0.0, 0.9)) * qt_Opacity;"),
                ("for (int i = 0; i < 16; i++)", "for (int i = 0; i < int(uAmp * 8.0); i++)"), "loop-bound"),
-    "jarvis-orb": (("vec3(a)), a) * qt_Opacity;", "vec3(a)), a * 0.9) * qt_Opacity;"),
+    "jarvis-orb": (("* dark) * qt_Opacity;", "* dark * 0.9) * qt_Opacity;"),
                    ("for (int q = 0; q < 4; q++)", "for (int q = 0; q < int(uField.w * 8.0); q++)"), "loop-bound"),
 }
 

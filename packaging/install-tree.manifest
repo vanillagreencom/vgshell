@@ -247,8 +247,9 @@ f share/vgshell/shell/Ui/foundation/QrMatrix.qml
 f share/vgshell/shell/Ui/foundation/Scrim.qml
 f share/vgshell/shell/Ui/foundation/ShortcutLabels.qml
 f share/vgshell/shell/Ui/foundation/Surface.qml
-f share/vgshell/shell/Ui/foundation/TextShadow.qml
 f share/vgshell/shell/Ui/foundation/TextUnderline.qml
+f share/vgshell/shell/Ui/foundation/shaders/glasslens.frag
+f share/vgshell/shell/Ui/foundation/shaders/glasslens.frag.qsb
 f share/vgshell/shell/Ui/icons/LICENSE
 f share/vgshell/shell/Ui/icons/Lucide.js
 f share/vgshell/shell/Ui/icons/Own.js
@@ -444,7 +445,6 @@ f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Composer.js
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
-f share/vgshell/shell/plugins/vgs.jarvis/Field.js
 f share/vgshell/shell/plugins/vgs.jarvis/FleetRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/History.js
 f share/vgshell/shell/plugins/vgs.jarvis/HomeRepair.qml

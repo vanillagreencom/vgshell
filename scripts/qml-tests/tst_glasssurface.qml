@@ -6,10 +6,15 @@ import qs.Unit
 
 // GlassSurface: with glass on it draws the shadow, the handed fill and
 // radius, the sheen and the hairline, from Theme.glass and the elevation it
-// is handed; with glass on over its window's own content, the same fill
+// is handed, and no shadow at the elevation `none`; with glass on over its window's own content, the same fill
 // made opaque and lifted, at the same corner under the hairline; with glass
 // off it draws the standard look it is handed, the raised surface's by
-// default, and none of the glass. The surface's own choice decides until
+// default, and none of the glass. A surface that hands `lens` draws the
+// lens pass in place of the fill, the sheen and the hairline, with the
+// band's width fitted to it and its content inset by that width; solid
+// over content with no clear band; and no pass with glass off. The pass's
+// pixels are scripts/qml-tests/tst_jarvis_plates.qml's, which draws
+// shaders. The surface's own choice decides until
 // the user's `glass` Appearance value turns glass on or off everywhere, for
 // the qs.Ui surfaces built on it too: a panel's Surface, a LevelOsd and a
 // Dialog. Glass is drawn only over nothing its own window draws: a window
@@ -164,6 +169,18 @@ Item {
         GlassSurface { id: menuSolid; x: 220; y: 20; width: 120; height: 80; standard: Theme.menu; elevation: "tight" }
     }
 
+    // Surfaces in the lens form: one alone, a small one, one that hands a
+    // padding wider than the band, and one over a glass card.
+    readonly property var lens: ({ bezel: 4, clarity: 0.45, glint: 0.85, glow: 0.2, exit: 0.8, outline: 0.5, seam: 0.1 })
+    Item {
+        x: 0; y: 2150; width: 400; height: 200
+        GlassSurface { id: lensPlate; x: 0; y: 0; width: 120; height: 60; optIn: true; fill: "#b8203040"; radius: 20; elevation: "none"; lens: root.lens }
+        GlassSurface { id: lensSmall; x: 130; y: 0; width: 40; height: 12; optIn: true; radius: 20; elevation: "none"; lens: root.lens }
+        GlassSurface { id: lensPadded; x: 180; y: 0; width: 120; height: 60; optIn: true; radius: 20; padding: 10; elevation: "none"; lens: root.lens }
+        GlassSurface { id: lensUnder; x: 0; y: 80; width: 300; height: 100; optIn: true }
+        GlassSurface { id: lensSolid; x: 20; y: 100; width: 120; height: 60; optIn: true; fill: "#b8203040"; radius: 20; lens: root.lens }
+    }
+
     TestCase {
         name: "glasssurface"
         when: windowShown
@@ -186,6 +203,10 @@ Item {
         function bodyOf(glass) { return glass.children[1]; }
         function sheenOf(glass) { return bodyOf(glass).children[0]; }
         function edgeOf(glass) { return glass.children[2]; }
+        // The lens pass's holder, the one child after the hairline, and
+        // the pass it builds for a surface that hands a lens, or null.
+        function holderOf(glass) { return glass.children[3]; }
+        function lensOf(glass) { return holderOf(glass).item; }
 
         function test_glass_draws_every_layer_with_the_handed_values() {
             verify(chosen.on);
@@ -201,12 +222,17 @@ Item {
             compare(String(sheenOf(chosen).gradient.stops[0].color), "#0be8e8e8");
             const edge = edgeOf(chosen);
             compare([edge.border.width, String(edge.border.color), edge.radius], [1, "#17e8e8e8", 20]);
+            compare(lensOf(chosen), null, "a surface that hands no lens builds no pass");
         }
 
         function test_children_sit_in_the_clipped_body_under_the_hairline() {
             compare(content.parent, bodyOf(chosen));
             verify(sheenOf(chosen).z < content.z);
-            compare(chosen.children[chosen.children.length - 1], edgeOf(chosen));
+            // The hairline is painted last: the lens pass's holder, the
+            // one child after it, lies under the body and over the shadow.
+            compare(chosen.children[chosen.children.length - 2], edgeOf(chosen));
+            verify(holderOf(chosen).z < bodyOf(chosen).z, "the pass draws under the content");
+            verify(shadowOf(chosen).z < holderOf(chosen).z, "the shadow draws under the pass");
         }
 
         function test_without_glass_the_standard_surface() {
@@ -396,6 +422,71 @@ Item {
         function test_the_default_fill_and_elevation() {
             compare(String(bodyOf(unnamed).color), "#cc101010");
             compare([shadowOf(unnamed).blur, String(shadowOf(unnamed).color)], [90, "#8c000000"]);
+        }
+
+        // A plate on the wallpaper draws every layer of the glass but the
+        // shadow, and names no group of the shadow table.
+        function test_the_none_elevation_draws_no_shadow() {
+            unnamed.elevation = "none";
+            verify(unnamed.drawn);
+            verify(!shadowOf(unnamed).visible);
+            compare(String(bodyOf(unnamed).color), "#cc101010");
+            verify(sheenOf(unnamed).visible);
+            compare([edgeOf(unnamed).border.width, String(edgeOf(unnamed).border.color)], [1, "#17e8e8e8"]);
+        }
+
+        // A surface that hands lens values draws the lens pass in place of
+        // the fill, the sheen and the hairline. The pass takes the fill as
+        // its tint, the look's values and the surface's size and corner,
+        // and reaches two pixels past the surface for the outer line.
+        function test_a_lens_draws_the_pass_in_place_of_the_flat_layers() {
+            compare([lensPlate.drawn, lensPlate.lensed], [true, true]);
+            const pass = lensOf(lensPlate);
+            verify(pass.visible, "the pass draws");
+            compare(bodyOf(lensPlate).color.a, 0, "the body draws no fill of its own");
+            verify(!sheenOf(lensPlate).visible, "no sheen");
+            verify(!edgeOf(lensPlate).visible, "no hairline");
+            verify(!shadowOf(lensPlate).visible, "no drop shadow at the elevation none");
+            compare(String(pass.uTint), "#b8203040");
+            compare([pass.uLens.x, pass.uLens.y, pass.uLens.z, pass.uLens.w], [4, 0.45, 0.85, 0.2]);
+            compare([pass.uLight.x, pass.uLight.y, pass.uLight.z], [0.8, 0.5, 0.1]);
+            compare([pass.uSize.x, pass.uSize.y, pass.uRadius, pass.uMargin], [120, 60, 20, 2]);
+            const holder = holderOf(lensPlate);
+            compare([holder.x, holder.y, holder.width, holder.height], [-2, -2, 124, 64]);
+            compare([pass.width, pass.height], [124, 64], "the pass fills its holder");
+        }
+
+        // The band is the handed bezel held to a quarter of the surface's
+        // short side, and content starts inside it; a larger padding
+        // stands, and a flat surface has no band.
+        function test_the_band_fits_the_surface_and_insets_its_content() {
+            compare([lensPlate.bezel, lensPlate.contentInset], [4, 4]);
+            compare([lensSmall.bezel, lensOf(lensSmall).uLens.x, lensSmall.contentInset], [3, 3, 3]);
+            compare([lensPadded.bezel, lensPadded.contentInset], [4, 10]);
+            compare([chosen.bezel, chosen.contentInset], [0, 0]);
+        }
+
+        // Over its window's own content a lens surface draws solid: the
+        // pass over the fill made opaque and lifted, #203040 as 43.15,
+        // 58.35 and 73.55, with no clear band and its rim marks kept.
+        function test_a_lens_over_content_draws_the_pass_solid() {
+            compare([lensSolid.on, lensSolid.drawn, lensSolid.solid, lensSolid.lensed], [true, false, true, true]);
+            const pass = lensOf(lensSolid);
+            verify(pass.visible, "the pass draws");
+            compare(String(pass.uTint), "#2b3a4a");
+            compare([pass.uLens.x, pass.uLens.y, pass.uLens.z, pass.uLens.w], [4, 0, 0.85, 0.2]);
+            compare([pass.uLight.x, pass.uLight.y, pass.uLight.z], [0.8, 0.5, 0.1]);
+        }
+
+        // With glass off a surface that hands a lens draws its standard
+        // look and no pass.
+        function test_without_glass_a_lens_draws_no_pass() {
+            Theme.appearanceInput = JSON.stringify({ glass: "off" });
+            compare([lensPlate.on, lensPlate.lensed], [false, false]);
+            verify(!lensOf(lensPlate).visible, "no pass");
+            compare(String(bodyOf(lensPlate).color), "#101010");
+            verify(edgeOf(lensPlate).visible, "the standard border draws");
+            compare([lensPlate.bezel, lensPlate.contentInset], [0, 0]);
         }
 
         // expected-log: GlassSurface: no elevation named "flat" -- the test names an unknown elevation on purpose

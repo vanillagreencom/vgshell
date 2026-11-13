@@ -130,8 +130,7 @@ Item {
                         ToggleButton { text: "Pinned"; checked: true }
                         Button { text: "Disabled"; enabled: false }
                     }
-                    // A surface's own form: bare words, and a soft fill whose
-                    // label shimmers under the pointer.
+                    // A surface's own form: bare words, and a soft fill.
                     Row {
                         spacing: Theme.stack.inline
                         Button {
@@ -141,7 +140,6 @@ Item {
                             radius: Theme.radius.full
                             hoverFill: Theme.button.variant.ghost.background
                             textColor: Theme.color.textMuted
-                            hoverTextColor: Theme.color.text
                             ringColor: Theme.color.warning
                         }
                         Button {
@@ -151,9 +149,7 @@ Item {
                             radius: Theme.radius.full
                             restFill: Theme.color.surfaceRaised
                             hoverFill: Theme.color.surfaceHover
-                            hoverTextColor: Theme.color.textMuted
                             ringColor: Theme.color.warning
-                            shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.normal, band: 0.16, easing: Theme.motion.easing.standard })
                         }
                     }
                 }
@@ -793,24 +789,6 @@ Item {
                                 }
                                 Label { role: "label"; text: backdropSample.modelData.name }
                             }
-                        }
-                    }
-                }
-                Section {
-                    title: "Text shadow"
-                    description: "A look's shadow under a line of light text, over a bright ground"
-                    headerInset: 0
-                    Rectangle {
-                        width: 6 * Theme.space.xxxl
-                        height: 2 * Theme.space.xxxl
-                        color: Theme.color.accent
-                        Label {
-                            anchors.centerIn: parent
-                            role: "bodyStrong"
-                            color: Theme.screensaver.foreground
-                            text: "Shadowed text"
-                            layer.enabled: true
-                            layer.effect: TextShadow { shadow: ({ color: Theme.screensaver.background, opacity: Theme.opacity.disabled, blur: Theme.space.sm }) }
                         }
                     }
                 }

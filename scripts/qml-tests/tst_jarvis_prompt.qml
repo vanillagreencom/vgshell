@@ -10,12 +10,12 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 
 // Jarvis's approval prompt and fault line as the overlay draws them: the
 // question and the fault's title in the shared bodyStrong role, the state
-// line in label; each line and answer in the mode's look over the look's
-// text shadow, which draws no frame while nothing changes; the
-// answers at the look's height, Cancel as bare words and Confirm on the
-// look's fill; and Confirm's shimmer still at motion scale 0. The held
-// request's frame acknowledgement and the drawn overlay on a real layer
-// are scripts/smoke/rows/jarvis-bubble.sh's.
+// line in label; each line and answer in the mode's ink; and the answers
+// as two capsules of equal width at the look's height, Cancel leading and
+// quiet, the confirming answer on the theme's accent unless the request
+// needs a press, which is the destructive kind. The held request's frame
+// acknowledgement and the drawn overlay on a real layer are
+// scripts/smoke/rows/jarvis-bubble.sh's.
 Item {
     id: root
     width: 640
@@ -61,6 +61,9 @@ Item {
     }
     readonly property var held: session({ approval: { kind: "held", id: "a", gen: 1, digest: "d", purpose: "action", tool: "files.delete",
         physical: true, text: "Delete draft.txt?\n/home/fixture/draft.txt" } })
+    // A held question, which speech can answer.
+    readonly property var asked: session({ approval: { kind: "held", id: "q", gen: 1, digest: "d", purpose: "release", tool: "release",
+        physical: false, text: "Send the summary to Dana?" } })
     // A held files.write of LINES numbered lines.
     function write(id, lines) {
         const body = [];
@@ -91,19 +94,8 @@ Item {
             return found[0];
         }
         function answer(text) {
-            const found = all(bubble, []).filter(item => item.shimmering !== undefined && item.text === text && shown(item));
+            const found = all(bubble, []).filter(item => item.quiet !== undefined && item.form !== undefined && item.text === text && shown(item));
             verify(found.length === 1, "one drawn answer reads " + text);
-            return found[0];
-        }
-
-
-        // The shadow effect Qt's layer draws ITEM through: the effect whose
-        // source is ITEM's layer.
-        function shadowOf(item) {
-            verify(item.layer.enabled, "the line draws through a layer");
-            const found = all(bubble, []).filter(node => node.shadowEnabled !== undefined && node.source !== null
-                && node.source !== undefined && node.source.sourceItem === item);
-            verify(found.length === 1, "one effect draws the line, found " + found.length);
             return found[0];
         }
         function put(state) {
@@ -157,83 +149,53 @@ Item {
             compare(labelOf(text).role, data.role);
         }
 
-        // The answers stand at the look's height, Cancel as bare words with
-        // no fill and no border at rest or under the pointer, and Confirm on
-        // the look's fill, which rises under the pointer.
-        function test_answers_take_the_looks_form() {
-            service.sessionState = root.held;
-            const cancel = answer("Cancel");
-            const confirm = answer("Confirm");
-            verify(root.look.answer.height !== Theme.size.control.sm && root.look.answer.height !== Theme.size.control.md,
-                "the look's height differs from the shared control heights");
-            compare(cancel.height, root.look.answer.height);
-            compare(confirm.height, root.look.answer.height);
-            compare(confirm.background.radius, root.look.answer.radius);
-            tryVerify(() => String(confirm.background.color) === String(Qt.color(root.look.answer.fill)), 1000, "Confirm rests on the look's fill");
-            compare(cancel.background.color.a, 0);
-            compare(cancel.background.border.color.a, 0);
-            compare(confirm.background.border.color.a, 0);
-            mouseMove(cancel, cancel.width / 2, cancel.height / 2);
-            tryCompare(cancel, "hovered", true);
-            compare(String(cancel.foreground), String(Qt.color(root.look.answer.bareHoverInk)));
-            wait(Theme.motion.duration.fast + 50);
-            compare(cancel.background.color.a, 0);
-            mouseMove(confirm, confirm.width / 2, confirm.height / 2);
-            tryCompare(confirm, "hovered", true);
-            tryVerify(() => String(confirm.background.color) === String(Qt.color(root.look.answer.hoverFill)), 1000, "Confirm's fill rises under the pointer");
-        }
-
-        // Every line the prompt, the fault and the state line draw, and each
-        // answer's label, draws over the look's shadow, handed the look's
-        // colour, opacity and blur; tst_textshadow.qml holds the effect's own
-        // fixed values.
-        function test_every_line_draws_the_looks_shadow_data() {
+        // The answers are two capsules at the look's height that share the
+        // card's row equally, Cancel or No leading, each label on its
+        // capsule's centre and neither with a border. Cancel is quiet. The
+        // confirming answer stands on the look's tint, whose fill moves
+        // under the pointer while its label keeps its ink; on a request
+        // that needs a press it is quiet too.
+        function test_answers_take_the_looks_form_data() {
             return [
-                { tag: "the question", state: root.held, text: "Delete draft.txt?" },
-                { tag: "the path", state: root.held, text: "/home/fixture/draft.txt" },
-                { tag: "the hint", state: root.held, text: "Use the button or key to confirm." },
-                { tag: "the payload", state: root.write("p", 3), payload: true },
-                { tag: "Cancel", state: root.held, answer: "Cancel" },
-                { tag: "Confirm", state: root.held, answer: "Confirm" },
-                { tag: "the state line", state: root.session({ conversation: { kind: "active", purpose: "conversation" } }), text: "Ready to talk" },
-                { tag: "the fault title", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), title: true },
-                { tag: "the fault action", state: root.session({ fault: { kind: "error", reason: "device-lost" } }), action: true }
+                { tag: "a request that needs a press", state: root.held, cancel: "Cancel", confirm: "Confirm", tinted: false },
+                { tag: "a request speech can answer", state: root.write("w", 3), cancel: "Cancel", confirm: "Confirm", tinted: true },
+                { tag: "a question", state: root.asked, cancel: "No", confirm: "Yes", tinted: true }
             ];
         }
 
-        function test_every_line_draws_the_looks_shadow(data) {
+        function test_answers_take_the_looks_form(data) {
             put(data.state);
-            const item = data.answer !== undefined ? answer(data.answer).contentItem
-                : data.payload ? all(bubble, []).find(node => node.overflowing !== undefined && shown(node))
-                : data.action ? all(bubble, []).find(node => node.linkColor !== undefined && shown(node))
-                : labelOf(data.title ? bubble.fault.title : data.text);
-            verify(item !== undefined && item !== null, "the line draws");
-            const effect = shadowOf(item);
-            compare(String(effect.shadowColor), String(Qt.color(root.look.shadow.color)));
-            compare(effect.shadowOpacity, root.look.shadow.opacity);
-            compare(effect.blurMax, root.look.shadow.blur);
-        }
-
-        // A still prompt redraws no blur: with the orb still at motion
-        // scale 0 and the pointer away, the window swaps no frame. A new
-        // question draws, the control that the frames are counted.
-        function test_a_still_prompt_draws_no_frame() {
-            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            put(root.held);
-            const frames = createTemporaryObject(frameSpy, root, { target: bubble.Window.window });
-            verify(renderedFrame(root), "the window draws the prompt");
-            frames.clear();
-            wait(500);
-            compare(frames.count, 0);
-            const next = JSON.parse(JSON.stringify(root.held));
-            next.approval.text = "Delete notes.txt?\n/home/fixture/notes.txt";
-            next.approval.id = "b";
-            service.sessionState = next;
-            tryVerify(() => frames.count > 0, 1000, "a changed question draws");
+            const look = root.look.answer;
+            const cancel = answer(data.cancel);
+            const confirm = answer(data.confirm);
+            verify(look.height !== Theme.size.control.sm && look.height !== Theme.size.control.md,
+                "the look's height differs from the shared control heights");
+            verify(String(Qt.color(look.tinted.fill)) !== String(Qt.color(look.quiet.fill)), "the tint differs from the quiet fill");
+            for (const item of [cancel, confirm]) {
+                compare(item.height, look.height);
+                compare(item.background.radius, look.radius);
+                compare(item.background.border.color.a, 0, item.text + " draws no border");
+                const label = item.contentItem.children.find(child => child.role === "button");
+                const middle = label.mapToItem(item, 0, 0).x + label.width / 2;
+                verify(Math.abs(middle - item.width / 2) <= 1, item.text + "'s label at " + middle + " stands on its capsule's centre, " + item.width / 2);
+            }
+            compare(cancel.width, confirm.width, "the answers share the row equally");
+            compare(cancel.x, 0, "the quiet answer leads");
+            compare(confirm.x - (cancel.x + cancel.width), look.gap);
+            compare(confirm.x + confirm.width, cancel.parent.width, "the answers fill the card's row");
+            const form = data.tinted ? look.tinted : look.quiet;
+            tryVerify(() => String(cancel.background.color) === String(Qt.color(look.quiet.fill)), 1000, data.cancel + " rests on the quiet fill: " + cancel.background.color);
+            tryVerify(() => String(confirm.background.color) === String(Qt.color(form.fill)), 1000, data.confirm + " rests on its fill: " + confirm.background.color);
+            compare(String(cancel.foreground), String(Qt.color(look.quiet.ink)));
+            compare(String(confirm.foreground), String(Qt.color(form.ink)));
+            mouseMove(confirm, confirm.width / 2, confirm.height / 2);
+            tryCompare(confirm, "hovered", true);
+            tryVerify(() => String(confirm.background.color) === String(Qt.color(form.hoverFill)), 1000, data.confirm + "'s fill moves under the pointer: " + confirm.background.color);
+            compare(String(confirm.foreground), String(Qt.color(form.ink)), "the label keeps its ink under the pointer");
         }
 
         // The prompt's lines and answers draw the mode's ink, which
-        // tst_jarvis_field.qml holds to its measured contrast.
+        // scripts/check-theme-contrast.js holds to 4.5:1 on its card.
         function test_lines_draw_the_looks_ink_in_both_modes_data() {
             return [{ tag: "dark", light: false }, { tag: "light", light: true }];
         }
@@ -243,9 +205,10 @@ Item {
             put(root.held);
             compare(String(labelOf("Delete draft.txt?").color), String(Qt.color(root.look.ink.question)));
             compare(String(labelOf("/home/fixture/draft.txt").color), String(Qt.color(root.look.ink.path)));
-            compare(String(labelOf("Use the button or key to confirm.").color), String(Qt.color(root.look.ink.hint)));
-            compare(String(answer("Cancel").foreground), String(Qt.color(root.look.answer.bareInk)));
-            compare(String(answer("Confirm").foreground), String(Qt.color(root.look.answer.ink)));
+            compare(String(answer("Cancel").foreground), String(Qt.color(root.look.answer.quiet.ink)));
+            compare(String(answer("Confirm").foreground), String(Qt.color(root.look.answer.quiet.ink)));
+            put(root.asked);
+            compare(String(answer("Yes").foreground), String(Qt.color(root.look.answer.tinted.ink)));
             put(root.session({ conversation: { kind: "active", purpose: "conversation" } }));
             compare(String(labelOf("Ready to talk").color), String(Qt.color(root.look.ink.state)));
         }
@@ -295,7 +258,7 @@ Item {
             verify(area.overflowing, "the payload runs past the region");
             verify(inside(layer, area), "the region lies inside the layer");
             verify(layer.inputItems.indexOf(area) !== -1, "the region takes the pointer, so the wheel scrolls it");
-            const confirm = all(layer, []).find(item => item.shimmering !== undefined && item.text === "Confirm" && layer.drawn(item));
+            const confirm = all(layer, []).find(item => item.quiet !== undefined && item.form !== undefined && item.text === "Confirm" && layer.drawn(item));
             verify(confirm !== undefined && inside(layer, confirm), "Confirm lies inside the layer");
             mouseClick(confirm);
             verify(service.confirmed !== null && service.confirmed.id === "w", "Confirm answers the long write");
@@ -304,8 +267,8 @@ Item {
         // A payload at the approval bound, 16 KiB (ToolRouter.js
         // RESULT_BYTES), lays out past 16384 px, the maximum texture size of
         // many GPUs; no item in the held request's column draws through a
-        // layer taller than the payload's region, so the shadow's texture
-        // stays the region's size.
+        // layer taller than the payload's region, so no texture of the
+        // payload's whole length is asked for.
         function test_a_payload_at_the_bound_layers_no_texture_past_its_region() {
             const head = "Write notes.txt?\n/home/fixture/notes.txt\n";
             const body = [];
@@ -320,42 +283,8 @@ Item {
             const label = area.contentItem.children.find(item => item.role !== undefined);
             tryVerify(() => label.implicitHeight > 16384, 2000, "the payload lays out past 16384 px: " + label.implicitHeight);
             const layered = all(column, []).filter(item => item.layer !== undefined && item.layer.enabled && layer.drawn(item));
-            verify(layered.indexOf(area) !== -1, "the region draws the payload's shadow layer");
             for (const item of layered)
                 verify(item.height <= area.height, "a layer in the column stands taller than the region: " + item + " " + item.height);
         }
-
-        // Under the pointer Confirm's shimmer sweeps; at motion scale 0 it
-        // never starts, and the label keeps the hover ink.
-        function test_shimmer_stands_still_at_motion_scale_0_data() {
-            return [{ tag: "motion scale 1", scale: 1, sweeps: true }, { tag: "motion scale 0", scale: 0, sweeps: false }];
-        }
-
-        function test_shimmer_stands_still_at_motion_scale_0(data) {
-            compare(UnitTheme.override({ motion: { scale: data.scale } }), "ok");
-            service.sessionState = root.held;
-            const confirm = answer("Confirm");
-            const changes = createTemporaryObject(spy, root, { target: confirm });
-            mouseMove(confirm, confirm.width / 2, confirm.height / 2);
-            tryCompare(confirm, "hovered", true);
-            if (data.sweeps) {
-                tryCompare(confirm, "shimmering", true);
-            } else {
-                wait(200);
-                compare(changes.count, 0);
-                compare(confirm.shimmering, false);
-            }
-            compare(String(confirm.foreground), String(Qt.color(root.look.answer.hoverInk)));
-        }
-    }
-
-    Component {
-        id: frameSpy
-        SignalSpy { signalName: "frameSwapped" }
-    }
-
-    Component {
-        id: spy
-        SignalSpy { signalName: "shimmeringChanged" }
     }
 }
