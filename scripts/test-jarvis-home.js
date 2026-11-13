@@ -338,7 +338,7 @@ world(() => {
                 { topic: "own/kappa", file: "skills/kappa/SKILL.md", line: "Kappa" },
                 { topic: "own/kappa/workflows/run", file: "skills/kappa/workflows/run.md", line: "Load to run kappa." },
                 { topic: "own/linked-workflows", file: "skills/linked-workflows/SKILL.md", line: "Linked workflows" },
-                { topic: "own/zeta", file: "skills/zeta/SKILL.md", line: "Zeta" }] });
+                { topic: "own/zeta", file: "skills/zeta/SKILL.md", line: "Zeta" }], rules: { kind: "none" } });
             for (const entry of listed.skills) assert.doesNotThrow(() => Home.skill(folder, entry.topic), "every listed topic reads back: " + entry.topic);
             assert.equal(Home.skill(folder, "own/beta/alpha"), "\n# Alpha skill\nbody\n");
             assert.equal(Home.skill(folder, "own/beta").includes("# Beta"), true, "a folder's SKILL.md is its body");

@@ -303,9 +303,10 @@ function homeDrift(value, kind) {
 var OVER_BUDGET = {
     "guidance=persona-over-budget": { name: "persona.md", bytes: 3072, action: "persona" },
     "guidance=agents-over-budget": { name: "AGENTS.md", bytes: 8192, action: "agents" },
-    "guidance=skills-over-budget": { name: "the skill list", bytes: 8192, action: "skills" },
+    "guidance=voice-rules-over-budget": { name: "voice rules file", bytes: 4096, action: "skills" },
+    "guidance=skills-over-budget": { name: "skill list", bytes: 8192, action: "skills" },
     "guidance=memory-over-budget": { name: "memory/MEMORY.md", bytes: 4096, action: "memory" },
-    "guidance=start-over-budget": { name: "the start text", bytes: 32768, action: "folder" }
+    "guidance=start-over-budget": { name: "start text", bytes: 32768, action: "folder" }
 };
 function numberText(value) {
     return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -318,14 +319,14 @@ var START_REASON = "Each answering AI model gets this text at the start of every
 function budgetInfo(causes, home) {
     var facts = causes.map(function (cause) {
         var budget = OVER_BUDGET[cause];
-        return homeReference(budget.name, home, HOME_FILES[budget.action]) + ": "
-            + numberText(budget.bytes) + " bytes.";
+        return homeReference(budget.name, home, HOME_FILES[budget.action]) + " " + numberText(budget.bytes);
     });
-    return "Budgets: " + facts.join(" ") + " " + START_REASON;
+    return "Byte budgets: " + facts.join("; ") + ". " + START_REASON;
 }
 var START_FILES = {
     "home/persona": { name: "Persona", action: "persona" },
     "home/AGENTS.md": { name: "Instructions", action: "agents" },
+    "home/voice-rules": { name: "Voice rules", action: "skills" },
     "home/skills": { name: "Skills", action: "skills" },
     "home/MEMORY.md": { name: "Memory index", action: "memory" },
     "home/state": { name: "Working folder", action: "state" }
@@ -365,16 +366,39 @@ function instructionsRow(shown, causes, home) {
     return value;
 }
 
-// The Home folder step over CAUSES, the over-budget causes of an answer
-// whose home step is done: Done, with each budget in its info and an open
-// action on the chosen file, or the folder when several exceed a budget.
+// The voice rules file a home names but Jarvis does not load (Guidance
+// homeLayers), by the line the Done Home folder step adds. Jarvis answers
+// without the rules, so the step stays Done.
+var VOICE_RULES = {
+    "guidance=voice-rules-twice": "Jarvis did not load your voice rules: more than one skill names a rules file",
+    "guidance=voice-rules-name": "Jarvis did not load your voice rules: the name is not a file in the skill's references folder",
+    "guidance=voice-rules-missing": "Jarvis did not load your voice rules: the file the skill names does not exist",
+    "guidance=voice-rules-link": "Jarvis did not load your voice rules: the file is a link"
+};
+// Whether CAUSE is a caution of the Home folder step alone (homeDone).
+function homeCaution(cause) {
+    return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause) || Object.prototype.hasOwnProperty.call(VOICE_RULES, cause);
+}
+// The Home folder step over CAUSES, the home cautions of an answer whose
+// home step is done: Done, with each budget in its info and an open action
+// on the chosen file, or the folder when several exceed a budget; a voice
+// rules file Jarvis did not load adds its line, and opens the skills folder
+// where no budget names a file.
 function homeDone(causes, home) {
     var over = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
-    if (over.length === 0) return home && home.kind === "ready" ? Object.assign({}, HOME_READY, { hint: homeReference("Home folder", home, "/") }) : HOME_READY;
-    var value = { tone: "ok", text: "Done", hint: "Text exceeds its size budget; Jarvis still loads it whole", info: budgetInfo(over, home) };
-    if (home && home.kind === "ready") {
+    var rules = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(VOICE_RULES, cause); });
+    var ready = home && home.kind === "ready";
+    var value = over.length === 0 ? (ready ? Object.assign({}, HOME_READY, { hint: homeReference("Home folder", home, "/") }) : HOME_READY)
+        : { tone: "ok", text: "Done", hint: "Text exceeds its size budget; Jarvis still loads it whole", info: budgetInfo(over, home) };
+    if (ready && over.length > 0) {
         value.action = over.length === 1 ? OVER_BUDGET[over[0]].action : "folder";
         value.file = home.path + HOME_FILES[value.action];
+    }
+    if (rules.length === 0) return value;
+    value = Object.assign({}, value, { lines: rules.map(function (cause) { return VOICE_RULES[cause]; }) });
+    if (ready && value.action === undefined) {
+        value.action = "skills";
+        value.file = home.path + HOME_FILES.skills;
     }
     return value;
 }
@@ -641,9 +665,9 @@ function readiness(answer, home, repair, main) {
     case "answered":
         // The summary says only its state and hint: each step words its own
         // causes, and a caution's hint is its words.
-        // A home text over its budget is a caution of the Home folder step
-        // alone (homeDone).
-        var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
+        // A home text over its budget, or a voice rules file Jarvis did not
+        // load, is a caution of the Home folder step alone (homeDone).
+        var causes = answer.causes.filter(function (cause) { return !homeCaution(cause); });
         var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });
         var out = { setup: causes.length === 0 ? { tone: "ok", text: "Ready" }
                 : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: joinedHint(causes.map(function (cause) { return CAUTION[cause]; })) }

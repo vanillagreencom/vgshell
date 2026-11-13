@@ -86,6 +86,10 @@ const DEPENDENCY_LISTS = Object.freeze(["required", "agents"]);
 // The top-level front matter line by which an own skill's own file opts it
 // in to Jarvis Voice: the value true, nothing else.
 const VOICE_KEY = /^jarvis-voice:\s*true\s*$/;
+// The top-level front matter line by which such a file names its reference
+// whose whole text every brain gets in its start text: the voice rules the
+// user writes. Fleet's worker reads the same key (FLT-1708).
+const RULES_KEY = /^jarvis-voice-rules:(.*)$/;
 
 function fail(code) { throw new Error("jarvis: home=" + code); }
 
@@ -453,6 +457,14 @@ function voiced(text) {
     return block !== null && block.body !== null && block.front.some(line => VOICE_KEY.test(line));
 }
 
+// The value of the RULES_KEY line in the closed front matter of TEXT, a
+// voiced skill's head, its quotes dropped, or null for a file without one.
+function rulesMark(text) {
+    const block = frontMatter(text);
+    const found = block === null || block.body === null ? null : block.front.map(line => RULES_KEY.exec(line)).find(match => match !== null);
+    return found ? found[1].trim().replace(/^(["'])(.*)\1$/, "$2") : null;
+}
+
 // A skill's index line: the one-line `description` of a leading front
 // matter block, as a harness skill file carries, else the first line of
 // text, its heading marks dropped. A block scalar description is not read.
@@ -562,8 +574,10 @@ function listing(home, folder) {
 
 // The index entry of FILE under TOPIC, or null where OPTIONAL lets the file
 // be absent, a link or no regular file, and where VOICE requires its head to
-// opt the skill in to Jarvis Voice (voiced) and it does not.
-function indexed(home, topic, file, optional, voice) {
+// opt the skill in to Jarvis Voice (voiced) and it does not. MARKS, where
+// given, takes {topic, mark} for the voice rules reference such a head
+// names (rulesMark).
+function indexed(home, topic, file, optional, voice, marks = null) {
     let head;
     try { head = within(home, file, O_RDONLY | O_NONBLOCK, fd => bytes(fd, HEAD_BYTES - 1)); }
     catch (error) {
@@ -572,11 +586,28 @@ function indexed(home, topic, file, optional, voice) {
     }
     const text = new TextDecoder("utf-8").decode(head);
     if (voice && !voiced(text)) return null;
+    const mark = voice && marks !== null ? rulesMark(text) : null;
+    if (mark !== null) marks.push({ topic, mark });
     return { topic, file, line: indexLine(text) };
 }
 
+// The voice rules file MARKED, the {topic, mark} of each voiced own skill
+// whose head names one, names: {kind: "none"} while none does, {kind:
+// "file", file} for the one reference one skill names, or {kind: "refused",
+// cause}: "twice" where several skills name one, "name" for a value that is
+// no plain reference name.
+function voiceRules(marked) {
+    if (marked.length === 0) return { kind: "none" };
+    if (marked.length > 1) return { kind: "refused", cause: "twice" };
+    const [skill] = marked;
+    const named = Tools.homeTopic(skill.topic + "/" + skill.mark);
+    if (named === null || named.folder !== "references") return { kind: "refused", cause: "name" };
+    return { kind: "file", file: "skills/" + named.name + "/references/" + named.file + ".md" };
+}
+
 /**
- * The home's skills in topic order: {skills: [{topic, file, line}], complete}.
+ * The home's skills in topic order: {skills: [{topic, file, line}],
+ * complete, rules}.
  * A skill is `<name>/SKILL.md` directly in the base set (baseSet, holding
  * the package and the skills it requires, baseNames), or `<name>.md` or
  * `<name>/SKILL.md` directly in skills, which a home may lack, a
@@ -590,10 +621,12 @@ function indexed(home, topic, file, optional, voice) {
  * other entry, a link among them, is no skill. topic is "<set>/<name>", file
  * its path in the home and line its index line. complete is false once a
  * folder holds more than SET_ENTRIES entries, counted before any skill is
- * read.
+ * read. rules is the one voice rules file the voiced own skills' front
+ * matter names (voiceRules).
  */
 function skills(home) {
     const found = [];
+    const marks = [];
     let complete = true;
     // Each regular `<name>.md` file of FOLDER, under PREFIX + name, where
     // VOICE holds only one that opts in to Jarvis Voice.
@@ -602,7 +635,7 @@ function skills(home) {
         for (const entry of listed.entries) {
             const topic = prefix + entry.name.slice(0, -3);
             if (entry.isFile() && entry.name.endsWith(".md") && Tools.homeTopic(topic) !== null) {
-                const skill = indexed(home, topic, folder + "/" + entry.name, false, voice);
+                const skill = indexed(home, topic, folder + "/" + entry.name, false, voice, marks);
                 if (skill !== null) found.push(skill);
             }
         }
@@ -625,7 +658,7 @@ function skills(home) {
             if (Tools.homeTopic(topic) === null) continue;
             // An entry that is no folder, a folder without SKILL.md, or one with a
             // link in its place, is no skill.
-            const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true, set === "own");
+            const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true, set === "own", marks);
             if (skill === null) continue;
             found.push(skill);
             // A required skill's references and workflows stay readable by
@@ -646,7 +679,7 @@ function skills(home) {
         }
     }
     found.sort((left, right) => left.topic < right.topic ? -1 : left.topic > right.topic ? 1 : 0);
-    return { skills: found, complete };
+    return { skills: found, complete, rules: voiceRules(marks) };
 }
 
 /**

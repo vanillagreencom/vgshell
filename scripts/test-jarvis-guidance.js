@@ -248,6 +248,21 @@ world("jg", root => {
     const linked = home("linked", "");
     fs.rmSync(path.join(linked, "AGENTS.md"));
     fs.symlinkSync(path.join(full, "AGENTS.md"), path.join(linked, "AGENTS.md"));
+    // A voiced own skill whose front matter names its voice rules reference
+    // (FLT-1708's mark), beside another reference that keeps its index line.
+    const owner = (mark, rules = "RULES-MARKER\n") => Object.assign({
+        "owner/SKILL.md": "---\njarvis-voice: true\njarvis-voice-rules: " + mark + "\n---\n# Owner rules\n",
+        "owner/references/other.md": "# Other\n"
+    }, rules === null ? {} : { "owner/references/spoken.md": rules });
+    const marked = home("marked", "\nHOME-MARKER persona\n", owner("spoken"), undefined, "- [Team](facts/team.md): MEMORY-MARKER\n");
+    const rulesEdge = home("rules-edge", "", owner("spoken", "r".repeat(4096)));
+    const rulesOver = home("rules-over", "", owner("spoken", "r".repeat(4097)));
+    const rulesTwice = home("rules-twice", "", { ...owner("spoken"), "second/SKILL.md": "---\njarvis-voice: true\njarvis-voice-rules: spoken\n---\n# Second\n" });
+    const rulesUp = home("rules-up", "", owner("../spoken"));
+    const rulesWorkflow = home("rules-workflow", "", { ...owner("workflows/spoken"), "owner/workflows/spoken.md": "RULES-MARKER\n" });
+    const rulesMissing = home("rules-missing", "", owner("spoken", null));
+    const rulesLinked = home("rules-linked", "", owner("spoken", null));
+    fs.symlinkSync(path.join(marked, "skills/owner/references/spoken.md"), path.join(rulesLinked, "skills/owner/references/spoken.md"));
     // The state layer is last and holds no blank line: split it off the
     // text before it, and require the folder's own state/ path in it.
     const stateLast = (instructions, folder, what) => {
@@ -307,6 +322,32 @@ world("jg", root => {
             assert.equal(bareAdded.slice(plain.instructions.length).split("\n").includes("- base/jarvis: Jarvis package"), true, "the package's skill");
             assert.deepEqual(empty.layers, [...row.layers, "home/skills", "home/state"], "an empty home adds only the package's skill and its state folder");
             sized(empty, row, copy, ["home/skills", "home/state"], row.class + " empty home");
+            // The voice rules file loads whole after AGENTS.md and before the
+            // skill index, which lists it no more.
+            const ruled = logic.compose(row.engine, row.class, row.language, marked);
+            const ruledLayers = ["home/persona", "home/AGENTS.md", "home/voice-rules", "home/skills", "home/MEMORY.md", "home/state"];
+            assert.deepEqual(ruled.layers, [...row.layers, ...ruledLayers], row.class + ": the voice rules layer, in order");
+            sized(ruled, row, copy, ruledLayers, row.class + " voice rules");
+            const ruledLines = ruled.instructions.slice(plain.instructions.length).split("\n");
+            assert.deepEqual(["HOME-MARKER persona", "RULES-MARKER", "- own/owner: Owner rules"].map(line => ruledLines.indexOf(line)).every((at, index, all) => at > -1 && (index === 0 || at > all[index - 1])),
+                true, row.class + ": AGENTS.md, then the rules file, then the skill index");
+            assert.deepEqual(["- own/owner/other: Other", "- own/owner/spoken: RULES-MARKER"].map(line => ruledLines.includes(line)), [true, false],
+                row.class + ": the rules file takes no index line; another reference keeps its line");
+            assert.deepEqual(ruled.overBudget, [], row.class + ": voice rules within their budget name none");
+        }
+        // A voice rules mark Home refuses, or a file it names that is absent
+        // or a link, loads no rules, names its cause and still composes.
+        for (const [name, folder, cause] of [
+            ["two skills carry the mark", rulesTwice, "guidance=voice-rules-twice"],
+            ["a name outside references/", rulesUp, "guidance=voice-rules-name"],
+            ["a workflow's name", rulesWorkflow, "guidance=voice-rules-name"],
+            ["a missing file", rulesMissing, "guidance=voice-rules-missing"],
+            ["a link", rulesLinked, "guidance=voice-rules-link"]
+        ]) {
+            let value;
+            assert.doesNotThrow(() => { value = logic.compose("chained", "local", "en", folder); }, name + ": composes");
+            assert.deepEqual([value.layers.includes("home/voice-rules"), value.instructions.split("\n").includes("RULES-MARKER")], [false, false], name + ": loads no rules");
+            assert.deepEqual(value.overBudget, [cause], name + ": names its cause");
         }
         // Each text at and over its budget: the layer is whole where the
         // blank lines around it hold it alone, or it ends the text before
@@ -319,6 +360,8 @@ world("jg", root => {
             ["persona over its budget", personaOver, text => text.includes("\n\n" + "p".repeat(3073) + "\n\n"), ["guidance=persona-over-budget"]],
             ["MEMORY.md at its budget", memoryEdge, text => text.endsWith("\n\n" + "m".repeat(4096)), []],
             ["MEMORY.md over its budget", memoryOver, text => text.endsWith("\n\n" + "m".repeat(4097)), ["guidance=memory-over-budget"]],
+            ["voice rules at their budget", rulesEdge, text => text.includes("\n\n" + "r".repeat(4096) + "\n\n"), []],
+            ["voice rules over their budget", rulesOver, text => text.includes("\n\n" + "r".repeat(4097) + "\n\n"), ["guidance=voice-rules-over-budget"]],
             ["a skill list over its budget", crowded, skillLines, ["guidance=skills-over-budget"]],
             ["a start text over its budget", startHome, text => text.includes("\n\n" + "s".repeat(32768) + "\n\n"), ["guidance=agents-over-budget", "guidance=start-over-budget"]]
         ]) {
@@ -362,6 +405,15 @@ world("jg", root => {
         ["size-start", "const start = Buffer.byteLength(instructions);", "const start = instructions.length;"]
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => homeText(logic, path.join(root, name))); controls++;
+    }
+    for (const [name, file, needle, replacement] of [
+        ["rules-layer", "Guidance.js", "        if (text !== \"\")\n            out.push([\"home/voice-rules\", ", "        if (false)\n            out.push([\"home/voice-rules\", "],
+        ["rules-indexed", "Guidance.js", "listed.skills.filter(skill => rules.kind !== \"file\" || skill.file !== rules.file)", "listed.skills"],
+        ["rules-refusal-holds", "Guidance.js", "            if (code === null) throw error;\n", "            throw error;\n"],
+        ["rules-twice", "Home.js", "    if (marked.length > 1) return { kind: \"refused\", cause: \"twice\" };\n", ""],
+        ["rules-folder", "Home.js", "named === null || named.folder !== \"references\"", "named === null"]
+    ]) {
+        control(root, name, file, needle, replacement, () => homeText(require(path.join(root, name, "Guidance.js")), path.join(root, name))); controls++;
     }
 });
 console.log("test-jarvis-guidance: ok fixtures=" + fixtures.length + " controls=" + controls);

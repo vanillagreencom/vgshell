@@ -429,10 +429,12 @@ function setupCauses(value) {
     }
     return true;
 }
-// The home texts over their size budget (Guidance.compose's overBudget):
-// cautions, which hold no step, in this order, each at most once.
-var SETUP_CAUTIONS = ["guidance=persona-over-budget", "guidance=agents-over-budget", "guidance=skills-over-budget",
-    "guidance=memory-over-budget", "guidance=start-over-budget"];
+// The home texts over their size budget, and the voice rules file a home
+// names but Jarvis does not load (Guidance.compose's overBudget): cautions,
+// which hold no step, in this order, each at most once.
+var SETUP_CAUTIONS = ["guidance=persona-over-budget", "guidance=agents-over-budget", "guidance=voice-rules-over-budget",
+    "guidance=voice-rules-twice", "guidance=voice-rules-name", "guidance=voice-rules-missing", "guidance=voice-rules-link",
+    "guidance=skills-over-budget", "guidance=memory-over-budget", "guidance=start-over-budget"];
 function setupCautions(cautions) {
     if (!Array.isArray(cautions)) return false;
     var last = -1;
@@ -447,7 +449,7 @@ function setupCautions(cautions) {
 // The home layers Guidance.compose adds after the shipped ones, in its order;
 // the `start-text` message's layers name each at most once, in this order,
 // with its estimated tokens.
-var HOME_LAYERS = ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"];
+var HOME_LAYERS = ["home/persona", "home/AGENTS.md", "home/voice-rules", "home/skills", "home/MEMORY.md", "home/state"];
 function homeLayerTokens(layers) {
     if (!Array.isArray(layers)) return false;
     var last = -1;

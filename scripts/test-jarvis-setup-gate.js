@@ -1625,26 +1625,32 @@ function verifyHintStops(gate) {
     assert.deepEqual([judge.hintFits(one + "."), judge.hintFits(longer.slice(0, -1))], [false, false], "a hint that breaks the copy rule fails the check");
 }
 
-// A home text over its budget, each of the wire's cautions
-// (JarvisProtocol SETUP_CAUTIONS), by the file the caution names. It holds
-// no step: the summary reads Ready and the Home folder step Done, with a
-// hint that names each text over its budget, beside other steps' causes
-// too. The Instructions row the shipped service publishes shows the whole
-// AGENTS.md, with a line while it is over its budget.
+// A home text over its budget, each of the wire's budget cautions
+// (JarvisProtocol SETUP_CAUTIONS), by the file the caution names, and a
+// voice rules file the home names that Jarvis does not load. Neither holds
+// a step: the summary reads Ready and the Home folder step Done, with a
+// hint that names each text over its budget or a line for the rules file,
+// beside other steps' causes too. The Instructions row the shipped service
+// publishes shows the whole AGENTS.md, with a line while it is over its
+// budget.
 const OVER_BUDGET_FILES = { "guidance=persona-over-budget": "/.agents/skills/jarvis/persona.md", "guidance=agents-over-budget": "/AGENTS.md",
-    "guidance=skills-over-budget": "/skills/", "guidance=memory-over-budget": "/memory/MEMORY.md", "guidance=start-over-budget": "/" };
+    "guidance=voice-rules-over-budget": "/skills/", "guidance=skills-over-budget": "/skills/", "guidance=memory-over-budget": "/memory/MEMORY.md",
+    "guidance=start-over-budget": "/" };
+const VOICE_RULES_CAUSES = ["guidance=voice-rules-twice", "guidance=voice-rules-name", "guidance=voice-rules-missing", "guidance=voice-rules-link"];
 function verifyOverBudget(gate, serviceSource) {
     const cautions = Array.from(protocol.SETUP_CAUTIONS);
-    assert.deepEqual(cautions, Object.keys(OVER_BUDGET_FILES), "each caution the wire carries names its file here");
+    assert.deepEqual(cautions.filter(cause => !VOICE_RULES_CAUSES.includes(cause)), Object.keys(OVER_BUDGET_FILES), "each budget caution the wire carries names its file here");
+    assert.deepEqual(cautions.filter(cause => VOICE_RULES_CAUSES.includes(cause)), VOICE_RULES_CAUSES, "the wire carries each voice rules refusal");
     const guidance = fs.readFileSync(path.join(path.dirname(file), "backend/Guidance.js"), "utf8");
     const budgets = { "guidance=persona-over-budget": "PERSONA_BUDGET", "guidance=agents-over-budget": "AGENTS_BUDGET",
-        "guidance=skills-over-budget": "SKILLS_BUDGET", "guidance=memory-over-budget": "MEMORY_BUDGET", "guidance=start-over-budget": "START_BUDGET" };
-    for (const cause of cautions) {
+        "guidance=voice-rules-over-budget": "VOICE_RULES_BUDGET", "guidance=skills-over-budget": "SKILLS_BUDGET",
+        "guidance=memory-over-budget": "MEMORY_BUDGET", "guidance=start-over-budget": "START_BUDGET" };
+    for (const cause of Object.keys(OVER_BUDGET_FILES)) {
         const held = [...guidance.matchAll(new RegExp("const " + budgets[cause] + " = ([0-9]+);", "g"))];
         assert.equal(held.length, 1, cause + ": one budget owned by Guidance");
         assert.equal(gate.OVER_BUDGET[cause].bytes, Number(held[0][1]), cause + ": presentation uses the actual byte budget");
     }
-    for (const cause of cautions) {
+    for (const cause of Object.keys(OVER_BUDGET_FILES)) {
         const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup, got.setupHome.tone, got.setupHome.text, got.setupVoice.tone, got.setupModel.tone],
             [{ tone: "ok", text: "Ready" }, "ok", "Done", "ok", "ok"], cause + ": over its budget reads Ready");
@@ -1655,6 +1661,14 @@ function verifyOverBudget(gate, serviceSource) {
             { ok: true, kind: "file", path: "/home/user/Fixture" + suffix }, cause + ": the caution carries its file action");
         const entry = judge.statusRows(manifest, { setupHome: got.setupHome }).find(row => row.key === "setupHome");
         assert.equal(settings.stepButton(entry)?.kind, "status", cause + ": the completed step still offers its open action");
+        assert.equal(judge.statusWrite(manifest, {}, "setupHome", got.setupHome).ok, true, cause + ": the judge accepts the Home folder step");
+    }
+    for (const cause of VOICE_RULES_CAUSES) {
+        const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
+        assert.deepEqual([got.setup, got.setupHome.tone, got.setupHome.text, got.setupHome.lines?.length, got.setupVoice.tone, got.setupModel.tone],
+            [{ tone: "ok", text: "Ready" }, "ok", "Done", 1, "ok", "ok"], cause + ": voice rules not loaded reads Ready, with its line");
+        assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: got.setupHome }, "setupHome")),
+            { ok: true, kind: "file", path: "/home/user/Fixture/skills/" }, cause + ": the step opens the skills folder");
         assert.equal(judge.statusWrite(manifest, {}, "setupHome", got.setupHome).ok, true, cause + ": the judge accepts the Home folder step");
     }
     const all = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout", ...cautions, "brain=unselected"] }));
@@ -2341,8 +2355,8 @@ function verifyLimitPresentation(gate) {
     verifyConsoleTalk(gate, consoleSource);
     const fileProblem = consoleSource.match(/LinkText\s*\{[^}]*text: root\.memoryProblemText\(modelData\.problem\)[^}]*onPageActivated:/);
     assert.ok(fileProblem, "the console draws memory file references with an open handler");
-    const layers = { "home/persona": "/.agents/skills/jarvis/persona.md", "home/AGENTS.md": "/AGENTS.md", "home/skills": "/skills/",
-        "home/MEMORY.md": "/memory/MEMORY.md", "home/state": "/state/" };
+    const layers = { "home/persona": "/.agents/skills/jarvis/persona.md", "home/AGENTS.md": "/AGENTS.md", "home/voice-rules": "/skills/",
+        "home/skills": "/skills/", "home/MEMORY.md": "/memory/MEMORY.md", "home/state": "/state/" };
     for (const [layer, suffix] of Object.entries(layers)) {
         const info = gate.startTextInfo([{ layer }], [], home);
         assert.equal(pageReference.file(pageReference.parse(info).page), home.path + suffix, layer + ": start text info opens the actual chosen file");
@@ -2628,11 +2642,14 @@ const CONTROLS = [
     ["a caution turns its step to do", 'var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
         'var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = causes;\n        var out'],
     ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes, home),", "setupHome: HOME_READY,", "the caution has a reason info"],
-    ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
+    ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !homeCaution(cause); });',
         "var causes = answer.causes;", "over its budget reads Ready"],
+    ["a voice rules file not loaded holds its step", "Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause) || Object.prototype.hasOwnProperty.call(VOICE_RULES, cause);",
+        "Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause);", "voice rules not loaded reads Ready"],
+    ["a voice rules file not loaded adds no line", "if (rules.length === 0) return value;", "return value;", "voice rules not loaded reads Ready"],
     ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"].concat(value.lines),\n            info: budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a file over its budget"],
     ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
-    ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    return value;\n}\nvar HOME_UNCHECKED', 'delete value.action;\n    }\n    return value;\n}\nvar HOME_UNCHECKED', "the caution carries its file action"],
+    ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    if (rules.length === 0)', 'delete value.action;\n    }\n    if (rules.length === 0)', "the caution carries its file action"],
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',
         "hint: START_RESTART };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',

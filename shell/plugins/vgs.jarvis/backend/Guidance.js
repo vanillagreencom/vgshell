@@ -9,7 +9,8 @@
 // instructions, which the Jarvis page shows as tokens(). home is
 // the user's Jarvis home folder or null: a brain gets the base package's
 // persona and the home's whole AGENTS.md, the user's instructions, after the
-// shipped layers, then the index of its skills, the package's and the
+// shipped layers, then the whole voice rules file an own skill names, which
+// wins over the shipped speech.md, then the index of its skills, the package's and the
 // skills its persona requires among them, each read on demand through the
 // help tool, then memory/MEMORY.md,
 // the memory bootstrap that points to the memory tools when they are offered,
@@ -37,6 +38,8 @@ const SKILLS_BUDGET = 8192;
 const MEMORY_BUDGET = 4096;
 const MEASURED_BYTES = 4018;
 const MEASURED_TOKENS = 1023;
+// The voice rules file's, about 1,000 tokens at the ratio above.
+const VOICE_RULES_BUDGET = 4096;
 // The whole start text's: the shipped layers and the home's together.
 const START_BUDGET = 32768;
 const ROOT = path.join(__dirname, "skills/voice");
@@ -65,9 +68,11 @@ function layer(name) {
 }
 
 // The home's layers as {layers, over}: layers the [name, text] pairs of the
-// persona, then the user's AGENTS.md, which may refine it, the skill index,
-// the memory layer and the state folder's path; over the causes of the texts
-// over their budget, in that order. Each text loads whole whatever its size,
+// persona, then the user's AGENTS.md, which may refine it, the voice rules
+// file, the skill index, the memory layer and the state folder's path; over
+// the causes of the texts over their budget, in that order. A voice rules
+// mark Home refuses, or one naming a file that is absent or a link, is a
+// cause there too and loads no rules: the conversation starts without them. Each text loads whole whatever its size,
 // and a budget only informs, so Setup names the text over it (owner decision
 // C, VGS-1771): a cut persona would read as the user's own words, a cut memory
 // index would hide the notes below the cut, and a refusal would stop Jarvis
@@ -92,7 +97,23 @@ function homeLayers(home) {
         out.push(["home/AGENTS.md", "The user's own instructions for you, from their Jarvis home folder:\n\n" + agents]);
     const listed = Home.skills(home);
     if (!listed.complete) throw new Error("jarvis: guidance=home-skills-too-large");
-    const index = listed.skills.map(skill => "- " + skill.topic + (skill.line === "" ? "" : ": " + skill.line)).join("\n");
+    const rules = listed.rules;
+    if (rules.kind === "refused") over.push("guidance=voice-rules-" + rules.cause);
+    if (rules.kind === "file") {
+        let text = "";
+        try { text = whole(rules.file, VOICE_RULES_BUDGET, "guidance=voice-rules-over-budget"); }
+        catch (error) {
+            const code = /^jarvis: home=(absent|link)$/.exec(error.message);
+            if (code === null) throw error;
+            over.push(code[1] === "absent" ? "guidance=voice-rules-missing" : "guidance=voice-rules-link");
+        }
+        if (text !== "")
+            out.push(["home/voice-rules", "The user's own rules for how you speak, from " + rules.file + " in their Jarvis home folder."
+                + " Where they differ from the voice style above, follow them:\n\n" + text]);
+    }
+    // The rules file is in the start text already: it takes no index line.
+    const index = listed.skills.filter(skill => rules.kind !== "file" || skill.file !== rules.file)
+        .map(skill => "- " + skill.topic + (skill.line === "" ? "" : ": " + skill.line)).join("\n");
     if (Buffer.byteLength(index) > SKILLS_BUDGET) over.push("guidance=skills-over-budget");
     if (index !== "")
         out.push(["home/skills", "Skills in the user's Jarvis home folder. Read a skill with the help tool, by its topic, before you use it."
