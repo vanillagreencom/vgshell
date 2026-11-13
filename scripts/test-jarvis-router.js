@@ -1074,7 +1074,7 @@ esac
                 stopping.router.register("satellite-stop", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true,
                     start(_call, done) { stops++; done({ outcome: "completed", content: "fixture grant stopped" }); } });
                 if (auditBlocked) {
-                    fs.rmSync(path.join(stopping.directory, "audit"), { recursive: true });
+                    fs.rmSync(path.join(stopping.directory, "audit"), { recursive: true, force: true });
                     fs.writeFileSync(path.join(stopping.directory, "audit"), "blocked");
                 }
                 assert.equal(stopping.call("fleet.forward.stop").kind, "proposed", "revocation needs no sending confirmation");
