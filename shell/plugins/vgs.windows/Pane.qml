@@ -213,7 +213,7 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Enabled"
-                info: "Adds compositor glass to VGS panels, independently of VGlass. Turning it on offers to install hyprglass. Turning it off unloads the whole plugin, including glass configured outside VGS, and keeps its packages."
+                info: "Adds glass to VGS panels independently of VGlass. On offers to install hyprglass; Off turns off all its effects, including those configured outside VGS, but keeps it installed."
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"

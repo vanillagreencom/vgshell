@@ -180,7 +180,7 @@ function readable(written) {
 
 // These effective prerequisites are readings only. Layer.OPTIONS would
 // also grant a manifest permission to write them, which no consumer needs.
-var READ_ONLY = { "misc.key_press_enables_dpms": "bool", "misc.mouse_move_enables_dpms": "bool" };
+var READ_ONLY = { "misc.key_press_enables_dpms": "bool", "misc.mouse_move_enables_dpms": "bool", "ecosystem.enforce_permissions": "bool" };
 
 function readType(path) {
     return READ_ONLY[path] || Layer.readType(path);
@@ -527,6 +527,20 @@ var LAYER_GLASS_REQUESTS = {
     status: ["hyprctl", "-j", "hyprglass", "status"],
     errors: ["hyprctl", "-j", "configerrors"]
 };
+// A config load with ASK permission can complete outside the recursive
+// reload that configures it before drawing. Reuse effective option reads
+// and the layer's proof that its catch-all plugin allow rules are loaded.
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/plugins/PluginSystem.cpp
+function layerGlassPermission(values, permissions) {
+    if (permissions !== null && permissions !== undefined
+            && ["enforced", "allowed", "withheld-loaded"].indexOf(permissions.state) !== -1)
+        return { kind: "allowed", reason: "" };
+    var enforce = values === null ? undefined : values["ecosystem.enforce_permissions"];
+    if (enforce === false) return { kind: "allowed", reason: "" };
+    return enforce === true
+        ? { kind: "blocked", reason: "Layer glass cannot load with these plugin permissions. Check your Hyprland configuration." }
+        : { kind: "unread", reason: "Plugin permissions could not be checked. Check again." };
+}
 function layerGlassRead(kind, text, failure) {
     if (failure !== "") return { ok: false, error: failure };
     if (kind === "username") {

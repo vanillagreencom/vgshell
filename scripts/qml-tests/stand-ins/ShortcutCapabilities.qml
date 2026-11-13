@@ -33,6 +33,11 @@ QtObject {
         property var layerBinds: []
         property var permissionState: null
         property var userPermissions: null
+        property var layerGlassRequest: ({ generation: 0, enabled: null })
+        property string layerGlassUser: ""
+        property bool layerGlassUserFailed: false
+        property var layerGlassPermission: ({ kind: "unread", reason: "" })
+        function layerGlassLayerDone(generation, enabled, failure) {}
     }
     readonly property QtObject monitors: QtObject {
         property string ownerId: ""

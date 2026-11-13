@@ -2213,21 +2213,60 @@ function verifyAppearanceLayer(layer) {
 }
 verifyAppearanceLayer(load(layerFile));
 function verifyLayerGlass(layer) {
-    const render = (enabled, load) => layer.render([], Object.assign({}, theme, { layerGlass: enabled, layerGlassLoad: load, layerGlassUser: "test-user" }), "vgs", 1);
+    const input = (enabled, load, permit) => Object.assign({}, theme, { layerGlass: enabled, layerGlassLoad: load, layerGlassPermit: permit, layerGlassUser: "test-user" });
+    const render = (enabled, load, permit) => layer.render([], input(enabled, load, permit), "vgs", 1);
     for (const enabled of [undefined, false]) assert.doesNotMatch(render(enabled).text, /hyprglass/, "Off leaves no VGS plugin declaration");
-    const on = render(true).text;
-    assert.match(on, /if not hl\.plugin\.hyprglass then hl\.plugin\.load\("\/var\/cache\/hyprpm\/test-user\/HyprGlass\/hyprglass\.so"\) end/, "On uses the guarded managed-plugin path");
-    assert.match(on, /hl\.plugin\.hyprglass\.config\(\{ enabled = false, layers = \{ enabled = true \} \}\)/, "On globally disables window glass while enabling layers");
-    assert.match(on, /hl\.plugin\.hyprglass\.layer\("vgs:layer", \{ mask_mode = "contour" \}\)/, "only the shared VGS layer namespace gets contour glass");
-    const loadAt = on.indexOf("if not hl.plugin.hyprglass then hl.plugin.load(");
-    const configAt = on.indexOf("hl.plugin.hyprglass.config(");
-    const layerAt = on.indexOf("hl.plugin.hyprglass.layer(");
-    const callbackAt = on.indexOf('hl.on("config.reloaded"');
-    assert.ok(loadAt < configAt && configAt < layerAt && layerAt < callbackAt, "load, safe config and namespace declaration run synchronously before reload callbacks");
-    const preparing = render(true, false).text;
+    const on = render(true, true, true).text;
+    const block = layer.layerGlassLines(input(true, true, true)).join("\n");
+    const blockAt = on.indexOf(block);
+    const callbackAt = on.indexOf('    hl.on("config.reloaded", function()');
+    assert.ok(blockAt >= 0 && blockAt < callbackAt, "the emitted block runs during parsing before the general reload callback");
+    const preparing = render(true, false, true).text;
     assert.doesNotMatch(preparing, /hl\.plugin\.load\(/, "a reload during preparation never loads a binary");
-    assert.match(preparing, /hl\.plugin\.hyprglass\.config\(\{ enabled = false,/, "preparation keeps an existing module's window glass disabled");
     assert.doesNotMatch(on, /hyprglass_enabled|hyprglass\.window|hyprglass\.preset/, "VGS never writes foreign tags or window presets");
+    // Execute only the emitted block. The declaration-only loader and
+    // explicit namespaces prove its calls, not Hyprland's native lifetime.
+    const program = [[false, true, true], [true, false, true], [false, false, true], [true, true, false]].map(([present, permit, loading]) => `
+do
+    local declarations, callbacks, seen = {}, {}, {}
+    local function module(prefix)
+        return {
+            config = function(value)
+                assert(value.enabled == false and value.layers.enabled == true)
+                seen[#seen + 1] = prefix .. "config"
+            end,
+            layer = function(namespace, value)
+                assert(namespace == "vgs:layer" and value.mask_mode == "contour")
+                seen[#seen + 1] = prefix .. "layer"
+            end
+        }
+    end
+    hl = {
+        plugin = { load = function(path)
+            assert(path == "/var/cache/hyprpm/test-user/HyprGlass/hyprglass.so")
+            declarations[#declarations + 1] = path
+        end },
+        on = function(event, callback)
+            assert(event == "config.reloaded")
+            callbacks[#callbacks + 1] = callback
+        end
+    }
+    ${present ? 'hl.plugin.hyprglass = module("parse-")' : ""}
+    ${layer.layerGlassLines(input(true, loading, permit)).join("\n")}
+    assert(#declarations == ${loading && (present || permit) ? 1 : 0})
+    assert((hl.plugin.hyprglass ~= nil) == ${present})
+    assert(table.concat(seen, ",") == "${present ? "parse-config,parse-layer" : ""}")
+    assert(#callbacks == 1)
+    seen = {}
+    hl.plugin.hyprglass = module("reload-")
+    callbacks[1]()
+    callbacks[1]()
+    assert(table.concat(seen, ",") == "reload-config,reload-layer,reload-config,reload-layer")
+end`).join("\n");
+    const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000,
+        env: { PATH: process.env.PATH, VGS_TEST_RUN: "1" } });
+    assert.ifError(run.error);
+    assert.equal(run.status, 0, "layer-glass emitted declaration/configuration calls: " + run.stderr);
 }
 verifyLayerGlass(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
@@ -2242,7 +2281,9 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 const CONTROLS = [
     [layerFile, "preparation withholds the loader", "theme.layerGlassLoad === false ? [] :", "false ? [] :", verifyLayerGlass],
     [layerFile, "layer glass precedes the reload commit", "].concat(layerGlass, appliedLines(applied, paths), lines);", "].concat(appliedLines(applied.concat(layerGlass), paths), lines);", verifyLayerGlass],
-    [layerFile, "layer glass keeps windows globally disabled", "hl.plugin.hyprglass.config({ enabled = false, layers = { enabled = true } })", "hl.plugin.hyprglass.config({ enabled = true, layers = { enabled = true } })", verifyLayerGlass],
+    [layerFile, "layer glass retains its declaration with a namespace", "if hl.plugin.hyprglass or ", "if not hl.plugin.hyprglass and ", verifyLayerGlass],
+    [layerFile, "layer glass reseeds the reload queue", "hl.on(\"config.reloaded\", configure)", "hl.on(\"config.reloaded\", function() end)", verifyLayerGlass],
+    [layerFile, "layer glass keeps windows globally disabled", "hg.config({ enabled = false, layers = { enabled = true } })", "hg.config({ enabled = true, layers = { enabled = true } })", verifyLayerGlass],
     [logicFile, "HDR no-capable veto", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true ? 1 : 0;'],
     [logicFile, "HDR core off before first choice", 'if (!set && optionRow.hdr !== true) return;', 'if (!set) return;'],
     [logicFile, "HDR on uses mode one", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 2 : 0;'],

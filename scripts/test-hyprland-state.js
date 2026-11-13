@@ -353,6 +353,15 @@ function wakeSuite(lib, check) {
 // in VGS-1141's retained nested load proof. Foreign tags may activate
 // individual windows while their global feature stays disabled.
 function layerGlassSuite(lib, check) {
+    for (const [name, values, permissions, want] of [
+        ["enforcement off", { "ecosystem.enforce_permissions": false }, null, "allowed"],
+        ["foreign enforcement on", { "ecosystem.enforce_permissions": true }, null, "blocked"],
+        ["unread options", null, null, "unread"],
+        ["missing enforcement option", {}, null, "unread"],
+        ["wrong enforcement type", { "ecosystem.enforce_permissions": "false" }, null, "unread"],
+        ["rules awaiting restart", { "ecosystem.enforce_permissions": true }, { state: "pending-restart" }, "blocked"],
+        ...["enforced", "allowed", "withheld-loaded"].map(state => ["loaded canonical allow " + state, null, { state: state }, "allowed"])
+    ]) check("layer glass: load admission " + name, lib.layerGlassPermission(values, permissions).kind, want);
     const plugin = { name: "hyprglass", author: "hyprnux", handle: "opaque", version: "1.1.1", description: "Glass" };
     const status = { schema: 1, version: "1.1.1", versionCheck: "match", active: true, shaders: "ready",
         features: { windows: { enabled: false, active: false, reason: "disabled" }, layers: { enabled: true, active: true, reason: null } } };
@@ -404,6 +413,7 @@ layerGlassSuite(load(STATE), report);
 // around it; the suite must fail on every copy. The copy sits in a
 // temporary tree beside the libraries it imports.
 const CONTROLS = [
+    ["layer glass refuses foreign enforcement", 'if (enforce === false) return { kind: "allowed", reason: "" };', 'if (enforce === false || enforce === true) return { kind: "allowed", reason: "" };', layerGlassSuite],
     ["layer glass refuses globally enabled windows", " || status.features.windows.enabled", "", layerGlassSuite],
     ["user alias lookup consumes the shared identity judge", "Layer.sameKey(row.key, key, identities)", "row.key === key"],
     ["a bare none index reads as null", '.replace(/("active_layout_index": )none\\b/g, "$1null")', ""],

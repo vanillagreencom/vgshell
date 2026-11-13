@@ -55,6 +55,7 @@ Scope {
     property var overriddenRows: null
     // State.optionValues' values, read with overriddenRows; null alike.
     property var optionValues: null
+    property bool optionsPending: false
     readonly property var displayWake: Logic.frozenJson(State.displayWake(optionValues))
     property var foreignKeys: null
     // Only key and description from the same binds reply. Settings names the
@@ -105,6 +106,7 @@ Scope {
         devicesFailure = "";
         overriddenRows = null;
         optionValues = null;
+        optionsPending = false;
         userValueRows = null;
         foreignKeys = null;
         foreignBindRows = null;
@@ -139,8 +141,10 @@ Scope {
     // event-driven through the existing reader, never a plugin poller.
     property var layerGlassRunner: null
     property string layerGlassUser: ""
+    property bool layerGlassUserFailed: false
     property bool layerGlassClaimed: false
     readonly property bool layerGlassIntent: Theme.appearanceState.values.layerGlass === true
+    readonly property var layerGlassPermission: State.layerGlassPermission(optionValues, permissionState)
     property var layerGlassObserved: ({ kind: "checking", reason: "Checking plugin state.", loaded: null })
     property var layerGlassOperation: ({ phase: "idle" })
     property var layerGlassRequest: ({ generation: 0, enabled: null })
@@ -149,7 +153,11 @@ Scope {
     property int layerGlassReadGeneration: 0
     property var layerGlassFacts: ({})
     readonly property bool layerGlassHeld: layerGlassOperation.phase !== "idle" || layerGlassIntent || layerGlassClaimed
-    readonly property var layerGlass: ({ observed: layerGlassObserved, operation: { phase: layerGlassOperation.phase,
+    readonly property var layerGlass: ({ observed: layerGlassUserFailed && layerGlassIntent
+        ? Object.assign({}, layerGlassObserved, { kind: "unread", reason: "The plugin location could not be checked. Check again." })
+        : layerGlassObserved.loaded === false && layerGlassIntent && layerGlassPermission.kind !== "allowed"
+            ? Object.assign({}, layerGlassObserved, { kind: "permission", reason: layerGlassPermission.reason }) : layerGlassObserved,
+        operation: { phase: layerGlassOperation.phase,
         reason: layerGlassOperation.reason || "" }, requested: layerGlassIntent })
 
     onLayerGlassHeldChanged: if (layerGlassHeld) refreshLayerGlass()
@@ -164,9 +172,10 @@ Scope {
         const manifest = Registry.manifests[op.id];
         return State.layerGlassCurrent(op, generation, manifest === undefined || !Registry.isEnabled(op.id) ? "" : manifest.__revision, layerGlassIntent);
     }
-    function refreshLayerGlass() {
+    function refreshLayerGlass(refreshOptions) {
         if (!active && !layerGlassHeld) return;
         layerGlassObserved = Object.assign({}, layerGlassObserved, { stale: true });
+        if (refreshOptions !== false) readOptions();
         layerGlassReadGeneration++;
         layerGlassFacts = {};
         layerGlassReader.read(State.LAYER_GLASS_REQUESTS.username, { generation: layerGlassReadGeneration, key: "username" });
@@ -176,7 +185,10 @@ Scope {
         const facts = Object.assign({}, layerGlassFacts);
         facts[request.key] = State.layerGlassRead(request.key, text, failure);
         layerGlassFacts = facts;
-        if (request.key === "username" && facts.username.ok) layerGlassUser = facts.username.value;
+        if (request.key === "username") {
+            if (facts.username.ok) layerGlassUser = facts.username.value;
+            layerGlassUserFailed = layerGlassUser === "" && !facts.username.ok;
+        }
         const keys = ["username", "plugins", "status", "errors"];
         const next = keys.indexOf(request.key) + 1;
         if (next < keys.length) {
@@ -239,11 +251,15 @@ Scope {
     }
     function advanceLayerGlass() {
         const op = layerGlassOperation;
-        if (op.phase === "idle") return;
+        if (op.phase === "idle" || layerGlassObserved.stale || optionsPending) return;
         if (!layerGlassValid(op.generation)) { finishLayerGlass(false, "The requesting plugin or saved choice changed."); return; }
         const observed = layerGlassObserved;
         if (op.phase === "checking") {
-            if (observed.loaded === null || !layerGlassFacts.username.ok) { finishLayerGlass(false, "The plugin state or managed path could not be read. Check again."); return; }
+            if (observed.loaded === null || !layerGlassFacts.username.ok) { finishLayerGlass(false, "The plugin could not be checked. Check again."); return; }
+            if (op.on && observed.loaded === false && layerGlassPermission.kind !== "allowed") {
+                finishLayerGlass(false, layerGlassPermission.reason);
+                return;
+            }
             layerGlassOperation = Object.assign({}, op, { wasLoaded: observed.loaded });
             if (op.on) {
                 // A saved-On rebuild must not reload the binary during a
@@ -268,13 +284,17 @@ Scope {
                 failLayerGlass("The plugin's loaded state could not be confirmed. Check again.");
                 return;
             }
+            if (op.on && observed.loaded === false && layerGlassPermission.kind !== "allowed") {
+                finishLayerGlass(false, layerGlassPermission.reason);
+                return;
+            }
             const request = { generation: op.generation, cycle: ++layerGlassSerial, enabled: op.on };
             layerGlassOperation = Object.assign({}, op, { phase: "applying", keepRequest: op.on ? request : op.keepRequest });
             layerGlassRequest = request;
         } else if (op.phase === "verifying-load") {
-            // The preparation TUI never loads an absent plugin. The writer
-            // loads and configures it synchronously before Hyprpm records
-            // its enabled state, so no terminal wait exposes window defaults.
+            // The preparation TUI never loads an absent plugin. Native
+            // declaration reconciliation reparses the writer's configuration
+            // before Hyprpm records the enabled state.
             if (["eligible", "shaders-pending"].indexOf(observed.kind) === -1) { failLayerGlass(observed.reason); return; }
             runLayerGlassManager("enable");
         } else if (op.phase === "verifying") {
@@ -306,8 +326,8 @@ Scope {
     function layerGlassLayerDone(generation, enabled, failure) {
         const op = layerGlassOperation;
         if ((op.phase !== "applying" && op.phase !== "arming") || generation !== op.generation) return;
-        if (failure !== "") { failLayerGlass("The generated configuration could not be applied. Check your configuration."); return; }
-        if (enabled !== op.on) { finishLayerGlass(false, "The generated choice changed during reload."); return; }
+        if (failure !== "") { failLayerGlass("Layer glass could not be applied. Check your Hyprland configuration."); return; }
+        if (enabled !== op.on) { finishLayerGlass(false, "The layer-glass choice changed. Check again."); return; }
         if (op.phase === "arming") { runLayerGlassManager(op.verb); return; }
         layerGlassOperation = Object.assign({}, op, { phase: op.on ? "verifying-load" : "verifying" });
         refreshLayerGlass();
@@ -396,6 +416,7 @@ Scope {
     }
     function readOptions() {
         if (!active) return;
+        optionsPending = true;
         optionsReader.read(State.OPTIONS_REQUEST, written.concat(appearanceWritten));
     }
 
@@ -470,7 +491,7 @@ Scope {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             if (event.name === "configreloaded") {
-                if (root.layerGlassHeld) root.refreshLayerGlass();
+                if (root.layerGlassHeld) root.refreshLayerGlass(false);
                 // Hyprland 0.57 builds its bind map from the global input:kb_*
                 // options at group 0 and rebuilds it only through
                 // InputManager::setKeyboardLayout on a configuration refresh
@@ -572,6 +593,8 @@ Scope {
                 if (!root.same(overridden, root.overriddenRows)) root.overriddenRows = overridden;
                 if (!root.same(read.values, root.optionValues)) root.optionValues = read.values;
             }
+            root.optionsPending = false;
+            root.advanceLayerGlass();
         }
     }
 

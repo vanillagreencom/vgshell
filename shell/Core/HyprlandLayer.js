@@ -1772,13 +1772,17 @@ function appliedLines(values, paths) {
 // hyprpm v0.57.1 DataState::getDataStatePath and addNewPluginRepo install
 // this repository's binary here, using getpwuid's name (the core reads
 // id -un, not an inherited USER value). Hyprglass v1.1.1 README documents
-// hl.plugin.load, config and layer. Keep the load and configuration in one
-// synchronous Lua evaluation, before a frame can draw plugin defaults.
-// hg.layer queues declarations for the plugin's config.reloaded listener;
-// a Lua callback on that event can run after the plugin commits its queue.
+// hl.plugin.load declares a config-owned lifetime, reconciled at the end
+// of parsing. Its first load recursively parses again before returning to
+// drawing. Keep the declaration when the module appears. The parse call
+// seeds hg.layer's queue before the plugin commits; the later Lua callback
+// reseeds for the outer reload's repeated commit. Lookup stays inside the
+// function so an unload leaves no captured native function table.
 // https://github.com/hyprwm/Hyprland/blob/v0.57.1/hyprpm/src/core/DataState.cpp
 // https://github.com/hyprnux/hyprglass/blob/v1.1.1/README.md#configuration
 // https://github.com/hyprnux/hyprglass/blob/v1.1.1/src/PluginConfig.cpp
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/config/lua/ConfigManager.cpp
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/src/plugins/PluginSystem.cpp
 function layerGlassPath(username) {
     return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."
         ? "/var/cache/hyprpm/" + username + "/HyprGlass/hyprglass.so" : null;
@@ -1790,11 +1794,17 @@ function layerGlassLines(theme) {
         throw new Error("HyprlandLayer: layer glass has no managed username");
     // A preparation/rebuild can span another theme or config reload.
     // Keep the safe configuration but withhold loading throughout it.
-    var load = theme.layerGlassLoad === false ? [] : ['if not hl.plugin.hyprglass then hl.plugin.load("' + path + '") end'];
+    var load = theme.layerGlassLoad === false ? [] : ['if hl.plugin.hyprglass or ' + (theme.layerGlassPermit === true ? "true" : "false") + ' then hl.plugin.load("' + path + '") end'];
     return load.concat([
-        "if hl.plugin.hyprglass then",
-        "    hl.plugin.hyprglass.config({ enabled = false, layers = { enabled = true } })",
-        '    hl.plugin.hyprglass.layer("vgs:layer", { mask_mode = "contour" })',
+        "do",
+        "    local function configure()",
+        "        local hg = hl.plugin.hyprglass",
+        "        if not hg then return end",
+        "        hg.config({ enabled = false, layers = { enabled = true } })",
+        '        hg.layer("vgs:layer", { mask_mode = "contour" })',
+        "    end",
+        "    configure()",
+        '    hl.on("config.reloaded", configure)',
         "end"
     ]);
 }
