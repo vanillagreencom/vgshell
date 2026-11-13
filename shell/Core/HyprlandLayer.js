@@ -1769,6 +1769,35 @@ function appliedLines(values, paths) {
     ]);
 }
 
+// hyprpm v0.57.1 DataState::getDataStatePath and addNewPluginRepo install
+// this repository's binary here, using getpwuid's name (the core reads
+// id -un, not an inherited USER value). Hyprglass v1.1.1 README documents
+// hl.plugin.load, config and layer. The load precedes config.reloaded so
+// the newly loaded module can receive that callback in the same cycle.
+// https://github.com/hyprwm/Hyprland/blob/v0.57.1/hyprpm/src/core/DataState.cpp
+// https://github.com/hyprnux/hyprglass/blob/v1.1.1/README.md#configuration
+function layerGlassPath(username) {
+    return typeof username === "string" && /^[A-Za-z0-9_.-]+$/.test(username) && username !== "." && username !== ".."
+        ? "/var/cache/hyprpm/" + username + "/HyprGlass/hyprglass.so" : null;
+}
+function layerGlassLines(theme) {
+    if (theme.layerGlass !== true) return { placed: [], applied: [] };
+    var path = layerGlassPath(theme.layerGlassUser);
+    if (path === null)
+        throw new Error("HyprlandLayer: layer glass has no managed username");
+    return {
+        placed: [
+            'if not hl.plugin.hyprglass then hl.plugin.load("' + path + '") end'
+        ],
+        applied: [
+            "if hl.plugin.hyprglass then",
+            "    hl.plugin.hyprglass.config({ enabled = false, layers = { enabled = true } })",
+            '    hl.plugin.hyprglass.layer("vgs:layer", { mask_mode = "contour" })',
+            "end"
+        ]
+    };
+}
+
 // The layer's text and the binds, options or appearance owner declarations
 // it could not write.
 //
@@ -1818,7 +1847,8 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     var plan = bindPlan === undefined ? resolveBinds(sections)
         : bindPlan === null ? resolveBinds(sections, null, "core") : bindPlan;
     var switches = groupSwitches(sections);
-    var applied = [];
+    var layerGlass = layerGlassLines(theme);
+    var applied = layerGlass.applied;
     var groups = [];
     var groupLines = { borders: function () { return borderLines(theme, themeName); }, radius: function () { return radiusLines(theme, highestScale); }, motion: function () { return motionLines(theme); }, glass: function () { return glassLines(theme); }, glow: function () { return glowLines(theme); } };
     var appearance = [];
@@ -1908,7 +1938,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         "",
         START_LINE,
         ""
-    ].concat(appliedLines(applied, paths), lines);
+    ].concat(layerGlass.placed, appliedLines(applied, paths), lines);
     lines = lines.concat([""], padSweepLines());
     return {
         text: lines.join("\n") + "\n",

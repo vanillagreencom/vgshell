@@ -1525,7 +1525,10 @@ var APPEARANCE = {
     windowGlass: { type: "flag", only: true, hyprland: "glass", unset: "hyprland" },
     // A glow inside the focused window while window glass is on; unset
     // leaves the glow to the user's Hyprland config.
-    windowGlow: { type: "flag", only: true, hyprland: "glow", unset: "hyprland" }
+    windowGlow: { type: "flag", only: true, hyprland: "glow", unset: "hyprland" },
+    // Compositor layer glass is an explicit install choice, independent of
+    // VGlass and window decoration. No theme can turn it on.
+    layerGlass: { type: "flag", only: true }
 };
 
 // The roles VGlass rounds while every surface draws glass, and the token

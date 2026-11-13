@@ -18,10 +18,23 @@ FocusScope {
     property var shell: null
     property string problem: ""
     readonly property var appearance: shell === null ? null : shell.appearance
+    readonly property var layerGlass: shell === null ? null : shell.hyprland.layerGlass
+    readonly property bool layerGlassBusy: layerGlass !== null && layerGlass.operation.phase !== "idle"
+    readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""
+        ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1
+            ? layerGlass.observed.reason : ""
     readonly property Item initialFocus: radius.slider
 
     function open(payloadJson) {}
     function close() {}
+    onShellChanged: if (shell !== null) shell.hyprland.refreshLayerGlass()
+
+    function chooseLayerGlass(enabled, rebuild) {
+        const done = result => { if (!result.ok) console.warn("windows: layer-glass " + result.reason); };
+        const reply = rebuild ? shell.appearance.rebuildLayerGlass("layer-glass", done)
+            : shell.appearance.chooseLayerGlass(enabled, "layer-glass", done);
+        if (reply !== "ok") console.warn("windows: layer-glass " + reply);
+    }
 
     function answer(reply) {
         problem = reply === "ok" ? "" : "VGS could not save this setting.";
@@ -183,6 +196,78 @@ FocusScope {
                         root.answer(wanted ? root.shell.appearance.set("windowGlow", true) : root.shell.appearance.unset("windowGlow"));
                     }
                 }
+            }
+        }
+
+        SectionHeader {
+            width: parent.width
+            text: "Layer glass"
+        }
+
+        Column {
+            width: parent.width
+            spacing: Theme.stack.row
+
+            FormRow {
+                width: parent.width
+                label: "Enabled"
+                info: "Adds compositor glass to VGS panels, independently of VGlass. Turning it on offers to install hyprglass. Turning it off unloads the whole plugin, including glass configured outside VGS, and keeps its packages."
+                Switch {
+                    size: "sm"
+                    Accessible.name: "Layer glass"
+                    disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                    checked: root.layerGlass !== null && root.layerGlass.requested
+                    onToggled: {
+                        const wanted = checked;
+                        checked = Qt.binding(() => root.layerGlass !== null && root.layerGlass.requested);
+                        root.chooseLayerGlass(wanted, false);
+                    }
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                label: "Plugin"
+                Label {
+                    width: parent.width
+                    text: root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
+                        ? "Checking…" : root.layerGlass.observed.kind === "eligible" ? "On"
+                            : root.layerGlass.observed.kind === "not-loaded" ? "Off" : "Needs attention"
+                }
+            }
+
+            FormRow {
+                width: parent.width
+                label: ""
+                RowActions {
+                    width: parent.width
+                    RowAction {
+                        text: "Check again"
+                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        onClicked: root.shell.hyprland.refreshLayerGlass()
+                    }
+                    RowAction {
+                        visible: root.layerGlass !== null && (root.layerGlass.requested || root.layerGlass.observed.loaded === true)
+                            && root.layerGlass.observed.kind !== "eligible"
+                        text: "Rebuild"
+                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        onClicked: root.chooseLayerGlass(true, true)
+                    }
+                    RowAction {
+                        visible: root.layerGlass !== null && root.layerGlass.observed.loaded === true && !root.layerGlass.requested
+                        text: "Turn off"
+                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        onClicked: root.chooseLayerGlass(false, false)
+                    }
+                }
+            }
+
+            Callout {
+                visible: root.layerGlassProblem !== ""
+                width: parent.width
+                tone: "danger"
+                text: root.layerGlassProblem
+                plain: true
             }
         }
 

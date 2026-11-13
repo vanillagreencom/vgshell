@@ -7,5 +7,6 @@
     "description": "Reads and writes the user's Appearance values through the appearance capability",
     "kinds": ["service"],
     "entryPoints": { "service": "Service.qml" },
-    "capabilities": ["appearance"]
+    "capabilities": ["appearance", "hyprland", "tui"],
+    "tui": { "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass" } }
 }

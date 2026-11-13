@@ -517,3 +517,74 @@ function restoreBindLine(text, line, undo) {
 function bindFileEditable(file, hyprDir) {
     return file.indexOf(hyprDir + "/") === 0 && /\.lua$/.test(file) && !/\/\.\.?(\/|$)/.test(file);
 }
+
+// Hyprglass v1.1.1 documents schema 1 at README.md#diagnostics. These
+// fixed reads also establish a clean config-only reload; plugin presence
+// or a successful manager process alone proves no glass.
+var LAYER_GLASS_REQUESTS = {
+    username: ["id", "-un"],
+    plugins: ["hyprctl", "-j", "plugin", "list"],
+    status: ["hyprctl", "-j", "hyprglass", "status"],
+    errors: ["hyprctl", "-j", "configerrors"]
+};
+function layerGlassRead(kind, text, failure) {
+    if (failure !== "") return { ok: false, error: failure };
+    if (kind === "username") {
+        var username = text.trim();
+        return Layer.layerGlassPath(username) !== null
+            ? { ok: true, value: username } : { ok: false, error: "refused: layer-glass=username-shape" };
+    }
+    var read = parsed(text);
+    if (!read.ok) return read;
+    var value = read.value;
+    var valid = false;
+    switch (kind) {
+    case "plugins":
+        valid = Array.isArray(value) && value.every(function (row) {
+            return row !== null && ["name", "author", "handle", "version", "description"].every(function (key) { return typeof row[key] === "string"; });
+        }) && value.filter(function (row) { return row.name === "hyprglass"; }).length <= 1;
+        break;
+    case "errors": valid = Array.isArray(value) && value.every(function (row) { return typeof row === "string"; }); break;
+    case "status":
+        valid = value !== null && typeof value === "object" && !Array.isArray(value)
+            && Number.isInteger(value.schema) && typeof value.version === "string" && typeof value.versionCheck === "string"
+            && typeof value.active === "boolean" && typeof value.shaders === "string"
+            && value.features !== null && typeof value.features === "object"
+            && ["windows", "layers"].every(function (name) {
+                var row = value.features[name];
+                return row !== null && typeof row === "object" && typeof row.enabled === "boolean" && typeof row.active === "boolean"
+                    && (row.reason === null || typeof row.reason === "string");
+            });
+        break;
+    default: throw new Error("layer-glass: unknown read " + kind);
+    }
+    // Hyprland emits [""] for no errors. Validate the whole array before
+    // discarding exact empty strings, preserving every nonempty error.
+    if (valid && kind === "errors") return { ok: true, value: value.filter(function (line) { return line !== ""; }) };
+    return valid ? read : { ok: false, error: "refused: layer-glass=" + kind + "-shape" };
+}
+function layerGlassObservation(facts) {
+    function result(kind, reason, loaded) { return { kind: kind, reason: reason, loaded: loaded }; }
+    if (!facts.plugins || !facts.plugins.ok) return result("unread", "The running plugins could not be read. Check again.", null);
+    var plugins = facts.plugins.value.filter(function (row) { return row.name === "hyprglass"; });
+    if (plugins.length === 0) return result("not-loaded", "Off", false);
+    var plugin = plugins[0];
+    if (/^Paused \(/.test(plugin.description)) return result("paused", "The plugin is paused. Rebuild it for this Hyprland version.", true);
+    if (!facts.status || !facts.status.ok) return result("unread", "The plugin status could not be read. Check again.", true);
+    var status = facts.status.value;
+    if (status.schema !== 1 || status.version !== plugin.version || status.versionCheck !== "match"
+            || ["ready", "pending", "failed"].indexOf(status.shaders) === -1)
+        return result("unsupported", "The plugin does not match this Hyprland version. Rebuild it.", true);
+    if (!facts.errors || !facts.errors.ok) return result("unread", "Configuration errors could not be read. Check again.", true);
+    if (facts.errors.value.length > 0) return result("config-error", "Hyprland reports configuration errors. Check your configuration.", true);
+    if (status.shaders === "pending") return result("shaders-pending", "Shaders are not ready. Open a VGS panel and check again.", true);
+    // Foreign hyprglass_enabled tags can make windows active even while
+    // globally disabled. Those tags belong to the user; VGS never clears them.
+    if (!status.active || status.shaders !== "ready" || status.features.windows.enabled
+            || !status.features.layers.enabled || !status.features.layers.active)
+        return result("layers-disabled", "Layer glass is not active. Turn it on again or rebuild the plugin.", true);
+    return result("eligible", "On", true);
+}
+function layerGlassCurrent(operation, generation, revision, intent) {
+    return operation !== null && operation.generation === generation && operation.revision === revision && operation.intent === intent;
+}

@@ -349,13 +349,61 @@ function wakeSuite(lib, check) {
     check("display wake: whole batch failure", [failed.ok, lib.displayWake(failed.ok ? failed.values : null)], [false, unreadable]);
 }
 
+// Shape from hyprglass v1.1.1's documented schema-1 diagnostic, as read
+// in VGS-1141's retained nested load proof. Foreign tags may activate
+// individual windows while their global feature stays disabled.
+function layerGlassSuite(lib, check) {
+    const plugin = { name: "hyprglass", author: "hyprnux", handle: "opaque", version: "1.1.1", description: "Glass" };
+    const status = { schema: 1, version: "1.1.1", versionCheck: "match", active: true, shaders: "ready",
+        features: { windows: { enabled: false, active: false, reason: "disabled" }, layers: { enabled: true, active: true, reason: null } } };
+    const read = (kind, value) => lib.layerGlassRead(kind, JSON.stringify(value), "");
+    function observe(change) {
+        const current = JSON.parse(JSON.stringify(status));
+        if (change) change(current);
+        return lib.layerGlassObservation({ plugins: read("plugins", [plugin]), status: read("status", current), errors: read("errors", [""]) }).kind;
+    }
+    for (const [name, change, want] of [
+        ["layer-only ready", null, "eligible"],
+        ["foreign window tags remain the user's choice", s => { s.features.windows.active = true; }, "eligible"],
+        ["globally enabled windows refuse layer-only success", s => { s.features.windows.enabled = true; }, "layers-disabled"],
+        ["inactive layers", s => { s.features.layers.active = false; }, "layers-disabled"],
+        ["missing shaders", s => { s.shaders = "pending"; }, "shaders-pending"],
+        ["failed shaders", s => { s.shaders = "failed"; }, "layers-disabled"],
+        ["ABI mismatch", s => { s.versionCheck = "mismatch"; }, "unsupported"],
+        ["unknown schema", s => { s.schema = 2; }, "unsupported"]
+    ]) check("layer glass: " + name, observe(change), want);
+    for (const [value, want] of [[[], []], [[""], []], [["", "bad", " "], ["bad", " "]]])
+        check("layer glass: config errors " + JSON.stringify(value), read("errors", value).value, want);
+    for (const value of [null, {}, ["", null], [""", 0]])
+        check("layer glass: refuses unreadable errors " + JSON.stringify(value), read("errors", value).ok, false);
+    for (const value of [null, {}, [plugin, plugin], [{ name: "hyprglass" }]])
+        check("layer glass: refuses unreadable plugin list " + JSON.stringify(value), read("plugins", value).ok, false);
+    for (const [username, want] of [["method\n", true], ["../user", false], ["..", false], ["a\"b", false], ["a\nb", false], ["", false]])
+        check("layer glass: username " + JSON.stringify(username), lib.layerGlassRead("username", username, "").ok, want);
+    const facts = { plugins: read("plugins", []), errors: read("errors", [""]), status: read("status", status) };
+    check("layer glass: unloaded state", lib.layerGlassObservation(facts).kind, "not-loaded");
+    facts.plugins = read("plugins", [Object.assign({}, plugin, { description: "Paused (version mismatch)" })]);
+    check("layer glass: paused is no success", lib.layerGlassObservation(facts).kind, "paused");
+    facts.plugins = read("plugins", [plugin]);
+    facts.errors = read("errors", ["bad"]);
+    check("layer glass: nonempty configuration error", lib.layerGlassObservation(facts).kind, "config-error");
+    facts.errors = read("errors", [""]);
+    facts.status = lib.layerGlassRead("status", "not-json", "");
+    check("layer glass: missing status is explicit", lib.layerGlassObservation(facts).kind, "unread");
+    check("layer glass: transport failure stays unreadable", lib.layerGlassRead("plugins", "[]", "failed").ok, false);
+    const operation = { generation: 7, revision: "current", intent: false };
+    for (const [generation, revision, intent, want] of [[7, "current", false, true], [8, "current", false, false], [7, "old", false, false], [7, "current", true, false]])
+        check("layer glass: binds request " + [generation, revision, intent], lib.layerGlassCurrent(operation, generation, revision, intent), want);
+}
 suite(load(STATE), report);
 wakeSuite(load(STATE), report);
+layerGlassSuite(load(STATE), report);
 
 // Each control removes one rule from a copy of the file and keeps the text
 // around it; the suite must fail on every copy. The copy sits in a
 // temporary tree beside the libraries it imports.
 const CONTROLS = [
+    ["layer glass refuses globally enabled windows", " || status.features.windows.enabled", "", layerGlassSuite],
     ["user alias lookup consumes the shared identity judge", "Layer.sameKey(row.key, key, identities)", "row.key === key"],
     ["a bare none index reads as null", '.replace(/("active_layout_index": )none\\b/g, "$1null")', ""],
     ["devices need both lists", " || !Array.isArray(d.mice) || !Array.isArray(d.keyboards))", ")"],

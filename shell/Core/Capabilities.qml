@@ -34,6 +34,7 @@ Singleton {
     SudoGrant { id: sudoGrant; active: root.sudoHeld; runner: tuis }
     HyprlandState {
         id: hyprlandState
+        layerGlassRunner: tuis
         active: root.holderIds("hyprland").length > 0 || shortcuts.keyCapture.wantsBinds
     }
     BluetoothAgent { id: bluetoothAgent }
@@ -287,6 +288,8 @@ Singleton {
             get theme() { return Theme.appearanceState.theme; },
             get sources() { return Theme.appearanceState.sources; },
             keys: root.appearanceKeys,
+            chooseLayerGlass: (enabled, name, done) => hyprlandState.chooseLayerGlass(ctx, enabled, name, typeof done === "function" ? result => { if (ctx.active) done(result); } : done, false),
+            rebuildLayerGlass: (name, done) => hyprlandState.chooseLayerGlass(ctx, true, name, typeof done === "function" ? result => { if (ctx.active) done(result); } : done, true),
             set: (key, value) => root.appearanceWrite(key, value, ThemeLogic.appearanceRefusal(key, value)),
             unset: key => root.appearanceWrite(key, undefined, Logic.hasOwn(ThemeLogic.APPEARANCE, key) ? "" : ThemeLogic.appearanceRefusal(key, undefined))
         }),
@@ -350,6 +353,7 @@ Singleton {
 
     function appearanceWrite(key, value, refusal) {
         if (refusal !== "") return refusal;
+        if (key === "layerGlass") return "refused: appearance=requires-choice";
         return Config.writeUser(Logic.withAppearance(Config.user, Config.effective, key, value));
     }
 

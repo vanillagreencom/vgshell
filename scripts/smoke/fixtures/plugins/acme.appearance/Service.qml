@@ -11,6 +11,15 @@ Item {
     readonly property var sources: shell === null ? null : shell.appearance.sources
     readonly property var theme: shell === null ? null : shell.appearance.theme
     readonly property var keys: shell === null ? null : shell.appearance.keys
+    readonly property var layerGlass: shell === null ? null : shell.hyprland.layerGlass
+    property var layerGlassResult: null
+
+    function chooseLayerGlass(args) {
+        layerGlassResult = null;
+        return shell.appearance.chooseLayerGlass(JSON.parse(args), "layer-glass", result => { root.layerGlassResult = result; });
+    }
+
+    function refreshLayerGlass() { shell.hyprland.refreshLayerGlass(); }
 
     // ARGS is `{ "key": KEY, "value": VALUE }` as JSON.
     function set(args) {

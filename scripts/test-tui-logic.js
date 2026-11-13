@@ -1168,6 +1168,12 @@ function requestSuite(source, logic, check) {
         ["a scoped manager action held for tools resumes the target manifest", "acme.req",
             [[["acme-sync"], [], "runFor(\"acme.req\", \"sync\", [\"/file\"], ctx, done)"], [[], [], "resume(\"acme.req\", captured)"]],
             { answers: ["ok", "ok"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [sync("r9", true)], ends: [] }],
+        ["a core-owned manager request keeps its callback through prerequisite installation", "acme.req",
+            [[["acme-sync"], [], "request(\"acme.req\", Registry.manifests[\"acme.req\"], { name: \"sync\", args: [\"/file\"], ctx: null, done: done, current: () => true })"], [[], [], "resume(\"acme.req\", captured)"]],
+            { answers: ["ok", "ok"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [sync("r9", true)], ends: [] }],
+        ["a superseded core request starts no script after prerequisite installation", "acme.req",
+            [[["acme-sync"], [], "request(\"acme.req\", Registry.manifests[\"acme.req\"], { name: \"sync\", args: [\"/file\"], ctx: null, done: done, current: () => true })"], [[], [], "captured.current = () => false; resume(\"acme.req\", captured)"]],
+            { answers: ["ok", "refused: tui=sync reason=superseded"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [], ends: [unstarted] }],
         ["runFor of a status action with no argument starts the script alone", "acme.req",
             [[[], [], "runFor(\"acme.req\", \"sync\", undefined)"]],
             { answers: ["ok"], notices: [], started: [{ dir: "/run/src/r9", script: ["tui/sync.sh"], done: false }], ends: [] }],
@@ -1239,6 +1245,8 @@ requestSuite(RUNNER, load(LOGIC), report);
 // TuiRunner: runFor reading a busy key as `ok` whatever its arguments, and
 // request recording no arguments of the run it starts.
 for (const [label, needle, replacement] of [
+    ["core callback is dropped after prerequisites", "held.ctx === null ? held : { name: held.name, args: held.args, ctx: null, done: undefined }", "{ name: held.name, args: held.args, ctx: null, done: undefined }"],
+    ["superseded prerequisite request starts a new script", "if (held.current !== undefined && !held.current()) {", "if (false) {"],
     ["runFor reads every busy key as its own window", "return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, name), name, answer, args, startedArgs);", "return Logic.tuiShownAnswer(name, answer);"],
     ["request records no started arguments", "        recordStarted(launch, held.args);\n", ""]
 ]) {

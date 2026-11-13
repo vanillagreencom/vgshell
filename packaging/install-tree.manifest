@@ -866,6 +866,7 @@ f share/vgshell/shell/plugins/vgs.webapps/manifest.json
 f share/vgshell/shell/plugins/vgs.windows/Pane.qml
 f share/vgshell/shell/plugins/vgs.windows/Service.qml
 f share/vgshell/shell/plugins/vgs.windows/manifest.json
+f share/vgshell/shell/plugins/vgs.windows/tui/layer-glass.sh
 f share/vgshell/shell/shell.qml
 f share/vgshell/themes/catalog/BACKGROUNDS-ATTRIBUTION.md
 f share/vgshell/themes/catalog/THEMES-ATTRIBUTION.md

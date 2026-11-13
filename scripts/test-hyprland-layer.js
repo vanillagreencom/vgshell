@@ -2212,6 +2212,16 @@ function verifyAppearanceLayer(layer) {
     }
 }
 verifyAppearanceLayer(load(layerFile));
+function verifyLayerGlass(layer) {
+    const render = enabled => layer.render([], Object.assign({}, theme, { layerGlass: enabled, layerGlassUser: "test-user" }), "vgs", 1);
+    for (const enabled of [undefined, false]) assert.doesNotMatch(render(enabled).text, /hyprglass/, "Off leaves no VGS plugin declaration");
+    const on = render(true).text;
+    assert.match(on, /if not hl\.plugin\.hyprglass then hl\.plugin\.load\("\/var\/cache\/hyprpm\/test-user\/HyprGlass\/hyprglass\.so"\) end/, "On uses the guarded managed-plugin path");
+    assert.match(on, /hl\.plugin\.hyprglass\.config\(\{ enabled = false, layers = \{ enabled = true \} \}\)/, "On globally disables window glass while enabling layers");
+    assert.match(on, /hl\.plugin\.hyprglass\.layer\("vgs:layer", \{ mask_mode = "contour" \}\)/, "only the shared VGS layer namespace gets contour glass");
+    assert.doesNotMatch(on, /hyprglass_enabled|hyprglass\.window|hyprglass\.preset/, "VGS never writes foreign tags or window presets");
+}
+verifyLayerGlass(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
     same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
 // Control: a caption drawn in its fill's own colour.
@@ -2222,6 +2232,7 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    [layerFile, "layer glass keeps windows globally disabled", "hl.plugin.hyprglass.config({ enabled = false, layers = { enabled = true } })", "hl.plugin.hyprglass.config({ enabled = true, layers = { enabled = true } })", verifyLayerGlass],
     [logicFile, "HDR no-capable veto", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true ? 1 : 0;'],
     [logicFile, "HDR core off before first choice", 'if (!set && optionRow.hdr !== true) return;', 'if (!set) return;'],
     [logicFile, "HDR on uses mode one", 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 1 : 0;', 'value = value === true && (outputs || []).some(function (output) { return output.hdrCandidate; }) ? 2 : 0;'],

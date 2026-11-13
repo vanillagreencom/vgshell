@@ -201,7 +201,7 @@ rescan "rescan discovers the appearance fixture"
 expect_poll "the appearance fixture is known" True plugin_known acme.appearance
 expect "enabling the appearance fixture is allowed" ok ipc shell setPluginEnabled acme.appearance true
 expect_poll "the appearance fixture builds" True record_exists acme.appearance
-expect_poll "the fixture reads back the exact appearance members it was given" '"keys,set,sources,theme,unset,values"' app_read members
+expect_poll "the fixture reads back the exact appearance members it was given" '"chooseLayerGlass,keys,rebuildLayerGlass,set,sources,theme,unset,values"' app_read members
 expect "only the fixture holds the appearance capability" '["acme.appearance"]' app_holders
 expect "the fixture reads no value before one is set" '{}' app_read values
 expect "the corner radius reads Set by theme" theme app_source windowRadius

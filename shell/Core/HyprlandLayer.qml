@@ -139,16 +139,21 @@ Scope {
         hyprland: Theme.hyprland,
         glass: Theme.glass.window,
         groups: Theme.appearanceState.hyprland,
+        layerGlass: Capabilities.hyprland.layerGlassRequest.enabled === null ? Theme.appearanceState.values.layerGlass === true : Capabilities.hyprland.layerGlassRequest.enabled,
+        layerGlassUser: Capabilities.hyprland.layerGlassUser,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },
         tuiCell: { width: Math.ceil(terminalCell.averageCharacterWidth), height: Math.ceil(terminalCell.lineSpacing) },
         windowTopShare: Theme.size.window.topShare
     })
     // Layer.render's arguments, or null before its inputs are read.
-    readonly property var renderInputs: coreInputsReady && permissionsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId, admissionReady ? bindPlan : null,
+    readonly property var renderInputs: coreInputsReady && permissionsReady && (!themeAppearance.layerGlass || themeAppearance.layerGlassUser !== "") ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId, admissionReady ? bindPlan : null,
         { instance: hyprlandSignature, marker: permissionMarker, consent: permissionConsent, user: Capabilities.hyprland.userPermissions }] : null
     // Assigned by renderLayer alone.
     property var rendered: null
+    property int layerGlassRequestedCycle: 0
+    readonly property var layerGlassRequest: Capabilities.hyprland.layerGlassRequest
+    onLayerGlassRequestChanged: Qt.callLater(root.renderLayer)
     readonly property var publishedBindPlan: rendered === null ? null : rendered.plan
     // A display trial runs from its start until Keep, Revert, its deadline
     // or a failed start sets MonitorState's trial idle again: the machine
@@ -372,7 +377,10 @@ Scope {
         }
         rendered = Layer.render.apply(null, renderInputs);
         feed({ type: "trial", running: trialRunning });
-        feed({ type: "render" });
+        if (layerGlassRequest.generation !== 0 && layerGlassRequest.cycle !== layerGlassRequestedCycle) {
+            layerGlassRequestedCycle = layerGlassRequest.cycle;
+            feed({ type: "force" });
+        } else feed({ type: "render" });
     }
 
     // A start over a layer already on disk writes nothing until its keys
@@ -410,6 +418,9 @@ Scope {
         if (machine.failure !== "" && machine.failure !== before.failure) console.error("hyprland: " + machine.failure);
         if (machine.consent !== before.consent) welcomeFeed({ type: "consent", before: before.consent, after: machine.consent });
         perform(next.action);
+        if (machine.phase === "idle" && next.action === "none" && machine.failure !== "" && !machine.trialHeld
+                && layerGlassRequest.generation !== 0 && layerGlassRequest.cycle === layerGlassRequestedCycle)
+            Capabilities.hyprland.layerGlassLayerDone(layerGlassRequest.generation, themeAppearance.layerGlass, machine.failure);
     }
 
     function welcomeFeed(event) {
@@ -431,7 +442,12 @@ Scope {
         case "ask": return;
         case "decline": markerWrite.running = true; return;
         case "wire": wire.running = true; return;
-        case "reload": reloader.running = true; return;
+        case "reload":
+            reloader.layerGlassGeneration = layerGlassRequest.generation;
+            reloader.layerGlassEnabled = themeAppearance.layerGlass;
+            reloader.layerGlassText = machine.onDisk;
+            reloader.running = true;
+            return;
         }
         throw new Error("HyprlandLayer: unknown action " + JSON.stringify(action));
     }
@@ -581,6 +597,9 @@ Scope {
 
     Process {
         id: reloader
+        property int layerGlassGeneration: 0
+        property bool layerGlassEnabled: false
+        property string layerGlassText: ""
         command: ["hyprctl", "reload", "config-only"]
         property var completion: null
         stdout: StdioCollector { id: reloadOut }
@@ -593,7 +612,11 @@ Scope {
             let failure = "";
             if (done === null) failure = "reload-start=failed";
             else if (done.code !== 0 || reply !== "ok") failure = "reload=failed status=" + done.code + " reply=" + JSON.stringify(reply);
+            const generation = layerGlassGeneration;
+            const enabled = layerGlassEnabled;
+            const exact = root.machine.onDisk === layerGlassText && root.rendered !== null && root.rendered.text === layerGlassText;
             root.feed({ type: "reloadDone", failure: failure });
+            if (exact) Capabilities.hyprland.layerGlassLayerDone(generation, enabled, failure);
         }
     }
 }

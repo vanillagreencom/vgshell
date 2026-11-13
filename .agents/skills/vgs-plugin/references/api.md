@@ -169,6 +169,12 @@ owner. `setPackageReview(key, value)` changes one field through Config's guarded
 writer and returns its confirmed reply. For `enabled`, `null` selects Automatic
 by removing the optional saved preference. It starts no review or install.
 
+### Layer glass
+
+Capability `appearance` also lends `chooseLayerGlass(enabled, name, done)` and `rebuildLayerGlass(name, done)`. These methods start only from a user's press. `name` is the calling plugin's declared TUI for the managed hyprglass operation. `enabled` is boolean. The core passes `enable`, `disable` or `rebuild` as that TUI's one argument, retains the operation through prerequisite installation and pane closure, and checks fresh readback after its generated-layer reload before saving the choice. They return `ok` when accepted or a keyed refusal. `done` receives `{ ok, kind, reason }` while the calling instance lives. Ordinary `set` and `unset` refuse `layerGlass` as `appearance=requires-choice`.
+
+Capability `hyprland` lends bindable `layerGlass`, with `requested`, `observed` and `operation`, and `refreshLayerGlass()` for a fresh read. `observed.loaded` is true, false or null when unread; `observed.kind` and `reason` describe the status judged by `HyprlandState.layerGlassObservation`. `operation.phase` is `idle` when no request runs, and `operation.reason` retains a failed or canceled request. A process exit alone confirms no loaded plugin or active glass.
+
 ### SSH terminals
 
 `shell.tui.ssh(name, host, done)` connects to `host` in a window named `name` inside the tmux session `tailnet` when tmux is installed. The core builds every command. `name` is 1 to 256 characters with no control character. `host` is lowercase DNS labels of `a-z`, `0-9` and `-` joined by `.`, at most 253 characters, none starting with `-`.

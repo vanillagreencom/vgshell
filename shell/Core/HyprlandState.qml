@@ -3,6 +3,7 @@ import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import qs.Commons
 import "HyprlandState.js" as State
 import "PluginLogic.js" as Logic
 
@@ -117,6 +118,8 @@ Scope {
     // The capability for one instance; it holds nothing to release.
     function provider(ctx) {
         return Object.freeze({
+            get layerGlass() { return Logic.frozenJson(root.layerGlass); },
+            refreshLayerGlass: () => root.refreshLayerGlass(),
             get overridden() { return root.overriddenFor(ctx.id); },
             get userValues() { return root.userValuesFor(ctx.id); },
             get values() { return root.optionValues === null ? null : Logic.frozenJson(State.unwrittenValues(ctx.manifest.hyprland === undefined ? undefined : ctx.manifest.hyprland.options, root.written, ctx.id, root.optionValues, root.appearanceWritten)); },
@@ -130,6 +133,162 @@ Scope {
             },
             switchKeyboardLayout: target => Compositor.switchLayout(target)
         });
+    }
+
+    // The core owns this operation beyond a pane's lifetime. Reads are
+    // event-driven through the existing reader, never a plugin poller.
+    property var layerGlassRunner: null
+    property string layerGlassUser: ""
+    property bool layerGlassClaimed: false
+    readonly property bool layerGlassIntent: Theme.appearanceState.values.layerGlass === true
+    property var layerGlassObserved: ({ kind: "checking", reason: "Checking plugin state.", loaded: null })
+    property var layerGlassOperation: ({ phase: "idle" })
+    property var layerGlassRequest: ({ generation: 0, enabled: null })
+    property int layerGlassSerial: 0
+    property int layerGlassGeneration: 0
+    property int layerGlassReadGeneration: 0
+    property var layerGlassFacts: ({})
+    readonly property bool layerGlassHeld: layerGlassOperation.phase !== "idle" || layerGlassIntent || layerGlassClaimed
+    readonly property var layerGlass: ({ observed: layerGlassObserved, operation: { phase: layerGlassOperation.phase,
+        reason: layerGlassOperation.reason || "" }, requested: layerGlassIntent })
+
+    onLayerGlassHeldChanged: if (layerGlassHeld) refreshLayerGlass()
+    onLayerGlassIntentChanged: {
+        if (layerGlassOperation.phase !== "idle" && layerGlassOperation.phase !== "committing"
+                && layerGlassOperation.intent !== layerGlassIntent)
+            finishLayerGlass(false, "The saved choice changed. Check the plugin state before retrying.");
+        if (layerGlassHeld) refreshLayerGlass();
+    }
+    function layerGlassValid(generation) {
+        const op = layerGlassOperation;
+        const manifest = Registry.manifests[op.id];
+        return State.layerGlassCurrent(op, generation, manifest === undefined || !Registry.isEnabled(op.id) ? "" : manifest.__revision, layerGlassIntent);
+    }
+    function refreshLayerGlass() {
+        if (!active && !layerGlassHeld) return;
+        layerGlassObserved = Object.assign({}, layerGlassObserved, { stale: true });
+        layerGlassReadGeneration++;
+        layerGlassFacts = {};
+        layerGlassReader.read(State.LAYER_GLASS_REQUESTS.username, { generation: layerGlassReadGeneration, key: "username" });
+    }
+    function nextLayerGlassRead(request, text, failure) {
+        if (request.generation !== layerGlassReadGeneration) return;
+        const facts = Object.assign({}, layerGlassFacts);
+        facts[request.key] = State.layerGlassRead(request.key, text, failure);
+        layerGlassFacts = facts;
+        if (request.key === "username" && facts.username.ok) layerGlassUser = facts.username.value;
+        const keys = ["username", "plugins", "status", "errors"];
+        const next = keys.indexOf(request.key) + 1;
+        if (next < keys.length) {
+            layerGlassReader.read(State.LAYER_GLASS_REQUESTS[keys[next]], { generation: request.generation, key: keys[next] });
+            return;
+        }
+        let observed = State.layerGlassObservation(facts);
+        if (layerGlassOperation.phase === "idle" && observed.loaded === true && layerGlassClaimed && !layerGlassIntent)
+            observed = { kind: "residual", loaded: true, reason: "The plugin is still loaded. Turn it off to finish cleanup." };
+        layerGlassObserved = Object.assign({}, observed, { stale: false });
+        advanceLayerGlass();
+    }
+    function chooseLayerGlass(ctx, enabled, tuiName, done, rebuild) {
+        if (layerGlassOperation.phase !== "idle") return "refused: layer-glass=busy";
+        if (!ctx.active || typeof done !== "function" || typeof enabled !== "boolean") return "refused: layer-glass=caller";
+        const manifest = Registry.manifests[ctx.id];
+        if (manifest === undefined || !Registry.isEnabled(ctx.id) || manifest.__revision !== ctx.manifest.__revision) return "refused: layer-glass=plugin";
+        const declared = Logic.tuiRunFor(manifest, true, Registry.sourceDir, layerGlassRunner.runner(), tuiName, [], ["enable"]);
+        if (!declared.ok) return declared.answer || "refused: layer-glass=tui";
+        const generation = ++layerGlassGeneration;
+        layerGlassClaimed = true;
+        layerGlassOperation = { phase: "checking", generation: generation, revision: manifest.__revision, intent: layerGlassIntent,
+            id: ctx.id, name: tuiName, on: enabled, done: done, wasLoaded: null, verb: enabled ? (rebuild ? "rebuild" : "enable") : "disable" };
+        refreshLayerGlass();
+        return "ok";
+    }
+    function runLayerGlassManager(verb) {
+        const op = layerGlassOperation;
+        if (!layerGlassValid(op.generation)) { finishLayerGlass(false, "The requesting plugin or saved choice changed."); return; }
+        layerGlassOperation = Object.assign({}, op, { phase: "manager", verb: verb });
+        const answer = layerGlassRunner.request(op.id, Registry.manifests[op.id], { name: op.name, args: [verb], ctx: null,
+            current: () => root.layerGlassValid(op.generation), done: result => {
+            if (root.layerGlassOperation.generation !== op.generation) return;
+            root.layerGlassOperation = Object.assign({}, root.layerGlassOperation, { phase: "verifying-manager", managerResult: result });
+            root.refreshLayerGlass();
+        } });
+        if (answer !== "ok") finishLayerGlass(false, "The setup screen could not start. Check again.");
+    }
+    function failLayerGlass(reason) {
+        const op = layerGlassOperation;
+        if (op.on && op.wasLoaded === false && layerGlassObserved.loaded === true) {
+            layerGlassOperation = Object.assign({}, op, { on: false, compensating: true, failure: reason });
+            runLayerGlassManager("disable");
+        } else finishLayerGlass(false, reason);
+    }
+    function advanceLayerGlass() {
+        const op = layerGlassOperation;
+        if (op.phase === "idle") return;
+        if (!layerGlassValid(op.generation)) { finishLayerGlass(false, "The requesting plugin or saved choice changed."); return; }
+        const observed = layerGlassObserved;
+        if (op.phase === "checking") {
+            if (observed.loaded === null || !layerGlassFacts.username.ok) { finishLayerGlass(false, "The plugin state or managed path could not be read. Check again."); return; }
+            layerGlassOperation = Object.assign({}, op, { wasLoaded: observed.loaded });
+            runLayerGlassManager(op.verb);
+        } else if (op.phase === "verifying-manager") {
+            const result = op.managerResult;
+            if (result.code !== 0) {
+                failLayerGlass(result.code === 10 || result.code === 130 || result.reason === "unstarted"
+                    ? "The request was canceled. Check the plugin state before retrying." : "Setup failed. Check the plugin state before retrying.");
+                return;
+            }
+            if (op.on ? observed.loaded !== true : observed.loaded !== false) {
+                failLayerGlass("The plugin's loaded state could not be confirmed. Check again.");
+                return;
+            }
+            layerGlassOperation = Object.assign({}, op, { phase: "applying" });
+            layerGlassRequest = { generation: op.generation, cycle: ++layerGlassSerial, enabled: op.on };
+        } else if (op.phase === "verifying") {
+            const errors = layerGlassFacts.errors;
+            if (!errors || !errors.ok || errors.value.length !== 0) {
+                failLayerGlass("The configuration could not be confirmed. Check your configuration and try again.");
+                return;
+            }
+            if (op.on ? observed.kind !== "eligible" : observed.loaded !== false) { failLayerGlass(observed.reason); return; }
+            if (op.compensating) { finishLayerGlass(false, op.failure); return; }
+            layerGlassOperation = Object.assign({}, op, { phase: "committing" });
+            const answer = Config.writeUser(Logic.withAppearance(Config.user, Config.effective, "layerGlass", op.on ? true : undefined));
+            if (answer !== "ok") {
+                failLayerGlass("The plugin changed, but the choice could not be saved. Check again before retrying.");
+                return;
+            }
+            finishLayerGlass(true, "");
+        }
+    }
+    // Acknowledgement binds the exact writer cycle, not just a reload event.
+    function layerGlassLayerDone(generation, enabled, failure) {
+        const op = layerGlassOperation;
+        if (op.phase !== "applying" || generation !== op.generation) return;
+        if (failure !== "") { failLayerGlass("The generated configuration could not be applied. Check your configuration."); return; }
+        if (enabled !== op.on) { finishLayerGlass(false, "The generated choice changed during reload."); return; }
+        layerGlassOperation = Object.assign({}, op, { phase: "verifying" });
+        refreshLayerGlass();
+    }
+    function finishLayerGlass(ok, reason) {
+        const op = layerGlassOperation;
+        layerGlassOperation = { phase: "idle", reason: reason };
+        layerGlassRequest = { generation: 0, enabled: null };
+        if (ok && !op.on) layerGlassClaimed = false;
+        if (typeof op.done === "function") op.done({ ok: ok, kind: ok ? "saved" : "failed", reason: reason });
+        if (layerGlassHeld) refreshLayerGlass();
+    }
+    Connections {
+        target: Registry
+        function onManifestsChanged() {
+            const op = root.layerGlassOperation;
+            if (op.phase !== "idle" && !root.layerGlassValid(op.generation)) root.finishLayerGlass(false, "The requesting plugin changed. Check the plugin state before retrying.");
+        }
+    }
+    HyprctlReader {
+        id: layerGlassReader
+        label: "layer-glass"
+        onReadDone: (request, text, failure) => root.nextLayerGlassRead(request, text, failure)
     }
 
     function record() {
@@ -267,6 +426,7 @@ Scope {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             if (event.name === "configreloaded") {
+                if (root.layerGlassHeld) root.refreshLayerGlass();
                 // Hyprland 0.57 builds its bind map from the global input:kb_*
                 // options at group 0 and rebuilds it only through
                 // InputManager::setKeyboardLayout on a configuration refresh

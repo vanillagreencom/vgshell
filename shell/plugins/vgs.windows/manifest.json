@@ -16,5 +16,17 @@
     "binds": [
       { "shortcut": "group-lock", "key": "SUPER+CTRL+G", "info": "Locks the group of the focused window, or unlocks it, and shows a notification that tells you which. A window in no group stays as it is." }
     ]
+  },
+  "requirements": [
+    { "command": "hyprpm", "optional": true, "purpose": "Manage the optional layer-glass plugin", "packages": { "pacman": "hyprpm" } },
+    { "command": "cpio", "optional": true, "purpose": "Prepare layer-glass plugin headers", "packages": { "pacman": "cpio" } },
+    { "command": "cmake", "optional": true, "purpose": "Build the layer-glass plugin", "packages": { "pacman": "cmake" } },
+    { "command": "pkg-config", "optional": true, "purpose": "Find layer-glass build libraries", "packages": { "pacman": "pkgconf" } },
+    { "command": "g++", "optional": true, "purpose": "Build the layer-glass plugin", "packages": { "pacman": "gcc" } },
+    { "command": "gcc", "optional": true, "purpose": "Build the layer-glass plugin", "packages": { "pacman": "gcc" } },
+    { "command": "git", "optional": true, "purpose": "Download the layer-glass plugin", "packages": { "pacman": "git" } }
+  ],
+  "tui": {
+    "layer-glass": { "script": "tui/layer-glass.sh", "title": "Layer glass", "requires": ["hyprpm", "cpio", "cmake", "pkg-config", "g++", "gcc", "git"] }
   }
 }
