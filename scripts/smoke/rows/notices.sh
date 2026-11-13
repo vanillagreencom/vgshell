@@ -56,7 +56,7 @@
 # its notice and offers one origin-only retry. A consumed return offers
 # the ordinary batch action; a successful retry settles only its target
 # and leaves the other package for an ordinary install.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/fixtures/package-check-install.js scripts/fixtures/pkg/check-failure/paru-check-only.out bin/lib/qml-library.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/tui.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/fixtures/package-check-install.js scripts/fixtures/pkg/check-failure/paru-check-only.out bin/lib/qml-library.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/tui.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json packaging/arch/*/.SRCINFO bin/lib/dbus_wire.py
 set -euo pipefail
 leak_plugin_setup acme.layers false || { fail "notices: fixture precondition failed"; return 1; }
 needs_src="$sandbox/src/acme.needs"
@@ -75,8 +75,10 @@ cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
 notice_review_tree="$sandbox/notice-review-owner"
 mkdir -p "$notice_review_tree/bin"
 cp -- "$pkg_real" "$notice_review_tree/bin/vgshell-pkg"
-ln -s "$repo/bin/lib" "$notice_review_tree/bin/lib"
-for entry in shell config; do ln -s "$repo/$entry" "$notice_review_tree/$entry"; done
+# The file-manager launcher re-enters its own package endpoint. Keep its
+# library with that endpoint while the row replaces the detection owner.
+cp -R -- "$repo/bin/lib" "$notice_review_tree/bin/lib"
+for entry in shell config packaging; do ln -s "$repo/$entry" "$notice_review_tree/$entry"; done
 cp -- "$tui_terminal" "$sandbox/notice-terminal-before"
 install_fails="$sandbox/install-fails"
 notice_check_mode="$sandbox/notice-check-mode"
