@@ -9,12 +9,11 @@
 //
 // The theme reaches this table through `palette.accent`, which draws an
 // icon toggle's glyph while it is on, `motion.scale`, which scales every
-// duration here (0 stills the orb and shows the words whole), and its
-// `scheme.mode`, which applies LIGHT. The icon row and every line stand on
-// a plate of glass in the lens form (`plate`), and each ink is chosen
-// against the worst ground its plate's body can show. Dark mode uses light
-// ink on dark plates; LIGHT uses dark ink on light plates. Nothing stands
-// behind the orb: each of its points carries a thin dark edge, so one
+// duration here (0 stills the orb and shows the words whole). The icon row
+// and every line stand on the same neutral glass in both modes (`plate`).
+// Its black tint dims the blurred backdrop without adding a colour, and
+// each light ink reads against its brightest ground, the tint over white.
+// Nothing stands behind the orb: each point carries a thin dark edge, so one
 // recipe reads on a light, a dark and a busy wallpaper in both modes. Text
 // takes its family and size from its qs.Ui Label role; this table hands it
 // its colour.
@@ -262,8 +261,7 @@ var TOKENS = {
     },
     // Each line's ink on the text card, one plain ink a plate: weight and
     // size carry the hierarchy, since a dimmer ink would need a stronger
-    // tint. LIGHT supplies the dark inks for its light card. The look
-    // hands a Label its colour alone.
+    // tint. The look hands a Label its colour alone, in both modes.
     ink: {
         state: color("#f4f5f8"),
         title: color("#f4f5f8"),
@@ -318,7 +316,7 @@ var TOKENS = {
         // rule's 0.6 and the core rule's 0.7, and above the floor one
         // plain ink needs on the opposite ground, about 0.6
         // (tst_jarvis_plates.qml, scripts/check-theme-contrast.js).
-        tint: share(0.72),
+        tint: share(0.71),
         // The lens (qs.Ui shaders/glasslens.frag): the bezel band's
         // width; the share of the tint the band loses, which takes it
         // under the blur threshold; the glint on the rim and the glow
@@ -339,11 +337,10 @@ var TOKENS = {
         // padding, which is wider than the bezel. One line of the state
         // rounds to a capsule.
         card: {
-            base: color("#1e1e22"),
+            base: color("#000000"),
             fill: color("alpha({plate.card.base}, {plate.tint})"),
-            // The card as drawn over the wallpaper nearest its ink: white
-            // under the dark card, black under the light one. An ink that
-            // reads at 4.5:1 on it reads so over any wallpaper.
+            // The card over its brightest wallpaper, white in both modes.
+            // An ink that reads at 4.5:1 on it reads so over any wallpaper.
             nearInk: color("mix(#ffffff, {plate.card.base}, {plate.tint})"),
             border: color("#34343a"),
             radius: length(26),
@@ -373,49 +370,6 @@ var TOKENS = {
     }
 };
 
-// Light mode draws light plates with dark text, icons and answers. The
-// orb keeps its recipe and the plates their tint.
-var LIGHT = {
-    plate: {
-        lens: {
-            glint: 0.95,
-            glow: 0.3,
-            seam: 0.3
-        },
-        card: {
-            base: "#f4f4f6",
-            nearInk: "mix(#000000, {plate.card.base}, {plate.tint})",
-            border: "#d2d2d6"
-        }
-    },
-    icon: {
-        rest: "#2a303b",
-        active: "#0c0f15",
-        ring: "#171c25"
-    },
-    ink: {
-        state: "#171c25",
-        title: "#171c25",
-        action: "#171c25",
-        link: "#1a3f73",
-        words: "#171c25",
-        question: "#0c0f15",
-        path: "#171c25",
-        payload: "#171c25"
-    },
-    // Older settled caption lines keep their hierarchy without fading dark
-    // ink back into the light card. Reveal and lift timing stay shared.
-    words: {
-        middle: 0.85,
-        oldest: 0.75
-    },
-    answer: {
-        clear: "alpha(#000000, 0)",
-        quiet: {
-            fill: "alpha(#000000, 0.08)",
-            hoverFill: "alpha(#000000, 0.13)",
-            pressedFill: "alpha(#000000, 0.05)",
-            ink: "#171c25"
-        }
-    }
-};
+// acceptAppearance takes a light-mode override object; this material has
+// no mode-dependent values.
+var LIGHT = {};

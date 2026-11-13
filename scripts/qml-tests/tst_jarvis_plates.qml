@@ -19,8 +19,8 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // which draws the shaders: a plate's body is its fill over the wallpaper,
 // the ground scripts/check-theme-contrast.js judges every ink against, at
 // the look's one tint, above the compositor's blur thresholds; its band is
-// under them; a light plate parts from a light ground by its outer line;
-// and the orb's points read on white by their edge. The window is
+// under them; the same material draws in both modes; and the orb's points
+// read on white by their edge. The window is
 // transparent, as the shell's layers are, since glass draws only there
 // (GlassSurface.drawn). A held request paints no frame before its console
 // answer.
@@ -305,6 +305,25 @@ Item {
             }
         }
 
+        function test_one_material_draws_in_both_modes_data() {
+            const rows = [];
+            for (const glass of [true, false])
+                for (const ground of ["#ffffff", "#000000", "#2068d0"])
+                    rows.push({ tag: (glass ? "glass " : "solid ") + ground, glass: glass, ground: ground });
+            return rows;
+        }
+        function test_one_material_draws_in_both_modes(data) {
+            if (!data.glass) Theme.appearanceInput = JSON.stringify({ glass: "off" });
+            ground.color = data.ground;
+            const pose = poses()[1];
+            put(pose);
+            const values = JSON.stringify(root.look);
+            const dark = grabImage(root);
+            put(Object.assign({}, pose, { light: true }));
+            compare(JSON.stringify(root.look), values, "the mode selects no other material or ink value");
+            verify(grabImage(root).equals(dark), "the plates and their ink draw the same over " + data.ground + " in both modes");
+        }
+
         // The look's one tint sets every plate's fill in both modes, and
         // the ground an ink is judged on is that fill over the wallpaper
         // nearest the ink.
@@ -319,7 +338,7 @@ Item {
                 const fill = Qt.color(root.look.plate.card.fill);
                 verify(Math.abs(fill.a - tint) <= 1 / 255, mode + " mode's fill draws at the tint: " + fill.a + " against " + tint);
                 const near = channels(Qt.color(root.look.plate.card.nearInk));
-                const want = mixed(fill, light ? 0 : 1);
+                const want = mixed(fill, 1);
                 verify(near.every((channel, i) => Math.abs(channel - want[i]) <= 1), mode + " mode judges its inks on " + near + ", its fill over the wallpaper is " + want);
             }
         }
@@ -365,13 +384,10 @@ Item {
                 reads(name, black, 0, inBody, y);
                 const body = alpha(inBody, y);
                 verify(Math.abs(body - tint) <= 0.02, name + "'s body draws at alpha " + body + ", the tint is " + tint);
-                verify(body >= 0.71, name + "'s body at alpha " + body + " stays above the blur thresholds");
+                verify(body > 0.7, name + "'s body at alpha " + body + " stays above the blur thresholds");
                 const band = alpha(box.x + 1, y);
                 verify(band <= 0.6, name + "'s band at alpha " + band + " stays under the blur threshold");
                 verify(Math.abs(band - tint * (1 - root.look.plate.lens.clarity)) <= 0.04, name + "'s band draws at alpha " + band + ", the tint less the clarity");
-                if (data.light)
-                    verify(white.red(box.x + 8, y) - white.red(box.x - 1, y) >= 10,
-                        name + " parts from a white wallpaper by its outer line: " + white.red(box.x - 1, y) + " outside, " + white.red(box.x + 8, y) + " inside");
             }
         }
 

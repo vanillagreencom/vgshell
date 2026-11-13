@@ -31,9 +31,9 @@
 // A tooltip's text is judged on the fill its glass draws solid, VGlass's
 // fill made opaque and lifted, which the theme's raised surface reaches.
 // Jarvis's overlay draws every line and icon on a glass plate of its own
-// look, which the theme's accent and mode reach: each ink is judged on the
-// card's fill over black and white, a caption line at its line's opacity
-// and an answer's label on each of the answer's own fills, at rest, under
+// look, which the theme's accent reaches: each ink is judged on the
+// card's fill over black, white and coloured busy-ground swatches, a caption
+// line at its line's opacity and an answer's label on each of the answer's own fills, at rest, under
 // the pointer and pressed, over the card. The confirming answer stands on
 // the theme's accent. An icon button draws no fill of its own, so its
 // glyph stands on the capsule, which is the card's fill. The lens draws
@@ -121,6 +121,10 @@ function terminalShortfalls(values, slots) {
 
 const NOTICE_WALLPAPERS = ["#000000", "#ffffff"];
 
+// Black and white bound the luminance of an unknown backdrop. These cloud,
+// blue and split-ground swatches also exercise coloured blur behind Jarvis.
+const JARVIS_WALLPAPERS = ["#000000", "#ffffff", "#dbe3ed", "#2d7fc1", "#f236ce", "#38234f"];
+
 // The notice link's shortfalls on its card in the notifications look
 // LOOK resolves to.
 function noticeLinkShortfalls(look) {
@@ -150,7 +154,7 @@ const JARVIS_INKS = [
 // resolves to.
 function jarvisShortfalls(look) {
     const out = [];
-    for (const wallpaper of NOTICE_WALLPAPERS) {
+    for (const wallpaper of JARVIS_WALLPAPERS) {
         const card = logic.overlay(logic.parseColor(look.plate.card.fill), logic.parseColor(wallpaper));
         for (const [ink, opacity, fill] of JARVIS_INKS) {
             const ground = fill ? logic.overlay(logic.parseColor(logic.valueAt(look, fill)), card) : card;

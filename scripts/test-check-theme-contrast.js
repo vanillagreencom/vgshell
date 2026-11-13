@@ -224,8 +224,8 @@ try {
 
     // Defects of Jarvis's overlay inks, each planted alone in a disposable
     // copy judged on the shipped tree. A toggle that is on in the accent
-    // alone falls short as the notice link did, on the card's fill over
-    // the wallpaper nearest it in each mode. The caption's top line at a
+    // alone falls short as the notice link did, on the same card's fill over
+    // white in both modes. The caption's top line at a
     // lower opacity falls short, which holds the line's opacity in the
     // reading. The confirming answer's label in the accent's own colour
     // reads 1.00 on the accent, not the accent's ratio on the bare card,
@@ -235,7 +235,7 @@ try {
     for (const [name, needle, replacement, lines] of [
         ["a Jarvis toggle that is on in the accent alone", /on: color\("readable\(.*\)"\),/, 'on: color("{palette.accent}"),',
             [/^short    vgs: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m,
-                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #000000 ratio=[0-9.]+ floor=4\.5$/m]],
+                /^short    catalog\/flexoki-light: jarvis\.icon\.on on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
         ["Jarvis's top caption line at a lower opacity", /oldest: share\(0\.82\)/, "oldest: share(0.22)",
             [/^short    vgs: jarvis\.ink\.words at jarvis\.words\.oldest on jarvis\.plate\.card\.fill over #ffffff ratio=[0-9.]+ floor=4\.5$/m]],
         ["the confirming answer's label in the accent's own colour", /ink: color\("contrast\(\{palette\.accent\}\)"\)/, 'ink: color("{palette.accent}")',

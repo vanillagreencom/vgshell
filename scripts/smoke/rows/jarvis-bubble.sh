@@ -270,7 +270,7 @@ JS
 # over 3 s, after acknowledging a requested Qt frame and then finding the
 # window quiet: two reads 0.1 s apart that agree, within 20 such reads.
 # A change that just
-# happened, such as a theme flip, redraws the layer a few times however
+# happened, such as a font change, redraws the layer a few times however
 # short its scaled transition is, so the count waits for those swaps
 # rather than for a duration. `swapped` when the window swaps inside the
 # 3 s or never goes quiet within the 20 reads. At motion scale 0 every
@@ -344,18 +344,16 @@ jarvis_bubble_paced() { # RATE
   printf '        jarvis_layer_frames_per_s=%s rate=%s interval_s=2\n' "$(((after - before) / 2))" "$1" >&2
   if (((after - before) * 100 <= $1 * 2 * 115)); then echo paced; else echo unpaced; fi
 }
-# Flip the scheme's mode and keep motion at 0: every ink the bubble draws
-# changes, so the still layer redraws once the theme reloads, well inside
-# the 3 s count (theme-latency.sh holds a theme change to 292 ms).
-jarvis_bubble_flip_mode() {
-  local mode
-  mode="$(ipc smoke themeValue scheme.mode)" || return 1
-  case "$mode" in
-    '"dark"') mode=light ;;
-    '"light"') mode=dark ;;
-    *) printf 'jarvis-bubble: scheme-mode=%s\n' "$mode" >&2; return 1 ;;
+# Switch the fault's sans text between the bundled fonts at motion 0.
+# Its visible glyphs change even when the material and inks ignore mode.
+jarvis_bubble_flip_font() {
+  local family
+  family="$(ipc smoke themeValue font.family.sans)" || return 1
+  case "$family" in
+    '"Inter Variable"') family="JetBrains Mono" ;;
+    *) family="Inter Variable" ;;
   esac
-  printf '{"schemaVersion":1,"name":"jarvis-bubble-motion-off","tokens":{"scheme":{"mode":"%s"},"motion":{"scale":0}}}\n' "$mode" >"${home:?}/.config/vgshell/theme.json.tmp" &&
+  printf '{"schemaVersion":1,"name":"jarvis-bubble-motion-off","tokens":{"font":{"family":{"sans":"%s"}},"motion":{"scale":0}}}\n' "$family" >"${home:?}/.config/vgshell/theme.json.tmp" &&
     mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
 }
 jarvis_bubble_voice_key() { hold_send "down 133" "down 37" "down 58" "up 58" "up 37" "up 133"; }
@@ -1056,7 +1054,7 @@ expect "control: the still reader refuses a disconnected observer" 'status=1 rea
 expect "restore the Jarvis layer observer before the still reading" ok ipc smoke layerFrameListening true
 expect "control: at motion scale 0 the fault's orb swaps no frame over 3 s" quiet jarvis_bubble_still
 expect "control: at motion scale 0 the advancing reader reads stopped over the fault's look" stopped jarvis_bubble_advancing
-expect "control: a redraw after the quiet wait fails the same still reader" swapped jarvis_bubble_still jarvis_bubble_flip_mode
+expect "control: a redraw after the quiet wait fails the same still reader" swapped jarvis_bubble_still jarvis_bubble_flip_font
 if [[ $jarvis_bubble_had_theme == true ]]; then
   cp -- "$sandbox/jarvis-bubble-theme.json" "${home:?}/.config/vgshell/theme.json.tmp"
   mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
