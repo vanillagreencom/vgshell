@@ -115,6 +115,8 @@
 
 | 2026-11-10 | D131 | [VGS-2391](https://linear.app/vanillagreen/issue/VGS-2391) | Outside memory notes (Memory notes from outside content) offers Ask first or Save without asking; preserve origins in both | The owner requests control over automatic memory saving, with the safe hold on by default | Memory gains another writer, origins stop preserving taint, or consent needs a narrower scope | Active | [Full](D131-outside-memory-consent.md) |
 
+| 2026-11-12 | D134 | [VGS-2329](https://linear.app/vanillagreen/issue/VGS-2329/jarvis-voice-speaks-jarviss-answer-to-a-request-it-handed-over-or), Jarvis delegated decision 1794525723 | One confirmation may cover sending from one named live Jarvis Voice session to the named main; every other forward confirms separately | Delegated owner authority permits that scope; the live lease ends authority without restoring it from retained history | The owner changes forwarding scope, the package adds a first-delivery route, or restart can preserve independently proved identity and revocation | Active | [Full](D134-live-session-forwarding-consent.md) |
+
 ---
 
 ## Format Reference
