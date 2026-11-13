@@ -1972,7 +1972,7 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
     assert.equal(ask[ask.indexOf("--interface") + 1], "if!wg-home");
     for (const flag of ["-q", "--ipv4", "--fail", "--max-time", "--max-filesize"]) assert.ok(ask.includes(flag), flag);
     assert.equal(ask[ask.indexOf("--proto") + 1], "=https");
-    assert.equal(ask[ask.length - 1], "https://api.nordvpn.com/v1/helpers/ips/insights");
+    assert.equal(ask[ask.length - 1], "https://api.nordvpn.com./v1/helpers/ips/insights");
     assert.ok(!ask.some(arg => arg === "-L" || arg === "--location"));
     for (const argv of [logic.linkArgv(HOME), logic.routeArgv("ipv4"), logic.routeArgv("ipv6"), logic.DNS_ARGV, ask]) {
         const declared = manifest.requirements.find(row => row.command === argv[0]);

@@ -9879,7 +9879,7 @@ SH
   cat >"$shim/curl.row" <<SH
 #!/usr/bin/env bash
 : >>$(printf %q "$devices_dir/vpn-shot-curl")
-[[ "\${!#}" == https://api.nordvpn.com/v1/helpers/ips/insights ]] && exec cat -- $(printf %q "$fixtures/insights.json")
+[[ "\${!#}" == https://api.nordvpn.com./v1/helpers/ips/insights ]] && exec cat -- $(printf %q "$fixtures/insights.json")
 echo "vpn-shot: curl refused \$*" >&2
 exit 70
 SH

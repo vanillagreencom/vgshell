@@ -1127,9 +1127,17 @@ function nameLinks(dns, name) {
 // The one outside service: the VPN provider's own, asked through the
 // tunnel for the public address it sees. api.nordvpn.com answers IPv4
 // alone, with no sign-in (VGS-2398 facts, 2026-11-08). -q reads no
-// curlrc; no redirect is followed.
+// curlrc; no redirect is followed. The URL names the host absolute, with
+// a final dot, so the lookup is of INSIGHTS_HOST alone, the name
+// publicPlan judges: glibc retries a failed lookup of a relative name
+// with each resolv.conf search domain appended (resolv/res_query.c
+// __res_context_search), and systemd-resolved sends such a name to the
+// link that holds the domain, the Wi-Fi's (VGS-2495). curl 8.23.0 keeps
+// the dot in the lookup and the Host header and checks the certificate
+// against the name without it, and the service answers that request
+// (recorded run on VGS-2495, 2026-11-13).
 var INSIGHTS_HOST = "api.nordvpn.com";
-var INSIGHTS_URL = "https://" + INSIGHTS_HOST + "/v1/helpers/ips/insights";
+var INSIGHTS_URL = "https://" + INSIGHTS_HOST + "./v1/helpers/ips/insights";
 var INSIGHTS_SECONDS = 10;
 var INSIGHTS_MAX = 4096;
 function insightsArgv(link) {

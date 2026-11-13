@@ -66,6 +66,15 @@
 # plugin's own route and systemd-resolved reads, run in the namespace. No
 # NetworkManager runs here, so the tunnel's interface reads as nmcli
 # answers for a profile that is not active: nothing.
+#
+# With the switch off, the leak check's question to the provider (VpnLogic.js
+# insightsArgv) runs as the plugin runs it, in a mount namespace of its own
+# whose resolv.conf names the hotel's resolver and a search domain, as a
+# Wi-Fi's DHCP hands them out, and whose nsswitch.conf takes glibc's nss-dns
+# alone, as on Debian without libnss-resolve. The hotel holds no address
+# for any name, so the lookup fails, and its log of every name asked shows
+# whether glibc retried with the search domain. The must-fail control asks
+# with a copy of VpnLogic.js whose URL names the host relative.
 set -euo pipefail
 
 suite=test-vpn-kill-switch
@@ -74,7 +83,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
 script="$repo/config/system/kill-switch/vgs-kill-switch"
 hotel_py="$repo/scripts/fixtures/kill-switch/hotel.py"
 
-tools=(unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node awk)
+tools=(unshare ip nft setpriv python3 dig ping timeout flock mount systemd-socket-activate node awk curl)
 
 not_measured() { printf '%s: status=not-measured reason=%s\n' "$suite" "$1"; exit 77; } # KEY
 
@@ -108,6 +117,7 @@ cache=/var/lib/vgshell/kill-switch/profile
 lock=/run/vgs-kill-switch.lock
 sock=/run/vgs-kill-switch.sock
 frames="$tmp/frames.log"
+queries="$tmp/queries.log"
 uuid=2f0c7b1e-5d3a-4c8e-9b6f-1a2b3c4d5e6f
 other_uuid=9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
 key_a=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -314,7 +324,7 @@ ip neigh replace 192.168.50.1 lladdr "$hotel_mac" dev wlan0 nud permanent
 ip netns exec hotel ip neigh replace 192.168.50.2 lladdr "$wlan_mac" dev hotel0 nud permanent
 
 : >"$frames"
-ip netns exec hotel python3 -I "$hotel_py" serve hotel0 "$frames" "$tmp/hotel-ready" &
+ip netns exec hotel python3 -I "$hotel_py" serve hotel0 "$frames" "$queries" "$tmp/hotel-ready" &
 hotel_pid=$!
 await test -e "$tmp/hotel-ready" || not_measured hotel-start
 # Serves the status socket with COMMAND..., the shipped status by default.
@@ -816,6 +826,50 @@ probe_round off 3 ping4 dns-udp
 expect_round off "
 ping4 pass some
 dns-udp pass some"
+
+# ask_provider LOGIC: the names the hotel's resolver is asked while the
+# question LOGIC's insightsArgv builds runs, as LeakCheck.qml runs it, with
+# PATH and LC_ALL alone. resolv.conf may be a link into /run, the laptop's
+# own tmpfs, which the namespace replaces.
+mkdir -- "$tmp/lookup"
+printf 'nameserver 192.168.50.1\nsearch hotel.example\noptions timeout:1 attempts:1\n' >"$tmp/lookup/resolv.conf"
+printf 'hosts: files dns\n' >"$tmp/lookup/nsswitch.conf"
+cat >"$tmp/ask.js" <<'JS'
+"use strict";
+const { spawnSync } = require("child_process");
+const path = require("path");
+const [repo, logicFile] = process.argv.slice(2);
+const { load } = require(path.join(repo, "bin/lib/qml-library.js"));
+const commons = { "qs.Commons 1.0": { Nmcli: load(path.join(repo, "shell/Commons/Nmcli.js")),
+    SettingValues: load(path.join(repo, "shell/Commons/SettingValues.js")) } };
+const argv = load(logicFile, commons).insightsArgv("wlan0");
+spawnSync(argv[0], argv.slice(1), { stdio: "ignore", env: { PATH: process.env.PATH, LC_ALL: "C" } });
+JS
+ask_provider() { # LOGIC
+  : >"$queries"
+  unshare --mount --propagation private -- "$BASH" -e -c '
+    mount -t tmpfs tmpfs /run
+    target="$(readlink -m /etc/resolv.conf)"
+    mkdir -p -- "${target%/*}"
+    [[ -e $target ]] || : >"$target"
+    mount --bind "$1/lookup/resolv.conf" "$target"
+    mount --bind "$1/lookup/nsswitch.conf" /etc/nsswitch.conf
+    exec "$2" "$1/ask.js" "$3" "$4"' _ "$tmp" "$NODE_BIN" "$repo" "$1" 2>>"$tmp/ask.err" || echo ask-failed
+  cat -- "$queries"
+}
+logic="$repo/shell/plugins/vgs.vpn/VpnLogic.js"
+asked="$(ask_provider "$logic")"
+check "the leak check's question asks the Wi-Fi's resolver for the provider's name alone" test "$asked" == api.nordvpn.com
+relative="$tmp/logic-relative.js"
+logic_url='INSIGHTS_HOST + "./v1/helpers/ips/insights"'
+check "the relative-name control's text occurs once" test "$(python3 -I -c 'import sys; print(open(sys.argv[1]).read().count(sys.argv[2]))' "$logic" "$logic_url")" == 1
+python3 -I -c 'import sys; p, o, a = sys.argv[1:]; open(o, "w").write(open(p).read().replace(a, a.replace("./", "/")))' "$logic" "$relative" "$logic_url"
+check "the relative-name control's copy differs" test "$(cmp -s -- "$logic" "$relative"; echo $?)" == 1
+asked_relative="$(ask_provider "$relative")"
+check "control: a question naming the host relative asks the Wi-Fi's resolver with its search domain added" \
+  test "$asked_relative" == $'api.nordvpn.com\napi.nordvpn.com.hotel.example'
+[[ $asked == api.nordvpn.com && $asked_relative == $'api.nordvpn.com\napi.nordvpn.com.hotel.example' ]] \
+  || printf '        asked: absolute=[%s] relative=[%s] err=[%s]\n' "$asked" "$asked_relative" "$(head -c 400 "$tmp/ask.err" 2>/dev/null)"
 
 # A table an older copy declared another way is replaced whole.
 delete_tables

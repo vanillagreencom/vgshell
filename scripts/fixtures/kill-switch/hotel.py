@@ -2,11 +2,12 @@
 """The hotel network of scripts/test-vpn-kill-switch.sh, run in its own
 network namespace on the far end of the laptop's wlan0.
 
-  hotel.py serve IFACE LOG READY
+  hotel.py serve IFACE LOG QUERIES READY
       Write every frame IFACE receives to LOG, one `<hex>` line per frame,
-      answer DNS on UDP and TCP port 53 with an empty NOERROR reply, accept
-      and close TCP connections on ports 80 and 443, and create READY once
-      all of them listen. Runs until it is signalled.
+      answer DNS on UDP and TCP port 53 with an empty NOERROR reply, which
+      holds no address, write each query's name to QUERIES, one line per
+      query, accept and close TCP connections on ports 80 and 443, and
+      create READY once all of them listen. Runs until it is signalled.
 
   hotel.py count LOG START
       Print one `<probe>=<frames>` line per probe kind for the frames from
@@ -130,10 +131,17 @@ def capture(iface, log):
     return run
 
 
-def dns_reply(query):
-    """An empty NOERROR answer to QUERY, or None for a query too short."""
+def dns_reply(query, queries):
+    """An empty NOERROR answer to QUERY, or None for a query too short,
+    after writing its question's name to QUERIES, lower case with no final
+    dot (RFC 1035 4.1.2), or `-` for a name it cannot read."""
     if len(query) < 12:
         return None
+    labels, at = [], 12
+    while at < len(query) and 0 < query[at] < 64 and at + 1 + query[at] <= len(query):
+        labels.append(query[at + 1:at + 1 + query[at]].decode("ascii", "replace").lower())
+        at += 1 + query[at]
+    queries.write((".".join(labels) if at < len(query) and query[at] == 0 else "-") + "\n")
     ident, flags = struct.unpack("!HH", query[:4])
     qdcount = struct.unpack("!H", query[4:6])[0]
     # QR and RA set, the query's opcode and RD kept, RCODE 0 (RFC 1035 4.1.1).
@@ -150,37 +158,38 @@ def listener(kind, port):
     return sock
 
 
-def serve_udp(sock):
+def serve_udp(sock, queries):
     while True:
         query, peer = sock.recvfrom(4096)
-        reply = dns_reply(query)
+        reply = dns_reply(query, queries)
         if reply:
             sock.sendto(reply, peer)
 
 
-def serve_tcp(sock, dns):
+def serve_tcp(sock, queries):
     while True:
         conn, _ = sock.accept()
         with conn:
-            if not dns:
+            if queries is None:
                 continue
             conn.settimeout(2)
             try:
                 size = struct.unpack("!H", conn.recv(2))[0]
-                reply = dns_reply(conn.recv(size))
+                reply = dns_reply(conn.recv(size), queries)
                 if reply:
                     conn.sendall(struct.pack("!H", len(reply)) + reply)
             except (OSError, struct.error):
                 pass
 
 
-def serve(iface, log, ready):
+def serve(iface, log, queries, ready):
+    names = open(queries, "a", buffering=1)
     workers = [
         capture(iface, log),
-        lambda sock=listener(socket.SOCK_DGRAM, 53): serve_udp(sock),
-        lambda sock=listener(socket.SOCK_STREAM, 53): serve_tcp(sock, True),
-        lambda sock=listener(socket.SOCK_STREAM, 80): serve_tcp(sock, False),
-        lambda sock=listener(socket.SOCK_STREAM, 443): serve_tcp(sock, False),
+        lambda sock=listener(socket.SOCK_DGRAM, 53): serve_udp(sock, names),
+        lambda sock=listener(socket.SOCK_STREAM, 53): serve_tcp(sock, names),
+        lambda sock=listener(socket.SOCK_STREAM, 80): serve_tcp(sock, None),
+        lambda sock=listener(socket.SOCK_STREAM, 443): serve_tcp(sock, None),
     ]
     for work in workers:
         threading.Thread(target=work, daemon=True).start()
@@ -220,11 +229,11 @@ def echo(address, ident, seq):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["serve"] and len(sys.argv) == 5:
+    if sys.argv[1:2] == ["serve"] and len(sys.argv) == 6:
         serve(*sys.argv[2:])
     elif sys.argv[1:2] == ["count"] and len(sys.argv) == 4:
         count(sys.argv[2], int(sys.argv[3]))
     elif sys.argv[1:2] == ["echo"] and len(sys.argv) == 5:
         sys.exit(echo(sys.argv[2], int(sys.argv[3]), int(sys.argv[4])))
     else:
-        sys.exit("usage: hotel.py serve IFACE LOG READY | hotel.py count LOG START | hotel.py echo ADDRESS IDENT SEQ")
+        sys.exit("usage: hotel.py serve IFACE LOG QUERIES READY | hotel.py count LOG START | hotel.py echo ADDRESS IDENT SEQ")
