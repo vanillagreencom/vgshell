@@ -142,7 +142,7 @@ function resolveLinks(notes) {
     }
 }
 
-function install({ router, directory, home, memoryNotes = () => undefined, sqlite = () => require("node:sqlite"), log = () => {}, notify = () => {} }) {
+function install({ router, directory, home, main = () => true, memoryNotes = () => undefined, sqlite = () => require("node:sqlite"), log = () => {}, notify = () => {} }) {
     let DatabaseSync;
     try {
         // node:sqlite is unflagged from Node 22.13. This machine runs
@@ -747,20 +747,25 @@ function install({ router, directory, home, memoryNotes = () => undefined, sqlit
 
     const executor = Object.freeze({ commands: [], timeoutMs: 2000, cancellable: false,
         available: () => home() !== null,
-        start(call, done, _authorize, origin) {
-            if (closed) {
-                const prefix = call.id === "memory.search" ? "memory-search:"
-                    : call.id === "memory.read" ? "memory-read:"
-                    : call.id === "memory.replace" ? "memory-replace:" : "memory-propose:";
-                failCall(prefix, "closed", done); return;
-            }
+        start(call, done) {
+            if (closed) { failCall(call.id === "memory.read" ? "memory-read:" : "memory-search:", "closed", done); return; }
             if (call.id === "memory.search") search(call.args, done);
             else if (call.id === "memory.read") read(call.args, done);
-            else if (call.id === "memory.propose") writeOrInbox("propose", call.args, origin, done);
-            else if (call.id === "memory.replace") writeOrInbox("replace", call.args, origin, done);
             else failCall("memory-search:", "tool", done);
         } });
+    // A satellite's home is a clone of main's: main's writer alone writes a
+    // note, a satellite's remember goes there through fleet.forward, and the
+    // note returns with the satellite's home pull.
+    const writer = Object.freeze({ commands: [], timeoutMs: 2000, cancellable: false,
+        available: () => main() && home() !== null,
+        start(call, done, _authorize, origin) {
+            if (closed) { failCall(call.id === "memory.replace" ? "memory-replace:" : "memory-propose:", "closed", done); return; }
+            if (call.id === "memory.propose") writeOrInbox("propose", call.args, origin, done);
+            else if (call.id === "memory.replace") writeOrInbox("replace", call.args, origin, done);
+            else failCall("memory-propose:", "tool", done);
+        } });
     router.register("memory", executor);
+    router.register("memory-write", writer);
     return { kind: "installed",
         reconcileStart() {
             try { reconcile({ full: true }); return true; }

@@ -296,7 +296,8 @@ function removeClone(folder, made) {
  * commit guards through kendex, the state folder init makes and the
  * package's main-host setting, read back. Any end before the checkout
  * holds the package removes what the clone wrote.
- * The clone holds no second memory: its notes are the main home's history.
+ * The clone holds no second memory: the main's daemon alone writes a note,
+ * and the clone gets it when it pulls the main home.
  * FOLDER is absent or empty, or a clone an earlier run left: its own work
  * tree with the package installed and the private env file neither tracked
  * nor in its history, which the steps after the checkout complete.

@@ -364,7 +364,7 @@ world(() => {
     control("taint-upgrade", 'if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
         'if (false && context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
         logic => assert.deepEqual(logic.decide(effects.persistent, { ...context, taint: { kind: "tainted" } }), expected("persistent", "confirm")));
-    control("memory-taint-quarantine", 'if (context.taint.kind === "tainted" && refined.executor === "memory"\n            && (refined.call.id === "memory.propose" || refined.call.id === "memory.replace"))\n        return { kind: "allow", effect };',
+    control("memory-taint-quarantine", 'if (context.taint.kind === "tainted" && refined.executor === "memory-write")\n        return { kind: "allow", effect };',
         '',
         logic => assert.deepEqual(logic.decide(memoryWrite, { ...context, taint: { kind: "tainted" } }),
             { kind: "allow", effect: "persistent" }));

@@ -63,8 +63,8 @@ const TABLE = {
     "web.search": { sentence: "Search the web for {query}", effect: "read", executor: "web", command: null, schema: { query: text },     source: "web", failureSource: "desktop", origin: true, outbound: "query", structured: true },
     "memory.search": { sentence: "Search memory notes for {query}", effect: "read", executor: "memory", command: null, schema: { query: text, title: text, alias: text, since: date, until: date }, optional: ["title", "alias", "since", "until"], source: "home", labelled: true },
     "memory.read": { sentence: "Read memory notes {ids}", effect: "read", executor: "memory", command: null, schema: { ids: { type: "array", minItems: 1, maxItems: MEMORY_BATCH, items: notePath } }, source: "home", labelled: true },
-    "memory.propose": { sentence: "Add memory note {id}", effect: "reversible", executor: "memory", command: null, schema: { id: notePath, text: memoryText }, origin: true },
-    "memory.replace": { sentence: "Replace memory note {id}", effect: "persistent", executor: "memory", command: null, schema: { id: notePath, text: memoryText, hash: sha256 }, origin: true },
+    "memory.propose": { sentence: "Add memory note {id}", effect: "reversible", executor: "memory-write", command: null, schema: { id: notePath, text: memoryText }, origin: true },
+    "memory.replace": { sentence: "Replace memory note {id}", effect: "persistent", executor: "memory-write", command: null, schema: { id: notePath, text: memoryText, hash: sha256 }, origin: true },
     // The Jarvis session runs the user's agent fleet and reads the home's
     // mailbox, where the home's kendex mail tool appends the request. once:
     // the router admits one a turn. A request starts work elsewhere, as a
@@ -75,7 +75,9 @@ const TABLE = {
     // (Satellite.js). sessionGrant: the router binds the call to the live
     // session, and a session scope requests a named sending grant that only
     // Session's confirmation can establish (D134).
-    "fleet.forward": { sentence: "Forward this request to Jarvis main?\n{text}", effect: "external", executor: "satellite", command: null, once: true, confirmation: true, sessionGrant: true, schema: { text: text, scope: oneOf(["session"]) }, optional: ["scope"] },
+    // purpose: a remember, whose note main's memory writer alone writes;
+    // the forwarded record omits it.
+    "fleet.forward": { sentence: "Forward this request to Jarvis main?\n{text}", effect: "external", executor: "satellite", command: null, once: true, confirmation: true, sessionGrant: true, schema: { text: text, scope: oneOf(["session"]), purpose: oneOf(["remember"]) }, optional: ["scope", "purpose"] },
     // cleanup: the start goes through Audit.cleanup with this kind, so an
     // unwritable audit store cannot block revoking a sending grant.
     "fleet.forward.stop": { sentence: "Stop forwarding from this conversation", effect: "reversible", executor: "satellite-stop", command: null, cleanup: "stop", schema: {}, heard: [[["stop forwarding", "stop forwarding this session"], {}]] },

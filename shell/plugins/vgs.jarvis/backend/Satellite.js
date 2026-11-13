@@ -413,8 +413,11 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
         if (result.kind === "error") return failed("spawn");
         if (result.kind !== "exited")
             return { outcome: "unknown", content: "Unknown: the forward ended before the Jarvis package answered, so the request may be in this computer's outbox or not." };
+        // A remember's own line says it went to main, never that it is saved.
+        const remember = call.args.purpose === "remember";
         if (result.code === 0)
-            return { outcome: "completed", content: "Completed: the request reached Jarvis main." };
+            return { outcome: "completed", content: "Completed: the request reached Jarvis main.",
+                ...(remember ? { line: "remember-delivered" } : {}) };
         if (result.code === 75) {
             // A queued entry stays queued whatever its cause, and the
             // package's watch loop sends every queued entry again on each
@@ -424,7 +427,8 @@ function create({ home, homeBlock = () => null, mainHost, environment, runtime, 
             const cause = queuedCause(result.stdout);
             return { outcome: "completed", content: "Completed: the request is queued in this computer's outbox and not delivered yet"
                 + (cause === "" ? "" : "; the Jarvis package's last attempt ended with " + cause)
-                + ". The Jarvis package keeps sending it while its Jarvis session runs." };
+                + ". The Jarvis package keeps sending it while its Jarvis session runs.",
+                ...(remember ? { line: "remember-queued" } : {}) };
         }
         if (result.code === 2 && ARGUMENTS.test(result.stderr.split("\n")[0])) return failed("package-old");
         const named = result.code === 2 ? refusal("forward", result.stderr) : undefined;

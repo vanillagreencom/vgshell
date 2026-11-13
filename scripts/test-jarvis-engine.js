@@ -1982,7 +1982,11 @@ async function cases(kit, server, only = null, mutation = false) {
         ["unknown", { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt." },
             "I could not confirm the request.", ["I could not confirm the request."]],
         ["completed-silent", { outcome: "completed", content: "Completed: the request reached Jarvis main." },
-            "", [ASKING], "forward"]
+            "", [ASKING], "forward"],
+        ["remember-delivered", { outcome: "completed", content: "Completed: the request reached Jarvis main.", line: "remember-delivered" },
+            "", ["I sent that to Jarvis main to remember."], "forward"],
+        ["remember-queued", { outcome: "completed", content: "Completed: the request is queued in this computer's outbox and not delivered yet.",
+            line: "remember-queued" }, "", ["I'm holding that for Jarvis main and will send it."], "forward"]
     ]) await run("fleet-" + route + "-" + name, async w => {
         const first = await say(w, utterance("Ask my fleet to update the docs."));
         server.replies.push(calls({ id: "call_fleet", name: "fleet_" + route, arguments: { text: "Update the docs." } }), text(reply));
@@ -4177,6 +4181,7 @@ async function groupPlants(root, server) {
         ["late-replaced-brain", "if (running !== undefined) c.late.set(", "if (running !== undefined && c.brainOwner.value === cancelled) c.late.set(", "stale-outcome-replaced"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Let me check my main brain for that." },', "", "fleet-request-completed-silent"],
+        ["remember-line-absent", "value.results[0].line ?? value.outcome", "value.outcome", "fleet-forward-remember-delivered"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
         ["fleet-resume-route-kept", "fleetRoute(router.offer()) !== c.fleet", "c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet", "fleet-route-resume"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],

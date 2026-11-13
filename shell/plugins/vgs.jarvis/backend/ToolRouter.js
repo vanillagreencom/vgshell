@@ -58,8 +58,9 @@ function sentence(call, scope, grant) {
  * create({session, state, dispatch, context, audit, result}) owns the daemon's
  * action lifetime. state/dispatch belong to SessionRunner. context returns
  * current trusted profile, locked and denied facts, never model metadata.
- * result receives {gen, op, outcome, final, kind:"tool-results", results:[{id,item,image?}]},
+ * result receives {gen, op, outcome, final, kind:"tool-results", results:[{id,item,image?,line?}]},
  * image {type, item} an executor's picture labelled as its text item;
+ * line the executor's name for the fixed line Jarvis says (ChainedEngine CALL_LINES);
  * final is false only for a timeout whose actual completion is still to come.
  * A generation change clears grants. Each new turn starts with clean taint.
  */
@@ -126,14 +127,15 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
 
     // final is false only while Session still holds a timed-out action, whose
     // actual completion delivers again under the same call id.
-    function deliver(value, outcome, content, labels = [], final = true, image = undefined) {
+    function deliver(value, outcome, content, labels = [], final = true, image = undefined, line = undefined) {
         const s = state();
         if (s.gen === value.turn.gen && s.turn.kind === "thinking" && s.turn.op === value.turn.op)
             observeLabels(labels);
         const item = answer(content, labels);
         result({ gen: value.turn.gen, op: value.turn.op, outcome, final, kind: "tool-results",
             results: [{ id: value.request, item, ...(image === undefined ? {}
-                : { image: Object.freeze({ type: image.type, item: Policy.item(image.bytes, item.labels) }) }) }] });
+                : { image: Object.freeze({ type: image.type, item: Policy.item(image.bytes, item.labels) }) }),
+                ...(line === undefined ? {} : { line }) }] });
     }
 
     /**
@@ -178,7 +180,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
     /**
      * Executor owners register once after confinement and command probes pass.
      * commands lists commands actually present. start(call, done, authorize) receives a
-     * frozen {id,args}; done is {outcome:"completed"|"failed"|"unknown",content}.
+     * frozen {id,args}; done is {outcome:"completed"|"failed"|"unknown",content,line?}.
      * Input executors supply observe(call) for fresh trusted target/key facts.
      * They call synchronous authorize(input) after preparation replies and
      * immediately before delivery. Other executors need no preparation callback.
@@ -464,7 +466,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             }
             deliver(value, e.outcome, withheld ? JSON.stringify(written)
                 : value.answer?.content ?? "tool-outcome:" + e.outcome, labels, final,
-                withheld ? undefined : value.answer?.image);
+                withheld ? undefined : value.answer?.image, withheld ? undefined : value.answer?.line);
         }
         if (final) pending = null;
     }

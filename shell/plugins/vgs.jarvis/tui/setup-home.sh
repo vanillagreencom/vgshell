@@ -100,7 +100,7 @@ if [[ $mode == new ]]; then
 fi
 
 vgs_tui_header "Use your Jarvis home from another computer" \
-  "Jarvis copies your main computer's home here, so both computers share one memory." \
+  "Jarvis copies your main computer's home here. Your main Jarvis alone writes memory notes; this copy gets them when it pulls the main home." \
   "This computer then hands your requests to your main Jarvis."
 [[ -n $main ]] ||
   vgs_tui_refuse "$log" 1 "jarvis: fleet-setup=main-host-unset" \

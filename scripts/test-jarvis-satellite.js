@@ -121,8 +121,8 @@ world(async () => {
             await until(() => published.at(-1).reachable === false, "an unanswered main reads again");
             assert.deepEqual(published.at(-1), { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" });
 
-            const forward = text => new Promise(resolve =>
-                s.executor.start({ id: "fleet.forward", args: { text } }, resolve, () => ({ kind: "allow" }), undefined,
+            const forward = (text, args = {}) => new Promise(resolve =>
+                s.executor.start({ id: "fleet.forward", args: { text, ...args } }, resolve, () => ({ kind: "allow" }), undefined,
                     { request: { ref: confirmed.ref, at: confirmed.at }, confirmation: confirmed, session: s.session() }));
             let confirmed = { ref: "vgs-audit:2026-11-03T08:10:36.642Z#7:3", at: "2026-11-03T08:10:36.642Z", method: "voice" };
             const forwards = () => h.calls().filter(call => call.argv[0] === "forward");
@@ -163,6 +163,17 @@ world(async () => {
                 h.state({ main: "cachy:" + h.folder, forward: { exit: 75, cause } });
                 const result = await forward("Queued.");
                 assert.deepEqual([result.outcome, result.content.includes(cause)], ["completed", true], label + " is queued and names its cause");
+            }
+            // A remember names its own line, delivered or queued, and sends
+            // the record any forward sends: main's memory writer writes the note.
+            for (const [label, args, state, line] of [["plain forward", {}, {}, undefined],
+                ["delivered remember", { purpose: "remember" }, {}, "remember-delivered"],
+                ["queued remember", { purpose: "remember" }, { forward: { exit: 75, cause: "main-unreachable" } }, "remember-queued"]]) {
+                h.state({ main: "cachy:" + h.folder, ...state });
+                const result = await forward("Remember that the gate code changed.", args);
+                assert.deepEqual([result.outcome, result.line], ["completed", line], label);
+                assert.deepEqual(forwards().at(-1).record, { v: 1, request: { ref: confirmed.ref, at: confirmed.at,
+                    text: "Remember that the gate code changed." }, confirmation: confirmed }, label + " sends the text and confirmation alone");
             }
             h.state({ main: "cachy:" + h.folder, forward: { exit: 2, cause: "request-conflict" } });
             assert.deepEqual(await forward("Refused."), { outcome: "failed", content: "fleet-forward:request-conflict" });
@@ -534,6 +545,7 @@ world(async () => {
         ["forward-authorize", satelliteFile, '        if (authority.kind !== "allow") return failed(authority.reason);\n', "", Satellite => stopRegrant(Satellite)],
         ["lease-refusal-code", satelliteFile, "const leaseRefusal = cause => Object.assign(new Error(cause), { code: cause });", "const leaseRefusal = cause => new Error(cause);", leasePublication],
         ["secret", satelliteFile, 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
+        ["remember-line", satelliteFile, 'const remember = call.args.purpose === "remember";', "const remember = false;", live],
         ["setter-refusal", satelliteFile, "                rejected = { folder: location.folder, setting: chosen, cause };\n", "", live],
         ["startup-handoff", satelliteFile, '            if (mainHost() !== "") { choose("startup"); return; }', "", Satellite => startup(Satellite)],
         ["startup-origin", satelliteFile, 'choose("startup")', 'choose("mainHost")', Satellite => startup(Satellite, "queued startup becomes empty")],

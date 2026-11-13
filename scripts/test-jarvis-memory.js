@@ -28,14 +28,14 @@ world(() => {
     let serial = 0;
 
     function attach(logic, folder, state, options = {}) {
-        const router = { record: null, register(id, executor) { assert.equal(id, "memory"); this.record = executor; } };
+        const router = { records: {}, register(id, executor) { this.records[id] = executor; } };
         const logs = [];
         const installed = logic.install({ router, directory: path.join(state, "memory"), home: () => folder,
             log: line => logs.push(line), ...options });
         assert.equal(installed.kind, "installed");
         const call = (id, args, origin) => {
             let answer;
-            router.record.start({ id, args }, value => { answer = value; }, undefined, origin);
+            router.records[Tools.TABLE[id].executor].start({ id, args }, value => { answer = value; }, undefined, origin);
             return answer;
         };
         const search = args => {
@@ -478,7 +478,8 @@ world(() => {
             assert.deepEqual(x.search({ query: "newterm" }).body.results.map(row => row.id), ["facts/a.md"]);
         });
     controls++;
-    mutant(memoryFile, "memory-offer-home", "available: () => home() !== null", "available: () => true", logic => {
+    // The memory rows a fresh router offers with logic installed under options.
+    function offeredMemory(logic, options) {
         const folder = path.join(process.env.JARVIS_TEST_ROOT, "offer-" + ++serial);
         const state = path.join(process.env.JARVIS_TEST_ROOT, "offer-state-" + serial);
         fs.mkdirSync(folder, { recursive: true }); fs.mkdirSync(state, { recursive: true });
@@ -491,13 +492,23 @@ world(() => {
         const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
             audit, context: () => ({ profile: "standard", locked: false, denied: Denied.create(fixtures.roots) }), result() {} });
         Object.assign(ports, router.ports);
-        logic.install({ router, directory: path.join(state, "memory"), home: () => null, log() {} });
+        logic.install({ router, directory: path.join(state, "memory"), log() {}, ...options(folder) });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: { holdToTalk: true } });
         runner.dispatch({ type: "indicator", gen: runner.state.gen, shown: true, bar: "gone" });
         runner.dispatch({ type: "talk-down" }); transcript("final", "fixture");
-        assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false);
+        const offered = router.offer().map(row => row.id).filter(id => id.startsWith("memory.")).sort();
         audit.close();
-    });
+        return offered;
+    }
+    mutant(memoryFile, "memory-offer-home", "available: () => home() !== null", "available: () => true",
+        logic => assert.deepEqual(offeredMemory(logic, () => ({ home: () => null })), []));
+    controls++;
+    // A satellite reads its home's notes and never writes one: main's
+    // memory writer is the one writer.
+    const satelliteOffer = logic => assert.deepEqual(offeredMemory(logic, folder => ({ home: () => folder, main: () => false })),
+        ["memory.read", "memory.search"]);
+    satelliteOffer(Memory);
+    mutant(memoryFile, "memory-satellite-writer", "available: () => main() && home() !== null", "available: () => home() !== null", satelliteOffer);
     controls++;
     mutant(memoryFile, "memory-quarantine-taint", 'if (origin?.tainted === true && memoryNotes() !== "save") {',
         'if (false && origin?.tainted === true && memoryNotes() !== "save") {', logic => checkWritePolicy(logic, "ask"));

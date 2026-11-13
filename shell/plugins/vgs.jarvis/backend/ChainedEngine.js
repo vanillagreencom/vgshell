@@ -1618,10 +1618,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // arrives, whatever the brain then says; any other result is the
     // brain's to state. A wire brain's call arrives at outcome, a harness
     // program's at bridged. Answers false when saying it failed the turn.
+    // A row's key is the result's outcome, or the line its executor names.
     const CALL_LINES = { "fleet.request": { completed: "Let me check my main brain for that." },
-        "fleet.forward": { completed: "Let me check my main brain for that." } };
-    function callLine(c, turn, tool, outcome) {
-        const text = CALL_LINES[tool]?.[outcome];
+        "fleet.forward": { completed: "Let me check my main brain for that.",
+            "remember-delivered": "I sent that to Jarvis main to remember.",
+            "remember-queued": "I'm holding that for Jarvis main and will send it." } };
+    function callLine(c, turn, tool, value) {
+        const text = CALL_LINES[tool]?.[value.results[0].line ?? value.outcome];
         if (text === undefined) return true;
         try {
             quiet(turn);
@@ -1962,7 +1965,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 turn.answers.set(id, image === undefined ? { item } : { item, image });
                 const tool = turn.routing?.tool;
                 turn.routing = null;
-                if (callLine(c, turn, tool, value.outcome)) next(c, turn);
+                if (callLine(c, turn, tool, value)) next(c, turn);
                 return;
             }
             const late = c.late.get(id);
@@ -1977,7 +1980,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const c = conversation;
             const turn = c?.turn;
             if (c === null || c.gen !== value.gen || turn === null || turn.op !== value.op || turn.phase !== "streaming") return;
-            callLine(c, turn, tool, value.outcome);
+            callLine(c, turn, tool, value);
         },
         retained(value, labels) {
             const c = conversation;

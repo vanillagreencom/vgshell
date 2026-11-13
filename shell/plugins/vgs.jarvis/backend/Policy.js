@@ -242,8 +242,7 @@ function decide(call, context) {
     }
     const rule = PROFILES[context.profile][effect];
     if (rule === "physical") return { kind: "confirm", effect, physical: true };
-    if (context.taint.kind === "tainted" && refined.executor === "memory"
-            && (refined.call.id === "memory.propose" || refined.call.id === "memory.replace"))
+    if (context.taint.kind === "tainted" && refined.executor === "memory-write")
         return { kind: "allow", effect };
     if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))
         return { kind: "confirm", effect, physical: false };
