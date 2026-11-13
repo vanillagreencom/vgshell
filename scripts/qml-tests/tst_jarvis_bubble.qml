@@ -19,6 +19,7 @@ Item {
     height: 600
 
     property var opened: []
+    property var intents: []
 
     QtObject {
         id: service
@@ -38,6 +39,7 @@ Item {
         })
         function attachBubble(bubble) {}
         function detachBubble(bubble) {}
+        function intent(value) { root.intents = root.intents.concat([value]); }
     }
 
     Bubble {
@@ -55,6 +57,7 @@ Item {
             UnitTheme.reset();
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             root.opened = [];
+            root.intents = [];
             // A clicked link keeps the test window's focus; Qt warns when a
             // focused item stops taking Tab as its fault clears.
             bubble.forceActiveFocus();
@@ -101,7 +104,18 @@ Item {
                 { tag: "orb-fits-a-narrow-side", width: 600, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true,
                     box: { x: 120, y: 0, width: 450, height: 600 }, clear: null },
                 { tag: "orb-and-capsule-fit-a-narrow-right-side", width: 600, height: 600, output: "SMOKE-1", side: "right", wraps: true, icons: true,
-                    box: { x: 30, y: 0, width: 450, height: 600 }, clear: null }
+                    box: { x: 30, y: 0, width: 450, height: 600 }, clear: null },
+                // Service.readConsoleBox can report these resized mapped
+                // windows. The old capsule reservation consumed all 50 px
+                // at the boundary, and all 44 px on the tighter side.
+                { tag: "active-at-reservation-left", width: 600, height: 600, output: "SMOKE-1", side: "left", tight: true, icons: true,
+                    box: { x: 86, y: 0, width: 500, height: 600 }, clear: null },
+                { tag: "active-at-reservation-right", width: 600, height: 600, output: "SMOKE-1", side: "right", tight: true, icons: true,
+                    box: { x: 14, y: 0, width: 500, height: 600 }, clear: null },
+                { tag: "active-below-reservation-left", width: 600, height: 600, output: "SMOKE-1", side: "left", tight: true, icons: true,
+                    box: { x: 80, y: 0, width: 500, height: 600 }, clear: null },
+                { tag: "active-below-reservation-right", width: 600, height: 600, output: "SMOKE-1", side: "right", tight: true, icons: true,
+                    box: { x: 20, y: 0, width: 500, height: 600 }, clear: null }
             ];
         }
         function test_fault_placement_tracks_console_without_a_hold(data) {
@@ -111,9 +125,9 @@ Item {
             bubble.screen = { name: data.output };
             service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())),
                 { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" },
-                    restart: { kind: "restarted", category: "reply-cut" } });
+                    restart: data.tight ? { kind: "none" } : { kind: "restarted", category: "reply-cut" } });
             compare(bubble.hold, null);
-            verify(bubble.shown, "the fault keeps the orb shown without a held request");
+            verify(bubble.shown, "the active conversation keeps the orb shown without a held request");
             const overlay = findChild(bubble, "overlay");
             verify(overlay !== null);
             verify(renderedFrame(bubble));
@@ -123,12 +137,23 @@ Item {
             const box = Object.assign({ output: data.output }, data.box);
             service.consoleBox = box;
             verify(renderedFrame(bubble));
+            const orb = collect(overlay, item => item.phase !== undefined && item.capture !== undefined, [])[0];
+            const hit = findChild(bubble, "orbHit");
+            verify(orb !== undefined && orb.visible && orb.width > 0 && orb.height > 0,
+                "the orb draws before a pointer can reveal the capsule");
+            verify(hit !== null && hit.visible && hit.width > 0 && hit.height > 0,
+                "the active orb has a pointer entry before the capsule shows");
             if (data.icons) {
-                const hit = findChild(bubble, "orbHit");
-                verify(hit !== null);
+                mouseMove(root, root.width - 1, 1);
+                tryCompare(bubble, "iconOpacity", 0);
+                const restingOrb = Qt.rect(orb.x, orb.y, orb.width, orb.height);
                 const at = hit.mapToItem(root, hit.width / 2, hit.height / 2);
+                verify(at.x > 0 && at.x < root.width && at.y > 0 && at.y < root.height,
+                    "the hover entry lies on the rendered output");
                 mouseMove(root, at.x, at.y);
                 tryCompare(bubble, "iconOpacity", 1);
+                compare(Qt.rect(orb.x, orb.y, orb.width, orb.height), restingOrb,
+                    "revealing the capsule keeps the orb under the pointer");
             }
             // A second frame must keep the same answer after the fitted
             // width reflows the text and the overlay no longer intersects.
@@ -158,30 +183,54 @@ Item {
                         "drawn text fits the side's box");
                     verify(item.height >= item.implicitHeight, "the whole wrapped line remains laid out");
                 }
-                const orb = collect(overlay, item => item.phase !== undefined && item.capture !== undefined, [])[0];
-                verify(orb !== undefined && orb.width > 0);
                 verify(orb.x >= 0 && orb.x + orb.width <= overlay.width, "the orb canvas fits even a narrow side");
                 if (data.icons) {
                     const capsule = findChild(bubble, "iconPill");
                     const inset = Math.round((1 - bubble.look.orb.reach) * orb.width / 2);
-                    verify(capsule.x >= orb.x + orb.width - inset + bubble.look.plate.gap - 0.5,
-                        "the capsule leaves the plates' gap beside what the orb draws");
-                    verify(capsule.x + capsule.width <= overlay.width,
+                    verify(capsule.x >= orb.x + orb.width - inset + bubble.look.plate.gap - 0.5
+                        || capsule.y >= orb.y + orb.height - inset + bubble.look.plate.gap - 0.5,
+                        "the capsule leaves the plates' gap on a clear edge of the orb");
+                    verify(capsule.x >= 0 && capsule.x + capsule.width <= overlay.width,
                         "the whole capsule fits the same side as the orb");
                     for (const plate of drawn.filter(plate => plate !== capsule))
                         verify(plate.x + plate.width <= capsule.x || plate.x >= capsule.x + capsule.width
                             || plate.y + plate.height <= capsule.y || plate.y >= capsule.y + capsule.height,
                             plate.objectName + " stays clear of the capsule");
-                    const hit = findChild(bubble, "orbHit");
                     const bridge = findChild(bubble, "iconBridge");
-                    verify(bridge.x < hit.x + hit.width && bridge.x + bridge.width >= capsule.x,
-                        "the bridge meets the fitted hit square and capsule");
+                    verify(bridge.x < hit.x + hit.width && bridge.x + bridge.width > hit.x
+                        && bridge.y < hit.y + hit.height && bridge.y + bridge.height > hit.y,
+                        "the bridge overlaps the fitted hit square");
+                    verify(bridge.x < capsule.x + capsule.width && bridge.x + bridge.width > capsule.x
+                        && bridge.y < capsule.y + capsule.height && bridge.y + bridge.height > capsule.y,
+                        "the bridge overlaps the capsule");
                 }
                 for (const item of bubble.inputItems) {
                     const rect = item.mapToItem(bubble, 0, 0, item.width, item.height);
                     verify(left ? rect.x + rect.width <= box.x : rect.x >= box.x + box.width,
                         "the side's pointer regions leave Console reachable");
                 }
+            }
+            if (data.icons) {
+                const bridge = findChild(bubble, "iconBridge");
+                const at = bridge.mapToItem(root, bridge.width / 2, bridge.height / 2);
+                mouseMove(root, at.x, at.y);
+                // The real hold timer must not hide the controls while
+                // the pointer rests on the connected route to them.
+                wait(bubble.look.icon.hold + 1);
+                compare(bubble.iconOpacity, 1);
+                const controls = collect(overlay, item => item.entry !== undefined, []);
+                for (const intent of ["voice-mute", "microphone-mute", "stop"]) {
+                    const control = controls.find(item => item.entry.intent === intent);
+                    verify(control !== undefined && control.visible && control.enabled);
+                    const point = control.mapToItem(root, control.width / 2, control.height / 2);
+                    verify(point.x > 0 && point.x < root.width && point.y > 0 && point.y < root.height,
+                        intent + " stays reachable on the rendered output");
+                    mouseMove(root, point.x, point.y);
+                    compare(bubble.iconOpacity, 1);
+                    mouseClick(root, point.x, point.y);
+                }
+                compare(root.intents, ["voice-mute", "microphone-mute", "stop"],
+                    "the revealed controls deliver their real pointer actions");
             }
             if (data.wraps) {
                 const title = bubble.textItems.find(item => item.text === bubble.stateText);

@@ -301,10 +301,14 @@ Item {
         // REVISIT(D132): change these grounds only if the look no longer
         // owns the plates' lens values and glass-off standard surface.
         readonly property var card: root.look.plate.card
-        // Beside Console the orb and capsule share one width budget even
-        // while the capsule is hidden, so hovering moves neither of them.
+        // Choose the group arrangement before assigning either box. A row
+        // must leave the orb's normal hover target; a tighter Console side
+        // uses the room below instead. Hidden icons keep the same geometry,
+        // so entering the orb cannot move it out from under the pointer.
+        readonly property bool capsuleBelow: root.besideConsole
+            && width < root.look.layout.hit + iconPill.width + root.look.plate.gap
         readonly property real orbRoom: root.besideConsole
-            ? Math.max(0, width - iconPill.width - root.look.plate.gap) : width
+            && !capsuleBelow ? width - iconPill.width - root.look.plate.gap : width
         // The orb draws nothing in the outer `orbInset` of its canvas, a
         // whole number of pixels, so the plates stand that far inside it.
         readonly property real orbInset: Math.round((1 - root.look.orb.reach) * orb.width / 2)
@@ -314,7 +318,7 @@ Item {
         // under the words' card. A taller capsule reserves room above and
         // below the fitted orb so neither it nor the next card is clipped.
         readonly property real orbTop: (words.visible ? words.y + words.height + card.paddingY + root.look.plate.gap : 0) - orbInset
-            + (root.besideConsole ? Math.max(0, (iconPill.height - orb.height + 2 * orbInset) / 2) : 0)
+            + (root.besideConsole && !capsuleBelow ? Math.max(0, (iconPill.height - orb.height + 2 * orbInset) / 2) : 0)
         // The first line under the orb row: inside its card, the plates'
         // gap under both the orb and its capsule.
         readonly property real below: root.hidden ? card.paddingY
@@ -409,31 +413,33 @@ Item {
             HoverHandler { id: orbHover }
         }
 
-        // The icon row's input starts inside the hit square and reaches
-        // the capsule's far edge. Its offset shrinks with a fitted hit
-        // square, so the pointer's route to the capsule stays connected.
+        // The bridge follows the chosen edge from inside the hit square
+        // to the capsule's far edge. Both arrangements keep one connected
+        // pointer route, including when the hit square fits a narrow side.
         Item {
             id: bridge
             objectName: "iconBridge"
             visible: root.active && root.iconsShown
-            x: overlay.orbMiddle + root.look.layout.bridge * orbHit.width / root.look.layout.hit
-            y: iconPill.y
-            width: Math.max(0, iconPill.x + iconPill.width - x)
-            height: iconPill.height
+            x: overlay.capsuleBelow ? iconPill.x
+                : overlay.orbMiddle + root.look.layout.bridge * orbHit.width / root.look.layout.hit
+            y: overlay.capsuleBelow ? overlay.orbCentre + root.look.layout.bridge * orbHit.height / root.look.layout.hit
+                : iconPill.y
+            width: overlay.capsuleBelow ? iconPill.width : iconPill.x + iconPill.width - x
+            height: overlay.capsuleBelow ? iconPill.y + iconPill.height - y : iconPill.height
             HoverHandler { id: bridgeHover }
         }
 
         Timer { id: iconHold; interval: root.look.icon.hold }
 
-        // The icon row's capsule, of the card's fill, beside the orb at
-        // the orb's height. It shows whole while its icons fade.
+        // The capsule follows the group's chosen edge. It shows whole
+        // while its icons fade.
         GlassSurface {
             id: iconPill
             objectName: "iconPill"
             readonly property var pad: root.look.plate.pill
             readonly property real rest: orb.x + orb.width - overlay.orbInset + root.look.plate.gap
-            x: rest
-            y: Math.round(overlay.orbCentre - height / 2)
+            x: overlay.capsuleBelow ? Math.round(overlay.centre - width / 2) : rest
+            y: overlay.capsuleBelow ? overlay.orbEnd + root.look.plate.gap : Math.round(overlay.orbCentre - height / 2)
             width: icons.width + 2 * pad.paddingX
             height: icons.height + 2 * pad.paddingY
             visible: icons.visible
