@@ -1542,48 +1542,45 @@ smoke_hold_depth=0 smoke_hold_shared="" smoke_hold_pid="" smoke_hold_retake=fals
 # 1 with the cause in smoke_lock_cause, which starts `wait-bound` for a
 # wait that reached the bound.
 smoke_lock_take() { # MODE NAME
-  local ready="$sandbox/smoke-lock.ready" held ready_r ready_w answer="" part status=0 waited=0 bound="${qml_smoke_idle_secs:-}" beat
+  local answer="$sandbox/smoke-lock.$2.$BASHPID.$SRANDOM" said="" status=0 waited=0 bound="${qml_smoke_idle_secs:-}" beat next
   smoke_lock_pid="" smoke_lock_cause=""
   if [[ -z ${smoke_hold_dir:-} ]]; then smoke_lock_cause=lock-dir-unset; return 1; fi
   if [[ ! $bound =~ ^[1-9][0-9]*$ ]]; then smoke_lock_cause="wait-bound-unread value=[$bound]"; return 1; fi
   beat=$((bound / 2))
   ((beat >= 1)) || beat=1
   ((beat <= 60)) || beat=60
-  if [[ ! -p $ready ]] && ! mkfifo -m 600 -- "$ready"; then smoke_lock_cause=ready-fifo-failed; return 1; fi
-  # As in display_record_arm: an O_RDWR open of a FIFO waits for no peer.
-  exec {held}<>"$ready"
-  exec {ready_r}<"$ready" {ready_w}>"$ready"
-  exec {held}<&-
+  rm -f -- "$answer" "$answer.new" "$answer.log"
   # flock(1) locks the descriptor bash opened, and the exec'd sleep keeps
-  # it. flock -w gives up at the bound with the -E status, 75. The read
-  # ends when the holder writes its one line, held or flock's status. The
-  # waiting flock holds the write end too, so a wait ends only when flock
-  # exits, at the latest at the bound. The sleep keeps no write end, so a
-  # holder that holds joins no later take's pipe.
-  "$BASH" -c 'flock -E 75 -w "$2" "$1" 3 && { echo held; exec sleep infinity >/dev/null 2>&1; }; echo "flock-status=$?"' \
-    smoke-lock "$1" "$bound" </dev/null >&"$ready_w" 2>&1 3<"$smoke_hold_dir/vgs-smoke-$2" {ready_r}<&- {ready_w}>&- &
+  # it. flock -w gives up at the bound with the -E status, 75. The holder
+  # writes its one outcome, held or flock's status, to a new file and
+  # renames it onto ANSWER, so ANSWER is whole whenever it exists. Each take
+  # names its own ANSWER: a gate take and a hold take can be live at once.
+  "$BASH" -c 'flock -E 75 -w "$2" "$1" 3 && { echo held >"$3.new" && mv -- "$3.new" "$3" && exec sleep infinity >/dev/null 2>&1; exit; }
+    echo "flock-status=$?" >"$3.new" && mv -- "$3.new" "$3"' \
+    smoke-lock "$1" "$bound" "$answer" </dev/null >/dev/null 2>"$answer.log" 3<"$smoke_hold_dir/vgs-smoke-$2" &
   smoke_lock_pid=$!
-  exec {ready_w}>&-
-  # A read that times out keeps the partial line it read in part, so a
-  # line that arrives across a beat is joined, never dropped.
-  while :; do
-    part=""
-    IFS= read -r -t "$beat" -u "$ready_r" part && { answer+=$part; break; }
-    status=$?
-    answer+=$part
-    ((status > 128)) || break
-    waited=$((waited + beat))
-    printf 'qml-smoke: smoke-hold waiting lock=%s mode=%s secs=%s\n' "$2" "$1" "$waited"
+  next=$((SECONDS + beat))
+  # The answer is polled every 50 ms, so an uncontended take costs about one
+  # poll; a holder gone with no answer ends the wait.
+  while [[ ! -e $answer ]] && kill -0 "$smoke_lock_pid" 2>/dev/null; do
+    if ((SECONDS >= next)); then
+      waited=$((waited + beat)) next=$((next + beat))
+      printf 'qml-smoke: smoke-hold waiting lock=%s mode=%s secs=%s\n' "$2" "$1" "$waited"
+    fi
+    sleep 0.05
   done
-  exec {ready_r}<&-
-  [[ $answer != held ]] || return 0
-  status=0
+  [[ ! -e $answer ]] || IFS= read -r said <"$answer" || said=""
+  if [[ $said == held ]]; then
+    rm -f -- "$answer" "$answer.log"
+    return 0
+  fi
   wait "$smoke_lock_pid" || status=$?
-  if [[ $answer == flock-status=75 ]]; then
+  if [[ $said == flock-status=75 ]]; then
     smoke_lock_cause="wait-bound secs=$bound lock=$2 mode=$1"
   else
-    printf -v smoke_lock_cause 'holder-exited status=%s said=%q' "$status" "$answer"
+    printf -v smoke_lock_cause 'holder-exited status=%s said=%q log=%q' "$status" "$said" "$(tr '\n' ' ' <"$answer.log" 2>/dev/null)"
   fi
+  rm -f -- "$answer" "$answer.new" "$answer.log"
   smoke_lock_pid=""
   return 1
 }
