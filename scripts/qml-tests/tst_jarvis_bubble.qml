@@ -95,11 +95,13 @@ Item {
                 { tag: "more-room-left-move-beside", width: 1200, height: 600, output: "SMOKE-1", side: "left",
                     box: { x: 500, y: 100, width: 600, height: 500 },
                     clear: { output: "SMOKE-1", x: 1200, y: 0, width: 600, height: 600 } },
-                { tag: "wrapped-side-clears-baseline-band", width: 900, height: 600, output: "SMOKE-1", side: "left", wraps: true,
+                { tag: "wrapped-side-clears-baseline-band", width: 900, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true,
                     box: { x: 300, y: 0, width: 600, height: 600 },
                     clear: { output: "SMOKE-1", x: 300, y: 0, width: 600, height: 280 } },
-                { tag: "orb-fits-a-narrow-side", width: 600, height: 600, output: "SMOKE-1", side: "left", wraps: true,
-                    box: { x: 120, y: 0, width: 450, height: 600 }, clear: null }
+                { tag: "orb-fits-a-narrow-side", width: 600, height: 600, output: "SMOKE-1", side: "left", wraps: true, icons: true,
+                    box: { x: 120, y: 0, width: 450, height: 600 }, clear: null },
+                { tag: "orb-and-capsule-fit-a-narrow-right-side", width: 600, height: 600, output: "SMOKE-1", side: "right", wraps: true, icons: true,
+                    box: { x: 30, y: 0, width: 450, height: 600 }, clear: null }
             ];
         }
         function test_fault_placement_tracks_console_without_a_hold(data) {
@@ -109,8 +111,7 @@ Item {
             bubble.screen = { name: data.output };
             service.sessionState = Object.assign(JSON.parse(JSON.stringify(Session.initial())),
                 { gate: { kind: "up" }, conversation: { kind: "active", purpose: "conversation" },
-                    restart: { kind: "restarted", category: "reply-cut" } },
-                data.icons ? { fault: { kind: "error", reason: "jarvis-test=unknown" } } : {});
+                    restart: { kind: "restarted", category: "reply-cut" } });
             compare(bubble.hold, null);
             verify(bubble.shown, "the fault keeps the orb shown without a held request");
             const overlay = findChild(bubble, "overlay");
@@ -145,6 +146,8 @@ Item {
                     const rect = plate.mapToItem(bubble, 0, 0, plate.width, plate.height);
                     verify(rect.width > 0 && rect.height > 0, "clearance cannot pass by collapsing " + plate.objectName);
                     verify(rect.x >= 0 && rect.x + rect.width <= root.width, plate.objectName + " stays on this output");
+                    verify(rect.y >= overlay.y && rect.y + rect.height <= overlay.y + overlay.height + 0.5,
+                        plate.objectName + " stays whole inside the clipped overlay");
                     verify(left ? rect.x + rect.width <= box.x : rect.x >= box.x + box.width, plate.objectName + " also clears Console");
                 }
                 fuzzyCompare(overlay.y + overlay.height, root.height - bubble.look.layout.margin, 0.5,
@@ -158,6 +161,22 @@ Item {
                 const orb = collect(overlay, item => item.phase !== undefined && item.capture !== undefined, [])[0];
                 verify(orb !== undefined && orb.width > 0);
                 verify(orb.x >= 0 && orb.x + orb.width <= overlay.width, "the orb canvas fits even a narrow side");
+                if (data.icons) {
+                    const capsule = findChild(bubble, "iconPill");
+                    const inset = Math.round((1 - bubble.look.orb.reach) * orb.width / 2);
+                    verify(capsule.x >= orb.x + orb.width - inset + bubble.look.plate.gap - 0.5,
+                        "the capsule leaves the plates' gap beside what the orb draws");
+                    verify(capsule.x + capsule.width <= overlay.width,
+                        "the whole capsule fits the same side as the orb");
+                    for (const plate of drawn.filter(plate => plate !== capsule))
+                        verify(plate.x + plate.width <= capsule.x || plate.x >= capsule.x + capsule.width
+                            || plate.y + plate.height <= capsule.y || plate.y >= capsule.y + capsule.height,
+                            plate.objectName + " stays clear of the capsule");
+                    const hit = findChild(bubble, "orbHit");
+                    const bridge = findChild(bubble, "iconBridge");
+                    verify(bridge.x < hit.x + hit.width && bridge.x + bridge.width >= capsule.x,
+                        "the bridge meets the fitted hit square and capsule");
+                }
                 for (const item of bubble.inputItems) {
                     const rect = item.mapToItem(bubble, 0, 0, item.width, item.height);
                     verify(left ? rect.x + rect.width <= box.x : rect.x >= box.x + box.width,

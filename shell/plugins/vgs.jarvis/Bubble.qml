@@ -298,23 +298,32 @@ Item {
         readonly property real centre: width / 2
         readonly property real orbMiddle: orb.x + orb.width / 2
         readonly property real orbCentre: orb.y + orb.height / 2
+        // REVISIT(D132): change these grounds only if the look no longer
+        // owns the plates' lens values and glass-off standard surface.
         readonly property var card: root.look.plate.card
+        // Beside Console the orb and capsule share one width budget even
+        // while the capsule is hidden, so hovering moves neither of them.
+        readonly property real orbRoom: root.besideConsole
+            ? Math.max(0, width - iconPill.width - root.look.plate.gap) : width
         // The orb draws nothing in the outer `orbInset` of its canvas, a
         // whole number of pixels, so the plates stand that far inside it.
         readonly property real orbInset: Math.round((1 - root.look.orb.reach) * orb.width / 2)
         readonly property real orbEnd: orb.y + orb.height - orbInset
+        readonly property real rowEnd: root.besideConsole ? Math.max(orbEnd, iconPill.y + iconPill.height) : orbEnd
         // What the orb draws starts at this box's top, or the plates' gap
-        // under the words' card; the canvas starts its inset above that.
+        // under the words' card. A taller capsule reserves room above and
+        // below the fitted orb so neither it nor the next card is clipped.
         readonly property real orbTop: (words.visible ? words.y + words.height + card.paddingY + root.look.plate.gap : 0) - orbInset
-        // The first line under the orb: inside its card, the plates' gap
-        // under what the orb draws.
+            + (root.besideConsole ? Math.max(0, (iconPill.height - orb.height + 2 * orbInset) / 2) : 0)
+        // The first line under the orb row: inside its card, the plates'
+        // gap under both the orb and its capsule.
         readonly property real below: root.hidden ? card.paddingY
-            : orbEnd + root.look.plate.gap + card.paddingY
+            : rowEnd + root.look.plate.gap + card.paddingY
         // The prompt's and the words' width, held inside this overlay's,
         // which the layer bounds, so a narrow screen reflows them.
         readonly property real promptWidth: Math.min(root.look.layout.prompt, Math.max(0, width - 2 * card.paddingX))
         width: Math.min(root.look.layout.width, Math.max(0, root.placementRoom.width - 2 * root.look.layout.margin))
-        height: Math.max(root.hidden ? 0 : orbEnd,
+        height: Math.max(root.hidden ? 0 : rowEnd,
             root.hold !== null ? approvalText.y + approvalText.height + card.paddingY
             : stateBox.visible ? stateBox.y + stateBox.height + card.paddingY : 0)
         x: root.placementRoom.x + (root.placementRoom.width - width) / 2
@@ -339,9 +348,9 @@ Item {
             id: orb
             look: root.look
             // On whole pixels, so each point draws on the pixel grid.
-            x: Math.round(overlay.centre - width / 2)
+            x: Math.round((root.besideConsole ? overlay.orbRoom : overlay.width) / 2 - width / 2)
             y: overlay.orbTop
-            width: root.besideConsole ? Math.min(root.look.orb.size, overlay.width) : root.look.orb.size
+            width: root.besideConsole ? Math.min(root.look.orb.size, overlay.orbRoom) : root.look.orb.size
             height: width
             phase: root.orbPhase
             capture: root.levels.capture || 0
@@ -393,22 +402,21 @@ Item {
             id: orbHit
             objectName: "orbHit"
             visible: root.active && !root.hidden
-            width: root.besideConsole ? Math.min(root.look.layout.hit, overlay.width) : root.look.layout.hit
+            width: root.besideConsole ? Math.min(root.look.layout.hit, overlay.orbRoom) : root.look.layout.hit
             height: width
             x: overlay.orbMiddle - width / 2
             y: overlay.orbCentre - height / 2
             HoverHandler { id: orbHover }
         }
 
-        // The icon row's input while it shows: from inside the hit square,
-        // `layout.bridge` right of the orb's centre, to the capsule's far
-        // edge, as tall as the capsule, so it holds the capsule and meets
-        // the square.
+        // The icon row's input starts inside the hit square and reaches
+        // the capsule's far edge. Its offset shrinks with a fitted hit
+        // square, so the pointer's route to the capsule stays connected.
         Item {
             id: bridge
             objectName: "iconBridge"
             visible: root.active && root.iconsShown
-            x: root.besideConsole ? Math.min(overlay.width, overlay.orbMiddle + root.look.layout.bridge) : overlay.orbMiddle + root.look.layout.bridge
+            x: overlay.orbMiddle + root.look.layout.bridge * orbHit.width / root.look.layout.hit
             y: iconPill.y
             width: Math.max(0, iconPill.x + iconPill.width - x)
             height: iconPill.height
@@ -424,7 +432,7 @@ Item {
             objectName: "iconPill"
             readonly property var pad: root.look.plate.pill
             readonly property real rest: orb.x + orb.width - overlay.orbInset + root.look.plate.gap
-            x: root.besideConsole ? Math.min(rest, Math.max(0, overlay.width - width)) : rest
+            x: rest
             y: Math.round(overlay.orbCentre - height / 2)
             width: icons.width + 2 * pad.paddingX
             height: icons.height + 2 * pad.paddingY

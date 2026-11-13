@@ -2,9 +2,9 @@
 
 // VGlass, the one shared glass look, in the appearance-table format a
 // plugin's own look takes, which ThemeLogic.acceptAppearance judges and
-// Theme publishes once as `Theme.glass`. Every surface that draws VGlass
-// draws it from here through GlassSurface of qs.Ui, handing only its own
-// fill, rounding and elevation. `window` holds what Hyprland draws its own
+// Theme publishes once as `Theme.glass`. Surfaces draw it through qs.Ui's
+// GlassSurface, whose look-owned inputs follow D132 and design-system.md
+// § Glass plates over wallpaper. `window` holds what Hyprland draws its own
 // windows with while window glass is on. Only declared appearance inputs
 // reach this table (ThemeLogic.acceptAppearance); `scheme.mode` picks LIGHT.
 
