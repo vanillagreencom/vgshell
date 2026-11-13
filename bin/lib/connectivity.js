@@ -51,6 +51,9 @@ function networkCall(env, operation, args, boundMs) {
 }
 
 function readConnectivity(env) {
+    // The 5000 ms bound: busctl get-property Connectivity on 2026-11-12, home 0.009 s,
+    // jarvis-mbp 0.001 to 0.002 s over three runs; px13 on 2026-11-13,
+    // 0.001 s in each of three runs.
     const result = networkCall(env, "get-property", ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "Connectivity"], 5000);
     if (result.outcome.category !== "completed") return { connectivity: null, outcome: result.outcome };
     const connectivity = nmConnectivity(result.stdout);

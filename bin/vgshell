@@ -1452,7 +1452,10 @@ plugin_remove() { # ID
   rescan_if_running
 }
 
-# The seconds one outdated fetch may take.
+# The seconds one outdated fetch may take. git ls-remote of vgshell's
+# refs/heads/main on GitHub on 2026-11-12, three runs each: home 0.70 to
+# 0.85 s, jarvis-mbp 0.68 to 0.70 s; px13 on 2026-11-13, three runs,
+# 0.309 to 0.383 s.
 outdated_fetch_timeout=10
 
 # The seconds between the TERM that ends a fetch, at its timeout or on a

@@ -66,7 +66,11 @@ const GIT_PACKAGE_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:\.r|\^)[0-9]+\.g(?:it)?([
 const PACKAGES = ["vgshell", "vgshell-git"];
 const API = "https://api.github.com";
 // The seconds the release query may take, and the seconds and bytes one
-// download may take.
+// download may take. API_TIMEOUT: an unauthenticated curl of the GitHub
+// compare on 2026-11-12, three runs each, took 2.3 s on home and 3.1 to 4.3 s
+// on jarvis-mbp, including a nested git ls-remote of about 0.7 s. On px13
+// on 2026-11-13, three runs took 1.229 to 2.524 s, HTTP 200 each, including
+// a nested git ls-remote of about 0.3 s.
 const API_TIMEOUT = 10;
 const DOWNLOAD_TIMEOUT = 120;
 const MAX_ARCHIVE = 128 * 1024 * 1024;

@@ -309,8 +309,11 @@ const INSTALL_GROUP_ROWS = [
 // printUpdateList and text FormatAgeTag, apt apt-private private-list.cc and
 // private-output.cc ListSingleVersion, dnf 4 dnf/cli/output.py fmtColumns
 // and cli.py check_updates, dnf5 libdnf5-cli package_list_sections.cpp
-// print_json, flatpak app/flatpak-table-printer.c.
+// print_json, flatpak app/flatpak-table-printer.c. paru-qua-failed.err is
+// paru 2.2.0's stderr from `LC_ALL=C paru -Qua --devel --aururl
+// https://aur.invalid` on home on 2026-11-12, exit 1 with no stdout.
 const fixture = name => ({ fixture: name });
+const fixtureText = input => typeof input === "string" ? input : fs.readFileSync(path.join(FIXTURES, input.fixture), "utf8");
 const PARSE_ROWS = [
     ["checkupdates", "arrow", fixture("checkupdates.txt"), [["bpf", "7.2.7-1", "7.2.8-1"], ["coreutils", "9.11-2.1", "9.12-2.1"],
         ["python-cattrs", "26.2.0-1", "26.2.1-1"], ["python-dbus", "1.4.0-2", "1.5.0-1"], ["shellcheck", "0.11.0-140", "0.11.0-142"],
@@ -367,14 +370,15 @@ const CHECK_ROWS = [
 ];
 
 // Outcome rows: name, manager, binary, exit status, stdout, and the
-// packages as [name, old, new] or the check's error, then stderr.
+// packages as [name, old, new] or the check's error, then stderr (a string,
+// or { fixture } as in the parser rows).
 const OUTCOME_ROWS = [
     ["checkupdates 2 is none", "pacman", "pacman", 2, "", []],
     ["checkupdates 1 is a failure", "pacman", "pacman", 1, "", "exit=1"],
     ["checkupdates 0 reads the rows", "pacman", "pacman", 0, "bpf 7.2.7-1 -> 7.2.8-1\n", [["bpf", "7.2.7-1", "7.2.8-1"]]],
     ["yay 1 is none", "aur", "yay", 1, "", []],
     ["paru 1 without diagnostics is none", "aur", "paru", 1, "", [], ""],
-    ["paru 1 with a failed request is an error", "aur", "paru", 1, "", "exit=1 stderr=error: failed to get aur packages", "error: failed to get aur packages\n"],
+    ["paru 1 with a failed request is an error", "aur", "paru", 1, "", "exit=1 stderr=error: error sending request for url (https://aur.invalid/rpc): error trying to connect: dns error: failed to lookup address information: Name or service not known: error trying to connect: dns error: failed to lookup address information: Name or service not known: dns error: failed to lookup address information: Name or service not known: failed to lookup address information: Name or service not known", fixture("paru-qua-failed.err")],
     ["yay 1 with a failed request is an error", "aur", "yay", 1, "", "exit=1 stderr=Get https://aur.archlinux.org/rpc: network is unreachable", "Get https://aur.archlinux.org/rpc: network is unreachable\n"],
     ["an unlisted failure retains its diagnostic", "aur", "paru", 2, "", "exit=2 stderr=error: failed to initialize alpm library", "error: failed to initialize alpm library\n"],
     ["a successful probe can print warnings", "aur", "paru", 0, "tool 1 -> 2\n", [["tool", "1", "2"]], "warning: tool is orphaned\n"],
@@ -532,8 +536,7 @@ function verifyTable(t) {
 
     const parsed = new Set();
     for (const [name, parser, input, want] of PARSE_ROWS) {
-        const text = typeof input === "string" ? input : fs.readFileSync(path.join(FIXTURES, input.fixture), "utf8");
-        const r = t.PARSERS[parser](text);
+        const r = t.PARSERS[parser](fixtureText(input));
         const got = r.ok ? triples(r.packages) : r.error;
         if (!same(got, want)) failures.push("parse: " + name + ": got " + JSON.stringify(got));
         parsed.add(parser);
@@ -745,7 +748,7 @@ function verifyOutcomes(t) {
     const failures = [];
     for (const [name, manager, binary, status, stdout, want, stderr = ""] of OUTCOME_ROWS) {
         const found = t.checkFor(manager, binary);
-        const r = found.check === undefined ? { error: "no query" } : t.checkOutcome(found.check, status, stdout, stderr);
+        const r = found.check === undefined ? { error: "no query" } : t.checkOutcome(found.check, status, stdout, fixtureText(stderr));
         const got = r.error === undefined ? triples(r.packages) : r.error;
         if (!same(got, want)) failures.push("outcome: " + name + ": got " + JSON.stringify(got));
     }

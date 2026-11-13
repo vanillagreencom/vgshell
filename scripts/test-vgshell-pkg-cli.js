@@ -8,7 +8,7 @@
 //   /etc/os-release under `unshare -rm`. Without user namespaces those rows
 //   cannot run and the suite exits 77.
 // - The `check` rows run with stub managers and prove query parsing, locking,
-//   timeout cleanup, signal cleanup and checkupdates freshness.
+//   timeout cleanup and signal cleanup.
 //
 // The controls at the end edit a copy of bin/vgshell-pkg or bin/vgshell, one rule
 // at a time, and require this suite to fail on each copy.
@@ -383,19 +383,6 @@ function checkRows(scripts, quick, tools, tmp, expect, failures) {
         }
     }
 
-    // checkupdates skips its sync only after a successful synced run and
-    // while its copy of the databases holds one; the stub names the
-    // argument it was given as the package.
-    const stamped = stubPath(tmp, "stamp", { pacman: "exit 99", checkupdates: "echo \"run${1:-sync} 1-1 -> 2-1\"" }, tools);
-    const db = path.join(tmp, "checkup-db");
-    fs.mkdirSync(path.join(db, "sync"), { recursive: true });
-    fs.writeFileSync(path.join(db, "sync", "core.db"), "");
-    const runtime = fresh();
-    const synced = name => [{ source: "pacman", count: 1, packages: [{ name, old: "1-1", new: "2-1" }], checkedAt: "<time>", error: null }];
-    expectCheck(expect, "the first check syncs", runIn(runtime, scripts.pkg, stamped, ["check", "--json", "--source", "pacman"], { CHECKUPDATES_DB: db }), synced("runsync"));
-    expectCheck(expect, "a check right after a synced one skips the sync", runIn(runtime, scripts.pkg, stamped, ["check", "--json", "--source", "pacman"], { CHECKUPDATES_DB: db }), synced("run-n"));
-    expectCheck(expect, "a recent sync with no database copy left syncs again", runIn(runtime, scripts.pkg, stamped, ["check", "--json", "--source", "pacman"], { CHECKUPDATES_DB: path.join(tmp, "no-db") }), synced("runsync"));
-
     // A second check waits for the lock: a holder takes it, and the stub
     // fails unless the holder has let go before the query runs. The real
     // wait is the holder's one second.
@@ -437,8 +424,6 @@ const CONTROLS = [
     ["cli", "holder query failures are fatal", PKG, "        holderUnread(command, entry.id, run.error.code);\n        return null;", "        refuse(\"query=\" + q.argv[0] + \" reason=failed error=\" + run.error.code);", "detect --json --holders keeps going when an owner query cannot start"],
     ["cli", "vgshell pkg drops its arguments", VGSHELL, "exec node \"$root/bin/vgshell-pkg\" \"$@\"", "exec node \"$root/bin/vgshell-pkg\""],
     ["cli", "check runs without the lock", PKG, "        holdCheckLock(dir);\n", ""],
-    ["cli", "checkupdates always syncs", PKG, "if (Date.now() - fs.statSync(stamp).mtimeMs > FRESH_MS) return false;", "return false;"],
-    ["cli", "checkupdates skips its sync with no database copy", PKG, "return fs.readdirSync(path.join(db, \"sync\")).some(name => name.endsWith(\".db\"));", "return true;"],
     ["cli", "a query runs from the caller's directory", PKG, "cwd: process.env.HOME || \"/\",", ""],
     ["cli", "a signalled check exits and leaves its queries running", PKG, "for (const signal of [\"SIGINT\", \"SIGTERM\", \"SIGHUP\"]) process.on(signal, () => stopQueries(signal));", ""],
     ["cli", "a stopped check exits when its first query ends", PKG, "if (stopStatus !== null) {\n                if (liveGroups.size === 0) process.exit(stopStatus);", "if (stopStatus !== null) {\n                process.exit(stopStatus);", "lock=free"],

@@ -74,6 +74,8 @@
 var MANAGERS = [
     {
         id: "pacman", role: "primary", family: ["arch"], release: null, requires: null, binaries: ["pacman"], elevate: true,
+        // checkupdates first and next run, 2026-11-12: home (pacman-contrib 1.13.1) 22.8 s and 1.2 s
+        // (9.4 s and 1.1 s on 2026-11-11), jarvis-mbp 11.95 s and 1.30 s, px13 4.03 s and 1.02 s.
         check: [{ binary: null, argv: ["checkupdates"], exits: { "0": "updates", "2": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         // pacman(8): omitting --needed restores an up-to-date target.
@@ -99,6 +101,8 @@ var MANAGERS = [
         // printUpdateList return 1 silently when no upgrades exist.
         // This query and -Sua below operate on AUR targets only. A same-name
         // sync-repository entry cannot prove that an upgrade is official.
+        // `paru -Qua --devel`, 2026-11-12: home (paru 2.2.0) 2.2 s and 1.5 s, jarvis-mbp 1.18 s, px13 0.75 s;
+        // home 15.2 s twice on 2026-11-11, paru's 15 s git ls-remote limit on a devel source that did not answer.
         check: [{ binary: null, argv: ["{bin}", "-Qua"], origin: "aur", exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         reinstall: [["{bin}", "-S", "--", "{names}"]],

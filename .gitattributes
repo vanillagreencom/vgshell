@@ -6,6 +6,7 @@
 # Canned package-manager output: the bytes each tool prints, padding included.
 scripts/fixtures/pkg/** -whitespace
 scripts/fixtures/pkg/*.SRCINFO text eol=lf
+scripts/fixtures/pkg/*.err text eol=lf
 # AUR build recipes: the bytes the helper fetches, trailing whitespace included.
 scripts/fixtures/pkg-review/recipes/** text eol=lf -whitespace
 # Build transcripts: a pty's CRLF line ends are the classifier's input.
