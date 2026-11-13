@@ -1527,7 +1527,7 @@ function verifyDrawingWeightSources(judge) {
         ["color.textFaint", "text.item.weight"], // TextField and Select placeholders
         ["color.textFaint", "text.body.weight"], // TextArea placeholder
         ["color.textFaint", "text.kbd.weight"], // ShortcutField placeholder
-        ["color.accent", "text.label.weight"], // TileGroup's default caption
+        ["color.accent", "text.tileCaption.weight"], // TileGroup's default caption
         ...["secondary", "tertiary", "ghost"].map(variant => ["color.text", "button.variant." + variant + ".weight"]),
         ...["primary", "secondary", "tertiary", "ghost", "danger"].map(variant => ["color.accent", "button.variant." + variant + ".weight"]), // checked Button
         ["color.text", "avatarGroup.weight"],

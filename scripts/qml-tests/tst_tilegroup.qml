@@ -6,13 +6,13 @@ import qs.Unit
 
 // TileGroup: the tiles share the control's width equally, a click or the
 // left and right keys choose a tile and `activated` fires for a change the
-// user made, a tile marked unavailable is disabled and passed over, and
-// the ring shows on the chosen tile for keyboard focus alone, in a colour
-// its accent border is not.
+// user made, a tile marked unavailable is disabled and passed over, the
+// ring shows on the chosen tile for keyboard focus alone, in a colour its
+// accent border is not, and a caption wider than its tile wraps whole.
 Item {
     id: root
     width: 500
-    height: 300
+    height: 400
 
     TileGroup {
         id: control
@@ -30,6 +30,14 @@ Item {
         model: [{ text: "A", icon: "scan" }, { text: "All displays", icon: "monitor-check" }]
     }
     Button { id: after; text: "Next"; y: 200 }
+    // The Power flyout's three profile tiles, across its content width.
+    TileGroup {
+        id: flyout
+        y: 250
+        width: Theme.size.panel.md - 2 * Theme.inset.panel
+        model: [{ text: "Power saver", icon: "leaf" }, { text: "Balanced", icon: "gauge" }, { text: "Performance", icon: "zap" }]
+    }
+    TextMetrics { id: oneLine }
     SignalSpy { id: activations; target: control; signalName: "activated" }
 
     TestCase {
@@ -46,6 +54,8 @@ Item {
 
         function tile(group, index) { return group.contentItem.children[index]; }
         function ring(index) { return tile(control, index).background.children[0]; }
+        function glyph(group, index) { return tile(group, index).contentItem.children[0]; }
+        function caption(group, index) { return tile(group, index).contentItem.children[1]; }
 
         function test_tiles_share_the_width_equally() {
             const share = (control.width - 3 * Theme.tileGroup.gap) / 4;
@@ -56,6 +66,28 @@ Item {
             }
             compare(tile(unsized, 0).width, tile(unsized, 1).width);
             compare(unsized.width, 2 * tile(unsized, 1).implicitWidth + Theme.tileGroup.gap);
+        }
+
+        // A theme's larger text makes "Power saver" wider than one line of
+        // its tile, as a wider interface font does at the shipped size. It
+        // breaks at its space and "Performance" inside the word, neither
+        // cut; every tile keeps the group's height with its caption inside,
+        // and the icons share one line.
+        function test_a_caption_wider_than_its_tile_wraps_whole() {
+            compare(UnitTheme.override({ font: { size: 20 } }), "ok");
+            const saver = caption(flyout, 0);
+            oneLine.font = saver.font;
+            oneLine.text = "Power saver";
+            verify(oneLine.advanceWidth > saver.width, "the caption is wider than one line of its tile");
+            for (let i = 0; i < 3; i++) {
+                const shown = caption(flyout, i);
+                verify(!shown.truncated, flyout.model[i].text + " is not cut");
+                compare(tile(flyout, i).height, flyout.height);
+                verify(shown.mapToItem(tile(flyout, i), 0, shown.height).y <= tile(flyout, i).height, flyout.model[i].text + " ends inside its tile");
+                compare(glyph(flyout, i).y, glyph(flyout, 0).y);
+            }
+            compare(saver.text.split("\n"), ["Power", "saver"]);
+            compare(tile(flyout, 0).Accessible.name, "Power saver");
         }
 
         function test_keys_choose_and_skip_an_unavailable_tile() {

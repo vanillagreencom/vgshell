@@ -7,7 +7,12 @@ import qs.Ui
 // One choice among a few, drawn as equal tiles, each an icon over a short
 // caption: `model` lists `{ text, icon, available }` entries and
 // `currentIndex` the chosen one. The tiles share the control's width
-// equally; unsized, each is as wide as the widest tile's content. A click
+// equally; unsized, each is as wide as the widest tile's content. A
+// caption wider than its tile wraps and never elides: it breaks at its
+// spaces (LineBreak.atSpaces), and only a word wider than the tile breaks
+// inside. Every tile is as tall as the tallest, and the icons share one
+// line, each at the top of a block as tall as the tallest tile's. The
+// accessible name is the plain caption. A click
 // or the left and right keys choose a tile, and `activated` fires on a
 // change the user made. A tile whose `available` is false is disabled, and
 // the keys pass over it. The control is one tab stop: the tiles take no
@@ -36,6 +41,14 @@ T.Control {
         }
         return widest;
     }
+    // The tallest tile's icon and caption, which every tile's block is.
+    readonly property real tileContentHeight: {
+        let tallest = 0;
+        for (const child of row.children) {
+            if (child.implicitContentHeight !== undefined) tallest = Math.max(tallest, child.implicitContentHeight);
+        }
+        return tallest;
+    }
     readonly property real tileWidth: model.length === 0 ? 0 : Math.max(0, (availableWidth - (model.length - 1) * Theme.tileGroup.gap) / model.length)
     signal activated(int index)
 
@@ -51,7 +64,7 @@ T.Control {
     }
 
     implicitWidth: model.length * tileImplicitWidth + Math.max(0, model.length - 1) * Theme.tileGroup.gap
-    implicitHeight: Theme.tileGroup.height
+    implicitHeight: Math.max(Theme.tileGroup.height, tileContentHeight + 2 * Theme.tileGroup.paddingY)
     focusPolicy: Qt.StrongFocus
     opacity: enabled ? 1 : Theme.opacity.disabled
     Keys.onPressed: event => { event.accepted = nav.handle(event); }
@@ -97,25 +110,28 @@ T.Control {
                 onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; root.choose(index); }
 
                 contentItem: Item {
-                    implicitWidth: Math.max(glyph.width, caption.implicitWidth)
-                    implicitHeight: glyph.height + Theme.tileGroup.contentGap + caption.lineBox
+                    // The caption on one line, since the drawn caption is
+                    // broken at the tile's width.
+                    implicitWidth: Math.max(glyph.width, oneLine.advanceWidth)
+                    implicitHeight: glyph.height + Theme.tileGroup.contentGap + caption.height
                     Icon {
                         id: glyph
                         name: tile.modelData.icon === undefined ? "" : String(tile.modelData.icon)
                         size: Theme.tileGroup.icon
                         color: tile.tileForeground
                         x: Math.round((parent.width - width) / 2)
-                        y: Math.round((parent.height - parent.implicitHeight) / 2)
+                        y: Math.round((parent.height - root.tileContentHeight) / 2)
                     }
                     Label {
                         id: caption
                         role: Theme.tileGroup.captionRole
-                        text: tile.text
+                        spaceWrappedText: tile.text
                         color: tile.tileForeground
                         width: parent.width
                         y: glyph.y + glyph.height + Theme.tileGroup.contentGap
                         horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
+                        wrapMode: Text.Wrap
+                        TextMetrics { id: oneLine; font: caption.font; text: tile.text }
                     }
                 }
 

@@ -2207,6 +2207,7 @@ mutations=(
   "a click chooses no tile|controls/TileGroup.qml|onClicked: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; root.choose(index); }|onClicked: root.forceActiveFocus(Qt.MouseFocusReason)|tst_tilegroup.qml"
   "a clicked tile group shows its ring|controls/TileGroup.qml|root.visualFocus)|root.activeFocus)|tst_tilegroup.qml"
   "every tile draws the ring|controls/TileGroup.qml|visible: tile.current && (|visible: (|tst_tilegroup.qml"
+  "a tile caption elides|controls/TileGroup.qml|wrapMode: Text.Wrap|elide: Text.ElideRight|tst_tilegroup.qml|test_a_caption_wider_than_its_tile_wraps_whole"
   "segments keep their own widths in a set width|controls/SegmentedControl.qml|width: root.segmentShare > 0 ? root.segmentShare : implicitWidth|width: implicitWidth|tst_segmented.qml"
   "a completed status entry loses its refusal|../plugins/vgs.settings/PluginPage.qml|if (button === null) return entry === null ? \"\" : panel.replyOf(row.id, entry.key);|if (button === null) return \"\";|tst_settings_setup.qml"
   "a required Setup page has no tab|../plugins/vgs.settings/PluginPage.qml|const names = hasSetup ? [\"Settings\", \"Setup\", \"Details\"] : [\"Settings\", \"Details\"];|const names = [\"Settings\", \"Details\"];|tst_settings_setup.qml"

@@ -145,6 +145,10 @@ var TEXT = {
     // so centred on one row they share a baseline and read as one line.
     label: role("caps", 0.8, 500, 0.08, 1, true, "textMuted"),
     calendarWeekday: role("caps", 2 / 3, 500, 0.08, 1, true, "textMuted"),
+    // A tile's caption under its icon: label's size and weight in sentence
+    // case without tracking, so a long word such as "Performance" fits a
+    // third of a flyout in a proportional interface font.
+    tileCaption: role("sans", 0.8, 500, 0, 1, false, "textMuted"),
     value: role("sans", 0.87, 400, 0, 1, false, "text"),
     hint: role("sans", 0.87, 400, 0, 1.55, false, "textFaint"),
     tooltip: role("sans", 0.8, 500, 0, 1.333, false, "text"),
@@ -606,11 +610,14 @@ var TOKENS = {
     tileGroup: {
         height: length("mul({size.control.lg}, 1.6)"),
         paddingX: length("{control.sm.paddingX}"),
+        // Above and below the tallest tile's icon and caption, once they
+        // need more than `height` leaves room for.
+        paddingY: length("{space.lg}"),
         gap: length("{stack.inline}"),
         contentGap: length("{stack.row}"),
         radius: length("{radius.md}"),
         icon: length("{icon.size.lg}"),
-        captionRole: textRole("label"),
+        captionRole: textRole("tileCaption"),
         background: color("{color.surface}"),
         border: color("{color.borderControl}"),
         foreground: color("{color.textMuted}"),

@@ -115,6 +115,7 @@ Item {
                 { tag: "eyebrow", family: mono, size: 12, weight: 700, spacing: 0.18, uppercase: true, lineHeight: 1 },
                 { tag: "label", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
                 { tag: "calendarWeekday", family: mono, size: 10, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
+                { tag: "tileCaption", family: sans, size: 12, weight: 500, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "value", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "button", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
                 { tag: "kbd", family: mono, size: 12, weight: 600, spacing: 0.02, uppercase: false, lineHeight: 1 },
