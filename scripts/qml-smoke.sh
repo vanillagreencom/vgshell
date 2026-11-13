@@ -37,6 +37,11 @@
 # that is not a pass. A sink that exits later fails the row it ended in as
 # sink=exited.
 # scripts/smoke/verdict.sh holds the verdict. Exit 1 when a check failed.
+# Before its first world the driver creates the quiet-host hold's lock
+# files, vgs-smoke-hold and vgs-smoke-gate, in the checkout's common git
+# directory (smoke_hold in scripts/smoke/harness.sh). Where it cannot, it
+# starts nothing and exits 77 with `qml-smoke: status=not-measured
+# missing=smoke-hold cause=git-common-dir-unread|create-failed`.
 # Failed or interrupted rows retain bounded logs and probe dumps beside a
 # redirected run log, or under tmp/qml-smoke when stdout is not a file.
 # --log-dir names that run's log directory explicitly. Each row retains at
@@ -426,6 +431,22 @@ fi
 # The private source invocation selects one attempt without exporting state
 # or moving any of the harness's jobs, waits or descriptors to this driver.
 if [[ -z ${qml_smoke_attempt:-} ]]; then
+  # The quiet-host hold's lock files (smoke_hold in scripts/smoke/harness.sh)
+  # live in the common git directory, which every lane worktree shares and
+  # every world sees read-only. A world can open them but create nothing on
+  # the host (D112), so the driver creates them before the first world and
+  # hands each attempt their directory.
+  if ! smoke_hold_dir="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || [[ ! -d $smoke_hold_dir ]]; then
+    printf 'qml-smoke: status=not-measured missing=smoke-hold cause=git-common-dir-unread repo=%s\n' "$repo" >&2
+    exit 77
+  fi
+  for qml_smoke_lock in "$smoke_hold_dir/vgs-smoke-hold" "$smoke_hold_dir/vgs-smoke-gate"; do
+    # noclobber: of two drivers that create a file at once, one creates it.
+    if [[ ! -f $qml_smoke_lock ]] && ! (set -C; : >"$qml_smoke_lock") 2>/dev/null && [[ ! -f $qml_smoke_lock ]]; then
+      printf 'qml-smoke: status=not-measured missing=smoke-hold cause=create-failed path=%s\n' "$qml_smoke_lock" >&2
+      exit 77
+    fi
+  done
   # smoke_outcomes reads the attempts' row records.
   source "$repo/scripts/smoke/row-inputs.sh"
   # Only private bookkeeping is written here. The world owns validation and
@@ -644,7 +665,7 @@ PY
     if ((qml_smoke_cancel_status == 0)); then
       printf '%s\n' "${EPOCHREALTIME/./}" >"$qml_smoke_attempt/started-us"
       env --default-signal=INT,QUIT "$repo/scripts/smoke/gpu-fence.sh" --fresh "${world_args[@]}" --out "$qml_smoke_attempt" \
-        "$BASH" -c 'qml_smoke_attempt=$1; qml_smoke_completion=$2; shift 2; source "$@"' "$self" "$qml_smoke_attempt" "$qml_smoke_completion" "$self" \
+        "$BASH" -c 'qml_smoke_attempt=$1; qml_smoke_completion=$2; smoke_hold_dir=$3; shift 3; source "$@"' "$self" "$qml_smoke_attempt" "$qml_smoke_completion" "$smoke_hold_dir" "$self" \
         "${argv[@]}" --rows "$qml_smoke_next" --log-dir "$smoke_log_dir" >&"$qml_smoke_log_fd" 2>&1 {qml_smoke_log_fd}>&- &
       qml_smoke_fence_pid=$!
       # The watcher holds no writer of the run log, whose reader ends at EOF.

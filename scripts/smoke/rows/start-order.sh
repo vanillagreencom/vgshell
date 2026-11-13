@@ -6,7 +6,10 @@
 # start compiles as the first start of the run did. It reads:
 # - the first bar within the default set's budget, printed as
 #   latency_first_bar_ms with first_bar_plugin_set=default; readings above
-#   harness.sh's shared CPU pressure limit are unmeasured;
+#   harness.sh's shared CPU pressure limit are unmeasured; the start runs
+#   under harness.sh's quiet-host hold, smoke_hold, since other lanes'
+#   SMT contention read it over budget at low world pressure (VGS-2530
+#   holds the readings);
 # - ServiceGate's release, reason first-frame, and in the probe's start
 #   order every bar window's first frame before the first service the core
 #   built;
@@ -158,7 +161,7 @@ rescan_follows() {
 }
 release_reason() { gate_release_state; }
 
-if restart_over "$repo" "$sandbox/start-order-qs.log"; then
+if smoke_hold start-order first_bar restart_over "$repo" "$sandbox/start-order-qs.log"; then
   expect "default-set Jarvis starts without spending recovery allowance" ready jarvis_wait_ready
   echo "  first_bar_plugin_set=default"
   latency_pressure_check start-order first_bar "${first_bar_ms:-}" "$first_bar_cpu_some_pct" "$default_first_bar_budget_ms"

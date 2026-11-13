@@ -31,6 +31,9 @@
 # Control run on 2026-10-20, host cachy, through this row on the tree at
 # 6dda32697, the production files before VGS-1950: "not one 1 ms window of
 # Smoke Knock's 50 chimes is heard" failed, reading heard ms=1741.
+# The hundred-row panel's timed opens and switches run under harness.sh's
+# quiet-host hold, smoke_hold, since other lanes' SMT contention read the
+# opens over budget at low world pressure (VGS-2530 holds the readings).
 # A scoped retry names `scripts/qml-smoke.sh --rows notifications`. The
 # existing input reader adds the core and declared producer rows:
 # docs/architecture/validation.md § Selection.
@@ -6467,6 +6470,7 @@ panel_latency_motion_check() {
 panel_latency_retry() {
     (( $1 == 3 )) && [[ $(latency_pressure_verdict "$2" "$3" 139) == over ]]
 }
+smoke_hold_begin notifications panel_opens
 for panel_latency_state in loaded refused; do
     for panel_latency_trial in 1 2 3 4 5; do
         expect "the $panel_latency_state hundred-row timing is prepared" ok ipc smoke runnerCall setup "$panel_latency_state"
@@ -6501,6 +6505,7 @@ for panel_latency_state in loaded refused; do
         fi
     done
 done
+smoke_hold_end
 : >"$panel_latency_dir/pressure-checks.tsv"
 : >"$panel_latency_dir/motion-checks.tsv"
 python3 - "$panel_latency_dir" <<'PYVERDICT' || fail "the hundred-row notification panel misses its latency or frame-gap bound"

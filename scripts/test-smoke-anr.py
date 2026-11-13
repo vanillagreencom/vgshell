@@ -199,6 +199,8 @@ stop_shell() { :; }
 shell_stop() { local -n shell_stop_outcome="$1"; shell_stop_outcome=stopped; }
 start_shell() { :; }
 sink_check() { :; }
+# test-qml-smoke.sh holds the quiet-host hold smoke_row takes.
+smoke_hold_row() { :; }
 row_log_check() { :; }
 row_log_tail() { :; }
 ipc_oversize_check() { :; }

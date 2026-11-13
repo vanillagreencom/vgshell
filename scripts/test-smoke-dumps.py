@@ -292,6 +292,8 @@ devices_check() { return 0; }
 rest_pointer() { return 0; }
 shell_crash_check() { return 0; }
 sink_check() { :; }
+# test-qml-smoke.sh holds the quiet-host hold smoke_row takes.
+smoke_hold_row() { :; }
 row_log_check() { :; }
 row_log_tail() { :; }
 anr_row_boundary() { :; }

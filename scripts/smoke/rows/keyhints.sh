@@ -40,6 +40,9 @@
 # pressure spans shortcut send through native-frame readback; each open
 # prints its actual pressure sampling interval. Readings above harness.sh's
 # shared CPU pressure limit are unmeasured, including fast readings.
+# The timed opens run under harness.sh's quiet-host hold, smoke_hold,
+# since other lanes' SMT contention read later opens over budget at low
+# world pressure (VGS-2530 holds the readings).
 # The four later opens are judged by the fastest one at or below that
 # limit. Contention the CPU pressure does not read, such as the GPU, I/O or
 # the nested compositor, only adds time to an open, so one slow open beside
@@ -488,7 +491,7 @@ printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/
 expect 'the timed shortcut reloads without configuration errors' '[]' hypr_reload_errors
 if kh_timing_tree keyhints-timing; then
   stop_shell
-  if start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" && kh_timing_opens 5; then
+  if start_shell "$sandbox/tree-keyhints-timing" "$sandbox/keyhints-timing.log" && smoke_hold keyhints opens kh_timing_opens 5; then
     kh_timing_result="$(kh_timing_budget "$(kh_timing_readings_json)")" || kh_timing_result=unread
     printf '  keyhints-open-result=%s\n' "$kh_timing_result"
     if [[ $kh_timing_result == unmeasured ]]; then
