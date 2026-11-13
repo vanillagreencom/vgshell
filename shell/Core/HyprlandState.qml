@@ -190,7 +190,10 @@ Scope {
         advanceLayerGlass();
     }
     function chooseLayerGlass(ctx, enabled, tuiName, done, rebuild) {
-        if (layerGlassOperation.phase !== "idle") return "refused: layer-glass=busy";
+        const previous = layerGlassOperation;
+        const pendingOff = enabled === false && previous.phase === "verifying" && previous.on
+            && layerGlassObserved.kind === "shaders-pending";
+        if (previous.phase !== "idle" && !pendingOff) return "refused: layer-glass=busy";
         if (!ctx.active || typeof done !== "function" || typeof enabled !== "boolean") return "refused: layer-glass=caller";
         const manifest = Registry.manifests[ctx.id];
         if (manifest === undefined || !Registry.isEnabled(ctx.id) || manifest.__revision !== ctx.manifest.__revision) return "refused: layer-glass=plugin";
@@ -199,7 +202,12 @@ Scope {
         const generation = ++layerGlassGeneration;
         layerGlassClaimed = true;
         layerGlassOperation = { phase: "checking", generation: generation, revision: manifest.__revision, intent: layerGlassIntent,
-            id: ctx.id, name: tuiName, on: enabled, done: done, wasLoaded: null, verb: enabled ? (rebuild ? "rebuild" : "enable") : "disable" };
+            id: ctx.id, name: tuiName, on: enabled, done: done, wasLoaded: null, verb: enabled ? (rebuild ? "rebuild" : "enable") : "disable",
+            keepRequest: !enabled && layerGlassRequest.enabled === true ? layerGlassRequest : null };
+        // Off supersedes a pending first draw, but retains its safe applied
+        // configuration until unload succeeds. Declining unload keeps it too.
+        if (pendingOff && typeof previous.done === "function")
+            previous.done({ ok: false, kind: "canceled", reason: "Layer-glass verification was canceled." });
         refreshLayerGlass();
         return "ok";
     }
@@ -250,6 +258,10 @@ Scope {
                 failLayerGlass("The configuration could not be confirmed. Check your configuration and try again.");
                 return;
             }
+            // Hyprglass compiles lazily at the first matching layer draw
+            // (v1.1.1 GlassLayerSurface.cpp draw). The Windows pane is a
+            // native window, so keep this request for an explicit Check again.
+            if (op.on && observed.kind === "shaders-pending") return;
             if (op.on ? observed.kind !== "eligible" : observed.loaded !== false) { failLayerGlass(observed.reason); return; }
             if (op.compensating) { finishLayerGlass(false, op.failure); return; }
             layerGlassOperation = Object.assign({}, op, { phase: "committing" });
@@ -273,7 +285,8 @@ Scope {
     function finishLayerGlass(ok, reason) {
         const op = layerGlassOperation;
         layerGlassOperation = { phase: "idle", reason: reason };
-        layerGlassRequest = { generation: 0, enabled: null };
+        layerGlassRequest = !ok && op.keepRequest !== null && op.keepRequest !== undefined
+            ? op.keepRequest : { generation: 0, enabled: null };
         if (ok && !op.on) layerGlassClaimed = false;
         if (typeof op.done === "function") op.done({ ok: ok, kind: ok ? "saved" : "failed", reason: reason });
         if (layerGlassHeld) refreshLayerGlass();

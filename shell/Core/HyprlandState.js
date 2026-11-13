@@ -577,7 +577,7 @@ function layerGlassObservation(facts) {
         return result("unsupported", "The plugin does not match this Hyprland version. Rebuild it.", true);
     if (!facts.errors || !facts.errors.ok) return result("unread", "Configuration errors could not be read. Check again.", true);
     if (facts.errors.value.length > 0) return result("config-error", "Hyprland reports configuration errors. Check your configuration.", true);
-    if (status.shaders === "pending") return result("shaders-pending", "Shaders are not ready. Open a VGS panel and check again.", true);
+    if (status.shaders === "pending") return result("shaders-pending", "Open the launcher, then check again.", true);
     // Foreign hyprglass_enabled tags can make windows active even while
     // globally disabled. Those tags belong to the user; VGS never clears them.
     if (!status.active || status.shaders !== "ready" || status.features.windows.enabled

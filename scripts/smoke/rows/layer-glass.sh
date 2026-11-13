@@ -41,6 +41,7 @@ cp -- "$lg_copy/tui/layer-glass.sh" "$lg_dir/manager.sh"
 cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.appearance/." "$lg_fixture/"
 printf 'false\n' >"$lg_dir/loaded"
 printf '[""]\n' >"$lg_dir/errors"
+printf 'pending\n' >"$lg_dir/shaders"
 cat >"$shim/hyprctl.layer-glass" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -48,7 +49,7 @@ state=$(printf '%q' "$lg_dir")
 case "\$*" in
   '-j plugin list')
     if [[ \$(<"\$state/loaded") == true ]]; then printf '%s\n' '[{"name":"hyprglass","author":"hyprnux","handle":"synthetic","version":"1.1.1","description":"Synthetic state fixture"}]'; else echo '[]'; fi ;;
-  '-j hyprglass status') printf '%s\n' '{"schema":1,"version":"1.1.1","versionCheck":"match","active":true,"shaders":"ready","features":{"windows":{"enabled":false,"active":false,"reason":"disabled"},"layers":{"enabled":true,"active":true,"reason":null}}}' ;;
+  '-j hyprglass status') printf '{"schema":1,"version":"1.1.1","versionCheck":"match","active":true,"shaders":"%s","features":{"windows":{"enabled":false,"active":false,"reason":"disabled"},"layers":{"enabled":true,"active":true,"reason":null}}}\n' "\$(<"\$state/shaders")" ;;
   '-j configerrors') cat "\$state/errors" ;;
   *) exec $(printf '%q' "$shim/hyprctl.real") "\$@" ;;
 esac
@@ -76,7 +77,22 @@ fi
 expect_poll 'the pane press starts the core-owned manager' 'not-loaded|manager|false' lg_state
 expect 'the pane closes while its manager is held' ok ipc shell hide window vgs.system
 rm -- "$lg_dir/hold"
-expect_poll 'core verifies synthetic On before committing' 'eligible|idle|true' lg_state
+expect_poll 'first On waits for a matching layer draw without unloading' 'shaders-pending|verifying|false' lg_state
+expect 'pending shaders leave the On preference unsaved' null lg_saved
+expect 'pending shaders retain the applied layer configuration' present lg_block
+printf '10\n' >"$lg_dir/exit"
+expect 'Off supersedes a pending first draw' ok lg_choose false
+expect_poll 'canceled pending Off reports the still-loaded plugin' 'residual|idle|false' lg_state
+expect 'canceled pending Off retains its safe layer configuration' present lg_block
+rm -- "$lg_dir/exit"
+expect 'Off retries the canceled pending unload' ok lg_choose false
+expect_poll 'pending Off verifies the unloaded plugin' 'not-loaded|idle|false' lg_state
+expect 'pending Off removes its applied configuration' absent lg_block
+expect 'a second On starts from the unloaded state' ok lg_choose true
+expect_poll 'second On waits for its first layer draw' 'shaders-pending|verifying|false' lg_state
+printf 'ready\n' >"$lg_dir/shaders"
+lg_refresh
+expect_poll 'Check again completes On after shaders are ready' 'eligible|idle|true' lg_state
 expect 'On preference is saved after verification' true lg_saved
 expect 'the one writer contributes its plugin declaration' present lg_block
 printf 'false\n' >"$lg_dir/loaded"
@@ -85,12 +101,7 @@ expect_poll 'an unloaded plugin retains requested On' 'not-loaded|idle|true' lg_
 printf 'true\n' >"$lg_dir/loaded"
 lg_refresh
 expect_poll 'the restored plugin is read fresh' 'eligible|idle|true' lg_state
-printf '10\n' >"$lg_dir/exit"
 expect 'Off starts whole-plugin cleanup' ok lg_choose false
-expect_poll 'canceled Off retains On intent' 'eligible|idle|true' lg_state
-expect 'canceled Off retains the generated declaration' present lg_block
-rm -- "$lg_dir/exit"
-expect 'Off retries whole-plugin cleanup' ok lg_choose false
 expect_poll 'Off verifies unloaded state before committing' 'not-loaded|idle|false' lg_state
 expect 'Off removes its saved On preference' null lg_saved
 expect 'Off removes every VGS hyprglass declaration' absent lg_block

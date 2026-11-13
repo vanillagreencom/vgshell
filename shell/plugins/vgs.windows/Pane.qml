@@ -20,6 +20,8 @@ FocusScope {
     readonly property var appearance: shell === null ? null : shell.appearance
     readonly property var layerGlass: shell === null ? null : shell.hyprland.layerGlass
     readonly property bool layerGlassBusy: layerGlass !== null && layerGlass.operation.phase !== "idle"
+    readonly property bool layerGlassWaiting: layerGlass !== null && layerGlass.operation.phase === "verifying"
+        && layerGlass.observed.kind === "shaders-pending"
     readonly property string layerGlassProblem: layerGlass === null ? "" : layerGlass.operation.reason !== ""
         ? layerGlass.operation.reason : ["eligible", "not-loaded", "checking"].indexOf(layerGlass.observed.kind) === -1
             ? layerGlass.observed.reason : ""
@@ -215,11 +217,11 @@ FocusScope {
                 Switch {
                     size: "sm"
                     Accessible.name: "Layer glass"
-                    disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
-                    checked: root.layerGlass !== null && root.layerGlass.requested
+                    disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
+                    checked: root.layerGlass !== null && (root.layerGlass.requested || root.layerGlassWaiting)
                     onToggled: {
                         const wanted = checked;
-                        checked = Qt.binding(() => root.layerGlass !== null && root.layerGlass.requested);
+                        checked = Qt.binding(() => root.layerGlass !== null && (root.layerGlass.requested || root.layerGlassWaiting));
                         root.chooseLayerGlass(wanted, false);
                     }
                 }
@@ -230,7 +232,7 @@ FocusScope {
                 label: "Plugin"
                 Label {
                     width: parent.width
-                    text: root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
+                    text: root.layerGlassWaiting ? "Waiting for a panel" : root.layerGlassBusy ? "Working…" : root.layerGlass === null || root.layerGlass.observed.stale
                         ? "Checking…" : root.layerGlass.observed.kind === "eligible" ? "On"
                             : root.layerGlass.observed.kind === "not-loaded" ? "Off" : "Needs attention"
                 }
@@ -243,7 +245,7 @@ FocusScope {
                     width: parent.width
                     RowAction {
                         text: "Check again"
-                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
                         onClicked: root.shell.hyprland.refreshLayerGlass()
                     }
                     RowAction {
@@ -256,7 +258,7 @@ FocusScope {
                     RowAction {
                         visible: root.layerGlass !== null && root.layerGlass.observed.loaded === true && !root.layerGlass.requested
                         text: "Turn off"
-                        disabledReason: root.layerGlassBusy ? "Finish the current layer-glass request first." : ""
+                        disabledReason: root.layerGlassBusy && !root.layerGlassWaiting ? "Finish the current layer-glass request first." : ""
                         onClicked: root.chooseLayerGlass(false, false)
                     }
                 }
@@ -265,7 +267,7 @@ FocusScope {
             Callout {
                 visible: root.layerGlassProblem !== ""
                 width: parent.width
-                tone: "danger"
+                tone: root.layerGlass !== null && root.layerGlass.operation.reason === "" && root.layerGlass.observed.kind === "shaders-pending" ? "info" : "danger"
                 text: root.layerGlassProblem
                 plain: true
             }
