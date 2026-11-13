@@ -1744,7 +1744,7 @@ else
   fail "scene continuation or unavailable verdict contract"
 fi
 continuation_controls=(
-  'a mode written only before the scene list leaks scene state' $'  for scene in "${scenes[@]}"; do\n    set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }' $'  set_mode "$mode"\n  for scene in "${scenes[@]}"; do'
+  'a mode written only before the scene list leaks scene state' $'    for scene in "${scenes[@]}"; do\n      set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }' $'    set_mode "$mode"\n    for scene in "${scenes[@]}"; do'
   'the old whole-run exit stops later Capture' '    return 0' '    exit 77'
   'a missing scene becomes a passing run' 'if [[ $unmeasured -ne 0 || ${#not_measured_rows[@]} -gt 0 ]]; then' 'if false; then'
   'a device registry entry becomes a passing run' ' || ${#not_measured_rows[@]} -gt 0' ''
@@ -1777,6 +1777,8 @@ done
 # read that fails inside the shots is recorded, the scene's teardown still
 # runs and the later scene is still taken; a failed step that records
 # nothing names its scene, mode, command, source and status once before exit.
+# An expansion error, which Bash raises without a failed command, still names
+# its scene, mode and status; Bash's own line before it names the source.
 tailscale_stop_case() { # SCRIPT FAULT STATUS TEARDOWN
   local script="$1" fault="$2" expected="$3" teardown="$4" dir command source status=0
   dir="$(mktemp -d "$tmp/tailscale-stop.XXXXXX")" || return 1
@@ -1811,7 +1813,7 @@ PY
     take_posed() { take "$1"; }
     ipc() { if [[ $fault == read && $2 == statusValues ]]; then return 1; fi; echo 1; }
     # The first scroll fails, inside the shots; the later one in the scene body does not.
-    tailscale_section_top() { if [[ $fault == multiline ]]; then source "$case_dir/multiline.sh"; fi; [[ $fault != unrecorded || -e $case_dir/top-failed ]] || { : >"$case_dir/top-failed"; return 1; }; }
+    tailscale_section_top() { if [[ $fault == multiline ]]; then source "$case_dir/multiline.sh"; fi; if [[ $fault == arith ]]; then : $(( 1.5 )); fi; [[ $fault != unrecorded || -e $case_dir/top-failed ]] || { : >"$case_dir/top-failed"; return 1; }; }
     tailscale_shot_finish() { : >"$case_dir/teardown"; }
     scene_capture() { take "capture-$1-panel"; }
     expect() { :; }; expect_poll() { :; }
@@ -1834,6 +1836,9 @@ PY
     [[ ! -s $dir/out ]] || return 1
     [[ $(wc -l <"$dir/err") -eq 1 ]] || return 1
     [[ $(cat "$dir/err") =~ ^sandbox-shots:\ aborted\ scene=tailscale-section\ mode=dark\ command="$command"\ source="$source":[1-9][0-9]*\ status=1$ ]] || return 1
+  elif [[ $fault == arith ]]; then
+    # Bash's own error line comes first; the run prints no verdict.
+    [[ ! -s $dir/out && $(tail -n 1 -- "$dir/err") =~ ^sandbox-shots:\ aborted\ scene=tailscale-section\ mode=dark\ .*\ status=1$ ]] || return 1
   else
     [[ ! -s $dir/err ]] || return 1
   fi
@@ -1849,6 +1854,7 @@ clean 0 yes
 read 1 yes
 unrecorded 1 no
 multiline 1 no
+arith 1 no
 TAILSCALE_STOP_CASES
 }
 if tailscale_stop_cases "$repo/scripts/sandbox-shots.sh"; then
@@ -1861,6 +1867,7 @@ tailscale_stop_controls=(
   'unrecorded' 'an unrecorded abort without its diagnostic is rejected' 'printf "sandbox-shots: aborted scene=%s' ': "sandbox-shots: aborted scene=%s'
   'unrecorded' 'shots called in an || list hide a failure nothing recorded' '  tailscale_section_shots "$mode" "$dir"' '  tailscale_section_shots "$mode" "$dir" || true'
   'read' 'an unread state that ends the shots skips the teardown' '|| { fail "shot tailscale-section-$1-$2 not taken: its state is unreadable"; return; }' '|| return 1'
+  'arith' 'an expansion error that drops the scene loop passes the run' $'\neval shots_scene_loop\n' $'\nshots_scene_loop\n'
 )
 for (( i = 0; i < ${#tailscale_stop_controls[@]}; i += 4 )); do
   label="${tailscale_stop_controls[i + 1]}"

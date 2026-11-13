@@ -13095,15 +13095,21 @@ take "00-desktop"
 set -E
 trap 'sandbox_shots_status=$?; if [[ $- == *e* ]]; then if [[ ! -e $sandbox/shots-aborted ]]; then : >"$sandbox/shots-aborted"; printf "sandbox-shots: aborted scene=%s mode=%s command=%q source=%s:%s status=%s\n" "${scene:-setup}" "${mode:-setup}" "$BASH_COMMAND" "${BASH_SOURCE[0]}" "$LINENO" "$sandbox_shots_status" >&2; fi; exit "$sandbox_shots_status"; fi' ERR
 
-for mode in "${mode_list[@]}"; do
-  if [[ ${#enable_ids[@]} -gt 0 || ${#disable_ids[@]} -gt 0 ]]; then capture_plugin_states "$mode"; fi
-  for scene in "${scenes[@]}"; do
-    set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }
-    scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
-    capture_state_record "$scene" "$mode" || continue
-    shots_scene_run "scene_$scene" "$mode"
+shots_scene_loop() {
+  for mode in "${mode_list[@]}"; do
+    if [[ ${#enable_ids[@]} -gt 0 || ${#disable_ids[@]} -gt 0 ]]; then capture_plugin_states "$mode"; fi
+    for scene in "${scenes[@]}"; do
+      set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }
+      scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
+      capture_state_record "$scene" "$mode" || continue
+      shots_scene_run "scene_$scene" "$mode"
+    done
   done
-done
+}
+# Bash drops the whole top-level command on an expansion error such as
+# $(( 1.5 )), with no failed command for the ERR trap to see. eval turns
+# that drop into status 1, so the trap names the scene and fails the run.
+eval shots_scene_loop
 
 # No scene may authenticate against the host user: harness.sh's sentinels
 # log any call, and a logged one fails the run (rows/auth-sentinel.sh).
