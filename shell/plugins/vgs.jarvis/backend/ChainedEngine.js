@@ -1966,7 +1966,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {
                 // A result's image stays with its text for the tool-results turn.
                 turn.answers.set(id, image === undefined ? { item } : { item, image });
-                const { tool, arguments: args } = turn.routing;
+                const tool = turn.routing?.tool;
+                const args = turn.routing?.arguments;
                 turn.routing = null;
                 if (callLine(c, turn, tool, value, args)) next(c, turn);
                 return;
