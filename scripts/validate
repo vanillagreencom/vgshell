@@ -113,6 +113,16 @@
 # `validate: refused: area=`, `extra-argument=` or
 #   `changed-base=missing-or-repeated` or `scope=conflicting-or-repeated`,
 #   or an invalid VGS_VALIDATE_JOBS, `validate: refused: jobs=<value>`.
+# A run that prints its verdict line, `validate: ok`, `validate: failed=` or
+#   `validate: status=not-measured skipped=`, prints
+#   `validate: lanes=<area> selection=<value>` after it, the line
+#   dev-validate-run --record reads: battery when the run left out no row of
+#   its area, all when the changed paths, the text-only filter or the
+#   rebased scope stood rows down or its rows were handed
+#   VGS_VALIDATE_CHANGED, and subset when --skip-unprepared left out a row
+#   as well. A reused row counts as run. A `validate: row-records=` line
+#   from the exit trap can follow it, and --record then reads that run as
+#   unreported.
 # Every end of validate bash can see stops the running rows first: an INT,
 #   TERM, HUP or QUIT, which exit 130, 143, 129 or 131, and a fatal signal
 #   bash takes for its EXIT trap, such as a PIPE. Each row's process group
@@ -2681,6 +2691,11 @@ selected=()
 row_command=()
 row_digest=()
 validate_started=$SECONDS
+# The selection the run reports after its verdict. Rows handed the changed
+# paths narrow their own work, as the nested smoke takes only the rows the
+# change reaches, so such a run is no battery even when it leaves out no row.
+run_selection=battery
+[[ -z ${VGS_VALIDATE_CHANGED:-} ]] || run_selection=all
 for i in "${!rows[@]}"; do
   IFS='|' read -r row_area label command inputs owner <<<"${rows[i]}"
   case "$area" in
@@ -2688,17 +2703,19 @@ for i in "${!rows[@]}"; do
     offline) [[ $row_area == qml || $row_area == unit || $row_area == nix || $row_area == package || $owner == network ]] && continue ;;
     *) [[ $area != "$row_area" ]] && continue ;;
   esac
+  row_reached=true
   if [[ $text_only == true ]]; then
     case "$command" in
       whitespace_check|md_refs_check|python3\ scripts/check-user-commands.py) ;;
-      doc_limits_check) [[ ${affected[i]} == true ]] || continue ;;
+      doc_limits_check) [[ ${affected[i]} == true ]] || row_reached=false ;;
       python3\ scripts/check-keyboard.py\ shell|python3\ scripts/check-pointer-cursor.py|python3\ scripts/check-smoke-needles.py)
-        [[ $comment_text == true ]] || continue ;;
-      *) continue ;;
+        [[ $comment_text == true ]] || row_reached=false ;;
+      *) row_reached=false ;;
     esac
   else
-    [[ ${affected[i]} == true || $row_area == repo ]] || continue
+    [[ ${affected[i]} == true || $row_area == repo ]] || row_reached=false
   fi
+  if [[ $row_reached == false ]]; then run_selection=all; continue; fi
   if [[ $skip_unprepared == true ]]; then
     unprepared=""
     unprepared_kind=unset
@@ -2983,17 +3000,21 @@ done
 trap - INT TERM HUP QUIT
 printf 'validate: selected=%s area=%s secs=%s\n' "$selected_count" "$area" "$((SECONDS - validate_started))" >&2
 
+status=0
 if [[ ${#failed[@]} -gt 0 ]]; then
   printf 'validate: failed=%s\n' "$(IFS=';'; echo "${failed[*]}")"
-  exit 1
-fi
-if [[ ${#skipped[@]} -gt 0 ]]; then
+  status=1
+elif [[ ${#skipped[@]} -gt 0 ]]; then
   printf 'validate: status=not-measured skipped=%s\n' "$(IFS=';'; echo "${skipped[*]}")"
-  exit 77
-fi
-if [[ $unselected == true ]]; then
-  echo 'validate: last-pass=unrecorded reason=unselected' >&2
+  status=77
 else
-  last_pass_record
+  if [[ $unselected == true ]]; then
+    echo 'validate: last-pass=unrecorded reason=unselected' >&2
+  else
+    last_pass_record
+  fi
+  echo "validate: ok"
 fi
-echo "validate: ok"
+[[ $unselected != true ]] || run_selection=subset
+printf 'validate: lanes=%s selection=%s\n' "$area" "$run_selection"
+exit "$status"

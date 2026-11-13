@@ -2643,7 +2643,7 @@ test_area=qml
 # not-measured exit.
 for variant in real control; do
   d="$tmp/base-record-skipped-$variant"; smoke_fixture "$d"
-  [[ $variant == real ]] || plant "$d/scripts/validate" 'if [[ ${#skipped[@]} -gt 0 ]]; then' 'last_pass_record; if [[ ${#skipped[@]} -gt 0 ]]; then'
+  [[ $variant == real ]] || plant "$d/scripts/validate" 'elif [[ ${#skipped[@]} -gt 0 ]]; then' 'elif last_pass_record; [[ ${#skipped[@]} -gt 0 ]]; then'
   printf '#!/usr/bin/env bash\nexit 77\n' >"$d/scripts/measure-shader.sh"
   chmod +x "$d/scripts/measure-shader.sh"
   commit "$d" skipped
@@ -4447,6 +4447,43 @@ if diff -- "$tmp/jobs-order-1.out" "$tmp/jobs-order-4.out" >/dev/null &&
 else
   fail "rows at four jobs print other lines than at one"; diff -- "$tmp/jobs-order-1.out" "$tmp/jobs-order-4.out" | sed 's/^/        /'
 fi
+
+# The last `validate:` line of a run that reaches its verdict is the one
+# dev-validate-run --record reads for the run's selection. The changed
+# path reaches only the first row; the third is unprepared while its
+# `$NAME` is unset. The control is a copy that always claims battery.
+selection_case() { # NAME|ARGS|WANT|control
+  local name args want variant d out status=0 last
+  local -a argv
+  IFS='|' read -r name args want variant <<<"$1"
+  read -r -a argv <<<"$args"
+  d="$tmp/selection-$name${variant:+-$variant}"
+  jobs_fixture "$d" test-selection.sh '"tools|reached|scripts/test-selection.sh|a.input"' \
+    '"tools|unreached|scripts/test-selection.sh|b.input"' '"tools|prepared|scripts/test-selection.sh|\$VGS_TEST_PREPARED"' <<<$'#!/bin/sh\nexit 0'
+  if [[ $variant == control ]]; then
+    plant "$d/scripts/validate" '"$area" "$run_selection"' '"$area" battery'
+    commit "$d" control
+  fi
+  printf 'changed\n' >"$d/a.input"
+  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate tools "${argv[@]}" 2>&1)" || status=$?
+  last="$(grep '^validate:' <<<"$out" | tail -n 1)" || last=""
+  if [[ $variant == control ]]; then
+    if [[ $last == "validate: lanes=tools selection=battery" && $last != "validate: lanes=tools selection=$want" ]]; then
+      ok "control: a copy that always claims battery fails $name"
+    else
+      fail "control: the copy that always claims battery: last=[$last] want selection=battery, not $want"
+    fi
+  elif [[ $status == 0 && $last == "validate: lanes=tools selection=$want" ]]; then
+    ok "$name reports selection=$want last"
+  else
+    fail "$name: exit=$status last=[$last] want selection=$want"; printf '%s\n' "$out" | sed 's/^/        /'
+  fi
+}
+parallel_cases selection_case selection \
+  '--full|--full|battery|' \
+  '--changed|--changed HEAD|all|' \
+  '--skip-unprepared|--full --skip-unprepared|subset|' \
+  '--changed|--changed HEAD|all|control'
 
 # A signal to validate ends every running row's processes and removes the
 # run's scratch directory. Each row holds a lock with a sleep that outlives
