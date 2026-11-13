@@ -126,6 +126,7 @@ FocusScope {
         Section {
             width: parent.width
             title: "Agent review"
+            description: "The review runs only with paru. Yay keeps its own review menus."
             rowSpacing: Theme.stack.row
 
             Field {

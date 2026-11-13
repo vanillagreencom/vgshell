@@ -47,22 +47,30 @@ try{
   }
   assert.ok(!world.calls().some(call=>call.name==="doas"),name+": doas persist needs no drop");
  }
- // A saved decline and VGS-only full build order bypass the hook. A newly
- // added third-party dependency restores it even for a VGS target.
- for(const [name,settings,order,expected] of [
-  ["saved",{enabled:false,agent:"claude",command:""},null,0],
-  ["publisher",{agent:"claude",command:""},"AUR TARGET vgshell-git vgshell-git",0],
-  ["publisher-dependency",{agent:"claude",command:""},"AUR TARGET vgshell-git vgshell-git\nAUR DEP dependency dependency",1]
- ]){
-  const world=create(path.join(scratch,name),{settings,choices:expected?["Review"]:[]});
+ // A saved decline and VGS-only full build order bypass the hook, on the
+ // upgrade route and on the VGS rebuild route pipeline.sh runs. A newly
+ // added third-party dependency restores it even for a VGS target. A hook
+ // that asks anyway gets "Install without review", so its question reaches
+ // the counts. OWNER, when given, is a control's copy of bin/vgshell-pkg.
+ const upgrade=["run","upgrade","--manager","aur"];
+ const publisherReinstall=["publisher-reinstall",{agent:"claude",command:""},"AUR TARGET vgshell-git vgshell-git",0,["run","reinstall","--manager","aur","vgshell-git"]];
+ function bypass([name,settings,order,expected,args],folder=name,owner=undefined){
+  const world=create(path.join(scratch,folder),{settings,choices:expected?["Review"]:["Install without review"]});
+  if(owner!==undefined)world.owner=owner;
   write(world,"dependency-world.json",{pending:["vgshell-git"],...(order?{buildOrder:{upgrade:order,"vgshell-git":order}}:{})});
   write(world,"hook-world.json",{packages:[{base:"vgshell-git"},{base:"dependency"}]});
-  const result=tty(world,["run","upgrade","--manager","aur"]);
+  const result=tty(world,args);
   assert.equal(result.status,0,name+": "+result.stdout+result.stderr);
   assert.equal(agents(world).length,expected,name+": agent count");
   assert.equal(offers(world).length,expected?1:0,name+": review questions");
   assert.equal(builds(world)[0].args.includes("--skipreview"),expected===0,name+": helper review choice");
  }
+ for(const row of [
+  ["saved",{enabled:false,agent:"claude",command:""},null,0,upgrade],
+  ["publisher",{agent:"claude",command:""},"AUR TARGET vgshell-git vgshell-git",0,upgrade],
+  publisherReinstall,
+  ["publisher-dependency",{agent:"claude",command:""},"AUR TARGET vgshell-git vgshell-git\nAUR DEP dependency dependency",1,upgrade]
+ ])bypass(row);
  // paru --gendb follows a successful build; a built devel base it leaves
  // untracked is a result line, never a failed install.
  for(const [name,untracked] of [["devel-tracked",[]],["devel-untracked",["vgshell-git"]]]){
@@ -109,20 +117,15 @@ try{
  // Agent failures choose the other installed agent first. Skipping the AUR
  // skips the step, status 0, as a Skip of every named package does. A
  // missing agent is never started, and a signal during the agent cancels
- // the step with no further question.
- for(const [name,marker,choices,expected,offerCount,status,built,options] of [
-  ["other-agent","agent-failed-once",["Review","@selected"],2,2,0,1,{}],
-  ["skip-aur","agent-failed-once",["Review","Skip AUR packages"],1,2,0,0,{}],
-  ["no-verdict","agent-no-verdict",["Review","Skip AUR packages"],1,2,0,0,{}],
-  ["unsafe-verdict","agent-unsafe",["Review","Skip AUR packages"],1,2,0,0,{}],
-  ["missing-agent",null,["Review","Skip AUR packages"],0,2,0,0,{agents:false}],
-  ["agent-interrupted","agent-interrupted",["Review"],1,1,130,0,{}],
-  ["owner-terminated","agent-terminates-owner",["Review"],1,1,143,0,{}],
-  ["drop-no-session","pkcheck-no-session",["Review"],1,1,0,1,{}],
-  ["drop-no-session-authorized",["pkcheck-no-session","pkcheck-authorized"],["Review"],0,1,1,0,{}],
-  ["drop-failed","pkcheck-failed",["Review"],0,1,1,0,{}]
- ]){
-  const world=create(path.join(scratch,name),{choices,...options});
+ // the step with no further question. OWNER, when given, is a control's
+ // copy of bin/vgshell-pkg.
+ const otherAgent=["other-agent","agent-failed-once",["Review","@selected"],2,2,0,1,{}];
+ // command.js's agent-failed-once output, and that line as failureLines
+ // masks a URL's user and password and a token (failure-test.js rows).
+ const agentLine="agent limit https://user:secret@example.org/ ghp_12345678901234567890",shownLine="agent limit https://\u2026@example.org/ \u2026";
+ function agentFailure([name,marker,choices,expected,offerCount,status,built,options],folder=name,owner=undefined){
+  const world=create(path.join(scratch,folder),{choices,...options});
+  if(owner!==undefined)world.owner=owner;
   for(const file of [].concat(marker??[]))write(world,file,"");
   if(name==="other-agent")write(world,"agent-mutates","");
   const result=tty(world,["run","install","--manager","aur","widget"]);
@@ -130,6 +133,15 @@ try{
   assert.equal(agents(world).length,expected,name);
   assert.equal(offers(world).length,offerCount,name+": review questions");
   if(name==="missing-agent")assert.deepEqual(offers(world)[1].offered,["Install without review","Skip AUR packages"],name+": no other agent to offer");
+  // The question after the failed agent, shown once its own output ends,
+  // names that agent and holds its last line.
+  if(name==="other-agent"){
+   const delivered=judge.transcriptLines(result.stdout).join(" ").replace(/\s+/g," "),ended=delivered.indexOf(agentLine);
+   assert.ok(ended>=0,name+": the agent's own output reaches the terminal");
+   const after=ended+agentLine.length,shown=delivered.indexOf(shownLine,after);
+   assert.ok(shown>=0,name+": the offer shows the agent's last line");
+   assert.ok(delivered.slice(after,shown).includes("Claude Code"),name+": the offer names the failed agent");
+  }
   // A drop that could not run lets the review go on only when polkit
   // answers that nothing is held; any other failed drop ends it, with the
   // command's own cause on the diagnostic line.
@@ -149,6 +161,18 @@ try{
   const sentence=result.stdout.slice(result.stdout.lastIndexOf("vgshell: package-review:"));
   assert.ok(!sentence.includes("user:secret")&&!sentence.includes("ghp_"),name+": sanitized reported last line");
  }
+ for(const row of [
+  otherAgent,
+  ["skip-aur","agent-failed-once",["Review","Skip AUR packages"],1,2,0,0,{}],
+  ["no-verdict","agent-no-verdict",["Review","Skip AUR packages"],1,2,0,0,{}],
+  ["unsafe-verdict","agent-unsafe",["Review","Skip AUR packages"],1,2,0,0,{}],
+  ["missing-agent",null,["Review","Skip AUR packages"],0,2,0,0,{agents:false}],
+  ["agent-interrupted","agent-interrupted",["Review"],1,1,130,0,{}],
+  ["owner-terminated","agent-terminates-owner",["Review"],1,1,143,0,{}],
+  ["drop-no-session","pkcheck-no-session",["Review"],1,1,0,1,{}],
+  ["drop-no-session-authorized",["pkcheck-no-session","pkcheck-authorized"],["Review"],0,1,1,0,{}],
+  ["drop-failed","pkcheck-failed",["Review"],0,1,1,0,{}]
+ ])agentFailure(row);
  // Paru's leading flags and untrusted tracked metadata cannot widen the
  // file-manager path or installed-script lookup before review.
  for(const [name,scenario] of [
@@ -222,6 +246,28 @@ try{
   const world=create(path.join(scratch,"settings-"+mode),{settings:{agent:"",command:""}});
   const result=cp.spawnSync(process.execPath,[path.join(__dirname,"settings.js"),world.root,mode],{env:world.env,encoding:"utf8",timeout:30000});
   assert.equal(result.status,0,result.stdout+result.stderr);
+ }
+ // Controls: a copy of the owner with one rule of pkg-review.js removed
+ // fails the case that holds the rule, at that rule's own assertion. The
+ // copy's bin/ is its own, so the launcher paru runs is the copy's; the
+ // rest of the checkout is linked.
+ const repo=path.resolve(__dirname,"../../..");
+ for(const [name,needle,replacement,rerun,fails] of [
+  // helperReviewCovered's named-target branch, which reinstall takes.
+  ["reinstall-reviewed","let targets = names;","let targets = [];",owner=>bypass(publisherReinstall,"control-reinstall-reviewed",owner),/^publisher-reinstall: (?:agent count|review questions|helper review choice)$/],
+  ["unnamed-agent",'"The " + plan.label + " review stopped without a result."','"The review stopped without a result."',owner=>agentFailure(otherAgent,"control-unnamed-agent",owner),/^other-agent: the offer names the failed agent$/],
+  ["unsaid-line",'if (last) said = " Its last line: "','if (false) said = " Its last line: "',owner=>agentFailure(otherAgent,"control-unsaid-line",owner),/^other-agent: the offer shows the agent's last line$/]
+ ]){
+  const tree=path.join(scratch,"owner-"+name);
+  fs.mkdirSync(tree);fs.cpSync(path.join(repo,"bin"),path.join(tree,"bin"),{recursive:true});
+  for(const entry of ["VERSION","shell","config","packaging"])fs.symlinkSync(path.join(repo,entry),path.join(tree,entry));
+  const file=path.join(tree,"bin/lib/pkg-review.js"),source=fs.readFileSync(file,"utf8");
+  assert.equal(source.split(needle).length-1,1,name+": one rule to remove");
+  fs.writeFileSync(file,source.replace(needle,replacement));
+  let caught=null;
+  try{rerun(path.join(tree,"bin/vgshell-pkg"));}catch(error){caught=error;}
+  // Node appends a diff after an assert.equal message; judge its own line.
+  assert.ok(caught?.code==="ERR_ASSERTION"&&fails.test(caught.message.split("\n")[0]),"the "+name+" mutant passes: "+(caught?.message??"no failure"));
  }
  console.log("test-package-review-runtime: ok");
 }finally{fs.rmSync(scratch,{recursive:true,force:true});}

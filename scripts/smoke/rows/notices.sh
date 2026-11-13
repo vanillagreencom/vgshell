@@ -528,6 +528,34 @@ update_words() {
     --record core/requirements-update --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Update requirements" -- "$core_vgshell" pkg run update "$@"
 }
 not_recorded_words() { [[ "$(recorded)" != "$(update_words "$@")" ]] && echo true || echo false; }
+# run_end_figure LABEL KEY, called right after release_runs: the AUR
+# update runs' end time, held-manager's and mixed's, as a recorded figure,
+# not a limit, since it carries no harm the person at the desktop sees.
+# The terminal writes the run's end only after they press its close key,
+# so the owner's work timed here runs before that prompt, in the terminal
+# they watch. The part they do see, the core reading the closed terminal's
+# record, is about 30 ms and unchanged from main. Jarvis decision
+# 2026-11-13, delegated authority, owner ask 1794578902. The line has
+# expect_run_end's form, with ceiling_ms=none, and a run that never ends
+# still fails at the poll bound. A key still busy has failed that poll, so
+# only another answer of the stamp fails after it.
+run_end_figure() { # LABEL KEY
+  local label="$1" key="$2" start start_us host_start_us end load
+  start="$(now_ms)" start_us="$(cpu_some_us)" host_start_us="$(host_cpu_some_us)"
+  expect_poll "$label" idle key_idle "$key"
+  if ! end="$(run_idle_at "$key")"; then
+    fail "$label: the end stamp's read failed${end:+: $end}"
+  elif [[ $end =~ ^[0-9]+$ ]]; then
+    load="$(load_average)"
+    printf '  latency_run_end_ms=%d ceiling_ms=none cpu_some_pct=%s host_cpu_some_pct=%s load=%s load_per_core=%s\n' \
+      $(( end > start ? end - start : 0 )) \
+      "$(cpu_some_pct "$start_us" "$(cpu_some_us)" $(( $(now_ms) - start )))" \
+      "$(cpu_some_pct "$host_start_us" "$(host_cpu_some_us)" $(( $(now_ms) - start )))" \
+      "${load:-unmeasured}" "$(load_per_core "$load")"
+  elif [[ $end != busy ]]; then
+    fail "$label: the end stamp read ${end:-nothing}"
+  fi
+}
 floor_shown='["acme.floor", ["vgs-smoke-old"], ["vgs-smoke-old"]'
 old_version 1.9.0 || fail "the stand-in below the floor is not written"
 rescan "a rescan after adding acme.floor starts"
@@ -623,7 +651,7 @@ expect_poll "Update hands the terminal the AUR package, not the first-listed pac
 expect "control: the held-manager update did not hand the terminal the first-listed package" true not_recorded_words vgs-smoke-old-pkg
 old_version 2.0.0 || fail "the held-manager stand-in is updated"
 release_runs
-expect_run_end "the held-manager update run ends" core/requirements-update
+run_end_figure "the held-manager update run ends" core/requirements-update
 expect_poll "the read after the held-manager update settles the notice" settled install_settled
 expect "the held-manager update notice closes" null notice_shown
 # A notice that holds an outdated command and a missing one of the same
@@ -680,30 +708,7 @@ forget_record
 type_keys -k Return || fail "sending Return for the mixed step failed"
 expect_poll "one press hands the terminal the update and the install" "$(update_words --manager aur vgs-smoke-old-aur --install vgs-smoke-extra-git)" recorded
 release_runs
-mixed_start="$(now_ms)" mixed_start_us="$(cpu_some_us)" mixed_host_start_us="$(host_cpu_some_us)"
-# The mixed run's end time is a recorded figure, not a limit: it carries
-# no harm the person at the desktop sees. The terminal writes the run's
-# end only after they press its close key, so the owner's work timed here
-# runs before that prompt, in the terminal they watch. The part they do
-# see, the core reading the closed terminal's record, is about 29 ms and
-# unchanged from main. Jarvis decision 2026-11-13, delegated authority,
-# owner ask 1794578902. The line has expect_run_end's form, with
-# ceiling_ms=none; a run that never ends still fails at the poll bound.
-expect_poll "the mixed run ends" idle key_idle core/requirements-update
-# A key still busy has failed the poll above, so only another answer
-# fails here.
-if ! mixed_end="$(run_idle_at core/requirements-update)"; then
-  fail "the mixed run's end stamp: the read failed${mixed_end:+: $mixed_end}"
-elif [[ $mixed_end =~ ^[0-9]+$ ]]; then
-  mixed_load="$(load_average)"
-  printf '  latency_run_end_ms=%d ceiling_ms=none cpu_some_pct=%s host_cpu_some_pct=%s load=%s load_per_core=%s\n' \
-    $(( mixed_end > mixed_start ? mixed_end - mixed_start : 0 )) \
-    "$(cpu_some_pct "$mixed_start_us" "$(cpu_some_us)" $(( $(now_ms) - mixed_start )))" \
-    "$(cpu_some_pct "$mixed_host_start_us" "$(host_cpu_some_us)" $(( $(now_ms) - mixed_start )))" \
-    "${mixed_load:-unmeasured}" "$(load_per_core "$mixed_load")"
-elif [[ $mixed_end != busy ]]; then
-  fail "the mixed run's end stamp: got ${mixed_end:-nothing}"
-fi
+run_end_figure "the mixed run ends" core/requirements-update
 expect_poll "the read after the mixed run settles the notice" settled install_settled
 expect "a mixed run that changed nothing names both packages" '{"kind": "unchanged", "left": [{"kind": "outdated", "name": "vgs-smoke-old-aur", "version": "1.9.0", "floor": "2.0.0"}, {"kind": "missing", "name": "vgs-smoke-extra-git", "optional": true}]}' notice_failure
 expect "one line of the kept mixed notice names the missing package beside the outdated one" true line_holds vgs-smoke-old-aur 1.9.0 vgs-smoke-extra-git
