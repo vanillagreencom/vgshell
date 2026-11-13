@@ -1489,8 +1489,8 @@ latency_pressure_check() { # ROW READING MS CPU_SOME_PCT BUDGET_MS
 # or 0 when the topology is unreadable. Host load and load per core are
 # logged beside a reading and judge none: SMT siblings can slow a task
 # without a wait any pressure file counts, and a row that needs a quiet
-# host for that reason states why on its tracker item
-# (docs/architecture/validation.md § Latency budgets).
+# host for that reason states why on its tracker item and takes smoke_hold
+# below (docs/architecture/validation.md § Latency budgets).
 latency_cores="$(sort -u /sys/devices/system/cpu/cpu[0-9]*/topology/core_cpus_list 2>/dev/null | wc -l)" || latency_cores=""
 # load_per_core LOAD: a 1-minute load average as /proc/loadavg writes it
 # over latency_cores, floored to two decimals; `unmeasured` when either
@@ -1509,6 +1509,196 @@ load_per_core() {
 load_average() {
   local load rest
   { read -r load rest </proc/loadavg && printf '%s\n' "$load"; } 2>/dev/null || true
+}
+# The quiet-host hold (VGS-2530). Two flock(1) files in smoke_hold_dir,
+# which qml-smoke.sh's driver creates before the first world and every
+# world sees read-only, carry it. Every row that no other row holds keeps
+# vgs-smoke-hold shared while it runs (smoke_hold_row), and smoke_hold
+# takes it exclusively around a timed window, so the window starts once
+# every other world's current row has ended. Linux grants a new shared
+# flock while an exclusive one waits, so a waiting hold would starve
+# behind rows that keep starting. vgs-smoke-gate stops that: a row start
+# takes the gate, then its shared lock; a hold drops its own world's
+# shared lock, then takes the gate, then the exclusive lock. In that one
+# order two worlds that both want the hold cannot deadlock. Each lock wait
+# ends at the driver's no-progress bound, qml_smoke_idle_secs, and the gate
+# is dropped then, so one paused or stuck world stalls no other world past
+# it. A row start whose gate wait reaches the bound still takes its shared
+# lock; only one whose shared wait reaches it, behind another world's hold
+# for a whole bound, goes on without it. A timed window whose wait reaches
+# the bound runs without the hold and is judged as one without it.
+# Each lock lives in a holder process of its own, never in a descriptor
+# of this shell, so no process a row or a hold starts inherits it (D053
+# records that leak through an inherited lock), the shell start-order
+# starts inside its window included. A killed run's PID namespace ends
+# its holders, which frees their locks.
+smoke_hold_depth=0 smoke_hold_shared="" smoke_hold_pid="" smoke_hold_retake=false
+# smoke_lock_take MODE NAME: flock MODE, -s or -x, on smoke_hold_dir's
+# vgs-smoke-NAME, opened read-only and held by a background process that
+# starts nothing more, its pid in smoke_lock_pid. Waits until the lock is
+# held or qml_smoke_idle_secs have passed, printing a line every half
+# bound, at most each minute, so the driver's no-progress stop, which
+# fires at that bound, reads the wait as progress (qml-smoke.sh). Returns
+# 1 with the cause in smoke_lock_cause, which starts `wait-bound` for a
+# wait that reached the bound.
+smoke_lock_take() { # MODE NAME
+  local answer="$sandbox/smoke-lock.$2.$BASHPID.$SRANDOM" said="" status=0 waited=0 bound="${qml_smoke_idle_secs:-}" beat next
+  smoke_lock_pid="" smoke_lock_cause=""
+  if [[ -z ${smoke_hold_dir:-} ]]; then smoke_lock_cause=lock-dir-unset; return 1; fi
+  if [[ ! $bound =~ ^[1-9][0-9]*$ ]]; then smoke_lock_cause="wait-bound-unread value=[$bound]"; return 1; fi
+  beat=$((bound / 2))
+  ((beat >= 1)) || beat=1
+  ((beat <= 60)) || beat=60
+  rm -f -- "$answer" "$answer.new" "$answer.log"
+  # flock(1) locks the descriptor bash opened, and the exec'd sleep keeps
+  # it. flock -w gives up at the bound with the -E status, 75. The holder
+  # writes its one outcome, held or flock's status, to a new file and
+  # renames it onto ANSWER, so ANSWER is whole whenever it exists. Each take
+  # names its own ANSWER: a gate take and a hold take can be live at once.
+  "$BASH" -c 'flock -E 75 -w "$2" "$1" 3 && { echo held >"$3.new" && mv -- "$3.new" "$3" && exec sleep infinity >/dev/null 2>&1; exit; }
+    echo "flock-status=$?" >"$3.new" && mv -- "$3.new" "$3"' \
+    smoke-lock "$1" "$bound" "$answer" </dev/null >/dev/null 2>"$answer.log" 3<"$smoke_hold_dir/vgs-smoke-$2" &
+  smoke_lock_pid=$!
+  next=$((SECONDS + beat))
+  # The answer is polled every 50 ms, so an uncontended take costs about one
+  # poll; a holder gone with no answer ends the wait.
+  while [[ ! -e $answer ]] && kill -0 "$smoke_lock_pid" 2>/dev/null; do
+    if ((SECONDS >= next)); then
+      waited=$((waited + beat)) next=$((next + beat))
+      printf 'qml-smoke: smoke-hold waiting lock=%s mode=%s secs=%s\n' "$2" "$1" "$waited"
+    fi
+    sleep 0.05
+  done
+  [[ ! -e $answer ]] || IFS= read -r said <"$answer" || said=""
+  if [[ $said == held ]]; then
+    rm -f -- "$answer" "$answer.log"
+    return 0
+  fi
+  wait "$smoke_lock_pid" || status=$?
+  if [[ $said == flock-status=75 ]]; then
+    smoke_lock_cause="wait-bound secs=$bound lock=$2 mode=$1"
+  else
+    printf -v smoke_lock_cause 'holder-exited status=%s said=%q log=%q' "$status" "$said" "$(tr '\n' ' ' <"$answer.log" 2>/dev/null)"
+  fi
+  rm -f -- "$answer" "$answer.new" "$answer.log"
+  smoke_lock_pid=""
+  return 1
+}
+# smoke_lock_drop PID: end a holder smoke_lock_take started, which frees
+# its lock, and reap it. Holders end only here or with the world, so PID
+# still names this shell's own unreaped child.
+smoke_lock_drop() { # PID
+  kill -TERM "$1" 2>/dev/null || true
+  wait "$1" 2>/dev/null || true
+}
+# smoke_hold_share: this world's shared lock, taken behind the gate, its
+# holder in smoke_hold_shared. The gate only keeps a waiting hold from
+# starving, so a gate wait that reached the bound, its cause left in
+# smoke_hold_gate_cause, still takes the shared lock. Returns 1 with the
+# cause in smoke_lock_cause.
+smoke_hold_share() {
+  local gate=""
+  smoke_hold_gate_cause=""
+  if smoke_lock_take -x gate; then
+    gate=$smoke_lock_pid
+  elif [[ $smoke_lock_cause == wait-bound* ]]; then
+    smoke_hold_gate_cause=$smoke_lock_cause
+  else
+    return 1
+  fi
+  if ! smoke_lock_take -s hold; then
+    [[ -z $gate ]] || smoke_lock_drop "$gate"
+    return 1
+  fi
+  smoke_hold_shared=$smoke_lock_pid
+  [[ -z $gate ]] || smoke_lock_drop "$gate"
+}
+# smoke_hold_row begin|unwind|end NAME: smoke_row's boundary. A row that no
+# other row holds takes the shared lock as it begins, printing how long it
+# waited, and drops it as it ends. unwind, after the row's source returns,
+# ends a hold that a failed command left open inside its window.
+smoke_hold_row() { # begin|unwind|end NAME
+  local started
+  case "$1" in
+    begin)
+      smoke_hold_depth=$((smoke_hold_depth + 1))
+      ((smoke_hold_depth == 1)) || return 0
+      started="$(now_ms)"
+      if smoke_hold_share; then
+        printf 'qml-smoke: smoke-hold row=%s lock=shared wait_ms=%s%s\n' "$2" "$(( $(now_ms) - started ))" "${smoke_hold_gate_cause:+ gate=none cause=[$smoke_hold_gate_cause]}"
+      elif [[ $smoke_lock_cause == wait-bound* ]]; then
+        printf 'qml-smoke: smoke-hold row=%s lock=shared hold=none cause=[%s]\n' "$2" "$smoke_lock_cause"
+      else
+        row_class=operation fail "$2: smoke-hold lock=shared unavailable cause=[$smoke_lock_cause]"
+      fi ;;
+    unwind)
+      if ((smoke_hold_depth == 1)) && [[ -n $smoke_hold_pid ]]; then smoke_hold_end; fi ;;
+    end)
+      smoke_hold_depth=$((smoke_hold_depth - 1))
+      ((smoke_hold_depth == 0)) || return 0
+      if [[ -n $smoke_hold_shared ]]; then
+        smoke_lock_drop "$smoke_hold_shared"
+        smoke_hold_shared=""
+      fi ;;
+    *) fail "smoke_hold_row: refused: phase=$1" ;;
+  esac
+}
+# smoke_hold ROW WINDOW CMD...: CMD, a row's timed window, between
+# smoke_hold_begin and smoke_hold_end, and CMD's status. A row whose window
+# is a block of its own code calls the two itself.
+smoke_hold() { # ROW WINDOW CMD...
+  smoke_hold_begin "$1" "$2"
+  shift 2
+  "$@"
+  local status=$?
+  smoke_hold_end
+  return "$status"
+}
+# smoke_hold_begin ROW WINDOW: drop this world's shared lock, take the
+# gate, then the exclusive lock, and drop the gate. A hold whose wait
+# reached the bound leaves the window to run without it; one that cannot
+# be taken for another cause also fails ROW as an operation failure.
+smoke_hold_begin() { # ROW WINDOW
+  local gate
+  smoke_hold_row_name="$1" smoke_hold_window="$2" smoke_hold_began="$(now_ms)" smoke_hold_taken="" smoke_hold_retake=false
+  if [[ -n $smoke_hold_shared ]]; then
+    smoke_lock_drop "$smoke_hold_shared"
+    smoke_hold_shared="" smoke_hold_retake=true
+  fi
+  if smoke_lock_take -x gate; then
+    gate=$smoke_lock_pid
+    if smoke_lock_take -x hold; then
+      smoke_hold_pid=$smoke_lock_pid
+      smoke_hold_taken="$(now_ms)"
+    fi
+    smoke_lock_drop "$gate"
+  fi
+  smoke_hold_cause=$smoke_lock_cause
+  if [[ -z $smoke_hold_pid && $smoke_hold_cause != wait-bound* ]]; then row_class=operation fail "$1: smoke-hold window=$2 unavailable cause=[$smoke_hold_cause]"; fi
+}
+# smoke_hold_end: drop the exclusive lock; print, beside the window's
+# readings, whether they were taken under the hold, how long it was waited
+# for and how long it was held; and take this world's shared lock again,
+# behind the gate, when the hold dropped it.
+smoke_hold_end() {
+  local ended
+  ended="$(now_ms)"
+  if [[ -n $smoke_hold_pid ]]; then
+    smoke_lock_drop "$smoke_hold_pid"
+    smoke_hold_pid=""
+    printf '  smoke_hold row=%s window=%s hold=held wait_ms=%s held_ms=%s\n' "$smoke_hold_row_name" "$smoke_hold_window" \
+      "$((smoke_hold_taken - smoke_hold_began))" "$((ended - smoke_hold_taken))"
+  else
+    printf '  smoke_hold row=%s window=%s hold=none cause=[%s]\n' "$smoke_hold_row_name" "$smoke_hold_window" "$smoke_hold_cause"
+  fi
+  if [[ $smoke_hold_retake == true ]] && ! smoke_hold_share; then
+    if [[ $smoke_lock_cause == wait-bound* ]]; then
+      printf 'qml-smoke: smoke-hold row=%s lock=shared hold=none cause=[%s]\n' "$smoke_hold_row_name" "$smoke_lock_cause"
+    else
+      row_class=operation fail "$smoke_hold_row_name: smoke-hold lock=shared unavailable after the hold cause=[$smoke_lock_cause]"
+    fi
+  fi
+  smoke_hold_retake=false
 }
 # click X Y: one left click at that layout position on the nested seat.
 # click_centre HOST_KEY ID: the same on the centre of a built instance.
@@ -4131,6 +4321,7 @@ smoke_row_secs() { # NAME MARK_MS MARK_CPU_US MARK_HOST_US
 smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started smoke_row_cpu_started smoke_row_host_started
+  smoke_hold_row begin "$1"
   smoke_row_started="$(smoke_row_mark "$smoke_rows_ms" "$(now_ms)")"
   smoke_row_cpu_started="$(smoke_row_mark "$smoke_rows_cpu_us" "$(cpu_some_us)")"
   smoke_row_host_started="$(smoke_row_mark "$smoke_rows_host_us" "$(host_cpu_some_us)")"
@@ -4157,6 +4348,7 @@ smoke_row() { # NAME [DIR]
     leak_row_end "$smoke_row_name" "$smoke_row_dir"
     leak_row_restore "$smoke_row_name" "$smoke_row_dir" true 1
     smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started" "$smoke_row_host_started"
+    smoke_hold_row end "$smoke_row_name"
     return 0
   fi
   # Every row starts with the pointer at rest, wherever the row before it
@@ -4200,11 +4392,12 @@ smoke_row() { # NAME [DIR]
     # The row reads no argument, as when qml-smoke.sh sourced it.
     set --
     source "$smoke_row_dir/$smoke_row_name.sh"
+    smoke_hold_row unwind "$smoke_row_name"
     if [[ $smoke_row_status != 0 ]]; then
       smoke_row_source_status=$smoke_row_status
       mapfile -d '' -t smoke_row_faults <"$smoke_row_fault"
       printf -v smoke_row_command '%q' "${smoke_row_faults[0]}"
-      if ! timeout "$stop_lock_wait_s" python3 - "$smoke_row_owner" "$smoke_row_children" "${shell_pid:-}" "${devices_pid[@]}" <<'PY'
+      if ! timeout "$stop_lock_wait_s" python3 - "$smoke_row_owner" "$smoke_row_children" "${shell_pid:-}" "${smoke_hold_shared:-}" "${devices_pid[@]}" <<'PY'
 import os, signal, sys, time
 owner = int(sys.argv[1])
 kept = set(map(int, sys.argv[2].split())) | {int(p) for p in sys.argv[3:] if p}
@@ -4268,7 +4461,7 @@ PY
       smoke_row_active_jobs=" $(jobs -pr) $(jobs -ps) "
       smoke_row_active_jobs="${smoke_row_active_jobs//$'\n'/ }"
       for smoke_row_child in $(jobs -p); do
-        case " $smoke_row_children ${shell_pid:-} ${devices_pid[*]} " in
+        case " $smoke_row_children ${shell_pid:-} ${smoke_hold_shared:-} ${devices_pid[*]} " in
           *" $smoke_row_child "*) ;;
           *)
             # Bash's Done state already acknowledges that job's exit.
@@ -4346,6 +4539,7 @@ PY
   leak_row_restore "$smoke_row_name" "$smoke_row_dir" "$smoke_row_failed" "$smoke_row_original_status"
   [[ $smoke_row_top != true ]] || row_log_tail "$smoke_row_name"
   smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started" "$smoke_row_host_started"
+  smoke_hold_row end "$smoke_row_name"
   # A failed restoration leaves no valid starting world for a later row.
   [[ $smoke_row_abandon_status == 0 ]] || exit "$smoke_row_source_status"
 }

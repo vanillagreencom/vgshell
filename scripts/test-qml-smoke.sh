@@ -14,6 +14,15 @@
 # and that a unit's stop mid-row leaves the attempt's closing reading.
 # --case unmeasured checks unreached rows before and after world setup.
 # --case late-exit stops real initial and resumed worlds during EXIT.
+# --case hold runs real worlds against harness.sh's quiet-host hold. While
+# one run holds the hold, a world with a 15 s no-progress bound gives up
+# each lock wait at that bound and finishes, its window logging hold=none;
+# its control, a harness whose lock waits have no bound, is still waiting
+# at twice the bound.
+# Once the holding run is killed, one world's timed window waits for the
+# other world's current row to end, and that world starts no row until the
+# hold ends. Its control takes the hold shared, not exclusively, and its
+# window must overlap the other world's row.
 # The full run also plants a row that goes silent, with TERM ignored, after
 # a row that prints slowly past the bound: the driver's no-progress stop
 # goes unanswered, so the driver ends the world through its namespace init
@@ -35,7 +44,7 @@ end_run() {
 }
 if [[ ${1-} == --case && $# == 2 ]]; then
   selected_case=$2
-  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness|unmeasured) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
+  case "$selected_case" in resume|cancellation|producer|completion|late-exit|popup-readiness|unmeasured|hold) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
 elif (($#)); then
   echo 'test-qml-smoke: refused: arguments' >&2
   exit 2
@@ -121,6 +130,9 @@ mkdir -- "$TMP_ROOT/tree"
 source "$repo/scripts/smoke/tree.sh"
 tree_harness_copy "$repo" "$TMP_ROOT/tree" "$repo"
 tree="$TMP_ROOT/tree"
+# The driver creates the quiet-host hold's lock files in the checkout's
+# common git directory.
+git -C "$tree" init -q
 # The fixture checkout lives below masked /tmp. Declare it read-only at
 # each world entry, just as --tree preserves an exported runtime input.
 preserve_checkout() {
@@ -586,6 +598,194 @@ PY
   preserve_checkout
   printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
 fi
+
+if [[ $selected_case == all || $selected_case == hold ]]; then
+  # A holder that exits without an answer ends the take. Run harness.sh's
+  # own smoke_lock_take against a lock directory with no vgs-smoke-gate,
+  # so the holder's open fails and it exits before it writes: the take
+  # returns 1 within the deadline with a holder-exited cause. Its control
+  # drops the holder liveness check from the poll and must outlast its
+  # deadline (timeout's 124).
+  take_dir="$TMP_ROOT/take"
+  mkdir -- "$take_dir" "$take_dir/locks"
+  sed -n '/^smoke_lock_take() {/,/^}/p' "$repo/scripts/smoke/harness.sh" >"$take_dir/take.sh"
+  python3 - "$take_dir/take.sh" "$take_dir/take-no-liveness.sh" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text()
+assert text.startswith('smoke_lock_take() {') and text.endswith('\n}\n'), 'extract'
+old = ' && kill -0 "$smoke_lock_pid" 2>/dev/null'
+assert text.count(old) == 1, 'mutation-source'
+Path(sys.argv[2]).write_text(text.replace(old, ''))
+PY
+  take() { # FUNCTIONS DEADLINE: the take's exit status and its output
+    local status=0 out
+    out="$(timeout -k 2 "$2" env -i PATH="$PATH" HOME="$take_dir" TMPDIR="$take_dir" LC_ALL=C "$BASH" -c '
+      set -u
+      source "$1"
+      sandbox=$2 smoke_hold_dir=$2/locks qml_smoke_idle_secs=20
+      status=0
+      smoke_lock_take -x gate || status=$?
+      printf "status=%s cause=%s\n" "$status" "$smoke_lock_cause"' take "$1" "$take_dir" 2>&1)" || status=$?
+    printf 'exit=%s %s\n' "$status" "$out"
+  }
+  if ! got="$(take "$take_dir/take.sh" 5)" || [[ $got != 'exit=0 status=1 cause=holder-exited '* ]]; then
+    echo "test-qml-smoke: case=hold-holder-exited got=[$got]" >&2
+    exit 1
+  fi
+  if ! got="$(take "$take_dir/take-no-liveness.sh" 3)" || [[ $got != 'exit=124 ' ]]; then
+    echo "test-qml-smoke: case=hold-control-no-liveness got=[$got]" >&2
+    exit 1
+  fi
+  echo 'test-qml-smoke: case=hold-holder-exited result=pass control=rejected'
+  # The rows append to one events file in the log directory both worlds
+  # share, so its line order is the order of their steps. Each wait polls
+  # that file for the line it waits on.
+  hold_reader='hold_events="$smoke_log_dir/hold-events"
+hold_seen() { [[ -f $hold_events ]] && grep -qxF -- "$1" "$hold_events"; }'
+  cat >"$tree/scripts/smoke/rows/hold-forever.sh" <<'ROW'
+# inputs: scripts/smoke/harness.sh
+hold_forever() { printf 'K held\n' >>"$smoke_log_dir/hold-events"; sleep 600; }
+smoke_hold hold-forever window hold_forever
+ROW
+  printf '# inputs: scripts/smoke/harness.sh\nsmoke_hold hold-bounded window true\n' >"$tree/scripts/smoke/rows/hold-bounded.sh"
+  # The window starts while the other world is in tick-1, and looks for
+  # tick-2 starting while it holds.
+  cat >"$tree/scripts/smoke/rows/hold-window.sh" <<ROW
+# inputs: scripts/smoke/harness.sh
+$hold_reader
+for _ in \$(seq 1 1200); do hold_seen 'B start 1' && break; sleep 0.1; done
+printf 'A requested\n' >>"\$hold_events"
+hold_window() {
+  printf 'A held\n' >>"\$hold_events"
+  for _ in \$(seq 1 20); do hold_seen 'B start 2' && break; sleep 0.1; done
+  printf 'A release\n' >>"\$hold_events"
+}
+smoke_hold hold-window window hold_window
+ROW
+  # tick-1 stays open until the hold is requested, then looks for the
+  # window starting before the row ends.
+  cat >"$tree/scripts/smoke/rows/tick-1.sh" <<ROW
+# inputs: scripts/smoke/harness.sh
+$hold_reader
+printf 'B start 1\n' >>"\$hold_events"
+for _ in \$(seq 1 1200); do hold_seen 'A requested' && break; sleep 0.1; done
+for _ in \$(seq 1 30); do hold_seen 'A held' && break; sleep 0.1; done
+printf 'B end 1\n' >>"\$hold_events"
+ROW
+  for tick in 2 3 4; do
+    printf '# inputs: scripts/smoke/harness.sh\nprintf '\''B start %s\\nB end %s\\n'\'' >>"$smoke_log_dir/hold-events"\n' "$tick" "$tick" >"$tree/scripts/smoke/rows/tick-$tick.sh"
+  done
+  printf '%s\n' "${core[@]}" hold-forever hold-bounded hold-window tick-1 tick-2 tick-3 tick-4 >"$tree/scripts/smoke/rows.list"
+  cat >"$TMP_ROOT/hold-case.py" <<'PY'
+import json, os, pathlib, re, signal, subprocess, sys, time
+tree, output, mode = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+output.mkdir()
+def start(name, rows, logs, idle=None):
+    log = output / (name + '.log')
+    environment = dict(os.environ)
+    if idle:
+        environment['VGS_SMOKE_IDLE_SECS'] = idle
+    with log.open('wb') as stream:
+        child = subprocess.Popen(['env', '--default-signal=INT,QUIT', str(tree / 'scripts/qml-smoke.sh'), '--rows', rows, '--log-dir', str(logs)],
+                                 stdout=stream, stderr=subprocess.STDOUT, env=environment)
+    return child, log
+def finish(child, log, bound):
+    try:
+        child.wait(timeout=bound)
+    except subprocess.TimeoutExpired:
+        print(log.read_text(errors='replace'), file=sys.stderr)
+        raise AssertionError(('run-did-not-end', log.name, bound))
+def events(logs):
+    path = logs / 'hold-events'
+    return path.read_text().splitlines() if path.exists() else []
+if mode == 'shipped':
+    # A world killed while it holds the hold: the driver's USR2 kills the
+    # world's namespace init, as its no-progress stop does.
+    logs = output / 'killed'
+    # Its 900 s no-progress bound outlasts its 600 s window, which
+    # outlasts both bounded worlds below: at most seven 15 s waits, then a
+    # control that waits 30 s, each behind a world start.
+    child, log = start('killed', 'hold-forever', logs, idle='900')
+    deadline = time.monotonic() + 300
+    while events(logs) != ['K held'] and child.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert events(logs) == ['K held'], ('killed-run-not-holding', events(logs), log.read_text(errors='replace'))
+    # While K holds, a world whose no-progress bound is 15 s, above the
+    # silent steps of this tree's stub core rows, gives up each lock wait at
+    # that bound: its rows start without the shared lock and its window
+    # runs with hold=none, and it finishes while K still holds.
+    bounded, bounded_log = start('bounded', 'hold-bounded', output / 'bounded', idle='15')
+    finish(bounded, bounded_log, 400)
+    text = bounded_log.read_text(errors='replace')
+    assert bounded.returncode == 0, ('bounded-exit', bounded.returncode, text)
+    assert child.poll() is None and events(logs) == ['K held'], ('holder-ended-before-bound', text)
+    assert re.search(r'^qml-smoke: smoke-hold row=bar lock=shared hold=none cause=\[wait-bound secs=15 lock=hold mode=-s\]$', text, re.M), text
+    assert re.search(r'^  smoke_hold row=hold-bounded window=window hold=none cause=\[wait-bound secs=15 lock=hold mode=-x\]$', text, re.M), text
+    # Control: the same world over a harness whose holder waits with no
+    # bound is still waiting, with no wait-bound line, at twice the bound.
+    harness = tree / 'scripts/smoke/harness.sh'
+    original = harness.read_text()
+    bounded_wait = 'flock -E 75 -w "$2" "$1" 3'
+    assert original.count(bounded_wait) == 1
+    harness.write_text(original.replace(bounded_wait, 'flock -E 75 "$1" 3'))
+    try:
+        unbounded, unbounded_log = start('unbounded', 'hold-bounded', output / 'unbounded', idle='15')
+        deadline = time.monotonic() + 600
+        waited = 0
+        while unbounded.poll() is None and waited < 30 and time.monotonic() < deadline:
+            time.sleep(1)
+            waited = max([int(s) for s in re.findall(r'^qml-smoke: smoke-hold waiting lock=hold mode=-s secs=([0-9]+)$', unbounded_log.read_text(errors='replace'), re.M)] or [0])
+        text = unbounded_log.read_text(errors='replace')
+        assert waited >= 30 and unbounded.poll() is None and 'wait-bound' not in text, ('control-unbounded-wait-ended', waited, text)
+        unbounded.send_signal(signal.SIGTERM)
+        finish(unbounded, unbounded_log, 120)
+    finally:
+        harness.write_text(original)
+    assert child.poll() is None and events(logs) == ['K held'], ('holder-ended-before-control', text)
+    print(json.dumps(dict(case='hold-control-unbounded', waited_secs=waited, result='rejected')), flush=True)
+    child.send_signal(signal.SIGUSR2)
+    finish(child, log, 60)
+    assert re.search(r'^qml-smoke: no-progress stop=unanswered world=ended ', log.read_text(errors='replace'), re.M), log.read_text(errors='replace')
+logs = output / 'pair'
+window = start('window', 'hold-window', logs)
+ticks = start('ticks', 'tick-1,tick-2,tick-3,tick-4', logs)
+finish(*window, 600)
+finish(*ticks, 600)
+for child, log in (window, ticks):
+    assert child.returncode == 0, (log.name, child.returncode, log.read_text(errors='replace'))
+text = window[1].read_text(errors='replace')
+assert re.search(r'^  smoke_hold row=hold-window window=window hold=held wait_ms=[0-9]+ held_ms=[0-9]+$', text, re.M), text
+# The window waits for tick-1 to end, and tick-2 starts only after the
+# window ends.
+want = ['B start 1', 'A requested', 'B end 1', 'A held', 'A release'] + [f'B {edge} {n}' for n in (2, 3, 4) for edge in ('start', 'end')]
+got = events(logs)
+if mode == 'shipped':
+    assert got == want, ('order', got)
+    print(json.dumps(dict(case='hold', events=got, result='pass')), flush=True)
+else:
+    assert got != want, ('control-window-did-not-overlap', got)
+    print(json.dumps(dict(case='hold-control-shared', events=got, result='rejected')), flush=True)
+PY
+  timeout -k 2 1500 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \
+    python3 "$TMP_ROOT/hold-case.py" "$tree" "$TMP_ROOT/hold-shipped" shipped
+  python3 - "$tree/scripts/smoke/harness.sh" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '    if smoke_lock_take -x hold; then\n'
+assert text.count(old) == 1
+changed = text.replace(old, '    if smoke_lock_take -s hold; then\n')
+assert changed != text
+path.write_text(changed)
+PY
+  timeout -k 2 1500 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \
+    python3 "$TMP_ROOT/hold-case.py" "$tree" "$TMP_ROOT/hold-control" control
+  cp -- "$repo/scripts/smoke/harness.sh" "$tree/scripts/smoke/harness.sh"
+  printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
+fi
+[[ $selected_case != hold ]] || end_run
 
 run_case() {
   local label="$1" destination="${2:-$TMP_ROOT/$1}" completed="${3-}" status=0
