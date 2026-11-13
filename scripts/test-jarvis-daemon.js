@@ -768,7 +768,8 @@ async function inside() {
         child.stdin.on("error", error => { if (error.code !== "EPIPE") throw error; });
         const closed = once(child, "close");
         const timeout = setTimeout(() => child.kill("SIGKILL"), 5000);
-        const send = message => child.stdin.write(JSON.stringify(message) + "\n");
+        const sent = [];
+        const send = message => { sent.push(message); return child.stdin.write(JSON.stringify(message) + "\n"); };
         const last = () => messages.filter(m => m.type === "state").at(-1);
         const wait = async predicate => {
             // The real child crosses an event loop and a pipe. Bound the read
@@ -796,8 +797,12 @@ async function inside() {
                 // Held input is published before playback cleanup can acquire
                 // capture. Own its empty result before either intent can race.
                 fs.writeFileSync(silent, "");
-                if (last().state.input.kind !== "held") talk("talk-down");
-                const held = await wait(message => message.state.input.kind === "held");
+                // A final can release the daemon's input before its frame
+                // reaches this reader. A new press and its acknowledgment
+                // make the closing release belong to the current hold.
+                const before = last().seq;
+                talk("talk-down");
+                const held = await wait(message => message.seq > before && message.state.input.kind === "held");
                 fs.writeFileSync(clock, String(held.state.input.since + TAP_MS - 1));
                 talk("talk-up");
                 const released = await wait(message => message.state.input.kind !== "held");
@@ -806,7 +811,7 @@ async function inside() {
             };
             await check({ send: talk, holdUp, closeTalk, raw: send, reply: send,
                 indicator: (shown, bar = "gone", gen = last().state.gen) => send(indicator(shown, bar, gen)),
-                wait, last, messages, pid: child.pid,
+                wait, last, messages, sent, pid: child.pid,
                 pressClock: at => fs.writeFileSync(clock, String(at)) });
             child.stdin.end();
             const [code, signal] = await closed;
@@ -1329,25 +1334,63 @@ async function inside() {
     console.log("test-jarvis-daemon: control=scripted-feedback-engine-pair detected");
     const mapped = daemonCopy("mapped-indicator");
     instrument(mapped, gates, "chained", true);
-    const mappedCheck = async file => conversation(file, async w => {
-        assert.equal(w.last().state.indicator.kind, "gone");
-        w.send("talk-down");
-        const waiting = await w.wait(m => m.state.input.kind === "held");
-        assert.equal(waiting.state.capture.kind, "closed", "no screen keeps capture closed");
-        w.indicator(true);
-        await w.wait(m => m.phase === "listening");
-        w.indicator(false);
-        const gone = await w.wait(m => m.state.indicator.kind === "gone" && m.state.capture.kind === "closed");
-        assert.equal(gone.state.capture.kind, "closed", "indicator loss releases capture");
-        await w.closeTalk(gates);
-        await w.wait(m => m.state.conversation.kind === "ended");
-        assert.equal(fs.existsSync(path.join(gates, "silent-capture")), false,
-            "a no-capture close leaves no empty result for the next utterance");
-    }, true, 0, "", null, hello.settings.sounds, {}, true);
+    const mappedCheck = async file => {
+        const outputGate = path.join(path.dirname(file), "mapped-output");
+        const seen = path.join(path.dirname(file), "mapped-seen.jsonl");
+        const prepared = cp.spawnSync(process.execPath, [path.join(tree, "scripts/fixtures/jarvis/prepare.js"),
+            "--gate-daemon", file, outputGate, seen], { env: { PATH: process.env.PATH, HOME: process.env.HOME }, encoding: "utf8" });
+        assert.equal(prepared.status, 0, prepared.stderr);
+        fs.writeFileSync(outputGate, "");
+        const effectsAt = lines(path.join(gates, "effects.jsonl")).length;
+        try { await conversation(file, async w => {
+            assert.equal(w.last().state.indicator.kind, "gone");
+            w.send("talk-down");
+            const waiting = await w.wait(m => m.state.input.kind === "held");
+            assert.equal(waiting.state.capture.kind, "closed", "no screen keeps capture closed");
+            w.indicator(true);
+            await w.wait(m => m.phase === "listening");
+            fs.writeFileSync(path.join(gates, "hold-final"), "");
+            w.indicator(false);
+            const gone = await w.wait(m => m.state.indicator.kind === "gone" && m.state.capture.kind === "closed");
+            assert.equal(gone.state.capture.kind, "closed", "indicator loss releases capture");
+            assert.equal(gone.state.input.kind, "held");
+            fs.unlinkSync(outputGate);
+            gate("final");
+            await w.wait(() => lines(seen).some(m => m.type === "state" && m.seq > gone.seq
+                && m.state.input.kind === "released" && m.phase === "thinking"));
+            const released = lines(seen).filter(m => m.type === "state").at(-1);
+            assert.equal(w.last().state.input.kind, "held", "the delivered frame still predates the final");
+            assert.ok(w.last().seq < released.seq, "the daemon's released frame is still behind the output gate");
+            const closing = w.closeTalk(gates);
+            await w.wait(() => lines(seen).some(m => m.type === "state" && m.seq > released.seq));
+            fs.writeFileSync(outputGate, "");
+            try {
+                await closing;
+                await w.wait(m => m.state.conversation.kind === "ended");
+            } finally {
+                const states = lines(seen).filter(m => m.type === "state" && m.seq >= gone.seq).map(m => ({ seq: m.seq, gen: m.gen,
+                    phase: m.phase, input: m.state.input.kind, capture: m.state.capture.kind,
+                    conversation: m.state.conversation.kind, indicator: m.state.indicator.kind }));
+                console.log("test-jarvis-daemon: mapped-close=" + JSON.stringify({ scenario: path.basename(path.dirname(file)),
+                    delivered: { seq: gone.seq, gen: gone.gen }, states,
+                    finals: lines(path.join(gates, "effects.jsonl")).slice(effectsAt).filter(e => e.kind === "capture-final")
+                        .map(e => ({ gen: e.gen, close: e.op, capture: e.target })),
+                    intents: w.sent.filter(m => m.type === "intent").map(m => ({ intent: m.intent, gen: m.gen })) }));
+            }
+            assert.equal(fs.existsSync(path.join(gates, "silent-capture")), false,
+                "a no-capture close leaves no empty result for the next utterance");
+        }, true, 0, "", null, hello.settings.sounds, {}, true);
+        } finally {
+            fs.rmSync(path.join(gates, "hold-final"), { force: true });
+            fs.rmSync(path.join(gates, "silent-capture"), { force: true });
+        }
+    };
     await mappedCheck(mapped);
     for (const [name, needle, replacement] of [
         ["indicator-delivery", 'runner.dispatch({ type: "indicator", gen: message.gen, shown: message.shown, bar: message.bar });', 'void message.shown;'],
-        ["indicator-loss", 'shown: message.shown', 'shown: true']
+        ["indicator-loss", 'shown: message.shown', 'shown: true'],
+        ["silent-talk-close", ': { type: message.intent });',
+            ': { type: message.intent === "talk-up" ? "stop" : message.intent });']
     ]) {
         const copy = daemonCopy(name);
         instrument(copy, gates, "chained", true);
@@ -2452,6 +2495,7 @@ async function main() {
             fs.mkdirSync(path.join(root, "hung"));
             hungWorldControl(launcher, path.join(root, "hung"), env);
             freshSuite(tree, "daemon", root);
+            console.log("test-jarvis-daemon: mapped-indicator-close passed");
             return;
         }
         standins(path.join(root, "standins"));

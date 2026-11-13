@@ -84,7 +84,13 @@ function ports(root, engine, state) {
                 collect = null;
                 const silent = fs.existsSync(path.join(root, "silent-capture"));
                 if (silent) fs.unlinkSync(path.join(root, "silent-capture"));
-                const finish = () => { done({ speech: !silent }); if (final !== null) final("final", silent ? "" : "scripted utterance"); };
+                const finish = () => {
+                    done({ speech: !silent });
+                    if (final === null) return;
+                    const deliver = () => { record("capture-final", e); final("final", silent ? "" : "scripted utterance"); };
+                    if (fs.existsSync(path.join(root, "hold-final"))) wait("final", deliver);
+                    else deliver();
+                };
                 if (fs.existsSync(path.join(root, "hold-close"))) wait("close", finish);
                 else finish();
             }
