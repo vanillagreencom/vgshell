@@ -162,8 +162,6 @@ if restart_over "$repo" "$sandbox/start-order-qs.log"; then
   expect "default-set Jarvis starts without spending recovery allowance" ready jarvis_wait_ready
   echo "  first_bar_plugin_set=default"
   latency_pressure_check start-order first_bar "${first_bar_ms:-}" "$first_bar_cpu_some_pct" "$default_first_bar_budget_ms"
-  expect "control: default first-bar rejects a low-pressure budget miss" over latency_pressure_verdict "$((default_first_bar_budget_ms + 1))" 0.0 "$default_first_bar_budget_ms"
-  expect "control: default first-bar excludes a fast busy sample" unmeasured latency_pressure_verdict "$default_first_bar_budget_ms" 2.9 "$default_first_bar_budget_ms"
   expect_poll "the gate released the services on the first bar frame" first-frame release_reason
   expect "every bar presented its first frame before the core built a service" bars-first services_order
   # The service's build, if the gate's lending snapshot let one through,

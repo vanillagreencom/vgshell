@@ -380,7 +380,9 @@ if dictation_stand_ins on; then
   expect_poll "the core starts the daemon for the holder" "ready running acme.dictation" dictation_lent
   expect_poll "the daemon and its follower are the stand-in, children of the shell" "daemon=1 follower=1 other=0" dictation_processes owned
   expect "disabling the dictation fixture is allowed" ok ipc shell setPluginEnabled acme.dictation false
+  expect_poll "disable released the dictation hold" null lent holders.dictation
   expect_poll "the daemon ends with its holder" "daemon=0 follower=0 other=0" dictation_processes all
+  expect_poll "the lending record reads no daemon and no child" "absent none -" dictation_lent
 else
   fail "the shell does not resolve voxtype to the stand-in: $(shell_resolves voxtype)"
 fi

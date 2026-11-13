@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the production copier and the world cleanup owner without a display."""
+"""Control smoke/evidence.py copying and gpu-fence.sh world cleanup without a display."""
 import base64
 import hashlib
 import json

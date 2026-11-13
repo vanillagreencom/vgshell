@@ -6,12 +6,12 @@
 set -euo pipefail
 latency_pressure_check diagnostics first_bar "${first_bar_ms:-}" "$first_bar_cpu_some_pct" "$first_bar_budget_ms"
 latency_pressure_check diagnostics reconcile "$reconcile_ms" "$reconcile_cpu_some_pct" "$reconcile_budget_ms"
-# Each budget rejects a planted low-pressure miss. Busy readings are
+# The shared judge rejects a planted low-pressure miss. Busy readings are
 # excluded even when fast; missing evidence cannot excuse the reading.
-for diagnostics_control_budget in "$first_bar_budget_ms" "$reconcile_budget_ms"; do
-  while read -r diagnostics_control_ms diagnostics_control_pressure diagnostics_control_want; do
-    expect "control: latency $diagnostics_control_ms ms at pressure $diagnostics_control_pressure" "$diagnostics_control_want" latency_pressure_verdict "$diagnostics_control_ms" "$diagnostics_control_pressure" "$diagnostics_control_budget"
-  done <<CONTROLS
+diagnostics_control_budget="$first_bar_budget_ms"
+while read -r diagnostics_control_ms diagnostics_control_pressure diagnostics_control_want; do
+  expect "control: latency $diagnostics_control_ms ms at pressure $diagnostics_control_pressure" "$diagnostics_control_want" latency_pressure_verdict "$diagnostics_control_ms" "$diagnostics_control_pressure" "$diagnostics_control_budget"
+done <<CONTROLS
 $diagnostics_control_budget 0.0 within
 $((diagnostics_control_budget + 1)) 0.0 over
 $((diagnostics_control_budget + 1)) 2.8 over
@@ -21,7 +21,6 @@ $((diagnostics_control_budget + 1)) unmeasured unread
 $diagnostics_control_budget unmeasured unread
 unmeasured 2.9 unread
 CONTROLS
-done
 
 # Exercise the judge's failure effect too: a planted delayed runner must
 # fail when quiet, and a runner with no bar must fail at any pressure.

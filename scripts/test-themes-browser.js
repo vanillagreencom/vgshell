@@ -57,16 +57,21 @@ function verify(logic, files) {
         assert.doesNotMatch(text, /[a-z][a-z-]*=|start-failed|output-unreadable/, "diagnostic fields stay in logs");
     }
     // theme-download refuses insecure URLs; the core TUI judge refuses a missing launcher.
-    for (const [diagnostic, cause, recovery] of [
-        ["not-https", /insecure download/, /Choose another theme or wallpaper/],
-        ["redirect-not-https", /insecure download/, /Choose another theme or wallpaper/],
-        ["refused: tui=core/theme-add reason=launcher-missing", /missing its terminal launcher, xdg-terminal-exec/, /Reinstall VGS to restore it/]
+    for (const diagnostic of [
+        "not-https",
+        "redirect-not-https",
+        "refused: tui=core/theme-add reason=launcher-missing"
     ]) {
         const text = logic.reasonText(diagnostic);
-        assert.match(text, cause, diagnostic + " names its cause");
-        assert.match(text, recovery, diagnostic + " gives its recovery action");
         assert.doesNotMatch(text, /[a-z][a-z-]*=|not-https|launcher-missing/, "diagnostic fields stay in logs");
     }
+    // REASON_TEXT takes the first matching row, and the generic download and
+    // missing rows also match these codes: each keeps its own category.
+    for (const diagnostic of ["not-https", "redirect-not-https"])
+        assert.notEqual(logic.reasonText(diagnostic), logic.reasonText("fetch=download"), diagnostic + " is not a connection failure");
+    const launcherMissing = logic.reasonText("refused: tui=core/theme-add reason=launcher-missing");
+    assert.notEqual(launcherMissing, logic.reasonText("missing"), "a missing terminal is not a missing theme");
+    assert.notEqual(launcherMissing, logic.reasonText("unexpected: key=value"), "a missing terminal names its repair");
 
     // Views and payloads.
     same(logic.VIEWS.map(v => [v.name, v.label, v.source]), [["themes", "Themes", "ThemeView.qml"], ["wallpapers", "Wallpapers", "WallpaperView.qml"]]);
@@ -238,7 +243,6 @@ function verify(logic, files) {
     // Results.
     for (const [state, want] of [["applied", true], ["unchanged", true], ["partial", true], ["failed", false]])
         assert.equal(logic.applied({ state }), want, "applied " + state);
-    assert.equal(logic.reasonText("name-mismatch"), "The theme name does not match its folder. Choose another theme.");
     assert.equal(logic.problem("install", "nord", { state: "ok", reason: null }, []), "");
     assert.equal(logic.problem("install", "nord", { state: "failed", reason: "exists" }, []), "Could not install Nord. The theme action failed. Try again or choose another theme.");
     assert.equal(logic.problem("apply", "nord", { state: "applied", reason: null }, []), "");

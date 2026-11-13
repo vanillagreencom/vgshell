@@ -105,15 +105,18 @@ const PAYLOAD_REFUSED = [
 ];
 
 function verify(model, menu = shippedMenu) {
-    assert.equal(model.fileErrorText("file-search: missing=fd,fzf"), "File search tools are missing. Install them in [Plugins](page:vgs.launcher/Setup).");
-    assert.equal(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-missing"), "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.");
-    assert.equal(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-failed"), "VGS could not open this action. Try again.");
     // Producer diagnostics never cross the display boundary.
     for (const diagnostic of ["file-search: missing=fd,fzf", "file-search: refresh=busy", "file-search: vanished=/file", "file-search: mime=x error=gio-status-1", "file-search: index=f error=unreadable", "file-search: start=failed", "unexpected: key=value"]) {
         const text = model.fileErrorText(diagnostic);
         assert.ok(text.length > 0, "a failed operation must tell the user");
         assert.doesNotMatch(text, /[a-z][a-z-]*=|start-failed|output-unreadable/, "diagnostic fields stay in logs");
     }
+    // Launcher.activate and LauncherRow open the page and tab the notice
+    // names, so missing search tools lead to Launcher's Setup tab.
+    const missingTools = PageReference.parse(model.fileErrorText("file-search: missing=fd,fzf"));
+    same([missingTools.page, missingTools.tab], ["vgs.launcher", "Setup"], "missing search tools open Launcher Setup");
+    // A missing terminal launcher needs a reinstall, not another try.
+    assert.notEqual(model.actionErrorText("refused: tui=core/pkg-install reason=launcher-missing"), model.actionErrorText("refused: tui=core/pkg-install reason=launcher-failed"), "a missing launcher is not a failed launch");
 
     // The shipped menu is accepted and merges alone.
     const shipped = model.parseMenu(menu);
@@ -453,6 +456,7 @@ const CONTROLS = [
     ["a found row at the top names no description", 'path !== "" ? path : entry.description', "path"],
     ["application source order cannot rank a tie", '(entry.kind === "app" ? 0 : entry.order)', 'entry.order'],
     ["equal application names use id", 'a.path.localeCompare(b.path) || (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0)', 'a.path.localeCompare(b.path)'],
+    ["missing search tools open Launcher Setup", "(page:vgs.launcher/Setup)", "(page:vgs.launcher/Settings)"],
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(String(reason)))', 'if (false)'],
     ["diagnostics stay out of display text", 'function fileErrorText(reason) {', 'function fileErrorText(reason) { return String(reason);'],
     ["unknown item key", "if (ITEM_KEYS.indexOf(keys[i]) === -1) return at", "if (false) return at"],

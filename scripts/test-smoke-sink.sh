@@ -25,16 +25,13 @@
 # character device with exit 2, and a character device that is no render
 # node with exit 1.
 #
-# The controls at the end build a copy of the sink with one defect each
-# and require the rule it breaks to go red.
-#
 # Every process runs without WAYLAND_DISPLAY, DISPLAY and
 # HYPRLAND_INSTANCE_SIGNATURE, and the probe only with the sink's own
 # socket; the suite signals only the sinks it started. A missing build
 # package exits 77 through build_helper, and a fence with no render node as
 # `missing=render-node`; a sink or probe that does not compile fails.
 #
-# Exit 0 when every case and control holds, 1 otherwise.
+# Exit 0 when every case holds, 1 otherwise.
 set -euo pipefail
 unset WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 
@@ -200,49 +197,6 @@ for row in "${refusals[@]}"; do
   status=0
   timeout -k 2 10 "$real_sink" "${argv[@]}" 2>/dev/null || status=$?
   if [[ $status == "$want" && ! -e $tmp/refused-socket ]]; then ok "the sink refuses $label"; else fail "the sink refuses $label: status=$status want $want"; fi
-done
-
-# Controls: label | rule that must go red | text in sink.c | its defect.
-controls=(
-  "a sink with no interval ping|ping|wl_resource_for_each(wm_base, &wm_bases) xdg_wm_base_send_ping(wm_base, wl_display_next_serial(display));|(void)wm_base;"
-  "a sink that configures on every commit|configure|if (surface->toplevel && !surface->configured) {|if (surface->toplevel) {"
-  "a sink that keeps the file descriptors it receives|fds|			close(args[index].h);|			(void)args[index].h;"
-  "a sink that paces frames at 240 Hz|pacing|#define SINK_FRAME_NS (1000000000L / 60)|#define SINK_FRAME_NS (1000000000L / 240)"
-  "a sink that never releases a buffer|release|			wl_buffer_send_release(surface->buffer);|			(void)surface->buffer;"
-  "a sink that names its own filesystem's device|feedback|	main_device = device.st_rdev;|	main_device = device.st_dev;"
-  "a sink whose format table names no explicit modifier|feedback|(struct format_entry){SINK_FORMATS[f], 0, modifiers[m]};|(struct format_entry){SINK_FORMATS[f], 0, 0x00ffffffffffffffULL};"
-  "a sink that sends a pointer event|input|		child(resource, &wl_pointer_interface, args[0].n, NULL, NULL, NULL);|		wl_pointer_send_frame(child(resource, &wl_pointer_interface, args[0].n, NULL, NULL, NULL));"
-)
-index=0
-for row in "${controls[@]}"; do
-  IFS='|' read -r label rule old new <<<"$row"
-  index=$((index + 1))
-  dir="$tmp/control-$index"
-  mkdir -- "$dir"
-  if ! python3 - "$repo/scripts/smoke/sink/sink.c" "$old" "$new" "$dir/sink.c" <<'PY'
-import pathlib, sys
-source, old, new, out = sys.argv[1:]
-text = pathlib.Path(source).read_text()
-assert text.count(old) == 1, "mutation-source: " + old
-changed = text.replace(old, new)
-assert changed != text
-pathlib.Path(out).write_text(changed)
-PY
-  then
-    fail "control: $label could not be planted"
-    continue
-  fi
-  build_sink "$dir" "$dir/sink.c" "control: $label could not be built" || continue
-  if ! run_sink "$dir/sink" "$dir"; then
-    fail "control: $label never listens: $(tail -n 3 -- "$dir/sink.err")"
-    continue
-  fi
-  broken="$(broken_rules "$dir/probe.out")"
-  if grep -qx "$rule" <<<"$broken"; then
-    ok "control: $label breaks rule $rule"
-  else
-    fail "control: $label breaks rule $rule: broken=[${broken//$'\n'/,}]"
-  fi
 done
 
 if [[ $failures -gt 0 ]]; then

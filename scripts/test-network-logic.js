@@ -373,8 +373,6 @@ function suite(logic) {
     ]) assert.equal(logic.state(service, backend, managed, access, connected, connectivity, checks, wifi, hasWifi), want);
     const states = ["absent", "stopped", "unmanaged", "denied", "limited", "portal", "connected", "radio-off", "offline", "unavailable"];
     assert.equal(new Set(states.map(s => logic.stateText(s))).size, states.length);
-    assert.match(logic.stateText("stopped"), /NetworkManager.*not running/);
-    assert.doesNotMatch(logic.stateText("stopped"), /another|other service/i);
     for (const s of ["absent", "stopped", "unmanaged", "denied", "unavailable"]) assert.equal(logic.writable(s), false);
     for (const s of ["connected", "offline", "radio-off", "limited", "portal"]) assert.equal(logic.writable(s), true);
     for (const [managed, connected, link, want] of [

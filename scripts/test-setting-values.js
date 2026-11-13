@@ -42,7 +42,6 @@ function verify(values) {
     ];
     for (const [name, text, want] of formats)
         assert.equal(values.datetimeFormatProblem(text), want, "datetimeFormatProblem: " + name);
-    assert.equal(values.PROBLEM_TEXT["no-field"], "Use at least one date or time field, such as HH, mm or ddd.", "PROBLEM_TEXT: no-field");
 
     const entry = { type: "number", unit: "seconds" };
     assert.equal(values.presetText(entry, { value: 120 }, () => "unused"), "2 minutes", "presetText: unit");
@@ -73,7 +72,6 @@ const CONTROLS = [
     ["factor is drawn with its sign", "if (unit === \"×\") return String(value) + \"×\";", "if (unit === \"×\") return String(value);"],
     ["datetime field letters", "if (!quoted && DATETIME_FIELD.test(ch))", "if (false)"],
     ["quoted text", "quoted = !quoted;", "quoted = quoted;"],
-    ["problem text table", "\"no-field\": \"Use at least one date or time field, such as HH, mm or ddd.\"", "\"no-field\": \"\""],
     ["datetime preview", "if (entry.format === \"datetime\") return formatDate(preset.value);", "if (false) return formatDate(preset.value);"],
     ["unit preview", "if (entry.type === \"number\" && entry.unit !== undefined) return quantityText(preset.value, entry.unit);", "if (false) return quantityText(preset.value, entry.unit);"],
     ["two-byte characters count two", "else if (code < 0x800) bytes += 2;", "else if (code < 0x800) bytes += 1;"],

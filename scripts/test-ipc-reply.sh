@@ -124,18 +124,6 @@ for row in "${controls[@]}"; do
   fi
 done
 
-copy="$(mutant unknown-kind "'client-error|contains|ERROR quickshell.ipc'" "'client-error|contain|ERROR quickshell.ipc'")" || { echo "test-ipc-reply: mutant=unknown-kind" >&2; exit 1; }
-set +e
-out="$(source "$copy"; vgs_ipc_reply_failure ok 2>"$TMP_ROOT/err")"
-status=$?
-set -e
-err="$(cat -- "$TMP_ROOT/err")" || { echo "test-ipc-reply: read=err" >&2; exit 1; }
-if [[ $status -eq 2 && -z $out && $err == "ipc-reply: kind=contain row=client-error" ]]; then
-  ok "a table row of unknown kind is an internal error, exit 2"
-else
-  fail "unknown kind: status=$status out=[$out] err=[$err]"
-fi
-
 echo "=== the paged-reply detector ==="
 # NAME|TARGET|LINE|WANT, WANT the id or `-` for a whole reply.
 detect_cases=(

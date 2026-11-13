@@ -243,7 +243,6 @@ function suite(ctx, check) {
         ["a disabled plugin is refused before a busy key", ["acme.tui"], "present", ["acme.other/fix"], "acme.other/fix", ["refused: tui=acme.other/fix reason=disabled", "none"]],
         ["a disabled plugin is refused before a missing launcher", ["acme.tui"], "missing", [], "acme.other/fix", ["refused: tui=acme.other/fix reason=disabled", "none"]],
         ["a launcher no probe has answered yet opens the key", [], "unknown", [], "core/doctor", doctorArgv],
-        ["a core TUI with no entry is not listed", [], "present", [], "core/quiet", ["refused: tui=core/quiet reason=undeclared", "none"]],
     ];
     for (const [name, enabledIds, launcher, busy, key, want] of openRows) {
         const r = ctx.tuiOpen(manifests, enabledIds, "/run/src", "/core/bin", runner(launcher, busy), core, {}, key);

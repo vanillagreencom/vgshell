@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Real fixed-unit mechanics, unsafe-path controls and a disabled-restore mutant."""
+"""Control smoke/persisted-inputs.py fixed-unit mechanics and leaks.sh boundary/
+deadline handling, with unsafe paths and a disabled-restore mutant."""
 import fcntl
 import importlib.util
 import json

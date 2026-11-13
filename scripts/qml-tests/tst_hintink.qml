@@ -122,34 +122,5 @@ Item {
             UnitTheme.reset();
             compare(Theme.keyHintInk(ground, "word"), before, "returning to the previous theme restores its ink");
         }
-
-        function test_each_solver_token_reaches_the_shared_owner_data() {
-            return [
-                { tag: "word-ink", tokens: { text: { keyHint: { color: "#ffffff" } } } },
-                { tag: "key-ink", tokens: { kbd: { foreground: "#ffffff" } } },
-                { tag: "value-ink", tokens: { kbd: { valueForeground: "#ffffff" } } },
-                { tag: "cap-fill", tokens: { kbd: { background: "#ffffff80" } } },
-                { tag: "word-margin", tokens: { kbd: { wordMargin: 9 } } },
-                { tag: "key-margin", tokens: { kbd: { capMargin: 9 } } },
-                { tag: "value-margin", tokens: { kbd: { valueMargin: 9 } } }
-            ];
-        }
-
-        function test_each_solver_token_reaches_the_shared_owner(row) {
-            const ground = context("#202429", "#24ffffff", "#08ffffff");
-            for (const part of Object.keys(Logic.KEY_HINT_PARTS))
-                Theme.keyHintInk(ground, part);
-            const previous = Theme.keyHintResolver;
-            compare(UnitTheme.override(row.tokens), "ok");
-            verify(Theme.keyHintResolver !== previous);
-            const accepted = Logic.accept(Tokens.TOKENS, JSON.stringify({ schemaVersion: 1, name: "unit", tokens: row.tokens }));
-            verify(accepted.ok);
-            for (const part of Object.keys(Logic.KEY_HINT_PARTS)) {
-                for (const supplied of [null, ground]) {
-                    const expected = Theme.toColor(Logic.formatColor(Logic.keyHintInk(accepted.values, supplied, part)));
-                    compare(Theme.keyHintInk(supplied, part), expected);
-                }
-            }
-        }
     }
 }

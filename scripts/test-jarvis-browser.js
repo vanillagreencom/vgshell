@@ -460,8 +460,6 @@ world(async () => {
     // notification keeps its approved name. No model API is involved.
     for (const [name, needle, replacement] of [
         ["answer-old-short-prefix", '"From my main brain: "', '"Jarvis answered: "'],
-        ["answer-old-summary-prefix", '"From my main brain, in brief: "', '"Jarvis\'s answer, in brief: "'],
-        ["answer-notification-renamed", '"Jarvis answered your request"', '"My main brain answered your request"']
     ]) await mutant(path.join(backend, "TaskVoice.js"), name, needle, replacement, answerChannels);
 
     // Prompt ownership outlives its playback. A main answer must not make

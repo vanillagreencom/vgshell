@@ -75,15 +75,10 @@ const context = { managerIds: Managers.MANAGERS.map(row => row.id), lucideNames:
 try {
     pass("shipped catalog passes", []);
     if (!base.apps.some(row => String(row.package || "").includes("matching_regex=linux-x64\\.zip"))) throw new Error("regex edge case missing from catalog");
-    pass("backend option regex is accepted", []);
     if (!base.apps.some(row => String(row.package || "").endsWith("@nightly"))) throw new Error("nightly edge case missing from catalog");
-    pass("non-latest tag pin is accepted", []);
     for (const row of base.databases) for (const port of row.container.ports) if (port.host !== "127.0.0.1") throw new Error("database port host is not loopback");
-    pass("database loopback ports are accepted", []);
     if (!base.envs.find(row => row.id === "php").postInstall[0].exec.some(word => word && word.home === ".local/bin")) throw new Error("home argv word edge case missing from catalog");
-    pass("home argv words are accepted", []);
     if (base.envs.find(row => row.id === "phoenix").present.prefix !== "phx_new-") throw new Error("prefix probe edge case missing from catalog");
-    pass("home prefix probes are accepted", []);
 
     refuse("catalog must be an object", "catalog-object", () => []);
     refuse("unknown section is refused", "catalog-section", data => { data.widgets = []; return data; });

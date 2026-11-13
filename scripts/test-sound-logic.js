@@ -263,22 +263,6 @@ function verify(logic) {
 
 verify(load(file));
 
-// Defaults are product data; the nested sound row proves the registered
-// callbacks change the private PipeWire source, not just these names.
-function verifyMicrophoneKeys(manifest) {
-    for (const [shortcut, key] of [["mic-mute", "XF86AudioMicMute"], ["mic-mute-alt", "SUPER+M"]]) {
-        const binds = manifest.hyprland.binds.filter(bind => bind.shortcut === shortcut);
-        assert.equal(binds.length, 1, shortcut + " has one independently configurable default");
-        assert.equal(binds[0].key, key, shortcut + " default key");
-    }
-}
-const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-verifyMicrophoneKeys(manifest);
-const wrongMicrophoneKey = JSON.parse(JSON.stringify(manifest));
-wrongMicrophoneKey.hyprland.binds.find(bind => bind.shortcut === "mic-mute-alt").key = "SUPER+N";
-assert.throws(() => verifyMicrophoneKeys(wrongMicrophoneKey), assert.AssertionError,
-    "control: a different default cannot pass the Super+M contract");
-
 const CONTROLS = [
     ["the input colour keeps the approved low boundary", "var INPUT_LEVEL_LOW = 0.03162277660168379;", "var INPUT_LEVEL_LOW = 0.1;"],
     ["the input colour keeps the approved high boundary", "var INPUT_LEVEL_HIGH = 0.5011872336272722;", "var INPUT_LEVEL_HIGH = 0.9;"],

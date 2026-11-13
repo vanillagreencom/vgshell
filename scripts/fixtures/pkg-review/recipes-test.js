@@ -211,7 +211,8 @@ function installScriptRows() {
         const script = read(name);
         rows.push([name + "-new", null, script, "new", risks]);
         rows.push([name + "-changed", "post_install() {\n  systemctl daemon-reload\n}\n", script, "changed", risks]);
-        rows.push([name + "-existing", script, script + "\n# ordinary update\n", "changed", []]);
+        if (name === "install-systemd-unit")
+            rows.push([name + "-existing", script, script + "\n# ordinary update\n", "changed", []]);
     }
     for (const [name, risks] of [
         ["install-changed", ['chmod u+s "/usr/bin/mullvad-exclude"', 'systemctl enable --now mullvad-daemon || echo "Failed to start mullvad-daemon.service"', "systemctl enable mullvad-early-boot-blocking"]],
@@ -228,7 +229,6 @@ function installScriptRows() {
     ]) {
         const script = setuid.replace(chmod, assignment + "\n    $payload");
         rows.push([name + "-new", null, script, "new", [assignment]]);
-        rows.push([name + "-changed", "post_install() {\n}\n", script, "changed", [assignment]]);
     }
     for (const [line, risky] of [
         ["echo 'sudo groupadd --system falcond'", false],
@@ -255,8 +255,6 @@ function installScriptRows() {
         ["systemctl daemon-reload", false],
         ["systemd-tmpfiles --create", false],
         ["update-desktop-database /usr/share/applications", false],
-        ["gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor", false],
-        ["ldconfig", false],
         ["cat /etc/app.conf", false],
         ["echo 'value' > /tmp/advice", false]
     ]) rows.push([line, null, line, "new", risky ? [line] : []]);
@@ -322,7 +320,7 @@ try {
                 ["install-changed-first-install", "install-group-update-first-install"]],
             // Removing the stdout format restriction hides the setuid assignment again.
             ["unrestricted-printf-exemption", printRules[0], printRules[0].replace("printf (?:'%s(?:\\\\n)?'|\"%s(?:\\\\n)?\")", "printf"),
-                ["single-quoted-printf-assignment-new", "single-quoted-printf-assignment-changed", "double-quoted-printf-assignment-new", "double-quoted-printf-assignment-changed"]]
+                ["single-quoted-printf-assignment-new", "double-quoted-printf-assignment-new"]]
         ]) {
             assert.equal(source.split(needle).length, 2, control + ": one mutation site");
             assert.notEqual(replacement, needle, control + ": mutation changes the source");

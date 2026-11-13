@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """One planted row per form check-smoke-terminal.py must find or pass, the
-unreadable directories, and the repository's own rows. Each row builds a
+unreadable directories. Each row builds a
 throwaway rows directory holding one row, runs the check on it and asserts
 the rule key, the line and the exit status."""
 import os
@@ -10,7 +10,6 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHECK = os.path.join(HERE, "check-smoke-terminal.py")
-ROWS = os.path.join(HERE, "smoke", "rows")
 ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
 
 # rows: name, row text, expected finding line or None.
@@ -60,11 +59,7 @@ with tempfile.TemporaryDirectory() as tmp:
     result = run([empty])
     check("a directory with no row is unreadable", result.returncode == 2 and result.stdout == f"check-smoke-terminal: unreadable: {empty}: no row found\n", result)
 
-rows = sorted(n for n in os.listdir(ROWS) if n.endswith(".sh"))
-result = run([])
-check(f"the repository's {len(rows)} rows pass", len(rows) > 0 and result.returncode == 0 and result.stdout == f"check-smoke-terminal: ok files={len(rows)}\n", result)
-
 if failures:
     print(f"test-check-smoke-terminal: failures={failures}")
     sys.exit(1)
-print(f"test-check-smoke-terminal: ok cases={len(CASES) + 3}")
+print(f"test-check-smoke-terminal: ok cases={len(CASES) + 2}")

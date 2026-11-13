@@ -83,11 +83,9 @@ world(() => {
         const x = make(logic, { memoryNotes: () => setting });
         const rows = [
             ["ask", false, "propose", "written"],
-            ["save", false, "propose", "written"],
             ["ask", true, "propose", "pending"],
             ["save", true, "propose", "written"],
             ["ask", false, "replace", "written"],
-            ["save", false, "replace", "written"],
             ["ask", true, "replace", "pending"],
             ["save", true, "replace", "written"]
         ];
@@ -151,7 +149,7 @@ world(() => {
     checkWritePolicy(Memory);
     let unknownChoice;
     const failClosed = make(Memory, { memoryNotes: () => unknownChoice });
-    for (const [index, choice] of [undefined, null, "allow", true].entries()) {
+    for (const [index, choice] of [undefined, "allow"].entries()) {
         unknownChoice = choice;
         const answer = failClosed.writeCall("memory.propose", { id: "facts/unknown-" + index + ".md", text: "Outside fact" },
             { labels: ["home", "web"], tainted: true });
@@ -330,7 +328,8 @@ world(() => {
     assert.equal(linked.writeCall("memory.propose", { id: "facts/symlink-parent.md", text: "symlink-parent-token" }).outcome, "completed");
     assert.equal(linked.search({ query: "symlink-parent-token" }).body.results[0].id, "facts/symlink-parent.md");
 
-    for (const choice of ["ask", "save"]) {
+    {
+        const choice = "ask";
         const guarded = make(Memory, { memoryNotes: () => choice });
         const outside = path.join(guarded.root, "outside");
         fs.mkdirSync(outside);

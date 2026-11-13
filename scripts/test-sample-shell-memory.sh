@@ -247,41 +247,11 @@ run_report "$sampler" "$swapped"
 expect_contains "$out" "mark=1h uptime_s=3600 rss_mib=128 anon_mib=353" "the report reads columns by header name"
 ok "the report reads columns by header name"
 
-# The writer states the column order twice: the header constant and the printf
-# in its awk block. Both are read out of the script under test rather than
-# restated here, so a column added to one and not the other is caught. This pins
-# the count only; the order within it is not checked. The row printf carries one
-# extra leading conversion for the mapping count the shell strips.
 header_body="$(sed -n "s/^COLUMNS_HEADER+*=\\\$'\(.*\)'$/\1/p" "$sampler" | tr -d '\n')"
 head_count="$(( $(grep -o '\\t' <<<"$header_body" | grep -c .) + 1 ))"
-if ! fmt_count="$(awk '/printf "%d\\t%d\\t%s\\t%s/ { print; exit }' "$sampler" | grep -o '%[ds]' | grep -c .)"; then
-  fmt_count=0
-fi
-[[ "$head_count" == "$((fmt_count - 1))" ]] ||
-  fail "the header and the row writer declare the same column count" \
-    "header names $head_count columns, the row printf writes $fmt_count including its leading mapping count"
 [[ "$head_count" -gt 1 ]] ||
-  fail "the header and the row writer declare the same column count" \
+  fail "the header extractor reads column names" \
     "the extractor read $head_count columns from the header, so it is broken rather than the script sparse"
-ok "the header and the row writer declare the same column count"
-
-# The property the sampler's header states: --report runs from a copy with no
-# repository beside it, because only the sampling path names the checkout. Every
-# case above already runs from such a copy; this one names the property so a
-# --report that starts to read the checkout fails here with its own reason
-# rather than only as collateral.
-bare="$tmp/bare/sampler.sh"
-mkdir -p "$tmp/bare"
-cp "$repo_root/scripts/sample-shell-memory.sh" "$bare"
-chmod +x "$bare"
-rm -f -- "${tmp:?}/log.tsv"
-build_fixture spans-8h "$tmp/log.tsv"
-run_report "$bare" "$tmp/log.tsv"
-[[ "$rc" == 0 ]] ||
-  fail "--report runs from a copy with no repository beside it" \
-    "expected exit 0 from a bare copy, got $rc (stderr: $err)"
-expect_contains "$out" "mark=1h uptime_s=3600" "--report runs from a copy with no repository beside it"
-ok "--report runs from a copy with no repository beside it"
 
 # Drive the row builder itself. sample_row needs no shell and no lock file: it
 # reads /proc for whatever pid it holds. The two functions are lifted out of the

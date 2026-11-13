@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive real recorder events and smoke_row boundaries with owned fixtures."""
+"""Control display-record.sh recorder events and smoke_row boundaries with owned fixtures."""
 import contextlib
 import inspect
 import io

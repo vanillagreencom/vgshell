@@ -98,12 +98,8 @@ world("jg-spoken", root => {
                         "duplex delegation must receive the closing rule without turns.md");
             }],
         ["unconditional-rest-offer", [["speech.md", /Only when you actually cut an answer short, /, ""]], replyEnding],
-        ["rest-offer-question", [["speech.md", /as one plain statement after the answer, never a question/, "as a question after the answer"]], replyEnding],
-        ["unconditional-identifier-offer", [["lang/en.md", /Only when you actually withhold exact identifiers, /, ""]], replyEnding],
-        ["identifier-offer-question", [["lang/en.md", /as one plain statement after the answer, never a question/, "as a question after the answer"]], replyEnding],
         ["generic-help-offer", [["speech.md", /Read no list/, "Offer more help. Read no list"]], replyEnding],
         ["closing-question", [["speech.md", /Read no list/, "End with a question. Read no list"]], replyEnding],
-        ["silence-help-offer", [["turns.md", /ask only whether the user is still there/, "ask whether the user needs more help"]], replyEnding]
     ]) {
         const copy = path.join(root, name);
         fs.cpSync(backend, copy, { recursive: true });

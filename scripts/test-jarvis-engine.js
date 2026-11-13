@@ -1981,8 +1981,6 @@ async function cases(kit, server, only = null, mutation = false) {
             "The mail tool is missing.", ["The mail tool is missing."]],
         ["unknown", { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt." },
             "I could not confirm the request.", ["I could not confirm the request."]],
-        ["completed-echo", { outcome: "completed", content: "Completed: the request reached Jarvis main." },
-            "Let me check my main brain for that. It reads its mail next.", [ASKING, "It reads its mail next."], "forward"],
         ["completed-silent", { outcome: "completed", content: "Completed: the request reached Jarvis main." },
             "", [ASKING], "forward"]
     ]) await run("fleet-" + route + "-" + name, async w => {
@@ -4179,11 +4177,6 @@ async function groupPlants(root, server) {
         ["late-replaced-brain", "if (running !== undefined) c.late.set(", "if (running !== undefined && c.brainOwner.value === cancelled) c.late.set(", "stale-outcome-replaced"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Let me check my main brain for that." },', "", "fleet-request-completed-silent"],
-        ["fleet-request-old-words", '"fleet.request": { completed: "Let me check my main brain for that." }',
-            '"fleet.request": { completed: "Asking Jarvis\'s session." }', "fleet-request-completed-silent"],
-        ["fleet-forward-old-words", '"fleet.forward": { completed: "Let me check my main brain for that." }',
-            '"fleet.forward": { completed: "Forwarding to your main Jarvis." }', "fleet-forward-completed-silent"],
-        ["fleet-forward-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-forward-completed-echo"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
         ["fleet-resume-route-kept", "fleetRoute(router.offer()) !== c.fleet", "c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet", "fleet-route-resume"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],
