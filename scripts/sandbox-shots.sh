@@ -3334,7 +3334,7 @@ warden_status() {
 # before its first shot.
 scene_bar() { # MODE
   local id
-  warden_status calm calm
+  warden_status calm warn
   for id in vgs.agent-warden vgs.updates; do
     hover_widget "the pointer rests on $id" "$id" || continue
     expect_poll "the $id tooltip opens" true tooltip_opened "$id"
@@ -3355,7 +3355,7 @@ scene_bar() { # MODE
 widget_centre() { python3 -c 'import json,sys; t=sys.argv[1]; r=json.loads(t) if t.startswith("[") else None; print("%d %d" % (r[0] + r[2] / 2, r[1] + r[3] / 2) if r and r[2] > 0 and r[3] > 0 else "none")' "$1"; }
 scene_tooltips() { # MODE
   local id at
-  warden_status calm calm
+  warden_status calm warn
   for id in "${tooltip_widgets[@]}"; do
     at="$(widget_centre "$(ipc smoke instanceGeometry "$(bar_key)" "$id")")" || at=none
     if [[ $at == none ]]; then ok "$id draws no bar item in the sandbox"; continue; fi
@@ -3403,19 +3403,19 @@ json.dump(doc, open(sys.argv[2], "w"))
 PY
 }
 scene_panels() { # MODE
-  warden_status calm calm
+  warden_status calm warn
   bar_widget_reveal vgs.agent-warden || fail "the shield could not be revealed"
   click_in vgs:bar "$(bar_key)" vgs.agent-warden BarItem "Agent Warden" || fail "the click on the shield failed"
   expect_poll "the shield opens the warden's panel" True warden_panel_lines
   park_pointer
   take "panels-$1-warden-calm"
-  warden_status holding-off problem
+  warden_status holding-off danger
   take "panels-$1-warden-problem"
   hover_on "the pointer rests on the panel's Open vsys" panel vgs.agent-warden Button "Open vsys" && take_posed "panels-$1-warden-hover"
   park_pointer
   expect "the warden's panel hides" ok ipc shell hide panel vgs.agent-warden
   expect_poll "the warden's panel is gone" absent warden_panel_texts
-  warden_status calm calm
+  warden_status calm warn
   bar_widget_reveal vgs.updates || fail "the updates widget could not be revealed"
   click_centre "$(bar_key)" vgs.updates || fail "the click on the updates widget failed"
   expect_poll "the widget opens the Updates window" open updates_window
@@ -11637,6 +11637,7 @@ for scene in "${setups[@]}"; do
           updates_snapshot_plant
           expect "Updates enables for its Reboot notice info" ok ipc shell setPluginEnabled vgs.updates true
           expect_poll "Updates reports its planted snapshot" 6 updates_pending
+          close_notices
         fi
       done
       if [[ -n $click_pane ]]; then
