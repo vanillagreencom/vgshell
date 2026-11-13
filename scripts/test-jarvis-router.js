@@ -61,7 +61,7 @@ world(async () => {
         const router = implementation.create({ session, state: () => runner.state,
             dispatch: e => runner.dispatch(e), context: () => ({
                 profile: options.profile ?? "standard", locked, get denied() { return denied(); } }),
-            audit, result: value => results.push(value), release: options.release });
+            audit, result: value => results.push(value), release: options.release, forwarding: options.forwarding });
         Object.assign(ports, router.ports);
         for (const executor of ["windows", "compositor", "files", "input", "sandbox", "browser", "harness", "vision"]) {
             if (executor === "browser" && options.browser) continue;
@@ -996,21 +996,91 @@ esac
         // trusting level, its executor receives the start's own audit row
         // and how the owner confirmed it, and a turn forwards one.
         ["fleet-forward", (implementation, _folder, session = Session) => {
-            const w = make(implementation, session, { profile: "trusted" });
-            const confirmations = [];
+            for (const binding of [Object.freeze({ id: "vgs-voice:fixture", name: "Jarvis Voice fixture", home: "/fixture/home", main: "main:/fixture/home" }), null]) {
+                const w = make(implementation, session, { profile: "trusted", forwarding: () => binding });
+                const confirmations = [];
+                w.router.register("satellite", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true,
+                    start: (call, done, authorize, origin, confirmation) => {
+                        confirmations.push(confirmation);
+                        done({ outcome: "completed", content: "Completed: forwarded." });
+                    } });
+                assert.ok(w.router.offer().some(row => row.id === "fleet.forward"));
+                assert.equal(w.call("fleet.forward", { text: "Rebase the lanes." }).kind, "held", "a forward waits for the owner at every level");
+                w.show(); w.time(700); w.confirm();
+                const row = w.rows().filter(entry => entry.tool === "fleet.forward" && entry.outcome === "pending").at(-1);
+                assert.equal(row.confirmed, "physical");
+                const request = { ref: "vgs-audit:" + row.time + "#" + row.gen + ":" + row.op, at: row.time };
+                assert.deepEqual(confirmations, [{ request, session: binding,
+                    confirmation: { ...request, method: "physical" } }], "the forward cites its own start row and how the owner confirmed it");
+                assert.deepEqual(w.call("fleet.forward", { text: "And another." }), { kind: "refuse", reason: "turn-limit" }, "a second forward in one turn");
+                w.newTurn();
+                if (binding === null) {
+                    let refused;
+                    assert.doesNotThrow(() => { refused = w.call("fleet.forward", { text: "Session without a live session.", scope: "session" }); });
+                    assert.deepEqual(refused, { kind: "refuse", reason: "forward-session-unavailable" }, "a session grant needs a live session");
+                }
+                assert.equal(w.call("fleet.forward", { text: "Next turn." }).kind, "held", "individual consent covers only its own forward");
+            }
+        }],
+        ["fleet-session-consent", implementation => {
+            let binding = Object.freeze({ id: "vgs-voice:session", name: "Jarvis Voice session", home: "/fixture/home", main: "main:/fixture/home" });
+            const w = make(implementation, Session, { profile: "trusted", forwarding: () => binding });
+            const sent = [];
             w.router.register("satellite", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true,
-                start: (call, done, authorize, origin, confirmation) => {
-                    confirmations.push(confirmation);
-                    done({ outcome: "completed", content: "Completed: forwarded." });
-                } });
-            assert.ok(w.router.offer().some(row => row.id === "fleet.forward"));
-            assert.equal(w.call("fleet.forward", { text: "Rebase the lanes." }).kind, "held", "a forward waits for the owner at every level");
+                start(call, done, authorize, origin, consent) { sent.push(consent); done({ outcome: "completed", content: "Completed: forwarded." }); } });
+            assert.equal(w.call("fleet.forward", { text: "First request.", scope: "session" }).kind, "held");
+            // Session publishes this immutable approval to the person's
+            // physical/voice confirmation route. Its scope names both ends.
+            assert.ok(w.runner.state.approval.text.includes(binding.id));
+            assert.ok(w.runner.state.approval.text.includes(binding.main));
             w.show(); w.time(700); w.confirm();
-            const row = w.rows().filter(entry => entry.tool === "fleet.forward" && entry.outcome === "pending").at(-1);
-            assert.equal(row.confirmed, "physical");
-            assert.deepEqual(confirmations.map(value => ({ ...value })), [{ ref: "vgs-audit:" + row.time + "#" + row.gen + ":" + row.op,
-                at: row.time, method: "physical" }], "the forward cites its own start row and how the owner confirmed it");
-            assert.deepEqual(w.call("fleet.forward", { text: "And another." }), { kind: "refuse", reason: "turn-limit" }, "a second forward in one turn");
+            const original = sent[0].confirmation;
+            assert.equal(original.scope, "session");
+            w.newTurn();
+            assert.equal(w.call("fleet.forward", { text: "Second request." }).kind, "proposed", "confirmed session covers its next clean forward");
+            assert.deepEqual(sent[1].confirmation, original, "the later forward keeps original grant evidence");
+            assert.notEqual(sent[1].request.ref, sent[0].request.ref, "each request has its own audit identity");
+            w.newTurn();
+            w.router.observe(w.runner.state.turn, ["web"]);
+            assert.equal(w.call("fleet.forward", { text: "Outside content.", scope: "session" }).kind, "held", "session consent does not bypass taint");
+            w.show(); w.time(1400); w.confirm();
+            assert.equal(Object.hasOwn(sent[2].confirmation, "scope"), false, "taint confirms this request alone");
+            w.newTurn();
+            assert.equal(w.call("fleet.forward", { text: "Original session grant." }).kind, "proposed");
+            assert.deepEqual(sent[3].confirmation, original, "an individual taint confirmation does not replace the live grant or cancel its queued requests");
+            w.newTurn();
+            binding = Object.freeze({ ...binding, main: "other:/fixture/home" });
+            assert.equal(w.call("fleet.forward", { text: "Changed main." }).kind, "held", "another main keeps individual confirmation");
+            w.dispatch({ type: "cancel" }); w.newTurn();
+            assert.equal(w.call("fleet.forward", { text: "Grant again.", scope: "session" }).kind, "held", "the same session can explicitly grant again");
+            w.show(); w.time(2100); w.confirm();
+            const renewed = sent[4].confirmation;
+            assert.notEqual(renewed.ref, original.ref, "the renewed grant has its own accepted confirmation");
+            w.newTurn();
+            assert.equal(w.call("fleet.forward", { text: "After reconfirmation." }).kind, "proposed");
+            assert.deepEqual(sent[5].confirmation, renewed);
+            w.newTurn();
+            // Satellite retires a grant by handing out a new binding object.
+            binding = Object.freeze({ ...binding });
+            assert.equal(w.call("fleet.forward", { text: "Held for this main.", scope: "session" }).kind, "held");
+            w.show(); w.time(2800);
+            binding = Object.freeze({ ...binding, home: "/another/home" });
+            w.confirm();
+            assert.equal(sent.length, 6, "a changed binding cannot inherit a held confirmation");
+            assert.equal(w.refusal().reason, "forward-session-changed");
+            const restarted = make(implementation, Session, { profile: "trusted", forwarding: () => binding });
+            restarted.router.register("satellite", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true, start() {} });
+            assert.equal(restarted.call("fleet.forward", { text: "New router." }).kind, "held", "restart inherits no session grant");
+            const stopping = make(implementation, Session, { profile: "cautious" });
+            let stops = 0;
+            stopping.router.register("satellite-stop", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true,
+                start(_call, done) { stops++; done({ outcome: "completed", content: "fixture grant stopped" }); } });
+            fs.rmSync(path.join(stopping.directory, "audit"), { recursive: true, force: true });
+            fs.writeFileSync(path.join(stopping.directory, "audit"), "blocked");
+            assert.equal(stopping.call("fleet.forward.stop").kind, "proposed", "revocation needs no sending confirmation");
+            assert.equal(stops, 1, "an unwritable audit store cannot block local revocation");
+            assert.equal(stopping.results.at(-1).outcome, "completed");
+            assert.equal(stopping.results.at(-1).results[0].item.content, "fixture grant stopped", "a failed outcome append cannot hide the actual stop result");
         }]
     ];
     try {
@@ -1029,7 +1099,7 @@ esac
             ["readiness-start", 'if (available(value.refined) !== value.executor)', 'if (false)', "readiness-start"],
             ["rejudge", "const fresh = judge(value);", "const fresh = value.decision;", "rejudge"],
             ["lazy-denied", "get denied() { return facts.denied; }, taint", "denied: facts.denied, taint", "lazy-denied"],
-            ["audit-before", "const admitted = audit.before(", "const admitted = ({ before: (event, start) => ({ kind: 'started', value: start() }) }).before(", "audit-before"],
+            ["audit-before", "audit.before(action, launch)", "({ before: (event, start) => ({ kind: 'started', value: start() }) }).before(action, launch)", "audit-before"],
             ["audit-refusal", 'throw new Error("jarvis: audit=write cause=" + written.cause);',
                 'void written.cause;', "audit-refusal"],
             ["turn-identity", "s.gen !== turn.gen || s.turn.kind !== \"thinking\" || s.turn.gen !== turn.gen || s.turn.op !== turn.op",
@@ -1050,7 +1120,7 @@ esac
             ["digest", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + "{}"', "immutable-digest"],
             ["held-harness-kind", "id, tool: value.call.id,", 'id, tool: "harness.command",', "harness-approval"],
             ["held-harness-path", 'value.call.id + "\\n" + canonical(value.call.args)', 'value.call.id + "\\n" + canonical({...value.call.args, write: []})', "harness-approval"],
-            ["sentence", 'sentence(value.call, decision.scope)', '"model text"', "typed-sentence"],
+            ["sentence", 'sentence(value.call, decision.scope, value.grantRequested ? value.binding : undefined)', '"model text"', "typed-sentence"],
             ["window-active-sentence", 'if (field === "window" && value === "active") return "in focus";', "", "window-target-sentence"],
             ["window-class-sentence", 'if (field === "window" && value.startsWith("class:")) return "of class " + value.slice("class:".length);', "", "window-target-sentence"],
             ["proposer-judged", 'if (request.proposer !== undefined && (request.proposer !== "matcher" || request.kind !== "tool-call"))', "if (false)", "matcher"],
@@ -1062,6 +1132,14 @@ esac
             ["home-whole", 'labels.includes("home") || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],
             ["fleet-offer", '(id !== "fleet.request" || fleet === undefined || fleet() === true)', "true", "fleet-request"],
             ["forward-own-row", '"#" + value.turn.gen + ":" + value.turn.op', '"#" + value.turn.gen + ":0"', "fleet-forward"],
+            ["forward-session-binding", 'if (value.binding !== undefined && value.binding !== forwarding())', "if (false)", "fleet-session-consent"],
+            ["forward-session-evidence", '{ scope: "session", ...forwardGrant.confirmation }', '{ scope: "session", ...own }', "fleet-session-consent"],
+            ["forward-session-sentence", "if (grant !== undefined) text = ", "if (false) text = ", "fleet-session-consent"],
+            ["forward-taint-keeps-grant", 'if (accepted && value.grantRequested)', 'if (accepted && value.call.args.scope === "session")', "fleet-session-consent"],
+            ["forward-individual-admission", "if (scoped && value.binding === null)", "if (value.binding === null)", "fleet-forward"],
+            ["forward-session-unavailable", "if (scoped && value.binding === null)", "if (false)", "fleet-forward"],
+            ["forward-stop-cleanup", "value.cleanup ? audit.cleanup(cleanup, launch) : audit.before(action, launch)", "audit.before(action, launch)", "fleet-session-consent"],
+            ["forward-stop-result", 'written.kind === "refuse" && !value.cleanup', 'written.kind === "refuse"', "fleet-session-consent"],
             ["once-limit", 'if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");', "", "fleet-request"],
             ["once-failed", ' && e.outcome !== "failed")', ")", "fleet-request"],
             ["once-turn", [['spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)', "spent.has(value.call.id)"],
@@ -1078,7 +1156,7 @@ esac
             ["approval-proposer", 'row !== null && row.proposer === "harness"', "row !== null", "harness-kind"],
             ["request-kind", 'throw new Error("jarvis: router=request-kind");', "void request;", "harness-kind"],
             ["image-labels", "Policy.item(image.bytes, item.labels)", "Policy.item(image.bytes, [\"desktop\"])", "image"],
-            ["image-on-refusal", "written.kind === \"refuse\" ? undefined : value.answer?.image", "value.answer?.image", "image"],
+            ["image-on-refusal", "withheld ? undefined : value.answer?.image", "value.answer?.image", "image"],
             ["capture-audited", "...(capture === undefined ? {} : { capture }) });", "});", "image"],
             ["image-contract", "(answer.image !== undefined && (answer.outcome !== \"completed\"", "(false && (answer.outcome !== \"completed\"", "image"]
         ];
@@ -1117,6 +1195,8 @@ esac
             ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"],
             ["forward-confirmed", "Tools.js", 'effect: "external", executor: "satellite"', 'effect: "exec", executor: "satellite"', "ToolRouter.js", "fleet-forward"],
             ["forward-once", "Tools.js", 'executor: "satellite", command: null, once: true,', 'executor: "satellite", command: null,', "ToolRouter.js", "fleet-forward"],
+            ["forward-session-grant", "Policy.js", 'context.forwardGranted === true', 'false', "ToolRouter.js", "fleet-session-consent"],
+            ["forward-session-taint", "Policy.js", 'context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect)', 'context.taint.kind === "tainted" && ["persistent", "exec", "input"].includes(effect)', "ToolRouter.js", "fleet-session-consent"],
             ["request-satellite-offer", "ComputerHelp.js", "            if (!main()) return false;\n", "", "ComputerHelp.js", "fleet-request"],
             ["request-satellite-start", "ComputerHelp.js", '        if (!main()) return failed("satellite");\n', "", "ComputerHelp.js", "fleet-request"]
         ]) {

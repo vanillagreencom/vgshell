@@ -11,7 +11,22 @@ const { FILES: CORE_FILES, useTree, scratchTree } = require("./core.js");
 const { runBounded } = require("./bounded.js");
 
 function world(main, prepareStandins) {
-    if (process.argv[2] === "--inside") return main();
+    if (process.argv[2] === "--inside") {
+        // Node exits 0 when its event loop empties under a pending await, so
+        // a suite whose awaited work never settles would pass unrun. An
+        // explicit process.exit emits no beforeExit and keeps its own code.
+        let settled = false;
+        process.on("beforeExit", () => {
+            if (settled) return;
+            console.error("jarvis world: the suite ended before its main settled");
+            process.exitCode = 1;
+        });
+        const result = main();
+        // No rejection handler here: a rejected main stays unhandled, so
+        // Node still reports it and exits 1.
+        Promise.resolve(result).then(() => { settled = true; });
+        return result;
+    }
     const parent = os.tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "jp-")));

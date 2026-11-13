@@ -37,6 +37,7 @@ function operation(row) {
         "help": "Reading help", "memory.search": "Searching memory notes", "memory.read": "Reading memory notes",
         "memory.propose": "Adding a memory note", "memory.replace": "Replacing a memory note",
         "fleet.request": "Sending a fleet request", "fleet.forward": "Forwarding a request to your main Jarvis",
+        "fleet.forward.stop": "Stopping forwarding",
         "windows.list": "Listing windows", "windows.focus": "Focusing a window",
         "windows.reveal": "Revealing a window", "windows.move": "Moving a window", "windows.resize": "Resizing a window",
         "windows.close": "Closing a window", "windows.fullscreen": "Changing a window's full-screen state",

@@ -4,7 +4,7 @@
 
 **Date**: 2026-09-30
 
-**Status**: Active (tainted memory-write confirmation → [D131](D131-outside-memory-consent.md))
+**Status**: Active (tainted memory-write confirmation → [D131](D131-outside-memory-consent.md); the audit write before a Stop forwarding start → [D134](D134-live-session-forwarding-consent.md))
 
 **Research**: the Jarvis plan attached to [VGS-623](https://linear.app/vanillagreen/issue/VGS-623)
 

@@ -5,6 +5,7 @@
 // owns the SSH connection, the outbox, retries and the answer.
 "use strict";
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
 const Child = require("./Child.js");
@@ -39,6 +40,7 @@ const CLAIM = /^(voice-request|forwarded-request):/;
 // Python's str.splitlines boundaries, where a line the main reads can start.
 const LINES = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/;
 const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
+const SESSION_PREFIX = "vgs-voice:";
 
 /**
  * The host part of a Main Jarvis host value, as the package's role names
@@ -117,9 +119,11 @@ function reading(answer, value, acceptReach) {
  * home() is null, "not-set-up" for a chosen folder Setup has yet to set up
  * (D126), else null for no folder; mainHost() the Main Jarvis
  * host setting; environment is the daemon's; publish(reach) receives each
- * reading; acceptReach is the wire's main-reach judge.
+ * reading; acceptReach is the wire's main-reach judge. runtime is the
+ * daemon's private runtime directory; fatal ends it if a lease cannot retire.
  */
-function create({ home, homeBlock = () => null, mainHost, environment, publish, acceptReach, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
+function create({ home, homeBlock = () => null, mainHost, environment, runtime, publish, acceptReach, log,
+    fatal = error => { throw error; }, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
     let last = null;
     let controller = null;
     let timer = null;
@@ -133,6 +137,110 @@ function create({ home, homeBlock = () => null, mainHost, environment, publish, 
     // one, and the reading names the refusal until the next choice.
     let rejected = null;
     let closed = false;
+    let voiceSession = null;
+    let binding = null;
+    let lease = null;
+    let owner = null;
+
+    function retireLease() {
+        const held = lease;
+        lease = null;
+        if (held === null) return;
+        try {
+            const parent = fs.lstatSync(held.folder, { throwIfNoEntry: false });
+            if (parent === undefined) return;
+            if (held.parent !== null && (parent.dev !== held.parent.dev || parent.ino !== held.parent.ino))
+                throw new Error("ownership");
+            if (held.file !== null) {
+                const found = fs.lstatSync(held.file.path, { throwIfNoEntry: false });
+                if (found !== undefined) {
+                    if (found.dev !== held.file.dev || found.ino !== held.file.ino) throw new Error("ownership");
+                    fs.unlinkSync(held.file.path);
+                }
+            }
+            fs.rmdirSync(held.folder);
+        } catch (error) {
+            closed = true;
+            stopRead();
+            fatal(new Error("jarvis: satellite=lease-retire cause=" + (error.code || "ownership")));
+        }
+    }
+
+    // The binding object is the router's revocation token: a new one, even
+    // for the same generation (a main setting change or Stop), ends its grant.
+    function currentSession() {
+        if (closed || voiceSession === null) return null;
+        const folder = home();
+        const main = folder === null || mainHost() === "" ? null : settingOf(mainHost(), folder);
+        if (binding !== null && (binding.home !== folder || binding.main !== main)) stopForwarding();
+        if (closed || folder === null || main === null) return null;
+        if (binding === null) binding = Object.freeze({ id: voiceSession.id, name: voiceSession.name, home: folder, main });
+        return binding;
+    }
+
+    function stopForwarding() {
+        retireLease();
+        binding = null;
+    }
+
+    function sync(state) {
+        if (closed) return;
+        if (state.conversation.kind === "ended" || state.conversation.purpose === "preview"
+                || voiceSession !== null && voiceSession.gen !== state.gen) {
+            stopForwarding();
+            voiceSession = null;
+        }
+        if (closed || state.conversation.kind === "ended" || state.conversation.purpose === "preview") return;
+        if (voiceSession === null) {
+            const uuid = crypto.randomUUID();
+            voiceSession = { gen: state.gen, id: SESSION_PREFIX + uuid, name: "Jarvis Voice " + uuid, stops: state.stops };
+        } else if (voiceSession.stops !== state.stops) {
+            voiceSession.stops = state.stops;
+            stopForwarding();
+        }
+        currentSession();
+    }
+
+    // liveLease's own refusals carry their cause as the code forward logs.
+    const leaseRefusal = cause => Object.assign(new Error(cause), { code: cause });
+
+    function liveLease(selected, confirmation) {
+        if (lease !== null && lease.confirmation === confirmation.ref) return lease.file.path;
+        retireLease();
+        // Linux proc_pid_stat(5): field 2 can contain spaces and ')'; after
+        // its last ')' field 22 is index 19. boot_id is constant per boot
+        // (docs.kernel.org/admin-guide/sysctl/kernel.html#random).
+        if (owner === null) {
+            const stat = fs.readFileSync("/proc/self/stat", "utf8");
+            const start = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/)[19];
+            const boot = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+            if (!/^[0-9]+$/.test(start) || !/^[0-9a-f-]{36}$/.test(boot)) throw leaseRefusal("owner-unread");
+            owner = { pid: process.pid, start, boot };
+        }
+        const folder = path.join(runtime, "forward-sessions");
+        fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+        const directory = fs.lstatSync(folder);
+        if (!directory.isDirectory() || directory.uid !== process.getuid() || (directory.mode & 0o077) !== 0)
+            throw leaseRefusal("lease-directory");
+        // The filename binds the session; a fresh parent binds the grant so
+        // reconfirmation cannot revive stopped queued records (D134).
+        const grantFolder = path.join(folder, crypto.randomUUID());
+        const file = path.join(grantFolder, selected.id.slice(SESSION_PREFIX.length) + ".json");
+        fs.mkdirSync(grantFolder, { mode: 0o700 });
+        lease = { folder: grantFolder, parent: null, file: null, confirmation: confirmation.ref };
+        let fd = null;
+        try {
+            lease.parent = fs.lstatSync(grantFolder);
+            fd = fs.openSync(file, "wx", 0o600);
+            const found = fs.fstatSync(fd);
+            lease.file = { path: file, dev: found.dev, ino: found.ino };
+            // REVISIT(D134): Kendex's forward/drain checks this lease once
+            // before each send attempt; unlink is Stop/end, owner is crash identity.
+            fs.writeFileSync(fd, JSON.stringify({ v: 1, id: selected.id, main: selected.main, owner }));
+        } catch (error) { retireLease(); throw error; }
+        finally { if (fd !== null) fs.closeSync(fd); }
+        return file;
+    }
 
     // The ready home's session command, {folder, command}, or {kind:
     // "blocked", block} (SessionCommand.place).
@@ -271,17 +379,30 @@ function create({ home, homeBlock = () => null, mainHost, environment, publish, 
         return typeof cause === "string" && /^[a-z0-9-]{1,60}$/.test(cause) ? cause : "";
     }
 
-    // CONFIRMED is the router's {ref, at, method} for the start the owner
-    // confirmed (ToolRouter register).
-    async function forward(call, confirmed) {
+    // The router supplies the request's own row, the accepted consent and
+    // the exact trusted live-session binding, never model metadata.
+    async function forward(call, confirmed, authorize) {
         if (Redact.secret(call.args.text)) return failed("secret");
         if (claims(call.args.text)) return failed("caller-claim");
         const location = locate();
         if (location.kind === "blocked") return failed(location.block);
+        // The router owns the binding's currency; nothing awaits between
+        // this answer and the spawn, and a refused binding publishes no lease.
+        const authority = authorize();
+        if (authority.kind !== "allow") return failed(authority.reason);
+        const record = { v: 1, request: { ...confirmed.request, text: call.args.text }, confirmation: confirmed.confirmation };
+        if (confirmed.confirmation.scope === "session") {
+            try {
+                record.session = { id: confirmed.session.id, name: confirmed.session.name, main: confirmed.session.main,
+                    lease: liveLease(confirmed.session, confirmed.confirmation) };
+            }
+            catch (error) {
+                log("jarvis: satellite=lease-create cause=" + (error.code || "unavailable"));
+                return failed("lease-unavailable");
+            }
+        }
         // The request as the user made it, spoken or typed: no VGS path knows
         // who spoke, so the record names no caller.
-        const record = { v: 1, request: { ref: confirmed.ref, at: confirmed.at, text: call.args.text },
-            confirmation: { ref: confirmed.ref, at: confirmed.at, method: confirmed.method } };
         const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-jarvis-forward-"));
         let result;
         try {
@@ -319,12 +440,21 @@ function create({ home, homeBlock = () => null, mainHost, environment, publish, 
             // Read at offer, route and start.
             available: forwarding,
             start(call, done, authorize, origin, confirmed) {
-                forward(call, confirmed).then(answer => { done(answer); refresh(); },
+                forward(call, confirmed, authorize).then(answer => { done(answer); refresh(); },
                     error => done(failed(error.code || "unexpected")));
             } },
-        refresh, choose,
+        stopExecutor: { commands: [], timeoutMs: LOCAL_MS, cancellable: false,
+            available: () => !closed && voiceSession !== null && mainHost() !== "",
+            start(_call, done) {
+                stopForwarding();
+                done({ outcome: "completed", content: "Completed: forwarding from this conversation stopped." });
+            } },
+        refresh, choose, sync, session: currentSession,
         close() {
+            if (closed) return Promise.allSettled([inFlight, setting]);
             closed = true;
+            stopForwarding();
+            voiceSession = null;
             stopRead();
             return Promise.allSettled([inFlight, setting]);
         }

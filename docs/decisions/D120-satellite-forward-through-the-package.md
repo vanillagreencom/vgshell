@@ -4,7 +4,7 @@
 
 **Date**: 2026-11-03
 
-**Status**: Active
+**Status**: Active (the scope of sending confirmation and the session-scoped record → [D134](D134-live-session-forwarding-consent.md))
 
 **Research**: [VGS-2189](https://linear.app/vanillagreen/issue/VGS-2189)
 

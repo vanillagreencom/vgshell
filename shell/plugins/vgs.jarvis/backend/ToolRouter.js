@@ -15,7 +15,8 @@ function canonical(value) {
     return JSON.stringify(value);
 }
 
-function sentence(call, scope) {
+// grant is the live-session binding a session grant request names.
+function sentence(call, scope, grant) {
     let text = Tools.TABLE[call.id].sentence.replace(/\{(\w+)\}/g, (_, field) => {
         const value = call.args[field];
         // Without cwd the sandbox runs the command in a new empty folder (Sandbox.js run).
@@ -42,6 +43,13 @@ function sentence(call, scope) {
         text = "Let the brain's program " + (actions || "change files") + "?\n" + targets + "\nChanges:\n" + args.diff;
         break;
     }
+    case "fleet.forward":
+        // A session grant names both ends and what it leaves to main (D134).
+        if (grant !== undefined) text = "Forward requests from Jarvis Voice session " + grant.id + " to " + grant.main
+            + " for this live session? This approves sending only. Destructive actions, money and outside commitments need approval at main."
+            + " Requests and answers appear in your Slack channel. Say stop forwarding, press Stop or close the conversation to end this permission."
+            + "\nFirst request:\n" + args.text;
+        break;
     }
     return scope === undefined ? text : text + "\nAllow input in " + scope + " for this conversation. Jarvis can act as you there.";
 }
@@ -55,11 +63,12 @@ function sentence(call, scope) {
  * final is false only for a timeout whose actual completion is still to come.
  * A generation change clears grants. Each new turn starts with clean taint.
  */
-function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null }) {
+function create({ session, state, dispatch, context, audit, result, routed = () => {}, release = null, forwarding = () => null }) {
     const registry = new Map();
     let pending = null;
     let grants = new Set();
     let generation = null;
+    let forwardGrant = null;
     let turnOp = null;
     let taint = { kind: "clean" };
     let originLabels = new Set(["home"]);
@@ -71,6 +80,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
     function sync(s) {
         if (generation !== s.gen || s.conversation.kind === "ended") {
             grants = new Set();
+            forwardGrant = null;
             generation = s.gen;
             conversationLabels = new Set(["home"]);
         }
@@ -156,7 +166,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         const facts = context();
         return Policy.decide(value.call, { profile: facts.profile, locked: facts.locked,
             // A getter, so the snapshot is built only when Policy reads it.
-            get denied() { return facts.denied; }, taint, grants: [...grants], input });
+            get denied() { return facts.denied; }, taint, grants: [...grants], input,
+            forwardGranted: forwardGrant !== null && forwardGrant.binding === value.binding });
     }
 
     function judge(value) {
@@ -175,9 +186,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
      * fleet() must return literal true at offer for the fleet.request row.
-     * A row marked confirmation receives a fifth argument, {ref, at,
-     * method}: its start's audit reference and time, and how the user
-     * confirmed it ("none", "voice" or "physical").
+     * A row marked confirmation receives a fifth argument with its own
+     * request row, accepted confirmation evidence and trusted session binding.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -252,6 +262,14 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");
         value.executor = available(refined);
         if (value.executor === null) return refuse(value, "executor-unavailable");
+        // A row bound to the live session snapshots that binding once; every
+        // later judge compares this snapshot, and authorize its currency.
+        if (row.sessionGrant === true) {
+            value.binding = forwarding();
+            const scoped = value.call.args.scope === "session";
+            if (scoped && value.binding === null) return refuse(value, "forward-session-unavailable");
+            value.grantRequested = scoped && (forwardGrant === null || forwardGrant.binding !== value.binding);
+        }
         const decision = judge(value);
         if (row.outbound !== undefined) {
             // Release asks before an action occupies Session's serial slot.
@@ -304,8 +322,9 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             dispatch({ type: "tool", ...proposal });
             return { kind: "proposed", id };
         case "confirm": {
-            const digest = crypto.createHash("sha256").update(value.call.id + "\n" + canonical(value.call.args)).digest("hex");
-            const text = sentence(value.call, decision.scope);
+            const digest = crypto.createHash("sha256").update(value.call.id + "\n" + canonical(value.call.args)
+                + (value.binding === undefined ? "" : "\n" + canonical(value.binding))).digest("hex");
+            const text = sentence(value.call, decision.scope, value.grantRequested ? value.binding : undefined);
             if (Buffer.byteLength(text) > RESULT_BYTES) { pending = null; return refuse(value, "approval-size"); }
             const written = record(value, "confirm", "pending");
             if (written.kind === "refuse") { pending = null; return refuse(value, written.reason); }
@@ -342,6 +361,8 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 || freshState.turn.kind !== "thinking" || freshState.turn.op !== value.turn.op
                 || freshState.action.kind !== "running" || freshState.action.gen !== e.gen || freshState.action.op !== e.op
                 || freshState.action.limit.kind !== "pending") return { kind: "refuse", reason: "stale-action" };
+        if (value.binding !== undefined && value.binding !== forwarding())
+            return { kind: "refuse", reason: "forward-session-changed" };
         const prior = value.decision;
         const accepted = e.confirmed !== undefined;
         const authorized = fresh.kind === "allow" && fresh.effect === prior.effect
@@ -360,21 +381,30 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         const accepted = e.confirmed !== undefined;
         value.confirmed = !accepted ? "none" : e.confirmed === "voice" ? "voice" : "physical";
         value.action = { gen: e.gen, op: e.op };
-        const admitted = audit.before({ kind: "action", gen: value.turn.gen, op: value.turn.op,
+        const action = { kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: fresh.effect, decision: prior.kind,
-            confirmed: value.confirmed, outcome: "pending", ...proposer(value) }, recorded => {
+            confirmed: value.confirmed, outcome: "pending", ...proposer(value) };
+        const launch = recorded => {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
             try {
                 const origin = Tools.TABLE[value.call.id].origin === true
                     ? Object.freeze({ labels: Policy.labels([...conversationLabels]),
                         tainted: Policy.TAINT_SOURCES.some(label => conversationLabels.has(label)) })
                     : undefined;
-                // A confirmation row cites this start's own audit row, as
-                // vgs-audit:<time>#<gen>:<op>, and how the user confirmed it.
-                const confirmation = Tools.TABLE[value.call.id].confirmation === true
-                    ? Object.freeze({ ref: "vgs-audit:" + recorded.time + "#" + value.turn.gen + ":" + value.turn.op,
-                        at: recorded.time, method: value.confirmed })
-                    : undefined;
+                let confirmation;
+                if (Tools.TABLE[value.call.id].confirmation === true) {
+                    const request = Object.freeze({ ref: "vgs-audit:" + recorded.time + "#" + value.turn.gen + ":" + value.turn.op,
+                        at: recorded.time });
+                    const own = Object.freeze({ ...request, method: value.confirmed });
+                    // REVISIT(D134): a grant cites the original accepted
+                    // confirmation, while each request keeps its own row.
+                    if (accepted && value.grantRequested)
+                        forwardGrant = { binding: value.binding, confirmation: own };
+                    const granted = !accepted || value.grantRequested;
+                    const consent = granted && forwardGrant !== null && forwardGrant.binding === value.binding
+                        ? { scope: "session", ...forwardGrant.confirmation } : own;
+                    confirmation = Object.freeze({ request, confirmation: Object.freeze(consent), session: value.binding });
+                }
                 value.executor.start(value.call, answer => {
                     if (closed) return;
                     if (!answer || !["completed", "failed", "unknown"].includes(answer.outcome) || typeof answer.content !== "string"
@@ -397,7 +427,12 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 value.answer = { outcome: "failed", content: "executor-failed" };
                 done("failed");
             }
-        });
+        };
+        // A cleanup row (Tools.TABLE) acts even when its audit store is full.
+        // Every other action still needs a successful before-write.
+        const cleanup = Tools.TABLE[value.call.id].cleanup;
+        value.cleanup = cleanup !== undefined;
+        const admitted = value.cleanup ? audit.cleanup(cleanup, launch) : audit.before(action, launch);
         if (admitted.kind === "refuse") {
             value.refusal = admitted.reason;
             done("failed");
@@ -416,6 +451,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             if (Tools.TABLE[value.call.id].once === true && e.outcome !== "failed")
                 spent.add(value.turn.gen + ":" + value.turn.op + ":" + value.call.id);
             const written = record(value, value.decision.kind, e.outcome);
+            const withheld = written.kind === "refuse" && !value.cleanup;
             let labels = value.refined.source === null ? [] : [value.refined.source];
             // Search failures contain only local cap/transport facts: its
             // executor never reads a provider's failed-response body.
@@ -426,9 +462,9 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                 labels = Policy.labels(value.answer.labels);
                 if (!labels.includes(value.refined.source)) throw new Error("jarvis: router=labels");
             }
-            deliver(value, e.outcome, written.kind === "refuse" ? JSON.stringify(written)
+            deliver(value, e.outcome, withheld ? JSON.stringify(written)
                 : value.answer?.content ?? "tool-outcome:" + e.outcome, labels, final,
-                written.kind === "refuse" ? undefined : value.answer?.image);
+                withheld ? undefined : value.answer?.image);
         }
         if (final) pending = null;
     }
@@ -445,6 +481,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     }
                     closed = true;
                     grants.clear();
+                    forwardGrant = null;
                     registry.clear();
                 });
             } },

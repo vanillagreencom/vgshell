@@ -72,10 +72,13 @@ const TABLE = {
     "fleet.request": { sentence: "Put this request in the mailbox of your Jarvis session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
     // On a satellite, a machine whose Main Jarvis host names the main, the
     // package's forward route hands the request to the main Jarvis
-    // (Satellite.js). external: the owner confirms it at every safety
-    // level. confirmation: the router hands the executor the audit row of
-    // the confirmed start and how the owner confirmed it.
-    "fleet.forward": { sentence: "Forward this request to Jarvis main?\n{text}", effect: "external", executor: "satellite", command: null, once: true, confirmation: true, schema: { text: text } },
+    // (Satellite.js). sessionGrant: the router binds the call to the live
+    // session, and a session scope requests a named sending grant that only
+    // Session's confirmation can establish (D134).
+    "fleet.forward": { sentence: "Forward this request to Jarvis main?\n{text}", effect: "external", executor: "satellite", command: null, once: true, confirmation: true, sessionGrant: true, schema: { text: text, scope: oneOf(["session"]) }, optional: ["scope"] },
+    // cleanup: the start goes through Audit.cleanup with this kind, so an
+    // unwritable audit store cannot block revoking a sending grant.
+    "fleet.forward.stop": { sentence: "Stop forwarding from this conversation", effect: "reversible", executor: "satellite-stop", command: null, cleanup: "stop", schema: {}, heard: [[["stop forwarding", "stop forwarding this session"], {}]] },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
     "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget }, heard: [[["focus {name}", "focus on {name}"], { window: "class:{name}" }]] },
     "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget } },

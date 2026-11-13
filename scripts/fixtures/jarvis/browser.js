@@ -112,7 +112,7 @@ async function daemonLease(ending, removeClose = false) {
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
                     causes: ["speech=local-not-set-up", "brain=unselected"], cautions: [] },
                 { v: 1, type: "state", gen: 1, revision: hello.revision, seq: 1, state: {
-                    gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
+                    gen: 1, nextOp: 1, stale: 0, stops: 0, settings: hello.settings,
                     gate: { kind: "down", reason: "unconfigured" },
                     voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, cue: { kind: "none" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
