@@ -110,7 +110,7 @@ function verify(logic) {
   same(logic.reviewPlan({command:"/abs/agent --flag"},["/abs/agent"]).command,["/abs/agent","--flag"]);
   const claudeWords=["claude","--model","opus","--effort","medium","--tools","Read,Glob,Grep,Write","--strict-mcp-config","--permission-mode","dontAsk","--no-chrome"];
   same(logic.reviewPlan({agent:"claude"},["claude"]).command,claudeWords);
-  const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","--sandbox","workspace-write","--ask-for-approval","never"];
+  const codexWords=["codex","-m","gpt-6.1-sol","-c","model_reasoning_effort=medium","-c","default_permissions=:workspace","--ask-for-approval","never"];
   same(logic.reviewPlan({agent:"codex"},["codex"]).command,codexWords);
   // [settings, found, the launch of the review whose evidence folder is
   // /run/work/review-a/evidence beside the agent home /run/work/agent]:

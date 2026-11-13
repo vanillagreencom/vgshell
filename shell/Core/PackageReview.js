@@ -51,7 +51,10 @@ var REVIEW_AGENTS = [
     // escalated command. Measured with never (codex-cli 0.167.0,
     // 2026-11-11, VGS-2476): the turn started, the sandbox refused writes
     // outside the evidence folder and the verdict was written.
-    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "never"] }
+    // Codex 0.167.0's turn_permissions_overrides rejects lossy legacy sandbox
+    // projection (codex-rs/tui/src/app_server_session.rs). Selecting the built-in
+    // workspace profile by name retains its sandbox without that round-trip.
+    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "-c", "default_permissions=:workspace", "--ask-for-approval", "never"] }
 ];
 
 // The `key = value` lines of a .SRCINFO, each { key, value } in file order;
