@@ -618,6 +618,15 @@ function approvalFrames(source) {
         approvalFrames: [], synchronizedHold: null,
         service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
     Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });
+    // QQuickWindow::update: a request for one more frame, made only while a
+    // queued snapshot of the current hold waits and nothing is acknowledged.
+    let frameRequested = false;
+    const unusedCurrent = () => root.displayedHold === null && root.hold !== null && root.approvalFrames.some(frame =>
+        frame !== null && frame.id === root.hold.id && frame.gen === root.hold.gen && frame.digest === root.hold.digest);
+    root.Window = { window: { update: () => {
+        assert.ok(unusedCurrent(), "a frame is requested only for an unused snapshot of the unacknowledged hold");
+        frameRequested = true;
+    } } };
     root.width = 800;
     root.height = 600;
     root.overlay = { x: 16, y: 16, width: 400, height: 300 };
@@ -695,6 +704,28 @@ function approvalFrames(source) {
     root.approvalSwapped();
     flush();
     assert.notEqual(state.approval.shownAt, null, "the placed whole frame acknowledges its request");
+
+    // A static hidden bubble: Qt polished a frame it never synced, so the
+    // hold's own frame swaps an older snapshot, and nothing else draws.
+    dispatch({ type: "approval-cancel", gen: 1, id: "third" });
+    root.displayedHold = null;
+    frameRequested = false;
+    root.approvalPolished();
+    propose("fourth");
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    for (let frames = 0; frameRequested; frames++) {
+        assert.ok(frames < 3, "a static window's frame requests end");
+        frameRequested = false;
+        root.approvalPolished();
+        root.approvalSynchronized();
+        root.approvalSwapped();
+        flush();
+    }
+    assert.notEqual(state.approval.shownAt, null, "a static window's hidden hold still receives its acknowledgment");
+    assert.equal(root.displayedHold?.id, "fourth", "the acknowledged frame drew the current hold");
 }
 const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
 approvalFrames(bubble);
@@ -1003,4 +1034,10 @@ const wholeNeedle = "\n        && approvalText.height >= approvalText.implicitHe
 assert.equal(bubble.split(wholeNeedle).length, 2, "one whole-column control match");
 assert.throws(() => approvalFrames(bubble.replace(wholeNeedle, "")), assert.AssertionError,
     "a frame that clips the request's column must fail the whole-column assertion");
-console.log(`test-jarvis-widget: ok frame-controls=3 frame-control=detected`);
+const requestNeedle = "if (!isCurrent(drawn) && approvalFrames.some(isCurrent)) root.Window.window.update();";
+assert.equal(bubble.split(requestNeedle).length, 2, "one frame request control match");
+assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "")), assert.AssertionError,
+    "a swap that asks for no frame must fail the static hidden hold's acknowledgment");
+assert.throws(() => approvalFrames(bubble.replace(requestNeedle, "root.Window.window.update();")), assert.AssertionError,
+    "a frame asked for on every swap must fail the frame request bound");
+console.log(`test-jarvis-widget: ok frame-controls=5 frame-control=detected`);

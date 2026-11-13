@@ -114,10 +114,27 @@ Item {
         if (hold === null || displayedHold === null || hold.id !== displayedHold.id
                 || hold.gen !== displayedHold.gen || hold.digest !== displayedHold.digest) displayedHold = null;
     }
-    // Qt 6.11 afterAnimating runs on the GUI thread after polish, before sync.
-    // afterSynchronizing and frameSwapped queue from the render thread in order.
-    // Pair each sync with its polish snapshot, including frames without a hold:
-    // a queued old swap must not consume a newer request's GUI state.
+    // Qt 6.12 emits afterAnimating on the GUI thread once polish ends, before
+    // it asks for a sync; afterSynchronizing and frameSwapped queue from the
+    // render thread in order. Each sync takes the oldest polish snapshot,
+    // including frames without a hold, so a queued old swap never consumes a
+    // newer request's GUI state and no acknowledgment comes early.
+    // Qt does not sync every afterAnimating. The threaded loop skips
+    // syncSceneGraph for a zero-size window (QSGRenderThread::sync), an empty
+    // surface, a failed swapchain init or a failed beginFrame
+    // (QSGRenderThread::syncAndRender, qsgthreadedrenderloop.cpp), and the
+    // basic loop returns before its sync on the same failures
+    // (QSGGuiThreadRenderLoop::renderWindow, qsgrenderloop.cpp). Each skip
+    // leaves one more snapshot in this queue. The queue lives on this Item,
+    // not its window: Quickshell deletes a layer surface's QQuickWindow on
+    // every hide and builds a new one on every show
+    // (WlrLayershell::deleteOnInvisible and ProxyWindowBase::setVisibleDirect,
+    // src/window/proxywindow.cpp), and nothing here resets the queue, so the
+    // lag lasts the Bubble's life. Each sync takes the snapshot from as many
+    // frames back as there have been skips. An animating window's later
+    // frames reach the current hold's snapshot; a static hidden bubble draws
+    // no further frame, so approvalSwapped keeps asking for frames until one
+    // draws the current hold.
     // https://doc.qt.io/qt-6/qquickwindow.html#afterSynchronizing
     function approvalPolished() {
         approvalFrames.push(shown && visible && placed && approvalWhole ? hold : null);
@@ -127,7 +144,18 @@ Item {
     }
     function approvalSwapped() {
         const drawn = synchronizedHold;
-        if (drawn === null || displayedHold !== null) return;
+        if (displayedHold !== null) return;
+        // QQuickWindow::update forces one more polish, sync and swap
+        // (QSGThreadedRenderLoop::update sets forceRenderPass). It is asked
+        // only while a later frame's snapshot of the current hold waits
+        // unused, so each such frame consumes one older snapshot, and the
+        // requests end once a swap draws the hold, it is acknowledged or the
+        // hold changes.
+        const current = hold;
+        const isCurrent = frame => frame !== null && current !== null && frame.id === current.id
+            && frame.gen === current.gen && frame.digest === current.digest;
+        if (!isCurrent(drawn) && approvalFrames.some(isCurrent)) root.Window.window.update();
+        if (drawn === null) return;
         // LayerHost observes this swap too. Its presented value must settle
         // before the service checks this frame's unchanged request identity.
         Qt.callLater(() => {
