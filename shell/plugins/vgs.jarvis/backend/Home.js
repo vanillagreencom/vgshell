@@ -7,7 +7,8 @@
 // another file to every brain. Home text gives knowledge, never
 // permission: the gate stays the only source of that. It also finds the
 // two programs of the home VGS starts: the kendex mail tool that writes the
-// Jarvis session's mailbox there, and the Jarvis package's session command.
+// Jarvis session's mailbox there, and the Jarvis package's session command;
+// and the same mail tool in a project kendex lists, judged as the home is.
 // Contract: docs/decisions/D105-jarvis-home-folder.md and
 // docs/decisions/D126-kendex-owns-the-jarvis-package.md.
 "use strict";
@@ -164,10 +165,12 @@ function offers(list, userHome) {
 
 // Hold the home folder itself open. The folders above it are the user's own
 // path and resolve as the system gives them; the home is never a link. A
-// folder that is not there throws home=missing.
-function hold(home) {
-    let file;
-    try { file = path.join(fs.realpathSync.native(path.dirname(home)), path.basename(home)); }
+// LISTED project's folder is the canonical path kendex registered (its
+// settings entry_for), so it is walked whole from / and a link anywhere on
+// it refuses. A folder that is not there throws home=missing.
+function hold(home, listed = false) {
+    let file = home;
+    if (!listed) try { file = path.join(fs.realpathSync.native(path.dirname(home)), path.basename(home)); }
     catch (error) { fail(error.code === "ENOENT" || error.code === "ENOTDIR" ? "missing" : "unreadable"); }
     const opened = Core.anchored().directory(file);
     switch (opened.kind) {
@@ -357,9 +360,10 @@ function baseSet(home) {
 
 // Open ENTRY, a relative path of plain names, below the held home, each
 // component without following a link, and hand its descriptor to act.
-function within(home, entry, flags, act) {
+// LISTED holds the folder as hold does a listed project's.
+function within(home, entry, flags, act, listed = false) {
     const child = Core.anchored().child;
-    let fd = hold(home);
+    let fd = hold(home, listed);
     try {
         const parts = entry.split("/");
         for (const [index, part] of parts.entries()) {
@@ -774,8 +778,8 @@ function notes(home) {
 
 // What ACT answers on the held ENTRY of the home, or null while the home
 // does not hold it as a walk that follows no link reaches it.
-function held(home, entry, flags, act) {
-    try { return within(home, entry, flags, act); }
+function held(home, entry, flags, act, listed = false) {
+    try { return within(home, entry, flags, act, listed); }
     catch (error) {
         if (/^jarvis: home=/.test(error.message)) return null;
         throw error;
@@ -788,18 +792,19 @@ function held(home, entry, flags, act) {
  * its own repository (OWN_REPOSITORY, a folder or a file, no link); else
  * null, as while the home cannot be read. The caller runs it by this path:
  * the home's writers are the user, VGS and the Jarvis session (D105), and
- * the gate keeps every model out of the folder.
+ * the gate keeps every model out of the folder. LISTED judges a project
+ * folder kendex lists the same way, its whole path walked from / (hold).
  */
-function mailTool(home) {
+function mailTool(home, listed = false) {
     const own = held(home, OWN_REPOSITORY, O_RDONLY | O_NONBLOCK, fd => {
         const stat = fs.fstatSync(fd);
         return stat.isDirectory() || stat.isFile();
-    });
+    }, listed);
     if (own !== true) return null;
     return held(home, MAIL_TOOL, O_RDONLY | O_NONBLOCK, fd => {
         const stat = fs.fstatSync(fd);
         return stat.isFile() && (stat.mode & 0o100) !== 0 ? path.join(home, MAIL_TOOL) : null;
-    });
+    }, listed);
 }
 
 /**

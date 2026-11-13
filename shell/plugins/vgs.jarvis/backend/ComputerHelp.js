@@ -4,9 +4,10 @@
 // Home.js. Browser readiness adds
 // its provider to this same owner. As the one executor that holds the home,
 // it also hands a request to the Jarvis session's mailbox there, through
-// the mail tool kendex installs in the home (Home.mailTool). Its answer
-// states what was read back, the row in the mailbox: nothing here shows that
-// a session reads that mailbox now.
+// the mail tool kendex installs in the home (Home.mailTool), or to the
+// overseer mailbox of a project kendex lists, through that project's own
+// copy of the same tool. Its answer states what was read back, the row in
+// the mailbox: nothing here shows that a session reads that mailbox now.
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
@@ -41,6 +42,16 @@ const REFUSAL = /^lane-mail: ([a-z][a-z0-9-]{0,59})=/;
 // and HOME, which git and workflow-state read. No key or other daemon
 // variable reaches it.
 const MAIL_ENVIRONMENT = ["PATH", "HOME"];
+// What `kendex project list --json` reads beside a fixed locale: its tools
+// and git on PATH, and its settings in the config folder, XDG_CONFIG_HOME or
+// else HOME/.config (dirs::config_dir). No key reaches it.
+const PROJECTS_ENVIRONMENT = ["PATH", "HOME", "XDG_CONFIG_HOME"];
+// The states a listed project's entry takes (the producer below).
+const PROJECT_STATES = ["ok", "folder-not-found", "not-a-folder", "unreadable"];
+// Whether ENTRY has the shape of a listed project's entry (the producer below).
+const shaped = entry => typeof entry?.folder === "string" && PROJECT_STATES.includes(entry.state)
+    && (entry.worktree === null || typeof entry.worktree === "object" && !Array.isArray(entry.worktree)
+        && (entry.worktree.main === null || typeof entry.worktree.main === "string"));
 // Chosen read interval while an unanswered voice request exists, not a latency budget.
 const ANSWER_MS = 5000;
 // Recovery bound for requests a session never answers, and lane-mail's
@@ -183,39 +194,75 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         else if (existing.kind === "answered") existing.until = clock.now() + DUPLICATE_MS;
         later();
     }
+    // The exact folders of the overseer mailboxes kendex lists, or null while
+    // the list is unread. The producer is `kendex project list --json`,
+    // crates/cli/src/commands/project.rs (list, listed_entry) at kendex
+    // v1.21.0: one array, an entry per registered project, {folder, state,
+    // worktree: null | {main: path | null}}, and a non-zero exit where git
+    // cannot answer. A worktree entry stands for its main checkout, where
+    // the overseer mailbox is (KEN-3734): its own folder is no destination,
+    // nor is one whose main git could not name. Any entry of another shape
+    // leaves the whole list unread, since a set read in part decides nothing.
+    async function projects() {
+        const env = { LC_ALL: "C.UTF-8" };
+        for (const name of PROJECTS_ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];
+        const listed = await run("setpriv", ["--pdeathsig", "KILL", "--", "kendex", "project", "list", "--json"],
+            { env, cwd: "/", limit: MAIL_BYTES, deadline: MAIL_MS, group: true, signal: lifetime.signal });
+        if (listed.kind !== "exited" || listed.code !== 0) return null;
+        let entries;
+        try { entries = JSON.parse(listed.stdout); } catch { return null; }
+        if (!Array.isArray(entries)) return null;
+        const found = new Set();
+        for (const entry of entries) {
+            if (!shaped(entry)) return null;
+            const destination = entry.worktree === null ? entry.folder : entry.worktree.main;
+            if (entry.state === "ok" && destination !== null) found.add(destination);
+        }
+        return found;
+    }
     // The cause of a run that refused before it appended anything: its
     // keyed first stderr line, else OTHER.
     const refusal = (result, other) =>
         (result.kind === "exited" && REFUSAL.exec(result.stderr.split("\n")[0])?.[1]) || other;
     const failed = cause => ({ outcome: "failed", content: FAILED["fleet.request"] + cause });
     // Hand TEXT to the Jarvis session's mailbox with the home's mail tool,
-    // found again here: the mailbox's count, then the send, its text in a
-    // private file, then the rows past that count read back; for a send
+    // or, where PROJECT names one kendex lists now, to that project's
+    // overseer mailbox with its own (write only: no answer is watched for
+    // there), found again here: the mailbox's count, then the send, its
+    // text in a private file, then the rows past that count read back; for a send
     // lane-mail refuses as a duplicate, the whole mailbox, where the row it
     // names landed before the count. A run that ended before it could
     // append is failed; one that may have appended and did not read back is
     // unknown.
-    async function request(text) {
+    async function request(text, project) {
         if (closed) return failed("closed");
         sync();
         // A request held while the user named a main goes nowhere: the
         // satellite's route is fleet.forward.
         if (!main()) return failed("satellite");
-        const folder = home();
+        if (project !== undefined) {
+            const listed = await projects();
+            if (listed === null) return failed("projects-unread");
+            if (!listed.has(project)) return failed("project-unlisted");
+        }
+        const folder = project === undefined ? home() : project;
         if (folder === null) return failed("home-unchosen");
-        const tool = Home.mailTool(folder);
+        const tool = Home.mailTool(folder, project !== undefined);
         if (tool === null) return failed("mail-tool-absent");
         const counted = await mail(tool, folder, ["events", "--box", "to-lane", "--after", PAST_EVERY_LINE]);
         const header = counted.kind === "exited" && counted.code === 0 ? HEADER.exec(counted.stdout) : null;
         if (header === null) return failed(refusal(counted, "mailbox-unread"));
         let checkpoint = null;
-        if (answer !== null) {
+        if (answer !== null && project === undefined) {
             for (const [id, item] of requests) if (item.kind === "answered" && item.until <= clock.now()) requests.delete(id);
             if (requests.size >= REQUESTS) return failed("requests-full");
             try { checkpoint = events(await mail(tool, folder, ["events", "--box", "to-overseer", "--after", PAST_EVERY_LINE])); }
             catch { return failed("answers-unread"); }
         }
-        if (closed || !main() || home() !== folder) return failed("home-changed");
+        // A project request names its own folder: only the home's can change.
+        if (closed || !main() || project === undefined && home() !== folder)
+            return failed(project === undefined ? "home-changed" : closed ? "closed" : "satellite");
+        const box = project === undefined ? "the Jarvis session's mailbox" : "the mailbox of " + project;
         const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-jarvis-request-"));
         let sent;
         try {
@@ -236,7 +283,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         // A run the bound or a signal ended, or a receipt beside a failed
         // exit, or an exit 0 with none, may have appended.
         else if (sent.kind !== "exited" || sent.code !== 0 || id === undefined)
-            return { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt, so the request may be in the Jarvis session's mailbox or not." };
+            return { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt, so the request may be in " + box + " or not." };
         // A duplicate may already have its answer before this checkpoint.
         if (checkpoint !== null) watch(id, duplicate === undefined ? checkpoint : { ...checkpoint, count: 0 }, folder);
         const back = await mail(tool, folder, ["events", "--box", "to-lane", "--after", after]);
@@ -245,8 +292,8 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
             try { return JSON.parse(line).id === id; } catch { return false; }
         });
         return found
-            ? { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row " + id + ". The session acts on it when it next reads its mail." }
-            : { outcome: "unknown", content: "Unknown: lane-mail sent the request as row " + id + ", but the row did not read back from the Jarvis session's mailbox." };
+            ? { outcome: "completed", content: "Completed: the request is in " + box + " as row " + id + ". The session acts on it when it next reads its mail." }
+            : { outcome: "unknown", content: "Unknown: lane-mail sent the request as row " + id + ", but the row did not read back from " + box + "." };
     }
     return { commands: [], timeoutMs: Math.max(browser === null ? 2000 : browser.timeoutMs, 4 * MAIL_MS + 1000), cancellable: false,
         sync,
@@ -278,7 +325,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
             let fd;
             try {
                 if (call.id === "fleet.request") {
-                    request(call.args.text).then(done, error => done(failed(error.code || error.message)));
+                    request(call.args.text, call.args.project).then(done, error => done(failed(error.code || error.message)));
                     return;
                 }
                 const topic = call.args.topic;

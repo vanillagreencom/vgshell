@@ -43,6 +43,11 @@ function sentence(call, scope, grant) {
         text = "Let the brain's program " + (actions || "change files") + "?\n" + targets + "\nChanges:\n" + args.diff;
         break;
     }
+    case "fleet.request":
+        // The approval names the exact folder the request is written in.
+        text = args.project === undefined ? "Put this request in the mailbox of your Jarvis session:\n" + args.text
+            : "Put this request in the mailbox of the project at " + args.project + "?\n" + args.text;
+        break;
     case "fleet.forward":
         // A session grant names both ends and what it leaves to main (D134).
         if (grant !== undefined) text = "Forward requests from Jarvis Voice session " + grant.id + " to " + grant.main

@@ -1201,7 +1201,7 @@ esac
             ["request-file-removed", "ComputerHelp.js", "} finally { fs.rmSync(scratch, { recursive: true, force: true }); }", "} finally { void scratch; }", "ComputerHelp.js", "fleet-request"],
             ["request-file-private", "ComputerHelp.js", '{ mode: 0o600, flag: "wx" }', '{ mode: 0o644, flag: "wx" }', "ComputerHelp.js", "fleet-request"],
             ["request-bound", "ComputerHelp.js", "deadline: MAIL_MS, group: true", "deadline: 60000, group: true", "ComputerHelp.js", "fleet-request-bound"],
-            ["request-once", "Tools.js", "command: null, once: true, schema: { text: text } }", "command: null, schema: { text: text } }", "ToolRouter.js", "fleet-request"],
+            ["request-once", "Tools.js", "command: null, once: true, schema: { text: text, project: absolute }", "command: null, schema: { text: text, project: absolute }", "ToolRouter.js", "fleet-request"],
             ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"],
             ["forward-confirmed", "Tools.js", 'effect: "external", executor: "satellite"', 'effect: "exec", executor: "satellite"', "ToolRouter.js", "fleet-forward"],
             ["forward-once", "Tools.js", 'executor: "satellite", command: null, once: true,', 'executor: "satellite", command: null,', "ToolRouter.js", "fleet-forward"],

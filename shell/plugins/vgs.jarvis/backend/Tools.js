@@ -66,10 +66,11 @@ const TABLE = {
     "memory.propose": { sentence: "Add memory note {id}", effect: "reversible", executor: "memory-write", command: null, schema: { id: notePath, text: memoryText }, origin: true },
     "memory.replace": { sentence: "Replace memory note {id}", effect: "persistent", executor: "memory-write", command: null, schema: { id: notePath, text: memoryText, hash: sha256 }, origin: true },
     // The Jarvis session runs the user's agent fleet and reads the home's
-    // mailbox, where the home's kendex mail tool appends the request. once:
-    // the router admits one a turn. A request starts work elsewhere, as a
+    // mailbox, where the home's kendex mail tool appends the request; a
+    // project names a listed project's overseer mailbox instead, written by
+    // that project's own copy of the tool. once: the router admits one a turn. A request starts work elsewhere, as a
     // task does.
-    "fleet.request": { sentence: "Put this request in the mailbox of your Jarvis session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
+    "fleet.request": { sentence: "Put this request in the mailbox of your Jarvis session, or, with project, in the mailbox of the project kendex lists at that exact folder:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text, project: absolute }, optional: ["project"] },
     // On a satellite, a machine whose Main Jarvis host names the main, the
     // package's forward route hands the request to the main Jarvis
     // (Satellite.js). sessionGrant: the router binds the call to the live

@@ -10,8 +10,10 @@
 // offers, the bounded read of its text, the skill index of the package,
 // the skills it requires and skills, a memory note read by its path,
 // the kendex mail tool and the session's mailbox; and a package that is
-// partial or holds a link. Each control edits a copy of Home.js, or of the
-// Tools.js rule it asks, one rule at a time, and must turn a case red.
+// partial or holds a link; and a fleet request to a project kendex lists,
+// through the real ComputerHelp. Each control edits a copy of Home.js, or
+// of the Tools.js or ComputerHelp.js rule it asks, one rule at a time, and
+// must turn a case red.
 "use strict";
 const cp = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
@@ -82,7 +84,7 @@ const DECLARATIONS = [
     ["front matter unclosed", "---\nname: jarvis\n", "declaration"]
 ];
 
-world(() => {
+world(async () => {
     const { home, roots } = seed();
     let serial = 0;
     const fresh = () => path.join(home, "homes", "h" + ++serial, "Jarvis");
@@ -541,6 +543,87 @@ world(() => {
         fs.rmSync(path.join(folder, entry), { recursive: true });
         fs.symlinkSync(target, path.join(folder, entry));
     }
+    // A fleet request naming a project goes to the overseer mailbox of a
+    // project kendex lists, through the real ComputerHelp on real folders:
+    // kendex is a synthetic program on the scratch PATH that prints the
+    // document a row chooses (`kendex project list --json`, kendex v1.21.0
+    // crates/cli/src/commands/project.rs), and each lane-mail records its
+    // runs and keeps its mailbox in --root/box. A worktree entry stands for
+    // its main checkout; a link anywhere on the way refuses; one entry of
+    // another shape leaves the whole list unread. The home's own request
+    // is the control that the project route left it alone.
+    async function listedProjects(Help) {
+        const base = path.join(home, "listed", String(++serial));
+        const bin = path.join(base, "bin");
+        const runs = path.join(base, "runs");
+        const reply = path.join(base, "kendex-reply");
+        write(bin, "kendex", "#!" + process.execPath + "\nconst r = JSON.parse(require('node:fs').readFileSync(" + JSON.stringify(reply)
+            + ", 'utf8'));\nprocess.stdout.write(r.stdout);\nprocess.exit(r.code);\n", 0o755);
+        const laneMail = "#!" + process.execPath + `
+const fs = require('node:fs'), path = require('node:path'), a = process.argv.slice(2), opt = name => a[a.indexOf(name) + 1];
+fs.appendFileSync(${JSON.stringify(runs)}, JSON.stringify({ tool: __filename, cwd: process.cwd(), root: opt('--root') }) + '\\n');
+const box = path.join(opt('--root'), 'box'), rows = fs.existsSync(box) ? fs.readFileSync(box, 'utf8').split('\\n').filter(Boolean) : [];
+if (a[0] === 'events') { console.log('count=' + rows.length + ' first='); for (const row of rows.slice(Number(opt('--after')))) console.log(row); }
+if (a[0] === 'send') { const id = 'row-' + (rows.length + 1); fs.appendFileSync(box, JSON.stringify({ id }) + '\\n'); console.log('lane-mail: sent item=overseer id=' + id + ' bytes=1 monitor=none'); }
+`;
+        const project = (name, tool = TOOL) => {
+            const folder = path.join(base, name);
+            fs.mkdirSync(path.join(folder, ".git"), { recursive: true });
+            if (tool !== null) write(folder, tool, laneMail, 0o755);
+            return folder;
+        };
+        const boxOf = folder => fs.existsSync(path.join(folder, "box")) ? fs.readFileSync(path.join(folder, "box"), "utf8").split("\n").filter(Boolean) : [];
+        const own = project("home");
+        const listed = project("listed");
+        const main = project("main");
+        const worktree = project("worktree");
+        const stranger = project("stranger");
+        const bare = project("bare", null);
+        const linkway = project("linkway", null);
+        write(path.join(base, "outside"), "scripts/lane-mail", laneMail, 0o755);
+        fs.mkdirSync(path.join(linkway, ".agents/skills/mailbox"), { recursive: true });
+        fs.symlinkSync(path.join(base, "outside/scripts"), path.join(linkway, ".agents/skills/mailbox/scripts"));
+        project("real/inner");
+        fs.symlinkSync(path.join(base, "real"), path.join(base, "alias"));
+        const aliased = path.join(base, "alias/inner");
+        const second = project("second", ".agents/skills/orch/scripts/lane-mail");
+        const entry = (folder, linked = null, state = "ok") => ({ folder, state, worktree: linked });
+        const document = [entry(listed), entry(worktree, { main }), entry(bare), entry(linkway), entry(aliased), entry(second),
+            entry(path.join(base, "gone"), null, "folder-not-found")];
+        const ok = { code: 0, stdout: JSON.stringify(document, null, 2) };
+        const help = Help.create(undefined, null, () => own,
+            { PATH: bin + ":" + process.env.PATH, HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME }, () => true);
+        try {
+            // The row, the project named, kendex's answer, the outcome (the
+            // failed cause after fleet-request:), and the folder whose
+            // lane-mail alone runs, or null for none.
+            for (const [label, named, answer, want, ran] of [
+                ["a listed project", listed, ok, "completed", listed],
+                ["a worktree entry's main checkout", main, ok, "completed", main],
+                ["the worktree entry's own folder", worktree, ok, "project-unlisted", null],
+                ["an unlisted project", stranger, ok, "project-unlisted", null],
+                ["a listed project with no lane-mail", bare, ok, "mail-tool-absent", null],
+                ["a linked folder on the way to lane-mail", linkway, ok, "mail-tool-absent", null],
+                ["a listed folder through a linked ancestor", aliased, ok, "mail-tool-absent", null],
+                ["a second program name", second, ok, "mail-tool-absent", null],
+                ["kendex exits non-zero", listed, { code: 1, stdout: "" }, "projects-unread", null],
+                ["a malformed entry", listed, { code: 0, stdout: JSON.stringify([...document, { folder: 7, state: "ok", worktree: null }]) }, "projects-unread", null],
+                ["the home's own request", undefined, ok, "completed", own]
+            ]) {
+                fs.writeFileSync(reply, JSON.stringify(answer));
+                fs.rmSync(runs, { force: true });
+                const before = ran === null ? [] : boxOf(ran);
+                const args = named === undefined ? { text: "Rebase the lanes." } : { text: "Rebase the lanes.", project: named };
+                const result = await new Promise(resolve => help.start({ id: "fleet.request", args }, resolve));
+                assert.equal(result.outcome === "completed" ? "completed" : result.content.replace(/^fleet-request:/, ""), want, label + ": " + result.content);
+                const ranTools = fs.existsSync(runs) ? fs.readFileSync(runs, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+                if (ran === null) { assert.deepEqual(ranTools, [], label + ": no lane-mail runs"); continue; }
+                assert.deepEqual([...new Set(ranTools.map(run => JSON.stringify(run)))].map(run => JSON.parse(run)),
+                    [{ tool: path.join(ran, TOOL), cwd: ran, root: ran }], label + ": that folder's own lane-mail alone runs, in it");
+                assert.equal(boxOf(ran).length, before.length + 1, label + ": one row lands in that mailbox");
+            }
+        } finally { await help.close(); }
+    }
     // The gate keeps every model out of the package as out of the rest of
     // the home: no file tool, shell command or harness approval reaches it,
     // and a sandboxed command finds .agents masked. state/ is the control: open.
@@ -604,6 +687,9 @@ world(() => {
     }
     renderGate(require(denied));
     console.log("case=renderGate passed");
+    const help = path.join(path.dirname(file), "ComputerHelp.js");
+    await listedProjects(require(help));
+    console.log("case=listedProjects passed");
     let controls = 0;
     for (const [name, needle, replacement, row, source = file] of [
         ["home-link", 'case "link": return fail("link");', 'case "link": return fail("kind");', "judge"],
@@ -697,6 +783,18 @@ world(() => {
     ]) {
         const result = mutant(source, name, needle, replacement, (logic, folder) => CASES[row](logic, folder), "Home.js");
         assert.equal(result, undefined);
+        controls++;
+        console.log("control=" + name + " detected");
+    }
+    // The listed-project route's own guards, each held by its case.
+    for (const [name, source, needle, replacement] of [
+        ["project-member", help, '            if (!listed.has(project)) return failed("project-unlisted");\n', ""],
+        ["project-worktree-alias", help, "if (entry.state === \"ok\" && destination !== null) found.add(destination);",
+            "if (entry.state === \"ok\" && destination !== null) found.add(destination).add(entry.folder);"],
+        ["project-walk-whole", file, "    if (!listed) try {", "    try {"],
+        ["project-list-whole", help, "if (!shaped(entry)) return null;", "if (!shaped(entry)) continue;"]
+    ]) {
+        await mutant(source, name, needle, replacement, logic => listedProjects(logic), "ComputerHelp.js");
         controls++;
         console.log("control=" + name + " detected");
     }
