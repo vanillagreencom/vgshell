@@ -55,9 +55,12 @@ Item {
             verify(input.width >= input.minimumWidth && input.width <= input.maximumWidth);
         }
 
+        // A button's caller owns the width it binds (tst_button), so only
+        // the inputs that install InputWidth are bounded here.
         function test_plain_parent_allocation() {
             const holder = createTemporaryQmlObject("import QtQuick; Item { width: 2000; height: 100 }", parent);
-            const rows = test_layout_bounds_data();
+            const buttons = ["Button", "IconButton", "InfoButton", "ToggleButton"];
+            const rows = test_layout_bounds_data().filter(row => !buttons.includes(row.type));
             const inputs = rows.map(row => createTemporaryQmlObject("import QtQuick; import qs.Ui; " + row.type + " { " + fixtureProperties(row.type) + "width: parent.width }", holder));
             verify(inputs.every(input => input !== null));
             tryVerify(() => inputs.every(input => input.width === Theme.control.maxWidth));

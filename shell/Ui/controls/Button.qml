@@ -37,8 +37,10 @@ T.Button {
     readonly property real maximumWidth: Theme.control.maxWidth
     Layout.minimumWidth: minimumWidth
     Layout.maximumWidth: maximumWidth
+    // The bounds hold a button sized by its content and one a layout
+    // places. A caller that binds the width owns that allocation, as a
+    // footer's main action fills its row; a form row bounds its own slot.
     width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
-    InputWidth { target: root }
 
     property string variant: "primary"
     property string size: "md"

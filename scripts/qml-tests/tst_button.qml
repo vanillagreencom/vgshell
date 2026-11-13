@@ -9,7 +9,8 @@ import qs.Unit
 // Button: the variant's fill and text, the hover and pressed fills, a
 // click by pointer and by keyboard, the checked fill, an icon toggle that
 // draws no fill or border, the disabled opacity,
-// the focus ring for keyboard focus, an unknown variant, and a theme
+// the focus ring for keyboard focus, a caller's width past the control
+// maximum, an unknown variant, and a theme
 // change that moves the fill and keeps the text readable. An icon
 // button's tooltip opens under it, or to its right when its side says so,
 // the theme's gap away.
@@ -352,6 +353,21 @@ Item {
                 compare(centred.leftPadding, centred.sidePadding, "a button sized by its content keeps its side padding");
             } finally {
                 centred.width = 180;
+            }
+        }
+
+        // A caller that binds a button's width owns that allocation, as
+        // Updates' Update everything fills its footer: the button follows
+        // its row narrower than the control maximum and past it.
+        function test_a_stretched_button_follows_its_row() {
+            const row = createTemporaryQmlObject("import QtQuick; Item { height: 40 }", root);
+            const button = createTemporaryQmlObject("import qs.Ui; Button { text: 'Update everything'; width: parent.width }", row);
+            for (const width of [Theme.control.minWidth + 120, 2 * Theme.control.maxWidth]) {
+                row.width = width;
+                // Process any Qt.callLater allocation before reading:
+                // https://doc.qt.io/qt-6/qml-qttest-testcase.html#wait-method
+                wait(0);
+                compare(button.width, width);
             }
         }
 
