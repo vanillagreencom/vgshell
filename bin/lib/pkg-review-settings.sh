@@ -1,22 +1,8 @@
 # shellcheck shell=bash
-# Shared inline package-review editor. The package owner supplies snapshots
-# and retains both live and offline persistence; this file only edits choices.
-# The editor shows each agent by its label and stores its id. On its own it
-# draws each view on a cleared screen. Inline, inside a package review, it
-# never clears the review's screen: it draws its heading and rules once,
-# then the summary of the choices each time they read differently.
-# Inline, a cancelled editor says when it drops choices that differ from
-# the saved ones; on its own screen the cancel closes the view.
-_vgs_pkg_review_settings_cancel() { # MODE SAVED CHOICES
-    if [[ $1 == inline ]] && ! node -e '
-        const sorted=o=>JSON.stringify(Object.keys(o).sort().map(k=>[k,o[k]]));
-        process.exit(sorted(JSON.parse(process.argv[1]))===sorted(JSON.parse(process.argv[2]))?0:1);
-    ' "$2" "$3"; then
-        vgs_tui_text 'Your changes are not saved.' >&2
-    fi
-}
-vgs_pkg_review_settings() { # OWNER [inline]
-    local owner=$1 mode=${2:-} snapshot saved choices row value summary shown="" plan options presets_text input_help id label state
+# Terminal package-review editor. The package owner supplies snapshots and
+# retains live and offline persistence; this file only edits choices.
+vgs_pkg_review_settings() { # OWNER
+    local owner=$1 snapshot choices row value summary plan options presets_text id label state
     # gum 2.0.2 input cuts each header line at the terminal's last column and
     # does not wrap it. Each line fits an 80-column terminal after the
     # 3-column edge.
@@ -32,23 +18,14 @@ or writes its verdict, unless your options allow or deny that.
 VGS does not limit a command that has no sandbox.'
     local heading='Set agent review before a package installs or updates'
     local purpose='Choose whether to review packages, which AI agent to use, and an optional command.'
-    local rules='Install without asking, except with a custom AUR command. Review with an agent and Automatic ask before each install or update.
-Review with an agent
-  Asks with review selected, using the agent and command below.
-Install without review
-  Install without asking, except with a custom AUR command.
-Automatic (review when an agent is available)
-  Asks with review selected when you choose an agent or command, or VGS finds an agent.'
+    local rules='Review with an agent uses the agent and command below without asking again.
+Automatic asks before AUR installs and updates.
+Install without review also skips the paru review questions.
+A custom AUR command that cannot run the review asks before continuing.'
     local -a agents=() presets=() words=()
     snapshot="$("$owner" review-settings-read)" || return
     choices="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).settings))' "$snapshot")" || return
-    saved=$choices
     options="$("$owner" review-settings-agents)" || return
-    if [[ $mode == inline ]]; then
-        vgs_tui_step "$heading" >&2
-        vgs_tui_text "$purpose" >&2
-        vgs_tui_text "$rules" >&2
-    fi
     while true; do
         summary="$(node -e '
             const s=JSON.parse(process.argv[1]);
@@ -58,16 +35,11 @@ Automatic (review when an agent is available)
             const named=!s.agent?"Automatic (use the first available agent)":agent?agent.label+(agent.state==="found"?"":" (not installed)"):s.agent;
             process.stdout.write("Before installing: "+first+"\nAI agent: "+named+"\nReview command: "+(s.command?"Custom command":"Use the agent\u0027s command"));
         ' "$choices" "$options")" || return
-        if [[ $mode != inline ]]; then
-            vgs_tui_clear >&2
-            vgs_tui_header "$heading" "$purpose" >&2
-            vgs_tui_text "$summary" >&2
-            vgs_tui_text "$rules" >&2
-        elif [[ $summary != "$shown" ]]; then
-            vgs_tui_text "$summary" >&2
-            shown=$summary
-        fi
-        row="$(vgs_pkg_review_choose 'Change package review choices' -- 'Before installing' 'AI agent' 'Review command' 'Save' 'Cancel')" || { _vgs_pkg_review_settings_cancel "$mode" "$saved" "$choices"; return 130; }
+        vgs_tui_clear >&2
+        vgs_tui_header "$heading" "$purpose" >&2
+        vgs_tui_text "$summary" >&2
+        vgs_tui_text "$rules" >&2
+        row="$(vgs_pkg_review_choose 'Change package review choices' -- 'Before installing' 'AI agent' 'Review command' 'Save' 'Cancel')" || return 130
         case $row in
             'Before installing')
                 value="$(vgs_pkg_review_choose 'Before installing or updating a package' -- 'Automatic (review when an agent is available)' 'Review with an agent' 'Install without review' 'Back')" || continue
@@ -94,8 +66,7 @@ Automatic (review when an agent is available)
                 [[ $value != Back ]] || continue
                 if [[ $value == 'Custom command' ]]; then
                     value="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).command||"")' "$choices")" || return
-                    printf -v input_help '\033[22m%sEnter confirms • Esc returns\033[0m' "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"
-                    value="$(vgs_tui_input --no-show-help --header "$command_header"$'\n\n'"$input_help" --value "$value")" || continue
+                    value="$(vgs_tui_input --no-show-help --header "$command_header"$'\n\n'"$(vgs_pkg_review_help 'Enter confirms • Esc returns')" --value "$value")" || continue
                 elif [[ $value == "Use the agent's command" ]]; then value=''; fi
                 choices="$(node -e 'const s=JSON.parse(process.argv[1]);s.command=process.argv[2];process.stdout.write(JSON.stringify(s));' "$choices" "$value")" || return
                 ;;
@@ -111,9 +82,9 @@ Automatic (review when an agent is available)
                 fi
                 vgs_tui_error 'VGS could not save the settings. Your choices are still open.'
                 vgs_tui_text 'The settings file may have changed. Cancel and reopen this editor to read it again.' >&2
-                vgs_pkg_review_choose 'Keep your choices' -- 'Return to editor' >/dev/null || { _vgs_pkg_review_settings_cancel "$mode" "$saved" "$choices"; return 130; }
+                vgs_pkg_review_choose 'Keep your choices' -- 'Return to editor' >/dev/null || return 130
                 ;;
-            *) _vgs_pkg_review_settings_cancel "$mode" "$saved" "$choices"; return 130 ;;
+            *) return 130 ;;
         esac
     done
 }

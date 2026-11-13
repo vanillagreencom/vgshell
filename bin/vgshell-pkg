@@ -68,7 +68,13 @@
 //       The steps run from $HOME, as check's queries do, through
 //       bin/lib/pkg-run.sh, whose header states the sudo session and how
 //       each step is shown; the exit status is the
-//       first failing step's, or 0. An install or update the presenter
+//       first failing step's, or 0. An AUR run through paru takes the agent
+//       review in paru's file-manager step (bin/lib/pkg-review.js): the
+//       review's final sentence is one `vgshell: package-review: ` line,
+//       and each package a Skip left out, and each problem paru's devel
+//       tracking shows after a success, one `vgshell: package-result: `
+//       line. Stop or Skip at the review exits 0 with a skipped outcome, as
+//       a Skip of every named package does. An install or update the presenter
 //       records keeps the failed step's output (pkg-run.sh --evidence), and
 //       its failed outcome carries that output's last lines
 //       (PackageReview.failureLines). A run prints no Done or Failed:
@@ -98,23 +104,24 @@
 //   vgshell-pkg rebuild-allowed <config> <target> <failed-build>...
 //       Updates' read-only dependency check after an AUR failure; exit 0 only
 //       when a complete helper build order excludes every failed build.
-//   vgshell-pkg review-transaction
-//       Updates allocates its private transaction in the package owner's
-//       private work folder, beside the agent home. It owns the outer EXIT
-//       cleanup of the returned directory.
-//   vgshell-pkg review --request <private-file> --result <private-empty-file>
-//       Updates prepares one user-side review. Its private one-use receipt
-//       binds each later run's manager, config/includes, pending targets,
-//       origin, helper and fetched recipes; --review-receipt consumes it.
+//   vgshell-pkg review-run
+//       Updates allocates its private part and outcome folder. Its exit
+//       trap removes that folder when the run ends.
+//   vgshell-pkg review-files --run <private-folder> --config <path> -- <view>
+//       Paru's file-manager review of the clones it will build. The package
+//       owner alone supplies the run folder and review command. Words paru
+//       adds before the view, its FileManagerFlags, refuse as
+//       `review-files=file-manager-flags`.
 //   vgshell-pkg ensure-helper
 //       install Paru from its AUR recipe when no AUR helper is present.
 //       Runs only in a terminal, with the package manager's own questions.
+//       A Stop or Skip at the recipe's review exits 0 with a skipped outcome
+//       and installs nothing, so a caller that needs paru reads it again.
 //   vgshell-pkg retry <run>
 //       run once, in a terminal, the retry without package tests that the
 //       requirement notice's run <run> holds (bin/lib/pkg-retry.js). It
-//       refuses, running nothing, `retry=unavailable run=<run>`,
-//       `retry=stale run=<run>`, `retry=unreadable run=<run> reason=<key>`
-//       and `retry=changed run=<run>`.
+//       refuses, running nothing, `retry=unavailable run=<run>` or
+//       `retry=stale run=<run>` when its originating run is gone.
 //   vgshell-pkg install|remove [--manager <id>] [names...]
 //       with names, `run install|remove` with them. Without, fzf lists the
 //       manager's packages, available for install and explicitly installed
@@ -483,14 +490,16 @@ function planElevator(plan) {
 // so no shell reads them, and run from $HOME, as a check's queries do, so
 // no project's configuration in the caller's directory (a mise.toml) makes
 // a step do other than what the check counted.
-async function run(action, manager, names, ignored, installs, config, receipt) {
-    // A new ordinary run of a requirement notice retires the retry the
-    // notice's earlier run held; a prepared Updates step is no such run.
-    if (receipt === undefined && action !== "remove") pkgRetry().retireHeld();
-    const admitted = await require("./lib/pkg-review.js").admit(action, manager, names, ignored, installs, config, receipt);
-    if (admitted.stop) return finish(action, admitted.status, admitted.status === 0 ? { kind: "package-skipped", manager } : { kind: "package-cancelled", manager, status: admitted.status });
-    ({ names, ignored, installs, config } = admitted);
-    if (action !== "upgrade" && names.length === 0 && (!installs || installs.length === 0)) return finish(action, 0, { kind: "package-skipped", manager });
+async function run(action, manager, names, ignored, installs, config) {
+    if (action !== "remove") pkgRetry().retireHeld();
+    const ended = await require("./lib/pkg-review.js").withReview(action, manager, names, ignored, installs, config, admitted =>
+        runAdmitted(action, manager, admitted));
+    return settle(action, ended.status, ended.outcome);
+}
+
+async function runAdmitted(action, manager, { names, ignored, installs, config, reviewCommand, skipReview, tracking }) {
+    if (action !== "upgrade" && names.length === 0 && (!installs || installs.length === 0))
+        return { status: 0, outcome: { kind: "package-skipped", manager } };
     let r;
     if (action === "engine-archive") {
         const file = names[0], engine = require(path.join(__dirname, "lib", "engine.js"));
@@ -503,101 +512,92 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
         if (!found.ok) refuse(found.error);
         r = { ok: true, plan: { elevate: true, steps: [[found.binary, ...found.row.engineArchive, file]] } };
     } else if (table.managerRow(manager)?.files !== undefined && ["install", "update", "upgrade"].includes(action)) {
-        // The table refuses a bad name and an option the row does not take
-        // before anything is read or downloaded.
         const checked = table.plan(manager, action, names.concat(installs || []), onPath, ignored, config);
         if (!checked.ok) refuse(checked.error);
         const wanted = action === "upgrade" ? (pkgFile().outdated(manager) || []).map(p => p.name) : names.concat(installs || []);
-        if (wanted.length === 0) return finish(action, 0, { kind: "package-skipped", manager });
+        if (wanted.length === 0) return { status: 0, outcome: { kind: "package-skipped", manager } };
         const dir = pkgFile().scratch();
         r = table.filePlan(manager, action === "install" ? "install" : "update", wanted.map(name => pkgFile().fetch(manager, name, dir)), onPath, ignored, config);
         pkgFile().releaseSignals();
     } else r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath, config) : table.plan(manager, action, names, onPath, ignored, config);
     if (!r.ok) refuse(r.error);
-    if (receipt !== undefined) r.plan = table.reviewedBuild(r.plan, admitted.coverage, admitted.dependenciesCovered, config);
+    r.plan = table.reviewedBuild(r.plan, reviewCommand, skipReview, config);
     let command = manager === "aur" ? "build" : "none";
     const chosen = planElevator(r.plan);
     if (chosen !== null) {
         if (!chosen.ok) refuse(chosen.error);
         command = chosen.command;
     }
-    // Only the AUR's named actions build a recipe whose own tests can fail
-    // alone; a prepared Updates step keeps Updates' own failure report.
-    const builds = command === "build" && receipt === undefined && ["install", "reinstall", "update"].includes(r.plan.action);
-    if (!builds) {
-        // An install or update the presenter records keeps its failed
-        // step's output for the outcome's last lines (pkg-retry.js failed),
-        // which the Setup step shows; a prepared Updates step keeps Updates'
-        // own failure report.
-        const dir = receipt === undefined && ["install", "update"].includes(action) && pkgRetry().reporting() ? pkgRetry().evidenceDir("run-") : null;
-        let ended;
-        try {
-            const completion = receipt !== undefined && r.plan.binary === "paru" && r.plan.steps.at(-1).includes("--gendb")
-                ? r.plan.steps.at(-1) : null;
-            let status = await runSteps(command, completion === null ? r.plan.steps : r.plan.steps.slice(0, -1), dir === null ? {} : { evidence: dir });
-            let interval = null;
-            if (status === 0 && completion !== null) {
-                // The install guard ends before this unprivileged native
-                // lookup. Keep its stderr distinct from build diagnostics.
-                let stderr = "";
-                status = await runSteps(command, [completion], { stderr: text => { stderr += text; }, env: { ...process.env, LC_ALL: "C" } });
-                interval = { complete: true, text: stderr };
-                // paru 70f66dc9 src/devel.rs:529-553 prints failed lookups
-                // through lib.rs::print_error but --gendb still exits zero.
-                if (status === 0 && require("./lib/pkg-review.js").judge.transcriptLines(stderr).some(line => line.startsWith("error:"))) status = 1;
-                if (status === 0) {
-                    const error = trackingError(admitted.trackingBases);
-                    if (error !== null) {
-                        process.stderr.write("vgshell: " + error + "\n");
-                        interval = { complete: true, text: error };
-                        status = 1;
-                    }
-                }
-            }
-            ended = { status, outcome: status === 0 ? installed(manager, r.plan.binary)
-                : pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status, interval || (dir === null ? null : pkgRetry().stepInterval(dir, status).interval)) };
-        } finally {
-            if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
-        }
-        return settle(action, ended.status, ended.outcome);
-    }
-    const dir = pkgRetry().evidenceDir("build-");
-    let ended;
+    const builds = command === "build" && ["install", "reinstall", "update"].includes(r.plan.action);
+    const dir = builds || (["install", "update"].includes(action) && pkgRetry().reporting()) ? pkgRetry().evidenceDir("run-") : null;
     try {
-        const status = await runSteps(command, r.plan.steps, { evidence: dir });
-        ended = status === 0 ? { status, outcome: installed(manager, r.plan.binary) } : await pkgRetry().afterFailure({
+        const parts = buildParts(r.plan);
+        const status = await runSteps(command, parts.steps, dir === null ? {} : { evidence: dir });
+        let ended;
+        if (status === 0) ended = { status, outcome: installed(manager, r.plan.binary) };
+        else if (builds) ended = await pkgRetry().afterFailure({
             dir, manager, builder: r.plan.binary, targets: names.concat(installs || []), status,
             retry: {
                 hold: target => pkgRetry().hold(manager, r.plan.action, target, config),
-                run: target => runSteps(command, pkgRetry().retrySteps(manager, r.plan.action, target, config))
+                run: target => runSteps(command, buildParts(pkgRetry().retryPlan(manager, r.plan.action, target, config, reviewCommand, skipReview)).steps)
             }
         });
+        else ended = { status, outcome: pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status,
+            dir === null ? null : pkgRetry().stepInterval(dir, status).interval) };
+        return await completeBuild(command, manager, parts, ended, tracking);
     } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
+        if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
     }
-    return settle(action, ended.status, ended.outcome);
 }
 
-// paru(8)'s --gendb emits progress, and --show has no tracked-set query.
-// -Qua cannot distinguish an untracked package from a current tracked one.
-// Read only its native state: paru 70f66dc9 src/config.rs::new fixes this
-// XDG path; src/devel.rs::DevelInfo defines the repos/url/commit structure.
-// --gendb is global: unrelated installed untracked AUR bases are also
-// registered at their latest refs, so they must already be up to date.
-function trackingError(bases) {
+// The mutation's status and tracking repair have separate meanings. Keep
+// --gendb outside failure classification and run it once after success.
+function buildParts(plan) {
+    const completion = plan.binary === "paru" && plan.steps.at(-1).includes("--gendb") ? plan.steps.at(-1) : null;
+    return { steps: completion === null ? plan.steps : plan.steps.slice(0, -1), completion };
+}
+
+// A tracking problem is a result line after an install that succeeded,
+// never its failure. TRACKING answers the devel bases the step built
+// (pkg-review.js withReview), null when they could not be read.
+async function completeBuild(command, manager, { completion }, ended, tracking) {
+    if (ended.status !== 0 || completion === null) return ended;
+    const review = require("./lib/pkg-review.js");
+    let stderr = "";
+    const status = await runSteps(command, [completion], { stderr: text => { stderr += text; }, env: { ...process.env, LC_ALL: "C" } });
+    if (status >= 128) return { status, outcome: { kind: "package-cancelled", manager, status } };
+    // paru 70f66dc9 src/devel.rs:529-553 prints failed lookups through
+    // lib.rs::print_error but --gendb still exits zero.
+    if (status !== 0 || review.judge.transcriptLines(stderr).some(line => line.startsWith("error:")))
+        review.resultLine("Paru could not update its list of development packages. The packages installed.");
+    else {
+        const missing = untracked(tracking());
+        if (missing === null) review.resultLine("VGS could not check paru's list of development packages. The packages installed.");
+        else if (missing.length) review.resultLine("Paru no longer checks " + missing.join(", ") + " for new commits, so updates can miss their new versions.");
+    }
+    return ended;
+}
+
+// The BASES paru's devel state does not track, or null when the bases or
+// that state cannot be read. paru(8)'s --gendb emits progress, and --show
+// has no tracked-set query; -Qua cannot tell an untracked package from a
+// current tracked one. Read only its native state: paru 70f66dc9
+// src/config.rs::new fixes this XDG path; src/devel.rs::DevelInfo defines
+// the repos/url/commit structure.
+function untracked(bases) {
+    if (bases === null) return null;
+    if (bases.length === 0) return [];
     const stateHome = process.env.XDG_STATE_HOME;
     const file = path.join(stateHome && path.isAbsolute(stateHome) ? stateHome : path.join(process.env.HOME || os.homedir(), ".local/state"), "paru/devel.toml");
-    const read = childProcess.spawnSync(commandFile("python3"), ["-c",
+    const read = childProcess.spawnSync(commandFile("python3"), ["-I", "-c",
         "import json,sys,tomllib\nwith open(sys.argv[1], 'rb') as f: print(json.dumps(tomllib.load(f)))", file],
     { encoding: "utf8", timeout: QUERY_TIMEOUT * 1000, maxBuffer: LIST_BUFFER, stdio: ["ignore", "pipe", "pipe"], cwd: queryCwd() });
-    if (read.error || read.status !== 0) return "tracking=unreadable file=" + file + " cause=" + (read.error?.code || read.signal || read.status) + "\n" + read.stderr;
+    if (read.error || read.status !== 0) return null;
     let state;
     try { state = JSON.parse(read.stdout); }
-    catch (error) { if (!(error instanceof SyntaxError)) throw error; return "tracking=unparseable file=" + file; }
-    if (!Array.isArray(bases)) return "tracking=required-bases-unavailable";
-    const missing = bases.filter(base => !Array.isArray(state[base]?.repos) || state[base].repos.length === 0
+    catch (error) { if (error instanceof SyntaxError) return null; throw error; }
+    return bases.filter(base => !Array.isArray(state[base]?.repos) || state[base].repos.length === 0
         || state[base].repos.some(ref => typeof ref.url !== "string" || ref.url.length === 0 || typeof ref.commit !== "string" || ref.commit.length === 0));
-    return missing.length ? "tracking=missing bases=" + missing.join(",") : null;
 }
 
 function installed(manager, binary) {
@@ -619,42 +619,16 @@ function finish(action, status, outcome) {
 
 // Runs STEPS through bin/lib/pkg-run.sh behind ELEVATOR, `build` for the
 // AUR, from CWD or $HOME, with EVIDENCE its --evidence directory; answers
-// the runner's status.
+// the runner's status. The package owner holds the one foreground child
+// (pkg-review.js terminalChild).
 function runSteps(elevator, steps, { evidence, cwd, stderr, env } = {}) {
     const argv = [RUNNER, ...(evidence === undefined ? [] : ["--evidence", evidence]), elevator];
     for (const step of steps) argv.push(String(step.length), ...step);
-    return terminalChild(argv, cwd, { stderr, env });
-}
-
-// The child a terminal run waits on. The terminal sends Ctrl-C and a hangup
-// to its whole foreground group, the child or the question on screen
-// included, which ends it and its sudo session; this process outlives them
-// to report and exit with that status. A SIGTERM sent to this process
-// alone is passed on, and one that arrives between children ends this
-// process as TERM would.
-let terminalCurrent = null;
-let terminalSignals = false;
-function terminalChild(argv, cwd, { stderr, env } = {}) {
-    if (!terminalSignals) {
-        terminalSignals = true;
-        process.on("SIGINT", () => {});
-        process.on("SIGHUP", () => {});
-        process.on("SIGTERM", () => { if (terminalCurrent === null) process.exit(143); else terminalCurrent.kill("SIGTERM"); });
-    }
-    return new Promise((resolve, reject) => {
-        const child = childProcess.spawn(commandFile("bash"), argv, { stdio: ["inherit", "inherit", stderr === undefined ? "inherit" : "pipe"], cwd: cwd || process.env.HOME || "/", env });
-        terminalCurrent = child;
-        if (child.stderr) child.stderr.on("data", data => { process.stderr.write(data); stderr(data.toString()); });
-        child.on("error", e => { terminalCurrent = null; reject(new Refusal("runner=failed error=" + e.code)); });
-        child.on("close", (status, signal) => {
-            terminalCurrent = null;
-            resolve(status !== null ? status : 128 + os.constants.signals[signal]);
-        });
-    });
+    return require("./lib/pkg-review.js").terminalChild(argv, cwd, { stderr, env });
 }
 
 async function terminalRun(argv, rescan = true) {
-    const status = await terminalChild(argv);
+    const status = await require("./lib/pkg-review.js").terminalChild(argv);
     if (rescan) rescanShell();
     process.exit(status);
 }
@@ -663,32 +637,41 @@ async function terminalRun(argv, rescan = true) {
 // prerequisites and clones the recipe into a private tree this process
 // owns, and the build runs here with the table's bootstrapBuild, so a
 // check-only failure offers the one retry in the same tree. The tree goes
-// when this process ends; no notice holds its retry. The tree is under the
-// temporary directory, as mktemp -d makes one, and not under the runtime
-// directory, whose tmpfs logind sizes at 10% of RAM by default
-// (logind.conf(5) RuntimeDirectorySize): the helper's cargo build artifacts
-// can exceed that runtime-directory limit.
+// when this process ends, a SIGTERM between its children included; no
+// notice holds its retry. Build output stays on disk in the package
+// owner's private cache, outside the review agent's writable roots and the
+// runtime directory's bounded tmpfs.
 async function bootstrapHelper() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vgshell-helper-"));
+    const review = require("./lib/pkg-review.js");
+    const dir = fs.mkdtempSync(path.join(review.buildRoot(), "paru-"));
     const tree = path.join(dir, "paru");
     const evidence = pkgRetry().evidenceDir("helper-");
-    let ended;
-    try {
-        let status = await terminalChild([path.join(__dirname, "lib", "aur-helper.sh"), path.join(__dirname, "vgshell"), tree]);
-        if (status !== 0) ended = { status, outcome: pkgRetry().failed("aur", null, status) };
-        else {
-            status = await runSteps("build", [table.bootstrapBuild(false)], { evidence, cwd: tree });
-            ended = status === 0 ? { status, outcome: installed("aur", "makepkg") } : await pkgRetry().afterFailure({
-                dir: evidence, manager: "aur", builder: "makepkg", targets: ["paru"], status,
-                retry: { run: () => runSteps("build", [table.bootstrapBuild(true)], { cwd: tree }) }
-            });
-            // makepkg -si exits 0 once paru is installed; a helper still not
-            // on PATH has not installed.
-            if (ended.status === 0 && !onPath("paru")) ended = { status: 1, outcome: pkgRetry().failed("aur", "makepkg", 1) };
-        }
-    } finally {
+    const remove = () => {
         fs.rmSync(dir, { recursive: true, force: true });
         fs.rmSync(evidence, { recursive: true, force: true });
+    };
+    process.on("exit", remove);
+    let ended;
+    try {
+        let status = await review.terminalChild([path.join(__dirname, "lib", "aur-helper.sh"), path.join(__dirname, "vgshell"), tree]);
+        if (status !== 0) ended = { status, outcome: pkgRetry().failed("aur", null, status) };
+        else {
+            const reviewed = await review.bootstrap(tree);
+            if (reviewed !== null) ended = reviewed;
+            else {
+                status = await runSteps("build", [table.bootstrapBuild(false)], { evidence, cwd: tree });
+                ended = status === 0 ? { status, outcome: installed("aur", "makepkg") } : await pkgRetry().afterFailure({
+                    dir: evidence, manager: "aur", builder: "makepkg", targets: ["paru"], status,
+                    retry: { run: () => runSteps("build", [table.bootstrapBuild(true)], { cwd: tree }) }
+                });
+                // makepkg -si exits 0 once paru is installed; a helper still not
+                // on PATH has not installed.
+                if (ended.status === 0 && !onPath("paru")) ended = { status: 1, outcome: pkgRetry().failed("aur", "makepkg", 1) };
+            }
+        }
+    } finally {
+        remove();
+        process.removeListener("exit", remove);
     }
     return settle("install", ended.status, ended.outcome);
 }
@@ -698,11 +681,18 @@ async function bootstrapHelper() {
 // its failure keeps the failure named and offers no other retry.
 async function retryHeld(run) {
     const held = pkgRetry().claim(run);
-    const status = await runSteps("build", pkgRetry().retrySteps(held.manager, held.action, held.target, held.config === null ? undefined : held.config));
-    const helper = path.basename(held.binary);
-    return settle(held.action, status, status === 0 ? { kind: "package-installed", manager: held.manager, helper, package: held.target, testsSkipped: true }
-        : status >= 128 ? { kind: "package-cancelled", manager: held.manager, status }
-            : { kind: "package-check-failed", manager: held.manager, helper, package: held.target, status, retry: pkgRetry().consumed(run) });
+    const config = held.config === null ? undefined : held.config;
+    const ended = await require("./lib/pkg-review.js").withReview(held.action, held.manager, [held.target], [], [], config, async admitted => {
+        const found = table.presentManager(held.manager, onPath);
+        if (!found.ok) refuse(found.error);
+        const parts = buildParts(pkgRetry().retryPlan(held.manager, held.action, held.target, config, admitted.reviewCommand, admitted.skipReview));
+        const status = await runSteps("build", parts.steps);
+        const helper = found.binary;
+        return completeBuild("build", held.manager, parts, { status, outcome: status === 0 ? { kind: "package-installed", manager: held.manager, helper, package: held.target, testsSkipped: true }
+            : status >= 128 ? { kind: "package-cancelled", manager: held.manager, status }
+                : { kind: "package-check-failed", manager: held.manager, helper, package: held.target, status, retry: pkgRetry().consumed(run) } }, admitted.tracking);
+    });
+    return settle(held.action, ended.status, ended.outcome);
 }
 
 // Once a run's steps have ended, however they ended, a running shell scans
@@ -874,24 +864,27 @@ main(async () => {
         process.stdout.write(JSON.stringify(Object.assign({}, r.plan, { elevator: planElevator(r.plan) })) + "\n");
         break;
     }
-    case "review-transaction": {
-        if (args.length) usage("review-transaction=arguments");
-        process.stdout.write(require("./lib/pkg-review.js").createTransaction() + "\n"); break;
+    case "review-run": {
+        if (args.length) usage("review-run=arguments");
+        process.stdout.write(require("./lib/pkg-review.js").createRun("update-") + "\n");
+        break;
     }
-    case "review": {
-        if (args.length !== 4 || args[0] !== "--request" || args[2] !== "--result") usage("review=arguments");
+    case "review-files": {
+        if (args.length < 6 || args[0] !== "--run" || args[2] !== "--config" || args[4] !== "--") usage("review-files=arguments");
+        if (args.length > 6) require("./lib/pkg-review.js").refuseFileManagerFlags(args[1]);
         refuseOutsideTerminal(verb, SHELL_CALLER);
-        process.exitCode = await require("./lib/pkg-review.js").prepare(args[1], args[3]);
+        process.exitCode = await require("./lib/pkg-review.js").reviewFiles(args[1], args[5], args[3]);
         break;
     }
     case "review-custom-mode": {
         if (args.length !== 1) usage("review-custom-mode=arguments");
         process.stdout.write(require("./lib/pkg-review.js").customMode(JSON.parse(args[0])) + "\n"); break;
     }
-    case "review-custom-consume": {
-        if (args.length !== 2) usage("review-custom-consume=arguments");
+    case "review-custom-consent": {
+        if (args.length) usage("review-custom-consent=arguments");
         refuseOutsideTerminal(verb, SHELL_CALLER);
-        require("./lib/pkg-review.js").consumeCustom(args[0], JSON.parse(args[1])); break;
+        process.exitCode = await require("./lib/pkg-review.js").unavailableCustom();
+        break;
     }
     case "review-settings": {
         if (args.length) usage("review-settings=arguments");
@@ -932,8 +925,6 @@ main(async () => {
         const found = table.detect(osRelease(), onPath);
         if (found.overlays.some(row => row.id === "aur")) break;
         if (found.primary?.id !== "pacman") refuse("helper=unsupported manager=" + (found.primary?.id || "none"));
-        const admitted = await require("./lib/pkg-review.js").bootstrap();
-        if (admitted !== 0) { process.exitCode = admitted; break; }
         return bootstrapHelper();
     }
     case "retry": {
@@ -947,11 +938,6 @@ main(async () => {
         const [action, ...rest] = args;
         if (!table.ACTIONS.includes(action) && action !== "engine-archive") usage("action=" + (action === undefined ? "missing" : action));
         let { manager, names } = managerAndNames(rest);
-        let receipt;
-        if (names[0] === "--review-receipt") {
-            if (!names[1]) usage("option=--review-receipt value=missing");
-            receipt = names[1]; names = names.slice(2);
-        }
         let config;
         if (names[0] === "--config") {
             if (!names[1]) usage("option=--config value=missing");
@@ -973,7 +959,7 @@ main(async () => {
         if (action === "upgrade" && names.length > 0) usage("argument=" + names[0]);
         if (action !== "upgrade" && names.length === 0) usage("names=missing");
         refuseOutsideTerminal(verb, SHELL_CALLER);
-        return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);
+        return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);
     }
     case "install":
     case "remove": {

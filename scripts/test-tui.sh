@@ -929,8 +929,43 @@ check "a logged run reads its unchanged output in a private transcript, removed 
 check "the clean log leaves the private OSC out" test "$(grep -c 8913 "$tmp/transcript.log")" == 0
 copy_with kept-transcript "$lib" "trap 'rm -f -- \"\${_vgs_tui_transcript:?}\"' EXIT" ':'
 check "the kept-transcript mutant fails the transcript row" test "$(transcript_row "$copy" && echo green || echo red)" == red
-copy_with unwritten-transcript "$lib" ' --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&-' ' -c "$cmd" {fd}>&-'
+copy_with unwritten-transcript "$lib" 'run+=(--log-out "$_vgs_tui_transcript" -c "$cmd")' 'run+=(-c "$cmd")'
 check "the unwritten-transcript mutant fails the transcript row" test "$(transcript_row "$copy" && echo green || echo red)" == red
+
+# A TERM sent to the outer run alone, as logout or `kill` sends it, reaches
+# the command script(1) runs again: the command notes it and ends 143. The
+# command notes script's hangup too without ending, so a pending TERM always
+# runs its trap whatever order bash takes them in; each trap stops its
+# sleep. The run is a session of its own, so a bound that runs out ends
+# script(1) with it.
+cat >"$tmp/forward.sh" <<'SH'
+source "$LIB"
+vgs_tui_transcript
+trap 'printf term >>"$MARK"; kill "$!" 2>/dev/null; exit 143' TERM
+trap 'printf hup >>"$MARK"; kill "$!" 2>/dev/null' HUP
+: >"$READY"
+sleep 30 &
+wait "$!"
+SH
+forward_row() { # LIB_PATH
+  local outer polls=0
+  rm -f -- "${tmp:?}/forward-mark" "${tmp:?}/forward-ready"
+  status=0
+  "${lib_env[@]}" LIB="$1" MARK="$tmp/forward-mark" READY="$tmp/forward-ready" setsid "$BASH" "$tmp/forward.sh" </dev/null >"$tmp/out" 2>&1 &
+  outer=$!
+  while [[ ! -e $tmp/forward-ready ]] && ((polls < 100)); do sleep 0.1; polls=$((polls + 1)); done
+  kill -TERM "$outer" 2>/dev/null || :
+  polls=0
+  while [[ -e /proc/$outer && $(cut -d' ' -f3 "/proc/$outer/stat" 2>/dev/null) != Z ]] && ((polls < 100)); do sleep 0.1; polls=$((polls + 1)); done
+  ((polls < 100)) || kill -KILL -- "-$outer" 2>/dev/null || :
+  wait "$outer" || status=$?
+  polls=0
+  while [[ $(cat "$tmp/forward-mark" 2>/dev/null) != *term* ]] && ((polls < 50)); do sleep 0.1; polls=$((polls + 1)); done
+  [[ $status == 143 && $(cat "$tmp/forward-mark" 2>/dev/null) == *term* ]]
+}
+check "a TERM sent to the outer run reaches the command script(1) runs" forward_row "$LIB"
+copy_with unforwarded-signal "$lib" 'kill -s $_vgs_tui_signal \"\$_vgs_tui_child\"' ': \"\$_vgs_tui_child\"'
+check "the unforwarded-signal mutant fails the forward row" test "$(forward_row "$copy" && echo green || echo red)" == red
 
 # An interval: a script that keeps only a transcript cuts one command's
 # output between the marks, byte for byte as the terminal got it, and the

@@ -334,6 +334,33 @@ var ACTIONS = ["install", "reinstall", "update", "remove", "upgrade"];
 // ConfigLogic.configError judges shell.json's `packages.elevate` against
 // this list.
 var ELEVATORS = ["sudo", "doas", "run0"];
+// How to end the saved authorization each of ELEVATORS leaves for a later
+// process of this user: { argv, unended }, or null where none outlives its
+// caller. sudo(8) -k removes the terminal's timestamp. run0 asks polkit,
+// whose auth_admin_keep authorization polkitd keeps for a session;
+// pkcheck(1) --revoke-temp revokes the temporary authorizations of the
+// caller's session. unended, when not null, names a drop that could not
+// run, by the start of its stderr, and the check that then decides: argv,
+// in which {process} stands for the caller as pid,start-time,uid, and the
+// check's statuses that hold no authorization. pkcheck prints "Error
+// getting session: %s" and exits 1 when the caller has no logind session
+// (src/programs/pkcheck.c do_list_or_revoke_temp_authz), yet polkitd maps
+// such a caller to the user's display session
+// (polkitbackendsessionmonitor-systemd.c, sd_uid_get_display), where a
+// run0 authorization can still be held. The check asks polkitd about the
+// caller without user interaction: pkcheck exits 0 when authorized, 1
+// when not authorized and 2 when it needs a challenge; 3 (dismissed), 126
+// (arguments or setup) and 127 (check failed) read nothing (pkcheck.c main;
+// https://raw.githubusercontent.com/polkit-org/polkit/main/src/programs/pkcheck.c,
+// read 2026-11-12). run0 asks for org.freedesktop.systemd1.manage-units.
+// OpenDoas keeps persist per parent process (timestamp.c timestamp_path
+// names the record after getppid()), so another process cannot reuse it.
+var CREDENTIAL_DROPS = {
+    sudo: { argv: ["sudo", "-k"], unended: null },
+    doas: null,
+    run0: { argv: ["pkcheck", "--revoke-temp"], unended: { stderr: "Error getting session: ",
+        check: ["pkcheck", "--action-id", "org.freedesktop.systemd1.manage-units", "--process", "{process}"], unheld: [1, 2] } }
+};
 
 // A package name is printable ASCII with no space, and never starts with a
 // dash, so no manager reads it as an option.
@@ -620,15 +647,12 @@ function filePlan(id, action, files, onPath, ignored, config) {
 // integrity option, and a helper applies them to every recipe it builds
 // in the run, a dependency's included.
 var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };
-// paru(8) v2.1.0 documents both options and its complete build-order report.
-// yay(8) v12.5.0 has --batchinstall but no documented equivalent order
-// report; keep its form because dependency coverage cannot be established.
 // paru v2.1.0 (300f76a4) src/install.rs:179-209 retains the cached
 // .SRCINFO even after downloading its replacement. :815-822 drops devel
 // info absent from that snapshot. --gendb reads the downloaded .SRCINFO
 // and adds only missing bases (src/devel.rs:121-126,153-161,204-210),
 // preserving other tracked commits after a recipe gains a git source.
-var REVIEWED_BUILD = { paru: { options: ["--skipreview", "--batchinstall"], complete: ["--gendb"] } };
+var PARU_TRACKING = ["--gendb"];
 
 // paru v2.1.0 src/order.rs emits REPO/AUR TARGET, DEP and MAKE rows.
 // --rebuild=tree resolves even installed AUR dependencies (src/resolver.rs),
@@ -650,18 +674,20 @@ function parseBuildOrder(text) {
     return { ok: true, packages: packages };
 }
 
-function reviewedBuild(plan, coverage, dependenciesCovered, config) {
-    if (plan.manager !== "aur" || ["complete", "declined", "unknown"].indexOf(coverage) < 0 || dependenciesCovered !== true)
-        return plan;
-    var build = REVIEWED_BUILD[plan.binary];
-    if (build === undefined) return plan;
+// REVISIT(D133): paru v2.2.0 runs FileManager over the clones it then builds, after fetching
+// and before Accept changes (src/install.rs:1127-1176,1683-1706,1812-1902).
+// --review and --nosudoloop override the owner's SkipReview and SudoLoop.
+// yay has no file-manager review hook and keeps its own review menus.
+function reviewedBuild(plan, reviewCommand, skipReview, config) {
+    if (plan.manager !== "aur" || plan.binary !== "paru" || plan.action === "remove") return plan;
+    if (skipReview !== true && (typeof reviewCommand !== "string" || reviewCommand === ""))
+        throw new Error("reviewedBuild: paru review command is missing");
+    var options = skipReview === true ? ["--skipreview"] : ["--review", "--nosudoloop", "--fm", reviewCommand];
     plan.steps.forEach(function (step) {
-        var end = step.indexOf("--");
-        step.splice.apply(step, [end < 0 ? step.length : end, 0].concat(build.options));
+        var start = step[1] === "--config" ? 3 : 1;
+        step.splice.apply(step, [start, 0].concat(options, ["--batchinstall"]));
     });
-    // The existing step runner stops on failure, so tracking completes only
-    // after every install succeeds and its own failure remains a failed run.
-    plan.steps.push([plan.binary].concat(config === undefined ? [] : ["--config", config], build.complete));
+    plan.steps.push([plan.binary].concat(config === undefined ? [] : ["--config", config], PARU_TRACKING));
     return plan;
 }
 // The helper bootstrap's build of paru's recipe, in the tree the package
@@ -887,27 +913,6 @@ function checkFor(id, binary) {
         return found;
     }
     return { skipped: "no-check" };
-}
-
-// checkupdates uses the default configuration. pacman-conf's effective
-// repository order and DBPath establish whether its answer also covers
-// CONFIG. HookDir additions do not change that correspondence.
-function reviewCheckFor(id, binary, config, readConfig) {
-    var found = checkFor(id, binary);
-    if (found.check === undefined) return found;
-    var check = found.check;
-    var complete = true;
-    if (id === "pacman") {
-        var effective = readConfig(config), defaults = readConfig("/etc/pacman.conf");
-        complete = effective.repositories.length > 0 && effective.dbPath !== ""
-            && effective.dbPath === defaults.dbPath
-            && JSON.stringify(effective.repositories) === JSON.stringify(defaults.repositories);
-        if (!complete) {
-            check.argv = [binary, "--config", config, "-Qu"];
-            check.exits = { "0": "updates", "1": "none" };
-        }
-    } else if (id === "aur") check.argv.splice(1, 0, "--config", config);
-    return { check: check, complete: complete, origin: found.origin || null };
 }
 
 // What CHECK's run printed means: `{ packages }`, `{ unused: true }` for a

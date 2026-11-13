@@ -19,6 +19,11 @@
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
+# The review result owner stays outside Codex's writable /tmp root.
+review_runtime_parent="$("$node_bin" -e 'process.stdout.write(require(process.argv[1]).protectedParent())' "$repo/scripts/fixtures/pkg-review/world.js")" || exit 1
+review_runtime="$(mktemp -d "$review_runtime_parent/vgs-pkg-run.XXXXXXXX")" || exit 1
+rt_empty="$review_runtime"
+trap 'rm -rf -- "${review_runtime:?}"; rows_cleanup' EXIT
 for tool in script setsid timeout unshare; do
   command -v "$tool" >/dev/null || { echo "test-vgshell-pkg-run: status=not-measured missing=$tool"; exit 77; }
 done
@@ -27,7 +32,7 @@ script_bin="$(command -v script)"
 # The tools the runner and the stubs need, and nothing that changes a
 # package.
 tools="$tmp/tools"; mkdir -p "$tools"
-for tool in bash readlink dirname sleep cat env mktemp mkdir rm chmod; do
+for tool in bash python3 readlink dirname sleep cat env mktemp mkdir rm chmod; do
   found="$(command -v "$tool")" || { echo "test-vgshell-pkg-run: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$found" "$tools/$tool"
 done
@@ -48,7 +53,8 @@ for e in sudo doas run0; do
 exec "$@"'
 done
 managers="$tmp/managers"
-stub "$managers" pacman 'case "$1" in -Slq) printf "alpha\nbeta\ngamma\n" ;; -Qqe) printf "alpha\n" ;; esac
+stub "$managers" pacman 'case " $* " in *" -Q "*) exit 1 ;; esac
+case "$1" in -Slq) printf "alpha\nbeta\ngamma\n" ;; -Qqe) printf "alpha\n" ;; esac
 [ "${STUB_FAIL:-}" != "$1" ] || { [ -z "${STUB_SAY:-}" ] || printf "%s\n" "$STUB_SAY"; exit 7; }'
 stub "$managers" paru 'case "$1" in -Slqa) printf "aurpkg\n" ;; esac'
 stub "$managers" apt-get '[ "${STUB_FAIL:-}" != "$1" ] || exit 7'
@@ -93,6 +99,7 @@ make_tree() { # DIR
   ln -s -- "$repo/shell/Commons" "$1/shell/Commons"
   ln -s -- "$repo/shell/Ui" "$1/shell/Ui"
   ln -s -- "$repo/config" "$1/config"
+  ln -s -- "$repo/packaging" "$1/packaging"
 }
 make_tree "$tree"
 
@@ -112,14 +119,18 @@ pkg() {
   rm -rf -- "$log" "$log.cwd" "$answers" "$tmp/planted"
   : >"$log"
   mkdir -p "$answers" "$cfg/vgshell" "$tmp/home"
-  [[ -n ${PKG_CONFIG:-} ]] && printf '%s\n' "$PKG_CONFIG" >"$cfg/vgshell/shell.json" || rm -f -- "$cfg/vgshell/shell.json"
+  "$node_bin" - "$cfg/vgshell/shell.json" "${PKG_CONFIG:-null}" <<'CONFIG'
+const fs=require("node:fs"),value=JSON.parse(process.argv[3])||{};
+value.version=6;value.packages??={};value.packages.review={enabled:false,agent:"",command:""};
+fs.writeFileSync(process.argv[2],JSON.stringify(value));
+CONFIG
   local i=1 answer
   for answer in "${PKG_ANSWERS[@]}"; do
     [[ $answer == status=* ]] && printf '%s' "${answer#status=}" >"$answers/$i.status" || printf '%s' "$answer" >"$answers/$i"
     i=$((i + 1))
   done
   PKG_ANSWERS=()
-  local env_words=(env -i PATH="$dirs:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty"
+  local env_words=(env -i PATH="$dirs:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty" XDG_CACHE_HOME="$review_runtime/cache" XDG_STATE_HOME="$tmp/state" XDG_DATA_HOME="$tmp/data"
     LC_ALL=C LOG="$log" ANSWERS="$answers" "${extra[@]}")
   status=0
   if [[ ${PKG_TTY:-} == none ]]; then
@@ -197,7 +208,7 @@ row_pacman_ignore() {
 }
 row_aur_ignore() {
   pkg "$1" "$managers:$tmp/elevate-sudo" -- run upgrade --manager aur --ignore aurpkg
-  [[ $status == 0 ]] && log_is "$(lines "paru [-Sua] [--ignore] [aurpkg]" "sudo [-k]")"
+  [[ $status == 0 ]] && log_is "$(lines "paru [--skipreview] [--batchinstall] [-Sua] [--ignore] [aurpkg]" "sudo [-k]" "paru [--gendb]" "sudo [-k]")"
 }
 row_ignore_unsupported() {
   pkg "$1" "$sudo_path" -- run upgrade --manager apt --ignore foo
@@ -215,7 +226,7 @@ row_upgrade_config() {
     [[ $status == 0 ]] || return 1
     case "$manager" in
       pacman) grep -qxF "pacman [--config] [$tmp/config with spaces] [-Syu] [--ignore] [held]" "$log" || return 1 ;;
-      aur) log_is "$(lines "paru [--config] [$tmp/config with spaces] [-Sua] [--ignore] [held]" "sudo [-k]")" || return 1 ;;
+      aur) log_is "$(lines "paru [--config] [$tmp/config with spaces] [--skipreview] [--batchinstall] [-Sua] [--ignore] [held]" "sudo [-k]" "paru [--config] [$tmp/config with spaces] [--gendb]" "sudo [-k]")" || return 1 ;;
     esac
   done
   for manager in apt mise; do
@@ -320,7 +331,7 @@ row_update_installs() {
 }
 row_aur_unelevated() {
   pkg "$1" "$managers:$tmp/elevate-sudo" -- run install --manager aur aurpkg
-  [[ $status == 0 ]] && log_is "$(lines "paru [-S] [--needed] [--] [aurpkg]" "sudo [-k]")"
+  [[ $status == 0 ]] && log_is "$(lines "paru [--skipreview] [--batchinstall] [-S] [--needed] [--] [aurpkg]" "sudo [-k]" "paru [--gendb]" "sudo [-k]")"
 }
 row_picker_install() {
   PKG_ANSWERS=($'beta\ngamma\n')
@@ -351,8 +362,8 @@ row_picker_nothing() {
 row_aur_picker() {
   PKG_ANSWERS=($'aurpkg\n')
   pkg "$1" "$sudo_path:$tmp/picker" -- install --manager aur
-  [[ $status == 0 ]] && grep -qF "[--preview='paru' '-Siia' {1}]" "$log" && [[ "$(grep -c '^sudo' "$log")" == 1 ]] &&
-    grep -qxF "paru [-S] [--needed] [--] [aurpkg]" "$log"
+  [[ $status == 0 ]] && grep -qF "[--preview='paru' '-Siia' {1}]" "$log" && [[ "$(grep -c '^sudo' "$log")" == 2 ]] &&
+    grep -qxF "paru [--skipreview] [--batchinstall] [-S] [--needed] [--] [aurpkg]" "$log"
 }
 row_picker_unsupported() {
   pkg "$1" "$managers:$tmp/picker:$tmp/elevate-sudo" -- remove --manager aur
@@ -375,10 +386,17 @@ row_ensure_helper() {
   local at="$1" failure expected helper_bin="$tmp/helper-bin"
   mkdir -p "$helper_bin"
   ln -sf -- "$managers/pacman" "$helper_bin/pacman"
-  stub "$helper_bin" git '[ "${HELPER_FAILURE:-}" != clone ] || exit 6
+  stub "$helper_bin" git 'if [ "$1" != clone ]; then exec /usr/bin/git "$@"; fi
+[ "${HELPER_FAILURE:-}" != clone ] || exit 6
 for destination; do :; done
 mkdir -p "$destination"
+printf "pkgbase = paru\npkgname = paru\n" >"$destination/.SRCINFO"
+printf "pkgname=paru\n" >"$destination/PKGBUILD"
+/usr/bin/git -C "$destination" init --quiet --template=
+/usr/bin/git -C "$destination" add --force --all -- .
+GIT_AUTHOR_NAME=Fixture GIT_AUTHOR_EMAIL=fixture@example.invalid GIT_COMMITTER_NAME=Fixture GIT_COMMITTER_EMAIL=fixture@example.invalid /usr/bin/git -C "$destination" commit --quiet -m recipe
 printf "%s\\n" "$destination" >"$LOG.build"'
+  stub "$helper_bin" pacman-conf 'printf "%s\n" "$HELPER_BIN/db"'
   stub "$helper_bin" makepkg '[ "${HELPER_FAILURE:-}" != build ] || exit 8
 printf "#!/bin/sh\\nexit 0\\n" >"$HELPER_BIN/paru"
 chmod +x "$HELPER_BIN/paru"'
@@ -421,7 +439,7 @@ if unshare -rm true 2>/dev/null; then
     local cmd
     rm -rf -- "$log" "$answers"; : >"$log"; mkdir -p "$answers"
     printf '%s' "${PKG_ANSWERS[0]}" >"$answers/1"; printf '%s' "${PKG_ANSWERS[1]}" >"$answers/2"
-    cmd="$(printf '%q ' env -i PATH="$sudo_path:$tmp/picker:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty" LC_ALL=C LOG="$log" ANSWERS="$answers" "$node_bin" "$tree/bin/vgshell-pkg" install)"
+    cmd="$(printf '%q ' env -i PATH="$sudo_path:$tmp/picker:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty" XDG_CACHE_HOME="$review_runtime/cache" XDG_STATE_HOME="$tmp/state" XDG_DATA_HOME="$tmp/data" LC_ALL=C LOG="$log" ANSWERS="$answers" "$node_bin" "$tree/bin/vgshell-pkg" install)"
     status=0
     SHELL="$BASH" timeout 30 unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$tmp/os-release-arch" \
       "$script_bin" -qec "$cmd" /dev/null </dev/null >"$tmp/out" 2>&1 || status=$?
@@ -431,7 +449,7 @@ if unshare -rm true 2>/dev/null; then
   check "the AUR answer opens the helper's picker and installs through it" log_is "$(lines "fzf [--prompt=Install from> ] [--color=pointer:yellow]" \
     "paru [-Slqa]" \
     "fzf [--multi] [--preview='paru' '-Siia' {1}] [--preview-label=alt-p: toggle description, alt-j/k: scroll, tab: multi-select] [--preview-label-pos=bottom] [--preview-window=down:65%:wrap] [--bind=alt-p:toggle-preview] [--bind=alt-d:preview-half-page-down,alt-u:preview-half-page-up] [--bind=alt-k:preview-up,alt-j:preview-down] [--color=pointer:green,marker:green]" \
-    "paru [-S] [--needed] [--] [aurpkg]" "sudo [-k]")"
+    "paru [--skipreview] [--batchinstall] [-S] [--needed] [--] [aurpkg]" "sudo [-k]" "paru [--gendb]" "sudo [-k]")"
   chooser_status=0
   if row_ensure_helper "$tree"; then ok ensure_helper; else fail "ensure_helper: status=$status out=[$(cat "$tmp/out")]"; fi
 fi
@@ -457,7 +475,7 @@ control no-sudo-session bin/lib/pkg-run.sh $'if [[ $elevator == sudo ]]; then\n 
 control runs-past-failure bin/lib/pkg-run.sh '[[ $status -eq 0 ]] || exit "$status"' ':' first_failure
 control shell-string bin/lib/pkg-run.sh '  "${step[@]}" || status=$?' '  bash -c "${step[*]}" || status=$?' literal_name
 control bare-command bin/lib/pkg-run.sh '  vgs_tui_commands "${shown% }"' '  vgs_tui_text "${shown% }"' pacman_install
-control caller-directory bin/vgshell-pkg 'cwd: cwd || process.env.HOME || "/", env });' 'cwd, env });' home_directory
+control caller-directory bin/lib/pkg-review.js 'cwd: cwd || process.env.HOME || "/", env });' 'cwd, env });' home_directory
 control update-keeps-version shell/Core/PackageManagers.js 'update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],' 'update: [["{bin}", "use", "--global", "{names}"]],' update
 control always-elevates bin/vgshell-pkg '    if (!plan.elevate) return null;' '    if (false) return null;' aur_unelevated
 control ignores-configuration bin/vgshell-pkg 'table.elevator(configuredElevator(), onPath)' 'table.elevator(undefined, onPath)' configured
@@ -467,14 +485,15 @@ control dnf-notice shell/Core/PackageManagers.js 'list: ["{bin}", "-q", "repoque
 control fzf-looked-up-late bin/vgshell-pkg '        if (!onPath("fzf")) refuse("picker=fzf reason=absent");' '' picker_without_fzf
 control drops-config shell/Core/PackageManagers.js 'if (config !== undefined) argv.splice(1, 0, "--config", config);' ';' upgrade_config
 control file-options-unchecked bin/vgshell-pkg '        if (!checked.ok) refuse(checked.error);' '' ignore_unsupported
-control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config, receipt);' pacman_ignore
-control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config, receipt);' update_installs
+control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config);' pacman_ignore
+control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config);' update_installs
 control empty-install-tail bin/vgshell-pkg '            if (installs.length === 0) usage("option=--install value=missing");' '' update_installs
-control unkept-output bin/vgshell-pkg '&& pkgRetry().reporting() ? pkgRetry().evidenceDir("run-") : null;' '&& false ? null : null;' failed_lines
+control unkept-output bin/vgshell-pkg '&& pkgRetry().reporting()) ?' '&& false) ?' failed_lines
 control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { cancelled: true };' '' picker_cancelled
 
 if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; exit 1; fi
 if [[ $chooser_status == 77 ]]; then echo "test-vgshell-pkg-run: status=not-measured missing=user-namespaces"; exit 77; fi
+"$node_bin" "$repo/scripts/fixtures/pkg-review/copy-test.js"
 "$node_bin" "$repo/scripts/fixtures/pkg-review/runtime-test.js"
 "$node_bin" "$repo/scripts/fixtures/pkg-review/failure-test.js"
 "$node_bin" "$repo/scripts/fixtures/pkg-review/recipes-test.js"

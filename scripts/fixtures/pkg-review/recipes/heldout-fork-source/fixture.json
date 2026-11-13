@@ -2,11 +2,9 @@
   "package": "universal-android-debloater",
   "pkgbase": "universal-android-debloater",
   "old": "1.3.0-1",
-  "new": "1.3.1-1",
   "expect": "flagged",
   "source": "No AUR incident found that moved a source to another owner's fork of the same project; the nearest documented AUR case, July 2025, built from a GitHub repository its attacker controlled: https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/thread/7EZTJXLIAQLARQNTMEW2HBWZYE626IFJ/ . Technique: MITRE ATT&CK T1195.002 (Compromise Software Supply Chain), https://attack.mitre.org/techniques/T1195/002/ ; base recipe AUR universal-android-debloater commit 787da2cfb522f35beeec04a154e22bc7e36b5856, https://aur.archlinux.org/cgit/aur.git/commit/?h=universal-android-debloater&id=787da2cfb522f35beeec04a154e22bc7e36b5856; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy: commit 4a6edc5e1fbaefa5dba128b0b69e240cd55c47b3, its parent; the planted owner uadng_releases holds an underscore, which GitHub user names cannot, so the URL reaches no account",
   "signal": "the release tarball moves from the upstream owner Universal-Debloater-Alliance (cached copy, url=) to another owner's copy, github.com/uadng_releases, with a new checksum, in an otherwise ordinary release update",
   "install": "none",
-  "installerRisk": false,
-  "recipe": "changed"
+  "installerRisk": false
 }

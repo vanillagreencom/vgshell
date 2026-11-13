@@ -64,6 +64,10 @@
 #                                    transcript
 #   vgs_tui_interval_cut FILE        write the output since the open mark into FILE;
 #                                    1 with vgs_tui_unread naming why it could not
+#   vgs_tui_forwarded COMMAND [ARG...]
+#                                    run COMMAND, which keeps the terminal, so INT, HUP
+#                                    and TERM sent to this shell alone reach it;
+#                                    vgs_tui_forwarded_status is its status
 #   vgs_tui_logged FILE COMMAND [ARG...]
 #                                    run COMMAND with its stderr added to FILE, so its
 #                                    keyed causes reach the log and not the screen;
@@ -710,8 +714,40 @@ vgs_tui_transcript() { # [ARG...]
   _vgs_tui_rerun "" "$@"
 }
 
+# Runs COMMAND, which keeps this terminal, so that INT, HUP and TERM sent
+# to this shell alone, not to the terminal's group, reach it: a foreground
+# child would hold a trapped signal until it ended. COMMAND runs in the
+# background. Without job control an asynchronous command reads /dev/null
+# and ignores INT and QUIT, so the subshell restores both (bash
+# setup_async_signals keeps their original dispositions for trap) and keeps
+# the terminal on stdin. A trapped signal ends wait early, so wait again
+# until COMMAND is reaped. vgs_tui_forwarded_status is COMMAND's status, or
+# 128 plus the number of the last signal passed on: script(1) stops waiting
+# for its child once a termination signal arrives (util-linux 2.42
+# lib/pty-session.c ul_pty_proxy_master, term-utils/script.c main), so its
+# own status no longer says how the command ended. The three signals are at
+# their default handling afterwards; a caller that traps one sets it again.
+vgs_tui_forwarded() { # COMMAND [ARG...]
+  local _vgs_tui_child="" _vgs_tui_pending="" _vgs_tui_last="" _vgs_tui_signal
+  for _vgs_tui_signal in INT HUP TERM; do
+    # shellcheck disable=SC2064 # each trap names its own signal now
+    trap "_vgs_tui_pending=1 _vgs_tui_last=$_vgs_tui_signal; [[ -z \$_vgs_tui_child ]] || kill -s $_vgs_tui_signal \"\$_vgs_tui_child\" 2>/dev/null || :" "$_vgs_tui_signal"
+  done
+  ( trap - INT QUIT; exec "$@" ) <&0 &
+  _vgs_tui_child=$!
+  while :; do
+    _vgs_tui_pending="" vgs_tui_forwarded_status=0
+    wait "$_vgs_tui_child" || vgs_tui_forwarded_status=$?
+    [[ -n $_vgs_tui_pending ]] || break
+  done
+  trap - INT HUP TERM
+  [[ -z $_vgs_tui_last ]] || vgs_tui_forwarded_status=$((128 + $(kill -l "$_vgs_tui_last")))
+}
+
+# Runs this script again under script(1), through vgs_tui_forwarded, and
+# exits with its status, or 1 when the build display fails.
 _vgs_tui_rerun() { # LOG_FD [ARG...]
-  local fd="$1" cmd status=0 display_fd="" display_pid=""
+  local fd="$1" cmd status=0 display_fd="" display_pid="" clean_fd="" clean_pid="" run
   shift
   cmd="$(printf '%q ' "$BASH" "$0" "$@")"
   _vgs_tui_transcript="$(mktemp -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" vgs-tui-transcript.XXXXXXXX)" ||
@@ -724,14 +760,23 @@ _vgs_tui_rerun() { # LOG_FD [ARG...]
     exec > >(_vgs_tui_build_display "$_vgs_tui_build_log" >&"$display_fd")
     display_pid=$!
   fi
+  run=(env)
   if [[ -n $fd ]]; then
-    env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
-      script -qef --log-out >(_vgs_tui_log_clean >&"$fd") --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&- || status=$?
+    exec {clean_fd}> >(_vgs_tui_log_clean >&"$fd")
+    clean_pid=$!
     exec {fd}>&-
-    wait "$!" || :
-  else
-    env VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
-      script -qef --log-out "$_vgs_tui_transcript" -c "$cmd" || status=$?
+    run+=(VGS_TUI_LOGGED=1)
+  fi
+  run+=(VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" script -qef)
+  [[ -z $clean_fd ]] || run+=(--log-out "/dev/fd/$clean_fd")
+  run+=(--log-out "$_vgs_tui_transcript" -c "$cmd")
+  vgs_tui_forwarded "${run[@]}"
+  status=$vgs_tui_forwarded_status
+  trap 'exit 129' HUP
+  trap 'exit 143' TERM
+  if [[ -n $clean_fd ]]; then
+    exec {clean_fd}>&-
+    wait "$clean_pid" || :
   fi
   if [[ -n $display_pid ]]; then
     exec 1>&"$display_fd" {display_fd}>&-

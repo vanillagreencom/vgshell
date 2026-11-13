@@ -7,7 +7,7 @@ Choose how VGS checks for updates and offers an AI review before a package insta
 ## Features
 
 - Change the same update options shown on the Updates plugin's Settings page.
-- Choose whether VGS asks before an install or update. Review with an agent and Automatic ask first. Install without review skips the question, except with a custom AUR command.
+- With paru, Review with an agent starts the review without asking, and Automatic asks first. A custom AUR command that VGS cannot review always asks first. Yay keeps its own review menus.
 - Choose the AI agent, or let VGS use one available on this computer.
 - Set an optional review command instead of the selected agent's default.
 

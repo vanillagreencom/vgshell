@@ -58,11 +58,6 @@ printf '%s\n' '#!/bin/sh' 'while [ "$#" -gt 1 ]; do shift; done' \
   '  *) exit 99 ;;' \
   'esac' >"$stubs/curl"
 chmod +x "$stubs/uname" "$stubs/curl"
-# Common review is real; only the gum renderer submits decline, preserving
-# this suite's pre-existing install/rescan assertions without a live agent.
-review_tools="$tmp/review-tools"; mkdir -p "$review_tools"
-printf '#!/bin/sh\ncase "$1" in choose) echo "Install without review" ;; style) : ;; esac\n' >"$review_tools/gum"
-chmod +x "$review_tools/gum"
 stub flatpak ''
 stub nix ''
 stub qs 'echo "ok scan=1"'
@@ -105,9 +100,7 @@ req() {
   while [[ $1 != -- ]]; do extra+=("$1"); shift; done
   shift
   : >"$log"
-  local review_path=""
-  [[ $mode != terminal ]] || review_path="$review_tools:"
-  words=("${base_env[@]}" PATH="$review_path$stubs:${REQ_PATH:-$base_path}" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt" LOG="$log" "${extra[@]}")
+  words=("${base_env[@]}" PATH="$stubs:${REQ_PATH:-$base_path}" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt" LOG="$log" "${extra[@]}")
   local bound=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "${REQ_OS_RELEASE:-$os_release}")
   status=0
   : >"$tmp/err"
@@ -191,10 +184,15 @@ row_offer_declined() {
 # pluginInstalled with the new plugin's id, which rescans and raises its
 # notice, and rescans after each install.
 row_offer_accepted() {
+  # This row holds package grouping and rescan. The file-manager fixture
+  # holds review; a saved decline keeps this manager stand-in inert.
+  mkdir -p "$2/vgshell"
+  printf '%s\n' '{"version":6,"packages":{"review":{"enabled":false,"agent":"","command":""}}}' >"$2/vgshell/shell.json"
   req "$1" terminal y "$2" "$rt_live" -- plugin add --yes "$tmp/src/needs.git"
   [[ $status == 0 ]] && log_has "sudo [pacman] [-S] [--needed] [--] [need-one] [need-opt] [need;one]" \
     && log_has "pacman [-S] [--needed] [--] [need-one] [need-opt] [need;one]" \
-    && log_has "paru [-S] [--needed] [--] [need-two]" && [[ $(rescans) == 2 ]] \
+    && log_has "paru [--skipreview] [--batchinstall] [-S] [--needed] [--] [need-two]" \
+    && log_has "paru [--gendb]" && [[ $(rescans) == 2 ]] \
     && [[ $(grep -cxF "qs [ipc] [--pid] [$$] [call] [shell] [pluginInstalled] [acme.needs]" "$log") == 1 ]]
 }
 row_offer_silent() {

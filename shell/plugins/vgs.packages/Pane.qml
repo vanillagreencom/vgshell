@@ -126,16 +126,14 @@ FocusScope {
         Section {
             width: parent.width
             title: "Agent review"
-            description: "Choose whether VGS asks before a package installs or updates."
             rowSpacing: Theme.stack.row
 
             Field {
                 width: parent.width
                 inline: true
                 label: "Before installing"
-                hint: beforeInstalling.currentIndex === 0 ? "Ask each time, with review selected"
-                    : beforeInstalling.currentIndex === 1 ? "Install without asking, except with a custom AUR command"
-                    : "Ask each time, with no review selected if no AI agent is found"
+                hint: beforeInstalling.currentIndex === 2 ? "Ask each time, with no review selected if no AI agent is found"
+                    : "Asks first with a custom AUR command"
                 Select {
                     id: beforeInstalling
                     objectName: "packageReviewChoice"

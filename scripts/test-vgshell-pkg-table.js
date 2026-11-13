@@ -463,15 +463,17 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) for (const action of t.ACTIONS)
         if (!covered.has(row.id + " " + action)) failures.push("plan: no row for " + row.id + " " + action);
-    for (const binary of ["paru", "yay"]) for (const action of ["upgrade", "reinstall"])
-        for (const [coverage, dependenciesCovered] of [["complete", true], ["declined", true], ["unknown", true], [undefined, true], ["complete", false]]) {
+    for (const binary of ["paru", "yay"]) for (const action of ["upgrade", "reinstall", "remove"])
+        for (const skipReview of [false, true]) for (const config of [undefined, "/run/update/pacman.conf"]) {
             const names = action === "upgrade" ? [] : ["vgshell-git"];
-            const plan = t.plan("aur", action, names, onPathOf([binary])).plan;
-            const words = binary === "paru" && coverage !== undefined && dependenciesCovered ? ["--skipreview", "--batchinstall"] : [];
-            const expected = [binary, action === "upgrade" ? "-Sua" : "-S", ...words, ...(names.length ? ["--", ...names] : [])];
-            const steps = [expected, ...(words.length ? [[binary, "--gendb"]] : [])];
-            if (!same(t.reviewedBuild(plan, coverage, dependenciesCovered).steps, steps))
-                failures.push("reviewed build: " + JSON.stringify({binary, action, coverage, dependenciesCovered}));
+            const plan = t.plan("aur", action, names, onPathOf([binary]), undefined, config).plan;
+            const configured = config === undefined ? [] : ["--config", config];
+            const reviewCommand = action === "remove" ? undefined : "/usr/bin/node /vgs/bin/vgshell-pkg review --run /run/update/review";
+            const words = binary === "paru" && action !== "remove" ? [...(skipReview ? ["--skipreview"] : ["--review", "--nosudoloop", "--fm", reviewCommand]), "--batchinstall"] : [];
+            const expected = [binary, ...configured, ...words, { upgrade: "-Sua", reinstall: "-S", remove: "-Rns" }[action], ...(names.length ? ["--", ...names] : [])];
+            const steps = [expected, ...(words.length ? [[binary, ...configured, "--gendb"]] : [])];
+            if (!same(t.reviewedBuild(plan, reviewCommand, skipReview, config).steps, steps))
+                failures.push("reviewed build: " + JSON.stringify({binary, action, skipReview, config}));
         }
     for (const [name, manager, missing, outdated, commands, want] of OWED_ROWS) {
         const got = t.planOwed(manager, missing, outdated, onPathOf(commands));
@@ -515,6 +517,12 @@ function verifyTable(t) {
         if (!same(got, expected)) failures.push("picker: " + name + ": got " + JSON.stringify(got));
     }
     if (!same(t.ELEVATORS, ["sudo", "doas", "run0"])) failures.push("elevators: got " + JSON.stringify(t.ELEVATORS));
+    // Each elevator's credential drop, which pkg-review.js runs before an agent.
+    if (!same(Object.keys(t.CREDENTIAL_DROPS), t.ELEVATORS)) failures.push("credential drops: keys " + JSON.stringify(Object.keys(t.CREDENTIAL_DROPS)));
+    for (const [elevator, want] of [["sudo", { argv: ["sudo", "-k"], unended: null }], ["doas", null],
+        ["run0", { argv: ["pkcheck", "--revoke-temp"], unended: { stderr: "Error getting session: ",
+            check: ["pkcheck", "--action-id", "org.freedesktop.systemd1.manage-units", "--process", "{process}"], unheld: [1, 2] } }]])
+        if (!same(t.CREDENTIAL_DROPS[elevator], want)) failures.push("credential drop: " + elevator + ": got " + JSON.stringify(t.CREDENTIAL_DROPS[elevator]));
     for (const [name, configured, commands, want] of ELEVATOR_ROWS) {
         const got = t.elevator(configured, onPathOf(commands));
         const expected = want.includes("=") ? { ok: false, error: want } : { ok: true, command: want };
@@ -763,6 +771,7 @@ function verifyOutcomes(t) {
 // text one of the copy's failures must hold, for a control that proves one
 // particular assertion can fail.
 const CONTROLS = [
+    ["table", "paru's review inherits a sudo loop", TABLE, '["--review", "--nosudoloop", "--fm", reviewCommand]', '["--review", "--fm", reviewCommand]'],
     ["table", "an up-to-date package is skipped during repair", TABLE, 'reinstall: [["{bin}", "install", "--reinstall", "{names}"]],', 'reinstall: [["{bin}", "install", "{names}"]],'],
     ["rule:partial upgrade", "a pacman upgrade refreshes without upgrading", TABLE, "upgrade: [[\"{bin}\", \"-Syu\"]],", "upgrade: [[\"{bin}\", \"-Sy\"]],"],
     ["rule:elevation command", "a step elevates", TABLE, "[\"{bin}\", \"full-upgrade\"]", "[\"sudo\", \"{bin}\", \"full-upgrade\"]"],
@@ -776,6 +785,8 @@ const CONTROLS = [
     ["table", "a kept package's name is not judged", TABLE, "var all = names.concat(kept);", "var all = names;"],
     ["table", "a picker keeps the binary placeholder", TABLE, "var fill = function (token) { return token === \"{bin}\" ? found.binary : token; };", "var fill = function (token) { return token; };"],
     ["table", "the elevation order changes", TABLE, "var ELEVATORS = [\"sudo\", \"doas\", \"run0\"];", "var ELEVATORS = [\"doas\", \"sudo\", \"run0\"];"],
+    ["table", "run0's polkit authorization is kept", TABLE, "run0: { argv: [\"pkcheck\", \"--revoke-temp\"], unended: { stderr: \"Error getting session: \",\n        check: [\"pkcheck\", \"--action-id\", \"org.freedesktop.systemd1.manage-units\", \"--process\", \"{process}\"], unheld: [1, 2] } }", "run0: null"],
+    ["table", "an authorized run0 check passes", TABLE, "unheld: [1, 2] } }", "unheld: [0, 1, 2] } }"],
     ["table", "a configured elevation command is ignored", TABLE, "        if (onPath(configured)) return { ok: true, command: configured };\n", ""],
     ["table", "ID_LIKE is ignored", TABLE, "    if (like !== null) {", "    if (false) {"],
     ["table", "a row with a release serves every release", TABLE, "    if (row.release === null) return true;", "    return true;"],

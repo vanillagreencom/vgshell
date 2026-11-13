@@ -562,6 +562,8 @@ inst_env=("${saved_env[@]}")
 migration_source="$tmp/migration-source/vgshell-$release"
 source_tree "$migration_source" "$release"
 cp -- "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageReview.js" "$migration_source/shell/Core/"
+# The shipped recipes name the engine VGS-published, as an installed tree's do.
+(cd -- "$repo" && cp --parents -- packaging/arch/*/.SRCINFO "$migration_source/")
 cat >"$migration_source/bin/vgshell-tui" <<'PRESENTER'
 #!/bin/bash
 [[ $1 == present ]] || exit 61
@@ -601,12 +603,21 @@ cat >"$migration_helpers/gum" <<'GUM'
 #!/bin/sh
 case "$1" in choose) printf '{"kind":"offer","choice":"decline"}\n' >>"$ENGINE_STATE/review-proof.jsonl"; printf 'Install without review\n' ;; style) : ;; esac
 GUM
+# paru under the package owner's file-manager review (D133): the read-only
+# build order names the VGS-published engine alone, so the install runs
+# with paru's review skipped, then its devel tracking repair. dnf hands the
+# plain install through. The proof records the argv each install took.
 cat >"$migration_helpers/paru" <<'PARU'
 #!/bin/bash
-[[ $* == '-S --needed -- vgshell-quickshell' ]] || exit 63
+case "$*" in
+  *' -Po -- vgshell-quickshell') printf 'AUR TARGET vgshell-quickshell vgshell-quickshell\n'; exit 0 ;;
+  --gendb) exit 0 ;;
+  '--skipreview --batchinstall -S --needed -- vgshell-quickshell'|'-S --needed -- vgshell-quickshell') ;;
+  *) exit 63 ;;
+esac
 [[ -t 0 && -t 1 && -t 2 ]] || exit 65
 printf '%s\n' "$*" >>"$ENGINE_STATE/install.log"
-printf '{"kind":"mutation","argv":["paru","-S","--needed","--","vgshell-quickshell"]}\n' >>"$ENGINE_STATE/review-proof.jsonl"
+{ printf '{"kind":"mutation","argv":["paru"'; for word; do printf ',"%s"' "$word"; done; printf ']}\n'; } >>"$ENGINE_STATE/review-proof.jsonl"
 printf 'Replace stock engine? [y/N] '
 read -r answer || exit 130
 [[ $answer == y ]] || exit 0
@@ -876,6 +887,8 @@ else if(args[0]==="detect") console.log(JSON.stringify({overlays:fs.existsSync(p
 else if(args[0]==="ensure-helper") {
  fs.appendFileSync(path.join(root,"helper.json"),JSON.stringify(args)+"\n");
  if(fs.existsSync(path.join(root,"fail-helper"))) process.exit(8);
+ // The owner's Skip at the bootstrap review exits 0 and installs nothing.
+ if(fs.existsSync(path.join(root,"skip-helper"))) process.exit(0);
  fs.unlinkSync(path.join(root,"no-helper"));
 }
 else if(args.join(" ")==="run reinstall --manager aur vgshell") {
@@ -895,12 +908,13 @@ check "package repair runs the AUR owner's reinstall" test "$term_status" == 0
 check "package reinstall restores missing shipped files" test "$(cat "$repair_package/$repair_file")" == "$repair_original"
 check "package repair calls the reinstall action" test -s "$repair_package/reinstall.json"
 
-for helper_case in declined failed installed; do
+for helper_case in declined failed skipped installed; do
   touch "$repair_package/no-helper"
-  rm -f -- "$repair_package/helper.json" "$repair_package/reinstall.json" "$repair_package/fail-helper"
+  rm -f -- "${repair_package:?}/helper.json" "${repair_package:?}/reinstall.json" "${repair_package:?}/fail-helper" "${repair_package:?}/skip-helper"
   case "$helper_case" in
     declined) answer=n; expected=1 ;;
     failed) answer=y; expected=8; touch "$repair_package/fail-helper" ;;
+    skipped) answer=y; expected=1; touch "$repair_package/skip-helper" ;;
     installed) answer=y; expected=0 ;;
   esac
   INST_BIN="$repair_package/bin/vgshell" on_terminal "$answer" self repair
@@ -937,8 +951,11 @@ if root_identity "$copy" >"$tmp/identity-control.log" 2>&1; then fail "control: 
 for proof in "$tmp"/engine-arch-*/review-proof.jsonl; do
   [[ ! -f $proof ]] || "$node_bin" - "$proof" <<'ENGINE_PROOF'
 const fs=require("fs"),assert=require("assert/strict"),file=process.argv[2],calls=fs.readFileSync(file,"utf8").trim().split("\n").map(JSON.parse);
-assert.ok(calls.some(c=>c.kind==="offer"));
-assert.ok(calls.findIndex(c=>c.kind==="mutation")>calls.findIndex(c=>c.kind==="offer"));
+// A VGS-only build order skips paru's review questions (commands-are-data.md
+// § Package review): each install skips paru's review and asks nothing.
+const mutations=calls.filter(c=>c.kind==="mutation");
+assert.ok(mutations.length>0&&mutations.every(c=>c.argv.includes("--skipreview")));
+assert.ok(!calls.some(c=>c.kind==="offer"));
 console.log("package-route-proof: "+JSON.stringify({route:"arch-engine-"+require("path").basename(require("path").dirname(file)),calls}));
 ENGINE_PROOF
 done

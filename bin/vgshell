@@ -2194,6 +2194,10 @@ self_repair() {
   fi
   if [[ $plan == *'"ensureHelper":true'* ]]; then
     "$root/bin/vgshell" pkg ensure-helper || return "$?"
+    # ensure-helper also exits 0 when the owner skipped paru at its review.
+    # The plan reads the helper again, so a repair never runs without one.
+    plan="$(node "$self_judge" repair-plan "$root" "$data_home" "$version" "$checkout" -)" || exit 1
+    [[ $plan != *'"ensureHelper":true'* ]] || refuse 1 "repair=helper-absent" "Paru is still not installed, so VGS repaired nothing. Open Repair again to install it."
   fi
   words="$(mktemp)" || refuse 1 "repair=temporary-file" "VGS cannot create a temporary repair file. Check free space and temporary folder access, then try again."
   node -e 'const fs=require("node:fs"); const p=JSON.parse(process.argv[1]); fs.writeFileSync(process.argv[2], p.command.join("\0")+"\0");' "$plan" "$words" || { rm -f -- "$words"; refuse 1 "repair=plan-unreadable" "VGS cannot read the repair steps. Close this task and report the details above."; }

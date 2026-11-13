@@ -13,9 +13,8 @@
 #      busy never truncates the log of the run it found
 #   2. a warning when / has less than 10 GiB free
 #   3. the plan box, then one question unless -y
-#   4. the shared package owner prepares effective config, pending identities
-#      and review before Updates' snapshot and credential session. Later
-#      upgrade/rebuild steps consume their exact prepared authority once.
+#   4. effective package configurations before Updates' snapshot and
+#      credential session; the AUR review runs in the helper's later step
 #   5. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
 #      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's
@@ -71,8 +70,7 @@
 #      `finished` with an empty `text`, `failed` with the first failed
 #      part's result line as `text`, or `stopped` with "You stopped the
 #      update during <part>.";
-#      a run that ends at the start question, or at the review's Stop with
-#      no part failed before it, writes none
+#      a run that ends at the start question writes none
 #
 # The package steps are the package-manager table's own plans, read with
 # `vgshell pkg plan` and run with `vgshell pkg run`: they take no -y, so each
@@ -146,7 +144,7 @@ _updates_failed() { # STATUS
   _updates_diagnostic "updates: failed exit=$1 log=$_updates_log"
   # A fault after the run reached its end, such as a failed reboot, keeps
   # the end the run recorded.
-  [[ -z $_updates_part_now || -f $VGS_PACKAGE_TRANSACTION/ended ]] ||
+  [[ -z $_updates_part_now || -f $_updates_run_dir/ended ]] ||
     _updates_ended failed "${_updates_failed_first:-$_updates_part_now$_updates_uncaused}"
   _updates_result_list
   vgs_tui_failed "$_updates_log" "The update stopped. Try again from Updates."
@@ -156,41 +154,39 @@ _updates_failed() { # STATUS
 # stopped or failing in it names (updates_main's EXIT).
 _updates_part() { # PART
   _updates_part_now="$1"
-  printf '%s\n' "$1" >"$VGS_PACKAGE_TRANSACTION/part"
+  printf '%s\n' "$1" >"$_updates_run_dir/part"
 }
 
 # How the run ended, `finished` or `failed`, and TEXT, the sentence a
 # failed run's outcome shows; written once the run reached its end or its
 # error trap.
 _updates_ended() { # finished|failed TEXT
-  printf '%s %s\n' "$1" "$2" >"$VGS_PACKAGE_TRANSACTION/ended"
+  printf '%s %s\n' "$1" "$2" >"$_updates_run_dir/ended"
 }
 
 # Adds LINE, the result of PART, which failed, to the result list. The
-# first one also goes to the run's folder, for the outcome of a run that a
-# review's Stop ends after it (_updates_outcome_write).
+# first one also goes to the run's folder for _updates_outcome_write.
 _updates_fail() { # PART LINE
   _updates_results+=("$2")
   _updates_failed_parts+=("$1")
   [[ -z $_updates_failed_first ]] || return 0
   _updates_failed_first="$2"
-  printf '%s\n' "$2" >"$VGS_PACKAGE_TRANSACTION/failed"
+  printf '%s\n' "$2" >"$_updates_run_dir/failed"
 }
 
 # The outcome file, written by rename so the service never reads half, from
 # the facts the run left in its private folder: none before the first
 # part; the run's own sentence once it reached its end, also when a signal
 # came after; a stop by Ctrl-C (130), a closed window (129) or TERM (143);
-# else the first failed part's result line, as a review's Stop after a
-# failed paru install leaves it; else, for a failing status, the part it
-# ended in for a reason it gave no words for. A run that ended in a part
-# before its own check, stopped, at the review's Stop or in the error
-# trap, asks for the check here, after the outcome is written: the check
+# else the first failed part's result line; else, for a failing status,
+# the part it ended in for a reason it gave no words for. A run that ended
+# in a part before its own check, stopped or in the error trap, asks for
+# the check here, after the outcome is written: the check
 # can wait a minute for the shell, and a second signal in that wait ends
 # this trap. One that ended before its first part leaves the check to the
 # end of its TUI.
 _updates_outcome_write() { # STATUS
-  local status="$1" dir="$VGS_PACKAGE_TRANSACTION" part ended="" text=""
+  local status="$1" dir="$_updates_run_dir" part ended="" text=""
   [[ -f $dir/part ]] || return 0
   read -r part <"$dir/part"
   if [[ -f $dir/ended ]]; then
@@ -218,26 +214,24 @@ _updates_run() { # ARGV...
   (cd -- "$HOME" && "$@")
 }
 
-_updates_install_helper() { env -u VGS_PACKAGE_TRANSACTION "$_updates_vgshell" pkg ensure-helper; }
+_updates_install_helper() { "$_updates_vgshell" pkg ensure-helper; }
 
 # pacman parses CLI HookDir before configured directories. A configuration
 # ending in our HookDir wins by filename while retaining every other hook.
 # alpm-hooks(5), pacman/conf.c setup_libalpm and libalpm/hook.c.
-# The pipeline retains each effective configuration from before review through
-# the exact corresponding mutation. No helper discovers a new config in a
-# live credential session.
+# Resolve each effective configuration before the credential session.
 _updates_pacman_prepare() { # KEY HELPER ARGV...
   local key="$1" helper="$2" original dirs value generated
   shift 2
   original="$(node "$_updates_tree/bin/lib/pkg-config.js" "$helper" "$@" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).config)')" || return 1
-  generated="$VGS_PACKAGE_TRANSACTION/$key.conf"
+  generated="$_updates_run_dir/$key.conf"
   dirs="$(pacman-conf --config "$original" HookDir)" || return 1
-  mkdir -p -- "$VGS_PACKAGE_TRANSACTION/hooks"
-  [[ -L $VGS_PACKAGE_TRANSACTION/hooks/cachyos-reboot-required.hook ]] || ln -s -- /dev/null "$VGS_PACKAGE_TRANSACTION/hooks/cachyos-reboot-required.hook"
+  mkdir -p -- "$_updates_run_dir/hooks"
+  [[ -L $_updates_run_dir/hooks/cachyos-reboot-required.hook ]] || ln -s -- /dev/null "$_updates_run_dir/hooks/cachyos-reboot-required.hook"
   {
     printf '[options]\nInclude = %s\n[options]\n' "$original"
     while IFS= read -r value; do [[ -z $value ]] || printf 'HookDir = %s\n' "$value"; done <<<"$dirs"
-    printf 'HookDir = %s/hooks\n' "$VGS_PACKAGE_TRANSACTION"
+    printf 'HookDir = %s/hooks\n' "$_updates_run_dir"
   } >"$generated"
   chmod 600 -- "$generated"
   _updates_package_configs["$key"]="$generated"
@@ -258,38 +252,13 @@ _updates_pacman_run() { # CONFIG_KEY PACKAGE_OWNER_ARGV...
   fi
 }
 
-_updates_package_cleanup() {
-  [[ -z ${VGS_PACKAGE_TRANSACTION:-} ]] || rm -rf -- "${VGS_PACKAGE_TRANSACTION:?}"
+_updates_custom_run() {
+  "$_updates_vgshell" pkg review-custom-consent || return $?
+  _updates_pacman_run custom "$@"
 }
 
-_updates_package_review() { # PACMAN AUR REBUILD HELPER CUSTOM_ARGV...
-  local system="$1" aur="$2" rebuild="$3" helper="$4" request result status=0 value
-  shift 4
-  declare -gA _updates_package_configs=()
-  [[ $system != 1 ]] || _updates_pacman_prepare pacman pacman
-  if [[ $aur == 1 || $rebuild == 1 ]] && [[ -n $helper ]]; then _updates_pacman_prepare aur "$helper"; fi
-  if [[ $# != 0 ]]; then _updates_pacman_prepare custom "$1" "$@"; fi
-  request="$VGS_PACKAGE_TRANSACTION/request.json" result="$VGS_PACKAGE_TRANSACTION/result.json"
-  node - "$request" "$result" "$system" "$aur" "$rebuild" "$helper" "${_updates_package_configs[pacman]:-}" "${_updates_package_configs[aur]:-}" "${_updates_package_configs[custom]:-}" "$@" <<'JS'
-const fs=require("node:fs");
-const [request,result,system,aur,rebuild,helper,systemConfig,aurConfig,customConfig,...custom]=process.argv.slice(2);
-const groups=[];
-if(system==="1")groups.push({manager:"pacman",names:[],installs:[],ignored:[],config:systemConfig});
-if(aur==="1")groups.push({manager:"aur",names:[],installs:[],ignored:[],config:customConfig||aurConfig||null});
-const data={version:1,mode:"upgrade",action:"upgrade",groups,sources:groups.map(g=>g.manager),rebuild:rebuild==="1"?["vgshell-git"]:[],config:aurConfig||customConfig||systemConfig||null,customAurArgv:custom.length?custom:null};
-fs.writeFileSync(request,JSON.stringify(data),{flag:"wx",mode:0o600});
-fs.writeFileSync(result,"",{flag:"wx",mode:0o600});
-JS
-  "$_updates_vgshell" pkg review --request "$request" --result "$result" || status=$?
-  [[ $status == 0 ]] || exit "$status"
-  value="$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1]));if(r.version!==1)process.exit(1);process.stdout.write(r.decision)' "$result")" || return 1
-  case "$value" in proceed) ;; stop) exit 0 ;; cancelled) exit 130 ;; *) return 1 ;; esac
-  _updates_package_receipt="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).receipt||"")' "$result")" || return 1
-  [[ -n $_updates_package_receipt ]] || return 1
-  value="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).skipped.join("\n"))' "$result")" || return 1
-  while IFS= read -r name; do
-    [[ -z $name ]] || { _updates_skip_aur+=("$name"); _updates_skip_repo+=("$name"); _updates_results+=("$name skipped. Review excluded this package."); }
-  done <<<"$value"
+_updates_cleanup() {
+  [[ -z ${_updates_run_dir:-} ]] || rm -rf -- "${_updates_run_dir:?}"
 }
 
 # Recognition uses the package owner's terminal normalization; neither the
@@ -486,16 +455,43 @@ _updates_cause_of() { # FILE
   # A key is for the log: a refusal with no words after it, and none VGS
   # has, gives none.
   [[ $keyed == 0 || -n $_updates_cause ]] || _updates_unworded="$value"
+  # The package owner's review outcome names the step's cause.
+  if [[ -n $_updates_review_final ]]; then
+    _updates_cause="$(_updates_shown "$_updates_review_final")"
+    _updates_next="" _updates_unworded=""
+  fi
+}
+
+# The package owner's lines in a step's output FILE (bin/lib/pkg-review.js):
+# each `vgshell: package-result: ` line is a result line of its own, kept in
+# _updates_review_results, and the last `vgshell: package-review: ` line,
+# in _updates_review_final, is the review's outcome: the cause of a failed
+# step, and the whole result of one that ended 0, which the review skipped.
+_updates_review_of() { # FILE
+  local line out
+  _updates_review_results=() _updates_review_final=""
+  out="$(_updates_plain "$1")"
+  while IFS= read -r line; do
+    case "$line" in
+      'vgshell: package-result: '*) _updates_review_results+=("$(_updates_shown "${line#vgshell: package-result: }")") ;;
+      'vgshell: package-review: '*) _updates_review_final="${line#vgshell: package-review: }" ;;
+    esac
+  done <<<"$out"
 }
 
 # Runs one source step, ARGV, and adds its result to _updates_results as
 # `LABEL <result>.`: installed; skipped when the user declined it; failed
 # with its cause and next step, else `exit <n>`; or, for a refusal that gave
 # only its key, which goes to diagnostics.log, failed with no cause VGS
-# could find. A failed step's LABEL names its packages, and the
-# outcome of a run stopped in it names the same. _updates_outcome is installed,
-# declined or failed, and _updates_exit the step's exit status. The run goes
-# on after a failure, so neither errexit nor the ERR trap sees it.
+# could find. A step the package owner's review skipped whole adds the
+# review's sentence instead, and each package result line the owner printed
+# follows the step's own line (_updates_review_of). A failed step's LABEL
+# names its packages, and the outcome of a run stopped in it names the
+# same. A paru step that ended 0 with output VGS could not read may have
+# been skipped, so its result is unknown and no later step counts on it.
+# _updates_outcome is installed, skipped, unknown, declined or failed, and
+# _updates_exit the step's exit status. The run goes on after a failure,
+# so neither errexit nor the ERR trap sees it.
 #
 # The step keeps the run's terminal on stdin, stdout and stderr, so a
 # manager asks its questions, and both its output streams reach the
@@ -514,17 +510,20 @@ _updates_cause_of() { # FILE
 # signal (a Python os.write on Linux 7.2, 2026-10-17), so a step such as
 # pacman still reaches the end of its transaction and unlocks its database
 # instead of dying by SIGPIPE. A step a Ctrl-C ended, 130, ends the run.
+# Only a failed step's output is cut, and a paru step's (the AUR, the VGS
+# package and the helper) whatever its status, for the review's lines.
 _updates_source() { # ID LABEL ARGV...
-  local id="$1" label="$2" part="$2" status=0
+  local id="$1" label="$2" part="$2" status=0 reviewed=0
   shift 2
   if [[ $id == aur ]]; then part="AUR packages"
   elif [[ $label == System ]]; then part="System packages"
   fi
+  case "$id" in aur|vgshell-git|paru) reviewed=1 ;; esac
   _updates_part "$part"
   vgs_tui_interval_open
   "$@" || status=$?
   _updates_exit="$status"
-  if [[ $status -eq 0 ]]; then
+  if [[ $status -eq 0 && $reviewed == 0 ]]; then
     _updates_outcome=installed
     _updates_results+=("$label installed.")
     return 0
@@ -535,9 +534,16 @@ _updates_source() { # ID LABEL ARGV...
   fi
   : >"$_updates_cause_file"
   if vgs_tui_interval_cut "$_updates_cause_file"; then
-    _updates_cause_of "$_updates_cause_file"
+    _updates_review_of "$_updates_cause_file"
+    [[ $status -eq 0 ]] || _updates_cause_of "$_updates_cause_file"
   else
     _updates_diagnostic "updates: transcript=unread source=$id reason=$vgs_tui_unread"
+    _updates_review_results=() _updates_review_final=""
+    if [[ $status -eq 0 ]]; then
+      _updates_outcome=unknown
+      _updates_results+=("$label result unknown. VGS could not read this step's output, so the review may have skipped it.")
+      return 0
+    fi
     _updates_declined=0
     _updates_refused=0
     _updates_unworded=""
@@ -546,9 +552,21 @@ _updates_source() { # ID LABEL ARGV...
     _updates_cause="VGS could not read this step's output."
     _updates_next="update again."
   fi
+  if [[ $status -eq 0 ]]; then
+    if [[ -n $_updates_review_final ]]; then
+      _updates_outcome=skipped
+      _updates_results+=("$(_updates_shown "$_updates_review_final")")
+    else
+      _updates_outcome=installed
+      _updates_results+=("$label installed.")
+    fi
+    _updates_results+=("${_updates_review_results[@]}")
+    return 0
+  fi
   if [[ $_updates_declined == 1 ]]; then
     _updates_outcome=declined
     _updates_results+=("$label skipped. You declined it.")
+    _updates_results+=("${_updates_review_results[@]}")
     return 0
   fi
   _updates_outcome=failed
@@ -559,8 +577,11 @@ _updates_source() { # ID LABEL ARGV...
   else
     local cause="${_updates_cause:-exit $status}"
     [[ $cause == *[.!?] ]] || cause+="."
-    _updates_fail "$part" "$part failed. $cause Next: $_updates_next"
+    local next=""
+    [[ -z $_updates_next ]] || next=" Next: $_updates_next"
+    _updates_fail "$part" "$part failed. $cause$next"
   fi
+  _updates_results+=("${_updates_review_results[@]}")
   vgs_tui_warn "$part failed. The rest of the update goes on."
 }
 
@@ -790,7 +811,7 @@ JS
 # when the TUI ends (Service.qml).
 _updates_recheck() {
   local reply status polls=0 line unavailable
-  : >"$VGS_PACKAGE_TRANSACTION/checked"
+  : >"$_updates_run_dir/checked"
   # restart waits for core `shell guarded`, while ServiceGate builds the
   # plugin services after the bars. A package rescan can also replace this
   # service. Wait for its registered check handler, not just the core PID.
@@ -1143,7 +1164,6 @@ _updates_main() {
     vgs_tui_warn "Less than 10 GiB is free on /. An update can fail when the disk fills up."
   fi
   local name
-  _updates_skip_aur=() _updates_skip_repo=()
   local box=("Update ${only:-everything}" "")
   [[ -z $snapshot_line ]] || box+=("$snapshot_line")
   box+=("${plan[@]}")
@@ -1160,33 +1180,32 @@ _updates_main() {
     esac
   fi
 
-  # A missing helper is a separate prerequisite transaction. It reviews
-  # before its own credentials and ends them before Updates binds its plan.
+  # A missing helper reviews its own clone before building it, outside
+  # Updates' credential session.
   # Without it the AUR builds and the VGS package cannot run.
-  local ignore=() aur_blocked=""
+  local aur_blocked=""
   if [[ $rebuild == 1 && $vgs_step == install-helper ]]; then
     vgs_tui_step "Installing paru for VGS updates"
     _updates_source paru Paru _updates_run _updates_install_helper
     if [[ $_updates_outcome == installed ]]; then
       aur_binary=paru
       vgs_step=rebuild
+    elif [[ $_updates_outcome == skipped ]]; then
+      aur_blocked="you skipped paru at its review"
+    elif [[ $_updates_outcome == unknown ]]; then
+      aur_blocked="VGS could not read whether paru was installed"
     else
       aur_blocked="paru could not be installed"
     fi
   fi
-  # The run.
-  local review_system=0 review_aur=0 review_rebuild=0
-  if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_system=1; fi
-  if [[ -z $aur_blocked ]]; then
-    review_rebuild="$rebuild"
-    if _updates_in aur "${run[@]}"; then review_aur=1; fi
+  # Keep effective configurations outside the credential session.
+  declare -gA _updates_package_configs=()
+  if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then _updates_pacman_prepare pacman pacman; fi
+  if [[ -z $aur_blocked ]] && { [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; } && [[ -n $aur_binary ]]; then
+    _updates_pacman_prepare aur "$aur_binary"
   fi
-  if [[ $review_system == 1 || $review_aur == 1 || $review_rebuild == 1 ]]; then
-    _updates_part "Package review"
-    _updates_package_review "$review_system" "$review_aur" "$review_rebuild" "$aur_binary" "${aur_command[@]}"
-  fi
-  local rebuild_run=0
-  if [[ $rebuild == 1 ]] && ! _updates_in vgshell-git "${_updates_skip_aur[@]}"; then rebuild_run=1; fi
+  if [[ ${#aur_command[@]} -gt 0 ]]; then _updates_pacman_prepare custom "${aur_command[0]}" "${aur_command[@]}"; fi
+  local rebuild_run="$rebuild"
   local vgs_before=""
   if [[ $replaces == 1 ]]; then vgs_before="$(_updates_vgs_package_version)"; fi
   # A refused password skips every step that needs it, the snapshot
@@ -1196,10 +1215,8 @@ _updates_main() {
   if [[ $session == 1 ]] && ! vgs_tui_sudo_session start; then
     denied=1 session=0 snapshot_tool=""
     _updates_diagnostic "updates: sudo=refused"
-    # The parts the refusal skips, in the order the run takes them; a part
-    # the review excluded or a failed paru install blocks keeps that cause
-    # alone. A refusal that leaves only the snapshot out, as on a VGS run
-    # whose rebuild the review excluded, skips no part.
+    # A failed paru install keeps its own cause. The password refusal
+    # names only the remaining parts that need credentials.
     local skipped=() skipped_text="" i
     if [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; then skipped+=("system packages"); fi
     for id in "${run[@]}"; do
@@ -1253,12 +1270,10 @@ _updates_main() {
       vgs|plugins|themes|aur) ;;
       *)
         if [[ $denied == 1 ]] && { [[ $id == "$primary" ]] || _updates_file_source "$id"; }; then continue; fi
-        ignore=()
-        if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
         if [[ $id == pacman ]]; then
-          _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[pacman]}" "${ignore[@]}"
+          _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" --config "${_updates_package_configs[pacman]}"
         else
-          _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+          _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id"
         fi
         if [[ $id == pacman ]]; then
           case "$_updates_outcome" in
@@ -1286,22 +1301,18 @@ _updates_main() {
     fi
     if _updates_in aur "${run[@]}"; then
       _updates_part "AUR packages"
-      ignore=()
       if [[ ${#aur_command[@]} -gt 0 ]]; then
-        if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
         vgs_tui_step "Updating AUR packages"
         local custom_json custom_mode
         custom_json="$(node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' "${aur_command[@]}")"
         custom_mode="$("$_updates_vgshell" pkg review-custom-mode "$custom_json")"
         if [[ $custom_mode == table ]]; then
-          _updates_source aur AUR _updates_pacman_run custom "$_updates_vgshell" pkg run upgrade --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[custom]}" "${ignore[@]}"
+          _updates_source aur AUR _updates_pacman_run custom "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[custom]}"
         else
-          "$_updates_vgshell" pkg review-custom-consume "$_updates_package_receipt" "$custom_json"
-          _updates_source aur AUR _updates_pacman_run custom "${aur_command[@]}"
+          _updates_source aur AUR _updates_custom_run "${aur_command[@]}"
         fi
       else
-        if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
-        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[aur]}" "${ignore[@]}"
+        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[aur]}"
       fi
       # Never retry a declined transaction. A known unrelated failed build
       # does not block VGS, but missing dependency evidence still does.
@@ -1312,13 +1323,15 @@ _updates_main() {
         _updates_diagnostic "updates: skipped source=vgshell-git reason=aur-$_updates_outcome"
         case "$_updates_outcome" in
           declined) _updates_results+=("VGS package skipped. You declined the AUR update.") ;;
+          skipped) _updates_results+=("VGS package skipped. You skipped the AUR update at its review.") ;;
+          unknown) _updates_results+=("VGS package skipped. VGS could not read the AUR result.") ;;
           failed) _updates_results+=("VGS package skipped. The AUR update failed.") ;;
         esac
       fi
     fi
     if [[ $rebuild_run == 1 ]]; then
       vgs_tui_step "Rebuilding the VGS package"
-      _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run reinstall --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[aur]}" vgshell-git
+      _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run reinstall --manager aur --config "${_updates_package_configs[aur]}" vgshell-git
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi
@@ -1365,7 +1378,7 @@ _updates_main() {
   [[ $ended == finished ]] || exit 1
 }
 
-# The transaction lifetime is outside the credential-session subshell, whose
+# The outcome lifetime is outside the credential-session subshell, whose
 # sudo cleanup owns its traps. Neither owner can replace the other's EXIT.
 updates_main() (
   local mode="$1" only="" arg
@@ -1396,11 +1409,10 @@ updates_main() (
   _updates_loader="$_updates_tree/bin/lib/qml-library.js"
   _updates_facts_bin="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)/bin/facts"
 
-  VGS_PACKAGE_TRANSACTION="$("$_updates_vgshell" pkg review-transaction)" || exit 1
-  export VGS_PACKAGE_TRANSACTION
+  _updates_run_dir="$("$_updates_vgshell" pkg review-run)" || exit 1
   # The outcome's one writer: this EXIT has the run's status, and the
   # credential session's traps in the run's own subshell cannot replace it.
-  trap '_updates_outcome_write $?; _updates_package_cleanup' EXIT
+  trap '_updates_outcome_write $?; _updates_cleanup' EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM

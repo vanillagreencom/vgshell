@@ -2,10 +2,8 @@
   "package": "falcond",
   "pkgbase": "falcond",
   "old": "2.0.0-1",
-  "new": "2.0.0-2",
   "expect": "clean",
   "source": "AUR falcond commit 20eee708d8e549da7ac9183de9fa433bf417f332, https://aur.archlinux.org/cgit/aur.git/commit/?h=falcond&id=20eee708d8e549da7ac9183de9fa433bf417f332; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy and installed install script: commit b0487049678b80fa18c4c31e295f51617e8dc860; an update whose install script prints the groupadd, usermod and setgid chmod steps for the falcond group, lines the installed script already holds; the real change edits one printed chown line",
   "install": "changed",
-  "installerRisk": false,
-  "recipe": "changed"
+  "installerRisk": false
 }

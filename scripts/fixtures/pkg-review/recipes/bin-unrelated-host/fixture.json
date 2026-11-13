@@ -2,11 +2,9 @@
   "package": "proton-authenticator-patched-bin",
   "pkgbase": "proton-authenticator-patched-bin",
   "old": null,
-  "new": "1.1.6-1",
   "expect": "flagged",
   "source": "Models the July 2025 AUR packages firefox-patch-bin, librewolf-fix-bin and zen-browser-patched-bin, which installed a remote access trojan from an unrelated GitHub repository: https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/thread/7EZTJXLIAQLARQNTMEW2HBWZYE626IFJ/ ; base recipe AUR proton-authenticator-bin commit 560b882aea2d357ee91118d391a3c7c76cc353f5, https://aur.archlinux.org/cgit/aur.git/commit/?h=proton-authenticator-bin&id=560b882aea2d357ee91118d391a3c7c76cc353f5; recipe licence: 0BSD (LICENSE in the AUR repository)",
   "signal": "a git source on an unrelated host, gitpatch.invalid, whose script prepare() runs during the build",
   "install": "none",
-  "installerRisk": false,
-  "recipe": "new"
+  "installerRisk": false
 }

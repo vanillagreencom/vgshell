@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A test endpoint delegates package admission to the production owner on a
-// safe PTY. The success surface runs one transaction; the failures surface
+// safe PTY. The success surface runs one package operation; the failures surface
 // checks the owner's negative cases outside a route's completion timing.
 // Route suites keep their own downstream success/failure/postcheck fixtures.
 "use strict";
@@ -29,7 +29,6 @@ try{
    assert.ok(offer,"route must enter common offer");assert.equal(offer.choiceIndex,1);
    const firstMutation=calls.findIndex(c=>c.kind==="mutation"),offerAt=calls.indexOf(offer);
    assert.ok(firstMutation>offerAt);
-   assert.ok(calls.every((c,i)=>c.kind!=="credential"||i>offerAt));
   }
  }
  // The same route through a failing build: a check-only failure of the
@@ -56,6 +55,6 @@ try{
  if(proof){
   const entry=owner||w.owner,tree=path.dirname(path.dirname(entry)),crypto=require("node:crypto");
   const sources=[entry,path.join(tree,"bin/lib/pkg-review.js"),path.join(tree,"shell/Core/PackageReview.js"),path.join(tree,"shell/Core/PackageManagers.js")].map(file=>({file,sha256:crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")}));
-  fs.appendFileSync(proof,JSON.stringify({route,args,owner:entry,sources,coverage:surface==="failures"?"failures":review?"declined":"complete",failures,calls:calls.filter(c=>["offer","credential","mutation","agent"].includes(c.kind))})+"\n");
+  fs.appendFileSync(proof,JSON.stringify({route,args,owner:entry,sources,failures,calls:calls.filter(c=>["offer","credential","mutation","agent"].includes(c.kind))})+"\n");
  }
 }finally{fs.rmSync(root,{recursive:true,force:true});}

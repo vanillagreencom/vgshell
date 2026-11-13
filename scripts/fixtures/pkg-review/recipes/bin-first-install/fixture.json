@@ -2,10 +2,8 @@
   "package": "proton-mail-bin",
   "pkgbase": "proton-mail-bin",
   "old": null,
-  "new": "1.16.1-1",
   "expect": "clean",
   "source": "AUR proton-mail-bin commit 14d40f780cc57ed255a01e32858340166b600199, https://aur.archlinux.org/cgit/aur.git/commit/?h=proton-mail-bin&id=14d40f780cc57ed255a01e32858340166b600199; recipe licence: 0BSD (LICENSE in the AUR repository); a -bin package repacking the vendor's own .deb from proton.me, first install, no cached copy",
   "install": "none",
-  "installerRisk": false,
-  "recipe": "new"
+  "installerRisk": false
 }

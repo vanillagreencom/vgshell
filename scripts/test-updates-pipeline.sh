@@ -119,15 +119,19 @@ stub() { # DIR NAME BODY
 # strings are in pacman 7.1.0's /usr/bin/pacman). For
 # $FIX/transcript-gone-<id> it removes the run's transcript and fails, and
 # for $FIX/transcript-replaced-<id> it puts an empty file at the
-# transcript's path, which script(1) no longer writes, and fails. `plugin|theme update` for an ID
+# transcript's path, which script(1) no longer writes, and fails; for
+# $FIX/transcript-lost-<id> it removes the transcript and succeeds. `plugin|theme update` for an ID
 # declines, as its [y/N] question answered no does, for $FIX/decline-<id>,
 # and refuses an offline fetch with git's message for $FIX/offline-<id>.
+# `pkg ensure-helper` fails while $FIX/fail-ensure-helper exists and ends 0
+# with the review's skip line, installing nothing, while
+# $FIX/skip-ensure-helper does.
 # `self status` fails while $FIX/fail-self-status exists, `pkg orphan-info`
-# while $FIX/fail-orphan-info does, `pkg review-custom-consume` while
-# $FIX/fail-consume does, `pkg run remove` while $FIX/fail-remove does,
+# while $FIX/fail-orphan-info does, `pkg review-custom-consent` while
+# $FIX/fail-consume does and refuses as the owner's No does while
+# $FIX/decline-consent does, `pkg run remove` while $FIX/fail-remove does,
 # `restart` while $FIX/fail-restart does and `power reboot` while
-# $FIX/fail-reboot does. `pkg review` answers Stop while $FIX/review-stop
-# exists, and excludes the package $FIX/review-skip names while it exists. `ipc call ... check` leaves $FIX/ended-at-check when the run had
+# $FIX/fail-reboot does. `ipc call ... check` leaves $FIX/ended-at-check when the run had
 # recorded its end, and $FIX/outcome-at-check when the outcome file was
 # written, before it was asked.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
@@ -154,6 +158,7 @@ stub "$tree/bin" vgshell 'pkg_run() {
   [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed retrieving file \047crush-2-1-x86_64.pkg.tar.zst\047 from mirror.example.org : Could not resolve host: mirror.example.org\nerror: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
   [ ! -e "$FIX/transcript-gone-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; printf "error: failed to install crush\n" >&2; exit 1; }
   [ ! -e "$FIX/transcript-replaced-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; : >"$VGS_TUI_TRANSCRIPT"; printf "error: failed to install crush\n" >&2; exit 1; }
+  [ ! -e "$FIX/transcript-lost-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; exit 0; }
 }
 order() {
   printf "Total Download Size:    952.82 MiB\nTotal Installed Size:  3120.40 MiB\nNet Upgrade Size:        12.04 MiB\n"
@@ -161,21 +166,24 @@ order() {
   exit 1
 }
 case "$1 $2" in
-  "pkg review-transaction") exec node "$(cat "${0%/*}/review-owner")" review-transaction ;;
-  "pkg review")
-    d=proceed; [ ! -e "$FIX/review-stop" ] || d=stop
-    s=""; [ ! -e "$FIX/review-skip" ] || s="\"$(cat "$FIX/review-skip")\""
-    printf "{\"version\":1,\"decision\":\"$d\",\"reviewed\":[],\"skipped\":[$s],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
+  "pkg review-run")
+    d="$(mktemp -d "$FIX/update-XXXXXXXX")" || exit 1
+    printf "%s\n" "$d" >"$FIX/current-run"
+    printf "%s\n" "$d" ;;
   "pkg review-custom-mode")
     if [ -e "$FIX/devel-status" ]; then
       exec node -e "console.log(require(process.argv[1]).customMode(JSON.parse(process.argv[2])))" "${0%/*}/lib/pkg-review.js" "$3"
     fi
     echo unknown ;;
-  "pkg review-custom-consume") [ ! -e "$FIX/fail-consume" ] || exit 3 ;;
+  "pkg review-custom-consent")
+    [ ! -e "$FIX/fail-consume" ] || exit 3
+    [ ! -e "$FIX/decline-consent" ] || { printf "vgshell: refused: declined=review-unavailable\nThe AUR packages were not updated.\n" >&2; exit 1; } ;;
   "pkg orphan-info"|"pkg rebuild-allowed") [ "$2" != orphan-info ] || [ ! -e "$FIX/fail-orphan-info" ] || exit 1; shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
   # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
   # its tree and its retry.
-  "pkg ensure-helper") [ ! -e "$FIX/fail-ensure-helper" ] || exit 1 ;;
+  "pkg ensure-helper")
+    [ ! -e "$FIX/fail-ensure-helper" ] || exit 1
+    [ ! -e "$FIX/skip-ensure-helper" ] || printf "vgshell: package-review: paru skipped: the review flagged a planted download.\n" >&2 ;;
   "restart ") [ ! -e "$FIX/fail-restart" ] || exit 1 ;;
   "power reboot") [ ! -e "$FIX/fail-reboot" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
@@ -221,7 +229,8 @@ case "$1 $2" in
   "ipc call")
     case "$5" in
       check)
-        [ ! -e "$VGS_PACKAGE_TRANSACTION/ended" ] || : >"$FIX/ended-at-check"
+        d="$(cat "$FIX/current-run")"
+        [ ! -e "$d/ended" ] || : >"$FIX/ended-at-check"
         [ ! -e "$XDG_STATE_HOME/vgshell/updates/outcome.json" ] || : >"$FIX/outcome-at-check"
         if [ -e "$FIX/real-ipc" ]; then exec "$FIX/real-ipc" "$@"; fi
         if [ -e "$FIX/ipc-check-refuses" ]; then echo "refused: ipc=check reason=test"; exit 8; fi
@@ -257,6 +266,10 @@ stub "$stubs" sudo 'case "$1" in -k) exit 0 ;; esac
 case "$1" in -n|/usr/bin/true) exit 0 ;; esac
 exec "$@"'
 stub "$stubs" doas 'exec "$@"'
+# The review's credential drops (PackageManagers.CREDENTIAL_DROPS) never run
+# here; a call is recorded, and nothing reaches the host's run0 or pkcheck.
+stub "$stubs" run0 'exit 97'
+stub "$stubs" pkcheck 'exit 97'
 # use-pty-relay COMMAND...: COMMAND on a pseudo-terminal of its own, as
 # sudo's use_pty runs it (sudo src/exec_pty.c): its stdout, and its stderr
 # when that is a terminal, go through the new terminal, whose output is
@@ -343,22 +356,8 @@ stub "$stubs" findmnt '[ ! -e "$FIX/fail-findmnt" ] || exit 1; [ ! -e "$FIX/fsty
 # paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists,
 # and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does; while
 # $FIX/conflict-paru does it exits 1 after pacman's conflict question,
-# answered no, with the package versions faint as pacman colours them. Its -G
-# saves each package under its base, the one $FIX/base-<package> names,
-# else the package's own name, with a PKGBUILD, the files of
-# $FIX/build-<base>, links kept as links, and a .SRCINFO of the base and
-# the package when that holds none.
-stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
-  b="$p"; [ ! -e "$FIX/base-$p" ] || read -r b <"$FIX/base-$p"
-  mkdir -p "$b"; echo "pkgname=$p" >"$b/PKGBUILD"
-  for f in "$FIX/build-$b"/* "$FIX/build-$b"/.SRCINFO; do
-    if [ -L "$f" ]; then ln -sfn -- "$(readlink -- "$f")" "$b/${f##*/}"
-    elif [ -e "$f" ]; then cat "$f" >"$b/${f##*/}"
-    fi
-  done
-  [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
-done; exit 0; fi
-if [ "$1" = -Qua ]; then
+# answered no, with the package versions faint as pacman colours them.
+stub "$stubs" paru 'if [ "$1" = -Qua ]; then
   if [ -s "$FIX/devel-error" ]; then cat "$FIX/devel-error" >&2; exit 1; fi
   [ -s "$FIX/devel-pending" ] || exit 1
   cat "$FIX/devel-pending"
@@ -481,7 +480,7 @@ pipeline() {
     "${bound[@]}" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
   grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed -E "s/ --review-receipt [^ ]+//g; s/ --config [^ ]+\/transaction-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+    sed -E "s/ --config [^ ]+\/update-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
@@ -848,7 +847,16 @@ row_cause_output() {
   pipeline update.sh
   assert "an end mark that never arrives says so" result_has "mise failed. VGS could not read this step's output."
   assert "an end mark that never arrives is keyed in the developer log" diag_has "updates: transcript=unread source=mise reason=late"
-  assert "the run goes on after an end mark that never arrives" result_has "AUR installed."
+  assert "the run goes on after an end mark that never arrives" result_has "AUR result unknown."
+  # A paru step that ended 0 with output VGS cannot read may have been
+  # skipped at its review, so nothing after it counts on it.
+  reset_fix
+  self_json package '"vgshell-git"' rebuild
+  touch "$fix/transcript-lost-aur"
+  pipeline update.sh
+  assert "a paru step whose output cannot be read reads unknown" result_has "AUR result unknown."
+  assert "an unknown AUR result skips the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+  assert "an unknown AUR result names why the VGS package was skipped" result_has "VGS package skipped. VGS could not read the AUR result."
 }
 # A read the reboot question needs that fails stays in the developer log
 # and warns once.
@@ -885,13 +893,11 @@ row_stopped() {
   settings "paru -Sua --devel" false
   touch "$fix/fail-consume"
   pipeline update.sh
-  assert "a failure after the sources ends the run with its status" test "$status" == 3
-  # The recovery message after the list is the trap's own colour, so the
-  # list is read as the output's text.
-  assert "the error trap prints the result list so far" out_has "Theme night installed."
-  assert "the error trap's run asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
-  assert "the error trap's outcome names the part it stopped in" json_is "$outcome" \
-    'd == {"ended": "failed", "text": "AUR packages failed, and VGS could not find the cause. Next: update again."}'
+  assert "a failed custom-command consent fails the package part" test "$status" == 1
+  assert "the custom-command failure keeps the other results" out_has "Theme night installed."
+  assert "the custom-command failure asks the service for one check" test "$(grep -cxF "vgshell ipc call vgs.updates invoke check run" "$tmp/seq")" == 1
+  assert "the custom-command outcome names the failed part" json_is "$outcome" \
+    'd == {"ended": "failed", "text": "AUR packages failed. exit 3. Next: update again."}'
 }
 # A Ctrl-C in a source step ends the run with 130 and drops the credential.
 row_interrupted() {
@@ -1184,6 +1190,13 @@ row_aur_command() {
   pipeline update.sh
   assert "aurCommand replaces the table's AUR plan" test "$(grep -c 'plan upgrade aur' "$tmp/seq")" == 0
   assert "aurCommand runs after the session ends" before "vgshell theme update night" "paru -Sua --devel"
+  # The owner's No to a custom command without a review is a decline.
+  reset_fix
+  settings "paru -Sua --devel" false
+  touch "$fix/decline-consent"
+  pipeline update.sh
+  assert "a declined custom command runs no AUR command" no_call "paru -Sua --devel"
+  assert "a declined custom command reads skipped" result_has "AUR skipped. You declined it."
 }
 # An AUR helper that caches a sudo credential and then fails still has it
 # dropped, after it; with no line on stderr its cause is its status. One a
@@ -1201,6 +1214,44 @@ row_aur_failure() {
   pipeline update.sh
   assert "an interrupted AUR step ends the run with 130" test "$status" == 130
   assert "an interrupted AUR step drops the credential it cached" seq_tail_is "sudo -k" "vgshell ipc call vgs.updates invoke check run"
+  # The package owner prints a review Skip's result line before paru's
+  # second call, and its review outcome only from the final one
+  # (bin/lib/pkg-review.js withReview). The skip stays a result line
+  # whatever that call answers, and a failed call keeps its own cause. A
+  # step the review skipped whole reads skipped, never installed.
+  local ending
+  for ending in failed installed whole; do
+    reset_fix
+    printf '%s\n' "$ending" >"$fix/review-ending"
+    cat >"$fix/transaction" <<'SH'
+#!/bin/sh
+read -r ending <"$FIX/review-ending"
+case "$1:$ending" in
+  aur:failed|aur:installed)
+    printf 'vgshell: package-result: bad skipped: the review flagged a planted download. dependent was skipped with it.\n' >&2
+    [ "$ending" = installed ] || { printf 'error: failed to init transaction (unable to lock database)\n' >&2; exit 1; } ;;
+  paru:whole) printf 'vgshell: package-review: vgshell-git skipped: the review flagged a planted download.\n' >&2 ;;
+esac
+SH
+    chmod +x "$fix/transaction"
+    if [[ $ending == whole ]]; then
+      self_json package '"vgshell-git"' rebuild
+      pipeline update-source.sh vgs
+      assert "a VGS package the review skipped exits 0" test "$status" == 0
+      assert "a VGS package the review skipped reads the review's result" result_has "vgshell-git skipped: the review flagged a planted download."
+      assert "a VGS package the review skipped never reads installed" out_lacks "VGS package installed."
+      continue
+    fi
+    pipeline update.sh
+    assert "a review skip names its packages after a call that $ending" result_has "bad skipped: the review flagged a planted download. dependent was skipped with it."
+    if [[ $ending == failed ]]; then
+      assert "a failed call after a review skip keeps its own cause" result_has "AUR packages failed. Another package manager is running"
+    else
+      assert "a call after a review skip that succeeds reads installed" result_has "AUR installed."
+    fi
+    assert "the pipeline runs no run0 after a review skip" no_call run0
+    assert "the pipeline runs no pkcheck after a review skip" no_call pkcheck
+  done
 }
 # Paru's review refusal exits 1 at the question; yay's review refusal exits
 # 1 after ErrUserAbort prints its cause. Neither may retry the declined
@@ -1409,14 +1460,6 @@ row_doas() {
   assert "a refused password is the result's one line for the system" result_has "VGS could not get permission to change the system, so it skipped system packages and AUR packages. Next: update again and enter your password. VGS installed. Flatpak installed."
   assert "a refused password runs no system, AUR or snapshot step" test "$(grep -c -e 'pkg run upgrade --manager pacman' -e 'pkg run upgrade --manager aur' -e 'snapper -c' "$tmp/seq")" == 0
   assert "a refused password still runs Flatpak" has_call "vgshell pkg run upgrade --manager flatpak"
-  # A rebuild the review excluded keeps the review's cause alone.
-  reset_fix
-  self_json package '"vgshell-git"' rebuild
-  touch "$fix/sudo-refuses"
-  echo vgshell-git >"$fix/review-skip"
-  PIPE_PATH="$snapper_dir" pipeline update.sh
-  assert "an excluded rebuild reads as the review's skip" result_has "vgshell-git skipped. Review excluded this package."
-  assert "a refused password leaves out the rebuild the review excluded" result_has "so it skipped system packages and AUR packages. Next: update again and enter your password."
 }
 # update-source.sh vgs on a vgshell-git behind: the rebuild replaces the
 # package, so a snapshot comes first and the running shell restarts on the
@@ -1447,11 +1490,14 @@ row_vgs_helper() {
   assert "a failed helper install prevents the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
   assert "a failed helper install skips the VGS package with its cause" result_has "VGS package skipped. Paru could not be installed."
   assert "the system step runs after a failed helper install" has_call "vgshell pkg run upgrade --manager pacman"
-  rm -f -- "${outcome:?}"
-  touch "$fix/review-stop"
+  # The owner's Skip at paru's own review installs nothing and fails nothing.
+  rm -f -- "${fix:?}/fail-ensure-helper"
+  touch "$fix/skip-ensure-helper"
   pipeline update.sh
-  assert "a review Stop after a failed helper install keeps the failure" json_is "$outcome" \
-    'd["ended"] == "failed" and d["text"].startswith("Paru failed. ")'
+  assert "a paru skipped at its review prevents the VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
+  assert "a paru skipped at its review reads the review's result" result_has "paru skipped: the review flagged a planted download."
+  assert "a paru skipped at its review blocks the VGS package with its cause" result_has "VGS package skipped. You skipped paru at its review."
+  assert "a paru skipped at its review is no failed part" out_lacks "Paru failed."
   reset_fix
   self_json package '"vgshell-git"' install-helper
   pipeline update-source.sh vgs
@@ -1672,7 +1718,7 @@ log_tui() {
   status=${PIPESTATUS[1]}
   set -e
   grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^vgshell pkg review'  -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed -E "s/ --review-receipt [^ ]+//g; s/ --config [^ ]+\/transaction-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+    sed -E "s/ --config [^ ]+\/update-[^ ]+\/[^ ]+\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 # The first line of the output, without the typed keys the terminal echoed
@@ -1961,7 +2007,7 @@ control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_rebo
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
 control no-success-recheck '  _updates_recheck' '  :' row_reboot
 control recheck-before-service 'local reply status polls=0' 'local reply status polls=300' row_recheck_replaced_tree
-control no-failure-recheck '[[ -f $dir/checked ]] || _updates_recheck' ':' row_stopped
+control no-failure-recheck '[[ -f $dir/checked ]] || _updates_recheck' ':' row_interrupted
 control source-stops-run '  "$@" || status=$?' '  "$@"' row_failure
 # The step's stderr split from stdout through a pipe, as before VGS-1839.
 control stderr-split '  "$@" || status=$?' '  { "$@"; } 2> >(exec tee -a -- "$_updates_cause_file" >&2) || status=$?' row_order

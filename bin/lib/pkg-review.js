@@ -1,11 +1,9 @@
-// Package review preparation, interactive admission and single-use authority.
-// Queries and agent files are user-owned data; PackageManagers alone builds
-// the later mutation argv. No caller-provided plan is executable authority.
+// Paru owns the clone-to-build lifetime. VGS reviews tracked snapshots in
+// its file-manager step and keeps decisions outside every agent write root.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const crypto = require("node:crypto");
 const cp = require("node:child_process");
 const { load } = require("./qml-library.js");
 const files = require("./judge-files.js");
@@ -16,14 +14,8 @@ const managers = load(path.join(repo, "shell/Core/PackageManagers.js"));
 const configLogic = load(path.join(repo, "shell/Core/ConfigLogic.js"));
 const MAX_DATA = 1024 * 1024;
 const home = () => process.env.HOME || os.homedir();
-const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const object = v => v !== null && typeof v === "object" && !Array.isArray(v);
-// gather emits this fixed limit for AUR builds, whose added dependencies
-// cannot be known before the build. Every other note is failed evidence.
-function evidenceFailures(notes) {
-    return notes.filter(note => !note.startsWith("dependencies=unresolved name="));
-}
 function privateFile(file, bounded = true) {
     const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     try {
@@ -38,6 +30,8 @@ function ownedDirectory(dir, forbiddenMode = 0o077) {
     return { dev: stat.dev, ino: stat.ino };
 }
 function query(argv, env = {}) {
+    // VGS-2482 read-only `paru -Po -- vgshell-git` on home, 2026-11-12:
+    // 1.472 s. Keep the existing 120 s query bound for network variance.
     const answer = cp.spawnSync(argv[0], argv.slice(1), { cwd: home(), encoding: "utf8", timeout: 120000, maxBuffer: 16 * MAX_DATA,
         stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, LC_ALL: "C", ...env } });
     return answer;
@@ -47,40 +41,7 @@ function output(argv, env) {
     if (r.error || r.status !== 0) throw new Error("query=" + path.basename(argv[0]) + " cause=" + (r.error?.code || r.status || r.signal));
     return r.stdout;
 }
-function identity(file) {
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.size > 16 * MAX_DATA) throw new Error("identity=not-regular");
-    return { path: file, real: fs.realpathSync(file), dev: stat.dev, ino: stat.ino, hash: hash(fs.readFileSync(file)) };
-}
-function configIdentity(config) {
-    const seen = new Set(), identities = [];
-    function read(file) {
-        file = path.resolve(home(), file);
-        if (seen.has(file)) throw new Error("config=include-cycle");
-        seen.add(file);
-        if (identities.length >= 128) throw new Error("config=include-bound");
-        // Configuration includes may be symlinks. Bind the requested path
-        // and its resolved regular file so retargeting invalidates review.
-        identities.push({ requested: file, ...identity(fs.realpathSync(file)) });
-        for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-            const m = /^\s*Include\s*=\s*(.*?)\s*(?:#.*)?$/.exec(line);
-            if (m) {
-                // pacman.conf permits globs. Expand using the system glob owner,
-                // and bind the exact resolved list as well as each file's bytes.
-                // Node's declared floor is 18. Python is already a core
-                // runtime dependency and owns glob expansion on that floor.
-                const expanded = output(["python3", "-c", "import glob,json,sys;print(json.dumps(sorted(glob.glob(sys.argv[1]))))", m[1]]);
-                const matches = JSON.parse(expanded).map(p => path.resolve(home(), p));
-                if (matches.length === 0) throw new Error("config=include-missing");
-                identities.push({ include: m[1], matches });
-                for (const match of matches) read(match);
-            }
-        }
-        seen.delete(file);
-    }
-    read(config);
-    return identities;
-}
+
 // The settings snapshot retains raw bytes for compare-before-write. Only
 // ConfigLogic supplies the migrated/effective policy, including absence.
 function settingsRead() {
@@ -156,26 +117,60 @@ function foundAgents(settings) {
     const words = judge.commandWords(settings.command || "");
     return [...new Set(judge.REVIEW_AGENTS.map(a => a.id).concat(words.slice(0, 1)))].filter(available);
 }
-// Foreground interactive children keep the user's terminal. Retaining the
-// child handle lets directed signals cancel the phase; a signal is never
-// converted into a successful review decision, even if the child exits zero.
+// The one foreground child this process waits on, a package step, a review
+// question or the review agent, with the signal that interrupted it. These
+// handlers are its only signal owner. The terminal sends Ctrl-C and a
+// hangup to its whole foreground group, the child included, so they are
+// only recorded; this process outlives the child to report and exit with
+// its status. A SIGTERM sent to this process alone, as logout sends, is
+// passed on to the child, so the owner's cleanup still runs; one that
+// arrives between children ends this process as TERM would, and its exit
+// handlers run. Once installed, Ctrl-C between children ends only the
+// command the terminal's group runs then.
+let foreground = null;
+let signalsOwned = false;
+function ownForeground(child) {
+    if (!signalsOwned) {
+        signalsOwned = true;
+        for (const signal of ["SIGINT", "SIGHUP"]) process.on(signal, () => { if (foreground !== null) foreground.interrupted = signal; });
+        process.on("SIGTERM", () => {
+            if (foreground === null) process.exit(143);
+            foreground.interrupted = "SIGTERM";
+            foreground.child.kill("SIGTERM");
+        });
+    }
+    foreground = { child, interrupted: null };
+    return foreground;
+}
+function releaseForeground(slot) { if (foreground === slot) foreground = null; }
+function terminalChild(argv, cwd, { stderr, env } = {}) {
+    return new Promise((resolve, reject) => {
+        const child = cp.spawn(commandFile("bash"), argv, { stdio: ["inherit", "inherit", stderr === undefined ? "inherit" : "pipe"], cwd: cwd || process.env.HOME || "/", env });
+        const slot = ownForeground(child);
+        if (child.stderr) child.stderr.on("data", data => { process.stderr.write(data); stderr(data.toString()); });
+        child.on("error", e => { releaseForeground(slot); reject(new files.Refusal("runner=failed error=" + e.code)); });
+        child.on("close", (status, signal) => {
+            releaseForeground(slot);
+            resolve(status !== null ? status : 128 + os.constants.signals[signal]);
+        });
+    });
+}
+// Foreground interactive children keep the user's terminal. The recorded
+// signal cancels the phase; a signal is never converted into a successful
+// review decision, even if the child exits zero.
 function interactive(argv, options = {}) {
     return new Promise(resolve => {
-        let stdout = "", failed = null, interrupted = null;
+        let stdout = "", failed = null;
         const child = cp.spawn(argv[0], argv.slice(1), { cwd: options.cwd || home(), stdio: ["inherit", options.output ? "pipe" : "inherit", "inherit"] });
-        const handlers = new Map();
-        for (const signal of ["SIGINT", "SIGHUP", "SIGTERM"]) {
-            const handler = () => { interrupted = signal; child.kill(signal); };
-            handlers.set(signal, handler); process.on(signal, handler);
-        }
+        const slot = ownForeground(child);
         if (child.stdout) child.stdout.on("data", data => {
             stdout += data.toString();
             if (Buffer.byteLength(stdout) > MAX_DATA) { failed = "output-bound"; child.kill("SIGTERM"); }
         });
         child.on("error", error => { failed = error.code; });
         child.on("close", (status, signal) => {
-            for (const [name, handler] of handlers) process.removeListener(name, handler);
-            resolve({ status, signal: interrupted || signal, stdout, error: failed });
+            releaseForeground(slot);
+            resolve({ status, signal: slot.interrupted || signal, stdout, error: failed });
         });
     });
 }
@@ -191,44 +186,15 @@ async function ui(kind, ...args) {
         return { cancelled: true, status: result.signal ? 128 + (os.constants.signals[result.signal] || 2) : result.status >= 128 ? result.status : 130 };
     return { value: result.stdout.trim() };
 }
-function requestError(request) {
-    const allowed = ["version","mode","action","groups","sources","rebuild","config","customAurArgv"];
-    if (object(request) && Object.keys(request).some(k => !allowed.includes(k))) return "unknown-field";
-    if (!object(request) || request.version !== 1 || !["named", "upgrade", "bootstrap"].includes(request.mode) || !["install", "reinstall", "update", "upgrade"].includes(request.action)
-        || !Array.isArray(request.groups) || !Array.isArray(request.sources) || !Array.isArray(request.rebuild) || (request.config !== null && (typeof request.config !== "string" || !path.isAbsolute(request.config)))
-        || (request.customAurArgv !== null && (!Array.isArray(request.customAurArgv) || request.customAurArgv.length === 0 || request.customAurArgv.some(v => typeof v !== "string" || /[\x00-\x1f\x7f]/.test(v))))) return "shape";
-    for (const group of request.groups) {
-        if (object(group) && Object.keys(group).some(k => !["manager","names","installs","ignored","config"].includes(k))) return "group-field";
-        if (!object(group) || (group.config !== undefined && (typeof group.config !== "string" || !path.isAbsolute(group.config))) || !["pacman", "aur"].includes(group.manager) || ["names", "installs", "ignored"].some(k => !Array.isArray(group[k]) || group[k].some(n => !managers.validName(n)))) return "group";
-        if (request.mode === "upgrade" && (group.names.length || group.installs.length)) return "upgrade-targets";
-    }
-    if (request.rebuild.some(n => !managers.validName(n)) || request.sources.some(s => !["pacman", "aur"].includes(s))) return "source";
-    if ((request.mode === "upgrade") !== (request.action === "upgrade")) return "mode-action";
-    if (request.mode === "named" && (request.groups.length === 0 || request.sources.length || request.rebuild.length || request.customAurArgv !== null || request.groups.some(g => g.names.length + g.installs.length === 0))) return "named";
-    if (request.mode === "upgrade" && (new Set(request.sources).size !== request.sources.length || new Set(request.groups.map(g => g.manager)).size !== request.groups.length || !same(request.sources.slice().sort(), request.groups.map(g => g.manager).sort()))) return "sources";
-    if (request.mode === "bootstrap" && (request.action !== "install" || request.groups.length !== 1 || request.groups[0].manager !== "pacman" || !same(request.groups[0].names, ["paru"]) || request.groups[0].installs.length || request.groups[0].ignored.length || request.sources.length || request.rebuild.length || request.customAurArgv !== null)) return "bootstrap";
-    return null;
-}
-function effectiveConfig(request, binary) {
-    if (request.config !== null) return request.config;
+
+function effectiveConfig(config, binary) {
+    if (config !== undefined) return config;
     // Reuse the package owner's effective helper-config adapter.
     const r = query([process.execPath, path.join(__dirname, "pkg-config.js"), binary]);
     if (r.error || r.status !== 0) throw new Error("config=helper-unreadable");
     return JSON.parse(r.stdout).config;
 }
-function pending(group, config, binary) {
-    const found = managers.reviewCheckFor(group.manager, binary, config, file => ({
-        repositories: output(["pacman-conf", "--config", file, "--repo-list"]).trim().split(/\s+/).filter(Boolean),
-        dbPath: output(["pacman-conf", "--config", file, "DBPath"]).trim()
-    }));
-    if (!found.check) throw new Error("pending=query-unavailable");
-    const check = found.check;
-    const r = query(check.argv);
-    if (r.error) throw new Error("pending=" + r.error.code);
-    const result = managers.checkOutcome(check, r.status, r.stdout, r.stderr);
-    if (result.error) throw new Error("pending=" + result.error);
-    return { complete: found.complete, origin: found.origin, packages: result.packages.filter(p => !group.ignored.includes(p.name)) };
-}
+
 // The package names VGS publishes: the pkgname lines of its Arch recipes'
 // .SRCINFO files, which install-system.sh ships into the runtime tree, so a
 // checkout and an installed tree read the same path. { names: null, cause }
@@ -244,12 +210,7 @@ function publishedPackages() {
     } catch (e) { return { names: null, fields: null, cause: e.code || "read" }; }
     return names.length ? { names, fields, cause: null } : { names: null, fields: null, cause: "empty" };
 }
-// Paru's pending -Si metadata, not the installed publisher recipes, holds
-// these fields: github.com/Morganamilo/paru/blob/v2.1.0/src/info.rs.
-function aurDependencies(text, name) {
-    const fields = aurDependencyFields(text, name);
-    return ["Depends On", "Make Deps", "Check Deps"].flatMap(field => fields.get(field));
-}
+
 function aurDependencyFields(text, name) {
     const fields = new Map();
     let key = null;
@@ -273,38 +234,7 @@ function dependencyName(entry) {
     if (!match || !managers.validName(match[1])) throw new Error("dependency=entry-invalid");
     return match[1];
 }
-function missingDependencies(entries, config) {
-    if (!entries.length) return [];
-    entries.forEach(dependencyName);
-    const r = query(["pacman", "--config", config, "-T", "--", ...entries]);
-    const missing = (r.stdout || "").trim().split(/\r?\n/).filter(Boolean);
-    if (r.error || r.signal || ![0, 127].includes(r.status) || r.stderr || (r.status === 0) !== (missing.length === 0)
-        || missing.some(entry => !entries.includes(entry))) throw new Error("dependency=installed-query");
-    return [...new Set(missing)];
-}
-function resolveDependency(entry, config, binary) {
-    const name = dependencyName(entry);
-    // sync.c passes the full target to alpm_find_dbs_satisfier before the
-    // -dd transaction checks: gitlab.archlinux.org/pacman/pacman, v7.1.0.
-    const r = query(["pacman", "--config", config, "-Sddp", "--print-format", "%r %n", "--", entry]);
-    if (!r.error && !r.signal && r.status === 0 && !r.stderr) {
-        const row = /^(\S+) ([A-Za-z0-9@_+.-]+)\n?$/.exec(r.stdout);
-        if (!row || !managers.validName(row[2])) throw new Error("dependency=satisfier-malformed entry=" + entry);
-        return { target: row[2], origin: row[1], viaAur: false };
-    }
-    if (r.error || r.signal || r.status !== 1 || r.stdout || r.stderr !== "error: target not found: " + entry + "\n")
-        throw new Error("dependency=satisfier-failed entry=" + entry);
-    // -Si is a literal metadata lookup. -Po invokes the helper resolver;
-    // no -d, which would disable versions (paru v2.1.0 src/resolver.rs).
-    const order = output([binary, "--config", config, "-Po", "--", entry]);
-    const parsed = managers.parseBuildOrder(order);
-    const targets = parsed.ok ? parsed.packages.filter(p => p.origin === "AUR" && p.kind === "TARGET") : [];
-    const target = targets.length === 1 ? targets[0] : null;
-    // order.rs has no install provider-choice callback. A differently named
-    // provider cannot establish the later interactive install's selection.
-    if (!target || target.name !== name) throw new Error("dependency=helper-unresolved entry=" + entry);
-    return { target: target.name, origin: "aur", viaAur: true };
-}
+
 // pacman v7.1.0 lib/libalpm/be_local.c::_alpm_local_db_write omits make/check
 // dependencies from the installed record. Use the
 // shipped publisher declarations and the helper's current foreign metadata
@@ -323,7 +253,7 @@ function orphanInfo(names) {
     const found = managers.presentManager("aur", onPath);
     try {
         if (!found.ok) throw new Error("helper=absent");
-        const config = effectiveConfig({ config: null }, found.binary);
+        const config = effectiveConfig(undefined, found.binary);
         const installed = query(["pacman", "--config", config, "-Qmq"]);
         if (installed.error || installed.signal || installed.stderr || ![0, 1].includes(installed.status)
             || (installed.status === 1 && installed.stdout)) throw new Error("foreign=unreadable");
@@ -377,732 +307,545 @@ function rebuildAllowed(config, target, failed) {
     if (!order.ok || !order.packages.some(p => p.kind === "TARGET" && p.name === target)) return false;
     return failed.every(name => !order.packages.some(p => p.name === name));
 }
-// IDENTITIES reads each step's package manager and configuration
-// identities alone, for a consumer that compares nothing else.
-function gather(request, identities = false) {
-    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], dependents: Object.create(null) };
-    const recipes = publishedPackages();
-    let repositoryData = null;
-    function repositories(config) {
-        if (repositoryData?.config === config) return repositoryData;
-        const order = output(["pacman-conf", "--config", config, "--repo-list"]).trim().split(/\s+/).filter(Boolean);
-        if (!order.length) throw new Error("origin=empty-repositories");
-        const rows = output(["pacman", "--config", config, "-Sl"]).trim().split(/\r?\n/).filter(Boolean).map(line => {
-            const m = /^(\S+) (\S+) (\S+)(?: \[.*\])?$/.exec(line);
-            if (!m || !order.includes(m[1])) throw new Error("origin=malformed-index");
-            return { repository: m[1], name: m[2], version: m[3] };
-        }).sort((a, b) => order.indexOf(a.repository) - order.indexOf(b.repository));
-        repositoryData = { config, order, rows };
-        return repositoryData;
-    }
-    const groups = request.groups.concat(request.rebuild.length ? [{ manager: "aur", names: request.rebuild, installs: [], ignored: [], action: "reinstall" }] : []);
-    for (const group of groups) {
-        const action = group.action || request.action;
-        const found = managers.presentManager(group.manager, onPath);
-        const step = { manager: group.manager, action, names: group.names, installs: group.installs, inputIgnored: group.ignored, ignored: group.ignored.slice(), config: request.config,
-            binary: found.ok ? commandFile(found.binary) : null, binding: null };
-        state.steps.push(step);
-        try {
-            if (!found.ok) throw new Error("manager=absent");
-            const config = effectiveConfig({ ...request, config: group.config === undefined ? request.config : group.config }, found.binary);
-            step.config = config;
-            const binding = { binary: identity(fs.realpathSync(step.binary)), config: [], pending: [], origins: [] };
-            try { binding.config = configIdentity(config); }
-            catch (e) { if (request.mode !== "bootstrap") throw e; state.unknown.push(e.message); }
-            if (identities) { step.binding = binding; continue; }
-            let targets;
-            if (request.mode === "upgrade" && action === "upgrade") {
-                const p = pending(group, config, found.binary);
-                binding.pending = p.packages;
-                if (!p.complete && group.manager === "aur") state.unknown.push("pending=config-correspondence");
-                targets = p.packages.map(item => ({ target: item.name, old: item.old, next: item.new, origin: p.origin }));
-            } else targets = [...group.names, ...group.installs].map(n => ({ target: n, old: null, next: null }));
-            step.binding = binding;
-            const repos = request.mode === "bootstrap" ? { rows: [], order: [] } : repositories(config);
-            const expanded = new Set(), metadata = new Map();
-            const infoFor = name => {
-                if (!metadata.has(name)) metadata.set(name, output([found.binary, "--config", config, "-Si", "--", name]));
-                return metadata.get(name);
-            };
-            for (const target of targets) {
-                const qualified = /^([^/]+)\/([^/]+)$/.exec(target.target);
-                const [qualifier, name] = qualified === null ? [null, target.target] : [qualified[1], qualified[2]];
-                const matches = target.neededBy === undefined ? repos.rows.filter(row => row.name === name && (qualifier === null || qualifier === row.repository)) : [];
-                // viaAur is set only where the owner itself resolved the AUR:
-                // a pacman repository may be named `aur`.
-                let origin, viaAur = false;
-                if (target.neededBy !== undefined) { origin = target.origin; viaAur = target.viaAur; }
-                else if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
-                else if (target.origin === "aur" && matches.length > 0) { state.unknown.push("origin=aur-repository-collision name=" + name); origin = "unknown"; }
-                // pacman v7.1.0 lib/libalpm/sync.c::alpm_sync_get_new_version
-                // takes the first sync database containing the package:
-                // https://gitlab.archlinux.org/pacman/pacman/-/blob/v7.1.0/lib/libalpm/sync.c#L64-67
-                else if (matches.length) origin = matches[0].repository;
-                else if (group.manager === "aur" || request.mode === "bootstrap") {
-                    const info = infoFor(name);
-                    const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
-                    if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
-                    origin = "aur"; viaAur = true;
-                } else origin = "unknown";
-                binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })),
-                    ...(target.neededBy === undefined ? {} : { entry: target.entry, neededBy: target.neededBy, aur: viaAur }) });
-                if (!viaAur) continue;
-                if (target.neededBy !== undefined) {
-                    if (!Object.hasOwn(state.dependents, name)) state.dependents[name] = [];
-                    if (!state.dependents[name].includes(target.neededBy)) state.dependents[name].push(target.neededBy);
-                }
-                const publisher = judge.publisher(name, viaAur, recipes.names);
-                if (publisher === "unread") {
-                    const cause = "vgs-packages=unreadable cause=" + recipes.cause;
-                    if (!state.unknown.includes(cause)) state.unknown.push(cause);
-                }
-                if (viaAur && publisher !== "vgs") state.unknown.push("dependencies=unresolved name=" + name);
-                // A package VGS publishes is not third-party code: no review
-                // lists, fetches or judges it. It stays a package so a held
-                // retry binds the recipe its build would fetch. Its listed
-                // dependencies are expanded and judged as their own targets.
-                const pkg = { name, origin, aur: viaAur, published: publisher === "vgs", old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
-                if (!state.packages.some(p => p.name === name && p.origin === origin && p.aur === viaAur)) state.packages.push(pkg);
-                if (pkg.published) {
-                    if (!expanded.has(name)) {
-                        expanded.add(name);
-                        for (const entry of missingDependencies(aurDependencies(infoFor(name), name), config))
-                            targets.push({ ...resolveDependency(entry, config, found.binary), entry, neededBy: name, old: null, next: null });
-                    }
-                    continue;
-                }
-                state.lines.push(`aur ${name} ${target.old || "?"} ${target.next || "?"}`);
-            }
-        } catch (e) { step.binding = null; if (group.manager === "aur" || request.mode === "bootstrap") state.unknown.push(e.message); }
-    }
-    if (request.customAurArgv !== null) {
-        try {
-            state.customConfig = request.config === null ? null : configIdentity(request.config);
-            state.customBinding = identity(fs.realpathSync(commandFile(request.customAurArgv[0]) || request.customAurArgv[0]));
-            if (customMode(request.customAurArgv) === "unknown") state.unknown.push("custom-command=unknown");
-        } catch (_) { state.customBinding = null; state.unknown.push("custom-command=unreadable"); }
-    }
-    return state;
+function inside(file, root) { return file === root || file.startsWith(root + path.sep); }
+function writableTemporaryRoots() {
+    return [...new Set(["/tmp", process.env.TMPDIR].filter(Boolean).map(p => fs.realpathSync(p)))];
 }
-// Untrusted fetched .SRCINFO sections retain split-package override rules;
-// neither PKGBUILD nor install script is ever executed during review.
-// The fetched build folder whose .SRCINFO builds PKG's name: { folder, base,
-// script, src }, base the folder's pkgbase, or null.
-function recipeFolder(dir, pkg) {
-    const build = path.join(dir, "build");
-    for (const entry of fs.readdirSync(build, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const folder = path.join(build, entry.name);
-        const src = path.join(folder, ".SRCINFO");
-        if (!fs.existsSync(src) || !fs.lstatSync(src).isFile()) continue;
-        let section = "", base = "", own = "", ownSet = false, found = false, pkgbase = "";
-        for (const { key, value } of judge.srcinfoFields(fs.readFileSync(src, "utf8"))) {
-            if (key === "pkgbase") { section = "base"; pkgbase = value; }
-            if (key === "pkgname") { section = value === pkg.name ? "own" : "other"; if (section === "own") found = true; }
-            if (key === "install" && section === "base") base = value;
-            if (key === "install" && section === "own") { own = value; ownSet = true; }
-        }
-        if (found) return { folder, base: pkgbase, script: ownSet ? own : base, src };
-    }
-    return null;
-}
-function installEvidence(dir, pkg, state) {
-    const selected = recipeFolder(dir, pkg);
-    if (selected === null) throw new Error("install=srcinfo-unreadable name=" + pkg.name);
-    const script = selected.script;
-    if (script && (script.includes("/") || script === "." || script === "..")) throw new Error("install=unsafe-script");
-    const next = script ? fs.readFileSync(identity(path.join(selected.folder, script)).path, "utf8") : null;
-    const db = output(["pacman-conf", "--config", pkg.config, "DBPath"]).trim();
-    if (!path.isAbsolute(db)) throw new Error("install=dbpath-unreadable");
-    let old = pkg.old;
-    if (!old) {
-        const r = query(["pacman", "--config", pkg.config, "-Q", "--", pkg.name]);
-        if (r.status === 0) old = r.stdout.trim().split(/\s+/)[1];
-        else if (r.status !== 1 || r.error) throw new Error("install=installed-query-unreadable");
-    }
-    let installed = null;
-    if (old && db) {
-        const file = path.join(db, "local", pkg.name + "-" + old, "install");
-        try { identity(file); installed = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; }
-    }
-    const change = judge.installScriptChange(installed, next);
-    state.lines.push(`install ${pkg.name} ${change.state}`);
-    if (change.state === "changed") {
-        const oldFile = path.join(dir, "install", pkg.name + ".old"), diff = path.join(dir, "install", pkg.name + ".diff");
-        fs.writeFileSync(oldFile, installed, { mode: 0o600 });
-        const r = query(["diff", "-u", "--", oldFile, path.join(selected.folder, script)]);
-        if (r.error || ![0, 1].includes(r.status)) throw new Error("install=diff-unreadable");
-        fs.writeFileSync(diff, r.stdout, { mode: 0o600 });
-    }
-    return change.risks.map(concern => ({ name: pkg.name, concern }));
-}
-// The helper's copy of a base's recipe from its last build here, which
-// `-G` leaves alone. paru v2.1.0 clones into dirs::cache_dir()/paru/clone
-// (src/config.rs:578-589); yay v12.5.0 into $XDG_CACHE_HOME/yay, else
-// $HOME/.cache/yay (pkg/settings/dirs.go:36-46, config.go:247-252).
-// dirs::cache_dir() is an absolute $XDG_CACHE_HOME, else $HOME/.cache. A
-// configured CloneDir, buildDir or AURDEST is not read: its copy reads as
-// new. Any other helper keeps no copy VGS knows.
-function cachedRecipe(binary, base) {
-    const xdg = process.env.XDG_CACHE_HOME;
-    const cache = xdg && path.isAbsolute(xdg) ? xdg : path.join(home(), ".cache");
-    const helper = path.basename(binary);
-    if (helper === "paru") return path.join(cache, "paru/clone", base);
-    if (helper === "yay") return path.join(cache, "yay", base);
-    return null;
-}
-// One `recipe <pkgbase> new|unchanged|changed` line per fetched base, from
-// the whole fetched folder against the helper's cached copy. Local source
-// files can carry a payload without changing the PKGBUILD. Snapshot every
-// regular file except helper metadata before diffing; never execute it.
-function cachedRecipeFiles(dir) {
-    // The clone is also makepkg's build directory. Paru v2.1.0 install.rs
-    // builds there and clean.rs separates artifacts with Git; yay v12.5.0's
-    // manual likewise says its build directory retains sources and packages.
-    // Git's index owns recipe membership, including cached-only recipe files.
-    const git = path.join(dir, ".git"), index = path.join(git, "index");
-    if (!fs.lstatSync(dir).isDirectory() || !fs.lstatSync(git).isDirectory() || !fs.lstatSync(index).isFile())
-        throw Object.assign(new Error("the cached recipe is not a regular Git checkout"), { code: "RECIPE_UNSAFE" });
-    const r = query(["git", "--no-optional-locks", "-C", dir, "--git-dir", git, "--work-tree", dir,
-        "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "ls-files", "--cached", "-z", "--"],
-        { GIT_INDEX_FILE: index, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "0" });
-    if (r.error || r.status !== 0 || !r.stdout.endsWith("\0")) throw new Error("the cached recipe index could not be read");
-    const files = new Set(), parents = new Set();
-    for (const name of r.stdout.slice(0, -1).split("\0")) {
-        const parts = name.split("/");
-        if (parts.some(part => !part || part === "." || part === ".." || part === ".git") || path.isAbsolute(name))
-            throw Object.assign(new Error("the cached recipe index names an unsafe path"), { code: "RECIPE_UNSAFE" });
-        files.add(name);
-        if (files.size > 4096) throw Object.assign(new Error("the cached recipe index exceeds the file limit"), { code: "RECIPE_TOO_LARGE" });
-        for (let i = 1; i < parts.length; i++) parents.add(parts.slice(0, i).join("/"));
-    }
-    return { files, parents };
-}
-function recipeContents(dir, kind, base) {
-    try {
-        const selected = kind === "cache" ? cachedRecipeFiles(dir) : null;
-        const entries = recipeFiles(dir, file => {
-            const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-            try {
-                const stat = fs.fstatSync(fd);
-                if (!stat.isFile()) throw Object.assign(new Error("not a regular recipe file"), { code: "RECIPE_UNSAFE" });
-                const name = path.relative(dir, file);
-                if (stat.size > (kind === "cache" && name === "PKGBUILD" ? MAX_DATA : 16 * MAX_DATA))
-                    throw Object.assign(new Error("recipe file exceeds the read limit"), { code: "RECIPE_TOO_LARGE" });
-                return [name, fs.readFileSync(fd)];
-            } finally { fs.closeSync(fd); }
-        }, selected);
-        const contents = new Map(entries);
-        if (!contents.has("PKGBUILD")) throw new Error("the recipe folder has no PKGBUILD");
-        return contents;
-    } catch (e) {
-        const cause = ["ELOOP", "RECIPE_UNSAFE"].includes(e.code) ? "unsafe" : e.code === "RECIPE_TOO_LARGE" ? "too-large" : "unreadable";
-        throw new Error(`recipe=${kind}-${cause} name=${base}`);
-    }
-}
-function recipeEvidence(dir, pkg, state, compared) {
-    const selected = recipeFolder(dir, pkg);
-    if (selected === null || !selected.base) throw new Error("recipe=srcinfo-unreadable name=" + pkg.name);
-    const base = selected.base;
-    if (base.includes("/") || base === "." || base === "..") throw new Error("recipe=unsafe-base name=" + pkg.name);
-    if (compared.has(base)) return;
-    compared.add(base);
-    const cached = cachedRecipe(pkg.binary, base);
-    let old = null;
-    if (cached !== null) {
-        let exists = true;
-        try { fs.lstatSync(cached); }
-        catch (e) {
-            if (e.code !== "ENOENT") throw new Error("recipe=cache-unreadable name=" + base);
-            exists = false;
-        }
-        if (exists) old = recipeContents(cached, "cache", base);
-    }
-    const next = recipeContents(selected.folder, "build", base);
-    const names = [...new Set([...(old?.keys() || []), ...next.keys()])].sort();
-    const changed = old === null ? [] : names.filter(name => !old.has(name) || !next.has(name) || !old.get(name).equals(next.get(name)));
-    const recipeState = old === null ? "new" : changed.length ? "changed" : "unchanged";
-    if (recipeState !== "changed") { state.lines.push(`recipe ${base} ${recipeState}`); return; }
-    const out = path.join(dir, "recipe");
-    fs.mkdirSync(out, { recursive: true, mode: 0o700 });
-    const before = path.join(out, base + ".old"), after = path.join(out, base + ".new");
-    let diff = "";
-    try {
-        for (const name of changed) {
-            if (old.has(name)) fs.writeFileSync(before, old.get(name), { mode: 0o600 });
-            if (next.has(name)) fs.writeFileSync(after, next.get(name), { mode: 0o600 });
-            const r = query(["diff", "-u", "--label", path.join("cached", base, name), "--label", path.join("build", base, name), "--",
-                old.has(name) ? before : "/dev/null", next.has(name) ? after : "/dev/null"]);
-            if (r.error || ![0, 1].includes(r.status)) throw new Error("recipe=diff-unreadable name=" + base);
-            // diff sees no bytes in an added or removed empty file, but the
-            // folder changed and its evidence must still name that file.
-            if (r.status === 0) diff += `Empty file ${old.has(name) ? "removed" : "added"}: ${path.join(old.has(name) ? "cached" : "build", base, name)}\n`;
-            else diff += r.stdout;
-        }
-        fs.writeFileSync(path.join(out, base + ".diff"), diff, { mode: 0o600 });
-        state.lines.push(`recipe ${base} ${recipeState}`);
-    } finally { fs.rmSync(before, { force: true }); fs.rmSync(after, { force: true }); }
-}
-function recipeFiles(dir, readFile, selected = null) {
-    const entries = [];
-    const found = new Set();
-    let bytes = 0;
-    function read(at) {
-        if (!fs.lstatSync(at).isDirectory()) throw Object.assign(new Error("The AUR recipe folder is not a directory."), { code: "RECIPE_UNSAFE" });
-        for (const row of fs.readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-            if (row.name === ".git") continue;
-            const file = path.join(at, row.name);
-            const name = path.relative(dir, file);
-            // Ignore build artifacts before stat, traversal or size accounting.
-            // A selected parent still has to be a real directory at every level.
-            if (selected && !selected.files.has(name) && !selected.parents.has(name)) continue;
-            if (selected && ((selected.parents.has(name) && !row.isDirectory()) || (selected.files.has(name) && !row.isFile())))
-                throw Object.assign(new Error("a tracked recipe path is not its regular file or directory"), { code: "RECIPE_UNSAFE" });
-            if (row.isDirectory()) read(file);
-            else if (row.isFile()) {
-                bytes += fs.statSync(file).size;
-                if (entries.length >= 4096 || bytes > 64 * MAX_DATA) throw Object.assign(new Error("The AUR build recipes exceed the review's file or size limit."), { code: "RECIPE_TOO_LARGE" });
-                entries.push(readFile(file));
-                found.add(name);
-            }
-            else throw Object.assign(new Error("The AUR recipe file " + JSON.stringify(path.relative(dir, file)) + " is "
-                + (row.isSymbolicLink() ? "a symbolic link" : "not a regular file") + ", so it cannot be reviewed safely."), { code: "RECIPE_UNSAFE" });
-        }
-    }
-    read(dir);
-    if (selected && found.size !== selected.files.size) throw new Error("the cached recipe index names missing files");
-    return entries;
-}
-function recipesIdentity(dir) {
-    return recipeFiles(dir, identity);
-}
-function ownedFolder(dir, forbiddenMode) {
+function ownedFolder(dir, forbiddenMode = 0o077) {
     try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; }
     ownedDirectory(dir, forbiddenMode);
     return dir;
 }
-// The private folder every transaction, review, bootstrap and retry folder
-// is made in, beside the agent home.
-function workRoot() {
-    if (!process.env.XDG_RUNTIME_DIR) refuse("review=runtime-dir-unset");
-    // The presenter may own a 0755 shared namespace. Forbid non-owner
-    // writes there; every review/transaction descendant stays private.
-    const shared = ownedFolder(path.join(process.env.XDG_RUNTIME_DIR, "vgshell"), 0o022);
-    return ownedFolder(path.join(shared, "package-review"), 0o077);
+// <runtime>/vgshell. A review keeps its verdicts, outcome, agent home and
+// evidence here, so REVIEWED also requires the resolved XDG_RUNTIME_DIR to
+// be the user's own and outside /tmp and TMPDIR, which an agent may write.
+// Retry records and build evidence (pkg-retry.js) belong to every presenter
+// or AUR run, a repository package's included, and decide no review: a user
+// whose TMPDIR holds the runtime folder still installs those packages, so
+// that bookkeeping takes the folder without the placement check.
+function runtimeFolder(reviewed) {
+    const dir = process.env.XDG_RUNTIME_DIR;
+    if (!dir || !path.isAbsolute(dir)) refuse("review=runtime-dir-unset");
+    if (!reviewed) return ownedFolder(path.join(dir, "vgshell"), 0o022);
+    const real = fs.realpathSync(dir);
+    ownedDirectory(real);
+    if (writableTemporaryRoots().some(root => inside(real, root))) refuse("review=runtime-dir-agent-writable");
+    return ownedFolder(path.join(real, "vgshell"), 0o022);
 }
-// The stable folder an agent whose row sets startsInHome starts in, trusted
-// once. It holds no transaction, review or retry folder, so an agent that
-// may write its working directory reaches none.
-function agentHome() {
-    return ownedFolder(path.join(workRoot(), "agent"), 0o077);
-}
-// Updates owns the returned transaction lifetime; its outer EXIT removes it.
-function createTransaction() {
-    const dir = fs.mkdtempSync(path.join(workRoot(), "transaction-"));
+function runtimeRoot() { return runtimeFolder(true); }
+function workRoot(reviewed = false) { return ownedFolder(path.join(runtimeFolder(reviewed), "package-review")); }
+function agentHome() { return ownedFolder(path.join(workRoot(true), "agent")); }
+function createRun(prefix = "review-") {
+    const dir = fs.mkdtempSync(path.join(ownedFolder(path.join(runtimeRoot(), "updates")), prefix));
     fs.chmodSync(dir, 0o700);
     return dir;
 }
-async function review(request, storage) {
-    const previous = process.umask(0o077);
-    try { return await reviewRequest(request, storage); }
-    finally { process.umask(previous); }
+// One review's private run: its context, its verdict store by base and
+// tree, and, once the review ended the helper's step, its outcome.
+function newRun() {
+    const run = createRun();
+    writeJson(path.join(run, "context.json"), { attempt: 0 });
+    writeJson(path.join(run, "verdicts.json"), {});
+    return run;
 }
-async function reviewRequest(request, storage) {
-    function failedRead(note) {
-        if (note.startsWith("The ")) return note;
-        const name = /(?:^| )name=(\S+)/.exec(note)?.[1];
-        const subject = name ? " for " + name : "";
-        const kind = note.split(" ")[0];
-        if (kind === "origin=aur-repository-collision") return name + " appears in both the AUR update and a package repository.";
-        if (kind.startsWith("query=")) return "The " + kind.slice(6) + " package query failed.";
-        if (kind.startsWith("agent=")) return "No review agent is available. Choose an installed agent or customize the review command.";
-        if (kind.startsWith("fetch=")) return "The AUR build files could not be downloaded" + subject + ".";
-        if (kind.startsWith("origin=")) return "The AUR package source could not be confirmed" + subject + ".";
-        if (kind.startsWith("install=") || kind.startsWith("identity=")) return "An AUR install script could not be read safely" + subject + ".";
-        if (kind.startsWith("recipe=")) return "The AUR build recipe could not be compared with the copy from its last build" + subject + ".";
-        if (kind.startsWith("vgs-packages=")) return "VGS's own package names could not be read.";
-        if (kind.startsWith("pending=")) return "The pending AUR update list could not be confirmed for this package configuration.";
-        if (kind.startsWith("dependency=")) return "An AUR package's required dependency could not be resolved.";
-        if (kind.startsWith("custom-command=")) return "The custom AUR command cannot be matched to the reviewed package plan.";
-        if (kind.startsWith("config=")) return "The AUR helper's package configuration could not be read safely.";
-        if (kind === "review=nothing-reviewable") return "No AUR build recipe is available to review.";
-        return "Some AUR build information could not be read safely.";
-    }
-    const error = requestError(request);
-    if (error) refuse("review=request error=" + error);
-    if (process.env.VGS_TUI_SUDO_SESSION && fs.existsSync("/proc/" + process.env.VGS_TUI_SUDO_SESSION)) refuse("review=outer-credential-session");
-    const state = gather(request);
-    let settings = settingsRead().settings;
-    const result = { version: 1, decision: "proceed", reviewed: [], skipped: [], coverage: "complete", receipt: null };
-    const thirdParty = state.packages.filter(p => !p.published), published = state.packages.filter(p => p.published).map(p => p.name);
-    if (thirdParty.length || state.unknown.length) {
-        const known = thirdParty.map(p => p.name);
-        const unresolved = state.steps.filter(step => step.manager === "aur" && step.binding === null).flatMap(step => step.names.concat(step.installs));
-        const packageList = "AUR packages: " + ([...new Set(known.concat(unresolved))].join(", ") || "package list unavailable")
-            + (published.length ? "\n\nSkipped: " + published.join(", ") + ", VGS's own " + (published.length === 1 ? "package." : "packages.") : "");
-        // With no package to review, Review asks no agent: the
-        // unavailable-evidence question follows at once.
-        const reviewable = thirdParty.length > 0;
-        let choice = null;
-        const gatheredUnknown = state.unknown.slice(), gatheredLines = state.lines.slice();
-        let evidenceCreated = false;
-        if (!judge.initialChoice(settings, foundAgents(settings)).ask) {
-            const shown = await ui("saved-decline", packageList);
-            if (shown.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shown.status };
-            choice = { value: "Install without review" };
+function reviewRun(dir) {
+    if (!path.isAbsolute(dir) || path.dirname(dir) !== path.join(runtimeRoot(), "updates")) refuse("review=run-path");
+    ownedDirectory(dir);
+    return dir;
+}
+function readJson(file) { return JSON.parse(privateFile(file)); }
+function writeJson(file, value) { fs.writeFileSync(file, JSON.stringify(value) + "\n", { mode: 0o600 }); }
+// The review's outcome, which ends paru's step: its file manager exits 1.
+function outcome(dir, value) {
+    const sentence = judge.failureLines(value.sentence || "").join(" ");
+    writeJson(path.join(dir, "outcome.json"), { ...value, sentence });
+    return 1;
+}
+const STOPPED = "You stopped the AUR packages at the review.";
+function cancelled(dir, status) { return outcome(dir, { kind: "cancelled", status, sentence: STOPPED }); }
+function readOutcome(dir) {
+    try { return readJson(path.join(dir, "outcome.json")); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+}
+// One line Updates adds to its result list (pipeline.sh _updates_review_of),
+// whatever the step's status; a terminal run shows it as it is.
+function resultLine(sentence) {
+    process.stderr.write("vgshell: package-result: " + judge.failureLines(sentence).join(" ") + "\n");
+}
+// Whether RESULT, a review outcome, skips every one of TARGETS.
+function skipsAll(result, targets) {
+    return result.kind === "skip-packages" && targets.length > 0 && targets.every(name => result.skipped.includes(name));
+}
+// The review's outcome, reported once. Its sentence is the step's cause
+// when the step failed and, with status 0, the step's whole result
+// (pipeline.sh _updates_review_of). The owner's Stop or Skip skips the step
+// as a Skip of every one of TARGETS does: status 0, package-skipped.
+function finalOutcome(manager, helper, result, targets) {
+    process.stderr.write("vgshell: package-review: " + result.sentence + "\n");
+    if (result.kind === "cancelled") return { status: result.status, outcome: { kind: "package-cancelled", manager, status: result.status } };
+    if (result.kind === "skipped" || skipsAll(result, targets)) return { status: 0, outcome: { kind: "package-skipped", manager } };
+    return { status: 1, outcome: { kind: "package-failed", manager, helper, status: 1, lines: judge.failureLines(result.sentence) } };
+}
+// The work root holds every agent home and evidence folder; its path is
+// the same whichever check made it.
+function assertCloneOutsideWriteRoots(clone, evidence) {
+    if ([...writableTemporaryRoots(), evidence, workRoot()].some(root => inside(clone, root)))
+        throw new Error("The AUR build folder is inside a folder the review agent can change.");
+}
+// aur-fetch 0.11.3 Fetch::make_view supplies clone symlinks, convenience
+// .PKGBUILD/.SRCINFO links and optional .diff links; only clones are bases.
+// https://docs.rs/crate/aur-fetch/0.11.3/source/src/fetch.rs
+function copyView(view, evidence, bootstrapClone) {
+    const sources = bootstrapClone ? [["paru", bootstrapClone]] : fs.readdirSync(view)
+        .filter(name => fs.statSync(path.join(view, name)).isDirectory()).map(name => [name, path.join(view, name)]);
+    if (!sources.length) throw new Error("Paru supplied no AUR build files to review.");
+    const published = publishedPackages();
+    const bases = [], links = [];
+    fs.mkdirSync(path.join(evidence, "build"), { mode: 0o700 });
+    fs.mkdirSync(path.join(evidence, "recipe"), { mode: 0o700 });
+    fs.mkdirSync(path.join(evidence, "install"), { mode: 0o700 });
+    for (const [base, source] of sources) {
+        if (!managers.validName(base) || base.includes("/")) throw new Error("Paru supplied an invalid AUR package base.");
+        const clone = fs.realpathSync(source);
+        if (!fs.statSync(clone).isDirectory()) throw new Error("Paru supplied an unreadable AUR build folder.");
+        assertCloneOutsideWriteRoots(clone, evidence);
+        const folder = path.join(evidence, "build", base);
+        fs.mkdirSync(folder, { mode: 0o700 });
+        const copied = query([commandFile("python3"), path.join(__dirname, "pkg-review-copy.py"), clone, folder]);
+        if (copied.error || copied.status !== 0)
+            throw new Error("The tracked AUR build files could not be copied.", { cause: copied.error ? "copy=unstarted error=" + copied.error.code : copied.stderr.trim() || "copy=failed status=" + (copied.status ?? copied.signal) });
+        const snapshot = JSON.parse(copied.stdout);
+        const fields = judge.srcinfoFields(fs.readFileSync(path.join(folder, ".SRCINFO"), "utf8"));
+        const declared = fields.filter(f => f.key === "pkgbase").map(f => f.value);
+        const names = fields.filter(f => f.key === "pkgname").map(f => f.value);
+        if (!same(declared, [base]) || !names.length || names.some(name => dependencyName(name) !== name)) throw new Error("An AUR recipe has unreadable package names.");
+        if (!snapshot.files.includes("PKGBUILD")) throw new Error("An AUR recipe has no tracked PKGBUILD.");
+        // A base is exempt only when every split package has the publisher.
+        const own = names.every(name => judge.publisher(name, true, published.names) === "vgs");
+        if (own) {
+            fs.rmSync(folder, { recursive: true });
+            bases.push({ base, names, fields, tree: snapshot.tree, published: true });
+            continue;
         }
-        reviewChoice: for (;;) {
-            if (choice === null) {
-                const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
-                choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList);
+        for (const link of snapshot.symlinks) links.push({ base, ...link });
+        let diff = null;
+        if (!bootstrapClone) {
+            try {
+                const file = fs.realpathSync(path.join(view, base + ".diff"));
+                const stat = fs.statSync(file);
+                if (!stat.isFile()) throw new Error("The AUR recipe diff is not a file.");
+                diff = fs.readFileSync(file);
+                fs.writeFileSync(path.join(evidence, "recipe", base + ".diff"), diff, { mode: 0o600 });
+            } catch (error) { if (error.code !== "ENOENT") throw error; }
+        }
+        bases.push({ base, names, fields, folder, tree: snapshot.tree, diff: diff !== null });
+    }
+    fs.writeFileSync(path.join(evidence, "symlinks.txt"), links.map(link => JSON.stringify(link)).join("\n") + "\n", { mode: 0o600 });
+    return bases;
+}
+// The installed version of each of NAMES, from one `pacman -Q -- NAMES...`,
+// as one `pacman -Q -- NAME` for each would answer it: the version, null
+// when the package is not installed, and no entry when it could not be
+// read. pacman v7.1.0 src/pacman/query.c:464-519 prints one `NAME VERSION`
+// line (display, :324-344) for each target it finds, in target order, and
+// exits 1 when any target is not found; a target that only a package
+// providing it satisfies (alpm_find_satisfier) prints that package's line.
+// So when status 1 and every line matched its target by name, the targets
+// left are not installed. A line left over means a target was found under
+// another name, which one alone would answer as unreadable; which target
+// cannot be told, so every target left is unreadable.
+function installedVersions(names, config) {
+    const answer = query(["pacman", "--config", config, "-Q", "--", ...names]);
+    const versions = new Map();
+    if (answer.error || answer.signal || ![0, 1].includes(answer.status)) return versions;
+    const rows = answer.stdout.split("\n");
+    if (rows.at(-1) === "") rows.pop();
+    const left = [];
+    let next = 0;
+    for (const name of names) {
+        const row = next < rows.length ? /^(\S+) (\S+)$/.exec(rows[next]) : null;
+        if (!row || row[1] !== name) { left.push(name); continue; }
+        next++;
+        if (!row[2].includes("/")) versions.set(name, row[2]);
+    }
+    if (answer.status === 1 && next === rows.length) for (const name of left) versions.set(name, null);
+    return versions;
+}
+// DB is the configuration's DBPath and INSTALLED installedVersions' answer,
+// each read once per review.
+function installEvidence(base, installed, db, evidence) {
+    const risks = [], lines = [];
+    for (const name of base.names) {
+        let section = "", inherited = "", own, script;
+        for (const field of base.fields) {
+            if (field.key === "pkgbase") section = "base";
+            if (field.key === "pkgname") section = field.value === name ? "own" : "other";
+            if (field.key === "install" && section === "base") inherited = field.value;
+            if (field.key === "install" && section === "own") own = field.value;
+        }
+        script = own === undefined ? inherited : own;
+        if (script && (script.includes("/") || script === "." || script === "..")) throw new Error("An AUR recipe names an unsafe install script.");
+        const next = script ? fs.readFileSync(path.join(base.folder, script), "utf8") : null;
+        const version = installed.get(name);
+        if (version === undefined) throw new Error("An installed package version could not be read.");
+        let previous = null;
+        if (version !== null) {
+            try { previous = fs.readFileSync(path.join(db, "local", name + "-" + version, "install"), "utf8"); }
+            catch (error) { if (error.code !== "ENOENT") throw error; }
+        }
+        const change = judge.installScriptChange(previous, next);
+        lines.push("install " + name + " " + change.state);
+        for (const concern of change.risks) risks.push({ name, concern });
+        if (change.state === "changed") {
+            const old = path.join(evidence, "install", name + ".old");
+            fs.writeFileSync(old, previous, { mode: 0o600 });
+            const compared = query(["diff", "-u", "--", old, path.join(base.folder, script)]);
+            if (compared.error || ![0, 1].includes(compared.status)) throw new Error("An installed package script could not be compared.");
+            fs.writeFileSync(path.join(evidence, "install", name + ".diff"), compared.stdout, { mode: 0o600 });
+        }
+    }
+    return { lines, risks };
+}
+// All pending bases come from the same paru view, including dependencies.
+// .SRCINFO depends/make/checkdepends and provides connect split package names.
+function skipDependents(bases, names) {
+    const skipped = new Set(names);
+    for (;;) {
+        const before = skipped.size;
+        const unavailable = new Set();
+        for (const base of bases) if (base.names.some(name => skipped.has(name))) {
+            unavailable.add(base.base);
+            for (const name of base.names) { unavailable.add(name); skipped.add(name); }
+            for (const field of base.fields) if (/^provides(?:_|$)/.test(field.key)) unavailable.add(dependencyName(field.value));
+        }
+        for (const base of bases)
+            if (base.fields.some(field => /^(?:(?:make|check)?depends)(?:_|$)/.test(field.key) && unavailable.has(dependencyName(field.value))))
+                for (const name of base.names) skipped.add(name);
+        if (skipped.size === before) return [...skipped];
+    }
+}
+// paru v2.1.0 (70f66dc9) devel.rs::parse_url tracks a base's unpinned git
+// sources from its SRCINFO, not package-name suffixes. FIELDS is one
+// base's SRCINFO; its base fields precede the first pkgname.
+const UNPINNED_GIT = /^git[^:]*:\/\/[^#]+(?:#(?!commit=|tag=).*)?$/;
+function develBase(fields) {
+    const first = fields.findIndex(field => field.key === "pkgname");
+    const own = fields.slice(0, first < 0 ? fields.length : first);
+    if (!own.some(field => /^source(?:_|$)/.test(field.key) && UNPINNED_GIT.test(field.value.split("::").pop()))) return null;
+    return own.find(field => field.key === "pkgbase")?.value || null;
+}
+// The devel bases a run without a file-manager review builds: the
+// VGS-published recipes that build one of TARGETS. null when the shipped
+// recipes cannot be read.
+function publishedTracking(targets) {
+    if (!targets.length) return [];
+    const published = publishedPackages();
+    if (published.fields === null) return null;
+    const recipes = new Map();
+    for (const field of published.fields) recipes.set(field.recipe, [...(recipes.get(field.recipe) || []), field]);
+    return [...recipes.values()].filter(fields => fields.some(field => field.key === "pkgname" && targets.includes(field.value)))
+        .map(develBase).filter(base => base !== null);
+}
+// The devel bases of the last view paru handed RUN's review, which are the
+// bases it built: [] when paru reviewed none, null when unreadable.
+function viewTracking(run) {
+    try { return readJson(path.join(run, "tracking.json")); }
+    catch (error) { return error.code === "ENOENT" ? [] : null; }
+}
+// Why an agent's verdict file gives no verdict, or the verdict. The agent
+// writes this file, so an unsafe one is no verdict either.
+function readVerdict(file, names) {
+    let text;
+    try { text = privateFile(file); }
+    catch (error) {
+        if (error.code === "ENOENT") return { ok: false, problem: "is missing" };
+        if (error instanceof files.Refusal || error.code === "ELOOP") return { ok: false, problem: "is unsafe to read" };
+        return { ok: false, problem: "could not be read (" + (error.code || error.name) + ")" };
+    }
+    const parsed = judge.parseVerdict(text, names);
+    if (parsed.ok) return parsed;
+    const line = /^line=(\d+)$/.exec(parsed.error);
+    return { ok: false, problem: line ? "is malformed at line " + line[1] : parsed.error === "control-character" ? "holds a control character" : "does not match its flags" };
+}
+async function unavailableCustom() {
+    const answer = await ui("unavailable", "The custom AUR command does not support the package review.");
+    if (answer.cancelled) return answer.status;
+    if (answer.value === "Yes") return 0;
+    // Updates reads a declined= refusal as the owner's own No.
+    if (answer.value === "No") refuse("declined=review-unavailable", undefined, 1, "The AUR packages were not updated.");
+    refuse("review=choice-invalid");
+}
+// This process as polkit names a subject: pid, start time and uid. The
+// start time is /proc/<pid>/stat's field 22, which polkit's
+// polkit_unix_process_get_start_time reads too, so a reused pid differs.
+function processSubject() {
+    const fields = fs.readFileSync("/proc/self/stat", "utf8").replace(/^.*\) /s, "").split(" ");
+    return process.pid + "," + fields[19] + "," + process.getuid();
+}
+// The statuses of the agent-run wrapper whose agent ended by Ctrl-C, a
+// hangup or TERM, 128 plus the signal's number, as bash reports them.
+const STOP_STATUSES = new Set(["SIGINT", "SIGHUP", "SIGTERM"].map(name => 128 + os.constants.signals[name]));
+// { cancelled, status }, { verdict } or { failure }, a sentence naming
+// why the agent gave no verdict.
+async function agentAttempt(run, pristine, plan, names) {
+    const evidence = fs.mkdtempSync(path.join(workRoot(true), "evidence-"));
+    const capture = path.join(run, path.basename(evidence) + ".output");
+    try {
+        fs.cpSync(pristine, evidence, { recursive: true });
+        const prompt = fs.readFileSync(path.join(__dirname, "review/third-party.md"), "utf8").replaceAll("{review_dir}", evidence);
+        const launch = judge.reviewCommand(plan, { home: agentHome(), evidence });
+        const shown = await ui("show", "Reviewing AUR build files as your user", ...launch.argv);
+        if (shown.cancelled) return shown;
+        // An earlier paru step's elevation can leave an authorization this
+        // user's later processes reuse. No agent runs while one is live:
+        // each elevator on PATH runs its PackageManagers.CREDENTIAL_DROPS
+        // argv, as written. A drop whose own command is absent, pkcheck
+        // without polkit, has none to end; one that could not run passes
+        // only when its check shows no authorization held.
+        for (const elevator of managers.ELEVATORS) {
+            const drop = managers.CREDENTIAL_DROPS[elevator];
+            if (drop === null || !onPath(elevator) || !onPath(drop.argv[0])) continue;
+            const dropped = query([commandFile(drop.argv[0]), ...drop.argv.slice(1)]);
+            const ran = result => !result.error && !result.signal;
+            if (ran(dropped) && dropped.status === 0) continue;
+            let failed = dropped, step = "drop";
+            if (ran(dropped) && drop.unended !== null && dropped.stderr.startsWith(drop.unended.stderr)) {
+                const check = drop.unended.check.map(word => word === "{process}" ? processSubject() : word);
+                failed = query([commandFile(check[0]), ...check.slice(1)]);
+                step = "check";
+                if (ran(failed) && drop.unended.unheld.includes(failed.status)) continue;
             }
-            if (choice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: choice.status };
-            if (choice.value === "Review" && reviewable) {
-                for (;;) {
-                    const plan = judge.reviewPlan(settings, foundAgents(settings));
-                    if (!["agent", "command"].includes(plan.state)) break;
-                    const agentChoice = await ui("agent", plan.label);
-                    if (agentChoice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: agentChoice.status };
-                    if (agentChoice.value === "Back") { choice = null; break; }
-                    if (agentChoice.value === "Use " + plan.label) break;
-                    if (agentChoice.value !== "Customize") refuse("review=choice-invalid");
-                    const edit = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), "customize", path.join(repo, "bin/vgshell-pkg")]);
-                    if (edit.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[edit.signal] };
-                    if (edit.error || (edit.status !== 0 && edit.status !== 130)) refuse("review=editor-unavailable");
-                    settings = settingsRead().settings;
-                }
+            throw new Error("VGS could not end the saved " + elevator + " authorization before the review.", { cause: step + "=" + (failed.error ? "unstarted error=" + failed.error.code
+                : "status=" + (failed.status ?? failed.signal) + (failed.stderr.trim() ? " " + failed.stderr.trim().replace(/\s+/g, " ") : "")) });
+        }
+        const ended = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), "agent-run", capture, ...launch.argv, prompt], { cwd: launch.cwd });
+        if (ended.signal) return { cancelled: true, status: 128 + (os.constants.signals[ended.signal] || 2) };
+        if (STOP_STATUSES.has(ended.status)) return { cancelled: true, status: ended.status };
+        // The wrapper leaves no capture when it could not cut the output.
+        let said = "";
+        try {
+            const last = judge.failureLines(privateFile(capture, false)).at(-1);
+            if (last) said = " Its last line: " + last + (/[.!?]$/.test(last) ? "" : ".");
+        } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+            said = " VGS could not read its output.";
+        }
+        if (ended.error || ended.status !== 0) return { failure: "The " + plan.label + " review stopped without a result." + said };
+        const verdict = readVerdict(path.join(evidence, "verdict"), names);
+        return verdict.ok ? { verdict } : { failure: "The " + plan.label + " review's verdict " + verdict.problem + "." + said };
+    } finally {
+        fs.rmSync(evidence, { recursive: true, force: true });
+        fs.rmSync(capture, { force: true });
+    }
+}
+// One flagged package's result line, with the pending packages skipped
+// with it.
+function skipSentence(name, risks, dependents) {
+    const alongside = dependents.length ? " " + dependents.join(", ") + (dependents.length === 1 ? " was" : " were") + " skipped with it." : "";
+    return name + " skipped: the review flagged " + risks.join(" ").replace(/[.!?]+$/, "") + "." + alongside;
+}
+async function reviewFiles(run, view, config, bootstrapClone = null) {
+    reviewRun(run);
+    const context = readJson(path.join(run, "context.json"));
+    const previousUmask = process.umask(0o077);
+    // This invocation's pristine source is never inside an agent write root.
+    // A failed agent may change its copy; a fallback gets these bytes again.
+    const pristine = fs.mkdtempSync(path.join(run, "snapshot-"));
+    try {
+        if (process.env.VGS_TUI_SUDO_SESSION && fs.existsSync("/proc/" + process.env.VGS_TUI_SUDO_SESSION))
+            throw new Error("The AUR review cannot run during an active password session.");
+        const bases = copyView(view, pristine, bootstrapClone);
+        writeJson(path.join(run, "tracking.json"), bases.map(base => develBase(base.fields)).filter(base => base !== null));
+        const store = readJson(path.join(run, "verdicts.json"));
+        const pending = bases.filter(base => !base.published && store[base.base + ":" + base.tree]?.decision !== "accepted");
+        if (!pending.length) return 0;
+        const names = pending.flatMap(base => base.names);
+        const lines = [], deterministic = [];
+        const db = output(["pacman-conf", "--config", config, "DBPath"]).trim();
+        if (!path.isAbsolute(db)) throw new Error("The installed package scripts could not be located.");
+        const installed = installedVersions(names, config);
+        for (const base of pending) {
+            lines.push(...base.names.map(name => "aur " + name + " ? ?"));
+            lines.push("recipe " + base.base + " " + (base.diff ? "changed" : "new"));
+            const scripts = installEvidence(base, installed, db, pristine);
+            lines.push(...scripts.lines); deterministic.push(...scripts.risks);
+        }
+        fs.writeFileSync(path.join(pristine, "packages.txt"), lines.join("\n") + "\n", { mode: 0o600 });
+        const settings = settingsRead().settings;
+        const initial = judge.initialChoice(settings, foundAgents(settings));
+        let answer = !initial.ask ? { value: initial.action === "review" ? "Review" : "Install without review" }
+            : await ui("offer", initial.action === "review" ? "Review" : "Install without review", "AUR packages: " + names.join(", "));
+        if (answer.cancelled) return cancelled(run, answer.status);
+        if (answer.value === "Install without review") {
+            for (const base of pending) store[base.base + ":" + base.tree] = { decision: "accepted", names: base.names, reviewed: false };
+            writeJson(path.join(run, "verdicts.json"), store);
+            return 0;
+        }
+        if (answer.value !== "Review") refuse("review=choice-invalid");
+        let plan = judge.reviewPlan(settings, foundAgents(settings));
+        let verdict = null;
+        for (;;) {
+            let failure;
+            if (["agent", "command"].includes(plan.state)) {
+                const attempt = await agentAttempt(run, pristine, plan, names);
+                if (attempt.cancelled) return cancelled(run, attempt.status);
+                if (attempt.verdict) { verdict = attempt.verdict; break; }
+                failure = attempt.failure;
+            } else failure = plan.state === "missing" ? plan.label + " is not installed." : "No review agent is installed.";
+            const other = judge.REVIEW_AGENTS.find(agent => agent.id !== plan.agent && available(agent.id));
+            answer = await ui("agent-failed", failure, other ? other.label : "");
+            if (answer.cancelled) return cancelled(run, answer.status);
+            if (other && answer.value === "Use " + other.label) {
+                plan = judge.reviewPlan({ agent: other.id, command: "" }, foundAgents({}));
+                continue;
             }
-            if (choice === null) continue;
-            if (choice.value === "Install without review") result.coverage = "declined";
-            else if (choice.value === "Review") {
-                state.unknown = gatheredUnknown.slice();
-                state.lines = gatheredLines.slice();
-                state.recipes = [];
-                result.coverage = "complete";
-                result.reviewed = [];
-                result.skipped = [];
-                const plan = judge.reviewPlan(settings, foundAgents(settings));
-                let verdict = null, risks = [];
-                const dir = path.join(storage, "evidence");
-                // This request owns storage and the preceding attempt's evidence.
-                if (evidenceCreated) fs.rmSync(dir, { recursive: true });
-                fs.mkdirSync(dir, { mode: 0o700 }); fs.mkdirSync(path.join(dir, "build"), { mode: 0o700 }); fs.mkdirSync(path.join(dir, "install"), { mode: 0o700 });
-                evidenceCreated = true;
-                try {
-                    if (!reviewable) throw new Error("review=nothing-reviewable");
-                    if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
-                    const comparedRecipes = new Set();
-                    for (const pkg of thirdParty.filter(p => p.aur)) {
-                        const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
-                        const shownFetch = await ui("show", "Fetching package build files as your user", ...fetch);
-                        if (shownFetch.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownFetch.status };
-                        const r = await interactive(fetch, { cwd: path.join(dir, "build") });
-                        if (r.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[r.signal] };
-                        if (r.error || r.status !== 0) throw new Error("fetch=failed name=" + pkg.name);
-                        try { risks.push(...installEvidence(dir, pkg, state)); }
-                        catch (e) { state.unknown.push(e.message); risks.push({ name: pkg.name, concern: "The install script could not be verified." }); }
-                        try { recipeEvidence(dir, pkg, state, comparedRecipes); }
-                        catch (e) { state.unknown.push(e.message); }
-                    }
-                    state.recipes = recipesIdentity(path.join(dir, "build"));
-                    fs.writeFileSync(path.join(dir, "packages.txt"), state.lines.concat(state.unknown.map(e => "unknown " + e)).join("\n") + "\n", { mode: 0o600 });
-                    const prompt = fs.readFileSync(path.join(__dirname, "review/third-party.md"), "utf8").replaceAll("{review_dir}", dir);
-                    // The agent starts in the stable agent home, which its owner
-                    // trusts once, or in this review's evidence folder; only this
-                    // review's evidence is its to write.
-                    const launch = judge.reviewCommand(plan, { home: agentHome(), evidence: dir });
-                    const shownAgent = await ui("show", "Reviewing the listed packages before installation", ...launch.argv);
-                    if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
-                    const run = await interactive(launch.argv.concat(prompt), { cwd: launch.cwd });
-                    if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
-                    if (run.error || run.status !== 0) throw new Error("The review agent failed before it completed the review.");
-                    let text;
-                    try { text = privateFile(path.join(dir, "verdict")); }
-                    catch (e) {
-                        const cause = e.code === "ENOENT" ? "missing" : e instanceof files.Refusal || e.code === "ELOOP" ? "unsafe" : "unreadable";
-                        throw new Error("The agent's verdict is " + cause + ".");
-                    }
-                    verdict = judge.parseVerdict(text, known);
-                    if (!verdict.ok) throw new Error("The agent's verdict is malformed.");
-                    result.reviewed = known;
-                } catch (e) { state.unknown.push(e.message); }
-                const failures = evidenceFailures(state.unknown);
-                const concerns = new Map();
-                for (const flag of [...(verdict?.ok ? verdict.flags : []), ...risks]) concerns.set(flag.name, [...(concerns.get(flag.name) || []), flag.concern]);
-                const clean = verdict?.ok ? known.filter(name => !concerns.has(name)) : [];
-                const summary = [clean.length ? "No concerns found: " + clean.join(", ") + "." : "",
-                    concerns.size ? "Needs your decision: " + [...concerns.keys()].join(", ") + "." : "",
-                    failures.length ? "Could not finish: " + [...new Set(failures.map(failedRead))].join(" ") : ""].filter(Boolean).join("\n");
-                if (verdict?.ok && !failures.length) {
-                    const shown = await ui("result", summary);
-                    if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
-                }
-                if (verdict?.ok && failures.length < state.unknown.length) {
-                    const shown = await ui("limit");
-                    if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
-                }
-                if (verdict === null || !verdict.ok || failures.length) {
-                    result.coverage = "unknown";
-                    const answer = await ui("unavailable", summary, "retry");
-                    if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
-                    if (answer.value === "No") {
-                        if (!reviewable || !["agent", "command"].includes(plan.state)) choice = null;
-                        continue reviewChoice;
-                    }
-                    if (answer.value === "Stop") return { ...result, decision: "stop" };
-                    if (answer.value !== "Yes") refuse("review=choice-invalid");
-                }
-                for (const [name, concernsForName] of concerns) {
-                    const answer = await ui("concern", concernsForName.join("\n"), name);
-                    if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
-                    if (answer.value === "Skip") result.skipped.push(name);
-                    else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
-                }
-                for (let i = 0; i < result.skipped.length; i++)
-                    for (const dependent of Object.hasOwn(state.dependents, result.skipped[i]) ? state.dependents[result.skipped[i]] : [])
-                        if (!result.skipped.includes(dependent)) result.skipped.push(dependent);
-            } else refuse("review=choice-invalid");
-            break;
+            if (answer.value === "Install without review") break;
+            if (answer.value !== "Skip AUR packages") refuse("review=choice-invalid");
+            return outcome(run, { kind: "skipped", sentence: failure + " You chose to skip the AUR packages." });
         }
-    }
-    if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {
-        if (result.skipped.length) return { ...result, decision: "stop", coverage: "unknown" };
-        if (result.coverage === "declined") {
-            const answer = await ui("unavailable", failedRead("custom-command=unknown"));
-            if (answer.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: answer.status };
-            if (answer.value === "No") return { ...result, decision: "stop", coverage: "unknown" };
-            if (answer.value !== "Yes") refuse("review=choice-invalid");
+        const concerns = new Map();
+        for (const flag of [...(verdict?.flags || []), ...deterministic]) {
+            const concern = judge.failureLines(flag.concern).join(" ");
+            concerns.set(flag.name, [...(concerns.get(flag.name) || []), concern]);
         }
-        result.coverage = "unknown";
-    }
-    for (const step of state.steps) {
-        if (step.action === "upgrade") step.ignored = [...new Set(step.ignored.concat(result.skipped))];
-        else {
-            step.names = step.names.filter(n => !result.skipped.includes(n.split("/").pop()));
-            step.installs = step.installs.filter(n => !result.skipped.includes(n.split("/").pop()));
+        let skipped = [], results = [];
+        if (concerns.size) {
+            const flagged = [...concerns.keys()];
+            if (context.attempt > 0) return outcome(run, { kind: "failed", sentence: "AUR packages stopped: the review flagged " + flagged.join(", ") + " again." });
+            answer = await ui("flagged", flagged.join(", "), [...concerns].map(([name, risks]) => name + ": " + risks.join(" ")).join("\n"));
+            if (answer.cancelled) return cancelled(run, answer.status);
+            if (answer.value === "Stop") return outcome(run, { kind: "skipped", sentence: STOPPED });
+            if (answer.value === "Skip " + flagged.join(", ")) {
+                skipped = skipDependents(bases, flagged);
+                results = flagged.map(name => skipSentence(name, concerns.get(name), skipDependents(bases, [name]).filter(other => other !== name)));
+            } else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
+        } else if (verdict !== null) {
+            const shown = await ui("result", "No concerns found: " + names.join(", ") + ".");
+            if (shown.cancelled) return cancelled(run, shown.status);
         }
-    }
-    return { ...result, state };
-}
-function processIdentity(pid) {
-    const text = fs.readFileSync("/proc/" + pid + "/stat", "utf8");
-    return { pid, start: text.slice(text.lastIndexOf(")") + 2).split(" ")[19] };
-}
-function transaction(dir) {
-    return { dir, identity: ownedDirectory(dir) };
-}
-// paru(8) -Po reports the full build order, including AUR dependencies.
-// The emitted REPO/AUR rows are defined by paru v2.1.0 src/order.rs:
-// https://github.com/Morganamilo/paru/blob/v2.1.0/src/order.rs
-// Skip its review only when every AUR recipe belongs to the VGS decision.
-// Unknown output or a new dependency keeps the helper's own review.
-function helperReviewCovered(step, state) {
-    if (step.manager !== "aur" || path.basename(step.binary) !== "paru") return false;
-    const targets = step.action === "upgrade" ? step.binding.pending.map(p => p.name).filter(n => !step.ignored.includes(n)) : step.names.concat(step.installs);
-    if (!targets.length) return false;
-    const command = [step.binary, "--config", step.config, "-Po", "--", ...targets];
-    const order = query(command);
-    const unavailable = cause => {
-        process.stderr.write("package-review: " + JSON.stringify({ review: "helper-order-unavailable", operation: "paru-build-order", cause,
-            command, status: order.status, signal: order.signal, error: order.error?.code || null, stderr: order.stderr }) + "\n");
-        return false;
-    };
-    if (order.error) return unavailable("query-error");
-    if (order.signal) return unavailable("signal");
-    if (order.status !== 0) return unavailable("exit-status");
-    if (order.stderr) return unavailable("stderr");
-    // An update can replace this reader between consumers of one receipt.
-    // Its final steps and bound origins already hold the permitted set.
-    const permitted = new Set();
-    for (const decision of state.steps) {
-        const names = decision.action === "upgrade"
-            ? decision.binding === null ? [] : decision.binding.pending.map(p => p.name).filter(name => !decision.ignored.includes(name))
-            : decision.names.concat(decision.installs).map(name => name.split("/").pop());
-        for (const name of names) permitted.add(name);
-    }
-    const origins = state.steps.flatMap(decision => decision.binding === null ? [] : decision.binding.origins);
-    for (const name of permitted)
-        for (const origin of origins)
-            if (origin.neededBy === name) permitted.add(origin.target.split("/").pop());
-    const covered = new Set(state.packages.filter(p => p.aur && permitted.has(p.name)).map(p => p.name));
-    const parsed = managers.parseBuildOrder(order.stdout);
-    if (!parsed.ok) return unavailable("unknown-output");
-    const aur = parsed.packages.filter(p => p.origin === "AUR");
-    return aur.length > 0 && aur.every(p => covered.has(p.name));
-}
-// The fields a step's review binds, by SCOPE. A recognized AUR step binds
-// package content: the preceding system step may replace the AUR helper,
-// Includes and sync metadata. The system upgrade binds the package manager
-// and its configuration with every Include: pacman -Syu takes no target list
-// and syncs its databases again, and repository packages take no review, so
-// its pending list and repository candidates hold nothing the review judged.
-const BOUND = { content: ["pending", "origins"], system: ["binary", "config"], strict: ["binary", "config", "pending", "origins"] };
-function bindingScope(step) {
-    return step.manager === "aur" ? "content" : step.action === "upgrade" ? "system" : "strict";
-}
-function bindingChange(step, current, scope = "strict") {
-    if (current.binding === null) return "unreadable";
-    if (!same(current.binary, step.binary)) return "binary";
-    const contentOnly = scope === "content";
-    for (const field of BOUND[scope]) {
-        if (contentOnly && field === "origins") {
-            const dependencies = binding => binding.origins.filter(row => row.neededBy !== undefined).map(({ target, origin, entry, neededBy, aur }) => ({ target, origin, entry, neededBy, aur }));
-            const reviewed = dependencies(step.binding);
-            if (!dependencies(current.binding).every(row => reviewed.some(prior => same(row, prior)))) return field;
+        for (const base of pending) store[base.base + ":" + base.tree] = { decision: base.names.some(name => skipped.includes(name)) ? "skipped" : "accepted", names: base.names, verdict };
+        writeJson(path.join(run, "verdicts.json"), store);
+        if (skipped.length) {
+            const shown = await ui("result", "Packages skipped after the review: " + skipped.join(", ") + ".");
+            if (shown.cancelled) return cancelled(run, shown.status);
+            return outcome(run, { kind: "skip-packages", skipped, results, sentence: results.join(" ") });
         }
-        const project = binding => contentOnly && field === "origins" ? binding.origins.filter(row => row.neededBy === undefined).map(({ target, origin }) => ({ target, origin })) : binding[field];
-        if (!same(project(current.binding), project(step.binding))) return field;
+        return 0;
+    } catch (error) {
+        if (error instanceof files.Refusal) throw error;
+        // The sentence is the owner's; the keyed line keeps the failure's
+        // own class for the log, never on the result list.
+        const own = /^(?:The |An |Paru |VGS )/.test(error.message);
+        const detail = own ? error.cause : error.code ? "error=" + error.code + (error.syscall ? " op=" + error.syscall : "") + (error.path ? " path=" + error.path : "") : "error=" + error.name;
+        if (detail !== undefined) process.stderr.write("vgshell: review-diagnostic: " + detail + "\n");
+        return outcome(run, { kind: "unavailable", sentence: "AUR packages skipped: " + (own ? error.message : "VGS could not prepare the AUR build files for this review.") });
+    } finally {
+        fs.rmSync(pristine, { recursive: true, force: true });
+        process.umask(previousUmask);
     }
-    return null;
 }
-// What changed, in the plain words the Updates pipeline shows as the
-// failed step's cause.
-const BINDING_CHANGED = {
-    unreadable: "After the review, VGS could not read the package manager, its configuration or the packages to update.",
-    binary: "The package manager program changed after the review.",
-    config: "The package manager configuration changed after the review.",
-    pending: "The list of packages to update changed after the review.",
-    origins: "The source of a package to update changed after the review.",
-    recipes: "The reviewed build files changed after the review."
-};
-function refuseBindingChanged(field) {
-    refuse("review=authority-binding-changed field=" + field, undefined, undefined, BINDING_CHANGED[field] + " Run the update again so that VGS reviews the packages again.");
-}
-// paru v2.1.0 (70f66dc9) devel.rs::parse_url tracks unpinned git
-// sources from the base SRCINFO, not package-name suffixes.
-function trackingBases(step, state) {
-    const targets = new Set(step.action === "upgrade" ? step.binding.pending.map(p => p.name).filter(name => !step.ignored.includes(name))
-        : step.names.concat(step.installs).map(name => name.split("/").pop()));
-    const wanted = new Set(state.packages.filter(pkg => pkg.aur && targets.has(pkg.name)).map(pkg => pkg.name));
-    const bases = new Set();
-    const read = fields => {
-        const base = fields.find(field => field.key === "pkgbase")?.value;
-        const names = fields.filter(field => field.key === "pkgname").map(field => field.value);
-        const baseFields = fields.slice(0, fields.findIndex(field => field.key === "pkgname"));
-        if (names.some(name => wanted.has(name)) && baseFields.some(field => /^source(?:_|$)/.test(field.key)
-            && /^git[^:]*:\/\/[^#]+(?:#(?!commit=|tag=).*)?$/.test(field.value.split("::").pop()))) {
-            if (!base) refuse("review=tracking-srcinfo-unreadable");
-            bases.add(base);
-        }
-    };
-    if (state.packages.some(pkg => pkg.published && wanted.has(pkg.name))) {
-        const published = publishedPackages();
-        if (published.fields === null) refuse("review=tracking-srcinfo-unreadable cause=" + published.cause);
-        for (const recipe of new Set(published.fields.map(field => field.recipe)))
-            read(published.fields.filter(field => field.recipe === recipe));
+// Only VGS-published targets may take this shortcut. The full read-only
+// resolver order includes make/check dependencies before any clone is built.
+// The covered targets' package names, or null when the review stays.
+function helperReviewCovered(action, names, ignored, config, binary) {
+    const published = publishedPackages();
+    if (published.names === null) return null;
+    let targets = names;
+    if (action === "upgrade") {
+        const check = managers.checkFor("aur", binary).check;
+        if (!check) return null;
+        const command = check.argv.slice();
+        if (config) command.splice(1, 0, "--config", config);
+        const read = query(command);
+        if (read.error || read.signal) return null;
+        const result = managers.checkOutcome(check, read.status, read.stdout, read.stderr);
+        if (result.error) return null;
+        targets = result.packages.map(pkg => pkg.name).filter(name => !ignored.includes(name));
     }
-    for (const file of state.recipes.filter(file => path.basename(file.path) === ".SRCINFO"))
-        read(judge.srcinfoFields(fs.readFileSync(file.path, "utf8")));
-    return [...bases];
+    if (!targets.length || targets.some(name => judge.publisher(name.split("/").pop(), true, published.names) !== "vgs")) return null;
+    const command = [binary, ...(config ? ["--config", config] : []), "-Po", "--", ...targets];
+    const read = query(command);
+    if (read.error || read.signal || read.status !== 0 || read.stderr) return null;
+    const order = managers.parseBuildOrder(read.stdout);
+    const covered = order.ok && order.packages.some(pkg => pkg.origin === "AUR")
+        && order.packages.filter(pkg => pkg.origin === "AUR").every(pkg => judge.publisher(pkg.name, true, published.names) === "vgs");
+    return covered ? targets.map(name => name.split("/").pop()) : null;
 }
-async function prepare(requestPath, resultPath) {
-    const dir = path.dirname(requestPath);
-    if (!path.isAbsolute(requestPath) || path.dirname(resultPath) !== dir || requestPath === resultPath) refuse("review=paths");
-    const tx = transaction(dir);
-    let request;
-    try { request = JSON.parse(privateFile(requestPath)); } catch (_) { refuse("review=request-unreadable"); }
-    if (privateFile(resultPath) !== "") refuse("review=result-not-empty");
-    const resultFd = fs.openSync(resultPath, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW);
-    const resultStat = fs.fstatSync(resultFd);
-    if (!resultStat.isFile() || resultStat.nlink !== 1 || resultStat.uid !== process.getuid() || (resultStat.mode & 0o077) || resultStat.size !== 0) {
-        fs.closeSync(resultFd); refuse("review=result-unsafe");
+// paru 2.2.0 install.rs:1699 puts FileManagerFlags before the view, so
+// the launcher's call carries them as extra words after --.
+function refuseFileManagerFlags(run) {
+    reviewRun(run);
+    outcome(run, { kind: "failed", sentence: "The FileManagerFlags setting in paru.conf adds options the AUR review cannot take. Remove it from paru.conf to review AUR packages." });
+    refuse("review-files=file-manager-flags");
+}
+function launcher(run, config) {
+    const file = path.join(run, "review");
+    const endpoint = path.join(repo, "bin/vgshell-pkg");
+    // Paru invokes FileManager as one executable, then appends its flags and
+    // view. Encode our arguments as data; foreign FileManagerFlags remain
+    // extra arguments after --, which review-files refuses.
+    fs.writeFileSync(file, "#!" + process.execPath + "\nprocess.argv = " + JSON.stringify([process.execPath, endpoint, "review-files", "--run", run, "--config", config, "--"]) + ".concat(process.argv.slice(2));\nrequire(" + JSON.stringify(endpoint) + ");\n", { mode: 0o700, flag: "wx" });
+    return file;
+}
+// EXECUTE runs the package step; its admitted argument carries the review
+// command, the saved decline and tracking(), the devel bases the step
+// built, which bin/vgshell-pkg checks after paru --gendb.
+async function withReview(action, manager, names, ignored = [], installs = [], config, execute) {
+    const original = { names, ignored, installs, config };
+    if (manager !== "aur" || action === "remove") return execute(original);
+    const found = managers.presentManager(manager, onPath);
+    if (!found.ok || path.basename(found.binary) !== "paru") return execute(original);
+    const effective = effectiveConfig(config, found.binary);
+    const targets = names.concat(installs).map(name => name.split("/").pop());
+    const settings = settingsRead().settings;
+    const covered = settings.enabled === false ? null : helperReviewCovered(action, names.concat(installs), ignored, effective, found.binary);
+    if (settings.enabled === false || covered !== null) {
+        // An upgrade with the review turned off reads no pending list, so
+        // it names no target to check.
+        const built = covered || (action === "upgrade" ? [] : targets);
+        return execute({ ...original, skipReview: true, tracking: () => publishedTracking(built) });
     }
-    const storage = fs.mkdtempSync(path.join(dir, "owner-")); fs.chmodSync(storage, 0o700);
-    let kept = false;
+    const run = newRun();
+    const reviewCommand = launcher(run, effective);
+    const tracking = () => viewTracking(run);
     try {
-        const result = await review(request, storage);
-        if (result.decision === "proceed") {
-            const receipt = crypto.randomBytes(24).toString("hex");
-            const record = { version: 1, coverage: result.coverage, owner: processIdentity(process.ppid), transaction: tx, request, state: result.state, consumed: [] };
-            fs.writeFileSync(path.join(storage, receipt), JSON.stringify(record), { flag: "wx", mode: 0o600 });
-            result.receipt = path.basename(storage) + "/" + receipt;
-            kept = true;
+        let ended = await execute({ ...original, reviewCommand, skipReview: false, tracking });
+        let result = readOutcome(run);
+        if (result?.kind === "skip-packages") {
+            const skipped = result.skipped;
+            if (action !== "upgrade" && skipsAll(result, targets)) return finalOutcome(manager, "paru", result, targets);
+            const next = action === "upgrade" ? { ...original, ignored: [...new Set(ignored.concat(skipped))] }
+                : { ...original, names: names.filter(name => !skipped.includes(name.split("/").pop())), installs: installs.filter(name => !skipped.includes(name.split("/").pop())) };
+            // The skip is a result of its own, whatever paru's second call
+            // answers; that call's own failure keeps its cause.
+            for (const line of result.results) resultLine(line);
+            writeJson(path.join(run, "context.json"), { attempt: 1 });
+            fs.unlinkSync(path.join(run, "outcome.json"));
+            ended = await execute({ ...next, reviewCommand, skipReview: false, tracking });
+            result = readOutcome(run);
         }
-        const { state, status, ...wire } = result;
-        fs.writeFileSync(resultFd, JSON.stringify(wire) + "\n");
-        return status || 0;
-    } finally { fs.closeSync(resultFd); if (!kept) fs.rmSync(storage, { recursive: true, force: true }); }
+        return result === null ? ended : finalOutcome(manager, "paru", result, targets);
+    } finally { fs.rmSync(run, { recursive: true, force: true }); }
 }
-function consume(receipt, request, customArgv) {
-    const dir = process.env.VGS_PACKAGE_TRANSACTION;
-    if (!dir || !/^owner-[A-Za-z0-9]+\/[a-f0-9]{48}$/.test(receipt)) refuse("review=authority-missing");
-    const tx = transaction(dir), file = path.join(dir, receipt);
-    const lock = files.lockFile(file + ".lock", false);
-    if (lock.state !== "held") refuse("review=authority-busy");
+function buildRoot() {
+    const cache = process.env.XDG_CACHE_HOME || path.join(home(), ".cache");
+    const dir = path.join(cache, "vgshell/package-build");
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const real = fs.realpathSync(dir);
+    ownedDirectory(real);
+    assertCloneOutsideWriteRoots(real, workRoot());
+    return real;
+}
+// The helper bootstrap's review of its fetched clone, whose one target is
+// paru: null when the build may go on, else the run's { status, outcome }.
+async function bootstrap(tree) {
+    if (settingsRead().settings.enabled === false) return null;
+    const run = newRun();
     try {
-        const record = JSON.parse(privateFile(file));
-        if (record.version !== 1 || !same(record.transaction, tx) || !same(processIdentity(record.owner.pid), record.owner)) refuse("review=authority-foreign");
-        if (customArgv !== undefined) {
-            if (!same(record.request.customAurArgv, customArgv) || customMode(customArgv) !== "unknown" || record.coverage !== "unknown" || record.customConsumed) refuse("review=authority-custom-changed");
-            const binary = customArgv[0];
-            if (!record.state.customBinding || !same(identity(fs.realpathSync(commandFile(binary) || binary)), record.state.customBinding)) refuse("review=authority-custom-changed");
-            if (record.state.customConfig !== null && !same(configIdentity(record.request.config), record.state.customConfig)) refuse("review=authority-config-changed");
-            const group = record.request.groups.find(g => g.manager === "aur");
-            if (group) {
-                const current = gather({ ...record.request, groups: [group], rebuild: [] });
-                const step = record.state.steps.find(s => s.manager === "aur" && s.action === "upgrade");
-                if (!step || step.binding === null) refuse("review=authority-binding-unreadable");
-                const field = bindingChange(step, current.steps[0]);
-                if (field !== null) refuseBindingChanged(field);
-            }
-            record.customConsumed = true;
-            fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
-            return { kind: "custom", coverage: "unknown" };
-        }
-        const group = request.groups[0];
-        if (record.request.customAurArgv !== null && group.manager !== "aur") {
-            const binary = record.request.customAurArgv[0];
-            if (!record.state.customBinding || !same(identity(fs.realpathSync(commandFile(binary) || binary)), record.state.customBinding)) refuse("review=authority-custom-changed");
-        }
-        if (group.manager === "aur" && request.action === "upgrade" && record.request.customAurArgv !== null && customMode(record.request.customAurArgv) === "unknown") refuse("review=authority-custom-only");
-        const index = record.state.steps.findIndex(s => s.manager === group.manager && s.action === request.action && same(s.names, group.names) && same(s.installs, group.installs) && same(s.ignored, group.ignored) && s.config === request.config);
-        if (index < 0 || record.consumed.includes(index)) refuse("review=authority-stale-or-consumed");
-        const step = record.state.steps[index];
-        if (step.binding === null) refuse("review=authority-binding-unreadable");
-        const original = record.request.groups.find(g => g.manager === step.manager);
-        // A step reads only what its review binds: a pending query that
-        // changes or fails after the review cannot refuse the system upgrade.
-        const scope = bindingScope(step);
-        const current = gather({ ...request, groups: [{ ...group, ignored: step.inputIgnored }], rebuild: [] }, scope === "system");
-        const field = bindingChange(step, current.steps[0], scope);
-        if (field !== null) refuseBindingChanged(field);
-        if (record.state.recipes.length && !same(recipesIdentity(path.join(path.dirname(file), "evidence/build")), record.state.recipes)) refuseBindingChanged("recipes");
-        if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
-        record.consumed.push(index);
-        fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
-        const dependenciesCovered = helperReviewCovered(step, record.state);
-        return { ...step, coverage: record.coverage, dependenciesCovered,
-            ...(group.manager === "aur" && path.basename(step.binary) === "paru" && dependenciesCovered
-                ? { trackingBases: trackingBases(step, record.state) } : {}) };
-    } catch (e) {
-        if (e instanceof files.Refusal) throw e;
-        refuse("review=authority-unreadable");
-    } finally { lock.release(); }
+        await reviewFiles(run, tree, effectiveConfig(undefined, "pacman"), tree);
+        const result = readOutcome(run);
+        return result === null ? null : finalOutcome("aur", "makepkg", result, ["paru"]);
+    } finally { fs.rmSync(run, { recursive: true, force: true }); }
 }
-async function admit(action, manager, names, ignored = [], installs = [], config, receipt) {
-    // A verified-file package's origin evidence is its signature against the
-    // pinned key, which bin/lib/pkg-file.js checks before any root step, so
-    // it takes no review, as an official repository's package takes none.
-    if (!["pacman", "aur"].includes(manager) || action === "remove") return { names, ignored, installs, config };
-    const request = { version: 1, mode: action === "upgrade" ? "upgrade" : "named", action, groups: [{ manager, names, installs, ignored }], sources: action === "upgrade" ? [manager] : [], rebuild: [], config: config || null, customAurArgv: null };
-    if (receipt) return consume(receipt, request);
-    if (process.env.VGS_PACKAGE_TRANSACTION) refuse("review=authority-missing");
-    const storage = fs.mkdtempSync(path.join(workRoot(), "review-")); fs.chmodSync(storage, 0o700);
-    try {
-        const result = await review(request, storage);
-        if (result.decision !== "proceed") return { stop: true, status: result.status || 0 };
-        const step = result.state.steps[0];
-        if (result.skipped.length) process.stderr.write("Packages skipped: " + result.skipped.join(", ") + "\n");
-        // Declining preserves the original argv, including absence of --config.
-        return { names: step.names, installs: step.installs, ignored: step.ignored, config };
-    } finally { fs.rmSync(storage, { recursive: true, force: true }); }
-}
-async function bootstrap() {
-    const storage = fs.mkdtempSync(path.join(workRoot(), "bootstrap-"));
-    fs.chmodSync(storage, 0o700);
-    try {
-        const result = await review({ version: 1, mode: "bootstrap", action: "install", groups: [{manager:"pacman",names:["paru"],installs:[],ignored:[]}], sources: [], rebuild: [], config: null, customAurArgv: null }, storage);
-        return result.decision === "proceed" && !result.skipped.includes("paru") ? 0 : result.status || 1;
-    } finally { fs.rmSync(storage, { recursive: true, force: true }); }
-}
-module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, workRoot, ownedDirectory, privateFile, ui, evidenceFailures, orphanInfo, rebuildAllowed };
+module.exports = { available, bootstrap, buildRoot, customMode, judge, settingsRead, settingsWrite, createRun, withReview, reviewFiles,
+    refuseFileManagerFlags, resultLine, terminalChild, workRoot, ownedDirectory, privateFile, ui, orphanInfo, rebuildAllowed, unavailableCustom };

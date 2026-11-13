@@ -22,6 +22,7 @@ f share/vgshell/bin/lib/pkg-config.js
 f share/vgshell/bin/lib/pkg-file.js
 f share/vgshell/bin/lib/pkg-outcome.js
 f share/vgshell/bin/lib/pkg-retry.js
+f share/vgshell/bin/lib/pkg-review-copy.py
 f share/vgshell/bin/lib/pkg-review-settings.sh
 f share/vgshell/bin/lib/pkg-review.js
 f share/vgshell/bin/lib/pkg-review.sh

@@ -6,7 +6,7 @@ Read when changing update execution or source admission. The [manifest](manifest
 
 One lock protects the update run. A busy run leaves the active run's log intact. Low disk space and snapshot failure warn without refusing the update.
 
-The plan and shared review preparation precede the snapshot and Updates' credential session. A missing AUR helper is a separate reviewed prerequisite transaction whose credentials end before that preparation.
+The plan and effective package configurations precede the snapshot and Updates' credential session. A missing AUR helper reviews its fetched clone before building it. Its credentials end before Updates starts its session.
 
 A snapshot precedes package replacement when a configured tool and elevation route are available. The pipeline drops its shared sudo session before the AUR phase. That phase uses its own credential guard and drops any cached credential on completion, failure or interruption.
 
@@ -16,7 +16,7 @@ The pipeline takes package plans and execution from the shared package owner. It
 
 No part's failure ends the run. A source-step failure records its cause and permits later independent sources. A failed or declined system step, or a failed paru install, skips AUR work and the VGS rebuild that depends on it. A refused password skips every step that needs it and leaves the others running. A declined AUR transaction never grants rebuild permission. After a failed build, the package owner must prove that every failed package is outside VGS's dependency build order before the rebuild proceeds. Unknown evidence keeps the rebuild skipped. Interruption stops the run. The error trap is for faults of the pipeline itself and still prints the result list so far; the header distinguishes source failures from these faults.
 
-The cause reader owns each result sentence. A refusal that gives only its key reads as a sentence without it, and the key goes to the diagnostics log. pacman's known English errors map to VGS's sentences. Every line a step printed passes through `PackageReview.failureLines` before it reaches a result line or the outcome file ([secrets.md](../../../docs/architecture/secrets.md)).
+The cause reader owns each result sentence. A refusal that gives only its key reads as a sentence without it, and the key goes to the diagnostics log. pacman's known English errors map to VGS's sentences. The package owner's review outcome is the cause of a failed step and the whole result of a step it skipped. Each package result line the owner prints joins the result list, whatever the step's status. A paru step that ends 0 with output VGS cannot read has an unknown result, and no later step counts on it. Every line a step printed passes through `PackageReview.failureLines` before it reaches a result line or the outcome file ([secrets.md](../../../docs/architecture/secrets.md)).
 
 The terminal remains attached to both output streams. The outer TUI relay compacts source-build output after recording it, naming the full log while retaining questions on screen. Cause extraction reads marked ranges from the original shared TUI transcript, rather than the compact display. An unavailable transcript range reports that the output could not be read; it does not invent a package failure cause.
 
@@ -24,9 +24,9 @@ The pipeline owns the outcome file the [service](developer.md#cadence) reads. It
 
 ## Third-party review
 
-The [package-review contract](../../../docs/architecture/commands-are-data.md#package-review) owns consent and common admission. Updates retains each source's prepared effective configuration through execution. Each upgrade or named rebuild consumes its exact bound authority once. Completion or cancellation removes unused authority.
+The [package-review contract](../../../docs/architecture/commands-are-data.md#package-review) owns consent and review. The package owner runs the agent during paru's file-manager review, after Updates ends its credential session. paru builds the clones it handed to that review. Updates retains no receipt or later binding.
 
-A missing, stale, consumed or unreadable binding stops before mutation. Review does not start again inside a credential session. A supported custom AUR command uses common admission; unsupported commands require explicit continuation with unavailable review and receive no package-skipping or clean verdict.
+A supported custom AUR command uses the same reviewed argv. An unsupported command requires explicit continuation with unavailable review; a No reads as a declined step. yay retains its own review menus.
 
 Updates owns source order, snapshots, hook masking, results, orphan decisions and reboot decisions. The common package owner supplies agent detection, review settings, prompts and verdict parsing.
 

@@ -2,10 +2,8 @@
   "package": "protonup-rs",
   "pkgbase": "protonup-rs",
   "old": "0.15.0-1",
-  "new": "0.15.1-1",
   "expect": "clean",
   "source": "AUR protonup-rs commit 737227002fd24c771deaaf1f54b2568a1e229b63, https://aur.archlinux.org/cgit/aur.git/commit/?h=protonup-rs&id=737227002fd24c771deaaf1f54b2568a1e229b63; recipe licence: 0BSD (LICENSE in the AUR repository); cached copy: commit e96d26479f1262548f72a8d35238e2ff25b4118d, its parent; a release update of a Rust package whose prepare() fetches its locked crates with `cargo fetch --locked` and builds with `cargo build --frozen`; the real change bumps the release, its checksum and adds the libgcc dependency",
   "install": "none",
-  "installerRisk": false,
-  "recipe": "changed"
+  "installerRisk": false
 }

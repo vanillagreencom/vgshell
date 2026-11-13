@@ -72,9 +72,10 @@ function verify(logic) {
     ["malformed architecture",recipe.replace("x86_64","'x86_64'"),"need-two","need-two-base",null]
   ]) assert.deepEqual(JSON.parse(JSON.stringify(logic.srcinfoArchitectures(text,name,base))),want,"recipe architecture: "+label);
   // [settings, agents found, initial row, preference, availability, asks]:
-  // only a saved Install without review asks nothing.
+  // either saved choice answers the offer, independent of availability.
   const cases = [
-    [{enabled:true}, [], "review", "on", "unavailable", true],
+    [{enabled:true}, [], "review", "on", "unavailable", false],
+    [{enabled:true,agent:"codex"}, ["codex"], "review", "on", "available", false],
     [{enabled:false,agent:"claude"}, ["claude"], "decline", "off", "available", false],
     [{enabled:false}, [], "decline", "off", "unavailable", false],
     [{agent:"codex"}, ["codex"], "review", "absent", "available", true],
@@ -176,18 +177,6 @@ const managersAt=process.argv.indexOf("--managers");
 const managers=load(managersAt<0?path.join(__dirname,"../../../shell/Core/PackageManagers.js"):process.argv[managersAt+1]);
 const available=name=>["pacman","paru"].includes(name);
 same(managers.plan("pacman","install",["widget"],available,[],"/nondefault.conf").plan.steps,[["pacman","--config","/nondefault.conf","-S","--needed","--","widget"]]);
-for(const [label,effective,complete] of [
- ["generated-hook-wrapper",{repositories:["core","extra"],dbPath:"/var/lib/pacman/"},true],
- ["other-repositories",{repositories:["core","custom"],dbPath:"/var/lib/pacman/"},false],
- ["other-dbpath",{repositories:["core","extra"],dbPath:"/other/db/"},false]
-]){
- const read=file=>file==="/etc/pacman.conf"?{repositories:["core","extra"],dbPath:"/var/lib/pacman/"}:effective;
- const pending=managers.reviewCheckFor("pacman","pacman","/transaction/pacman.conf",read);
- assert.equal(pending.complete,complete,label);
- same(pending.check.argv,complete?["checkupdates"]:["pacman","--config","/transaction/pacman.conf","-Qu"],label);
-}
-same(managers.reviewCheckFor("aur","paru","/nondefault.conf").check.argv,["paru","--config","/nondefault.conf","-Qua"]);
-assert.equal(managers.reviewCheckFor("aur","paru","/nondefault.conf").origin,"aur");
 verify(load(file));
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"test-package-review-"));
 try {
@@ -196,11 +185,11 @@ try {
  fs.copyFileSync(path.join(path.dirname(file),"PackageManagers.js"),path.join(scratch,"PackageManagers.js"));
  // [mutant, needle, replacement, the row that must fail]: a flag for a
  // package not reviewed; any repository's package read as VGS's; a saved
- // Install without review that still asks.
+ // choice to review that still asks.
  for(const [label,needle,replacement,fails] of [
   ["verdict","reviewed.indexOf(m[1]) < 0 || ","",/line=2/],
   ["publisher","if (viaAur !== true) return \"third-party\";\n","",/publisher: vgshell-git from a repository/],
-  ["ask","ask: !(hasOwn(s, \"enabled\") && s.enabled === false) };","ask: true };",/"enabled":false/],
+  ["ask","ask: !hasOwn(s, \"enabled\") };","ask: !(hasOwn(s, \"enabled\") && s.enabled === false) };",/"enabled":true/],
   ["architecture","var selected = own.length > 0 ? own : inherited;","var selected = inherited;",/recipe architecture: split override/]
  ]){
   assert.equal(source.split(needle).length-1,1,label);

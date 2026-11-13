@@ -2,10 +2,8 @@
   "package": "gnome-shell-extension-battery-health-charging-git",
   "pkgbase": "gnome-shell-extension-battery-health-charging-git",
   "old": null,
-  "new": "74.r10.g874186d-1",
   "expect": "clean",
   "source": "AUR gnome-shell-extension-battery-health-charging-git commit 695dc795ed0abe50c5df79db533e10982c44808e, https://aur.archlinux.org/cgit/aur.git/commit/?h=gnome-shell-extension-battery-health-charging-git&id=695dc795ed0abe50c5df79db533e10982c44808e; recipe licence: 0BSD (LICENSE in the AUR repository); a first install of a -git package (git source, SKIP checksum) whose install script only echoes advice, including printed `sudo rm` commands for a polkit rule it never runs",
   "install": "new",
-  "installerRisk": false,
-  "recipe": "new"
+  "installerRisk": false
 }
