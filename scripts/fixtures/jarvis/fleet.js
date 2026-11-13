@@ -116,7 +116,7 @@ function world(backend, tree, base) {
         assert.notEqual(result.code, 0, name);
         assert.match(result.stderr, new RegExp("^jarvis: fleet-setup=" + key + "\\b", "m"), name + ": " + result.stderr);
     };
-    const ADD = ["kendex", "add", "vanillagreencom/kendex", "--bundle", "jarvis", "--harness", "claude,codex", "--yes", "--leave"];
+    const ADD = ["kendex", "add", "vanillagreencom/kendex", "--bundle", "jarvis", "--harness", "claude,codex", "--yes", "--allow-repo-effects", "--leave"];
     return {
         run, ok, refused, ADD,
         Home: require(path.join(backend, "Home.js")),

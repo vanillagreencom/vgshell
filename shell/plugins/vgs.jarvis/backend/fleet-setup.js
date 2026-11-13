@@ -18,8 +18,11 @@
 //           for the TUI to show before the user confirms
 // Each step but init and the main-host read-back keeps the terminal's input
 // and output: git and kendex write there, and git uses the user's SSH
-// agent or asks there for an SSH passphrase. kendex add runs with --yes, so
-// it asks nothing. The two
+// agent or asks there for an SSH passphrase. The plan the user confirmed
+// names kendex add's --yes, which skips kendex's confirmation prompts, and
+// its --allow-repo-effects, which says yes to the repository changes the
+// package declares, its hooks among them: that one confirmation answers
+// both of kendex's questions. The two
 // piped steps' reports are read, not shown, and their stderr reaches the
 // terminal once each ends.
 // Every refusal is one keyed line, `jarvis: fleet-setup=<key> ...`, on
@@ -41,7 +44,11 @@ const BUNDLE = "jarvis";
 // would be installed — no tool is on this machine and this scope names
 // none", kendex 1.20.0 in a fresh HOME, 2026-11-08), so the harnesses are
 // named: the two whose folders a Jarvis home keeps (home-layout.md).
-const ADD = ["add", MARKETPLACE, "--bundle", BUNDLE, "--harness", "claude,codex", "--yes", "--leave"];
+// --yes alone still asks before the repository changes the packages
+// declare, and with no terminal to ask kendex makes none of them;
+// --allow-repo-effects is kendex's own yes (kendex 1.20.0, `confirm` in
+// crates/cli/src/commands/repo_effects.rs).
+const ADD = ["add", MARKETPLACE, "--bundle", BUNDLE, "--harness", "claude,codex", "--yes", "--allow-repo-effects", "--leave"];
 // The update a refresh remedy names, written for the selected home: no
 // --yes, --discard-edits or global write (D126).
 const REFRESH = folder => ["refresh", "--scope", "project", "--project-path", folder, "--leave"];

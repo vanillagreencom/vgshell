@@ -442,6 +442,7 @@ async function inside() {
             ["fleet-outside-projects", "setup-refusals", "    outsideProjects(folder);\n    fs.mkdirSync(folder, { recursive: true });", "    fs.mkdirSync(folder, { recursive: true });"],
             ["fleet-read-back", "setup-step-fails", "    await initialize(folder, env, signal);\n    readBack(folder);\n    return 0;\n}\n\n// Whether the history",
                 "    await initialize(folder, env, signal);\n    return 0;\n}\n\n// Whether the history"],
+            ["fleet-repo-effects", "setup", '"--yes", "--allow-repo-effects", "--leave"', '"--yes", "--leave"'],
             ["fleet-main-host-set", "setup-main-host", '    if (main !== "") fail("main-host-set main=" + JSON.stringify(main));\n', ""],
             ["fleet-linked-home", "setup-linked", "    const own = real(folder);\n", "    const own = path.resolve(folder);\n"],
             ["fleet-clone-history", "clone-history", '            if (credentialsInHistory(folder)) fail("credentials-committed");\n', ""],
