@@ -4,6 +4,9 @@
 The deadline uses comment 7c7e9c13's started/first-hold origin window.
 Requests sleep 10 ms between reads; receipt times retain the measured
 sampling intervals and every silent unlink/relink sample.
+
+Exit status: 0 on a pass, LATE_RELEASE_STATUS when the deadline judge's
+failure is a late release, and 1 on every other failure.
 """
 import json
 import copy
@@ -13,6 +16,12 @@ import signal
 import subprocess
 import sys
 import time
+
+# A late release is the judge's only timing verdict: the hold released, but
+# after its bound. hold-native.sh judges this status by the world's CPU
+# pressure. Every other kind judges the route or the hold, exits 1 and fails
+# at any pressure.
+LATE_RELEASE_STATUS = 3
 
 
 class DeadlineFailure(AssertionError):
@@ -51,9 +60,16 @@ def deadline_judge(record):
                 return "held"
             if sample["targets"] == ["vgs-smoke-speakers"]:
                 return "audible"
+        # Silent: no target and no link out of the player's nodes, in the
+        # one pw-dump that targets() also read. Comment 7c7e9c13 (VGS-2127)
+        # also required an idle node, from the one staged trace it had
+        # (RECORDED_STAGED), and names no hazard the state guards. The state
+        # lags the unlink: deadline-actual.json of VGS-2463's run
+        # 20261112T232922Z and VGS-2530's run 20261113T044501Z read it
+        # running at an on-time crossing this judge failed. This judge's
+        # route is a link, so a sample with none routes the player nowhere.
         if (sample["targets"] == [] and snapshot["state"] == "unlinked"
-                and snapshot["nodes"] and not snapshot["links"]
-                and all(n["state"] == "idle" for n in snapshot["nodes"])):
+                and snapshot["nodes"] and not snapshot["links"]):
             return "silent"
         return "unproved"
 
@@ -369,7 +385,7 @@ RECORDED_STAGED = {
          "links": [{"info": {"state": "active"}}]}]}
 
 
-def deadline_judge_controls():
+def deadline_judge_cases():
     cases = [("direct-crossing", RECORDED_ACTUAL, None),
              ("silent-crossing", RECORDED_STAGED, None),
              ("no-release", RECORDED_CONTROL, "no-release")]
@@ -402,6 +418,11 @@ def deadline_judge_controls():
     cases.append(("inactive-mute", value, "active-mute-unproved"))
     value = copy.deepcopy(RECORDED_STAGED)
     value["snapshots"][1]["nodes"][0]["state"] = "running"
+    cases.append(("running-crossing", value, None))
+    # No target read, but the player's own snapshot still links and runs.
+    value = copy.deepcopy(RECORDED_STAGED)
+    value["snapshots"][1].update(state="linked", nodes=[{"state": "running"}],
+                                 links=[{"info": {"state": "active"}}])
     cases.append(("unproved-silence", value, "hold-transition-unproved"))
     value = copy.deepcopy(RECORDED_STAGED)
     value["readings"][-2]["at"] += 1
@@ -421,8 +442,12 @@ def deadline_judge_controls():
     value["readings"] = value["readings"][:2]
     value["guardsChecked"] = len(value["readings"])
     cases.append(("short-observation", value, "observation-too-short"))
+    return cases
+
+
+def deadline_judge_controls():
     checks = []
-    for name, value, expected in cases:
+    for name, value, expected in deadline_judge_cases():
         try:
             result = deadline_judge(value)
         except DeadlineFailure as error:
@@ -432,7 +457,7 @@ def deadline_judge_controls():
             assert result["originWindow"] == value["firstHold"] - value["started"]
             assert result["firstActiveReal"] >= value["started"] + value["deadlineSeconds"]
             assert result["firstActiveReal"] <= result["nominal"] + result["measuredInterval"]
-            if name == "silent-crossing":
+            if name in ("silent-crossing", "running-crossing"):
                 assert [s["classification"] for s in result["crossingSamples"]] == ["held", "silent", "audible"]
                 assert result["crossingSamples"][1]["targets"] == []
         checks.append(name)
@@ -445,6 +470,10 @@ if __name__ == "__main__":
             print(json.dumps(deadline_judge(json.loads(Path(sys.argv[2]).read_text())), sort_keys=True))
         elif sys.argv[1] == "judge-controls":
             deadline_judge_controls()
+        elif sys.argv[1] == "judge-planted":
+            # hold-native.sh's pressure control judges a named control case
+            # through this exit path, as the row's native run is judged.
+            deadline_judge(next(value for name, value, _ in deadline_judge_cases() if name == sys.argv[2]))
         elif sys.argv[1] in ("kill-writer", "writer"):
             writer(sys.argv[1], sys.argv[2])
         elif sys.argv[1] == "rehold-record":
@@ -453,4 +482,5 @@ if __name__ == "__main__":
             stream(*sys.argv[1:])
     except (AssertionError, OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print("hold-native: failed=" + str(error), file=sys.stderr)
-        sys.exit(1)
+        late = isinstance(error, DeadlineFailure) and error.kind == "late-release"
+        sys.exit(LATE_RELEASE_STATUS if late else 1)

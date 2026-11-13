@@ -1,7 +1,15 @@
 # The notifications row's real-store restart, lease and missed-delivery cases.
 # The 15000 ms hold policy is carried by the shell entry, not restated here.
 # hold-native.py polls the real graph every 10 ms and retains each reading.
-# This is a policy-bound timer-wiring check, not a latency benchmark.
+# The deadline case is a timer-wiring check, not a latency benchmark: it
+# proves the real timer releases the hold within its bound. Its timed
+# window is judged as docs/architecture/validation.md § Latency budgets
+# judges a reading, "by the CPU pressure of its own world": a late release
+# above harness.sh's latency_pressure_limit is not measured, and at or
+# below it fails. A hold that never releases fails at any pressure, as that
+# section's run that never ends does; the deadline control rests on that
+# failure. Every other judge kind proves the route or the hold, not its
+# timing, and fails at any pressure, as the restart and lease cases do.
 set -euo pipefail
 note_hold_active=no
 note_hold_delivery_backup=""
@@ -50,8 +58,9 @@ notification_hold_restore_delivery() {
 }
 
 notification_hold_cases() {
-  local mode variant status result evidence
+  local mode variant status result evidence world_us host_us start_ms window_ms pressure
   python3 "$note_hold_fixture/hold-native.py" judge-controls
+  expect "control: the native hold deadline excuses only a late release, and only by its world's pressure" ok notification_hold_deadline_cases
   expect_poll "the custom audio deployment reports unsupported bootstrap" '"unavailable"' note_status soundRule.phase
   expect "unsupported bootstrap publishes the Settings requirement" True notification_hold_notice
   for mode in restart lease deadline; do
@@ -87,13 +96,23 @@ notification_hold_cases() {
       if [[ $mode == lease ]]; then
         "${shell_env[@]}" python3 "$note_hold_fixture/hold-native.py" kill-writer "$shell_qs_pid" >"$note_hold_evidence/lease-$variant-writer.json"
       fi
+      if [[ $mode == deadline && $variant == actual ]]; then
+        world_us="$(cpu_some_us)" host_us="$(host_cpu_some_us)" start_ms="$(now_ms)"
+      fi
       status=0
       "${shell_env[@]}" python3 "$note_hold_fixture/hold-native.py" "$mode" "$note_hold_tone" "$evidence" >"$note_hold_evidence/$mode-$variant.out" 2>&1 || status=$?
+      if [[ $mode == deadline && $variant == actual ]]; then
+        window_ms=$(( $(now_ms) - start_ms ))
+        pressure="$(cpu_some_pct "$world_us" "$(cpu_some_us)" "$window_ms")"
+        printf '  native_hold_deadline status=%s window_ms=%s cpu_some_pct=%s host_cpu_some_pct=%s\n' "$status" "$window_ms" "$pressure" "$(cpu_some_pct "$host_us" "$(host_cpu_some_us)" "$window_ms")"
+      fi
       if [[ $mode != deadline ]]; then
         kill -CONT "$shell_qs_pid"
         note_audio_shell_stopped=no
       fi
-      if [[ $variant == actual ]]; then
+      if [[ $variant == actual && $mode == deadline ]]; then
+        notification_hold_deadline_check "$status" "$pressure"
+      elif [[ $variant == actual ]]; then
         expect "native hold $mode reaches its required real route" 0 echo "$status"
       else
         case $mode in
@@ -113,6 +132,57 @@ notification_hold_cases() {
   expect "Sound returns on after native hold cases" on notes sound on
 }
 
+# notification_hold_deadline_verdict STATUS CPU_SOME_PCT: pass for status
+# 0 and failed for any status but 3, hold-native.py's LATE_RELEASE_STATUS.
+# A late release takes latency_pressure_verdict's answer for a miss:
+# unmeasured above the limit, over at or below it, and unread for a
+# pressure that is not a reading.
+notification_hold_deadline_verdict() {
+  if [[ $1 == 0 ]]; then echo pass
+  elif [[ $1 == 3 ]]; then latency_pressure_verdict 1 "$2" 0
+  else echo failed
+  fi
+}
+notification_hold_deadline_check() { # STATUS CPU_SOME_PCT
+  local verdict
+  verdict="$(notification_hold_deadline_verdict "$1" "$2")"
+  case "$verdict" in
+    pass) ok "native hold deadline reaches its required real route" ;;
+    unmeasured) not_measured notifications "native_hold_deadline-late-release-cpu_some_pct=$2-above-$latency_pressure_limit" ;;
+    *) fail "native hold deadline reaches its required real route: got $1 verdict=$verdict cpu_some_pct=$2" ;;
+  esac
+}
+# The control for that check: each named judge-controls case of
+# hold-native.py runs through the native run's exit path, and its status is
+# checked at a literal world pressure, as the row's actual case is. A row
+# reads the failures and not-measured records it adds. The subshell keeps
+# them, and its check-secs and journal writes, out of the row's own outcome.
+# A late release is excused only above the limit, an unread pressure never
+# excuses one, and a hold that never releases or an unproved hold
+# transition fails at any pressure.
+notification_hold_deadline_cases() {
+  local dir="$sandbox/hold-deadline-pressure" name pressure failed unmeasured message status got
+  mkdir -p -- "$dir"
+  while read -r name pressure failed unmeasured message; do
+    status=0
+    python3 "$note_hold_fixture/hold-native.py" judge-planted "$name" >"$dir/$name.out" 2>&1 || status=$?
+    if [[ $message == - ]]; then [[ ! -s $dir/$name.out ]] || { echo "case=$name output=unexpected"; return; }
+    elif [[ $(notification_hold_control_result "$dir/$name.out" "$message") != yes ]]; then echo "case=$name output=unmatched"; return
+    fi
+    got="$(failures=0 behaviour_failures=0 not_measured_rows=() smoke_check_fd=""
+      notification_hold_deadline_check "$status" "$pressure" >"$dir/$name-$pressure-check.log"
+      printf '%s %s' "$failures" "${#not_measured_rows[@]}")"
+    [[ $got == "$failed $unmeasured" ]] || { echo "case=$name pressure=$pressure status=$status got=$got want=$failed $unmeasured"; return; }
+  done <<'CASES'
+direct-crossing 50.0 0 0 -
+late-release 2.8 1 0 deadline-bracket:late-release
+late-release 2.9 0 1 deadline-bracket:late-release
+late-release unmeasured 1 0 deadline-bracket:late-release
+unproved-silence 50.0 1 0 deadline-bracket:hold-transition-unproved
+no-release 50.0 1 0 deadline stream reaches real output within hold bound
+CASES
+  echo ok
+}
 notification_hold_writer() {
   if "${shell_env[@]}" python3 "$note_hold_fixture/hold-native.py" writer "$shell_qs_pid" >"$sandbox/notification-writer.json" 2>/dev/null; then echo acquired; else echo waiting; fi
 }
