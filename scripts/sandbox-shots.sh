@@ -3310,12 +3310,14 @@ print(json.dumps(next((r["box"] for r in rows if r["name"] == sys.argv[1] and r[
   done
   return 1
 }
-# hover_widget LABEL ID: the pointer on the centre of bar widget ID,
-# arriving by two motions.
+# hover_widget LABEL ID [BOX_READER]: the pointer on the centre of bar
+# widget ID, or of the box BOX_READER ID prints once the widget is
+# revealed, arriving by two motions.
+widget_box() { ipc smoke instanceGeometry "$(bar_key)" "$1"; }
 hover_widget() {
   local at x y
   bar_widget_reveal "$2" || { fail "$1: widget $2 could not be revealed"; return 1; }
-  at="$(centre_of "$(ipc smoke instanceGeometry "$(bar_key)" "$2")")" || at=none
+  at="$(centre_of "$("${3:-widget_box}" "$2")")" || at=none
   if [[ $at == none ]]; then fail "$1: widget $2 has no box"; return 1; fi
   read -r x y <<<"$at"
   if ! hover "$((x - 6))" "$y" || ! hover "$x" "$y"; then fail "$1: the hover failed"; return 1; fi
@@ -3353,15 +3355,26 @@ scene_bar() { # MODE
 # open; a widget whose plugin draws no bar item here, for a device or
 # program the sandbox lacks, is named and not shot.
 widget_centre() { python3 -c 'import json,sys; t=sys.argv[1]; r=json.loads(t) if t.startswith("[") else None; print("%d %d" % (r[0] + r[2] / 2, r[1] + r[3] / 2) if r and r[2] > 0 and r[3] > 0 else "none")' "$1"; }
+# tooltip_anchor_box ID: the box of the item whose tooltip tooltip_opened
+# reads, the first Tooltip under bar widget ID in readDescendant's order,
+# which descendantGeometry shares. A widget with several meters, such as
+# vgs.sysmon, opens only the hovered meter's tooltip, and a Tooltip's
+# anchor is its parent unless set (shell/Ui/overlay/Tooltip.qml).
+tooltip_anchor_box() {
+  ipc smoke descendantGeometry "$(bar_key)" "$1" | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+tip=next((r for r in rows if r["type"] == "Tooltip"), None)
+print(json.dumps(rows[tip["parent"]]["box"]) if tip is not None and tip["parent"] >= 0 else "none")'
+}
 scene_tooltips() { # MODE
   local id at
   warden_status calm warn
   for id in "${tooltip_widgets[@]}"; do
     at="$(widget_centre "$(ipc smoke instanceGeometry "$(bar_key)" "$id")")" || at=none
     if [[ $at == none ]]; then ok "$id draws no bar item in the sandbox"; continue; fi
-    hover_widget "the pointer rests on $id" "$id" || continue
+    hover_widget "the pointer rests on $id" "$id" tooltip_anchor_box || continue
     expect_poll "the $id tooltip opens" true tooltip_opened "$id"
-    take "tooltips-$1-${id#vgs.}"
+    take_posed "tooltips-$1-${id#vgs.}"
     park_pointer
     expect_poll "the $id tooltip closes" false tooltip_opened "$id"
   done
