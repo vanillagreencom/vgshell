@@ -189,11 +189,11 @@ const PLAN_ROWS = [
     ...["reinstall", "remove"].map(action => ["verified-file " + action + " is unsupported", "verified-file", action, ["gliff"], ["pacman"], "manager=verified-file action=" + action + " reason=unsupported"]),
     // apt-get(8) reads an argument holding a slash as a package file; dnf(8)
     // installs and upgrades a local package file by its path.
-    ["a release deb installs through apt-get", "deb-file", "install", ["/c/kendex_1.20.0_amd64.deb"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "/c/kendex_1.20.0_amd64.deb"]] }],
-    ["a release deb updates through apt-get install", "deb-file", "update", ["/c/kendex_1.20.0_amd64.deb"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "/c/kendex_1.20.0_amd64.deb"]] }],
+    ["a release deb installs through apt-get", "deb-file", "install", ["/c/kendex_1.21.0_amd64.deb"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "/c/kendex_1.21.0_amd64.deb"]] }],
+    ["a release deb updates through apt-get install", "deb-file", "update", ["/c/kendex_1.21.0_amd64.deb"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "/c/kendex_1.21.0_amd64.deb"]] }],
     ["a deb-file upgrade names apt-get install for its plan", "deb-file", "upgrade", [], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install"]] }],
-    ["a release rpm installs through dnf5", "rpm-file", "install", ["/c/kendex-1.20.0-1.x86_64.rpm"], ["dnf5", "dnf"], { binary: "dnf5", elevate: true, steps: [["dnf5", "install", "/c/kendex-1.20.0-1.x86_64.rpm"]] }],
-    ["a release rpm updates through dnf upgrade", "rpm-file", "update", ["/c/kendex-1.20.0-1.x86_64.rpm"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade", "/c/kendex-1.20.0-1.x86_64.rpm"]] }],
+    ["a release rpm installs through dnf5", "rpm-file", "install", ["/c/kendex-1.21.0-1.x86_64.rpm"], ["dnf5", "dnf"], { binary: "dnf5", elevate: true, steps: [["dnf5", "install", "/c/kendex-1.21.0-1.x86_64.rpm"]] }],
+    ["a release rpm updates through dnf upgrade", "rpm-file", "update", ["/c/kendex-1.21.0-1.x86_64.rpm"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "upgrade", "/c/kendex-1.21.0-1.x86_64.rpm"]] }],
     ["an rpm-file upgrade names dnf upgrade for its plan", "rpm-file", "upgrade", [], ["dnf5"], { binary: "dnf5", elevate: true, steps: [["dnf5", "upgrade"]] }],
     ...["deb-file", "rpm-file"].flatMap(manager => ["reinstall", "remove"].map(action => [manager + " " + action + " is unsupported", manager, action, ["kendex"], ["apt-get", "dnf5"], "manager=" + manager + " action=" + action + " reason=unsupported"])),
     ["an unknown manager", "zypper", "install", ["gum"], ["zypper"], "manager=zypper reason=unknown"],
@@ -662,7 +662,7 @@ function verifyReleaseSource(tmp, edit = null) {
         + "; if [ \"$a\" = \"$b\" ]; then echo 0; elif [ \"$newest\" = \"$a\" ]; then echo 1; else echo -1; fi ;; -qp) printf '%s %s %s\\n' \"$ID_NAME\" \"$ID_VERSION\" \"$ID_ARCH\" ;; -q) [ -n \"$INSTALLED\" ] || { echo \"package kendex is not installed\"; exit 1; }; echo \"$INSTALLED\" ;; *) exit 99 ;; esac");
     const PATH = process.env.PATH;
     const world = extra => Object.assign(process.env, { PATH: stubs + path.delimiter + PATH, FIX: fix, XDG_RUNTIME_DIR: runtime,
-        ARCH: "amd64", ID_NAME: "kendex", ID_VERSION: "1.20.0", ID_ARCH: "amd64", INSTALLED: "", STATE: "installed" }, extra);
+        ARCH: "amd64", ID_NAME: "kendex", ID_VERSION: "1.21.0", ID_ARCH: "amd64", INSTALLED: "", STATE: "installed" }, extra);
     // Two copies of the user's side and the table it reads: one with the
     // shipped pins, and one whose pins name the assets written here.
     const tree = name => {
@@ -698,7 +698,7 @@ function verifyReleaseSource(tmp, edit = null) {
     for (const [name, id, extra, owner, want] of [
         ["the shipped pin refuses other bytes", "deb-file", {}, shipped, "sha256=mismatch"],
         ["the shipped pin refuses other rpm bytes", "rpm-file", { ARCH: "x86_64", ID_ARCH: "x86_64" }, shipped, "sha256=mismatch"],
-        ["an installed newer version is never replaced", "deb-file", { INSTALLED: "1.21.0" }, shipped, "version=older"],
+        ["an installed newer version is never replaced", "deb-file", { INSTALLED: "1.22.0" }, shipped, "version=older"],
         ["an architecture the release lacks", "deb-file", { ARCH: "i386" }, pinned, "release=unsupported"],
         ["a file of another package", "deb-file", { ID_NAME: "other" }, pinned, "identity=mismatch"],
         ["a file of another version", "rpm-file", { ARCH: "x86_64", ID_ARCH: "x86_64", ID_VERSION: "1.19.0" }, pinned, "identity=mismatch"],
@@ -709,17 +709,17 @@ function verifyReleaseSource(tmp, edit = null) {
         const got = outcome(owner, id);
         if (got !== want) failures.push("release: " + name + ": got " + JSON.stringify(got));
     }
-    for (const [name, id, extra, file] of [["the pinned deb", "deb-file", {}, "kendex_1.20.0_amd64.deb"],
-        ["the pinned arm64 deb over a removed one's configuration", "deb-file", { ARCH: "arm64", ID_ARCH: "arm64", INSTALLED: "1.20.0", STATE: "config-files" }, "kendex_1.20.0_arm64.deb"],
-        ["the pinned rpm over an older install", "rpm-file", { ARCH: "aarch64", ID_ARCH: "aarch64", INSTALLED: "1.19.2" }, "kendex-1.20.0-1.aarch64.rpm"]]) {
+    for (const [name, id, extra, file] of [["the pinned deb", "deb-file", {}, "kendex_1.21.0_amd64.deb"],
+        ["the pinned arm64 deb over a removed one's configuration", "deb-file", { ARCH: "arm64", ID_ARCH: "arm64", INSTALLED: "1.21.0", STATE: "config-files" }, "kendex_1.21.0_arm64.deb"],
+        ["the pinned rpm over an older install", "rpm-file", { ARCH: "aarch64", ID_ARCH: "aarch64", INSTALLED: "1.19.2" }, "kendex-1.21.0-1.aarch64.rpm"]]) {
         world(extra);
         const got = outcome(pinned, id);
         if (got?.filename !== file || got.name !== "kendex" || !fs.existsSync(got.fetched)) failures.push("release: " + name + " is not fetched: " + JSON.stringify(got));
     }
     // The check: an installed version older than the pin is an update, the
     // pin itself and a newer one are none, and nothing installed is unused.
-    for (const [name, id, extra, status, stdout] of [["older deb", "deb-file", { INSTALLED: "1.19.0" }, 0, "kendex 1.19.0 -> 1.20.0\n"],
-        ["current deb", "deb-file", { INSTALLED: "1.20.0" }, 1, ""], ["newer rpm", "rpm-file", { INSTALLED: "1.21.0" }, 1, ""],
+    for (const [name, id, extra, status, stdout] of [["older deb", "deb-file", { INSTALLED: "1.19.0" }, 0, "kendex 1.19.0 -> 1.21.0\n"],
+        ["current deb", "deb-file", { INSTALLED: "1.21.0" }, 1, ""], ["newer rpm", "rpm-file", { INSTALLED: "1.22.0" }, 1, ""],
         ["nothing installed", "rpm-file", {}, 2, ""], ["configuration alone", "deb-file", { INSTALLED: "1.19.0", STATE: "config-files" }, 2, ""]]) {
         world(extra);
         const r = cp.spawnSync(process.execPath, [path.join(__dirname, "..", "bin", "vgshell-pkg"), "file-check", id], { encoding: "utf8", env: process.env });
@@ -728,8 +728,8 @@ function verifyReleaseSource(tmp, edit = null) {
     process.env.PATH = PATH;
     // The prune step keeps the new file and another package whose name
     // extends this one's, and removes the older file, for each format.
-    for (const [id, keep, older] of [["deb-file", ["kendex_1.20.0_amd64.deb", "kendex-app_1.0_amd64.deb"], "kendex_1.19.0_amd64.deb"],
-        ["rpm-file", ["kendex-1.20.0-1.x86_64.rpm", "kendex-app-1.0-1.x86_64.rpm"], "kendex-1.19.0-1.x86_64.rpm"]]) {
+    for (const [id, keep, older] of [["deb-file", ["kendex_1.21.0_amd64.deb", "kendex-app_1.0_amd64.deb"], "kendex_1.19.0_amd64.deb"],
+        ["rpm-file", ["kendex-1.21.0-1.x86_64.rpm", "kendex-app-1.0-1.x86_64.rpm"], "kendex-1.19.0-1.x86_64.rpm"]]) {
         const dir = path.join(root, "cache-" + id), files = table.managerRow(id).files;
         fs.mkdirSync(dir);
         for (const file of [...keep, older]) fs.writeFileSync(path.join(dir, file), "");
