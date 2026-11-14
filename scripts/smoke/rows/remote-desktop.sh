@@ -45,6 +45,9 @@
 set -euo pipefail
 rd_id=vgs.remote-desktop
 rd_dir="$sandbox/remote-desktop"
+# The runtime directory keeps the socket path inside the Unix socket limit,
+# which a long caller TMPDIR pushes the sandbox past.
+rd_agent_sock="$rt_dir/remote-desktop-agent.sock"
 rd_user="$home/.config/vgshell/shell.json"
 rd_remote="$rd_dir/remote-home"
 rd_long="smoke-$(printf 'l%.0s' $(seq 1 64))"
@@ -142,7 +145,7 @@ rd_listening() { python3 -c 'import socket,sys; socket.create_connection(("127.0
 # smoke-sshd, with the row's agent, or with none. Each run starts a new
 # record of its ssh-add calls.
 rd_sign_in() {
-  local agent=(SSH_AUTH_SOCK="$rd_dir/agent.sock") script="${2:-$repo/shell/plugins/vgs.remote-desktop/tui/sign-in.sh}"
+  local agent=(SSH_AUTH_SOCK="$rd_agent_sock") script="${2:-$repo/shell/plugins/vgs.remote-desktop/tui/sign-in.sh}"
   [[ ${1:-} != none ]] || agent=()
   rm -f -- "$rd_dir/ssh-add.argv"
   env -i PATH="$rd_dir/bin:$PATH" HOME="$home" USER="$(id -un)" TERM=dumb "${agent[@]}" SSH_ASKPASS="$rd_dir/askpass" SSH_ASKPASS_REQUIRE=force \
@@ -151,7 +154,7 @@ rd_sign_in() {
 rd_refused() { [[ $(rd_sign_in "$@") == failed:* ]] && echo refused || echo ran; }
 # rd_agent_calls: the last run's ssh-add argv lists, one JSON list each.
 rd_agent_calls() { if [[ -f $rd_dir/ssh-add.argv ]]; then paste -sd' ' -- "$rd_dir/ssh-add.argv"; else echo none; fi; }
-rd_new_key_signs_in() { SSH_AUTH_SOCK="$rd_dir/agent.sock" "$rd_dir/bin/ssh" -o BatchMode=yes -o IdentitiesOnly=yes -i "$home/.ssh/id_ed25519" smoke-sshd true </dev/null && echo yes || echo no; }
+rd_new_key_signs_in() { SSH_AUTH_SOCK="$rd_agent_sock" "$rd_dir/bin/ssh" -o BatchMode=yes -o IdentitiesOnly=yes -i "$home/.ssh/id_ed25519" smoke-sshd true </dev/null && echo yes || echo no; }
 rd_restore() {
   local pid
   for pid in "$rd_pid" "$rd_sshd_pid" "$rd_agent_pid"; do [[ -z $pid ]] || kill -TERM -- "$pid" 2>/dev/null || true; done
@@ -261,13 +264,13 @@ expect "System Settings closes" ok ipc shell hide window vgs.system
 if [[ -z $rd_sshd_bin ]]; then
   not_measured remote-desktop-sign-in "no sshd on PATH"
 else
-  spawn "$rd_dir/agent.log" ssh-agent -D -a "$rd_dir/agent.sock"
+  spawn "$rd_dir/agent.log" ssh-agent -D -a "$rd_agent_sock"
   rd_agent_pid="$spawn_pid"
   # The script's ssh-add records each argv, then runs the real one.
   printf '#!/usr/bin/env bash\npython3 -c %q "$@" >>%q\nexec %q "$@"\n' \
     'import json,sys; print(json.dumps(sys.argv[1:]))' "$rd_dir/ssh-add.argv" "$(command -v ssh-add)" >"$rd_dir/bin/ssh-add"
   chmod 755 "$rd_dir/bin/ssh-add"
-  expect_poll "the agent takes the bootstrap key" ok bash -c 'SSH_AUTH_SOCK="$1" ssh-add -q "$2" 2>/dev/null && echo ok' _ "$rd_dir/agent.sock" "$rd_dir/bootstrap"
+  expect_poll "the agent takes the bootstrap key" ok bash -c 'SSH_AUTH_SOCK="$1" ssh-add -q "$2" 2>/dev/null && echo ok' _ "$rd_agent_sock" "$rd_dir/bootstrap"
   expect "Set up sign-in ends with sign-in working" ok rd_sign_in
   expect "the new key is in the remote authorized_keys" yes bash -c 'grep -qxF -- "$(cat "$1")" "$2" && echo yes' _ "$home/.ssh/id_ed25519.pub" "$rd_remote/.ssh/authorized_keys"
   expect "the new key alone signs in" yes rd_new_key_signs_in
