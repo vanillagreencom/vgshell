@@ -5,15 +5,29 @@
 # run on that bus alone: their starter refuses any other address, the
 # owner's bus among them, and an empty one, which its control reads with a
 # stand-in spawn that starts nothing. The fixture acme.idlewatch holds one
-# plain idle watch, read through the lending record. With the screensaver
-# stage at 600 s, the row reads:
+# plain idle watch, read through the lending record. The shared logind
+# stand-in, scripts/smoke/power-fakes.sh, answers the session idle report,
+# with Display naming the session at /org/freedesktop/login1/session/smoke,
+# and its systemd-inhibit stand-in records the core's logind idle
+# inhibitor, taking no lock.
+# With the screensaver stage at 600 s, the row reads:
 # - the helper, a child of the shell, owns the name, and GetActive answers
 #   false;
 # - with no inhibit live, the 1 s watch goes idle, so the compositor itself
 #   holds no inhibitor that would hide a hold;
-# - an Inhibit pauses the source and holds a 1 s watch past its time, and
+# - with no hold live, VGS takes no logind idle inhibitor;
+# - an Inhibit pauses the source, takes logind's idle inhibitor with
+#   what=idle and mode=block, and holds a 1 s watch past its time, and
 #   another caller's UnInhibit of that cookie keeps it;
-# - the caller's UnInhibit ends the pause and the watch goes idle;
+# - while that inhibit holds the watch, the session idle report follows
+#   input alone: no idle report 50 s after an input, SetIdleHint true on
+#   the Display session 60 s after it with the watch still held, and
+#   SetIdleHint false on the next input, with no logind method called
+#   other than the Display read and SetIdleHint;
+# - a shell that starts while the stand-in holds SetIdleHint true reports
+#   the session active with no input;
+# - the caller's UnInhibit ends the pause, releases the idle inhibitor and
+#   lets the watch go idle;
 # - a second Inhibit takes the idle watch back as input does, and that
 #   caller killed with SIGKILL ends the pause;
 # - an Inhibit while the screensaver runs, its 1 s activity watch idle,
@@ -21,6 +35,9 @@
 #   not idle past its time, then goes idle once the pause ends;
 # - with every stage at Never, VGS holds no bus role and the name is
 #   unowned;
+# - a Wayland inhibitor with no VGS pause, a window under an idle_inhibit
+#   rule, takes logind's idle inhibitor once the session is reported idle
+#   60 s after an input, and the next input releases it;
 # - with a stand-in owner started before a shell restart, the helper logs
 #   the other owner once and the stand-in still owns the name.
 # Controls, each a copy of the tree started in place of it with one edit:
@@ -28,14 +45,23 @@
 # is killed; a helper whose UnInhibit keeps the cookie keeps the pause
 # after UnInhibit; a helper that asks REPLACE_EXISTING displaces the
 # stand-in, which allows replacement; a core whose monitors ignore the
-# pause lets the watch go idle while inhibited. Each control runs the
-# row's own check and passes only on that check's failure. The row restores the user file and the plugins'
-# enablement, removes its fixture and its ttfx stand-in, and ends with a
-# fresh shell of the tree.
+# pause lets the watch go idle while inhibited; a core whose report
+# observer drops its transitions leaves the session unreported 60 s after
+# an input; a core whose report observer sends nothing on its start leaves
+# the stand-in's true hint in place; a core that takes no idle inhibitor
+# leaves logind's idle action free during a hold; a core whose
+# idle lock follows the pause alone leaves it free under a Wayland
+# inhibitor. Each control runs the row's own check and passes only on that
+# check's failure. The row restores the user file, the plugins' enablement
+# and the compositor config, removes its fixture and its ttfx stand-in,
+# restores gdbus and systemd-inhibit and ends with a fresh shell of the
+# tree.
 # A held watch is read 3 s after it was created, three times its 1 s time,
-# since no event marks a watch that stays active. Every other reading
-# polls through expect_poll; no latency budget is claimed.
-# inputs: bin/vgshell-idle-inhibit bin/lib/dbus_wire.py scripts/smoke/fixtures/idle-inhibit/* scripts/smoke/fixtures/plugins/acme.idlewatch/* scripts/smoke/fixtures/screensaver-ttfx shell/Core/IdleRegistry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/CoverPresentation.qml shell/Hosts/CoverHost.qml shell/plugins/vgs.screensaver/* shell/plugins/*/manifest.json
+# since no event marks a watch that stays active. The report's fixed 60 s
+# threshold has no setting, so each proof and control that reads the
+# session idle waits it out once from an input. Every other reading polls
+# through expect_poll; no latency budget is claimed.
+# inputs: scripts/smoke/power-fakes.sh bin/vgshell-idle-inhibit bin/lib/dbus_wire.py scripts/smoke/fixtures/idle-inhibit/* scripts/smoke/fixtures/plugins/acme.idlewatch/* scripts/smoke/fixtures/screensaver-ttfx shell/Core/IdleRegistry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/CoverPresentation.qml shell/Hosts/CoverHost.qml shell/plugins/vgs.screensaver/* shell/plugins/*/manifest.json
 set -euo pipefail
 ii_bus="unix:path=$rt_dir/bus"
 ii_client="$repo/scripts/smoke/fixtures/idle-inhibit/client.py"
@@ -55,6 +81,13 @@ mkdir -p -- "$ii_fixture"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.idlewatch/." "$ii_fixture/"
 cp -- "$repo/scripts/smoke/fixtures/screensaver-ttfx" "$shim/ttfx"
 chmod 755 "$shim/ttfx"
+source "$repo/scripts/smoke/power-fakes.sh"
+power_logind_start
+power_idle_inhibit_start
+ii_abandon() { power_idle_inhibit_stop; power_logind_stop; }
+smoke_row_abandon=(ii_abandon)
+expect "the session idle report has the logind stand-in" ready power_sleep_transport_ready
+printf '2\n' >"$power_sleep_replies/Display"
 
 # ii_refusal BUS: nothing for the sandbox's own session bus; for any other
 # BUS, `refused: bus=<bus> reason=empty` or `reason=not-sandbox`, status 1.
@@ -149,6 +182,87 @@ ii_held_check() { # LABEL
   expect "$1" false ii_watch
 }
 ii_uninhibit_check() { expect_poll "UnInhibit ends the pause" "$ii_free" ii_pause; }
+ii_session_idle='["/org/freedesktop/login1/session/smoke", "true"]'
+ii_session_active='["/org/freedesktop/login1/session/smoke", "false"]'
+# The last SetIdleHint the logind stand-in received, as [object path,
+# value], or `none`.
+ii_last_hint() {
+  python3 - "$power_gdbus_calls" <<'PY'
+import json, sys
+hints = [run for run in map(json.loads, open(sys.argv[1])) if "org.freedesktop.login1.Session.SetIdleHint" in run]
+print(json.dumps([hints[-1][hints[-1].index("--object-path") + 1], hints[-1][-1]]) if hints else "none")
+PY
+}
+ii_idle_reported() { if [[ $(ii_last_hint) == "$ii_session_idle" ]]; then echo yes; else echo no; fi; }
+# The logind methods the stand-in received other than the Display read and
+# SetIdleHint, a power or lock method among them.
+ii_logind_others() {
+  python3 - "$power_gdbus_calls" <<'PY'
+import json, sys
+runs = [run for run in map(json.loads, open(sys.argv[1])) if any(word.startswith("org.freedesktop.login1") for word in run)]
+reads = {"org.freedesktop.DBus.Properties.Get", "org.freedesktop.login1.Session.SetIdleHint"}
+print(json.dumps(sorted({run[run.index("--method") + 1] if "--method" in run else run[0] for run in runs} - reads)))
+PY
+}
+# ii_input: one key of input, its time in ii_input_at; ii_after SECONDS:
+# sleep until SECONDS after it.
+ii_input() { type_keys -k Shift_L || fail "the input for the idle report failed"; ii_input_at="$(now_ms)"; }
+ii_after() { # SECONDS
+  local left=$((ii_input_at + $1 * 1000 - $(now_ms)))
+  if ((left > 0)); then sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"; fi
+}
+# ii_preset_idle: the stand-in's record ends with SetIdleHint true on the
+# Display session, as a previous shell's idle report leaves it.
+ii_preset_idle() {
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' call --system --dest org.freedesktop.login1 --object-path /org/freedesktop/login1/session/smoke --method org.freedesktop.login1.Session.SetIdleHint true >>"$power_gdbus_calls"
+  [[ $(ii_last_hint) == "$ii_session_idle" ]] || fail "the stand-in's SetIdleHint true could not be set"
+}
+ii_start_report_check() { expect_poll "a start reports the session active over a hint of true" "$ii_session_active" ii_last_hint; }
+# The systemd-inhibit stand-in's last record: ["take", what, mode] for a
+# take, ["release"], or `none`.
+ii_inhibitor() {
+  python3 - "$power_inhibit_calls" <<'PY'
+import json, sys
+runs = [json.loads(line) for line in open(sys.argv[1])]
+if not runs:
+    print("none")
+elif runs[-1][0] == "take":
+    words = dict(word[2:].split("=", 1) for word in runs[-1][1:] if word.startswith("--") and "=" in word)
+    print(json.dumps(["take", words.get("what"), words.get("mode")]))
+else:
+    print(json.dumps(runs[-1]))
+PY
+}
+ii_inhibitor_check() { expect_poll "a hold takes logind's idle inhibitor" '["take", "idle", "block"]' ii_inhibitor; }
+ii_report_check() { expect_poll "60 s without input reports the session idle" "$ii_session_idle" ii_last_hint; }
+ii_wayland_check() { expect_poll "a Wayland inhibitor with no pause takes logind's idle inhibitor" '["take", "idle", "block"]' ii_inhibitor; }
+# Hyprland's documented idle_inhibit=always rule holds a real Wayland
+# inhibitor for one nested window
+# (wiki.hypr.land/Configuring/Basics/Window-Rules/).
+ii_wayland_inhibited() {
+  hypr -j clients | py_reply 'import json,sys
+print(any(c["class"] == "smoke.idle-inhibit" and c["inhibitingIdle"] for c in json.load(sys.stdin)))'
+}
+# ii_wayland_open LOG: that window mapped and holding its inhibitor, its
+# pid in ii_wayland_pid.
+ii_wayland_pid=""
+ii_wayland_open() { # LOG
+  open_toplevel "$1" smoke.idle-inhibit inhibitor || { fail "the nested inhibitor window maps"; return 1; }
+  ii_wayland_pid="$toplevel_pid"
+  expect_poll "the nested window holds its idle inhibitor" True ii_wayland_inhibited
+}
+# ii_wayland_close LOG: that window closed. Hyprland v0.57.1 rechecks its
+# idle inhibitors at a window's unmap while that window still counts
+# (src/desktop/view/window/Window.cpp:1747), so a plain window mapped and
+# closed after it leaves the compositor with no inhibitor.
+ii_wayland_close() { # LOG
+  close_toplevel "$ii_wayland_pid" "the nested inhibitor window exits"
+  if open_toplevel "$1" smoke.idle-inhibit-clear clear; then
+    close_toplevel "$toplevel_pid" "a plain window clears the closed window's inhibitor"
+  else
+    fail "the window that clears the closed window's inhibitor maps"
+  fi
+}
 ii_release_check() { expect_poll "a caller killed with SIGKILL ends the pause" "$ii_free" ii_pause; }
 ii_stand_in_check() { expect "the stand-in still owns the name" "$1" ii_call "$ii_bus" owner; }
 # ii_must_fail LABEL CHECK CMD...: CMD, run in a subshell against a control
@@ -189,6 +303,7 @@ expect "the name's owner is the shell's helper" helper ii_owner_relation
 expect "GetActive answers false" false ii_call "$ii_bus" active
 expect "the fixture takes a 1 s watch with no inhibit live" ok ipc acme.idlewatch invoke watch 1
 expect_poll "with no inhibit live the 1 s watch goes idle" true ii_watch
+expect "with no hold live VGS takes no idle inhibitor" none ii_inhibitor
 
 # An inhibit holds the watch; another caller cannot end it; its own
 # UnInhibit does.
@@ -196,12 +311,25 @@ ii_start "$ii_bus" "$sandbox/idle-inhibit-hold.log" hold >/dev/null || fail "the
 ii_holder="$ii_pid"
 expect_poll "the inhibit is answered with a cookie" yes ii_line "$sandbox/idle-inhibit-hold.log" cookie=
 expect_poll "a live inhibit pauses the idle source" "$ii_held" ii_pause
+ii_inhibitor_check
 ii_held_check "an inhibit holds a 1 s watch past its time"
 expect "another caller's UnInhibit of the cookie is answered" ok ii_call "$ii_bus" uninhibit "$(ii_cookie "$sandbox/idle-inhibit-hold.log")"
 expect "another caller's UnInhibit keeps the pause" "$ii_held" ii_pause
+# The session idle report follows input alone, through the inhibit.
+ii_input
+ii_after 50
+expect "50 s after input the session is not reported idle" no ii_idle_reported
+ii_after 60
+ii_report_check
+expect "the inhibit still holds the pause after the idle report" "$ii_held" ii_pause
+expect "the held watch still reads not idle after the idle report" false ii_watch
+ii_input
+expect_poll "the next input reports the session active" "$ii_session_active" ii_last_hint
+expect "the idle report calls no power or lock method" '[]' ii_logind_others
 kill -USR1 -- "$ii_holder" || fail "the holding caller could not be signalled"
 expect_poll "the caller's UnInhibit is answered" yes ii_line "$sandbox/idle-inhibit-hold.log" released
 ii_uninhibit_check
+expect_poll "the pause's end releases logind's idle inhibitor" '["release"]' ii_inhibitor
 expect_poll "UnInhibit lets the watch go idle" true ii_watch
 ii_end "$ii_holder" TERM
 
@@ -238,6 +366,22 @@ ii_settings '{"vgs.screensaver": {"idleEnabled": true, "idleSeconds": 600}}'
 expect "reloading the screensaver's stage again is allowed" ok ipc shell reloadConfig
 expect_poll "a stage that can fire again takes the name again" "$ii_free" ii_pause
 
+# A Wayland inhibitor with no VGS pause holds logind's idle lock while the
+# session reads idle.
+hypr_lua_save idle-inhibit-wayland
+printf '%s\n' 'hl.window_rule({ name = "smoke-idle-inhibit", match = { class = "^smoke.idle-inhibit$" }, idle_inhibit = "always" })' >>"$home/.config/hypr/hyprland.lua"
+expect "the nested inhibitor rule is installed" ok hypr reload config-only
+if ii_wayland_open "$sandbox/idle-inhibit-wayland.log"; then
+  expect "the Wayland inhibitor holds no VGS pause" "$ii_free" ii_pause
+  ii_input
+  ii_after 60
+  ii_report_check
+  ii_wayland_check
+  ii_input
+  expect_poll "input releases the Wayland inhibitor's idle lock" '["release"]' ii_inhibitor
+  ii_wayland_close "$sandbox/idle-inhibit-wayland-clear.log"
+fi
+
 # A stand-in owner, which allows replacement, started before the shell:
 # the helper leaves it in place and logs it once.
 ii_owner_start() { # LOG
@@ -247,7 +391,9 @@ ii_owner_start() { # LOG
 }
 stop_shell || :
 ii_owner_start "$sandbox/idle-inhibit-owner.log"
+ii_preset_idle
 start_shell "$repo" "$sandbox/idle-inhibit-owned.log"
+ii_start_report_check
 expect_poll "beside another owner the helper reads the name owned" '[[], "owned"]' ii_pause
 expect_log "the helper logs the other owner" 1 "$ii_owned_line"
 expect "the helper logs the other owner once" 1 log_lines "$ii_owned_line"
@@ -307,6 +453,60 @@ if edit_tree idle-inhibit-unpaused shell/Core/IdleRegistry.qml '            enab
   stop_shell || :
 fi
 
+# Control: a core whose report observer drops its transitions.
+copy_tree idle-inhibit-unreported
+if edit_tree idle-inhibit-unreported shell/Core/IdleRegistry.qml '        onIsIdleChanged: idleHint.report(isIdle)' '        onIsIdleChanged: {}'; then
+  : >"$power_gdbus_calls"
+  start_shell "$sandbox/tree-idle-inhibit-unreported" "$sandbox/idle-inhibit-unreported.log"
+  expect_poll "control: the unreported copy takes the name" "$ii_free" ii_pause
+  ii_input
+  ii_after 60
+  ii_must_fail "a core whose observer drops its transitions leaves the session unreported" "60 s without input reports the session idle" ii_report_check
+  stop_shell || :
+fi
+
+# Control: a core whose report observer sends nothing on its start.
+copy_tree idle-inhibit-unseeded
+if edit_tree idle-inhibit-unseeded shell/Core/IdleRegistry.qml '        Component.onCompleted: idleHint.report(isIdle)' '        Component.onCompleted: {}'; then
+  ii_preset_idle
+  start_shell "$sandbox/tree-idle-inhibit-unseeded" "$sandbox/idle-inhibit-unseeded.log"
+  expect_poll "control: the unseeded copy takes the name" "$ii_free" ii_pause
+  ii_must_fail "a core whose observer sends nothing on its start leaves the hint of true" "a start reports the session active over a hint of true" ii_start_report_check
+  stop_shell || :
+fi
+
+# Control: a core that takes no logind idle inhibitor.
+copy_tree idle-inhibit-uninhibited
+if edit_tree idle-inhibit-uninhibited shell/Core/IdleRegistry.qml '    onIdleLockWantedChanged: Qt.callLater(idleInhibitor.follow)' '    onIdleLockWantedChanged: {}'; then
+  : >"$power_inhibit_calls"
+  start_shell "$sandbox/tree-idle-inhibit-uninhibited" "$sandbox/idle-inhibit-uninhibited.log"
+  expect_poll "control: the uninhibited copy takes the name" "$ii_free" ii_pause
+  ii_start "$ii_bus" "$sandbox/idle-inhibit-uninhibited-hold.log" hold >/dev/null || fail "control: the uninhibited copy's caller did not start"
+  ii_uninhibited="$ii_pid"
+  expect_poll "control: the uninhibited copy pauses on the inhibit" "$ii_held" ii_pause
+  ii_must_fail "a core that takes no idle inhibitor leaves logind's idle action free during a hold" "a hold takes logind's idle inhibitor" ii_inhibitor_check
+  ii_end "$ii_uninhibited" TERM
+  stop_shell || :
+fi
+
+# Control: a core whose idle lock follows the pause alone.
+copy_tree idle-inhibit-pause-only
+if edit_tree idle-inhibit-pause-only shell/Core/IdleRegistry.qml '    readonly property bool idleLockWanted: paused || (sessionIdle.isIdle && !inhibitedIdle.isIdle)' '    readonly property bool idleLockWanted: paused'; then
+  : >"$power_inhibit_calls"
+  start_shell "$sandbox/tree-idle-inhibit-pause-only" "$sandbox/idle-inhibit-pause-only.log"
+  expect_poll "control: the pause-only copy takes the name" "$ii_free" ii_pause
+  if ii_wayland_open "$sandbox/idle-inhibit-pause-only-window.log"; then
+    ii_input
+    ii_after 60
+    ii_report_check
+    ii_must_fail "a core whose idle lock follows the pause alone leaves logind's idle action free under a Wayland inhibitor" "a Wayland inhibitor with no pause takes logind's idle inhibitor" ii_wayland_check
+    ii_wayland_close "$sandbox/idle-inhibit-pause-only-clear.log"
+  fi
+  stop_shell || :
+fi
+hypr_lua_restore idle-inhibit-wayland
+expect "the nested inhibitor rule is removed" ok hypr reload config-only
+
 start_shell "$repo" "$sandbox/idle-inhibit-restored.log"
 user_config_restore "$ii_saved"
 expect "reloading the user file the row found is allowed" ok ipc shell reloadConfig
@@ -320,3 +520,6 @@ rm -f -- "${shim:?}/ttfx"
 rescan "a rescan removes the idle-watch fixture"
 expect_poll "acme.idlewatch is absent after the row" False plugin_known acme.idlewatch
 expect_poll "the helper holds the name as the row found it" "$ii_start_pause" ii_pause
+power_idle_inhibit_stop
+power_logind_stop
+smoke_row_abandon=()

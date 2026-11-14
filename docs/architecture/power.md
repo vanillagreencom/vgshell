@@ -1,6 +1,6 @@
 # Every idle stage has one owner
 
-Read before touching idle stages, inhibitors, sleep, wake, energy settings, the power key or the lid.
+Read before touching idle stages, inhibitors, the session idle report, sleep, wake, energy settings, the power key or the lid.
 
 ## The approach
 
@@ -15,7 +15,8 @@ Independent stage watches give every ordering a defined result without plugin de
 ### Idle source and stages
 
 - Create and release watches through capability `idle`. Keep every stage watch inhibitor-obeying; only an input observer that starts no stage ignores inhibitors. `scripts/check-plugin-boundary.py` refuses direct Wayland imports, and `scripts/smoke/rows/capability-release.sh` checks disposal.
-- Accept Hyprland's inhibitor-obeying notification resets on window mapping, unmapping and keyboard focus. Keep no separate inhibitor reader and ship no Hyprland patch to change this behavior. Review holds this boundary.
+- Report the session's idle state to logind only from the input observer in `IdleRegistry.qml`, on its start and on its idle and active transitions. The start report clears a hint a previous shell left, since logind keeps the last one. The report describes input only: that observer has one fixed threshold and no setting, ignores inhibitors and the pause, and starts no stage. The core holds one logind `Inhibit` lock with what `idle` and mode `block` while the pause holds, and while the input observer reads idle and an inhibitor-obeying view of the seat does not, so logind's own idle action waits too. Two causes hold that view back: a Wayland inhibitor Hyprland honours, and Hyprland's inhibitor recheck on a window map, unmap, focus or fullscreen change, which restarts the view's 59 s count. After such a window event with no inhibitor, the core holds the lock for up to 59 s, which only delays logind's `IdleAction`. The core releases the lock when neither holds. Resolve the session through logind's `User.Display`, never a hard-coded id. Log a refused `SetIdleHint` or `Inhibit` with its cause and never report it as applied. `scripts/smoke/rows/idle-inhibit.sh` checks this boundary with the shared logind stand-in.
+- Accept Hyprland's inhibitor-obeying notification resets on window mapping, unmapping, keyboard focus and fullscreen changes. Keep no separate inhibitor reader and ship no Hyprland patch to change this behavior. Review holds this boundary.
 - Read another stage's time only through `shell.idle.stages`, never its owner's settings or status. Judge order once in the core. The Power pane links to each owner's field and shows every time, including an earlier stage overtaken by a later one. `PluginLogic.idleStages` owns the record; `scripts/smoke/rows/power.sh` checks its use.
 - Take stage-owned watches through `shell.idle.watchStage`. Only that stage's owner can take its watch. Carry its core-issued ticket into idle lock and screensaver requests; input, disposal and owner or time changes revoke it. `scripts/test-plugin-logic.js` and `scripts/test-session-lock.sh` check authorization.
 - Keep Cover and lock on layer surfaces. During idle lock, take the lock first and move the same running Cover into it, without building a lock screen underneath. Manual, sleep and restore locks end Cover. `scripts/smoke/rows/secure-cover.sh` checks presentation ownership.

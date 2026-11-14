@@ -180,7 +180,8 @@ PY_STAGE
 # The Power and power menu rows and their screenshot scenes share one
 # inert logind transport. Each Can method answers its file under
 # power_sleep_replies, and User.Display answers the session id in
-# Display, empty for no graphical session.
+# Display, empty for no graphical session. Session.SetIdleHint answers
+# only on the path Display names, /org/freedesktop/login1/session/smoke.
 power_gdbus_stood=""
 power_notify_stood=""
 power_gdbus_calls="$sandbox/power-gdbus.calls"
@@ -195,6 +196,8 @@ power_prepare_sleep_signals="$sandbox/power-prepare-sleep.signals"
 power_sleep_replies="$sandbox/power-logind-replies"
 power_sleep_refuse="$sandbox/power-sleep.refuse"
 power_gdbus_saved=""
+power_inhibit_stood=""
+power_inhibit_calls="$sandbox/power-inhibit.calls"
 
 power_stand() {
   local name="$1"
@@ -202,12 +205,14 @@ power_stand() {
     case "$name" in
       notify-send) power_notify_stood=yes ;;
       gdbus) power_gdbus_stood=yes ;;
+      systemd-inhibit) power_inhibit_stood=yes ;;
     esac
     sentinel_stand_over "$shim/$name"
   else
     case "$name" in
       notify-send) power_notify_stood=no ;;
       gdbus) power_gdbus_stood=no ;;
+      systemd-inhibit) power_inhibit_stood=no ;;
     esac
     cat >"$shim/$name" && chmod 755 "$shim/$name"
   fi
@@ -306,6 +311,10 @@ if [[ \$logind == true ]]; then
         if [[ -n \$session ]]; then printf "(<('%s', objectpath '/org/freedesktop/login1/session/smoke')>,)\\n" "\$session"
         else echo "(<('', objectpath '/')>,)"; fi
         exit 0 ;;
+      org.freedesktop.login1.Session.SetIdleHint)
+        [[ " \$* " == *" --object-path /org/freedesktop/login1/session/smoke "* ]] || exit 64
+        echo '()'
+        exit 0 ;;
       org.freedesktop.login1.Manager.Suspend|org.freedesktop.login1.Manager.Hibernate|org.freedesktop.login1.Manager.SuspendThenHibernate)
         [[ \${!#} == false ]] || exit 64
         [[ ! -e "$power_sleep_refuse" ]] || exit 1
@@ -341,4 +350,36 @@ power_logind_stop() {
   [[ -n $power_gdbus_saved ]] || return 0
   power_restore_stand gdbus "$power_gdbus_stood" || return
   power_restore_gdbus_path
+}
+
+# power_idle_inhibit_start: a systemd-inhibit stand-in for the core's logind
+# idle inhibitor, which takes no lock. It answers only --what=idle: it
+# appends ["take", ARGV...] to power_inhibit_calls, runs its command as
+# systemd-inhibit does, and appends ["release"] when that command ends or
+# TERM ends the stand-in. Any other lock exits 64. power_idle_inhibit_stop
+# restores what stood there.
+power_idle_inhibit_start() {
+  : >"$power_inhibit_calls" || return
+  power_stand systemd-inhibit <<EOF_INHIBIT
+#!/usr/bin/env bash
+[[ " \$* " == *" --what=idle "* ]] || exit 64
+record() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_inhibit_calls"; }
+child=""
+trap 'kill -TERM "\$child" 2>/dev/null; record release; exit 0' TERM
+record take "\$@"
+words=("\$@")
+while [[ \${words[0]:-} == --* ]]; do words=("\${words[@]:1}"); done
+"\${words[@]}" <&0 &
+child=\$!
+wait "\$child"
+status=\$?
+record release
+exit "\$status"
+EOF_INHIBIT
+}
+
+power_idle_inhibit_stop() {
+  [[ -n $power_inhibit_stood ]] || return 0
+  power_restore_stand systemd-inhibit "$power_inhibit_stood" || return
+  power_inhibit_stood=""
 }
