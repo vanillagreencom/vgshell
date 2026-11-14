@@ -178,6 +178,19 @@ def survivor_description(pid, holds):
     words.append("argv=[" + argv[:300] + "]")
     return " ".join(words)
 
+def holder_exiting(pid):
+    # Whether PID's one thread is already in the kernel's exit: PF_EXITING
+    # (0x4, include/linux/sched.h) in the flags field, which do_exit sets
+    # before it drops the mm and closes descriptors and never clears, with
+    # num_threads 1. A leader that exited while another thread runs keeps
+    # its descriptors through that thread and reads False, as does an
+    # unreadable stat. https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
+    try:
+        fields = (pathlib.Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        return int(fields[6]) & 0x4 != 0 and fields[17] == "1"
+    except (OSError, IndexError, ValueError):
+        return False
+
 @contextlib.contextmanager
 def socket_name(path):
     # sun_path holds 108 bytes (unix(7)), and the record directory under a
@@ -1170,6 +1183,12 @@ class Record:
         # holder is bound to a pidfd, its table read again under it, and
         # only a holder that still holds one of ENDS is described, killed
         # through that pidfd and waited for. The world's init reaps it.
+        # A holder the kernel is already ending is no survivor: a managed
+        # Process child the patched Quickshell forked just before the TERM
+        # gets its parent-death SIGKILL when qs dies, and under UseVFork it
+        # tears down qs's whole shared mm before it closes the descriptors
+        # it took (VGS-2544). Its exit is waited for on that pidfd, it is
+        # not named, and the close proof below still decides.
         # An end ss still lists open after those kills, one whose holder
         # ss names no process for (a descriptor in flight in a unix
         # message, or a table ss cannot read) or one a holder took after
@@ -1203,6 +1222,10 @@ class Record:
             try:
                 held = socket_inodes(holder, handle, self.operation_deadline)
                 if not held or not held & ends:
+                    continue
+                if holder_exiting(holder):
+                    if not select.select([handle], [], [], self.remaining())[0]:
+                        raise ValueError("row-shell-survivor-exit-timeout:" + str(holder))
                     continue
                 description = survivor_description(holder, held & ends)
                 if select.select([handle], [], [], 0)[0]:

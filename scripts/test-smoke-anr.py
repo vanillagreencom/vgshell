@@ -836,9 +836,11 @@ os.execv(shell, ["qs", "60"])
                     found.add(entry.stat().st_ino)
         return found
 
-    def shell_stop_case(name, shell, program=recorder, path=None, runner_gone=False, orderly=2.0, bound=4):
+    def shell_stop_case(name, shell, program=recorder, path=None, runner_gone=False, orderly=2.0, bound=4, exiting=None):
         subject_module = {"__name__": "fixture"}
         exec(compile(program, "display-recorder-survivor", "exec"), subject_module)
+        if exiting:
+            subject_module["holder_exiting"] = exiting
         subject = subject_module["Record"].__new__(subject_module["Record"])
         subject.nested_wayland = compositor_name
         subject.anr_runtime = root / "runtime"
@@ -931,6 +933,49 @@ os.execv(shell, ["qs", "60"])
         unchecked = shell_stop_case("unchecked", "planted", program=recorder.replace(needle, "            survivors = []\n"))
         assert unchecked["answer"] == "stopped" and unchecked["sleeper-state"] == "running", unchecked
         print("smoke-anr: control=no-survivor-check rejected")
+        # The exit reading against processes this test holds: a running
+        # sleep is not exiting, and its unreaped zombie is.
+        child = subprocess.Popen([shutil.which("sleep"), "60"])
+        child_handle = os.pidfd_open(child.pid)
+        try:
+            assert namespace["holder_exiting"](child.pid) is False, "running process read as exiting"
+            child.kill()
+            assert select.select([child_handle], [], [], 3)[0], "killed sleep did not end"
+            assert namespace["holder_exiting"](child.pid) is True, "zombie read as not exiting"
+        finally:
+            os.close(child_handle)
+            child.wait()
+        # A holder the kernel is already ending is waited for and not named.
+        # No fixture holds a process inside its exit on demand, so the
+        # reading's stand-in sends the planted sleeper the SIGKILL that qs's
+        # death gives a managed Process child, and answers that it exits.
+        def ending(pid):
+            os.kill(pid, signal.SIGKILL)
+            return True
+        exiting = shell_stop_case("exiting", "planted", exiting=ending)
+        assert exiting["answer"] == "stopped" and exiting["sleeper-state"] == "ended" and exiting["runner"] == "ended", exiting
+        print("smoke-anr: shell-stop=exiting-holder-waited")
+        # Without that branch the same exiting holder is named a survivor.
+        needle = "                if holder_exiting(holder):\n"
+        assert recorder.count(needle) == 1
+        named = shell_stop_case("exiting-named", "planted", program=recorder.replace(needle, "                if False:\n"), exiting=ending)
+        assert named["answer"].split("\n")[0] == "survived", named
+        print("smoke-anr: control=exiting-holder-named rejected")
+        # An exiting holder that keeps its end past the deadline leaves the
+        # stop unproved, and the stop does not kill it.
+        lingering = shell_stop_case("exiting-lingers", "planted", orderly=1.0, bound=2, exiting=lambda pid: True)
+        want = f"refused row-cleanup=stop_shell_owner result=ValueError:row-shell-survivor-exit-timeout:{lingering['sleeper']}"
+        assert lingering["answer"] == want and lingering["sleeper-state"] == "running" and lingering["runner"] == "ended", lingering
+        print("smoke-anr: shell-stop=exiting-holder-past-deadline-unproved")
+        # Without the wait, that holder's end is still open at the close proof.
+        needle = ("                    if not select.select([handle], [], [], self.remaining())[0]:\n"
+                  "                        raise ValueError(\"row-shell-survivor-exit-timeout:\" + str(holder))\n"
+                  "                    continue\n")
+        assert recorder.count(needle) == 1
+        unwaited = shell_stop_case("exiting-unwaited", "planted", orderly=1.0, bound=2, exiting=lambda pid: True,
+                                   program=recorder.replace(needle, "                    continue\n"))
+        assert unwaited["answer"].startswith("refused row-cleanup=stop_shell_owner result=ValueError:row-shell-end-open:"), unwaited
+        print("smoke-anr: control=exiting-holder-unwaited rejected")
     finally:
         listener.close()
         courier.close()

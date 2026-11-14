@@ -2739,7 +2739,8 @@ rss_verdict() { # PEAK CEILING
 # after the runner exits, any process still holding one of the shell's
 # connection ends to the nested compositor or a bus of the world, as a
 # fork of qs that never reached exec does, is killed and named, within
-# the same deadline. The words:
+# the same deadline; one the kernel is already ending is waited for and
+# not named. The words:
 #   stopped    the runner exited on its TERM, or was already gone;
 #   forced     its tree was killed after the TERM wait;
 #   survived   a process outside the runner held one of the shell's ends,
