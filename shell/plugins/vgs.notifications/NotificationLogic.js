@@ -1363,7 +1363,7 @@ function openNotice(reason) {
     case "busy-other":
         return { title: "Another file is open", message: "Close the open file window and try this notification again.", tone: "warning", icon: "file-lock" };
     case "launcher-missing":
-        return { title: "The file did not open", message: "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" };
+        return { title: "The file did not open", message: "VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" };
     case "disabled":
         return { title: "The file did not open", message: "Enable Notifications in [Plugins](page:vgs.notifications) and try again.", tone: "danger", icon: "file-x" };
     case "undeclared":

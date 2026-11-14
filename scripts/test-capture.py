@@ -1404,10 +1404,10 @@ def stat_mode(path):
 
 
 def processing_failure_holds(root, helper):
-    """Function 18: a failed post-process keeps the recording whole and says so with the log's end."""
+    """Function 18: a failed post-process keeps the recording whole and reports failure."""
     code, messages, argv, err = recorded(root, request(root, "record-output"), helper)
     saved = messages[-1] if messages else {}
-    return (code == 0 and saved.get("event") == "saved" and saved["processing"] == "failed" and "fixture ffmpeg failure" in saved["detail"]
+    return (code == 0 and saved.get("event") == "saved" and saved["processing"] == "failed"
             and Path(saved["path"]).read_bytes() == b"finalized" and not list((root / "videos").glob(".screencast-processing-*")))
 
 
@@ -1647,9 +1647,9 @@ def killed_processing_failure(root, helper, signum):
         (root / "ffmpeg-release").touch()
 
 
-def own_log_holds(root, helper):
+def overlapping_processing_failure_holds(root, helper):
     """Function 20: a post-process that fails after the next recording started
-    shows its own recording's log lines, never the next one's."""
+    reports failure for its original recording and keeps that recording whole."""
     proc, lines, events, first, _ = held_processing(root, helper)
     try:
         if first is None:
@@ -1657,7 +1657,6 @@ def own_log_holds(root, helper):
         code, messages, argv, err = next_recording(root, helper, ffmpegHold=False, ffmpegFail=False)
         if code != 0:
             return False
-        second = Path(messages[-1]["path"])
         (root / "ffmpeg-release").touch()
         deadline = time.monotonic() + 5
         while not lines.closed and time.monotonic() < deadline:
@@ -1665,7 +1664,6 @@ def own_log_holds(root, helper):
         proc.wait(timeout=5)
         saved = events[-1]
         return (saved["event"] == "saved" and saved["path"] == str(first) and saved["processing"] == "failed"
-                and first.name in saved["detail"] and "fixture ffmpeg failure" in saved["detail"] and second.name not in saved["detail"]
                 and first.read_bytes() == b"finalized")
     finally:
         if proc.poll() is None:
@@ -1701,8 +1699,8 @@ const record = { actionName: "record-output" };
 const actions = [{ id: "default", label: "Open", argv: ["imv", "/pictures/a.png"] }, { id: "edit", label: "Edit", argv: ["satty", "/pictures/a.png"] }];
 const commands = [
     api.noticeRequest({ actionName: "screenshot-area" }, { event: "saved", path: "/pictures/a.png", actions: actions }),
-    api.noticeRequest(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", detail: "fixture tail line", actions: [] }),
-    api.noticeRequest(record, { event: "saved", path: "/videos/b.mp4", thumbnail: "", processing: "done", detail: "", actions: [actions[0]] }),
+    api.noticeRequest(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", actions: [] }),
+    api.noticeRequest(record, { event: "saved", path: "/videos/b.mp4", thumbnail: "", processing: "done", actions: [actions[0]] }),
     api.noticeRequest({ actionName: "text" }, { event: "copied" }),
     api.noticeRequest({ actionName: "screenshot" }, { event: "copied" }),
 ];
@@ -1718,7 +1716,7 @@ console.log(JSON.stringify([commands, shown]));
     pairs = [{"id": "default", "label": "Open"}, {"id": "edit", "label": "Edit"}]
     return (notice_shape(screenshot, {**styled, "image-path": "/pictures/a.png"}, pairs, "/pictures/a.png")
             and notice_shape(failed, {**styled, "image-path": "/state/a.jpg"}, [], "/videos/a.mp4")
-            and failed["message"].endswith("\nfixture tail line")
+            and failed["message"].endswith("Processing failed, so the recording is kept as recorded.")
             and notice_shape(done, styled, pairs[:1], "/videos/b.mp4")
             and notice_shape(text, styled, [], None)
             and notice_shape(copied, styled, [], None)
@@ -2087,13 +2085,12 @@ def recording_functions(base, source):
         (base / (name + ".py")).write_text(changed)
         failed = killed_processing_failure(world(name, ffmpegHold=True, ffmpegOutlivesTerm=outlives), base / (name + ".py"), signal.SIGTERM)
         assert failed.startswith(wanted) and bool(failed) == bool(wanted), f"{name}: {failed or 'held'}"
-    assert own_log_holds(world("own-log", ffmpegHold=True, ffmpegFail=True), HELPER), "each recording reads its own log"
+    assert overlapping_processing_failure_holds(world("own-log", ffmpegHold=True, ffmpegFail=True), HELPER), "overlapping processing failure keeps the original recording"
     assert portal_exit_holds(world("portal-exit", portalCancel=True), HELPER), "portal picker cancel"
     assert service_notices(), "service notices"
     service = (HELPER.parent.parent / "Service.qml").read_text()
     for name, before, after in [
         ("notice-processing-ignored", 'event.processing === "failed"', 'false'),
-        ("notice-detail-dropped", 'if (event.detail !== "") message += "\\n" + event.detail.slice(-Math.max(0, 199 - message.length));', ''),
         ("notice-reason-renamed", 'event.reason === "language-data-unavailable"', 'event.reason === "english-data-unavailable"'),
         ("notice-unstyled", '{ "x-vgs-icon": "camera", "x-vgs-tone": "success" }', '{}'),
         ("notice-imageless", 'if (image !== "") hints["image-path"] = image;', ''),
@@ -2104,7 +2101,6 @@ def recording_functions(base, source):
         assert not service_notices(service.replace(before, after)), "control did not fail: " + name
     for name, before, after, check in [
         ("raw-replaced", 'if code or temp.stat().st_size == 0:', 'if temp.stat().st_size == 0:', lambda helper: processing_failure_holds(world("raw-replaced", ffmpegFail=True), helper)),
-        ("shared-log", '    path.unlink(missing_ok=True)\n    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)', '    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND | os.O_NOFOLLOW, 0o600)', lambda helper: own_log_holds(world("shared-log", ffmpegHold=True, ffmpegFail=True), helper)),
         ("portal-cancel-failure", 'if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:', 'if False:', lambda helper: portal_exit_holds(world("portal-exit-control", portalCancel=True), helper)),
         ("no-uri-copy", 'child = self.copy(io.BytesIO((path.as_uri() + "\\r\\n").encode()), "text/uri-list")', 'child = self.spawn([sys.executable, "-c", "pass"])', lambda helper: saved_holds(world("no-uri-copy"), helper)),
         ("old-clean-up-audio", 'levels = self.loudness(path, track, log) if clean else ""', 'levels = ",loudnorm=I=-14:TP=-1.5:LRA=11" if clean else ""', lambda helper: saved_holds(world("old-clean-up-audio"), helper)),
@@ -2146,7 +2142,7 @@ def recording_functions(base, source):
             "no-audio-sources,no-missing-check,camera-any-format,camera-labels-shared,absent-camera,picker-ignores-cancel,handoff-ignored,handoff-any-name,raw-replaced,kept-processing-output,stopped-after-processing,"
             "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
             "unlocked-processing-output,reaping-handler,untimed-processing-wait,unprefixed-processing-output,live-output-refused,unowned-tool,processed-in-place,"
-            "terminated-output-kept,stale-output-unremovable,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed,"
+            "terminated-output-kept,stale-output-unremovable,portal-cancel-failure,notice-processing-ignored,notice-reason-renamed,"
             "notice-unstyled,notice-imageless,notice-buttonless,notice-pathless")
 
 

@@ -712,14 +712,14 @@ function verifyReadabilityNotice(judge) {
     const notice = judge.readabilityNotice([worst]);
     assert.equal(judge.readabilityNotice([better, worst, better]), notice, "each role names only its worst surface");
     assert.equal(judge.readabilityNotice([worst, better]), notice, "worst selection does not depend on input order");
-    assert.equal(notice, `Faint text on panel backgrounds: contrast 1.25:1, needs ${judge.READABILITY_FLOOR}:1.`, "one measured line states its background and minimum");
-    assert.equal(judge.readabilityNotice([better]), `Faint text on the main background: contrast 2.25:1, needs ${judge.READABILITY_FLOOR}:1.`);
-    assert.equal(judge.readabilityNotice([Object.assign({}, worst, { text: "checkbox.borderColor", floor: judge.BOUNDARY_FLOOR })]),
+    assert.equal(notice, "Faint text on panel backgrounds", "a notification line names only its text and background");
+    assert.equal(judge.readabilityNotice([better], true), `Faint text on the main background: contrast 2.25:1, needs ${judge.READABILITY_FLOOR}:1.`);
+    assert.equal(judge.readabilityNotice([Object.assign({}, worst, { text: "checkbox.borderColor", floor: judge.BOUNDARY_FLOOR })], true),
         `Checkbox outline on panel backgrounds: contrast 1.25:1, needs ${judge.BOUNDARY_FLOOR}:1.`, "a mark keeps its own minimum");
-    assert.ok(notice.includes("1.25:1"), "the notice contains the judged ratio");
-    assert.ok(!notice.includes("2.25:1"), "the notice omits stronger surfaces");
+    assert.ok(judge.readabilityNotice([worst], true).includes("1.25:1"), "the terminal contains the judged ratio");
+    assert.ok(!judge.readabilityNotice([better, worst], true).includes("2.25:1"), "the terminal omits stronger surfaces");
     const translucent = Object.assign({}, worst, { surface: "color.surfaceRaised", ratio: null });
-    assert.equal(judge.readabilityNotice([translucent]), `Faint text on raised panel backgrounds: contrast cannot be measured, needs ${judge.READABILITY_FLOOR}:1.`);
+    assert.equal(judge.readabilityNotice([translucent], true), `Faint text on raised panel backgrounds: contrast cannot be measured, needs ${judge.READABILITY_FLOOR}:1.`);
     assert.equal(judge.readabilityNotice([better, translucent]), judge.readabilityNotice([translucent]), "an unmeasurable surface takes priority");
     assert.equal(judge.readabilityNotice([translucent, worst]), judge.readabilityNotice([translucent]), "a measurable ratio cannot replace an unmeasurable one");
     // Discover the source table's roles and surfaces, including composites.
@@ -742,7 +742,7 @@ function verifyReadabilityNotice(judge) {
         [judge.MODAL_BORDER, judge.MODAL_FILL, judge.FAILURE_LINE])));
     const crowded = judge.readabilityNotice(roles.map(text => ({ text, surface: "color.scrim over color.surfaceRaised", ratio: 1.25, floor: 4.5 })));
     assert.ok(crowded.length <= 600, "one notice stays within the notifier's message limit");
-    const omitted = /^(\d+)\b/.exec(crowded.split("\n").slice(-1)[0]);
+    const omitted = /^And (\d+) more\.$/.exec(crowded.split("\n").slice(-1)[0]);
     assert.notEqual(omitted, null, "a bounded notice names how many roles remain");
     assert.equal(crowded.split("\n").length - 1 + Number(omitted[1]), roles.length, "each role is listed or counted");
     assert.ok(!/color\.|badge\.|segmented\.|carousel\.|vgshell/.test(crowded), "no internal key or command reaches the notice");

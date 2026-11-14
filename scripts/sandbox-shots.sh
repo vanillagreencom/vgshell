@@ -3307,45 +3307,45 @@ nl_plugin() {
 nl_notice() { # INDEX DIR
   case $1 in
     1) nl_plugin VGS core 1 warning triangle-alert '[]' "" "$nl_theme_title" \
-         $'Muted text on panel backgrounds: contrast 3.21:1, needs 4.5:1.\nFaint text on the main background: contrast 2.87:1, needs 4.5:1.\nKey hints on raised panel backgrounds: contrast 3.64:1, needs 4.5:1.\nAccent text on inset panel backgrounds: contrast 4.12:1, needs 4.5:1.\nSelected row text on selected row backgrounds: contrast 3.98:1, needs 4.5:1.\nTooltip details on tooltip backgrounds: contrast 4.03:1, needs 4.5:1.' ;;
+         $'Muted text on panel backgrounds\nFaint text on the main background\nKey hints on raised panel backgrounds\nAccent text on inset panel backgrounds\nSelected row text on selected row backgrounds\nTooltip details on tooltip backgrounds' ;;
     2) nl_plugin "Google Drive" vgs.google-drive 1 warning cloud-alert '["default", "Set up two-way sync"]' "" "Google Drive folder sync stopped" \
          "Sync stopped for Documents, Photos, Projects. Two-way sync needs setup. Select Set up two-way sync to compare the folders and review the changes before you confirm." ;;
     3) nl_send Automations "Back up photos failed" \
          $'Failed 4 times since 07:00\nrsync: [sender] write error: Broken pipe (32) while copying Pictures/2026/11/IMG_4821.HEIC to nas:/volume1/photos/2026' '[]' \
          "{\"urgency\": <byte 2>, \"x-vgs-avatar\": <\"calendar-clock\">, \"x-vgs-icon\": <\"circle-x\">, \"x-vgs-tone\": <\"danger\">, \"x-vgs-click\": <\"open\">, \"x-vgs-open\": <$(nl_q "$2/back-up-photos.log")>}" ;;
     4) nl_send Capture "Recording saved" \
-         $'/home/alex/Videos/Recording 2026-11-12 14-03-22.mp4\nProcessing failed, so the recording is kept as recorded.\nc1e2a840] Too many bits 8832 > 6144 per frame requested, clamping to max\nConversion failed!' \
+         $'/home/alex/Videos/Recording 2026-11-12 14-03-22.mp4\nProcessing failed, so the recording is kept as recorded.' \
          '["default", "Open", "show", "Show"]' \
          "{\"x-vgs-icon\": <\"camera\">, \"x-vgs-tone\": <\"success\">, \"image-path\": <$(nl_q "$2/recording.png")>, \"resident\": <true>}" ;;
     5) nl_plugin Jarvis vgs.jarvis 1 info message-circle-plus '[]' "" "New conversation" \
-         "Jarvis reached this conversation's memory limit and started fresh. Your new message is still being answered. Earlier messages remain in the console's History." ;;
+         "This conversation reached Jarvis's memory limit. Jarvis is still answering your new message. Earlier messages remain in the console's History." ;;
     6) nl_plugin Jarvis vgs.jarvis 1 warning vgs-letter-j '["default", "Show problems"]' '"transient": <true>' "VGS restarted Jarvis" \
          "The reply from the AI model stopped too early. This is a new conversation, so say your request again." ;;
     7) nl_plugin "Agent Warden" vgs.agent-warden 1 "" "" '["default", "Open vsys"]' "" "An agent is near its memory limit" \
          "claude in vgs-2463 is using 7.4 GB. Agent Warden slows it at 8 GB to keep your computer responsive. Open vsys to stop work you do not need." ;;
     8) nl_plugin Scratchpads vgs.scratchpads 1 warning app-window '[]' '"x-vgs-page": <"[Plugins](page:vgs.scratchpads/Settings)">' \
-         'Pad kitty --class scratch-notes --title Notes -e nvim ~/notes/inbox.md +"set wrap linebreak" +startinsert cannot open' \
-         "Another pad uses its window class, scratch-notes. Give each pad its own window class in Plugins, and an app that opens its window with it." ;;
+         "Pad kitty cannot open" \
+         "Another pad uses the window class scratch-notes. Give each pad its own window class in Plugins." ;;
     9) nl_plugin "Remote desktop" vgs.remote-desktop 1 info screen-share '[]' '"x-vgs-page": <"[Remote desktop Setup](page:vgs.remote-desktop/Setup)">' "Could not connect" \
          "px13 has no remote desktop server. On that computer, install gliff from Remote desktop Setup." ;;
-    10) nl_plugin Themes vgs.themes 1 warning palette '[]' "" "Rose Pine Dawn" \
-         "Rose Pine Dawn is applied. Some applications did not change. Open the Themes panel for details." ;;
+    10) nl_plugin Themes vgs.themes 1 warning palette '[]' "" "Rose Pine Dawn is partly applied" \
+         "Some applications did not change. The Themes panel lists them." ;;
     11) nl_plugin Notifications vgs.notifications 1 danger square-terminal '[]' "" "The file did not open" \
-         "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it." ;;
+         "VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it." ;;
     12) nl_plugin Lock vgs.lock 2 danger lock-open '[]' "" "The session was not locked before sleep" \
-         "Hyprland refused the VGS lock. Another lock screen may hold the session. Check the lock before sleep." ;;
+         "Another lock screen may be running. Stop it so that VGS can lock the session before sleep." ;;
     13) nl_plugin "Web Apps" vgs.webapps 1 warning "" '[]' "" "Web app did not open" \
          "No browser here opens a site in its own window. Install Chromium, Google Chrome, Brave, Vivaldi or Microsoft Edge." ;;
-    14) nl_plugin Clipboard vgs.clipboard 1 warning clipboard-list '[]' '"transient": <true>' "Copy failed" "The entry is not on the clipboard." ;;
+    14) nl_plugin Clipboard vgs.clipboard 1 warning clipboard-list '[]' '"transient": <true>' "Copy failed" "Try again." ;;
     15) nl_plugin "Agent Debug" vgs.agent-debug 1 warning bug '["default", "Diagnose"]' "" "Could not install tools" \
-         "python-pyqt6, qt6-webengine and wl-clipboard. Diagnose with Claude Code" ;;
-    16) nl_plugin "Passwordless Sudo" vgs.sudo 1 warning circle-question-mark '[]' "" "Passwordless sudo state unknown" \
-         "VGS could not read whether passwordless sudo is on after this change." ;;
+         "python-pyqt6, qt6-webengine and wl-clipboard." ;;
+    16) nl_plugin "Passwordless Sudo" vgs.sudo 1 warning circle-question-mark '[]' "" "Passwordless sudo may be on or off" \
+         "VGS could not read it after this change." ;;
     17) nl_plugin Power vgs.power 1 danger circle-alert '[]' "" "Could not switch user" "This action is not available on this computer now." ;;
-    18) nl_plugin Windows vgs.windows 1 "" lock-open '[]' '"transient": <true>' "Group unlocked" "Windows can join and leave this group again." ;;
-    19) nl_plugin VGS core 1 warning terminal '[]' "" "Connect in terminal" \
+    18) nl_plugin Windows vgs.windows 1 "" lock-open '[]' '"transient": <true>' "Group unlocked" "" ;;
+    19) nl_plugin VGS core 1 warning terminal '[]' "" "SSH session" \
          "The session opened in your existing terminal. VGS could not confirm keyboard focus there." ;;
-    20) nl_plugin "VGS Components" vgs.gallery 1 success check '[]' "" "Saved" "The theme was saved" ;;
+    20) nl_plugin "VGS Components" vgs.gallery 1 success check '[]' "" "Theme saved" "Paper Dawn is in your theme list." ;;
     21) nl_send Slack "[acme] from Ada Lovelace" \
          "I went through the release notes for 4.2 and left comments on the migration section. The rollback steps still mention the old config path, and the screenshots in the setup guide show the previous settings layout. Can you take the docs part? I will update the changelog and tag the release once CI is green. Also, the demo for Thursday moved to 15:00, so we have a bit more time to test the import flow." \
          '["default", "View"]' '{"desktop-entry": <"slack">}' ;;

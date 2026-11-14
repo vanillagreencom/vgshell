@@ -456,8 +456,7 @@ Item {
     }
 
     // The sender gets labels and hints; only this run retains the worker's
-    // argv. A failed post-process keeps the recording as recorded and shows
-    // the end of the recorder log.
+    // argv. A failed post-process keeps the recording as recorded.
     function noticeRequest(job, event) {
         const recording = isRecord(job.actionName);
         const text = job.actionName === "text";
@@ -470,7 +469,6 @@ Item {
             image = recording ? event.thumbnail : event.path;
             if (recording && event.processing === "failed") {
                 message += "\nProcessing failed, so the recording is kept as recorded.";
-                if (event.detail !== "") message += "\n" + event.detail.slice(-Math.max(0, 199 - message.length));
             }
         }
         const hints = { "x-vgs-icon": "camera", "x-vgs-tone": "success" };

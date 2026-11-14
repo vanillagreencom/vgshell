@@ -666,12 +666,11 @@ class Capture:
             if request["postProcess"] or audio:
                 processing = "done" if self.postprocess(path, audio.count("-a"), request["postProcess"], log) else "failed"
             thumbnail = self.thumbnail(path, state, log)
-            detail = log_tail(log).strip() if processing == "failed" else ""
         try:
             child = self.copy(io.BytesIO((path.as_uri() + "\r\n").encode()), "text/uri-list")
         except (OSError, RuntimeError) as error:
             raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
-        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, detail=detail,
+        emit("saved", path=str(path), thumbnail=thumbnail, processing=processing,
              actions=actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser"))))
         self.clipboard_exit(child)
 

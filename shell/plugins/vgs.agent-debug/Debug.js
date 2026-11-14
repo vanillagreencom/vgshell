@@ -49,8 +49,8 @@ var FACT_MAX = 256;
 // The most recent pids of the service's own processes it never notifies
 // about: the follower and the uid read.
 var OWN_PIDS_MAX = 16;
-// The longest package sentence a setup notification's body holds before
-// its Diagnose line: "cups, cups-pk-helper and system-config-printer.",
+// The longest package sentence a setup notification's body holds:
+// "cups, cups-pk-helper and system-config-printer.",
 // the longest the design sheets show whole on the card at rest and on
 // hover, in both modes (VGS-2260 sheets A9 and A10).
 var BODY_PACKAGES_MAX = 47;
@@ -229,20 +229,18 @@ function listed(names) {
     return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
 }
 
-// The notification for a crash of PROGRAM, with AGENT the label of the
-// agent Diagnose opens.
-function crashNotice(program, agent) {
-    return { title: fact(program) + " crashed", body: "Diagnose with " + agent, urgency: "critical", tone: "danger", mute: true };
+// The notification for a crash of PROGRAM.
+function crashNotice(program) {
+    return { title: fact(program) + " crashed", body: "", urgency: "critical", tone: "danger", mute: true };
 }
 
 // The notification for FAILURE, a doctor.installFailures entry. The title
 // names no plugin, since the doctor capability lends no plugin name.
-function taskNotice(failure, agent) {
+function taskNotice(failure) {
     var sentence = listed(failure.packages) + ".";
-    var diagnose = "Diagnose with " + agent;
     return {
         title: failure.action === "update" ? "Could not update tools" : "Could not install tools",
-        body: failure.packages.length > 0 && sentence.length <= BODY_PACKAGES_MAX ? sentence + " " + diagnose : diagnose,
+        body: failure.packages.length > 0 && sentence.length <= BODY_PACKAGES_MAX ? sentence : "",
         urgency: "normal",
         tone: "warning",
         mute: false

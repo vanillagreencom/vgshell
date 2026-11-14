@@ -181,7 +181,7 @@ Scope {
             // Yielding can destroy the caller before the focus reply.
             // This core-owned send has no waiting callback or instance lease.
             const sent = Notifier.send({ id: "core" }, "VGS", {
-                title: "Connect in terminal", message: Reply.line("refused: tui=core/ssh reason=" + reason),
+                title: "SSH session", message: Reply.line("refused: tui=core/ssh reason=" + reason),
                 tone: "warning", icon: "terminal"
             }, notificationHub);
             if (sent !== "ok") console.error("tui: ssh-notify=" + sent);

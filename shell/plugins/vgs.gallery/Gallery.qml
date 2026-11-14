@@ -26,7 +26,7 @@ Item {
     function close() {}
     // A sample of the one way a plugin tells the user something.
     function notify() {
-        const reply = shell.notify.send({ title: "Saved", message: "The theme was saved", tone: "success", icon: "check" });
+        const reply = shell.notify.send({ title: "Theme saved", message: "Paper Dawn is in your theme list.", tone: "success", icon: "check" });
         if (reply !== "ok") console.error("gallery: notice " + reply);
         return reply;
     }

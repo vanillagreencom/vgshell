@@ -39,7 +39,7 @@ Item {
 
     readonly property var notices: ({
         locked: { title: "Group locked", message: "No window can join or leave this group.", icon: "lock", transient: true },
-        unlocked: { title: "Group unlocked", message: "Windows can join and leave this group again.", icon: "lock-open", transient: true }
+        unlocked: { title: "Group unlocked", icon: "lock-open", transient: true }
     })
 
     onShellChanged: {

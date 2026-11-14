@@ -558,10 +558,11 @@ function problem(step, name, result, packages) {
 
 // The notice the service sends for apply RESULT of package NAME once the
 // browser closed before it: null for an apply that did what it was asked,
-// else the browser's line, as a warning when the package is applied and an
-// error when it is not.
+// a warning that points to the Themes panel for a partial apply, or an
+// error with the reason when the package is not applied.
 function applyNotice(name, result, packages) {
-    var line = problem("apply", name, result, packages);
-    if (line === "") return null;
-    return { title: label(name, packages), message: line, tone: applied(result) ? "warning" : "danger", icon: "palette" };
+    if (result.state === "partial")
+        return { title: label(name, packages) + " is partly applied", message: "Some applications did not change. The Themes panel lists them.", tone: "warning", icon: "palette" };
+    if (applied(result)) return null;
+    return { title: "Could not apply " + label(name, packages), message: reasonText(result.reason), tone: "danger", icon: "palette" };
 }

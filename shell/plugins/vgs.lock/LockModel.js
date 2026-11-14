@@ -93,7 +93,7 @@ function lastSleep(reason) {
     const warn = message => ({ title: "The session was not locked before sleep", message: message, tone: "danger", icon: "lock-open", urgency: "critical" });
     switch (reason) {
     case "secure": return { status: { tone: "ok", text: "The session was locked before the last sleep" }, notice: null };
-    case "refused": return { status: { tone: "danger", text: "The computer slept without the VGS lock" }, notice: warn("Hyprland refused the VGS lock. Another lock screen may hold the session. Check the lock before sleep.") };
+    case "refused": return { status: { tone: "danger", text: "The computer slept without the VGS lock" }, notice: warn("Another lock screen may be running. Stop it so that VGS can lock the session before sleep.") };
     case "timeout": return { status: { tone: "danger", text: "The computer slept before VGS confirmed the lock" }, notice: warn("The computer may have slept unlocked. Lock the screen before sleep.") };
     case "closed": return { status: { tone: "danger", text: "The lock check stopped before sleep" }, notice: warn("The computer may have slept unlocked. Lock the screen before sleep.") };
     }

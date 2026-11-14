@@ -172,7 +172,7 @@ Item {
     function copied(code) {
         if (code !== 0) {
             putting = null;
-            notice("Copy failed", "The entry is not on the clipboard.", true);
+            notice("Copy failed", "Try again.", true);
             return;
         }
         const reply = shell.surfaces.hide("overlay");

@@ -345,8 +345,8 @@ function conversationResetNotice(reason) {
     if (["requested", "turn-limit"].indexOf(reason) === -1) refuse("conversation-reset", reason);
     return { title: "New conversation", tone: "info", icon: "message-circle-plus",
         message: reason === "turn-limit"
-            ? "Jarvis reached this conversation's memory limit and started fresh. Your new message is still being answered. Earlier messages remain in the console's History."
-            : "Jarvis started a fresh conversation. Earlier messages remain in the console's History." };
+            ? "This conversation reached Jarvis's memory limit. Jarvis is still answering your new message. Earlier messages remain in the console's History."
+            : "Earlier messages remain in the console's History." };
 }
 
 function look(state, title, action) {

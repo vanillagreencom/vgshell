@@ -84,8 +84,8 @@ Item {
 
     // The word PAD's Settings list item shows for its App, the preset's
     // label or the command typed under Custom…, which names the pad in its
-    // Keys row and its notices. The pad's name is a storage key the
-    // Settings page never shows.
+    // Keys row; noticeTitle shortens a custom command to its program.
+    // The pad's name is a storage key the Settings page never shows.
     function appOf(pad) {
         const preset = shell.manifest.schema.pads.items.command.presets.find(p => p.value === pad.command);
         return preset === undefined ? pad.command : preset.label;
@@ -96,11 +96,12 @@ Item {
         return "Show or hide " + appOf(pad);
     }
 
-    // A notice's title: PAD by its App, then END. shell.notify.send refuses
-    // a title past 120 characters (vgs-plugin api.md), so a long custom
-    // command is cut short.
+    // A notice's title: PAD by its preset label or custom command's program
+    // name without its folder, then END. shell.notify.send refuses a title
+    // past 120 characters (vgs-plugin api.md), so a long name is cut short.
     function noticeTitle(pad, end) {
-        const app = appOf(pad);
+        const shown = appOf(pad);
+        const app = shown === pad.command ? shown.trim().split(/\s+/)[0].split("/").pop() : shown;
         const room = 120 - ("Pad  " + end).length;
         return "Pad " + (app.length > room ? app.slice(0, room - 1) + "…" : app) + " " + end;
     }
@@ -213,7 +214,7 @@ Item {
             toggle(pad, null);
             return;
         case "no-pad":
-            notice(noticeTitle(pad, "cannot open"), "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in [Plugins](page:vgs.scratchpads/Settings), and an app that opens its window with it.");
+            notice(noticeTitle(pad, "cannot open"), "Another pad uses the window class " + pad["class"] + ". Give each pad its own window class in [Plugins](page:vgs.scratchpads/Settings).");
             return;
         default:
             console.warn("scratchpads: pad=" + name + " toggle answered " + JSON.stringify(answer));

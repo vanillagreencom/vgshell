@@ -59,10 +59,10 @@ const LINES = [
 // [name, packages, action, body]
 const TASK_BODIES = [
     ["the longest sentence the card shows whole", ["cups", "cups-pk-helper", "system-config-printer"], "install",
-        "cups, cups-pk-helper and system-config-printer. Diagnose with Claude Code"],
-    ["one character past it", ["cups", "cups-pk-helper", "system-config-printerx"], "install", "Diagnose with Claude Code"],
-    ["one package", ["gum"], "update", "gum. Diagnose with Claude Code"],
-    ["no package", [], "install", "Diagnose with Claude Code"]
+        "cups, cups-pk-helper and system-config-printer."],
+    ["one character past it", ["cups", "cups-pk-helper", "system-config-printerx"], "install", ""],
+    ["one package", ["gum"], "update", "gum."],
+    ["no package", [], "install", ""]
 ];
 
 function verify(d) {
@@ -118,15 +118,15 @@ function verify(d) {
     same(d.mutedRows(["firefox"]), [{ id: "firefox", label: "firefox", actions: ["unmute"] }]);
 
     // The words and the core notify options.
-    const crash = d.crashNotice("firefox", "Claude Code");
-    same(crash, { title: "firefox crashed", body: "Diagnose with Claude Code", urgency: "critical", tone: "danger", mute: true });
-    same(d.options(crash), { title: "firefox crashed", message: "Diagnose with Claude Code", urgency: "critical", tone: "danger", icon: "bug", actions: [{ id: "diagnose", label: "Diagnose" }, { id: "mute", label: "Mute" }] });
+    const crash = d.crashNotice("firefox");
+    same(crash, { title: "firefox crashed", body: "", urgency: "critical", tone: "danger", mute: true });
+    same(d.options(crash), { title: "firefox crashed", message: "", urgency: "critical", tone: "danger", icon: "bug", actions: [{ id: "diagnose", label: "Diagnose" }, { id: "mute", label: "Mute" }] });
     for (const [label, packages, action, body] of TASK_BODIES)
-        same(d.taskNotice({ action: action, packages: packages }, "Claude Code").body, body, label);
-    const task = d.taskNotice({ action: "install", packages: ["gum"] }, "Codex");
-    same(task, { title: "Could not install tools", body: "gum. Diagnose with Codex", urgency: "normal", tone: "warning", mute: false });
-    same(d.taskNotice({ action: "update", packages: ["gum"] }, "Codex").title, "Could not update tools");
-    same(d.options(task), { title: "Could not install tools", message: "gum. Diagnose with Codex", urgency: "normal", tone: "warning", icon: "bug", actions: [{ id: "diagnose", label: "Diagnose" }] });
+        same(d.taskNotice({ action: action, packages: packages }).body, body, label);
+    const task = d.taskNotice({ action: "install", packages: ["gum"] });
+    same(task, { title: "Could not install tools", body: "gum.", urgency: "normal", tone: "warning", mute: false });
+    same(d.taskNotice({ action: "update", packages: ["gum"] }).title, "Could not update tools");
+    same(d.options(task), { title: "Could not install tools", message: "gum.", urgency: "normal", tone: "warning", icon: "bug", actions: [{ id: "diagnose", label: "Diagnose" }] });
 
     // The facts, each one terminal argument, the time in local time with
     // its offset.

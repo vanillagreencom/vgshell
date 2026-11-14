@@ -565,7 +565,7 @@ function readabilityTitle(name, displayName) {
     return (displayName === null ? name : displayName) + ": some text may be hard to read";
 }
 
-function readabilityNotice(shortfalls) {
+function readabilityNotice(shortfalls, figures) {
     var worst = {};
     var roles = [];
     for (var i = 0; i < shortfalls.length; i++) {
@@ -578,13 +578,14 @@ function readabilityNotice(shortfalls) {
     for (var j = 0; j < roles.length; j++) {
         var shortfall = worst[roles[j]];
         var ratio = shortfall.ratio === null ? "contrast cannot be measured" : "contrast " + (Math.floor(shortfall.ratio * 100) / 100).toFixed(2) + ":1";
-        var line = readabilityName(shortfall.text) + " on " + readabilityName(shortfall.surface) + ": " + ratio + ", needs " + shortfall.floor + ":1.";
+        var line = readabilityName(shortfall.text) + " on " + readabilityName(shortfall.surface)
+            + (figures ? ": " + ratio + ", needs " + shortfall.floor + ":1." : "");
         // PluginLogic.notifyOptions accepts at most 600 message characters.
         // Reserve the final line before adding a role so omission is explicit.
         var remaining = roles.length - j - 1;
-        var tail = remaining > 0 ? "\n" + remaining + " more roles may be hard to read." : "";
+        var tail = remaining > 0 ? "\n" + (figures ? remaining + " more roles may be hard to read." : "And " + remaining + " more.") : "";
         if (lines.concat([line]).join("\n").length + tail.length > 600) {
-            lines.push((roles.length - j) + " more roles may be hard to read.");
+            lines.push(figures ? (roles.length - j) + " more roles may be hard to read." : "And " + (roles.length - j) + " more.");
             break;
         }
         lines.push(line);

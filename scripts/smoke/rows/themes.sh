@@ -1723,11 +1723,11 @@ theme_notice_evidence() {
   theme_notice_rows | py_reply 'import json,re,sys
 rows=json.load(sys.stdin)
 lines=rows[0][1].splitlines() if isinstance(rows,list) and len(rows)==1 else []
-print(len(lines)==1 and rows[0][0]=="Faint User: some text may be hard to read" and lines[0]=="Faint text on the main background: contrast 1.00:1, needs 4.5:1.")'
+print(len(lines)==1 and rows[0][0]=="Faint User: some text may be hard to read" and lines[0]=="Faint text on the main background")'
 }
 theme_notice_assertion_failures() {
   (failures=0 behaviour_failures=0
-  expect "one notice carries the faint role, surface and ratio" True theme_notice_evidence >"$sandbox/theme-notice-control.log"
+  expect "one notice carries the faint role and surface" True theme_notice_evidence >"$sandbox/theme-notice-control.log"
   printf '%s\n' "$failures")
 }
 notes_on "theme readability"
@@ -1738,7 +1738,7 @@ theme_notice_add() {
 }
 expect "the user theme adds" 0 theme_notice_add
 expect_poll "the add notifier completes its send" 0 ipc smoke themeNoticeRuns
-expect_poll "the add notice names its theme once and keeps its measurement" True theme_notice_evidence
+expect_poll "the add notice names its theme once and lists its faint role" True theme_notice_evidence
 notes_first_card "the theme add readability notice"
 notes_clear "theme add readability"
 expect "the probe enables for the readability notice" ok ipc shell setPluginEnabled acme.probe true
@@ -1747,7 +1747,7 @@ expect "reads settle before the readability apply" idle theme_idle
 expect "the user theme applies through the capability" ok probe theme-apply faint-user
 expect_poll "the user apply completes" 1 applies
 expect_poll "the notifier completes its send" 0 ipc smoke themeNoticeRuns
-expect_poll "one notice names the failed role, surface and ratio" True theme_notice_evidence
+expect_poll "one notice names the failed role and surface" True theme_notice_evidence
 expect_poll "the faint user theme remains applied" '"faint-user"' theme_member current
 notes_first_card "the theme readability notice"
 notes_clear "theme readability"

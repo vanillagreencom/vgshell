@@ -73,7 +73,7 @@ function tooltip(state, timeOf) {
 // leaves the grant on says so.
 function notice(action, before, result, nowMs, timeOf) {
     if (kind(result) === "unknown")
-        return { title: "Passwordless sudo state unknown", message: "VGS could not read whether passwordless sudo is on after this change.", tone: "warning", icon: "circle-question-mark" };
+        return { title: "Passwordless sudo may be on or off", message: "VGS could not read it after this change.", tone: "warning", icon: "circle-question-mark" };
     var on = result.state === "active";
     if (action === "revoke" && on)
         return { title: "Passwordless sudo is still on", message: "It could not be turned off. Click the lock to try again.", tone: "danger", icon: "lock-open" };

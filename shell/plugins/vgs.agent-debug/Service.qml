@@ -159,7 +159,7 @@ Item {
         const program = Debug.fact(entry.program);
         if (agent === "" || Debug.mutedList(shell.settings.muted).indexOf(program) !== -1) return;
         if (!admitted("crash:" + program)) return;
-        send(Debug.crashNotice(program, Debug.label(agent, targets)), { kind: "crash", entry: entry, read: Date.now() });
+        send(Debug.crashNotice(program), { kind: "crash", entry: entry, read: Date.now() });
     }
 
     // The failures the core holds now, each new one told once while an
@@ -171,7 +171,7 @@ Item {
         if (agent === "") return;
         for (const fresh of step.fresh) {
             if (!admitted("task:" + fresh.id)) continue;
-            send(Debug.taskNotice(fresh.failure, Debug.label(agent, targets)), { kind: "task", plugin: fresh.id, key: Debug.failureKey(fresh.id, fresh.failure), failure: fresh.failure, read: Date.now() });
+            send(Debug.taskNotice(fresh.failure), { kind: "task", plugin: fresh.id, key: Debug.failureKey(fresh.id, fresh.failure), failure: fresh.failure, read: Date.now() });
         }
     }
 

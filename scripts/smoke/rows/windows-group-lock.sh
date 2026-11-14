@@ -2,8 +2,8 @@
 # a grouped window two presses lock and then unlock the group: the nested
 # Hyprland's own Lua read of the focused window's group gives true, then
 # false, and the Windows cards on screen, cleared before each press, are
-# exactly one Group locked with `lock`, then exactly one Group unlocked
-# with `lock-open`, each with a one-line message. A press on a window in no
+# exactly one Group locked with `lock` and a one-line message, then exactly
+# one Group unlocked with `lock-open` and no message. A press on a window in no
 # group shows no card. After each press the row waits for the service's
 # count of finished presses, so no press is still reading or toggling when
 # the harness groups, ungroups or closes the window. The service sends a
@@ -71,7 +71,7 @@ if open_toplevel "$sandbox/group-lock-target.log" smoke.group-lock target; then
   notes_clear "group lock second press"
   gl_press "the second press"
   expect_poll "the second press unlocks the group in Hyprland" false gl_state
-  gl_cards_now "the second press shows one Group unlocked card with the open lock icon" '[["Group unlocked", "lock-open", true]]'
+  gl_cards_now "the second press shows one Group unlocked card with the open lock icon and no message" '[["Group unlocked", "lock-open", false]]'
 
   notes_clear "group lock ungrouped"
   expect "the harness ungroups the target" ok hypr dispatch 'hl.dsp.group.toggle()'
@@ -87,7 +87,7 @@ if open_toplevel "$sandbox/group-lock-target.log" smoke.group-lock target; then
   notes_clear "group lock last press"
   gl_press "a last press"
   expect_poll "a last press unlocks the group" false gl_state
-  gl_cards_now "a last press shows one Group unlocked card" '[["Group unlocked", "lock-open", true]]'
+  gl_cards_now "a last press shows one Group unlocked card with no message" '[["Group unlocked", "lock-open", false]]'
   expect "the harness ungroups the target at the end" ok hypr dispatch 'hl.dsp.group.toggle()'
   expect_poll "the target ends in no group" ungrouped gl_state
   close_toplevel "$gl_pid" "the group lock target window exits"

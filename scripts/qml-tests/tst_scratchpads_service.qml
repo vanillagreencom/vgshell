@@ -96,12 +96,12 @@ Item {
             service.start(two, true);
             service.tracked["2"].deadline = 0;
             service.expire();
-            compare(notices, ["Pad Second terminal cannot open", "Pad kitty --class=pad did not open"]);
+            compare(notices, ["Pad Second terminal cannot open", "Pad kitty did not open"]);
         }
 
         // shell.notify.send refuses a title past 120 characters.
         function test_a_long_custom_app_is_cut_to_fit_the_title() {
-            const command = "sh -c " + "x".repeat(200);
+            const command = "x".repeat(200);
             service.shell = fakeShell([pad("1", command, false)]);
             service.answered("1", "vgs-pad=no-pad");
             compare(notices.length, 1);

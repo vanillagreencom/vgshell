@@ -134,7 +134,7 @@ function verify(logic, files) {
     assert.equal(logic.wallpaperEmpty(true, "theme", "vgs", [], "", packages).text, "VGS has no wallpapers");
     assert.equal(logic.wallpaperEmpty(true, "theme", "nord", [], "", packages).text, "Nord has no wallpapers");
     assert.equal(logic.problem("apply", "vgs", { state: "failed", reason: "busy" }, packages), "Could not apply VGS. Another theme action is running. Wait for it to finish.");
-    assert.equal(logic.applyNotice("vgs", { state: "failed", reason: "busy" }, packages).title, "VGS");
+    assert.equal(logic.applyNotice("vgs", { state: "failed", reason: "busy" }, packages).title, "Could not apply VGS");
     same(built.find(c => c.name === "akane").palette, PALETTE, "a catalog card carries the index palette");
     assert.equal(built.find(c => c.name === "akane").previewImage, "/c/akane/preview.jpg", "a catalog card carries its package preview");
     assert.equal(built.find(c => c.name === "vgs").previewImage, "/themes/vgs/preview.jpg", "an installed or shipped package preview wins");
@@ -259,8 +259,8 @@ function verify(logic, files) {
     // The service's notice for an answer the closed browser handed over.
     assert.equal(logic.applyNotice("nord", { state: "applied", reason: null }, []), null);
     assert.equal(logic.applyNotice("nord", { state: "unchanged", reason: null }, []), null);
-    same(logic.applyNotice("nord", { state: "partial", reason: null }, []), { title: "Nord", message: "Nord is applied. Some applications did not change. Open the Themes panel for details.", tone: "warning", icon: "palette" });
-    same(logic.applyNotice("nord", { state: "failed", reason: "busy" }, []), { title: "Nord", message: "Could not apply Nord. Another theme action is running. Wait for it to finish.", tone: "danger", icon: "palette" });
+    same(logic.applyNotice("nord", { state: "partial", reason: null }, []), { title: "Nord is partly applied", message: "Some applications did not change. The Themes panel lists them.", tone: "warning", icon: "palette" });
+    same(logic.applyNotice("nord", { state: "failed", reason: "busy" }, []), { title: "Could not apply Nord", message: "Another theme action is running. Wait for it to finish.", tone: "danger", icon: "palette" });
 
     verifyWallpapers(logic);
 
@@ -465,8 +465,8 @@ const CONTROLS = [
     ["a stated display name titles the package", "&& packages[i].displayName !== null) return packages[i].displayName;", "&& false) return packages[i].displayName;"],
     ["a card takes the listed display name", "label: label(p.name, packages),", "label: label(p.name, null),"],
     ["the empty line takes the listed display name", 'label(applied, packages) + " has no wallpapers"', 'label(applied, null) + " has no wallpapers"'],
-    ["a failure line takes the listed display name", '"Could not apply " + label(name, packages)', '"Could not apply " + label(name, null)'],
-    ["a notice title takes the listed display name", "title: label(name, packages)", "title: label(name, null)"],
+    ["a failure line takes the listed display name", '"Could not apply " + label(name, packages) + ". "', '"Could not apply " + label(name, null) + ". "'],
+    ["a notice title takes the listed display name", 'title: "Could not apply " + label(name, packages)', 'title: "Could not apply " + label(name, null)'],
     ["label matches", "|| card.label.toLowerCase().indexOf(needle) !== -1", ""],
     ["one list holds every theme", "return list.filter(function (card) { return matches(card, text); });", "return list.filter(function (card) { return card.installed && matches(card, text); });"],
     ["printable only", "return code >= 32 && code !== 127;", "return true;"],
@@ -478,7 +478,7 @@ const CONTROLS = [
     ["the displayed theme waits for the answer", "|| job.shown ||", "||"],
     ["only the applied theme's publish closes", "|| published !== job.name) return false;", ") return false;"],
     ["only an apply closes on the publish", "|| job.step !== \"apply\" ||", "||"],
-    ["an applied partial notice warns", "tone: applied(result) ? \"warning\" : \"danger\"", "tone: \"danger\""],
+    ["an applied partial notice warns", 'The Themes panel lists them.", tone: "warning"', 'The Themes panel lists them.", tone: "danger"'],
     ["rail key holds the generation", "return JSON.stringify([generation, key]);", "return JSON.stringify([key]);"],
     ["key holds the preview inputs", "return JSON.stringify([card.name, card.label, card.previewImage, card.palette, card.tokens, card.terminal]);", "return JSON.stringify([card.name, card.label]);"],
     ["swatches read every slot", "var SWATCH_COUNT = 16;", "var SWATCH_COUNT = 8;"],

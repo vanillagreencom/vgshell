@@ -298,11 +298,8 @@ expect_poll "the page draws each pad as shell.json holds it" same sp_drawn_same
 expect_poll "a second pad on the first one's class is reported" '["hyprland: pad 2 of vgs.scratchpads skipped: class=org.vgs.pad held by pad 1"]' sp_problems
 expect_poll "the refused pad keeps its Keys row" drawn sp_key_row 2
 expect "pad 2's app logs its start" applied sp_field command "\"echo start >>$sandbox/pad-starts-2\"" 2
-# A notice names a pad by its App, here the command typed under Custom…,
-# cut short to keep the title within notify's 120 characters.
-sp_app_2="echo start >>$sandbox/pad-starts-2"
-(( ${#sp_app_2} <= 104 )) || sp_app_2="${sp_app_2:0:103}…"
-sp_refused="Pad $sp_app_2 cannot open"
+# A notice names a custom pad by its command's program.
+sp_refused="Pad echo cannot open"
 expect_poll "pad 2's app reaches shell.json" same sp_drawn_same
 notes_on "scratchpads refused pad"
 settings_page_close "Scratchpads"
@@ -322,9 +319,9 @@ python3 - "$sp_copy/Service.qml" <<'PYEDIT'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-a = "window class in [Plugins](page:vgs.scratchpads/Settings),"
+a = "window class in [Plugins](page:vgs.scratchpads/Settings)."
 assert s.count(a) == 1
-p.write_text(s.replace(a, "window class in Plugins,"))
+p.write_text(s.replace(a, "window class in Plugins."))
 PYEDIT
 rescan "the Scratchpads page control is scanned"
 expect_poll "the page control's Scratchpads service is built" True record_exists "$sp_id"
