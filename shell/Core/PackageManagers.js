@@ -654,14 +654,6 @@ var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };
 // preserving other tracked commits after a recipe gains a git source.
 var PARU_TRACKING = ["--gendb"];
 
-// paru v2.1.0 src/order.rs emits REPO/AUR TARGET, DEP and MAKE rows.
-// --rebuild=tree resolves even installed AUR dependencies (src/resolver.rs),
-// which an Updates rebuild must not retry after their failed upgrade.
-function rebuildOrder(binary, config, target) {
-    if (binary !== "paru") return null;
-    return [binary, "--config", config, "-Po", "--rebuild=tree", "--", target];
-}
-
 function parseBuildOrder(text) {
     var packages = [];
     var rows = lines(text.replace(/\r\n/g, "\n"));

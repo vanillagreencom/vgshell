@@ -140,7 +140,9 @@ stub() { # DIR NAME BODY
 # pending update; a file source answers no row, as one with none of its
 # packages installed does, while $FIX/unused-file-source exists.
 stub "$tree/bin" vgshell 'pkg_run() {
-  [ ! -e "$FIX/devel-status" ] || [ "$5" != aur ] || paru -Sua || exit "$?"
+  if [ -e "$FIX/devel-status" ] && [ "$5" = aur ]; then
+    ( shift 5; paru -Sua "$@" ) || exit "$?"
+  fi
   case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" || exit "$?" ;; esac
   [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
   [ ! -e "$FIX/interrupt-$5" ] || exit 130
@@ -181,7 +183,7 @@ case "$1 $2" in
   "pkg review-custom-consent")
     [ ! -e "$FIX/fail-consume" ] || exit 3
     [ ! -e "$FIX/decline-consent" ] || { printf "vgshell: refused: declined=review-unavailable\nThe AUR packages were not updated.\n" >&2; exit 1; } ;;
-  "pkg orphan-info"|"pkg rebuild-allowed") [ "$2" != orphan-info ] || [ ! -e "$FIX/fail-orphan-info" ] || exit 1; shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
+  "pkg orphan-info") [ ! -e "$FIX/fail-orphan-info" ] || exit 1; shift; exec node "$(cat "${0%/*}/review-owner")" "$@" ;;
   # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
   # its tree and its retry.
   "pkg ensure-helper")
@@ -368,12 +370,15 @@ stub "$stubs" paru 'if [ "$1" = -Qua ]; then
 fi
 if [ -e "$FIX/devel-status" ]; then
   case "$1" in
-    -Sua) [ ! -s "$FIX/devel-pending" ] || printf "build vgshell-git\n" >>"$CALLS" ;;
+    -Sua)
+      case "$*" in
+        *"--ignore vgshell-git"*) ;;
+        *) [ ! -s "$FIX/devel-pending" ] || printf "build vgshell-git\n" >>"$CALLS" ;;
+      esac ;;
     -S) printf "build vgshell-git\n" >>"$CALLS" ;;
   esac
 fi
 case "$*" in
-  *"-Po --rebuild=tree -- vgshell-git") [ ! -e "$FIX/fail-build-order" ] && [ -e "$FIX/build-order" ] || exit 1; cat "$FIX/build-order"; exit 0 ;;
   *"-Si -- "*)
     [ -e "$FIX/aur-info" ] || exit 1
     cat "$FIX/aur-info"
@@ -1294,13 +1299,6 @@ row_aur_rebuild_stopped() {
     aur_call="vgshell pkg run upgrade --manager aur"
     if [[ $route == custom ]]; then settings "paru -Sua --devel" false; aur_call="paru -Sua --devel"; fi
     printf '%s\n' "$ending" >"$fix/review-ending"
-    printf 'AUR TARGET vgshell-git vgshell-git\nAUR DEP vgshell-quickshell vgshell-quickshell\nREPO MAKE extra cmake\n' >"$fix/build-order"
-    printf '%s\n' "$stubs/paru" >"$fix/helper-path"
-    case "$ending" in
-      unknown) printf 'MISSING engine\n' >>"$fix/build-order" ;;
-      missing-target) printf 'AUR DEP vgshell-quickshell vgshell-quickshell\n' >"$fix/build-order" ;;
-      unread-order) touch "$fix/fail-build-order" ;;
-    esac
     # Keep captured bytes, including reset controls and the colon-space,
     # not a reconstructed build error. Only the later queued-stage outcome
     # is supplied below, from Paru install.rs/exec.rs and sudo tgetpass.c.
@@ -1373,10 +1371,6 @@ case "$1" in
         builds="$package-0.5.1-1"
         [ "$ending" != mixed ] || builds="$builds  vgshell-quickshell-0.3.2-5"
         [ "$ending" = incomplete ] || printf "error: packages failed to build: %s\n" "$builds"
-        if [ "$ending" = no-helper ]; then
-          read -r helper <"$FIX/helper-path"
-          mv -- "$helper" "$FIX/paru-saved"
-        fi
         case "$ending" in term) exit 143 ;; hup) exit 129 ;; esac ;;
     esac
     exit 1 ;;
@@ -1384,10 +1378,9 @@ esac
 SH
     chmod +x "$fix/transaction"
     pipeline update.sh
-    [[ ! -e $fix/paru-saved ]] || mv -- "$fix/paru-saved" "$stubs/paru"
     assert "$route $ending reports its original result" test "$status" == "$expected"
     if [[ $rebuild == yes ]]; then
-      assert "$route $ending still rebuilds independent VGS" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
+      assert "$route $ending leaves VGS dependencies to the reviewed rebuild" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
       if [[ $ending == recorded-2.2-source ]]; then
         # The sentence says what comes next, so no Next: repeats it.
         assert "$route $ending names the package whose source is gone" result_has "AUR packages failed. $cause"
@@ -1420,10 +1413,10 @@ table yay failed 1 no
 custom yay failed 1 no
 table cancel cancelled 130 no
 custom cancel cancelled 130 no
-table dependency failed 1 no
-custom dependency failed 1 no
-table build-dependency failed 1 no
-table mixed failed 1 no
+table dependency failed 1 yes VGS could not build vgshell-quickshell.
+custom dependency failed 1 yes VGS could not build vgshell-quickshell.
+table build-dependency failed 1 yes VGS could not build cmake.
+table mixed failed 1 yes VGS could not build ttfx vgshell-quickshell.
 table recorded-2.1 failed 1 yes VGS could not build vgs-fixture-check-only.
 table recorded-2.2 failed 1 yes VGS could not build vgs-fixture-check-only.
 table recorded-2.2-pass failed 1 yes vgs-fixture-check-only failed its own tests. The other AUR packages installed.
@@ -1431,10 +1424,6 @@ table recorded-2.2-cached-sudo failed 1 no sudo: timed out reading password.
 table recorded-2.2-cargo failed 1 yes VGS could not build vgs-fixture-check-only.
 table recorded-2.2-source failed 1 yes vgs-fixture-source-missing failed: its source file could not be downloaded. Its maintainer must fix the package; the next update tries again.
 custom unrelated failed 1 yes
-table unknown failed 1 no
-table missing-target failed 1 no
-table unread-order failed 1 no
-table no-helper failed 1 no
 table incomplete failed 1 no
 table term failed 1 no
 custom term failed 1 no
@@ -1595,8 +1584,8 @@ row_vgs_git() {
 # status the VGS row offers Update for is run alone first, as that Update
 # runs it; devel_alone_builds keeps the last such run's build count.
 row_vgs_devel() {
-  local pending aur expected count source_status="${SELF_JUDGE:-$tree/bin/lib/self.js}"
-  while IFS='|' read -r pending aur expected count; do
+  local pending aur expected count fact error source_status="${SELF_JUDGE:-$tree/bin/lib/self.js}"
+  while IFS='|' read -r pending aur expected count fact; do
     reset_fix
     settings "$aur" false
     if [[ $aur == "yay -Sua" ]]; then
@@ -1614,8 +1603,10 @@ row_vgs_devel() {
       if [[ $pending == multiline ]]; then printf 'error: timed out looking for devel update: https://example.org/b.git\n' >>"$fix/devel-error"; fi
     fi
     "${base_env[@]}" PATH="$stubs:$tools" CALLS="$calls" FIX="$fix" "$node_bin" "$tree/bin/vgshell-pkg" check --json --source aur >"$fix/check-aur.json"
+    error=-
+    if [[ $fact == error ]]; then error=compare=failed; fi
     "${base_env[@]}" PATH="$stubs:$tools" CALLS="$calls" FIX="$fix" "$node_bin" "$source_status" report json \
-      0.1.0 package vgshell-git 0.1.0.r1.gabc1234 pacman b true paru - >"$fix/self.json"
+      0.1.0 package vgshell-git 0.1.0.r1.gabc1234 pacman b "${fact:-true}" paru "$error" >"$fix/self.json"
     assert "$pending aur=${aur:-automatic} keeps the status/count contract" "${base_env[@]}" "$node_bin" - "$tree/bin/lib/qml-library.js" "${PLUGIN:-$plugin}/UpdatesLogic.js" "$tree/shell/Commons/PageReference.js" "$fix" "$count" "$expected" "$aur" <<'JS'
 const fs = require("node:fs"), assert = require("node:assert/strict");
 const [loader, source, page, fix, count, expected, aur] = process.argv.slice(2);
@@ -1629,21 +1620,31 @@ const values = logic.publishValues(snapshot, false, 0, 1, null, aur);
 assert.equal(values.pending, Number(count));
 const status = JSON.parse(probe("self.json").stdout);
 // The VGS row offers its own Update for every status that names a step.
-assert.equal(logic.windowRows(values).find(row => row.source === "vgs").updatable, expected !== "unknown");
+assert.equal(logic.windowRows(values).find(row => row.source === "vgs").updatable, expected !== "unknown" && expected !== "current");
 if (expected === "unknown") {
     assert.equal(status.behind, null);
     assert.equal(status.step, null);
     assert.equal(status.latest, null);
-    const cause = fs.readFileSync(fix + "/devel-error", "utf8").trim()
-        .replaceAll("\n", "\\u000a");
-    assert.equal(status.error, "aur-check=exit=1 stderr=" + cause);
+    if (fs.existsSync(fix + "/devel-error")) {
+        const cause = fs.readFileSync(fix + "/devel-error", "utf8").trim()
+            .replaceAll("\n", "\\u000a");
+        assert.equal(status.error, "aur-check=exit=1 stderr=" + cause);
+    } else {
+        assert.equal(status.error, "compare=failed");
+        assert.equal(snapshot.sources.find(row => row.source === "aur").packages.some(pkg => pkg.name === "vgshell-git"), true);
+    }
     assert.equal(snapshot.sources.find(row => row.source === "vgs").count, null);
+} else if (expected === "current") {
+    assert.equal(status.behind, false);
+    assert.equal(status.step, "none");
+    assert.equal(status.error, null);
+    assert.equal(snapshot.sources.find(row => row.source === "aur").packages.some(pkg => pkg.name === "vgshell-git"), false);
 } else {
     assert.equal(status.step, expected === "aur" ? "aur-upgrade" : "rebuild");
     assert.equal(status.error, null);
 }
 JS
-    if [[ $expected != unknown ]]; then
+    if [[ $expected != unknown && $expected != current ]]; then
       pipeline update-source.sh vgs
       devel_alone_builds="$(grep -c '^build vgshell-git$' "$calls" || :)"
       assert "$pending aur=${aur:-automatic} Update of VGS alone exits 0" test "$status" == 0
@@ -1655,9 +1656,20 @@ JS
     pipeline update.sh
     assert "$pending aur=${aur:-automatic} exits 0" test "$status" == 0
     local builds=0
-    if [[ $expected != unknown ]]; then builds=1; fi
+    if [[ $expected != current ]]; then builds=1; fi
+    if [[ $expected == unknown && $pending != tracked ]]; then builds=0; fi
+    if [[ $expected == current && $aur == "paru -Sua --devel" ]]; then builds=1; fi
     assert "$pending aur=${aur:-automatic} builds VGS $builds times" test "$(grep -c '^build vgshell-git$' "$calls" || :)" == "$builds"
-    if [[ $expected == aur ]]; then
+    if [[ $expected == current ]]; then
+      assert "a current VGS has no separate rebuild" no_call "vgshell pkg run reinstall --manager aur"
+      if [[ $aur == "paru -Sua --devel" ]]; then
+        assert "a non-table custom upgrade keeps its argv" has_call "paru -Sua --devel"
+        assert "a non-table custom upgrade gets no added ignore" no_call "paru -Sua --devel --ignore"
+      else
+        assert "a current judge passes its exclusion to the package runner" has_call "vgshell pkg run upgrade --manager aur --ignore vgshell-git"
+        assert "the AUR step forwards the exclusion" has_call "paru -Sua --ignore vgshell-git"
+      fi
+    elif [[ $expected == aur ]]; then
       assert "tracked devel update has no separate rebuild" no_call "vgshell pkg run reinstall --manager aur"
       assert "tracked devel update plans the AUR upgrade for VGS" out_has "VGS: the AUR updates install the new VGS package"
     elif [[ $expected == unknown ]]; then
@@ -1670,7 +1682,19 @@ JS
       assert "$pending aur=${aur:-automatic} retains the separate rebuild" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
       if [[ $aur == "yay -Sua" ]]; then assert "configured yay retains its original argv" has_call "yay -Sua"; fi
     fi
-    assert "$pending devel update restarts replaced VGS" has_call "vgshell restart"
+    if [[ $expected != current ]]; then assert "$pending devel update restarts replaced VGS" has_call "vgshell restart"; fi
+    if [[ $pending == tracked && ( $expected == current || $expected == unknown ) ]]; then
+      pipeline update-source.sh aur
+      assert "AUR alone reads the VGS judge" has_call "vgshell self status --json"
+      assert "AUR alone runs no separate VGS rebuild" no_call "vgshell pkg run reinstall --manager aur"
+      assert "AUR alone builds VGS $builds times" test "$(grep -c '^build vgshell-git$' "$calls" || :)" == "$builds"
+      if [[ $expected == current && $aur != "paru -Sua --devel" ]]; then
+        assert "AUR alone excludes a current VGS through the package runner" has_call "vgshell pkg run upgrade --manager aur --ignore vgshell-git"
+      elif [[ $expected == unknown ]]; then
+        assert "an unread judge adds no exclusion" no_call "vgshell pkg run upgrade --manager aur --ignore"
+        assert "AUR alone adds no VGS result" result_lacks "VGS skipped."
+      fi
+    fi
     rm -f -- "${stubs:?}/yay"
   done <<'ROWS'
 none||rebuild|1
@@ -1678,6 +1702,10 @@ tracked|paru -Sua|aur|1
 tracked|yay -Sua|rebuild|2
 single||unknown|0
 multiline||unknown|0
+tracked||current|0|false
+tracked|paru -Sua|current|0|false
+tracked|paru -Sua --devel|current|0|false
+tracked||unknown|1|error
 tracked||aur|1
 ROWS
 }
@@ -2022,6 +2050,8 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   PLUGIN="$copy_dir" QUIET=1 "$4"
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
+control current-vgs-built '    aur_ignore=(--ignore vgshell-git)' '    aur_ignore=()' row_vgs_devel
+control current-vgs-pending 'if (row.package === "vgshell-git" && row.behind === false) {' 'if (false) {' row_vgs_devel UpdatesLogic.js
 # The record helper this suite wrote before VGS-2001: the name, each argument
 # and the newline as separate appends. The row must fail on it.
 record_whole="$record"
@@ -2105,7 +2135,7 @@ control builds-after-failed-system '            failed) system_blocked="the syst
 control builds-after-declined-system '            declined) system_blocked="you declined the system upgrade" ;;' '            declined) ;;' row_system_failed
 control builds-after-unread-system '          system_blocked="VGS could not check the system for updates" system_unread=1' '          system_unread=1' row_system_failed
 control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]' 'if false' row_aur_rebuild_stopped
-control rebuild-after-unrelated-failure '[[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]' 'false' row_aur_rebuild_stopped
+control rebuild-after-complete-build-failure '[[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]' 'false' row_aur_rebuild_stopped
 control build-tools-offered 'const candidates = info.packages.filter(row => !row.builds.length);' 'const candidates = info.packages;' row_orphans
 # Restore output() at the exact helper query that used to lose every
 # record on exit 1. Exercise the same production owner through the fixture

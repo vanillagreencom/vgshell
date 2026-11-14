@@ -293,20 +293,6 @@ function orphanInfo(names) {
     }
     return { packages: names.map(name => ({ name, builds: tools.get(name) || [] })), unavailable };
 }
-// Read-only evidence, never authority to mutate or to skip package tests.
-// Unknown/custom helpers and incomplete order reports preserve the stop.
-function rebuildAllowed(config, target, failed) {
-    if (!failed.length) return false;
-    const found = managers.presentManager("aur", onPath);
-    if (!found.ok) return false;
-    const argv = managers.rebuildOrder(found.binary, config, target);
-    if (argv === null) return false;
-    const answer = query(argv);
-    if (answer.error || answer.signal || answer.status !== 0 || answer.stderr) return false;
-    const order = managers.parseBuildOrder(answer.stdout);
-    if (!order.ok || !order.packages.some(p => p.kind === "TARGET" && p.name === target)) return false;
-    return failed.every(name => !order.packages.some(p => p.name === name));
-}
 function inside(file, root) { return file === root || file.startsWith(root + path.sep); }
 function writableTemporaryRoots() {
     return [...new Set(["/tmp", process.env.TMPDIR].filter(Boolean).map(p => fs.realpathSync(p)))];
@@ -856,4 +842,4 @@ async function bootstrap(tree) {
     } finally { fs.rmSync(run, { recursive: true, force: true }); }
 }
 module.exports = { available, bootstrap, buildRoot, customMode, judge, settingsRead, settingsWrite, createRun, withReview, reviewFiles,
-    refuseFileManagerFlags, resultLine, terminalChild, workRoot, ownedDirectory, privateFile, ui, orphanInfo, rebuildAllowed, unavailableCustom };
+    refuseFileManagerFlags, resultLine, terminalChild, workRoot, ownedDirectory, privateFile, ui, orphanInfo, unavailableCustom };

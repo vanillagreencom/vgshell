@@ -136,7 +136,8 @@ function normalizePkg(probe) {
 // and `none` runs nothing, with the reason when VGS is behind.
 var SELF_STEPS = { self: [null], rebuild: [null], "install-helper": [null], "aur-upgrade": [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
 
-// The VGS row from `vgshell self status --json`. VGS counts one update only
+// The VGS row from `vgshell self status --json`, and its exclusion from the
+// AUR rows when that judge says current. VGS counts one update only
 // when its step runs and no other row counts it: `aur-upgrade`'s
 // vgshell-git is in the AUR row's list, so that row counts it. Its `note`
 // is one of:
@@ -144,13 +145,23 @@ var SELF_STEPS = { self: [null], rebuild: [null], "install-helper": [null], "aur
 //   { kind: "aurUpgrade" }      the AUR row lists the update, and the VGS
 //                                row's Update installs it
 //   { kind: "reason", reason }   behind, and the step is `none` for REASON
-function normalizeSelf(probe, checkedAt) {
+function normalizeSelf(probe, checkedAt, packageSources) {
     var parsed = parseProbeJson("self", probe);
     if (!parsed.ok) return sourceRow("vgs", null, [], checkedAt, parsed.error);
     var row = parsed.value;
     if (!isPlainObject(row)) return sourceRow("vgs", null, [], checkedAt, "unparseable self");
     if (row.error !== null && row.error !== undefined) return sourceRow("vgs", null, [], checkedAt, row.error);
     if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return sourceRow("vgs", null, [], checkedAt, "unparseable self step");
+    // paru's latest-commit can name a docs-only commit. The table upgrade
+    // ignores it on this judge's current answer; an error hides nothing.
+    if (row.package === "vgshell-git" && row.behind === false) {
+        (packageSources || []).forEach(function (source) {
+            if (source.source !== "aur" || source.error !== null || source.count === null) return;
+            var before = source.packages.length;
+            source.packages = source.packages.filter(function (pkg) { return pkg.name !== "vgshell-git"; });
+            source.count -= before - source.packages.length;
+        });
+    }
     var behind = row.behind === true;
     var counted = behind && row.step !== "none" && row.step !== "aur-upgrade";
     var packages = behind ? [{ name: row.package || "vgs", old: row.current === undefined ? null : row.current, new: row.latest === undefined ? null : row.latest }] : [];
@@ -199,7 +210,7 @@ function normalizeSnapshot(probes, now) {
     var checkedAt = typeof now === "number" ? now : Date.now();
     var sources = [];
     sources = sources.concat(normalizePkg(probes.pkg));
-    sources.push(normalizeSelf(probes.self, checkedAt));
+    sources.push(normalizeSelf(probes.self, checkedAt, sources));
     sources.push(normalizeOutdated("plugins", probes.plugins, checkedAt));
     sources.push(normalizeOutdated("themes", probes.themes, checkedAt));
     return { checkedAt: checkedAt, sources: sources, error: null };

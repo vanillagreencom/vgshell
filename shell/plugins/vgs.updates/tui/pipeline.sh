@@ -48,14 +48,16 @@
 #      [y/N]; `--yes` only when the `trustPluginUpdates` setting is on
 #  11. the end of the sudo session, which drops the credential
 #  12. the AUR, last, so no PKGBUILD runs under the update's credential:
-#      the `aurCommand` setting's words, else `vgshell pkg run upgrade
-#      --manager aur`, then `<helper> -S vgshell-git` when the status names
+#      the table-owned upgrade or the non-table `aurCommand` words, then
+#      the reviewed `<helper> -S vgshell-git` when the status names
 #      the step `rebuild`, installing paru from its AUR recipe first for
 #      `install-helper`. When self status selects `aur-upgrade` for paru's
 #      tracked devel vgshell-git, the AUR upgrade builds it and no separate
 #      rebuild runs; a run without the AUR step, an Update of VGS alone,
 #      rebuilds it. With Devel off, no tracked devel update, or yay, status
-#      selects the separate rebuild. The helper asks sudo itself, so the
+#      selects the separate rebuild. A current installed-files judge
+#      excludes vgshell-git from the table upgrade, also in AUR-only runs;
+#      an unread judge excludes nothing. The helper asks sudo itself, so the
 #      phase runs under tui.sh's sudo guard: the credential it caches is
 #      dropped when the phase ends, fails or is interrupted
 #  13. pacman's orphaned packages, removed only on a yes, default no, after
@@ -99,9 +101,9 @@
 # rebuild and the orphans. An unreadable VGS status,
 # plugin, theme or orphan list skips that part, and a failed orphan removal
 # or shell restart is a failed part. A package a declined AUR transaction
-# leaves out is not retried by the VGS rebuild. A failed AUR build permits
-# the rebuild only when the package owner proves every failed package is
-# outside VGS's dependency build order.
+# leaves out is not retried by the VGS rebuild. A complete AUR build
+# failure permits the separate reviewed rebuild; the helper itself fails
+# a broken dependency. Other failed transactions still skip the rebuild.
 # A step a Ctrl-C ended ends the run with 130. Any other failing command is
 # a fault of the pipeline itself and ends the run: the ERR trap prints the
 # result list so far, `updates: failed exit=<n> log=<file>` and how to
@@ -1128,7 +1130,7 @@ _updates_main() {
   local plan=() kept=() id label vgs_package="" vgs_step="" vgs_reason="" vgs_unread=0 plugins=() themes=()
   local primary_planned=0 elevator="" elevator_refused=""
   local _updates_plan_text _updates_plan_elevator _updates_plan_elevator_refused
-  if _updates_in vgs "${run[@]}"; then
+  if _updates_in vgs "${run[@]}" || _updates_in aur "${run[@]}"; then
     if out="$("$_updates_vgshell" self status --json)" && facts="$(_updates_facts self <<<"$out")"; then
       while read -r key value; do
         case "$key" in
@@ -1141,11 +1143,18 @@ _updates_main() {
     else
       _updates_diagnostic "updates: vgs-status=unread exit=$?"; vgs_unread=1
     fi
-    # A status VGS could not read runs no VGS step; the rest of the run goes on.
+    # The AUR-only run still needs the judge's currentness, but adds no
+    # VGS action or result. An unread judge never authorizes an ignore.
     if [[ $vgs_unread == 1 ]]; then
       vgs_step=""
-      _updates_results+=("VGS skipped. VGS could not check it for updates. Update again later.")
+      if _updates_in vgs "${run[@]}"; then
+        _updates_results+=("VGS skipped. VGS could not check it for updates. Update again later.")
+      fi
     fi
+  fi
+  local aur_ignore=()
+  if [[ $vgs_unread == 0 && $vgs_package == vgshell-git && $vgs_step == none && -z $vgs_reason ]]; then
+    aur_ignore=(--ignore vgshell-git)
   fi
   # The package steps besides the system's: the AUR, a file source and the
   # VGS package. Each runs only after a successful system upgrade in this
@@ -1442,7 +1451,9 @@ _updates_main() {
   if [[ -n $aur_blocked ]]; then
     if _updates_in aur "${run[@]}"; then _updates_results+=("AUR skipped. ${aur_blocked^}."); fi
     # A tracked devel vgshell-git (aur-upgrade) builds in the AUR step.
-    if [[ $rebuild_run == 1 || $vgs_step == aur-upgrade ]]; then _updates_results+=("VGS package skipped. ${aur_blocked^}."); fi
+    if [[ $rebuild_run == 1 ]] || { _updates_in vgs "${run[@]}" && [[ $vgs_step == aur-upgrade ]]; }; then
+      _updates_results+=("VGS package skipped. ${aur_blocked^}.")
+    fi
   elif [[ $denied == 1 ]]; then
     : # The refusal's one result line stands for the AUR and the VGS package.
   elif [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then
@@ -1459,18 +1470,18 @@ _updates_main() {
         custom_json="$(node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' "${aur_command[@]}")"
         custom_mode="$("$_updates_vgshell" pkg review-custom-mode "$custom_json")"
         if [[ $custom_mode == table ]]; then
-          _updates_source aur AUR _updates_pacman_run custom "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[custom]}"
+          _updates_source aur AUR _updates_pacman_run custom "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[custom]}" "${aur_ignore[@]}"
         else
           _updates_source aur AUR _updates_custom_run "${aur_command[@]}"
         fi
       else
-        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[aur]}"
+        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur --config "${_updates_package_configs[aur]}" "${aur_ignore[@]}"
       fi
-      # Never retry a declined transaction. A known unrelated failed build
-      # does not block VGS, but missing dependency evidence still does.
+      # Never retry a declined or unread transaction. A complete build
+      # failure allows the separate reviewed rebuild without a dependency
+      # precheck: the helper fails a broken dependency itself.
       if [[ $rebuild_run == 1 && $_updates_outcome != installed ]] &&
-          ! { [[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]] &&
-              "$_updates_vgshell" pkg rebuild-allowed "${_updates_package_configs[aur]}" vgshell-git "${_updates_failed_builds[@]}"; }; then
+          ! [[ $_updates_outcome == failed && $_updates_exit -lt 128 && $_updates_refused == 0 && $_updates_build_complete == 1 && ${#_updates_failed_builds[@]} -gt 0 ]]; then
         rebuild_run=0
         _updates_diagnostic "updates: skipped source=vgshell-git reason=aur-$_updates_outcome"
         case "$_updates_outcome" in
