@@ -1041,10 +1041,12 @@ var GLOBAL_DNS = "global servers";
 // programs (musl or static binaries, dig, Go's own resolver) ask directly,
 // the Wi-Fi's among them; with missing, or no mode read, it is unknown.
 var RESOLVED_MODES = ["stub", "static"];
+var DIRECT_MODES = ["uplink", "foreign"];
 // { kind: "scopes", scopes: [{ link, defaultRoute, domains }], fallback }
 // for each entry that holds a DNS server, the global servers taking every
 // name no domain routes, as for a default-route link; `fallback` when the
-// global settings list fallback servers. Else `unreadable`: a reading
+// global settings list fallback servers. `direct` for a resolv.conf that
+// programs ask past resolved (DIRECT_MODES). Else `unreadable`: a reading
 // the judge cannot fully evaluate is no pass.
 function dnsRead(code, text) {
     const unreadable = { kind: "unreadable" };
@@ -1076,6 +1078,7 @@ function dnsRead(code, text) {
         const names = domains.map(domain => domain.name === "." ? "." : domain.name.toLowerCase().replace(/\.$/, ""));
         scopes.push({ link: link, defaultRoute: global || entry.defaultRoute, domains: names });
     }
+    if (DIRECT_MODES.indexOf(mode) !== -1) return { kind: "direct" };
     if (RESOLVED_MODES.indexOf(mode) === -1) return unreadable;
     return { kind: "scopes", scopes: scopes, fallback: fallback };
 }
@@ -1242,7 +1245,8 @@ function leakCheck(readings, before, host) {
     const unread = reading => reading.kind === "missing" ? unknown("missing", reading.command) : unknown("read");
     const route = reading => reading.kind === "via" ? [reading.link] : reading.kind === "none" ? [] : unread(reading);
     // A lookup no target takes goes nowhere this reading can judge.
-    const lookups = readings.dns.kind !== "scopes" ? unread(readings.dns)
+    const lookups = readings.dns.kind === "direct" ? unknown("direct")
+        : readings.dns.kind !== "scopes" ? unread(readings.dns)
         : host === undefined ? lookupLinks(readings.dns) : nameLinks(readings.dns, host);
     return {
         uuid: readings.uuid, kill: kill, public: readings.public,
@@ -1321,6 +1325,7 @@ function familyLine(key, family) {
     case "link": return checkLine("Could not check", CHECK_REASONS.link);
     case "kill": return checkLine("Could not check", "VGS could not check whether the kill switch blocks it");
     case "lookups": return checkLine("Could not check", "VGS could not find where name lookups go");
+    case "direct": return checkLine("Could not check", "Some programs can ask DNS servers that VGS cannot check");
     }
     return checkLine("Could not check", dns ? "VGS could not read the DNS settings" : "VGS could not read the route");
 }

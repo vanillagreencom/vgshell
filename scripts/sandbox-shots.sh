@@ -71,7 +71,8 @@
 # fakes, each also with the pointer on a list row the selection is not on,
 # then the widget's menu with the pointer on an entry; vpn is the VPN bar
 # icon connected, warning and connecting, its flyout, with Home tunnel's
-# leak check where the tree ships it, clean and then leaking, and its System
+# leak check where the tree ships it, clean, leaking and over a resolv.conf
+# systemd-resolved does not manage, and its System
 # Settings section with a profile expanded, the remove confirmation, a
 # connect that found no OpenVPN plugin and no profile, and the password
 # prompt in the flyout with its field empty, with masked typed text and
@@ -9889,7 +9890,8 @@ SH
 # Check again over an IPv6 route out of the Wi-Fi and the Wi-Fi holding the
 # DNS default route beside a tunnel with no DNS server
 # (dns-wifi-route.json): IPv6 and DNS leak, and the provider is not asked,
-# so the public address reads Not checked with its reason.
+# so the public address reads Not checked with its reason; then over a
+# resolv.conf systemd-resolved does not manage.
 # The flyout scrolls so the lines and Check show, Check near its bottom.
 vpn_shot_leak() { # MODE
   tree_has shell/plugins/vgs.vpn/VpnLogic.js '"profile-check"' || return 0
@@ -9912,6 +9914,16 @@ vpn_shot_leak() { # MODE
   expect_poll "the flyout shows Check" true vpn_shot_read panel RowAction "vpn-check-run:$vpn_shot_home" visible
   park_pointer
   take "vpn-$1-dropdown-leak"
+  # The same scroll over a /etc/resolv.conf systemd-resolved does not
+  # manage (dns-foreign.json): DNS reads Could not check with its reason.
+  vpn_shot_readers route-none.txt dns-foreign.json
+  expect "Home tunnel's Check starts over a resolv.conf resolved does not manage" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-check\",\"id\":\"$vpn_shot_home\"}"
+  expect_poll "Home tunnel's check shows IPv6 not used" '"Not used"' vpn_shot_read panel Label "vpn-ipv6:$vpn_shot_home" text
+  expect_poll "Home tunnel's check could not check DNS" '"Could not check"' vpn_shot_read panel Label "vpn-dns:$vpn_shot_home" text
+  expect "the check asked no outside service while lookups are unknown" absent vpn_shot_curl_called
+  expect_poll "the flyout shows Check" true vpn_shot_read panel RowAction "vpn-check-run:$vpn_shot_home" visible
+  park_pointer
+  take "vpn-$1-dropdown-dns-foreign"
   ipc smoke scrollTo panel vgs.vpn 0 >/dev/null || fail "the VPN flyout top is unreadable"
   device_reply_clear ip
   rm -f -- "${shim:?}/varlinkctl" "${shim:?}/curl.row" "${devices_dir:?}/vpn-shot-curl"

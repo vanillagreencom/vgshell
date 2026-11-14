@@ -1933,8 +1933,8 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         // names resolved's stub.
         ["resolv.conf naming resolved's static stub", dnsWith({ global: { resolvConfMode: "static" } }), { kind: "scopes", fallback: true, scopes: [
             { link: "wlan0", defaultRoute: false, domains: [] }, TAILNET, TUNNEL] }],
-        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), { kind: "unreadable" }],
-        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), { kind: "unreadable" }],
+        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), { kind: "direct" }],
+        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), { kind: "direct" }],
         ["no resolv.conf", dnsWith({ global: { resolvConfMode: "missing" } }), { kind: "unreadable" }],
         ["no resolv.conf mode read", dnsWith({ global: { resolvConfMode: null } }), { kind: "unreadable" }],
         ["resolved not reachable", logic.dnsRead(1, ""), { kind: "unreadable" }],
@@ -2027,7 +2027,7 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         ["the Wi-Fi holding the DNS default route beside a tunnel with no DNS server is a DNS leak", { dns: wifiRoute },
             ["tunnel", "none", "leak:wlan0", "off"]],
         ["resolv.conf listing the uplink servers is unknown", { dns: dnsWith({ global: { resolvConfMode: "uplink" } }) },
-            ["tunnel", "none", "unknown:read", "off"]],
+            ["tunnel", "none", "unknown:direct", "off"]],
         ["an IPv6 default route outside the tunnel with the kill switch off is an IPv6 leak", { ipv6: wlan }, ["tunnel", "leak:wlan0", "tunnel", "off"]],
         ["the same with the kill switch set up and off", { ipv6: wlan, status: status("off", 0, "", "") }, ["tunnel", "leak:wlan0", "tunnel", "off"]],
         ["the same with the kill switch armed is blocked", { ipv6: wlan, status: status("passing", 7) }, ["tunnel", "blocked", "tunnel", "on"]],
@@ -2207,6 +2207,20 @@ function leakCheckSuite(logic, service = serviceSource, leak = leakSource) {
         logic.checkView(done({ ipv6: wlan }), connected, "").families[1].text,
         logic.checkView(done({ ipv6: unreadable }), connected, "").families[1].text,
         logic.checkView(done({ ipv6: { kind: "via", link: "wg-home" } }), connected, "").families[1].text]).size, 4, "each verdict reads apart");
+    // A resolv.conf that programs ask past resolved is unknown with a
+    // reason of its own, whose DNS line reads apart from a failed read's.
+    const dnsLine = dns => plain(logic.checkView(done({ dns }), connected, "")).families[2];
+    const failedRead = dnsLine(logic.dnsRead(0, "Link 3 (wlan0)"));
+    for (const [name, dns, reason] of [
+        ["resolv.conf listing the uplink servers", dnsWith({ global: { resolvConfMode: "uplink" } }), "direct"],
+        ["resolv.conf resolved does not manage", dnsWith({ global: { resolvConfMode: "foreign" } }), "direct"],
+        ["resolved not reachable", logic.dnsRead(1, ""), "read"],
+        ["a reply that is no JSON", logic.dnsRead(0, "Link 3 (wlan0)"), "read"]
+    ]) {
+        const result = plain(logic.leakCheck(Object.assign({}, base, { dns }), null)).dns;
+        assert.deepEqual([result.verdict, result.reason], ["unknown", reason], name);
+        assert.equal(dnsLine(dns).error !== failedRead.error, reason === "direct", name + ": its DNS line against a failed read's");
+    }
     const reasons = new Set();
     const unchecked = plain(logic.checkView(null, connected, "")).public.text;
     for (const [failed, word] of [[logic.insights(28, ""), "Could not check"], [logic.insights(0, "<html>"), "Could not check"],
